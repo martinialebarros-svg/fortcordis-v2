@@ -4,6 +4,7 @@ import {
   claimConversation,
   listConversationMessages,
   listConversations,
+  markConversationSeen,
   sendConversationMessage,
   updateConversationStatus,
   unclaimConversation
@@ -53,6 +54,7 @@ app.get("/conversations", asyncHandler(listConversations));
 app.get("/conversations/:id/messages", asyncHandler(listConversationMessages));
 app.post("/conversations/:id/messages", asyncHandler(sendConversationMessage));
 app.patch("/conversations/:id/status", asyncHandler(updateConversationStatus));
+app.patch("/conversations/:id/seen", asyncHandler(markConversationSeen));
 app.post("/conversations/:id/claim", asyncHandler(claimConversation));
 app.post("/conversations/:id/unclaim", asyncHandler(unclaimConversation));
 

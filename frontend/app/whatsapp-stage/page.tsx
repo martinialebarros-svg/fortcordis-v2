@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle, Building2, CalendarDays, Check, CheckCheck, ChevronRight,
@@ -30,6 +30,8 @@ interface Conversation {
   assigned_agent_email?: string | null;
   last_activity_at: string;
   last_inbound_at?: string | null;
+  last_seen_at?: string | null;
+  unread?: boolean;
   created_at: string;
   updated_at: string;
   last_message_body?: string | null;
@@ -83,6 +85,7 @@ interface AgentsResponse { data: Agent[] }
 interface MessagesResponse {
   data: Message[];
   pagination: Pagination;
+  last_inbound_at?: string | null;
   customer_service_window: CustomerServiceWindow;
 }
 interface TemplateCatalogResponse {
@@ -280,6 +283,7 @@ export default function WhatsAppStagePage() {
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [loadingAgents, setLoadingAgents] = useState(false);
+  const lastSeenInboundRef = useRef<Record<string, string | null>>({});
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [loadingDomainContext, setLoadingDomainContext] = useState(false);
   const [domainContext, setDomainContext] = useState<ConversationDomainContext | null>(null);
@@ -361,6 +365,13 @@ export default function WhatsAppStagePage() {
       if (!isCurrent || isCurrent()) {
         setMessages(result.data.data); setMessagesPagination(result.data.pagination);
         setCustomerServiceWindows((current) => ({ ...current, [conversationId]: result.data!.customer_service_window }));
+        const latestInbound = result.data.last_inbound_at ?? null;
+        const hasNewInbound = latestInbound !== (lastSeenInboundRef.current[conversationId] ?? null);
+        if (!silent || hasNewInbound) {
+          lastSeenInboundRef.current[conversationId] = latestInbound;
+          void requestJson(`/whatsapp/conversations/${conversationId}/seen`, { method: "PATCH" });
+          setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, unread: false } : item));
+        }
       }
     } catch (error) {
       if (!isCurrent || isCurrent()) setErrorMessage(error instanceof Error ? error.message : "Erro ao carregar mensagens");
@@ -593,9 +604,9 @@ export default function WhatsAppStagePage() {
                 conversations.map((conversation) => {
                   const label = conversation.subject?.trim() || formatPhone(conversation.wa_phone_number);
                   return <button key={conversation.id} type="button" onClick={() => setSelectedConversationId(conversation.id)}
-                    className={`fc-wa-conversation ${conversation.id === selectedConversationId ? "fc-wa-conversation-active" : ""}`}>
+                    className={`fc-wa-conversation ${conversation.id === selectedConversationId ? "fc-wa-conversation-active" : ""} ${conversation.unread ? "fc-wa-conversation-unread" : ""}`}>
                     <span className="fc-wa-avatar">{getInitials(label)}</span><span className="fc-wa-conversation-content">
-                      <span className="fc-wa-conversation-line"><strong>{label}</strong><time>{formatMessageTime(conversation.last_message_at || conversation.last_activity_at)}</time></span>
+                      <span className="fc-wa-conversation-line">{conversation.unread ? <span className="fc-wa-unread-dot" aria-label="Não lida" /> : null}<strong>{label}</strong><time>{formatMessageTime(conversation.last_message_at || conversation.last_activity_at)}</time></span>
                       {conversation.subject ? <small>{formatPhone(conversation.wa_phone_number)}</small> : null}
                       <span className="fc-wa-conversation-preview">{conversation.last_message_from_me ? "Você: " : ""}{conversation.last_message_body || "Conversa iniciada"}</span>
                       <span className="fc-wa-conversation-meta"><span className={`fc-wa-status ${conversationStatusClass(conversation.status)}`}>{conversationStatusLabel(conversation.status)}</span>

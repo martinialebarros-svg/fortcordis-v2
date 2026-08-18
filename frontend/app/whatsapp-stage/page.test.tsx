@@ -104,6 +104,8 @@ describe("WhatsAppStagePage", () => {
 
         if (url.startsWith("/api/v1/whatsapp-contexto?")) return notFoundDomainContextResponse();
 
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "0", last_seen_at: "2026-08-14T00:00:00.000Z" } });
+
         throw new Error(`URL inesperada no teste: ${url}`);
       })
     );
@@ -187,6 +189,8 @@ describe("WhatsAppStagePage", () => {
         }
 
         if (url.startsWith("/api/v1/whatsapp-contexto?")) return notFoundDomainContextResponse();
+
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "0", last_seen_at: "2026-08-14T00:00:00.000Z" } });
 
         throw new Error(`URL inesperada no teste: ${url}`);
       })
@@ -293,6 +297,8 @@ describe("WhatsAppStagePage", () => {
 
         if (url.startsWith("/api/v1/whatsapp-contexto?")) return notFoundDomainContextResponse();
 
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "0", last_seen_at: "2026-08-14T00:00:00.000Z" } });
+
         throw new Error(`URL inesperada no teste: ${url}`);
       })
     );
@@ -361,6 +367,8 @@ describe("WhatsAppStagePage", () => {
             status: "Pendente", valor_final: 250, clinica_id: 10, clinica_nome: "Animal Care", tutor_id: 20, tutor_nome: "Maria Oliveira",
             pet_id: 30, pet_nome: "Gamora", servico_id: 50, servico_nome: "Ecocardiograma" }],
         });
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "0", last_seen_at: "2026-08-14T00:00:00.000Z" } });
+
         throw new Error(`URL inesperada no teste: ${url}`);
       })
     );
@@ -403,6 +411,8 @@ describe("WhatsAppStagePage", () => {
           clinicas: [{ id: 10, nome: "Animal Care", cidade: "Fortaleza", estado: "CE" }],
           tutores: [{ id: 20, nome: "Maria Oliveira" }], pets: [], agendamentos: [], ordens_servico: [],
         });
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "0", last_seen_at: "2026-08-14T00:00:00.000Z" } });
+
         throw new Error(`URL inesperada no teste: ${url}`);
       })
     );
@@ -447,6 +457,8 @@ describe("WhatsAppStagePage", () => {
           clinicas: [{ id: 2, nome: "Clínica Dois Vinculada", cidade: "Fortaleza", estado: "CE" }],
           tutores: [], pets: [], agendamentos: [], ordens_servico: [],
         });
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "0", last_seen_at: "2026-08-14T00:00:00.000Z" } });
+
         throw new Error(`URL inesperada no teste: ${url}`);
       })
     );
@@ -513,6 +525,8 @@ describe("WhatsAppStagePage", () => {
         if (url === "/whatsapp/agents/7" && method === "PATCH") {
           return jsonResponse({ id: "7", name: "Ana Paula", email: "ana@fortcordis.com", role: "supervisor", active: agentsCallCount < 2, created_at: "2026-08-14T02:00:00.000Z" });
         }
+
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "0", last_seen_at: "2026-08-14T00:00:00.000Z" } });
 
         throw new Error(`URL inesperada no teste: ${url}`);
       })
@@ -590,6 +604,8 @@ describe("WhatsAppStagePage", () => {
           data: [], pagination: { page: 1, limit: 50, total: 0 },
           customer_service_window: { last_inbound_at: null, expires_at: null, is_open: false },
         });
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "0", last_seen_at: "2026-08-14T00:00:00.000Z" } });
+
         throw new Error(`URL inesperada no teste: ${url}`);
       })
     );
@@ -631,6 +647,8 @@ describe("WhatsAppStagePage", () => {
           data: [], pagination: { page: 1, limit: 50, total: 0 },
           customer_service_window: { last_inbound_at: null, expires_at: null, is_open: false },
         });
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "0", last_seen_at: "2026-08-14T00:00:00.000Z" } });
+
         throw new Error(`URL inesperada no teste: ${url}`);
       })
     );
@@ -643,5 +661,63 @@ describe("WhatsAppStagePage", () => {
     });
 
     expect(screen.getByLabelText("Atribuir para")).toHaveValue("5");
+  });
+
+  it("mostra indicador de não lida e marca como vista ao abrir a conversa", async () => {
+    const patchCalls: string[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if ((init?.method || "GET") === "PATCH") patchCalls.push(url);
+
+        if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
+          data: [
+            { id: "50", wa_phone_number: "558511110000", wa_psid: null, status: "open", subject: "Já vista",
+              last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: "2026-08-14T02:20:00.000Z",
+              unread: false, created_at: "2026-08-14T02:00:00.000Z", updated_at: "2026-08-14T02:00:00.000Z" },
+            { id: "60", wa_phone_number: "558522220000", wa_psid: null, status: "open", subject: "Contato Pendente",
+              last_agent_id: null, last_activity_at: "2026-08-14T02:30:00.000Z", last_inbound_at: "2026-08-14T02:29:00.000Z",
+              unread: true, created_at: "2026-08-14T02:10:00.000Z", updated_at: "2026-08-14T02:10:00.000Z" },
+          ],
+          pagination: { page: 1, limit: 20, total: 2 },
+        });
+        if (url === "/whatsapp/agents") return jsonResponse({ data: [] });
+        if (url === "/whatsapp/automation/templates") return jsonResponse({ data: [], source: "configured_catalog", meta_approval_live: null });
+        if (url.startsWith("/whatsapp/conversations/50/messages?")) return jsonResponse({
+          data: [], pagination: { page: 1, limit: 50, total: 0 }, last_inbound_at: "2026-08-14T02:20:00.000Z",
+          customer_service_window: { last_inbound_at: "2026-08-14T02:20:00.000Z", expires_at: "2026-08-15T02:20:00.000Z", is_open: true },
+        });
+        if (url.startsWith("/whatsapp/conversations/60/messages?")) return jsonResponse({
+          data: [], pagination: { page: 1, limit: 50, total: 0 }, last_inbound_at: "2026-08-14T02:29:00.000Z",
+          customer_service_window: { last_inbound_at: "2026-08-14T02:29:00.000Z", expires_at: "2026-08-15T02:29:00.000Z", is_open: true },
+        });
+        if (url.includes("/seen")) return jsonResponse({ data: { id: url.split("/")[3] ?? "", last_seen_at: "2026-08-14T02:31:00.000Z" } });
+
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText("Não lida")).toBeInTheDocument();
+    expect(patchCalls).toContain("/whatsapp/conversations/50/seen");
+    expect(patchCalls).not.toContain("/whatsapp/conversations/60/seen");
+
+    fireEvent.click(screen.getByText("Contato Pendente"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(patchCalls).toContain("/whatsapp/conversations/60/seen");
+    expect(screen.queryByLabelText("Não lida")).not.toBeInTheDocument();
   });
 });
