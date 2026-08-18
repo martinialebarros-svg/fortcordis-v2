@@ -66,3 +66,21 @@ interruptores continuam desligados por padrão nesta entrega.
 Este endpoint existe para o usuário inspecionar o alcance real em stage
 (quais agendamentos e clínicas seriam afetados) antes de decidir habilitar
 o envio automático de fato.
+
+## Habilitação real em stage - 2026-08-18
+
+- Usuário consultou `GET /agenda/whatsapp/lembrete-preview` em
+  `app.stage.fortcordis.com.br` (console do navegador, sessão autenticada):
+  `whatsapp_agenda_enabled: true` (interruptor geral já ligado por causa do
+  cutover de produção anterior) e `count: 0` (nenhum agendamento real caía
+  na janela de 24h no momento da checagem) — habilitar o worker nesse
+  instante não disparava nenhum envio imediato.
+- Confirmado com o usuário, adicionado o passo "Configure WhatsApp reminder
+  scheduler flag on Stage VPS" em `.github/workflows/deploy-stage.yml`
+  (mesmo padrão `upsert_env` já usado para os segredos do WhatsApp Cloud
+  API), escrevendo `WHATSAPP_REMINDER_SCHEDULER_ENABLED=true` no `.env`
+  real da VPS de stage antes do passo de deploy, que reinicia o serviço
+  `fortcordis-stage-backend` e aplica o valor novo.
+- `WHATSAPP_AGENDA_ENABLED` não foi tocado (já estava `true`); nenhuma
+  mudança em produção (`main`) foi feita nesta ação — o worker segue
+  desligado em produção até decisão e verificação separadas em stage.
