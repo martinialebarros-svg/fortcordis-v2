@@ -22,7 +22,8 @@
     "test:phone-number": "ts-node scripts/test-phone-number.ts",
     "test:auth-policy": "ts-node --transpile-only scripts/test-auth-policy.ts",
     "test:webhook-cleanup-config": "DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fortcordis_stage ts-node --transpile-only scripts/test-webhook-cleanup-config.ts",
-    "test:log-redaction": "ts-node --transpile-only scripts/test-log-redaction.ts"
+    "test:log-redaction": "ts-node --transpile-only scripts/test-log-redaction.ts",
+    "test:smoke-cleanup": "ts-node --transpile-only scripts/test-smoke-cleanup.ts"
   },
   "dependencies": {
     "axios": "^1.19.0",
