@@ -477,4 +477,89 @@ describe("WhatsAppStagePage", () => {
     expect(screen.getByText("Clínica Dois Vinculada")).toBeInTheDocument();
     expect(screen.queryByText("Cadastro Antigo")).not.toBeInTheDocument();
   });
+
+  it("edita e desativa um atendente na seção Configurar equipe", async () => {
+    let agentsCallCount = 0;
+    const requestedCalls: Array<{ url: string; method: string; body: unknown }> = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method || "GET";
+        if (method !== "GET") {
+          requestedCalls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
+        }
+
+        if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({ data: [], pagination: { page: 1, limit: 20, total: 0 } });
+        if (url === "/whatsapp/automation/templates") return jsonResponse({ data: [], source: "configured_catalog", meta_approval_live: null });
+
+        if (url === "/whatsapp/agents") {
+          agentsCallCount += 1;
+          return jsonResponse({
+            data: [
+              {
+                id: "7",
+                name: agentsCallCount === 1 ? "Ana" : "Ana Paula",
+                email: "ana@fortcordis.com",
+                role: agentsCallCount === 1 ? "agent" : "supervisor",
+                active: agentsCallCount < 3,
+                created_at: "2026-08-14T02:00:00.000Z",
+              },
+            ],
+          });
+        }
+
+        if (url === "/whatsapp/agents/7" && method === "PATCH") {
+          return jsonResponse({ id: "7", name: "Ana Paula", email: "ana@fortcordis.com", role: "supervisor", active: agentsCallCount < 2, created_at: "2026-08-14T02:00:00.000Z" });
+        }
+
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByText("Configurar equipe"));
+    fireEvent.click(screen.getByRole("button", { name: "Editar Ana" }));
+
+    const nameInput = screen.getByDisplayValue("Ana");
+    fireEvent.change(nameInput, { target: { value: "Ana Paula" } });
+    const roleSelects = screen.getAllByDisplayValue("Atendente");
+    fireEvent.change(roleSelects[roleSelects.length - 1], { target: { value: "supervisor" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(requestedCalls[0]).toEqual({
+      url: "/whatsapp/agents/7",
+      method: "PATCH",
+      body: { name: "Ana Paula", email: "ana@fortcordis.com", role: "supervisor" },
+    });
+    expect(screen.getByText("Atendente atualizado com sucesso.")).toBeInTheDocument();
+    expect(screen.getByText("Ana Paula")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Desativar" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(requestedCalls[1]).toEqual({
+      url: "/whatsapp/agents/7",
+      method: "PATCH",
+      body: { active: false },
+    });
+    expect(screen.getByText("Atendente desativado.")).toBeInTheDocument();
+  });
 });

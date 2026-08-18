@@ -8,7 +8,7 @@ import {
   updateConversationStatus,
   unclaimConversation
 } from "./controllers/conversationsController";
-import { createAgent, listAgents } from "./controllers/agentsController";
+import { createAgent, listAgents, updateAgent } from "./controllers/agentsController";
 import { receiveWebhook, verifyWebhook } from "./controllers/webhookController";
 import { getWebhookEventsCleanupRuntimeState } from "./services/webhookEventsCleanupService";
 import { logger } from "./utils/logger";
@@ -58,6 +58,7 @@ app.post("/conversations/:id/unclaim", asyncHandler(unclaimConversation));
 
 app.get("/agents", asyncHandler(listAgents));
 app.post("/agents", asyncHandler(createAgent));
+app.patch("/agents/:id", asyncHandler(updateAgent));
 app.post("/automation/agenda/reservations", asyncHandler(sendAgendaReservation));
 app.get("/automation/templates", asyncHandler(listApprovedTemplateCatalog));
 app.post("/automation/templates", asyncHandler(sendApprovedUtilityTemplate));

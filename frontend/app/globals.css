@@ -4561,6 +4561,14 @@ body {
   .fc-wa-agent-list ul { @apply mt-2 grid gap-2 sm:grid-cols-2; }
   .fc-wa-agent-list li { @apply flex items-center gap-2 rounded-lg bg-white p-2 font-bold; }
   .fc-wa-agent-list li small { @apply block text-[10px] font-medium text-ink-400; }
+  .fc-wa-agent-list li > span:nth-child(2) { @apply min-w-0 flex-1 truncate; }
+  .fc-wa-agent-actions { @apply ml-auto flex shrink-0 items-center gap-1.5; }
+  .fc-wa-agent-actions .fc-wa-ghost-danger,
+  .fc-wa-agent-actions .fc-wa-secondary { @apply min-h-0 px-2 py-1 text-[10px]; }
+
+  .fc-wa-agent-edit { @apply flex-col items-stretch bg-white sm:col-span-2; }
+  .fc-wa-agent-list .fc-wa-agent-edit form { @apply grid grid-cols-1 gap-2; }
+  .fc-wa-agent-edit-actions { @apply flex items-center gap-2; }
 
   @media (min-width: 1024px) {
     .fc-wa-workspace {
