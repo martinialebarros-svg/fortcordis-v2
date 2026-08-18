@@ -13,6 +13,7 @@ import {
   CustomerServiceWindow,
   evaluateCustomerServiceWindow,
 } from "@/lib/whatsapp-customer-service-window";
+import { useCurrentUser } from "@/lib/useCurrentUser";
 
 type AssignedFilter = "all" | "assigned" | "unassigned";
 type ConversationStatus = "open" | "pending" | "closed";
@@ -317,6 +318,12 @@ export default function WhatsAppStagePage() {
   const windowState = evaluateCustomerServiceWindow(selectedCustomerServiceWindow, customerServiceWindowClock);
   const conversationDisplayName = selectedConversation?.subject?.trim() || "Contato do WhatsApp";
   const selectedAgent = agents.find((agent) => agent.id === selectedConversation?.last_agent_id) || null;
+  const currentUser = useCurrentUser();
+  const myAgentId = useMemo(() => {
+    const myEmail = currentUser?.email?.trim().toLowerCase();
+    if (!myEmail) return null;
+    return agents.find((agent) => agent.active && agent.email?.trim().toLowerCase() === myEmail)?.id || null;
+  }, [agents, currentUser]);
   const templatePreview = selectedTemplate ? renderTemplateBody(selectedTemplate, templateParameters) : "";
   const templateComplete = Boolean(selectedTemplate &&
     templateParameters.length === selectedTemplate.body_parameter_count &&
@@ -532,8 +539,11 @@ export default function WhatsAppStagePage() {
   }, [selectedConversation?.id, selectedConversation?.wa_phone_number]);
   useEffect(() => {
     if (selectedConversation?.last_agent_id) setAgentActionId(selectedConversation.last_agent_id);
-    else if (!agentActionId && agents[0]?.id) setAgentActionId(agents[0].id);
-  }, [agentActionId, agents, selectedConversation]);
+    else if (!agentActionId) {
+      const fallbackId = myAgentId || agents.find((agent) => agent.active)?.id;
+      if (fallbackId) setAgentActionId(fallbackId);
+    }
+  }, [agentActionId, agents, myAgentId, selectedConversation]);
   useEffect(() => {
     if (!selectedTemplate) return;
     const parameters = Array.from({ length: selectedTemplate.body_parameter_count }, () => "");

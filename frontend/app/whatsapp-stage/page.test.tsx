@@ -562,4 +562,86 @@ describe("WhatsAppStagePage", () => {
     });
     expect(screen.getByText("Atendente desativado.")).toBeInTheDocument();
   });
+
+  it("pré-seleciona o atendente logado pelo email ao assumir uma conversa sem responsável", async () => {
+    window.localStorage.setItem(
+      "user",
+      JSON.stringify({ id: 1, email: " Eu@FortCordis.com ", nome: "Eu Mesma", ativo: 1, papeis: [] })
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
+          data: [{ id: "3926", wa_phone_number: "558500000000", wa_psid: null, status: "open", subject: "Sem responsável",
+            last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: null,
+            created_at: "2026-08-14T02:26:00.000Z", updated_at: "2026-08-14T02:26:00.000Z" }],
+          pagination: { page: 1, limit: 20, total: 1 },
+        });
+        if (url === "/whatsapp/agents") return jsonResponse({
+          data: [
+            { id: "5", name: "Outra Pessoa", email: "outra@fortcordis.com", role: "agent", active: true, created_at: "2026-08-14T02:00:00.000Z" },
+            { id: "9", name: "Eu Mesma", email: "eu@fortcordis.com", role: "agent", active: true, created_at: "2026-08-14T02:00:00.000Z" },
+          ],
+        });
+        if (url === "/whatsapp/automation/templates") return jsonResponse({ data: [], source: "configured_catalog", meta_approval_live: null });
+        if (url.startsWith("/whatsapp/conversations/3926/messages?")) return jsonResponse({
+          data: [], pagination: { page: 1, limit: 50, total: 0 },
+          customer_service_window: { last_inbound_at: null, expires_at: null, is_open: false },
+        });
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText("Atribuir para")).toHaveValue("9");
+  });
+
+  it("usa o primeiro atendente ativo quando o email logado não corresponde a nenhum atendente", async () => {
+    window.localStorage.setItem(
+      "user",
+      JSON.stringify({ id: 1, email: "ninguem@fortcordis.com", nome: "Ninguém", ativo: 1, papeis: [] })
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
+          data: [{ id: "3926", wa_phone_number: "558500000000", wa_psid: null, status: "open", subject: "Sem responsável",
+            last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: null,
+            created_at: "2026-08-14T02:26:00.000Z", updated_at: "2026-08-14T02:26:00.000Z" }],
+          pagination: { page: 1, limit: 20, total: 1 },
+        });
+        if (url === "/whatsapp/agents") return jsonResponse({
+          data: [
+            { id: "3", name: "Inativa Primeiro", email: "inativa@fortcordis.com", role: "agent", active: false, created_at: "2026-08-14T02:00:00.000Z" },
+            { id: "5", name: "Ativa Segunda", email: "ativa@fortcordis.com", role: "agent", active: true, created_at: "2026-08-14T02:00:00.000Z" },
+          ],
+        });
+        if (url === "/whatsapp/automation/templates") return jsonResponse({ data: [], source: "configured_catalog", meta_approval_live: null });
+        if (url.startsWith("/whatsapp/conversations/3926/messages?")) return jsonResponse({
+          data: [], pagination: { page: 1, limit: 50, total: 0 },
+          customer_service_window: { last_inbound_at: null, expires_at: null, is_open: false },
+        });
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText("Atribuir para")).toHaveValue("5");
+  });
 });
