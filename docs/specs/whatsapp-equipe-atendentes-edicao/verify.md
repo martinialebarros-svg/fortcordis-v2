@@ -9,6 +9,7 @@
 | CA-003 | `handleUpdateAgent` bloqueia o submit e mostra "Email do atendente é obrigatório." quando `editAgentEmail` está vazio, antes de chamar `requestJson` | passou (inspeção de código, mesmo padrão de `handleCreateAgent`) |
 | CA-004 | `curl -X PATCH http://127.0.0.1:3000/agents/9999` retornou `404` | passou |
 | CA-005 | `curl -X PATCH http://127.0.0.1:3000/agents/1 -d '{"email":""}'` retornou `400` com `{"error":"email must be a non-empty string"}` | passou |
+| CA-006 | Screenshot do usuário em `app.stage.fortcordis.com.br` revelou o formulário de edição herdando `sm:grid-cols-2` de `.fc-wa-team-admin form` (Nome/Email lado a lado, Perfil e Salvar/Cancelar na mesma linha). Corrigido com `.fc-wa-agent-list .fc-wa-agent-edit form { grid-cols-1 }` (especificidade maior, sem media query, vence a regra herdada em qualquer largura) e `.fc-wa-agent-edit { sm:col-span-2 }`. Confirmado no CSS compilado do build de produção (`grid-template-columns:repeat(1,minmax(0,1fr))` e `grid-column:span 2/span 2`) | passou |
 
 ## Comandos previstos
 
@@ -58,3 +59,15 @@ requisições que o navegador dispararia.
 Risco residual: desativar um atendente não reatribui automaticamente as
 conversas já vinculadas a ele; a conversa mantém `last_agent_id` apontando
 para o atendente inativo até que alguém transfira manualmente.
+
+## Resultado do ajuste de layout - 2026-08-18
+
+- Reproduzido o bug de CSS a partir de screenshot real do stage
+  (`app.stage.fortcordis.com.br`): `.fc-wa-team-admin form` (regra do
+  formulário "Adicionar atendente") também batia no novo formulário de
+  edição por ser um descendente `form` da mesma seção.
+- `npx eslint app/whatsapp-stage/page.tsx --max-warnings=0`: passou.
+- `npx next build`: passou; rota `/whatsapp-stage` gerada (10.7 kB).
+- Inspeção do CSS compilado (`.next/static/css/*.css`) confirmou
+  `grid-template-columns:repeat(1,minmax(0,1fr))` vencendo em qualquer
+  largura de tela e `grid-column:span 2/span 2` a partir de 640px.

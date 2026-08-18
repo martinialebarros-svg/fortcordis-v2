@@ -59,3 +59,7 @@ Respostas:
 - CA-003: tentar salvar com email vazio é bloqueado antes de chamar a API.
 - CA-004: `PATCH /agents/:id` para um id inexistente retorna `404`.
 - CA-005: `PATCH /agents/:id` sem nenhum campo retorna `400`.
+- CA-006: o formulário de edição inline exibe os campos Nome, Email e Perfil
+  empilhados verticalmente (uma coluna), com Salvar/Cancelar em sua própria
+  linha, ocupando a largura total do painel "Equipe" — sem herdar o layout de
+  duas colunas do formulário "Adicionar atendente".

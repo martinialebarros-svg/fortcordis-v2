@@ -4566,8 +4566,8 @@ body {
   .fc-wa-agent-actions .fc-wa-ghost-danger,
   .fc-wa-agent-actions .fc-wa-secondary { @apply min-h-0 px-2 py-1 text-[10px]; }
 
-  .fc-wa-agent-edit { @apply flex-col items-stretch bg-white; }
-  .fc-wa-agent-edit form { @apply grid gap-2; }
+  .fc-wa-agent-edit { @apply flex-col items-stretch bg-white sm:col-span-2; }
+  .fc-wa-agent-list .fc-wa-agent-edit form { @apply grid grid-cols-1 gap-2; }
   .fc-wa-agent-edit-actions { @apply flex items-center gap-2; }
 
   @media (min-width: 1024px) {
