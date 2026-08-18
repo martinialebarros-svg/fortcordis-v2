@@ -18,6 +18,7 @@ import { sendAgendaReservation } from "./controllers/agendaAutomationController"
 import { sendApprovedUtilityTemplate } from "./controllers/templateAutomationController";
 import { sendApprovedDocumentTemplate } from "./controllers/documentTemplateAutomationController";
 import { listApprovedTemplateCatalog } from "./controllers/templateCatalogController";
+import { executeSmokeCleanup, previewSmokeCleanup } from "./controllers/smokeCleanupController";
 
 const app = express();
 const uploadPdf = multer({
@@ -49,6 +50,7 @@ app.post("/webhook", receiveWebhook);
 app.use("/conversations", requireApiAuth);
 app.use("/agents", requireApiAuth);
 app.use("/automation", requireApiAuth);
+app.use("/admin", requireApiAuth);
 
 app.get("/conversations", asyncHandler(listConversations));
 app.get("/conversations/:id/messages", asyncHandler(listConversationMessages));
@@ -69,6 +71,9 @@ app.post(
   uploadPdf.single("document"),
   asyncHandler(sendApprovedDocumentTemplate)
 );
+
+app.get("/admin/whatsapp-smoke-cleanup/preview", asyncHandler(previewSmokeCleanup));
+app.post("/admin/whatsapp-smoke-cleanup/execute", asyncHandler(executeSmokeCleanup));
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof multer.MulterError) {

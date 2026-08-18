@@ -24,6 +24,7 @@ from app.services.whatsapp_agenda_service import (
     send_reservation_template,
 )
 from app.services.whatsapp_reminder_scheduler_service import (
+    is_reminder_scheduler_enabled_in_db,
     list_eligible_agendamentos_preview,
 )
 
@@ -208,13 +209,13 @@ def preview_whatsapp_reminder_eligibility(
 ):
     """Lista os agendamentos elegiveis para o lembrete automatico agora,
     sem enviar nenhuma mensagem. Serve para inspecionar o alcance real antes
-    de habilitar WHATSAPP_REMINDER_SCHEDULER_ENABLED.
+    de habilitar o lembrete automatico em Configuracoes.
     """
     now = datetime.now(timezone.utc)
     agendamentos = list_eligible_agendamentos_preview(db, now=now)
     return {
         "checked_at": now.isoformat(),
-        "reminder_scheduler_enabled": bool(settings.WHATSAPP_REMINDER_SCHEDULER_ENABLED),
+        "reminder_scheduler_enabled": is_reminder_scheduler_enabled_in_db(),
         "whatsapp_agenda_enabled": bool(settings.WHATSAPP_AGENDA_ENABLED),
         "window_hours": settings.WHATSAPP_REMINDER_WINDOW_HOURS,
         "min_lead_minutes": settings.WHATSAPP_REMINDER_MIN_LEAD_MINUTES,

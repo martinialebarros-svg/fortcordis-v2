@@ -75,10 +75,36 @@ depender de ação manual.
 
 ## Adendo - preview somente leitura antes de habilitar
 
-Antes de ligar `WHATSAPP_REMINDER_SCHEDULER_ENABLED` em stage/produção pela
-primeira vez, é preciso ver o alcance real: quais agendamentos já
-cadastrados cairiam na janela elegível agora, sem enviar nada. Adicionado
+Antes de ligar o lembrete automático em stage/produção pela primeira vez, é
+preciso ver o alcance real: quais agendamentos já cadastrados cairiam na
+janela elegível agora, sem enviar nada. Adicionado
 `GET /api/v1/agenda/whatsapp/lembrete-preview` (mesma autenticação dos
 demais endpoints de agenda) que reaproveita a mesma função de elegibilidade
 do worker, mas apenas lista o resultado (nome da clínica, se há WhatsApp
 válido, últimos 4 dígitos do destino) — nunca chama `send_agenda_utility_template`.
+
+## Adendo - liga/desliga passa para Configurações (banco), não mais env var
+
+Testado em stage com a habilitação via env var (`WHATSAPP_REMINDER_SCHEDULER_ENABLED`,
+escrita no `.env` da VPS por um passo do pipeline de deploy). Ao testar em
+produção, o preview mostrou 10 agendamentos reais elegíveis imediatamente
+em 8 clínicas — o usuário decidiu não habilitar ainda (quer revisar os
+números de WhatsApp cadastrados primeiro) e pediu um toggle de verdade em
+Configurações, em vez de precisar me pedir para editar pipeline/SSH cada
+vez.
+
+Mudança: o liga/desliga do worker passa a ser a coluna
+`configuracoes.whatsapp_lembrete_automatico_habilitado` (mesmo padrão do
+toggle `fortinho_habilitado` já existente — gravável só por admin via
+`PUT /configuracoes`), lida a cada ciclo do worker
+(`is_reminder_scheduler_enabled_in_db()`), não mais uma env var lida uma
+única vez na criação da thread. A env var `WHATSAPP_REMINDER_SCHEDULER_ENABLED`
+foi removida (de `config.py`, `.env.example` e do passo correspondente em
+`deploy-stage.yml`, que só existia para escrevê-la via SSH). `WHATSAPP_AGENDA_ENABLED`
+continua como está — é o interruptor mais profundo, no envio de fato, e
+não muda com este adendo.
+
+Consequência: a thread do worker agora sempre inicia (mesmo padrão dos
+demais workers de background), e o ciclo de poll consulta o banco antes de
+decidir se processa algo naquele ciclo — falha na consulta fecha para
+`False` (nunca dispara por acidente se o banco estiver indisponível).

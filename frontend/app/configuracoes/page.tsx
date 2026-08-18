@@ -52,6 +52,7 @@ interface ConfiguracoesSistema {
   mostrar_logomarca: boolean;
   mostrar_assinatura: boolean;
   fortinho_habilitado: boolean;
+  whatsapp_lembrete_automatico_habilitado: boolean;
   agenda_semanal: AgendaSemanalConfig;
   agenda_feriados: AgendaFeriadoConfig[];
   agenda_excecoes: AgendaExcecaoConfig[];
@@ -256,6 +257,7 @@ export default function ConfiguracoesPage() {
     mostrar_logomarca: true,
     mostrar_assinatura: true,
     fortinho_habilitado: false,
+    whatsapp_lembrete_automatico_habilitado: false,
     agenda_semanal: normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL),
     agenda_feriados: [],
     agenda_excecoes: [],
@@ -970,6 +972,7 @@ export default function ConfiguracoesPage() {
       };
       if (!isAdmin) {
         delete payload.fortinho_habilitado;
+        delete payload.whatsapp_lembrete_automatico_habilitado;
       }
       await api.put("/configuracoes", payload);
       setConfigEmpresa((prev) => ({
@@ -2422,6 +2425,34 @@ export default function ConfiguracoesPage() {
               {!isAdmin && (
                 <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
                   Somente administradores podem ativar ou desativar o Fortinho.
+                </p>
+              )}
+            </div>
+
+            {/* Lembrete automatico WhatsApp */}
+            <div className="fc-settings-card">
+              <h2 className="text-lg font-semibold mb-2">Lembrete automático de consulta (WhatsApp)</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Quando ativo, envia automaticamente o lembrete de consulta para a clínica
+                parceira, 24h antes do horário agendado — sem precisar clicar manualmente
+                na Agenda.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="whatsapp_lembrete_automatico_habilitado"
+                  checked={configEmpresa.whatsapp_lembrete_automatico_habilitado}
+                  disabled={!isAdmin}
+                  onChange={(e) => setConfigEmpresa({ ...configEmpresa, whatsapp_lembrete_automatico_habilitado: e.target.checked })}
+                  className="w-4 h-4 text-teal-600 disabled:opacity-50"
+                />
+                <label htmlFor="whatsapp_lembrete_automatico_habilitado" className="text-sm text-gray-700">
+                  Ativar lembrete automático de consulta
+                </label>
+              </div>
+              {!isAdmin && (
+                <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                  Somente administradores podem ativar ou desativar o lembrete automático.
                 </p>
               )}
             </div>

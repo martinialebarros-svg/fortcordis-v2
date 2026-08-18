@@ -97,6 +97,9 @@ def obter_configuracoes(
             "mostrar_logomarca": config.mostrar_logomarca,
             "mostrar_assinatura": config.mostrar_assinatura,
             "fortinho_habilitado": bool(getattr(config, "fortinho_habilitado", False)),
+            "whatsapp_lembrete_automatico_habilitado": bool(
+                getattr(config, "whatsapp_lembrete_automatico_habilitado", False)
+            ),
             "horario_comercial_inicio": config.horario_comercial_inicio,
             "horario_comercial_fim": config.horario_comercial_fim,
             "dias_trabalho": config.dias_trabalho,
@@ -126,6 +129,7 @@ def atualizar_configuracoes(
         "nome_empresa", "endereco", "telefone", "email", "cidade", "estado",
         "website", "texto_cabecalho_laudo", "texto_rodape_laudo",
         "mostrar_logomarca", "mostrar_assinatura", "fortinho_habilitado",
+        "whatsapp_lembrete_automatico_habilitado",
         "horario_comercial_inicio", "horario_comercial_fim", "dias_trabalho",
         "agenda_semanal", "agenda_feriados", "agenda_excecoes", "agenda_rota_regras",
     ]
@@ -137,6 +141,14 @@ def atualizar_configuracoes(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Apenas administradores podem ativar ou desativar o Fortinho.",
+            )
+    if "whatsapp_lembrete_automatico_habilitado" in dados and not current_user.tem_papel("admin"):
+        valor_atual = _coerce_bool(getattr(config, "whatsapp_lembrete_automatico_habilitado", False))
+        valor_novo = _coerce_bool(dados.get("whatsapp_lembrete_automatico_habilitado"))
+        if valor_novo != valor_atual:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Apenas administradores podem ativar ou desativar o lembrete automatico de WhatsApp.",
             )
     if "agenda_excecoes" in dados and not current_user.tem_papel("admin"):
         excecoes_atuais = carregar_agenda_excecoes(getattr(config, "agenda_excecoes", None))

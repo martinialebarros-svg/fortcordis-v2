@@ -277,14 +277,30 @@ def _worker_poll_seconds() -> int:
     return parsed
 
 
-def _scheduler_worker_main() -> None:
-    if not bool(settings.WHATSAPP_REMINDER_SCHEDULER_ENABLED):
-        logger.info("Worker de lembrete automatico do WhatsApp desativado por configuracao.")
-        return
+def is_reminder_scheduler_enabled_in_db() -> bool:
+    """Fonte de verdade do liga/desliga: coluna gravavel via Configuracoes
 
+    (admin), nao mais uma env var fixa no deploy. Falha fecha (retorna
+    False) se a consulta der erro, para nunca disparar envio por acidente.
+    """
+    from app.models.configuracao import Configuracao
+
+    db = SessionLocal()
+    try:
+        config = db.query(Configuracao).first()
+        return bool(config and config.whatsapp_lembrete_automatico_habilitado)
+    except Exception:
+        logger.exception("Falha ao consultar configuracao do lembrete automatico do WhatsApp.")
+        return False
+    finally:
+        db.close()
+
+
+def _scheduler_worker_main() -> None:
     while not _SCHEDULER_STOP_EVENT.is_set():
         try:
-            run_whatsapp_reminder_scheduler_due_once(limit=50)
+            if is_reminder_scheduler_enabled_in_db():
+                run_whatsapp_reminder_scheduler_due_once(limit=50)
         except Exception:
             logger.exception("Falha no worker de lembrete automatico do WhatsApp.")
         if _SCHEDULER_STOP_EVENT.wait(_worker_poll_seconds()):
@@ -298,13 +314,13 @@ def get_whatsapp_reminder_scheduler_worker_runtime_state() -> dict[str, Any]:
         worker_started = thread is not None
         stop_signal_set = _SCHEDULER_STOP_EVENT.is_set()
 
-    enabled = bool(settings.WHATSAPP_REMINDER_SCHEDULER_ENABLED)
-    if not enabled:
-        status = "disabled"
-    elif thread_alive:
+    enabled = is_reminder_scheduler_enabled_in_db()
+    if not thread_alive:
+        status = "stopped"
+    elif enabled:
         status = "running"
     else:
-        status = "stopped"
+        status = "idle"
 
     return {
         "enabled": enabled,
