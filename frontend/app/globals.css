@@ -4173,6 +4173,14 @@ body {
     @apply mt-2 flex items-center justify-between gap-2 text-[10px] font-bold text-ink-400;
   }
 
+  .fc-wa-conversation-unread {
+    @apply bg-cordis-50/60;
+  }
+
+  .fc-wa-unread-dot {
+    @apply mt-1 h-2 w-2 shrink-0 rounded-full bg-cordis-600;
+  }
+
   .fc-wa-status {
     @apply inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[10px] font-black;
   }

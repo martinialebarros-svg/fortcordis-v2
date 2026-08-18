@@ -101,6 +101,10 @@ export async function listConversations(req: Request, res: Response): Promise<vo
     `
       SELECT
         c.*,
+        (
+          c.last_inbound_at IS NOT NULL
+          AND (c.last_seen_at IS NULL OR c.last_inbound_at > c.last_seen_at)
+        ) AS unread,
         assigned_agent.name AS assigned_agent_name,
         assigned_agent.email AS assigned_agent_email,
         last_message.body AS last_message_body,
@@ -110,7 +114,7 @@ export async function listConversations(req: Request, res: Response): Promise<vo
       FROM conversations c
       ${joinsSql}
       ${whereSql}
-      ORDER BY c.last_activity_at DESC NULLS LAST, c.id DESC
+      ORDER BY unread DESC, c.last_inbound_at ASC NULLS LAST, c.last_activity_at DESC, c.id DESC
       LIMIT $${dataParams.length - 1}
       OFFSET $${dataParams.length}
     `,
@@ -192,6 +196,25 @@ export async function updateConversationStatus(req: Request, res: Response): Pro
   res.status(200).json({ data: result.conversation, changed: result.changed });
 }
 
+export async function markConversationSeen(req: Request, res: Response): Promise<void> {
+  const conversationId = req.params.id;
+
+  const result = await query<{ id: string; last_seen_at: string }>(
+    `UPDATE conversations
+     SET last_seen_at = now()
+     WHERE id = $1
+     RETURNING id, last_seen_at`,
+    [conversationId]
+  );
+
+  if (result.rowCount === 0) {
+    res.status(404).json({ error: "Conversation not found" });
+    return;
+  }
+
+  res.status(200).json({ data: result.rows[0] });
+}
+
 export async function listConversationMessages(req: Request, res: Response): Promise<void> {
   const conversationId = req.params.id;
   const page = parsePositiveInt(req.query.page as string | undefined, 1);
@@ -226,6 +249,7 @@ export async function listConversationMessages(req: Request, res: Response): Pro
 
   res.json({
     data: dataResult.rows,
+    last_inbound_at: conversation.rows[0]?.last_inbound_at ?? null,
     customer_service_window: describeCustomerServiceWindow(
       conversation.rows[0]?.last_inbound_at ?? null
     ),

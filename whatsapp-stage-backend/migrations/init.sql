@@ -42,6 +42,9 @@ FROM (
 WHERE c.id = inbound.conversation_id
   AND c.last_inbound_at IS NULL;
 
+ALTER TABLE conversations
+  ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+
 -- agents
 CREATE TABLE IF NOT EXISTS agents (
   id BIGSERIAL PRIMARY KEY,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -21,6 +22,9 @@ from app.services.whatsapp_agenda_service import (
     process_button_response,
     send_agenda_utility_template,
     send_reservation_template,
+)
+from app.services.whatsapp_reminder_scheduler_service import (
+    list_eligible_agendamentos_preview,
 )
 
 
@@ -195,3 +199,26 @@ def receive_button_response(
         except Exception:
             pass
     return result
+
+
+@router.get("/agenda/whatsapp/lembrete-preview")
+def preview_whatsapp_reminder_eligibility(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Lista os agendamentos elegiveis para o lembrete automatico agora,
+    sem enviar nenhuma mensagem. Serve para inspecionar o alcance real antes
+    de habilitar WHATSAPP_REMINDER_SCHEDULER_ENABLED.
+    """
+    now = datetime.now(timezone.utc)
+    agendamentos = list_eligible_agendamentos_preview(db, now=now)
+    return {
+        "checked_at": now.isoformat(),
+        "reminder_scheduler_enabled": bool(settings.WHATSAPP_REMINDER_SCHEDULER_ENABLED),
+        "whatsapp_agenda_enabled": bool(settings.WHATSAPP_AGENDA_ENABLED),
+        "window_hours": settings.WHATSAPP_REMINDER_WINDOW_HOURS,
+        "min_lead_minutes": settings.WHATSAPP_REMINDER_MIN_LEAD_MINUTES,
+        "recipient_type": settings.WHATSAPP_REMINDER_RECIPIENT_TYPE,
+        "count": len(agendamentos),
+        "agendamentos": agendamentos,
+    }
