@@ -321,45 +321,6 @@ jobs:
               echo "Stage WhatsApp Cloud API secrets configured."
             '
 
-      - name: Configure WhatsApp reminder scheduler flag on Stage VPS
-        run: |
-          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
-            set -euo pipefail
-            env_file="/var/www/fortcordis-stage/backend/.env"
-            if [ ! -f "$env_file" ]; then
-              echo "Stage backend env file not found."
-              exit 1
-            fi
-
-            upsert_env() {
-              key="$1"
-              value="$2"
-              temp_file="${env_file}.${key}.$$"
-              found=0
-              : > "$temp_file"
-              while IFS= read -r line || [ -n "$line" ]; do
-                case "$line" in
-                  "$key="*)
-                    printf "%s=%s\n" "$key" "$value" >> "$temp_file"
-                    found=1
-                    ;;
-                  *)
-                    printf "%s\n" "$line" >> "$temp_file"
-                    ;;
-                esac
-              done < "$env_file"
-              if [ "$found" -eq 0 ]; then
-                printf "%s=%s\n" "$key" "$value" >> "$temp_file"
-              fi
-              chmod 600 "$temp_file"
-              mv "$temp_file" "$env_file"
-            }
-
-            upsert_env WHATSAPP_REMINDER_SCHEDULER_ENABLED "true"
-            chmod 600 "$env_file"
-            echo "WhatsApp reminder scheduler enabled on Stage."
-          EOF
-
       - name: Deploy to Stage (VPS)
         run: |
           ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'

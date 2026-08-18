@@ -18,6 +18,7 @@ os.environ.setdefault("SECRET_KEY", "whatsapp-reminder-scheduler-test-secret-key
 
 from app.models.agendamento import Agendamento
 from app.models.clinica import Clinica
+from app.models.configuracao import Configuracao
 from app.services import whatsapp_reminder_scheduler_service as scheduler
 
 
@@ -27,6 +28,7 @@ class WhatsAppReminderSchedulerServiceTest(unittest.TestCase):
         engine = create_engine(f"sqlite:///{db_path}")
         Agendamento.__table__.create(engine, checkfirst=True)
         Clinica.__table__.create(engine, checkfirst=True)
+        Configuracao.__table__.create(engine, checkfirst=True)
         return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine
 
     def test_fetch_next_due_agendamento_respeita_janela_status_e_tentativas(self) -> None:
@@ -110,6 +112,51 @@ class WhatsAppReminderSchedulerServiceTest(unittest.TestCase):
                     self.assertEqual(verify.whatsapp_reminder_attempts, 0)
                 finally:
                     db.close()
+            finally:
+                engine.dispose()
+
+    def test_is_reminder_scheduler_enabled_in_db_reflete_configuracoes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(scheduler, "SessionLocal", SessionFactory):
+                    self.assertFalse(scheduler.is_reminder_scheduler_enabled_in_db())
+
+                    db = SessionFactory()
+                    try:
+                        db.add(Configuracao(whatsapp_lembrete_automatico_habilitado=True))
+                        db.commit()
+                    finally:
+                        db.close()
+
+                    self.assertTrue(scheduler.is_reminder_scheduler_enabled_in_db())
+            finally:
+                engine.dispose()
+
+    def test_scheduler_worker_main_so_processa_quando_habilitado_no_banco(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    db.add(Configuracao(whatsapp_lembrete_automatico_habilitado=False))
+                    db.commit()
+                finally:
+                    db.close()
+
+                calls = []
+
+                def _fake_stop_wait(_seconds):
+                    calls.append(1)
+                    return len(calls) >= 1  # para apos a 1a iteracao
+
+                with patch.object(scheduler, "SessionLocal", SessionFactory):
+                    with patch.object(scheduler, "run_whatsapp_reminder_scheduler_due_once") as due_once_mock:
+                        with patch.object(scheduler._SCHEDULER_STOP_EVENT, "is_set", side_effect=[False, True]):
+                            with patch.object(scheduler._SCHEDULER_STOP_EVENT, "wait", side_effect=_fake_stop_wait):
+                                scheduler._scheduler_worker_main()
+
+                due_once_mock.assert_not_called()
             finally:
                 engine.dispose()
 

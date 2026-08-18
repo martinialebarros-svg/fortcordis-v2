@@ -61,6 +61,29 @@ class ConfiguracoesAutorizacaoTest(unittest.TestCase):
 
         self.assertEqual(resposta["message"], "Configurações atualizadas com sucesso")
 
+    def test_nao_admin_nao_pode_alterar_whatsapp_lembrete_automatico(self) -> None:
+        with self._session_factory() as db:
+            with self.assertRaises(HTTPException) as ctx:
+                configuracoes.atualizar_configuracoes(
+                    dados={"whatsapp_lembrete_automatico_habilitado": True},
+                    db=db,
+                    current_user=self._build_user(False),
+                )
+
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertIn("lembrete automatico de WhatsApp", str(ctx.exception.detail))
+
+    def test_admin_pode_habilitar_whatsapp_lembrete_automatico(self) -> None:
+        with self._session_factory() as db:
+            configuracoes.atualizar_configuracoes(
+                dados={"whatsapp_lembrete_automatico_habilitado": True},
+                db=db,
+                current_user=self._build_user(True),
+            )
+            resposta = configuracoes.obter_configuracoes(db=db, current_user=self._build_user(True))
+
+        self.assertTrue(resposta["whatsapp_lembrete_automatico_habilitado"])
+
 
 if __name__ == "__main__":
     unittest.main()

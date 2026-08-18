@@ -41,6 +41,15 @@
   dependência dos demais endpoints de agenda) retorna a contagem e a lista
   de agendamentos elegíveis agora — mesmo filtro do worker, mas somente
   leitura, sem chamar `send_agenda_utility_template`.
+- RF-011: `configuracoes.whatsapp_lembrete_automatico_habilitado` (boolean,
+  default `false`) é a fonte de verdade de liga/desliga do worker,
+  gravável só por admin via `PUT /configuracoes`, seguindo o mesmo padrão
+  já usado por `fortinho_habilitado`.
+- RF-012: o worker consulta `whatsapp_lembrete_automatico_habilitado` a
+  cada ciclo de poll (não mais uma única vez na criação da thread); se a
+  consulta falhar por qualquer motivo, assume desabilitado.
+- RF-013: `GET /agenda/whatsapp/lembrete-preview` reporta
+  `reminder_scheduler_enabled` a partir dessa mesma coluna, não de env var.
 
 ## Requisitos não funcionais
 
@@ -70,8 +79,16 @@
   reatribuir ao tutor.
 - CA-006: ciclo do worker é pulado quando o lock distribuído está ocupado
   (sem duplo processamento entre instâncias).
-- CA-007: com `WHATSAPP_REMINDER_SCHEDULER_ENABLED=false` (default), o
-  worker não inicia nenhum envio.
+- CA-007: com `configuracoes.whatsapp_lembrete_automatico_habilitado=false`
+  (default), o worker roda o ciclo de poll mas nunca chama
+  `run_whatsapp_reminder_scheduler_due_once`, então não inicia nenhum
+  envio.
+- CA-010: `GET /configuracoes` retorna `whatsapp_lembrete_automatico_habilitado`
+  para qualquer usuário logado; `PUT /configuracoes` só aceita mudar esse
+  valor se `current_user.tem_papel("admin")`, senão `403`.
+- CA-011: alternar o toggle em `PUT /configuracoes` reflete imediatamente
+  em `GET /agenda/whatsapp/lembrete-preview` (`reminder_scheduler_enabled`),
+  sem precisar reiniciar o backend.
 - CA-008: `GET /agenda/whatsapp/lembrete-preview` lista os agendamentos
   elegíveis (mesmo critério do worker) sem enviar nenhuma mensagem e sem
   alterar `whatsapp_reminder_sent_at`/`attempts`.

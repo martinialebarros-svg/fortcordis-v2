@@ -84,3 +84,48 @@ o envio automático de fato.
 - `WHATSAPP_AGENDA_ENABLED` não foi tocado (já estava `true`); nenhuma
   mudança em produção (`main`) foi feita nesta ação — o worker segue
   desligado em produção até decisão e verificação separadas em stage.
+
+## Substituição por toggle em Configurações - 2026-08-18
+
+Ao testar em produção, o preview revelou 10 agendamentos reais elegíveis em
+8 clínicas — o usuário pediu um toggle de verdade em Configurações em vez
+de precisar pedir para eu editar pipeline/SSH a cada vez que quiser
+ligar/desligar.
+
+| Critério | Evidência | Resultado |
+|---|---|---|
+| CA-010 | `test_nao_admin_nao_pode_alterar_whatsapp_lembrete_automatico` (403) e `test_admin_pode_habilitar_whatsapp_lembrete_automatico` (sucesso, refletido no GET) em `test_configuracoes_autorizacao.py` | passou |
+| CA-011 | Smoke manual local: `PUT /configuracoes {"whatsapp_lembrete_automatico_habilitado": true}` seguido de `GET /agenda/whatsapp/lembrete-preview` retornou `reminder_scheduler_enabled: true` na mesma execução do servidor, sem restart | passou |
+
+Comandos executados:
+```bash
+cd backend
+venv/bin/python -m unittest tests.test_whatsapp_lembrete_toggle_migration -v
+venv/bin/python -m unittest tests.test_configuracoes_autorizacao -v
+venv/bin/python -m unittest tests.test_whatsapp_reminder_scheduler_service -v
+venv/bin/python -m unittest discover -s tests -p "test_*.py"   # 805 testes, sem regressao
+
+cd ../frontend
+npx eslint app/configuracoes/page.tsx --max-warnings=0
+npx tsc --noEmit
+npx next build
+```
+
+Resultado: 805 testes de backend passaram (suíte completa), ESLint e
+`tsc` limpos, `next build` passou. Migração 73 aplicada no sqlite de dev
+sem erro. Smoke manual completo (login com usuário seed local,
+`PUT /configuracoes`, `GET /agenda/whatsapp/lembrete-preview`) confirmou
+o toggle refletindo em runtime, sem reiniciar o servidor.
+
+Env var `WHATSAPP_REMINDER_SCHEDULER_ENABLED` removida de `config.py`,
+`.env.example` e do passo de deploy em stage que a escrevia via SSH — a
+coluna em `configuracoes` é agora a única fonte de verdade. Efeito
+colateral positivo: como a VPS de stage já tinha essa env var setada
+`true` de antes, removê-la não desliga nada por si só (a checagem migrou
+para o banco); é preciso ligar de novo via o toggle na tela de
+Configurações depois do deploy, o que também serve como validação real do
+mecanismo novo.
+
+Risco residual: o toggle é institucional (uma linha em `configuracoes`,
+não por usuário), então afeta todo o sistema de uma vez — não há
+granularidade por clínica.

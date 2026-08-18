@@ -37,10 +37,26 @@
 - [x] P3.4 smoke local: aplicar migração no sqlite de dev, subir o
   servidor e confirmar startup limpo com o worker desligado por padrão.
 
+## Fase 4 - toggle em Configurações (substitui env var)
+
+- [x] P4.1 migração `20260818_73_whatsapp_lembrete_toggle_config.py`
+  (coluna `configuracoes.whatsapp_lembrete_automatico_habilitado`);
+- [x] P4.2 endpoints `GET`/`PUT /configuracoes`: expor o campo, admin-guard
+  pontual (mesmo padrão de `fortinho_habilitado`);
+- [x] P4.3 `is_reminder_scheduler_enabled_in_db()` + refactor de
+  `_scheduler_worker_main` para reler o banco a cada ciclo (thread sempre
+  inicia, como os demais workers);
+- [x] P4.4 `get_whatsapp_reminder_scheduler_worker_runtime_state` e o
+  endpoint de preview passam a refletir a coluna, não a env var;
+- [x] P4.5 remover `WHATSAPP_REMINDER_SCHEDULER_ENABLED` de `config.py`,
+  `.env.example` e do passo correspondente em `deploy-stage.yml`;
+- [x] P4.6 card "Lembrete automático de consulta (WhatsApp)" em
+  Configurações → Empresa, ao lado do card Fortinho.
+
 ## Rollback
 
-- Desligar `WHATSAPP_REMINDER_SCHEDULER_ENABLED` (já é o default) para
-  parar qualquer envio automático sem precisar reverter código.
+- Desmarcar o toggle em Configurações (default `false`) para parar
+  qualquer envio automático sem precisar de deploy.
 - Remover as chamadas em `main.py` e o import do worker restaura o
   comportamento anterior (só botão manual). As colunas novas podem ficar
   sem uso sem efeito colateral, sem exigir migração reversa.
