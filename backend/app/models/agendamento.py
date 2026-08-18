@@ -59,3 +59,9 @@ class Agendamento(Base):
     # um tipo de laudo esperado (ex.: "Eco + Eletro"), o marcador vale
     # para o agendamento inteiro, nao por tipo individual.
     urgente_laudo = Column(Boolean, nullable=False, default=False)
+
+    # Controle do worker de lembrete automatico de consulta via WhatsApp
+    # (ver app/services/whatsapp_reminder_scheduler_service.py).
+    whatsapp_reminder_sent_at = Column(DateTime(timezone=True), nullable=True)
+    whatsapp_reminder_attempts = Column(Integer, nullable=False, default=0)
+    whatsapp_reminder_last_error = Column(Text, nullable=True)

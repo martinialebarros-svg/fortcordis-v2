@@ -1,0 +1,212 @@
+import os
+import sys
+import tempfile
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import patch
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+os.chdir(BACKEND_DIR)
+sys.path.insert(0, str(BACKEND_DIR))
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
+os.environ.setdefault("SECRET_KEY", "whatsapp-reminder-scheduler-test-secret-key-1234567890")
+
+from app.models.agendamento import Agendamento
+from app.models.clinica import Clinica
+from app.services import whatsapp_reminder_scheduler_service as scheduler
+
+
+class WhatsAppReminderSchedulerServiceTest(unittest.TestCase):
+    def _build_session_factory(self, tmpdir: str):
+        db_path = Path(tmpdir) / "whatsapp-reminder-scheduler-test.db"
+        engine = create_engine(f"sqlite:///{db_path}")
+        Agendamento.__table__.create(engine, checkfirst=True)
+        Clinica.__table__.create(engine, checkfirst=True)
+        return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine
+
+    def test_fetch_next_due_agendamento_respeita_janela_status_e_tentativas(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                now = datetime.now(timezone.utc)
+                db = SessionFactory()
+                try:
+                    elegivel = Agendamento(
+                        status="Agendado", inicio=now + timedelta(hours=10),
+                        whatsapp_reminder_attempts=0,
+                    )
+                    status_invalido = Agendamento(
+                        status="Cancelado", inicio=now + timedelta(hours=10),
+                        whatsapp_reminder_attempts=0,
+                    )
+                    cedo_demais = Agendamento(
+                        status="Agendado", inicio=now + timedelta(minutes=10),
+                        whatsapp_reminder_attempts=0,
+                    )
+                    tarde_demais = Agendamento(
+                        status="Agendado", inicio=now + timedelta(hours=30),
+                        whatsapp_reminder_attempts=0,
+                    )
+                    ja_enviado = Agendamento(
+                        status="Agendado", inicio=now + timedelta(hours=10),
+                        whatsapp_reminder_attempts=0, whatsapp_reminder_sent_at=now - timedelta(hours=1),
+                    )
+                    tentativas_esgotadas = Agendamento(
+                        status="Agendado", inicio=now + timedelta(hours=10),
+                        whatsapp_reminder_attempts=3,
+                    )
+                    db.add_all([
+                        status_invalido, cedo_demais, tarde_demais,
+                        ja_enviado, tentativas_esgotadas, elegivel,
+                    ])
+                    db.commit()
+
+                    found = scheduler._fetch_next_due_agendamento(db, now=now)
+                    self.assertIsNotNone(found)
+                    self.assertEqual(found.id, elegivel.id)
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_resolve_destination_usa_primeiro_whatsapp_da_clinica(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    clinica = Clinica(nome="Clinica Teste", whatsapps=["", "5585999990000"], telefone="5585333330000")
+                    db.add(clinica)
+                    db.commit()
+
+                    agendamento = Agendamento(status="Agendado", inicio=datetime.now(timezone.utc), clinica_id=clinica.id)
+
+                    destino = scheduler._resolve_destination(db, agendamento, "clinica")
+                    self.assertEqual(destino, "5585999990000")
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_resolve_destination_none_quando_clinica_sem_whatsapp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    clinica = Clinica(nome="Clinica Sem WhatsApp", whatsapps=[], telefone=None)
+                    db.add(clinica)
+                    db.commit()
+
+                    agendamento = Agendamento(status="Agendado", inicio=datetime.now(timezone.utc), clinica_id=clinica.id)
+
+                    destino = scheduler._resolve_destination(db, agendamento, "clinica")
+                    self.assertIsNone(destino)
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_process_agendamento_marca_erro_quando_clinica_sem_whatsapp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    clinica = Clinica(nome="Clinica Sem WhatsApp", whatsapps=[], telefone=None)
+                    db.add(clinica)
+                    db.commit()
+
+                    agendamento = Agendamento(status="Agendado", inicio=datetime.now(timezone.utc), clinica_id=clinica.id)
+                    db.add(agendamento)
+                    db.commit()
+
+                    result = scheduler._process_agendamento(db, agendamento)
+
+                    self.assertEqual(result, "error")
+                    self.assertIsNone(agendamento.whatsapp_reminder_sent_at)
+                    self.assertEqual(agendamento.whatsapp_reminder_attempts, 1)
+                    self.assertIn("WhatsApp", agendamento.whatsapp_reminder_last_error or "")
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_run_due_once_processes_up_to_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                now = datetime.now(timezone.utc)
+                db = SessionFactory()
+                try:
+                    for _ in range(3):
+                        db.add(Agendamento(status="Agendado", inicio=now + timedelta(hours=5), whatsapp_reminder_attempts=0))
+                    db.commit()
+                finally:
+                    db.close()
+
+                def _mark_sent(_db, agendamento):
+                    agendamento.whatsapp_reminder_sent_at = scheduler._utc_now()
+                    return "sent"
+
+                with patch.object(scheduler, "SessionLocal", SessionFactory):
+                    with patch.object(scheduler, "_distributed_lock_enabled", return_value=False):
+                        with patch.object(scheduler, "_process_agendamento", side_effect=_mark_sent):
+                            payload = scheduler.run_whatsapp_reminder_scheduler_due_once(limit=2)
+
+                self.assertEqual(payload["processed"], 2)
+                self.assertEqual(payload["sent"], 2)
+                self.assertEqual(payload["errors"], 0)
+
+                verify = SessionFactory()
+                try:
+                    sent_count = verify.query(Agendamento).filter(Agendamento.whatsapp_reminder_sent_at.isnot(None)).count()
+                    pending_count = verify.query(Agendamento).filter(Agendamento.whatsapp_reminder_sent_at.is_(None)).count()
+                    self.assertEqual(sent_count, 2)
+                    self.assertEqual(pending_count, 1)
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_run_due_once_skips_cycle_when_distributed_lock_is_busy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    db.add(Agendamento(
+                        status="Agendado",
+                        inicio=datetime.now(timezone.utc) + timedelta(hours=5),
+                        whatsapp_reminder_attempts=0,
+                    ))
+                    db.commit()
+                finally:
+                    db.close()
+
+                with patch.object(scheduler, "SessionLocal", SessionFactory):
+                    with patch.object(scheduler, "_distributed_lock_enabled", return_value=True):
+                        with patch.object(scheduler, "_is_postgres", return_value=True):
+                            with patch.object(scheduler, "_try_acquire_pg_lock", return_value=False) as acquire_mock:
+                                payload = scheduler.run_whatsapp_reminder_scheduler_due_once(limit=50)
+
+                self.assertEqual(payload, {"processed": 0, "sent": 0, "errors": 0})
+                acquire_mock.assert_called_once()
+
+                verify = SessionFactory()
+                try:
+                    pending_count = verify.query(Agendamento).filter(Agendamento.whatsapp_reminder_sent_at.is_(None)).count()
+                    self.assertEqual(pending_count, 1)
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+
+if __name__ == "__main__":
+    unittest.main()

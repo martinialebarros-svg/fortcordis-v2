@@ -66,6 +66,10 @@ from app.services.push_scheduler_service import (
     shutdown_push_scheduler_worker,
     start_push_scheduler_worker,
 )
+from app.services.whatsapp_reminder_scheduler_service import (
+    shutdown_whatsapp_reminder_scheduler_worker,
+    start_whatsapp_reminder_scheduler_worker,
+)
 from app.services.assistente_ia_autonomy import (
     shutdown_assistant_scheduler_worker,
     start_assistant_scheduler_worker,
@@ -466,6 +470,7 @@ def startup_schema_compatibility() -> None:
     restart_incomplete_ai_echo_sessions()
     start_upload_dedupe_cleanup_worker()
     start_push_scheduler_worker()
+    start_whatsapp_reminder_scheduler_worker()
     start_assistant_scheduler_worker()
     start_ai_echo_cleanup_worker()
 
@@ -477,6 +482,7 @@ def shutdown_background_workers() -> None:
     shutdown_eco_study_import_jobs()
     shutdown_upload_dedupe_cleanup_worker()
     shutdown_push_scheduler_worker()
+    shutdown_whatsapp_reminder_scheduler_worker()
     shutdown_assistant_scheduler_worker()
     shutdown_ai_echo_cleanup_worker()
 
