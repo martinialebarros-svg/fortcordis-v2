@@ -95,7 +95,11 @@ const TIPOS_PUSH_FINANCEIRO_OPCOES: Array<{ valor: string; label: string; descri
   { valor: "payment_pending", label: "Lembrete de pendencia", descricao: "Quando a OS segue pendente apos X horas." },
 ];
 
-const TIPOS_PUSH_OPCOES = [...TIPOS_PUSH_AGENDA_OPCOES, ...TIPOS_PUSH_FINANCEIRO_OPCOES];
+const TIPOS_PUSH_WHATSAPP_OPCOES: Array<{ valor: string; label: string; descricao: string }> = [
+  { valor: "mensagem_recebida", label: "Mensagem recebida", descricao: "Quando chegar uma nova mensagem de um contato no WhatsApp." },
+];
+
+const TIPOS_PUSH_OPCOES = [...TIPOS_PUSH_AGENDA_OPCOES, ...TIPOS_PUSH_FINANCEIRO_OPCOES, ...TIPOS_PUSH_WHATSAPP_OPCOES];
 const TIPOS_PUSH_VALIDOS = new Set(TIPOS_PUSH_OPCOES.map((item) => item.valor));
 const TIPOS_PUSH_PRIORIDADE_ALTA_PADRAO = ["os_deleted", "payment_pending"];
 
@@ -115,7 +119,7 @@ const PERFIS_PUSH_PRESETS: PerfilPushPreset[] = [
     perfil: "recepcao",
     titulo: "Recepcao",
     descricao: "Foco em agenda e fluxo geral de atendimento.",
-    tipos: ["created", "updated", "status_changed", "cancelled", "deleted", "os_generated"],
+    tipos: ["created", "updated", "status_changed", "cancelled", "deleted", "os_generated", "mensagem_recebida"],
     alta_prioridade: ["status_changed", "cancelled", "deleted"],
     agrupar: true,
     lembrete_pendencias: false,
@@ -1087,9 +1091,13 @@ export default function ConfiguracoesPage() {
         .map((item) => item.valor)
         .filter((item) => atualizados.includes(item));
 
+      const ordenadosWhatsApp = TIPOS_PUSH_WHATSAPP_OPCOES
+        .map((item) => item.valor)
+        .filter((item) => atualizados.includes(item));
+
       return {
         ...prev,
-        notificacoes_push_tipos: [...ordenados, ...ordenadosFinanceiro],
+        notificacoes_push_tipos: [...ordenados, ...ordenadosFinanceiro, ...ordenadosWhatsApp],
         notificacoes_push_perfil: "custom",
       };
     });
@@ -2641,6 +2649,34 @@ export default function ConfiguracoesPage() {
                   </p>
                   <div className="mt-2 space-y-2">
                     {TIPOS_PUSH_FINANCEIRO_OPCOES.map((opcao) => (
+                      <label
+                        key={opcao.valor}
+                        className={`flex items-start gap-2 rounded-md px-2 py-1 ${
+                          configUsuario.notificacoes_push ? "cursor-pointer" : "cursor-not-allowed opacity-60"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={normalizarTiposPushAgenda(configUsuario.notificacoes_push_tipos).includes(opcao.valor)}
+                          disabled={!configUsuario.notificacoes_push}
+                          onChange={() => alternarTipoPushAgenda(opcao.valor)}
+                          className="mt-0.5 h-4 w-4 text-teal-600"
+                        />
+                        <span>
+                          <span className="block text-sm text-gray-800">{opcao.label}</span>
+                          <span className="block text-xs text-gray-500">{opcao.descricao}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-600">
+                    Eventos do WhatsApp para push
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {TIPOS_PUSH_WHATSAPP_OPCOES.map((opcao) => (
                       <label
                         key={opcao.valor}
                         className={`flex items-start gap-2 rounded-md px-2 py-1 ${

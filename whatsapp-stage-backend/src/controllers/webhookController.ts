@@ -17,6 +17,7 @@ import {
   WebhookStatusEvent
 } from "../types/whatsapp";
 import { handleAgendaButtonReply } from "../services/agendaButtonService";
+import { notifyPushForInboundMessage } from "../services/whatsappPushNotificationService";
 import { canonicalWhatsAppIdentity } from "../utils/phoneNumber";
 
 interface WebhookEventRow {
@@ -315,6 +316,11 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
         client,
         inboundMessageObservedAt(message.timestamp)
       );
+      void notifyPushForInboundMessage({
+        conversationId: conversation.id,
+        contactLabel: contact?.profile?.name ?? identity,
+        bodyPreview: extractMessageBody(message)
+      });
     }
   }
 }
