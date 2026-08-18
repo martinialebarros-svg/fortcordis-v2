@@ -5,8 +5,8 @@ import Link from "next/link";
 import {
   AlertCircle, Building2, CalendarDays, Check, CheckCheck, ChevronRight,
   CircleDot, ClipboardList, Clock3, FileText, Filter, Inbox, Info, Link2,
-  MessageSquare, MessagesSquare, PawPrint, RefreshCw, Search, Send, Settings,
-  Sparkles, UserCheck, UserRound, Users,
+  MessageSquare, MessagesSquare, PawPrint, Pencil, RefreshCw, Search, Send, Settings,
+  Sparkles, UserCheck, UserRound, Users, X,
 } from "lucide-react";
 import DashboardLayout from "../layout-dashboard";
 import {
@@ -292,6 +292,11 @@ export default function WhatsAppStagePage() {
   const [newAgentEmail, setNewAgentEmail] = useState("");
   const [newAgentRole, setNewAgentRole] = useState("agent");
   const [agentActionId, setAgentActionId] = useState("");
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
+  const [editAgentName, setEditAgentName] = useState("");
+  const [editAgentEmail, setEditAgentEmail] = useState("");
+  const [editAgentRole, setEditAgentRole] = useState("agent");
+  const [savingAgentId, setSavingAgentId] = useState<string | null>(null);
   const [sendMessageBody, setSendMessageBody] = useState("");
   const [composerMode, setComposerMode] = useState<ComposerMode>("message");
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
@@ -404,6 +409,32 @@ export default function WhatsAppStagePage() {
     }) });
     if (!result.ok) { setErrorMessage(result.errorText || `Falha ao criar atendente (HTTP ${result.status})`); return; }
     setInfoMessage("Atendente criado com sucesso."); setNewAgentName(""); setNewAgentEmail(""); setNewAgentRole("agent");
+    await loadAgents();
+  };
+
+  const startEditAgent = (agent: Agent): void => {
+    setEditingAgentId(agent.id); setEditAgentName(agent.name || ""); setEditAgentEmail(agent.email || ""); setEditAgentRole(agent.role);
+  };
+  const cancelEditAgent = (): void => setEditingAgentId(null);
+  const handleUpdateAgent = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (!editingAgentId) return;
+    if (!editAgentEmail.trim()) { setErrorMessage("Email do atendente é obrigatório."); return; }
+    setSavingAgentId(editingAgentId); setErrorMessage(null);
+    const result = await requestJson<Agent>(`/whatsapp/agents/${editingAgentId}`, { method: "PATCH", body: JSON.stringify({
+      name: editAgentName.trim() || null, email: editAgentEmail.trim(), role: editAgentRole.trim() || "agent",
+    }) });
+    setSavingAgentId(null);
+    if (!result.ok) { setErrorMessage(result.errorText || `Falha ao salvar atendente (HTTP ${result.status})`); return; }
+    setInfoMessage("Atendente atualizado com sucesso."); setEditingAgentId(null);
+    await loadAgents();
+  };
+  const handleToggleAgentActive = async (agent: Agent): Promise<void> => {
+    setSavingAgentId(agent.id); setErrorMessage(null);
+    const result = await requestJson<Agent>(`/whatsapp/agents/${agent.id}`, { method: "PATCH", body: JSON.stringify({ active: !agent.active }) });
+    setSavingAgentId(null);
+    if (!result.ok) { setErrorMessage(result.errorText || `Falha ao ${agent.active ? "desativar" : "reativar"} atendente (HTTP ${result.status})`); return; }
+    setInfoMessage(agent.active ? "Atendente desativado." : "Atendente reativado.");
     await loadAgents();
   };
 
@@ -640,8 +671,24 @@ export default function WhatsAppStagePage() {
           <label className="fc-wa-field"><span>Email</span><input type="email" value={newAgentEmail} onChange={(event) => setNewAgentEmail(event.target.value)} required /></label>
           <label className="fc-wa-field"><span>Perfil</span><select value={newAgentRole} onChange={(event) => setNewAgentRole(event.target.value)}><option value="agent">Atendente</option><option value="supervisor">Supervisor</option></select></label>
           <button className="fc-wa-primary" type="submit">Adicionar atendente</button></form><div className="fc-wa-agent-list"><strong>Equipe {loadingAgents ? "(carregando...)" : ""}</strong>
-            {agents.length === 0 ? <p>Nenhum atendente cadastrado.</p> : <ul>{agents.map((agent) => <li key={agent.id}><span className="fc-wa-avatar">{getInitials(agent.name || agent.email || "A")}</span>
-              <span>{agent.name || "Sem nome"}<small>{agent.email || "Sem email"} · {agent.active ? "Ativo" : "Inativo"}</small></span></li>)}</ul>}</div></div></details>
+            {agents.length === 0 ? <p>Nenhum atendente cadastrado.</p> : <ul>{agents.map((agent) => editingAgentId === agent.id ? (
+              <li key={agent.id} className="fc-wa-agent-edit"><form onSubmit={handleUpdateAgent}>
+                <label className="fc-wa-field"><span>Nome</span><input value={editAgentName} onChange={(event) => setEditAgentName(event.target.value)} /></label>
+                <label className="fc-wa-field"><span>Email</span><input type="email" value={editAgentEmail} onChange={(event) => setEditAgentEmail(event.target.value)} required /></label>
+                <label className="fc-wa-field"><span>Perfil</span><select value={editAgentRole} onChange={(event) => setEditAgentRole(event.target.value)}><option value="agent">Atendente</option><option value="supervisor">Supervisor</option></select></label>
+                <div className="fc-wa-agent-edit-actions">
+                  <button className="fc-wa-primary" type="submit" disabled={savingAgentId === agent.id}>Salvar</button>
+                  <button type="button" className="fc-wa-icon-button" onClick={cancelEditAgent} aria-label="Cancelar edição"><X className="h-4 w-4" /></button>
+                </div></form></li>
+            ) : (
+              <li key={agent.id}><span className="fc-wa-avatar">{getInitials(agent.name || agent.email || "A")}</span>
+                <span>{agent.name || "Sem nome"}<small>{agent.email || "Sem email"} · {agent.active ? "Ativo" : "Inativo"}</small></span>
+                <span className="fc-wa-agent-actions">
+                  <button type="button" className="fc-wa-icon-button" onClick={() => startEditAgent(agent)} aria-label={`Editar ${agent.name || agent.email || "atendente"}`}><Pencil className="h-3.5 w-3.5" /></button>
+                  <button type="button" className={agent.active ? "fc-wa-ghost-danger" : "fc-wa-secondary"} onClick={() => void handleToggleAgentActive(agent)} disabled={savingAgentId === agent.id}>
+                    {agent.active ? "Desativar" : "Reativar"}</button>
+                </span></li>
+            ))}</ul>}</div></div></details>
       </main>
     </DashboardLayout>
   );
