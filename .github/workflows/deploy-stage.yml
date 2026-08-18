@@ -321,6 +321,18 @@ jobs:
               echo "Stage WhatsApp Cloud API secrets configured."
             '
 
+      - name: Remove obsolete env keys on Stage VPS
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -euo pipefail
+            env_file="/var/www/fortcordis-stage/backend/.env"
+            if [ -f "$env_file" ]; then
+              sed -i '/^WHATSAPP_REMINDER_SCHEDULER_ENABLED=/d' "$env_file"
+              chmod 600 "$env_file"
+              echo "Removed obsolete WHATSAPP_REMINDER_SCHEDULER_ENABLED if present."
+            fi
+          EOF
+
       - name: Deploy to Stage (VPS)
         run: |
           ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
