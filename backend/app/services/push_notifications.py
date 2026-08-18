@@ -44,7 +44,8 @@ except Exception:  # pragma: no cover - fallback for environments sem dependenci
 
 AGENDA_PUSH_ACTIONS_ORDER = ("created", "updated", "status_changed", "cancelled", "deleted")
 FINANCEIRO_PUSH_ACTIONS_ORDER = ("os_generated", "payment_received", "os_deleted", "payment_pending")
-PUSH_ACTIONS_ORDER = AGENDA_PUSH_ACTIONS_ORDER + FINANCEIRO_PUSH_ACTIONS_ORDER
+WHATSAPP_PUSH_ACTIONS_ORDER = ("mensagem_recebida",)
+PUSH_ACTIONS_ORDER = AGENDA_PUSH_ACTIONS_ORDER + FINANCEIRO_PUSH_ACTIONS_ORDER + WHATSAPP_PUSH_ACTIONS_ORDER
 PUSH_ACTIONS_SET = set(PUSH_ACTIONS_ORDER)
 HIGH_PRIORITY_DEFAULT_ACTIONS_ORDER = ("os_deleted", "payment_pending")
 HIGH_PRIORITY_DEFAULT_ACTIONS_SET = set(HIGH_PRIORITY_DEFAULT_ACTIONS_ORDER)
@@ -690,5 +691,53 @@ def send_financeiro_push_notification(
         db,
         payload=payload,
         exclude_user_id=actor_user_id,
+        notification_action=action_norm,
+    )
+
+
+def _build_whatsapp_message_title(contact_label: str) -> str:
+    return f"Nova mensagem de {contact_label}" if contact_label else "Nova mensagem no WhatsApp"
+
+
+def _build_whatsapp_message_body(body_preview: str) -> str:
+    text = _clean_text(body_preview)
+    if not text:
+        return "Abra a Central de Atendimento para ver a mensagem."
+    return text[:160]
+
+
+def send_whatsapp_message_push_notification(
+    db: Session,
+    *,
+    conversation_id: str,
+    contact_label: Optional[str] = None,
+    body_preview: Optional[str] = None,
+) -> dict[str, int]:
+    action_norm = "mensagem_recebida"
+    notification_id = uuid4().hex
+    target_url = "/whatsapp-stage"
+    safe_contact = _clean_text(contact_label)
+    payload = {
+        "title": _build_whatsapp_message_title(safe_contact),
+        "body": _build_whatsapp_message_body(body_preview or ""),
+        "url": target_url,
+        "tag": f"whatsapp-mensagem-{conversation_id}",
+        "group_key": f"whatsapp:{action_norm}:{conversation_id}",
+        "notification_id": notification_id,
+        "stack_notifications": True,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "data": {
+            "module": "whatsapp",
+            "action": action_norm,
+            "conversation_id": conversation_id,
+            "notification_id": notification_id,
+            "resource_type": "conversation",
+            "resource_id": conversation_id,
+            "url": target_url,
+        },
+    }
+    return send_web_push_payload(
+        db,
+        payload=payload,
         notification_action=action_norm,
     )

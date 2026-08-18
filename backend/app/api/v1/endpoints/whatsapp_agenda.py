@@ -27,6 +27,7 @@ from app.services.whatsapp_reminder_scheduler_service import (
     is_reminder_scheduler_enabled_in_db,
     list_eligible_agendamentos_preview,
 )
+from app.services.push_notifications import send_whatsapp_message_push_notification
 
 
 router = APIRouter()
@@ -51,6 +52,12 @@ class AgendaUtilityTemplateSendRequest(BaseModel):
     recipient_type: Literal["clinica", "tutor"]
     idempotency_key: str = Field(..., min_length=8, max_length=128)
     template_key: AgendaUtilityTemplateKey
+
+
+class WhatsAppInboundMessageNotificationRequest(BaseModel):
+    conversation_id: str = Field(..., min_length=1, max_length=64)
+    contact_label: str = Field(default="", max_length=160)
+    body_preview: str = Field(default="", max_length=500)
 
 
 def _require_internal_token(
@@ -223,3 +230,23 @@ def preview_whatsapp_reminder_eligibility(
         "count": len(agendamentos),
         "agendamentos": agendamentos,
     }
+
+
+@router.post("/integracoes/whatsapp/notificacoes/mensagem-recebida")
+def notify_whatsapp_inbound_message(
+    payload: WhatsAppInboundMessageNotificationRequest,
+    _authenticated: None = Depends(_require_internal_token),
+    db: Session = Depends(get_db),
+):
+    """Dispara push (broadcast, todo mundo com preferencia habilitada) para
+
+    cada mensagem nova recebida no WhatsApp. Chamado pelo whatsapp-stage-backend
+    a cada mensagem inbound persistida - nunca deve bloquear o webhook, por
+    isso so retorna as contagens de envio, sem side effect alem do push.
+    """
+    return send_whatsapp_message_push_notification(
+        db,
+        conversation_id=payload.conversation_id,
+        contact_label=payload.contact_label,
+        body_preview=payload.body_preview,
+    )
