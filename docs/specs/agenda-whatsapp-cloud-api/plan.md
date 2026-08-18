@@ -11,8 +11,10 @@ Data: 2026-08-14
 - [x] P7. Integrar configuracao ao deploy e ao preflight de stage.
 - [x] P8. Adicionar testes focados e documentacao operacional.
 - [x] P9. Configurar os segredos reais diretamente no servidor de stage.
-- [ ] P10. Publicar stage, assinar o WABA no webhook e executar smoke real ponta a ponta.
-- [ ] P11. Promover o snapshot validado e executar smoke em producao.
+- [x] P10. Publicar stage, assinar o WABA no webhook e executar smoke real ponta a ponta.
+- [x] P11. Promover o snapshot validado e executar smoke em producao.
 - [x] P12. Diagnosticar o primeiro callback real rejeitado pela divergencia do nono digito brasileiro.
 - [x] P13. Implementar identidade canonica restrita, teste de equivalencia e unificacao das novas conversas.
-- [ ] P14. Publicar a correcao em stage e repetir uma confirmacao real antes de concluir P10.
+- [x] P14. Publicar a correcao em stage e repetir uma confirmacao real antes de concluir P10.
+- [ ] P15. Subir o runtime WhatsApp exclusivo de producao na porta `3020`, validar health/smoke e somente depois mover o callback Meta.
+- [ ] P16. Confirmar em producao um callback do campo `messages` e um envio real com modelo aprovado.

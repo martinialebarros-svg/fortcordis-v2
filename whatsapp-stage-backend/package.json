@@ -16,6 +16,7 @@
     "test:reservation-template": "ts-node scripts/test-reservation-template.ts",
     "test:approved-templates": "ts-node scripts/test-approved-templates.ts",
     "test:document-templates": "ts-node scripts/test-document-templates.ts",
+    "test:database-config": "ts-node scripts/test-database-config.ts",
     "test:inbox-ui": "DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fortcordis_stage ts-node scripts/test-inbox-ui-contracts.ts",
     "test:customer-service-window": "ts-node scripts/test-customer-service-window.ts",
     "test:phone-number": "ts-node scripts/test-phone-number.ts",

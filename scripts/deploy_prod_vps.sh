@@ -21,6 +21,9 @@ set -euo pipefail
 #   WHATSAPP_STAGE_BACKEND_SERVICE=fortcordis-stage-whatsapp-backend
 #   WHATSAPP_STAGE_BACKEND_PORT=3010
 #   WHATSAPP_STAGE_BACKEND_URL=http://127.0.0.1:3010
+#   WHATSAPP_META_SOURCE_ENV_FILE=/caminho/seguro/.env
+#   WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED=true|false
+#   WHATSAPP_RUNTIME_LABEL=Stage
 #   ENABLE_WHATSAPP_STAGE_SMOKE=1
 #   WHATSAPP_DEFAULT_ALLOWED_PAPEIS=admin,recepcao,veterinario,cardiologista
 #   WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS=admin,recepcao,veterinario,cardiologista
@@ -59,6 +62,9 @@ WHATSAPP_STAGE_BACKEND_PORT="${WHATSAPP_STAGE_BACKEND_PORT:-3010}"
 WHATSAPP_STAGE_BACKEND_URL="${WHATSAPP_STAGE_BACKEND_URL:-http://127.0.0.1:${WHATSAPP_STAGE_BACKEND_PORT}}"
 WHATSAPP_STAGE_BACKEND_DIR="${WHATSAPP_STAGE_BACKEND_DIR:-${APP_DIR}/whatsapp-stage-backend}"
 WHATSAPP_STAGE_BACKEND_ENV_FILE="${WHATSAPP_STAGE_BACKEND_ENV_FILE:-${WHATSAPP_STAGE_BACKEND_DIR}/.env}"
+WHATSAPP_META_SOURCE_ENV_FILE="${WHATSAPP_META_SOURCE_ENV_FILE:-}"
+WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED="${WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED:-}"
+WHATSAPP_RUNTIME_LABEL="${WHATSAPP_RUNTIME_LABEL:-Stage}"
 ENABLE_WHATSAPP_STAGE_SMOKE="${ENABLE_WHATSAPP_STAGE_SMOKE:-1}"
 WHATSAPP_DEFAULT_ALLOWED_PAPEIS="${WHATSAPP_DEFAULT_ALLOWED_PAPEIS:-admin,recepcao,veterinario,cardiologista}"
 WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS="${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS:-${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}}"
@@ -416,10 +422,26 @@ replace_env_key_if_exact_match() {
   log "Auto-healed legacy WhatsApp stage placeholder: ${key}"
 }
 
+sync_env_key_from_file() {
+  local source_file="$1"
+  local target_file="$2"
+  local key="$3"
+  local value
+
+  value="$(read_env_file_value "$source_file" "$key" "")"
+  if [[ -z "$value" ]]; then
+    echo "[ERROR] WhatsApp source config is missing required key: ${key}" >&2
+    return 1
+  fi
+
+  upsert_env_key "$target_file" "$key" "$value"
+}
+
 ensure_whatsapp_stage_env_file() {
   local generated_internal_token generated_verify_token
   local default_access_token default_phone_number_id default_app_secret
   local current_internal_token_before current_internal_token_after
+  local backend_database_url
   generated_internal_token="$(
     python3 - <<'PY'
 import secrets
@@ -436,14 +458,13 @@ PY
   default_phone_number_id="1279142515283484"
   default_app_secret="stage_app_secret_not_configured"
 
-  if [[ ! -f "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" ]]; then
-    local backend_database_url
-    backend_database_url="$(read_env_file_value "${BACKEND_DIR}/.env" "DATABASE_URL" "")"
-    if [[ -z "${backend_database_url}" ]]; then
-      echo "[ERROR] Could not infer DATABASE_URL from ${BACKEND_DIR}/.env for WhatsApp stage backend." >&2
-      return 1
-    fi
+  backend_database_url="$(read_env_file_value "${BACKEND_DIR}/.env" "DATABASE_URL" "")"
+  if [[ -z "${backend_database_url}" ]]; then
+    echo "[ERROR] Could not infer DATABASE_URL from ${BACKEND_DIR}/.env for WhatsApp backend." >&2
+    return 1
+  fi
 
+  if [[ ! -f "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" ]]; then
     mkdir -p "$(dirname "${WHATSAPP_STAGE_BACKEND_ENV_FILE}")"
     cat > "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" <<EOF
 PORT=${WHATSAPP_STAGE_BACKEND_PORT}
@@ -465,7 +486,32 @@ WHATSAPP_ALLOWED_PAPEIS=${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}
 WHATSAPP_WRITE_ALLOWED_PAPEIS=${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS}
 WHATSAPP_INTERNAL_API_TOKEN=${generated_internal_token}
 EOF
-    log "Created ${WHATSAPP_STAGE_BACKEND_ENV_FILE} with stage-safe placeholders."
+    log "Created ${WHATSAPP_STAGE_BACKEND_ENV_FILE} with safe placeholders."
+  fi
+
+  if [[ -n "${WHATSAPP_META_SOURCE_ENV_FILE}" ]]; then
+    if [[ ! -f "${WHATSAPP_META_SOURCE_ENV_FILE}" ]]; then
+      echo "[ERROR] WhatsApp Meta source env file not found: ${WHATSAPP_META_SOURCE_ENV_FILE}" >&2
+      return 1
+    fi
+
+    local meta_key
+    for meta_key in \
+      WHATSAPP_ACCESS_TOKEN \
+      PHONE_NUMBER_ID \
+      WHATSAPP_VERIFY_TOKEN \
+      WHATSAPP_APP_SECRET \
+      WHATSAPP_GRAPH_API_VERSION \
+      META_APP_ID \
+      WHATSAPP_BUSINESS_ACCOUNT_ID \
+      WHATSAPP_RESERVATION_TEMPLATE_NAME \
+      WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE; do
+      sync_env_key_from_file \
+        "${WHATSAPP_META_SOURCE_ENV_FILE}" \
+        "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" \
+        "${meta_key}"
+    done
+    log "WhatsApp Meta configuration synchronized for ${WHATSAPP_RUNTIME_LABEL} without exposing secrets."
   fi
 
   current_internal_token_before="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
@@ -476,8 +522,22 @@ EOF
   replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "stage_verify_token" "${generated_verify_token}"
   replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "stage_app_secret" "${default_app_secret}"
 
-  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "API_BACKEND_URL" "${API_BACKEND_URL}"
-  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_API_AUTH_ENABLED" "true"
+  upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PORT" "${WHATSAPP_STAGE_BACKEND_PORT}"
+  upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "DATABASE_URL" "${backend_database_url}"
+  upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "API_BACKEND_URL" "${API_BACKEND_URL}"
+  upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "NODE_ENV" "production"
+  upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WEBHOOK_ALLOW_UNSIGNED" "false"
+  upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_API_AUTH_ENABLED" "true"
+  if [[ -n "${WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED}" ]]; then
+    if [[ "${WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED}" != "true" && "${WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED}" != "false" ]]; then
+      echo "[ERROR] WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED must be true or false." >&2
+      return 1
+    fi
+    upsert_env_key \
+      "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" \
+      "DATABASE_SSL_REJECT_UNAUTHORIZED" \
+      "${WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED}"
+  fi
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ALLOWED_PAPEIS" "${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_WRITE_ALLOWED_PAPEIS" "${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "${generated_internal_token}"
@@ -495,6 +555,7 @@ EOF
   if [[ -z "${current_internal_token_before}" && -n "${current_internal_token_after}" ]]; then
     log "Generated WHATSAPP_INTERNAL_API_TOKEN for ${WHATSAPP_STAGE_BACKEND_ENV_FILE}."
   fi
+  chmod 600 "${WHATSAPP_STAGE_BACKEND_ENV_FILE}"
 }
 
 validate_whatsapp_stage_meta_config() {
@@ -545,7 +606,7 @@ validate_whatsapp_stage_meta_config() {
     return 1
   fi
 
-  log "WhatsApp stage Meta configuration validated without exposing secrets."
+  log "WhatsApp ${WHATSAPP_RUNTIME_LABEL} Meta configuration validated without exposing secrets."
 }
 
 ensure_whatsapp_core_integration_env() {
@@ -574,7 +635,7 @@ ensure_whatsapp_stage_service_unit() {
 
   cat > "${temp_unit}" <<EOF
 [Unit]
-Description=FortCordis WhatsApp Stage Backend
+Description=FortCordis WhatsApp ${WHATSAPP_RUNTIME_LABEL} Backend
 After=network.target
 
 [Service]
@@ -615,7 +676,7 @@ deploy_whatsapp_stage_backend() {
   validate_whatsapp_stage_meta_config
   ensure_whatsapp_stage_service_unit
 
-  log "WhatsApp stage backend: install deps + migrations"
+  log "WhatsApp ${WHATSAPP_RUNTIME_LABEL} backend: install deps + migrations"
   cd "${WHATSAPP_STAGE_BACKEND_DIR}"
   npm ci
   npm run build
@@ -624,11 +685,11 @@ deploy_whatsapp_stage_backend() {
   restart_service "${WHATSAPP_STAGE_BACKEND_SERVICE}"
   sleep 3
   if ! wait_http_ok "http://127.0.0.1:${WHATSAPP_STAGE_BACKEND_PORT}/health" 25 1; then
-    echo "[ERROR] WhatsApp stage backend health check failed." >&2
+    echo "[ERROR] WhatsApp ${WHATSAPP_RUNTIME_LABEL} backend health check failed." >&2
     print_service_diagnostics "${WHATSAPP_STAGE_BACKEND_SERVICE}"
     return 1
   fi
-  log "WhatsApp stage backend health OK"
+  log "WhatsApp ${WHATSAPP_RUNTIME_LABEL} backend health OK"
 
   if [[ "${ENABLE_WHATSAPP_STAGE_SMOKE}" == "1" && -f "${WHATSAPP_STAGE_BACKEND_DIR}/scripts/smoke-tests.sh" ]]; then
     local verify_token app_secret access_token internal_api_token
@@ -637,7 +698,7 @@ deploy_whatsapp_stage_backend() {
     access_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "stage_access_token_placeholder")"
     internal_api_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
 
-    log "WhatsApp stage backend smoke tests"
+    log "WhatsApp ${WHATSAPP_RUNTIME_LABEL} backend smoke tests"
     BASE_URL="http://127.0.0.1:${WHATSAPP_STAGE_BACKEND_PORT}" \
       WHATSAPP_VERIFY_TOKEN="${verify_token}" \
       WHATSAPP_APP_SECRET="${app_secret}" \

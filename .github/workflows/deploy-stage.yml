@@ -86,6 +86,7 @@ jobs:
           npm run test:reservation-template
           npm run test:approved-templates
           npm run test:document-templates
+          npm run test:database-config
           npm run test:inbox-ui
           npm run test:customer-service-window
           npm run test:phone-number

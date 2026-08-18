@@ -2,7 +2,7 @@
 
 Data: 2026-08-14
 Responsavel: Martiniano + Codex
-Status: local-br-phone-alias-fix-passed-stage-pending
+Status: production-cutover-in-progress
 
 ## Matriz
 
@@ -21,12 +21,18 @@ Status: local-br-phone-alias-fix-passed-stage-pending
 | CA-012 | fallback do cliente Graph e default do deploy usam `v26.0` | passou no deploy e no callback real de stage |
 | CA-013 | `test-phone-number.ts` cobre equivalencia com/sem nono digito e rejeita DDD/sufixo diferentes | passou localmente |
 | CA-014 | controllers inbound/outbound usam `canonicalWhatsAppIdentity` como chave de conversa | build + inspecao passaram localmente |
+| CA-015 | deploy sincroniza chaves Meta a partir de arquivo protegido, valida presenca/formato e nao imprime valores | pendente de deploy |
+| CA-016 | runtime exclusivo na porta `3020`, health publico e smoke autenticado/assinado | pendente de deploy |
+| CA-017 | workflow busca e executa o script de deploy diretamente do snapshot remoto, sem depender da copia antiga presente no checkout do VPS | passou por inspecao + parse YAML |
+| CA-018 | `test-database-config.ts` cobre padrao seguro, excecao TLS escopada e recusas; deploy valida o booleano antes de gravar o ambiente | passou localmente |
+| CA-019 | Painel do App e obrigatorio para Webhooks do WhatsApp; callback e `messages` devem ser conferidos visualmente apos salvar | pendente de confirmacao no painel |
 
 ## Comandos executados
 
 ```bash
 cd whatsapp-stage-backend && npm run build
 cd whatsapp-stage-backend && npm run test:reservation-template
+cd whatsapp-stage-backend && npm run test:database-config
 cd whatsapp-stage-backend && npm run test:phone-number
 cd whatsapp-stage-backend && npm run test:whatsapp-retry
 cd whatsapp-stage-backend && npm run test:auth-policy
@@ -39,6 +45,8 @@ cd frontend && npx tsc --noEmit
 cd frontend && npm run lint
 cd frontend && npm run build
 bash scripts/whatsapp_stage_preflight.sh  # fixtures valida e invalida, sem servicos/HTTP
+bash -n scripts/deploy_prod_vps.sh
+ruby -e 'require "yaml"; YAML.load_file(".github/workflows/deploy.yml")'
 ```
 
 ## Resultados atuais
@@ -68,6 +76,12 @@ bash scripts/whatsapp_stage_preflight.sh  # fixtures valida e invalida, sem serv
 - O template `reserva_de_agendamento` em `pt_BR`, com cinco variaveis e os quick replies `Confirmar` e `Solicitar alteracao`, foi criado na WABA correta com ID `1850190569695780` e aparece como ativo no WhatsApp Manager.
 - O primeiro teste real enviou para `5585988018899`, mas a Meta devolveu o clique de botao como `558588018899`; a comparacao literal rejeitou o evento e manteve a reserva como `Reservado`.
 - A correcao local agora usa a representacao sem o nono digito apenas como chave interna e para auditoria do callback; o numero original continua sendo enviado para a Graph API.
+- Em 17/08/2026, o usuario confirmou que o teste real de confirmacao alterou corretamente o status no FortCordis e que os modelos necessarios aparecem aprovados e ativos na WABA Fort Cordis.
+- O callback Meta ainda apontava para `https://app.stage.fortcordis.com.br/whatsapp/webhook`; a troca para producao deve ocorrer somente depois do novo runtime responder `200` e concluir o smoke.
+- A primeira promocao de producao (`32073647259`) falhou fechada porque o checkout do VPS ainda carregou a versao anterior do proprio script antes do `git reset`; o rollback automatico restaurou `3ecf5ee`. O workflow agora materializa o script diretamente de `origin/main`, preservando o checkout anterior para que esse script ainda possa registrar e restaurar o hash correto.
+- A segunda promocao (`32075595566`) carregou o script correto, sincronizou e validou as credenciais, mas falhou fechada na migracao Node porque o PostgreSQL de producao apresenta cadeia autoassinada. A configuracao agora mantem TLS com `sslmode=require` e limita a excecao de validacao ao cliente PostgreSQL deste runtime.
+- A terceira promocao (`32077347457`) concluiu o deploy de producao no commit `ed9f257`, incluindo migracao Node, health, smoke assinado/autenticado e canario; o health publico respondeu `200` e as rotas privadas anonimas responderam `401`.
+- A tentativa `32079135104` tambem concluiu o deploy no commit `8c566d7`, mas a etapa posterior de callback recebeu HTTP `400`/Meta `100`. A documentacao oficial confirma que `/{app-id}/subscriptions` nao suporta Webhooks do WhatsApp; a automacao incompatível foi removida e o corte permanece restrito ao Painel do App.
 
 ## Pendencias para nova prova real
 
