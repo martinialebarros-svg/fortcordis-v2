@@ -16,6 +16,7 @@ export interface WebhookMessage {
   audio?: Record<string, unknown>;
   video?: { caption?: string };
   document?: { filename?: string };
+  reaction?: { message_id?: string; emoji?: string };
   [key: string]: unknown;
 }
 
