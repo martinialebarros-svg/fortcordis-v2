@@ -114,7 +114,14 @@ export async function listConversations(req: Request, res: Response): Promise<vo
       FROM conversations c
       ${joinsSql}
       ${whereSql}
-      ORDER BY unread DESC, c.last_inbound_at ASC NULLS LAST, c.last_activity_at DESC, c.id DESC
+      ORDER BY
+        unread DESC,
+        CASE WHEN (
+          c.last_inbound_at IS NOT NULL
+          AND (c.last_seen_at IS NULL OR c.last_inbound_at > c.last_seen_at)
+        ) THEN c.last_inbound_at END ASC NULLS LAST,
+        c.last_activity_at DESC,
+        c.id DESC
       LIMIT $${dataParams.length - 1}
       OFFSET $${dataParams.length}
     `,

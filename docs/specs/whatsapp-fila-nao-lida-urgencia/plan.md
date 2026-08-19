@@ -28,6 +28,30 @@
   ordenação, endpoint de seen, 404);
 - [x] P3.3 `tsc --noEmit`, ESLint direcionado, `next build`, `vitest run`.
 
+## Fase 4 - bug de ordenação (reserva automática "sumindo" da lista)
+
+Usuário reportou: enviou uma reserva automática pelo botão "Enviar pelo
+FortCordis" para a clínica "Lá no Pet" (envio confirmado com sucesso,
+sem erro visível), mas a mensagem não aparecia na Central de Atendimento.
+
+- [x] P4.1 causa raiz: `ORDER BY unread DESC, c.last_inbound_at ASC
+  NULLS LAST, ...` aplicava o `NULLS LAST` **globalmente**, não só dentro
+  do grupo de não-lidas — qualquer conversa sem `last_inbound_at` (nunca
+  recebeu mensagem, ex.: reserva automática para clínica nova) caía
+  sempre depois de QUALQUER conversa com `last_inbound_at` preenchido,
+  mesmo antiga, em vez de competir por `last_activity_at` recente;
+- [x] P4.2 fix: `CASE WHEN <condicao de unread> THEN c.last_inbound_at
+  END ASC NULLS LAST` — só aplica esse critério de desempate dentro do
+  grupo de não-lidas; fora dele, cai direto para `last_activity_at DESC`
+  (nota: referenciar o alias `unread` calculado no SELECT dentro do CASE
+  falhou com "column unread does not exist" no Postgres — ORDER BY
+  resolve alias em referência direta, não dentro de expressões mais
+  complexas — foi preciso repetir a condição booleana completa);
+- [x] P4.3 novo teste `scripts/test-conversation-ordering.ts`: 4
+  conversas (não lida recente, não lida antiga, lida antiga, só-enviada-
+  agora-sem-inbound) confirmam a ordem correta, incluindo o caso do bug
+  (conversa sem inbound recente deve vir antes de uma lida antiga).
+
 ## Rollback
 
 - Reverter o `ORDER BY`/coluna calculada em `listConversations` e remover a

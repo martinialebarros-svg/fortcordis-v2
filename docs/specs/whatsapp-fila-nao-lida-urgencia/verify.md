@@ -48,3 +48,36 @@ Risco residual: modelo de "não lida" é compartilhado/global, não por
 atendente — reabrir uma conversa já vista por outra pessoa não a marca como
 não lida de novo, mesmo que o atendente atual ainda não a tenha visto
 pessoalmente.
+
+## Bug de ordenação corrigido - 2026-08-19
+
+Usuário reportou que uma reserva automática enviada com sucesso para a
+clínica "Lá no Pet" não aparecia na Central de Atendimento. Investigação
+confirmou envio bem-sucedido (sem erro no modal) — o problema era só de
+ordenação: `last_inbound_at ASC NULLS LAST` aplicava globalmente,
+empurrando qualquer conversa sem mensagem recebida (`last_inbound_at
+NULL`) para o fim da lista, atrás de QUALQUER conversa com
+`last_inbound_at` preenchido por mais antigo que fosse — mesmo que a
+conversa sem inbound tivesse acabado de ser criada/atualizada.
+
+Fix: `CASE WHEN <mesma condição do unread> THEN c.last_inbound_at END
+ASC NULLS LAST` restringe esse critério de desempate ao grupo de
+não-lidas; fora dele, a ordenação cai direto para `last_activity_at
+DESC`.
+
+- Novo teste `scripts/test-conversation-ordering.ts`
+  (`npm run test:conversation-ordering`): 4 conversas sintéticas (não
+  lida recente, não lida antiga, lida antiga, só-enviada-agora sem
+  inbound) confirmam a ordem exata esperada, cobrindo especificamente o
+  cenário do bug relatado. Passou.
+- `npm run test:inbox-ui`, `test:webhook-message-body`,
+  `test:webhook-cleanup-config`, `test:smoke-cleanup` (todos tocam
+  `conversations`/Postgres): sem regressão.
+- `npx tsc --noEmit`: passou.
+
+Nota técnica: a primeira tentativa do fix referenciava o alias `unread`
+(computado no `SELECT`) dentro do `CASE` do `ORDER BY` — falhou com
+"column unread does not exist" no Postgres. `ORDER BY` só resolve alias
+do `SELECT` em referência direta (`ORDER BY unread`), não dentro de uma
+expressão mais complexa; foi preciso repetir a condição booleana
+completa dentro do `CASE`.

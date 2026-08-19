@@ -10,10 +10,12 @@
   conversa, calculado como
   `last_inbound_at IS NOT NULL AND (last_seen_at IS NULL OR last_inbound_at > last_seen_at)`.
 - RF-004: a ordenação de `GET /conversations` passa a ser: não lidas
-  primeiro; dentro de cada grupo (não lidas / lidas), quem tem
-  `last_inbound_at` mais antigo aparece primeiro entre as não lidas
-  (prioriza espera mais longa); conversas lidas mantêm a ordenação anterior
-  por atividade recente.
+  primeiro; dentro do grupo de não lidas, quem tem `last_inbound_at` mais
+  antigo aparece primeiro (prioriza espera mais longa); conversas **não**
+  não-lidas (lidas, ou sem nenhuma mensagem recebida ainda — ex.: reserva
+  automática enviada a uma clínica nova) são ordenadas só por
+  `last_activity_at` mais recente primeiro, sem nenhum peso de
+  `last_inbound_at` — ver CA-005 para o bug corrigido aqui.
 - RF-005: `GET /conversations/:id/messages` passa a incluir `last_inbound_at`
   no corpo da resposta (já calculado internamente, só precisa ser exposto).
 - RF-006: ao abrir uma conversa (carga não-silenciosa), o frontend chama
@@ -61,3 +63,8 @@ de já existir dentro de `customer_service_window`).
   .../seen` de novo.
 - CA-004: não lidas aparecem antes das lidas na listagem; entre não lidas, a
   que espera há mais tempo (`last_inbound_at` mais antigo) vem primeiro.
+- CA-005: uma conversa sem nenhuma mensagem recebida (`last_inbound_at
+  IS NULL`, ex.: reserva automática recém-enviada a uma clínica) e com
+  atividade agora mesmo aparece **antes** de uma conversa lida há muito
+  tempo, mesmo que a última tenha `last_inbound_at` preenchido (não deve
+  cair para o fim da lista só por nunca ter recebido mensagem).
