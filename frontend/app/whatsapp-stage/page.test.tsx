@@ -774,4 +774,53 @@ describe("WhatsAppStagePage", () => {
 
     expect(screen.getByRole("img", { name: "[image]" })).toBeInTheDocument();
   });
+
+  it("oferece baixar o áudio quando o navegador não consegue tocar (ex.: Safari com Opus/OGG)", async () => {
+    if (!URL.createObjectURL) URL.createObjectURL = vi.fn(() => "blob:mock-url");
+    if (!URL.revokeObjectURL) URL.revokeObjectURL = vi.fn();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
+          data: [{ id: "80", wa_phone_number: "558544440000", wa_psid: null, status: "open", subject: "Áudio recebido",
+            last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: "2026-08-14T02:26:00.000Z",
+            created_at: "2026-08-14T02:00:00.000Z", updated_at: "2026-08-14T02:00:00.000Z" }],
+          pagination: { page: 1, limit: 20, total: 1 },
+        });
+        if (url === "/whatsapp/agents") return jsonResponse({ data: [] });
+        if (url === "/whatsapp/automation/templates") return jsonResponse({ data: [], source: "configured_catalog", meta_approval_live: null });
+        if (url.startsWith("/whatsapp/conversations/80/messages?")) return jsonResponse({
+          data: [{ id: "600", conversation_id: "80", wa_message_id: "wamid.audio", from_me: false, body: "[audio]", type: "audio", status: "received", created_at: "2026-08-14T02:26:00.000Z" }],
+          pagination: { page: 1, limit: 50, total: 1 },
+          customer_service_window: { last_inbound_at: "2026-08-14T02:26:00.000Z", expires_at: "2026-08-15T02:26:00.000Z", is_open: true },
+        });
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "80", last_seen_at: "2026-08-14T02:26:00.000Z" } });
+        if (url === "/whatsapp/conversations/80/messages/600/media") {
+          return { ok: true, status: 200, blob: async () => new Blob(["fake-audio-bytes"], { type: "audio/ogg" }) } as unknown as Response;
+        }
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Ouvir áudio" }));
+    await act(async () => {
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    });
+
+    const audioEl = document.querySelector("audio");
+    expect(audioEl).not.toBeNull();
+    fireEvent.error(audioEl as HTMLAudioElement);
+
+    expect(screen.getByText(/não toca este áudio/)).toBeInTheDocument();
+    expect(document.querySelector("audio")).toBeNull();
+  });
 });

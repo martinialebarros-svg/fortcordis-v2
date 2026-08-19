@@ -65,3 +65,19 @@ conversa, sob demanda, sem persistir o binário no nosso banco.
   própria Meta, atravessada pelo nosso backend.
 - Erro de configuração (token/`PHONE_NUMBER_ID` ausente) retorna `500`
   claro em vez de deixar a exceção estourar sem resposta.
+
+## Adendo - Safari não toca o áudio do WhatsApp (Opus/OGG)
+
+Confirmado em produção: a imagem carrega normalmente, mas o áudio mostra
+"Erro" no player nativo do Safari. Causa: o WhatsApp envia áudio como
+Opus dentro de contêiner OGG (`audio/ogg; codecs=opus`), e o WebKit/Safari
+não decodifica esse contêiner (suporta Opus só dentro de MP4/CAF, nunca
+Ogg). Não é bug do proxy — o binário chega correto, só não é reproduzível
+pelo `<audio>` nesse navegador especificamente.
+
+Decisão: sem transcodificação no servidor (exigiria ffmpeg como
+dependência nova de infraestrutura, fora do escopo desta entrega). Em vez
+disso, o player escuta o evento `onError` do elemento `<audio>` e troca
+para um link de download ("baixar para ouvir em outro app") quando a
+reprodução falha — garante que o áudio nunca fica preso atrás de um
+player quebrado, mesmo sem conseguir tocar inline.

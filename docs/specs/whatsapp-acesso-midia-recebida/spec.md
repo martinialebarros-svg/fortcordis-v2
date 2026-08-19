@@ -57,3 +57,6 @@ baixável), `500` (config ausente), `502` (falha na Graph API).
 - CA-004: falha na Graph API (token inválido, mídia inexistente) retorna
   `502` de forma controlada, sem quebrar a requisição.
 - CA-005: mensagem inexistente ou de outra conversa retorna `404`.
+- CA-006: quando o elemento `<audio>` dispara `onError` (navegador não
+  suporta o codec/contêiner), o player é substituído por um link de
+  download do arquivo já carregado, em vez de deixar um player quebrado.

@@ -60,3 +60,21 @@ Risco residual: sem cache, mídia muito antiga pode falhar ao carregar se
 a Meta já não a mantiver disponível para download — nesse caso o
 atendente vê "Falha ao carregar. Tentar de novo", sem alternativa
 (mencionado no intent.md como decisão consciente de escopo).
+
+## Resultado do fallback de áudio - 2026-08-19
+
+- Usuário reportou em produção: imagem carregou normalmente, áudio deu
+  "Erro" no player do Safari (WebKit não decodifica Opus/OGG).
+- Adicionado handler `onError` no elemento `<audio>` que troca para um
+  link "baixar para ouvir em outro app" quando a reprodução falha.
+- Novo teste `oferece baixar o áudio quando o navegador não consegue
+  tocar`: simula `fireEvent.error` no elemento `<audio>` e confirma que o
+  player some e o link de download aparece.
+- `npx vitest run app/whatsapp-stage/page.test.tsx`: 12 testes passaram
+  (1 novo, sem regressão nos 11 já existentes).
+- `npx eslint`, `npx tsc --noEmit`, `npx next build`: todos passaram.
+
+Risco residual adicional: o link de download baixa o arquivo Opus/OGG
+original — quem não tiver um player compatível no computador ainda
+precisa de outro app para ouvir. Transcodificação server-side (ffmpeg)
+ficou fora do escopo; reconsiderar se isso continuar sendo fricção real.

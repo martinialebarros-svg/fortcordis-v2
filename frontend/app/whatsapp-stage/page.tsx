@@ -281,6 +281,7 @@ const MEDIA_ACTION_LABEL: Record<string, string> = {
 function WhatsAppMediaViewer({ conversationId, message }: { conversationId: string; message: Message }) {
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [audioPlaybackError, setAudioPlaybackError] = useState(false);
 
   useEffect(() => () => { if (blobUrl) URL.revokeObjectURL(blobUrl); }, [blobUrl]);
 
@@ -307,7 +308,12 @@ function WhatsAppMediaViewer({ conversationId, message }: { conversationId: stri
       return <img src={blobUrl} alt={message.body || "Imagem recebida"} className="fc-wa-media-preview" />;
     }
     if (message.type === "audio") {
-      return <audio controls src={blobUrl} className="fc-wa-media-preview" />;
+      if (audioPlaybackError) {
+        return <a href={blobUrl} download="audio.ogg" className="fc-wa-media-download-link">
+          <FileText className="h-4 w-4" /> Este navegador não toca este áudio — baixar para ouvir em outro app
+        </a>;
+      }
+      return <audio controls src={blobUrl} className="fc-wa-media-preview" onError={() => setAudioPlaybackError(true)} />;
     }
     if (message.type === "video") {
       return <video controls src={blobUrl} className="fc-wa-media-preview" />;
