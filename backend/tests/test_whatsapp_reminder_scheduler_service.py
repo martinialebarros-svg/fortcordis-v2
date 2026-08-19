@@ -163,6 +163,49 @@ class WhatsAppReminderSchedulerServiceTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
+    def test_list_clinicas_prontidao_whatsapp_lembrete_conta_e_ordena_por_agendamentos_60_dias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                now = datetime.now(timezone.utc)
+                db = SessionFactory()
+                try:
+                    movimentada = Clinica(nome="Clinica Movimentada", whatsapps=["5585999998888"], telefone=None, ativo=True)
+                    tranquila = Clinica(nome="Clinica Tranquila", whatsapps=["5585999997777"], telefone=None, ativo=True)
+                    sem_movimento = Clinica(nome="Clinica Sem Movimento", whatsapps=["5585999996666"], telefone=None, ativo=True)
+                    db.add_all([movimentada, tranquila, sem_movimento])
+                    db.commit()
+
+                    for _ in range(5):
+                        db.add(Agendamento(
+                            status="Realizado", inicio=now, clinica_id=movimentada.id,
+                            created_at=now - timedelta(days=10),
+                        ))
+                    db.add(Agendamento(
+                        status="Realizado", inicio=now, clinica_id=tranquila.id,
+                        created_at=now - timedelta(days=10),
+                    ))
+                    # Fora da janela de 60 dias - nao deve contar.
+                    db.add(Agendamento(
+                        status="Realizado", inicio=now, clinica_id=sem_movimento.id,
+                        created_at=now - timedelta(days=90),
+                    ))
+                    db.commit()
+
+                    resultado = scheduler.list_clinicas_prontidao_whatsapp_lembrete(db, janela_dias=60)
+
+                    contagens = {c["clinica_nome"]: c["agendamentos_60_dias"] for c in resultado["clinicas"]}
+                    self.assertEqual(contagens["Clinica Movimentada"], 5)
+                    self.assertEqual(contagens["Clinica Tranquila"], 1)
+                    self.assertEqual(contagens["Clinica Sem Movimento"], 0)
+
+                    nomes_em_ordem = [c["clinica_nome"] for c in resultado["clinicas"]]
+                    self.assertEqual(nomes_em_ordem, ["Clinica Movimentada", "Clinica Tranquila", "Clinica Sem Movimento"])
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
     def test_is_reminder_scheduler_enabled_in_db_reflete_configuracoes(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             SessionFactory, engine = self._build_session_factory(tmpdir)

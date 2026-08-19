@@ -245,18 +245,20 @@ interface AuditoriaEventoItem {
   metodo?: string | null;
 }
 
-interface ClinicaProntidaoProblema {
+interface ClinicaProntidaoItem {
   clinica_id: number;
   clinica_nome: string;
-  motivo: "sem_numero" | "numero_invalido";
-  valor_cadastrado?: string;
+  motivo: "sem_numero" | "numero_invalido" | null;
+  valor_cadastrado?: string | null;
+  agendamentos_60_dias: number;
 }
 
 interface ClinicaProntidaoWhatsapp {
+  janela_dias: number;
   total_clinicas_ativas: number;
   total_prontas: number;
   total_com_problema: number;
-  problemas: ClinicaProntidaoProblema[];
+  clinicas: ClinicaProntidaoItem[];
 }
 
 export default function ConfiguracoesPage() {
@@ -2517,25 +2519,33 @@ export default function ConfiguracoesPage() {
                   <div className="mt-3">
                     <p className="text-sm text-gray-700">
                       {prontidaoClinicas.total_prontas} de {prontidaoClinicas.total_clinicas_ativas} clínicas ativas
-                      prontas para o lembrete automático.
+                      prontas para o lembrete automático. Ordenadas por quantidade de agendamentos solicitados nos
+                      últimos {prontidaoClinicas.janela_dias} dias, da maior para a menor — priorize a revisão pelo topo.
                     </p>
-                    {prontidaoClinicas.problemas.length > 0 && (
+                    {prontidaoClinicas.clinicas.length > 0 && (
                       <ul className="mt-2 space-y-1">
-                        {prontidaoClinicas.problemas.map((problema) => (
+                        {prontidaoClinicas.clinicas.map((clinica) => (
                           <li
-                            key={problema.clinica_id}
-                            className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center justify-between gap-2"
+                            key={clinica.clinica_id}
+                            className={`text-xs rounded px-3 py-2 flex items-center justify-between gap-2 border ${
+                              clinica.motivo ? "text-amber-800 bg-amber-50 border-amber-200" : "text-emerald-800 bg-emerald-50 border-emerald-200"
+                            }`}
                           >
                             <span>
-                              <strong>{problema.clinica_nome}</strong>
+                              <strong>{clinica.agendamentos_60_dias}</strong> agendamento(s) —{" "}
+                              <strong>{clinica.clinica_nome}</strong>
                               {" — "}
-                              {problema.motivo === "sem_numero"
+                              {clinica.motivo === "sem_numero"
                                 ? "sem WhatsApp cadastrado"
-                                : `número inválido (${problema.valor_cadastrado})`}
+                                : clinica.motivo === "numero_invalido"
+                                  ? `número inválido (${clinica.valor_cadastrado})`
+                                  : "pronta"}
                             </span>
-                            <a href={`/clinicas/${problema.clinica_id}`} className="text-teal-700 underline whitespace-nowrap">
-                              Corrigir
-                            </a>
+                            {clinica.motivo && (
+                              <a href={`/clinicas/${clinica.clinica_id}`} className="text-teal-700 underline whitespace-nowrap">
+                                Corrigir
+                              </a>
+                            )}
                           </li>
                         ))}
                       </ul>

@@ -51,3 +51,20 @@ efetivamente usado** (primeiro válido da lista, com fallback para
 telefone) — clínicas com múltiplos WhatsApps cadastrados não têm os
 demais números validados, por não serem relevantes para o envio real
 (decisão de escopo, ver intent.md).
+
+## Priorização por volume de agendamentos - 2026-08-19
+
+Usuário pediu para focar a revisão pelas clínicas de maior movimento.
+
+- `test_list_clinicas_prontidao_whatsapp_lembrete_conta_e_ordena_por_agendamentos_60_dias`:
+  3 clínicas com 5, 1 e 0 agendamentos dentro da janela (mais 1 fora da
+  janela de 60 dias, que não deve contar) — confirma contagem exata por
+  clínica e ordem decrescente. Passou.
+- Suíte completa do backend: 816 testes (1 novo), sem regressão.
+- `tsc --noEmit`, `eslint --max-warnings=0`, `next build`: sem erros.
+- Verificação manual (browser real, login local): botão exibe a lista
+  completa (não só problemas), cada linha com contagem e status visual
+  (verde/âmbar) — dados locais têm 0 agendamentos vinculados, então a
+  ordenação por contagem não pôde ser visualmente confirmada em produção
+  local, mas a lógica de contagem/ordenação já está coberta pelo teste
+  automatizado acima com dados fabricados.

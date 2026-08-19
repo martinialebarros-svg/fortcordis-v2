@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -151,55 +151,69 @@ def list_eligible_agendamentos_preview(
     return preview
 
 
-def list_clinicas_prontidao_whatsapp_lembrete(db: Session) -> dict[str, Any]:
+def list_clinicas_prontidao_whatsapp_lembrete(
+    db: Session, *, janela_dias: int = 60
+) -> dict[str, Any]:
     """Audita, para cada clinica parceira ativa, se o numero de WhatsApp
 
     que o lembrete automatico usaria (mesma resolucao de _resolve_destination:
     primeiro item nao-vazio de `whatsapps`, com fallback para `telefone`)
-    passa na validacao usada no envio real (`normalize_whatsapp_number`).
-    Somente leitura, nao envia nada - serve para revisao manual antes de
-    habilitar o lembrete automatico em Configuracoes.
+    passa na validacao usada no envio real (`normalize_whatsapp_number`), e
+    quantos agendamentos a clinica solicitou nos ultimos `janela_dias` dias
+    (por `created_at`, nao pela data da consulta), para o usuario priorizar
+    a revisao pelas clinicas de maior movimento. Somente leitura, nao envia
+    nada - serve para revisao manual antes de habilitar o lembrete
+    automatico em Configuracoes.
     """
     from app.models.clinica import Clinica
     from app.services.whatsapp_agenda_service import normalize_whatsapp_number
 
-    clinicas = (
-        db.query(Clinica)
-        .filter(Clinica.ativo.is_(True))
-        .order_by(Clinica.nome.asc())
+    clinicas = db.query(Clinica).filter(Clinica.ativo.is_(True)).all()
+
+    cutoff = _utc_now() - timedelta(days=max(1, int(janela_dias)))
+    contagem_por_clinica = dict(
+        db.query(Agendamento.clinica_id, func.count(Agendamento.id))
+        .filter(Agendamento.clinica_id.isnot(None), Agendamento.created_at >= cutoff)
+        .group_by(Agendamento.clinica_id)
         .all()
     )
 
-    problemas: list[dict[str, Any]] = []
+    clinicas_info: list[dict[str, Any]] = []
     total_prontas = 0
     for clinica in clinicas:
         candidates = clinica.whatsapps if isinstance(clinica.whatsapps, list) else []
         destino = next((str(value).strip() for value in candidates if str(value or "").strip()), None)
         destino = destino or (str(clinica.telefone).strip() if clinica.telefone else None)
 
+        motivo: Optional[str] = None
+        valor_cadastrado: Optional[str] = None
         if not destino:
-            problemas.append({
-                "clinica_id": clinica.id,
-                "clinica_nome": clinica.nome,
-                "motivo": "sem_numero",
-            })
-            continue
+            motivo = "sem_numero"
+        else:
+            try:
+                normalize_whatsapp_number(destino)
+                total_prontas += 1
+            except HTTPException:
+                motivo = "numero_invalido"
+                valor_cadastrado = destino
 
-        try:
-            normalize_whatsapp_number(destino)
-            total_prontas += 1
-        except HTTPException:
-            problemas.append({
-                "clinica_id": clinica.id,
-                "clinica_nome": clinica.nome,
-                "motivo": "numero_invalido",
-                "valor_cadastrado": destino,
-            })
+        clinicas_info.append({
+            "clinica_id": clinica.id,
+            "clinica_nome": clinica.nome,
+            "motivo": motivo,
+            "valor_cadastrado": valor_cadastrado,
+            "agendamentos_60_dias": int(contagem_por_clinica.get(clinica.id, 0)),
+        })
+
+    clinicas_info.sort(key=lambda item: (-item["agendamentos_60_dias"], item["clinica_nome"] or ""))
+    problemas = [item for item in clinicas_info if item["motivo"]]
 
     return {
+        "janela_dias": janela_dias,
         "total_clinicas_ativas": len(clinicas),
         "total_prontas": total_prontas,
         "total_com_problema": len(problemas),
+        "clinicas": clinicas_info,
         "problemas": problemas,
     }
 

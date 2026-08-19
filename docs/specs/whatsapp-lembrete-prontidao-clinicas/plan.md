@@ -29,6 +29,22 @@
   clique no botão, confirma resumo e links "Corrigir" apontando para
   `/clinicas/:id` corretos (dados de teste locais).
 
+## Fase 4 - priorização por volume de agendamentos (a pedido do usuário)
+
+Usuário pediu explicitamente uma lista das clínicas que solicitaram
+agendamento nos últimos 60 dias, ordenada da maior para a menor, para
+focar a revisão manual pelas de maior movimento primeiro.
+
+- [x] P4.1 `list_clinicas_prontidao_whatsapp_lembrete` passou a contar
+  `Agendamento` por `clinica_id` dentro da janela (`created_at >=
+  now - janela_dias`, padrão 60) e a retornar **todas** as clínicas
+  ativas (não só as com problema) já ordenadas por essa contagem;
+- [x] P4.2 UI em Configurações atualizada para renderizar a lista
+  completa ordenada, com badge verde ("pronta") ou âmbar (com motivo),
+  contagem de agendamentos visível em cada linha;
+- [x] P4.3 novo teste `..._conta_e_ordena_por_agendamentos_60_dias`
+  cobrindo contagem, exclusão de agendamentos fora da janela, e ordem.
+
 ## Rollback
 
 - Remover o endpoint e a seção da UI restaura o comportamento anterior
