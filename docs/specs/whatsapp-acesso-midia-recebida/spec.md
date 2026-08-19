@@ -38,6 +38,13 @@
   executável logo após o `npm ci` do `whatsapp-stage-backend`, registrando
   o resultado no log do deploy (mesmo padrão já usado para verificar o
   Tesseract OCR).
+- RF-007c: toda mensagem de áudio, ao buscar a mídia, registra no console
+  do navegador o `Content-Type` da resposta e o `type`/tamanho do Blob
+  resultante; se o elemento `<audio>` disparar `onError`, também registra
+  o código do `MediaError` e o `currentSrc` — diagnóstico para falhas de
+  reprodução sem depender de acesso à aba Network do DevTools.
+- RF-007d: o link de fallback de áudio baixa o arquivo como `audio.mp3`
+  (refletindo o formato realmente servido), não mais `audio.ogg`.
 
 ## Requisitos não funcionais
 

@@ -296,6 +296,13 @@ function WhatsAppMediaViewer({ conversationId, message }: { conversationId: stri
       );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
+      if (message.type === "audio") {
+        console.debug("[WhatsAppMediaViewer] audio fetch", {
+          responseContentType: response.headers?.get("content-type") ?? null,
+          blobType: blob.type,
+          blobSize: blob.size,
+        });
+      }
       setBlobUrl(URL.createObjectURL(blob));
       setState("idle");
     } catch {
@@ -309,11 +316,22 @@ function WhatsAppMediaViewer({ conversationId, message }: { conversationId: stri
     }
     if (message.type === "audio") {
       if (audioPlaybackError) {
-        return <a href={blobUrl} download="audio.ogg" className="fc-wa-media-download-link">
+        return <a href={blobUrl} download="audio.mp3" className="fc-wa-media-download-link">
           <FileText className="h-4 w-4" /> Este navegador não toca este áudio — baixar para ouvir em outro app
         </a>;
       }
-      return <audio controls src={blobUrl} className="fc-wa-media-preview" onError={() => setAudioPlaybackError(true)} />;
+      return <audio
+        controls
+        src={blobUrl}
+        className="fc-wa-media-preview"
+        onError={(event) => {
+          console.error("[WhatsAppMediaViewer] audio playback error", {
+            mediaErrorCode: event.currentTarget.error?.code ?? null,
+            currentSrc: event.currentTarget.currentSrc,
+          });
+          setAudioPlaybackError(true);
+        }}
+      />;
     }
     if (message.type === "video") {
       return <video controls src={blobUrl} className="fc-wa-media-preview" />;

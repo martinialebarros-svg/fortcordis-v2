@@ -150,3 +150,81 @@ de produção:
   a hipótese antes de decidir o próximo passo.
 
 Ainda não confirmado definitivamente até reler o log do próximo deploy.
+
+## Diagnóstico do ffmpeg confirmado negativo - hipótese descartada - 2026-08-19
+
+Deploy do diagnóstico feito em stage e produção. Em ambos os ambientes
+(mesma VPS, apps distintos) o log do deploy confirmou:
+`ffmpeg-static binary ready: .../node_modules/ffmpeg-static/ffmpeg
+(ffmpeg version 7.0.2-static https://johnvansickle.com/ffmpeg/)` — o
+binário existe, é executável e funciona nos dois ambientes. Hipótese de
+"binário ausente" **descartada**.
+
+Nota técnica sobre o processo de deploy: como `scripts/deploy_prod_vps.sh`
+faz `git reset --hard` em si mesmo durante a própria execução, o processo
+bash já em execução continua rodando a versão do script que existia
+*antes* do reset (o shell não relê o arquivo do meio da execução) — então
+qualquer mudança no próprio script de deploy só tem efeito prático a
+partir do deploy *seguinte*. Para confirmar o diagnóstico sem esperar
+outro commit, usei `gh run rerun --job <id>` no mesmo job: como o código
+já estava atualizado em disco pelo deploy anterior, o rerun executa a
+versão nova do script imediatamente.
+
+Usuário testou de novo em produção (reload completo + novo clique) e o
+erro persistiu — descartando também a hipótese de estado do componente
+React preso de uma tentativa anterior (o link de fallback, uma vez
+mostrado, não tem como acionar novo carregamento — outro ponto a
+melhorar, mas não a causa raiz aqui).
+
+**Descoberta decisiva**: o usuário anexou o arquivo baixado
+(`audio (1).ogg`, 46508 bytes). Inspeção teve dois resultados
+aparentemente contraditórios:
+- `file` (assinatura/magic bytes): identifica corretamente como MP3
+  válido (`ID3 version 2.4.0 ... MPEG ADTS, layer III, v1, 128 kbps,
+  48 kHz, Monaural`) — confirma que a transcodificação no servidor está
+  **funcionando** (bitrate/sample rate batem exatamente com os parâmetros
+  do `ffmpeg` usado no código).
+- Verificação byte-a-byte de todos os 121 frames MPEG do arquivo (script
+  Python ad-hoc): 100% estruturalmente válido, sem truncamento, sem
+  frame corrompido, tamanho final bate exato com o fim do arquivo.
+- `afinfo` (Core Audio, macOS) recusa abrir o arquivo — tanto com a
+  extensão original quanto renomeado para `.mp3`. Isso inicialmente
+  pareceu um sinal de arquivo quebrado, mas foi descartado como pista
+  falsa: reproduzi o mesmo comando `ffmpeg` (pipe stdin/stdout,
+  `-f mp3 -codec:a libmp3lame -b:a 128k`) localmente com um tom de teste
+  sintético, e o resultado **abre normalmente no `afinfo`** — ou seja,
+  `afinfo`/Core Audio é mais estrito que os decoders de navegador em
+  geral, não é um teste confiável para prever o comportamento real do
+  `<audio>` do Chrome/Safari.
+- Teste decisivo: servi o arquivo real (baixado da produção) e o arquivo
+  sintético via um servidor HTTP local simples, e abri ambos em um
+  Chromium real (Browser pane) com um `<audio>` de teste. **Os dois
+  tocam perfeitamente** (`canplaythrough`, sem `error`). Isso prova que
+  o arquivo produzido pela transcodificação de produção é 100% válido e
+  reproduzível em um motor de navegador real — o problema não está no
+  áudio em si, nem na transcodificação.
+
+Conclusão: a falha está especificamente no caminho
+fetch → blob → `URL.createObjectURL` → `<audio src>` dentro do app (ou
+no proxy do Next.js entre o app e o `whatsapp-stage-backend`), não na
+geração do arquivo. Provavelmente o `Content-Type`/tipo do Blob que chega
+ao elemento `<audio>` não é `audio/mpeg` como esperado, mesmo com os
+bytes corretos — mas isso não pôde ser confirmado sem acesso autenticado
+à produção.
+
+Mudança para obter essa confirmação sem exigir que o usuário abra a aba
+Network do DevTools (mais fricção): `WhatsAppMediaViewer` passou a
+logar no console do navegador, em toda mensagem de áudio: o
+`Content-Type` da resposta do fetch, o `type`/tamanho do Blob resultante
+(em `carregarMidia`), e — se o `<audio>` disparar `onError` — o código
+numérico do `MediaError` (`event.currentTarget.error.code`: 1=abortado,
+2=erro de rede, 3=erro de decodificação, 4=formato/src não suportado) e o
+`currentSrc`. Também corrigido, de passagem: o link de fallback baixava
+sempre com nome fixo `audio.ogg`, mesmo já servindo mp3 — trocado para
+`audio.mp3` (cosmético, não relacionado à causa raiz, mas induzia ao erro
+de diagnóstico "ainda está vindo ogg" quando na verdade eram bytes mp3
+com nome de arquivo errado).
+
+`npx tsc --noEmit`, `npx eslint --max-warnings=0`, `npx vitest run
+app/whatsapp-stage/page.test.tsx` (12 testes, sem regressão) e `npx next
+build`: todos passaram.
