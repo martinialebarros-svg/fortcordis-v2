@@ -823,4 +823,70 @@ describe("WhatsAppStagePage", () => {
     expect(screen.getByText(/não toca este áudio/)).toBeInTheDocument();
     expect(document.querySelector("audio")).toBeNull();
   });
+
+  it("reenvia uma mensagem com falha", async () => {
+    const requestedCalls: Array<{ url: string; method: string; body: unknown }> = [];
+    let messagesCallCount = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method || "GET";
+        if (method !== "GET") {
+          requestedCalls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
+        }
+
+        if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
+          data: [{ id: "90", wa_phone_number: "558555550000", wa_psid: null, status: "open", subject: "Mensagem com falha",
+            last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: "2026-08-14T02:26:00.000Z",
+            created_at: "2026-08-14T02:00:00.000Z", updated_at: "2026-08-14T02:00:00.000Z" }],
+          pagination: { page: 1, limit: 20, total: 1 },
+        });
+        if (url === "/whatsapp/agents") return jsonResponse({ data: [] });
+        if (url === "/whatsapp/automation/templates") return jsonResponse({ data: [], source: "configured_catalog", meta_approval_live: null });
+        if (url.startsWith("/whatsapp/conversations/90/messages?")) {
+          messagesCallCount += 1;
+          return jsonResponse({
+            data: [{
+              id: "800", conversation_id: "90", wa_message_id: null, from_me: true,
+              body: "Olá, tudo bem?", type: "text",
+              status: messagesCallCount === 1 ? "failed" : "sent",
+              created_at: "2026-08-14T02:26:00.000Z",
+            }],
+            pagination: { page: 1, limit: 50, total: 1 },
+            customer_service_window: { last_inbound_at: "2026-08-14T02:26:00.000Z", expires_at: "2026-08-15T02:26:00.000Z", is_open: true },
+          });
+        }
+        if (url === "/whatsapp/conversations/90/messages" && method === "POST") {
+          return jsonResponse({ id: "801", wa_message_id: "wamid.reenvio", status: "sent" });
+        }
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "90", last_seen_at: "2026-08-14T02:26:00.000Z" } });
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("button", { name: /Reenviar/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Reenviar/ }));
+
+    await act(async () => {
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    });
+
+    const postCall = requestedCalls.find((call) => call.method === "POST");
+    expect(postCall).toEqual({
+      url: "/whatsapp/conversations/90/messages",
+      method: "POST",
+      body: { body: "Olá, tudo bem?", type: "text" },
+    });
+    expect(screen.getByText("Mensagem reenviada.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Reenviar/ })).toBeNull();
+  });
 });

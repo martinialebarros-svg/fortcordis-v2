@@ -377,6 +377,7 @@ export default function WhatsAppStagePage() {
   const [editAgentRole, setEditAgentRole] = useState("agent");
   const [savingAgentId, setSavingAgentId] = useState<string | null>(null);
   const [sendMessageBody, setSendMessageBody] = useState("");
+  const [resendingMessageId, setResendingMessageId] = useState<string | null>(null);
   const [composerMode, setComposerMode] = useState<ComposerMode>("message");
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
   const [templateParameters, setTemplateParameters] = useState<string[]>([]);
@@ -578,6 +579,25 @@ export default function WhatsAppStagePage() {
     await loadMessages(selectedConversationId, 1); await loadConversations(conversationsPagination.page || 1);
   };
 
+  const handleResendMessage = async (message: Message): Promise<void> => {
+    if (!selectedConversationId || !message.body) return;
+    setResendingMessageId(message.id);
+    const result = await requestJson<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
+      `/whatsapp/conversations/${selectedConversationId}/messages`, {
+        method: "POST", body: JSON.stringify({ body: message.body, type: message.type }),
+      });
+    if (!result.ok) {
+      if (result.status === 409 && result.data?.code === "CUSTOMER_SERVICE_WINDOW_CLOSED") {
+        if (result.data.customer_service_window) setCustomerServiceWindows((current) => ({
+          ...current, [selectedConversationId]: result.data!.customer_service_window!,
+        }));
+        setErrorMessage("A janela de 24 horas foi encerrada. Use um modelo aprovado.");
+      } else setErrorMessage(result.errorText || `Falha ao reenviar mensagem (HTTP ${result.status})`);
+    } else setInfoMessage("Mensagem reenviada.");
+    setResendingMessageId(null);
+    await loadMessages(selectedConversationId, 1); await loadConversations(conversationsPagination.page || 1);
+  };
+
   const handleTemplateSelection = (templateKey: string): void => {
     setSelectedTemplateKey(templateKey);
     const template = templates.find((item) => item.key === templateKey);
@@ -711,7 +731,11 @@ export default function WhatsAppStagePage() {
                 return <Fragment key={message.id}>{showDay ? <div className="fc-wa-day-separator"><span>{formatMessageDay(message.created_at)}</span></div> : null}
                   <article className={`fc-wa-bubble ${message.from_me ? "fc-wa-bubble-agent" : "fc-wa-bubble-client"}`}><p>{message.body || `[${message.type}]`}</p>
                     {!message.from_me && selectedConversationId ? <WhatsAppMediaViewer conversationId={selectedConversationId} message={message} /> : null}
-                    <footer><time>{formatMessageTime(message.created_at)}</time><span className={`fc-wa-delivery fc-wa-delivery-${message.status}`}>{messageStatusIcon(message.status)} {messageStatusLabel(message.status)}</span></footer>
+                    <footer><time>{formatMessageTime(message.created_at)}</time><span className={`fc-wa-delivery fc-wa-delivery-${message.status}`}>{messageStatusIcon(message.status)} {messageStatusLabel(message.status)}</span>
+                      {message.from_me && message.status === "failed" ? <button type="button" className="fc-wa-resend-button"
+                        onClick={() => void handleResendMessage(message)} disabled={resendingMessageId === message.id}>
+                        <RefreshCw className={`h-3.5 w-3.5 ${resendingMessageId === message.id ? "animate-spin" : ""}`} /> Reenviar
+                      </button> : null}</footer>
                     <details><summary>Detalhes técnicos</summary><span>Tipo: {message.type}</span>{message.wa_message_id ? <span>ID Meta: {message.wa_message_id}</span> : null}</details></article></Fragment>;
               })}</div>}</div>
 

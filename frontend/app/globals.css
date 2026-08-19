@@ -4274,6 +4274,10 @@ body {
   .fc-wa-delivery-delivered { @apply text-sky-600; }
   .fc-wa-delivery-failed { @apply text-rose-600; }
 
+  .fc-wa-resend-button {
+    @apply inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 outline-none transition hover:bg-rose-100 focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
   .fc-wa-bubble details {
     @apply mt-2 border-t border-ink-100/80 pt-1 text-[10px] text-ink-400;
   }
