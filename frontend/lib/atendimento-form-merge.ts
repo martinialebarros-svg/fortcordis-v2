@@ -13,6 +13,57 @@ export const buildExamMergeKey = (item: ExameSolicitacao) =>
     (item.observacoes || "").trim().toLowerCase(),
   ].join("|");
 
+const isSameExamRequest = (left: ExameSolicitacao, right: ExameSolicitacao) => {
+  const leftCatalogId = Number(left.catalogo_exame_id || 0);
+  const rightCatalogId = Number(right.catalogo_exame_id || 0);
+  if (leftCatalogId > 0 && rightCatalogId > 0) {
+    return leftCatalogId === rightCatalogId;
+  }
+  return buildExamMergeKey(left) === buildExamMergeKey(right);
+};
+
+/**
+ * Conserva a intenção de exclusão quando ela ocorre durante o primeiro save
+ * de um exame. Nesse intervalo o card ainda não tem `id` no navegador, mas
+ * o POST em voo pode terminar criando o registro. Sem este ajuste o item some
+ * da tela, porém fica no banco e volta a aparecer no PDF/reabertura.
+ */
+export const reconcileExamRemovalsDuringSave = (
+  currentExams: ExameSolicitacao[],
+  sentExams: ExameSolicitacao[],
+  persistedExams: ExameSolicitacao[],
+  sentDestroyIds: ReadonlySet<number>
+): ExameSolicitacao[] => {
+  const next = currentExams.filter(
+    (item) => !(item._destroy && item.id != null && sentDestroyIds.has(item.id))
+  );
+  const persistedPool = [...persistedExams];
+
+  sentExams.forEach((sentExam) => {
+    if (sentExam.id != null || !sentExam._localId || !(sentExam.tipo_exame || "").trim()) return;
+
+    const wasRemovedLocally = !next.some((item) => item._localId === sentExam._localId);
+    const requestStillExists = next.some(
+      (item) => !item._destroy && isSameExamRequest(item, sentExam)
+    );
+    if (!wasRemovedLocally || requestStillExists) return;
+
+    const persistedIndex = persistedPool.findIndex((item) => isSameExamRequest(item, sentExam));
+    if (persistedIndex < 0) return;
+
+    const persistedExam = persistedPool.splice(persistedIndex, 1)[0];
+    if (persistedExam.id == null || next.some((item) => item.id === persistedExam.id)) return;
+
+    next.push({
+      ...persistedExam,
+      _destroy: true,
+      _localId: sentExam._localId,
+    });
+  });
+
+  return next;
+};
+
 const buildPrescriptionMergeKey = (item: PrescricaoItem) =>
   [
     item.medicamento_id || "",

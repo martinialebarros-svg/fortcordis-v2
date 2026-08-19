@@ -28,6 +28,7 @@ from app.api.v1.endpoints import atendimento
 from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico, ExameAjuste
 from app.models.clinica import Clinica
+from app.models.catalogo_exame import CatalogoExame
 from app.models.laudo import Exame
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
@@ -46,6 +47,7 @@ class AtendimentoExameIntegridadeTest(unittest.TestCase):
             Tutor.__table__,
             Paciente.__table__,
             Clinica.__table__,
+            CatalogoExame.__table__,
             AtendimentoClinico.__table__,
             AnexoAtendimento.__table__,
             Exame.__table__,
@@ -306,6 +308,50 @@ class AtendimentoExameIntegridadeTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             ExameSolicitacaoPayload(**{"id": 1, "tipo_exame": ""})
+
+    def test_autosave_atrasado_com_id_ja_excluido_nao_recria_exame(self):
+        """Um PUT atrasado nao pode ressuscitar um item removido pelo usuario."""
+        self._atualizar(
+            AtendimentoUpdatePayload(
+                exames=[ExameSolicitacaoPayload(id=987654, tipo_exame="Ultrassom abdominal")]
+            )
+        )
+
+        self.assertEqual(
+            self.db.query(Exame).filter(Exame.atendimento_id == self.atendimento.id).count(),
+            0,
+        )
+
+    def test_mesmo_catalogo_sem_id_em_retry_reaproveita_exame_existente(self):
+        """Clique duplo/retry antes da hidratacao conserva uma unica solicitacao."""
+        catalogo = CatalogoExame(
+            codigo="ultrassom_abdominal",
+            nome="Ultrassom abdominal",
+            categoria="Imagem",
+            ativo=1,
+        )
+        self.db.add(catalogo)
+        self.db.commit()
+
+        payload = ExameSolicitacaoPayload(
+            catalogo_exame_id=catalogo.id,
+            tipo_exame="Ultrassom abdominal",
+        )
+        atendimento._sync_exames(self.db, self.atendimento, [payload, payload], self.user)
+        self.db.commit()
+
+        self.assertEqual(
+            self.db.query(Exame).filter(Exame.atendimento_id == self.atendimento.id).count(),
+            1,
+        )
+
+        atendimento._sync_exames(self.db, self.atendimento, [payload], self.user)
+        self.db.commit()
+
+        self.assertEqual(
+            self.db.query(Exame).filter(Exame.atendimento_id == self.atendimento.id).count(),
+            1,
+        )
 
     # ------------------------------------------------ status e portal (D2)
 

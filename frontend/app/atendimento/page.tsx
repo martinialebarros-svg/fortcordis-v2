@@ -6,7 +6,11 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { extractApiErrorMessage, extractApiErrorMessageSync } from "@/lib/api-error";
-import { buildExamMergeKey, mergeAutoSavedFormState } from "@/lib/atendimento-form-merge";
+import {
+  buildExamMergeKey,
+  mergeAutoSavedFormState,
+  reconcileExamRemovalsDuringSave,
+} from "@/lib/atendimento-form-merge";
 import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
 import {
   ATENDIMENTOS_LIST_LIMIT,
@@ -4160,9 +4164,41 @@ export default function AtendimentoPage() {
   };
 
   const adicionarExameDoCatalogo = (item: CatalogoExame) => {
+    const exameExistente = formRef.current.exames.find(
+      (exame) => !exame._destroy && Number(exame.catalogo_exame_id || 0) === item.id
+    );
+    if (exameExistente) {
+      setExameBusca("");
+      setExameFiltroRapido("todos");
+      setExamesExpandidos((prev) => ({ ...prev, [getExameStateKey(exameExistente)]: true }));
+      setSucesso(`Exame "${item.nome}" ja esta na solicitacao.`);
+      return;
+    }
     mergeExamesNoFormulario([buildExamFromCatalog(item)]);
     setExameBusca("");
     setSucesso(`Exame "${item.nome}" adicionado a solicitacao.`);
+  };
+
+  const mesclarFormularioAposSalvar = (
+    hydrated: AtendimentoForm,
+    examesEnviados: ExameSolicitacao[],
+    idsExclusaoEnviados: ReadonlySet<number>
+  ) => {
+    setForm((current) => {
+      const examesReconciliados = reconcileExamRemovalsDuringSave(
+        current.exames,
+        examesEnviados,
+        hydrated.exames,
+        idsExclusaoEnviados
+      );
+      return mergeAutoSavedFormState(
+        {
+          ...current,
+          exames: examesReconciliados.length > 0 ? examesReconciliados : [emptyExam()],
+        },
+        hydrated
+      );
+    });
   };
 
   const aplicarPainelExames = () => {
@@ -4251,6 +4287,12 @@ export default function AtendimentoPage() {
       }
 
       const payload = buildAtendimentoPayload(currentForm);
+      const idsExclusaoEnviados = new Set(
+        payload.exames
+          .filter((item) => item._destroy && item.id != null)
+          .map((item) => Number(item.id))
+      );
+      const examesEnviados = currentForm.exames;
       let response;
 
       if (selecionadoRef.current) {
@@ -4272,13 +4314,7 @@ export default function AtendimentoPage() {
         // levar segundos numa rede lenta, e nenhum campo de texto fica
         // desabilitado enquanto isso) nao pode ser apagada pela resposta do
         // servidor.
-        setForm((current) => {
-          const semExcluidos = current.exames.filter((item) => !item._destroy);
-          return mergeAutoSavedFormState(
-            { ...current, exames: semExcluidos.length > 0 ? semExcluidos : [emptyExam()] },
-            hydrated
-          );
-        });
+        mesclarFormularioAposSalvar(hydrated, examesEnviados, idsExclusaoEnviados);
         clearDraftStorage(response.data?.id || selecionadoRef.current);
         draftRestoreRef.current = true;
         setAutosaveState("saved");
@@ -4296,15 +4332,7 @@ export default function AtendimentoPage() {
           await carregarHistoricoPaciente(hydrated.paciente_id);
         }
       } else {
-        setForm((current) => {
-          // A exclusao foi aplicada no servidor: o marcador sai do estado local
-          // para nao voltar em todo save seguinte.
-          const semExcluidos = current.exames.filter((item) => !item._destroy);
-          return mergeAutoSavedFormState(
-            { ...current, exames: semExcluidos.length > 0 ? semExcluidos : [emptyExam()] },
-            hydrated
-          );
-        });
+        mesclarFormularioAposSalvar(hydrated, examesEnviados, idsExclusaoEnviados);
         if (criandoAutomaticamente && response.data?.id) {
           // Primeiro POST automatico bem-sucedido: o atendimento passa a
           // existir no servidor, entao os saves seguintes viram PUT.

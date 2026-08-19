@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AtendimentoForm, ExameSolicitacao } from "@/app/atendimento/page";
-import { mergeAutoSavedFormState } from "./atendimento-form-merge";
+import { mergeAutoSavedFormState, reconcileExamRemovalsDuringSave } from "./atendimento-form-merge";
 
 const baseForm = (): AtendimentoForm => ({
   paciente_id: "1",
@@ -93,5 +93,42 @@ describe("mergeAutoSavedFormState (finalizarAtendimento)", () => {
 
     expect(merged.exames).toHaveLength(1);
     expect(merged.exames[0].tipo_exame).toBe("Exame novo, ainda nao salvo");
+  });
+
+  it("marca para exclusao o exame removido enquanto seu primeiro save ainda estava em voo", () => {
+    const exameEnviado = {
+      ...baseExam(),
+      catalogo_exame_id: 174,
+      tipo_exame: "Ultrassom abdominal",
+      _localId: "ultrassom-em-voo",
+    };
+    const examePersistido = { ...exameEnviado, id: 88 };
+
+    const reconciliados = reconcileExamRemovalsDuringSave(
+      [
+        {
+          ...baseExam(),
+          tipo_exame: "",
+          _localId: "campo-vazio",
+        },
+      ],
+      [exameEnviado],
+      [examePersistido],
+      new Set()
+    );
+
+    expect(reconciliados).toContainEqual(expect.objectContaining({ id: 88, _destroy: true }));
+
+    const merged = mergeAutoSavedFormState(
+      { ...baseForm(), exames: reconciliados },
+      { ...baseForm(), exames: [examePersistido] }
+    );
+    expect(merged.exames).toContainEqual(expect.objectContaining({ id: 88, _destroy: true }));
+  });
+
+  it("remove do estado a exclusao que o servidor ja confirmou", () => {
+    const exame = { ...baseExam(), id: 88, _destroy: true };
+
+    expect(reconcileExamRemovalsDuringSave([exame], [exame], [], new Set([88]))).toEqual([]);
   });
 });
