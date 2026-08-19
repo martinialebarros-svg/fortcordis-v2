@@ -45,6 +45,13 @@
   reprodução sem depender de acesso à aba Network do DevTools.
 - RF-007d: o link de fallback de áudio baixa o arquivo como `audio.mp3`
   (refletindo o formato realmente servido), não mais `audio.ogg`.
+- RF-007e: a Content-Security-Policy da aplicação
+  (`frontend/next.config.js`) inclui a diretiva `media-src 'self' blob:
+  https:`, permitindo que `<audio>`/`<video>` carreguem blob URLs
+  criadas a partir da mídia buscada via `fetch` autenticado — sem essa
+  diretiva, o navegador bloqueia o carregamento do blob antes de
+  qualquer tentativa de decodificação, independente do arquivo estar
+  correto.
 
 ## Requisitos não funcionais
 

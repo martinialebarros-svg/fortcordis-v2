@@ -228,3 +228,42 @@ com nome de arquivo errado).
 `npx tsc --noEmit`, `npx eslint --max-warnings=0`, `npx vitest run
 app/whatsapp-stage/page.test.tsx` (12 testes, sem regressão) e `npx next
 build`: todos passaram.
+
+## Causa raiz confirmada: CSP bloqueando blob: em `<audio>` - 2026-08-19
+
+Usuário seguiu o passo a passo (reload completo + F12 + Console + clicar
+em "Ouvir áudio") e enviou print do console. A própria mensagem do
+navegador revelou a causa raiz de forma definitiva:
+
+```
+Loading media from 'blob:https://app.fortcordis.com.br/...' violates the
+following Content Security Policy directive: "default-src 'self'". Note
+that 'media-src' was not explicitly set, so 'default-src' is used as a
+fallback. The action has been blocked.
+```
+
+`frontend/next.config.js` define a Content-Security-Policy da aplicação
+com `img-src 'self' data: blob: https:` (por isso imagem/sticker via blob
+já funcionava) e `frame-src 'self' blob:`, mas **nunca teve uma diretiva
+`media-src`** — então `<audio>`/`<video>` caem no fallback `default-src
+'self'`, que não inclui `blob:`. O navegador bloqueia o carregamento do
+blob ANTES de qualquer tentativa de decodificação — por isso a
+transcodificação (que está correta, confirmado nas seções anteriores)
+nunca teve chance de ser exercida de fato: o arquivo mp3 correto é
+buscado e vira um Blob válido, mas o elemento `<audio>` é impedido pela
+política de segurança de sequer carregar esse blob.
+
+Fix: adicionada a diretiva `"media-src 'self' blob: https:"` em
+`appContentSecurityPolicy` (`frontend/next.config.js`), no mesmo padrão
+já usado para `img-src`. Confirmado localmente que o header
+`Content-Security-Policy` servido pelo Next.js (`curl -I
+http://localhost:3002/`) agora inclui `media-src 'self' blob: https:`.
+
+Nota: como o vídeo (`<video src={blobUrl}>`) usa a mesma diretiva
+`media-src`, esse mesmo bug provavelmente também afetava vídeo recebido
+via WhatsApp — não havia sido reportado ainda, mas o fix cobre os dois
+tipos de mídia igualmente.
+
+`npx tsc --noEmit`, `npx eslint --max-warnings=0`, `npx next build`:
+todos passaram (vitest não exercita o header de CSP, que é validado via
+`curl` contra o servidor dev real).
