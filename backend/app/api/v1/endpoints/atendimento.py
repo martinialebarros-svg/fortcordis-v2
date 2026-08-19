@@ -1856,11 +1856,6 @@ def _sync_exames(
         exame.id: exame
         for exame in db.query(Exame).filter(Exame.atendimento_id == atendimento.id).all()
     }
-    existentes_por_catalogo = {
-        exame.catalogo_exame_id: exame
-        for exame in existentes.values()
-        if exame.catalogo_exame_id
-    }
     anexos_por_exame = _contar_anexos_por_exame(db, atendimento.id)
     excluir_ids: list[int] = []
 
@@ -1903,13 +1898,6 @@ def _sync_exames(
                     payload.id,
                 )
                 continue
-        elif payload.catalogo_exame_id:
-            # O catalogo identifica uma solicitacao dentro do atendimento.
-            # Reaproveitar o registro existente tambem torna idempotentes
-            # clique duplo e retry de autosave antes de o frontend receber o
-            # id criado na primeira requisicao.
-            exame = existentes_por_catalogo.get(payload.catalogo_exame_id)
-
         campos_exame_antes = (
             {
                 "resultado": exame.resultado,
@@ -1938,8 +1926,6 @@ def _sync_exames(
         exame.atendimento_id = atendimento.id
         exame.paciente_id = atendimento.paciente_id
         exame.catalogo_exame_id = catalogo_exame.id if catalogo_exame else None
-        if exame.catalogo_exame_id:
-            existentes_por_catalogo[exame.catalogo_exame_id] = exame
         exame.painel_exame_id = painel_exame.id if painel_exame else None
         exame.painel_exame_nome = (
             (payload.painel_exame_nome or "").strip()

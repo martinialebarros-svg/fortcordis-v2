@@ -1533,6 +1533,9 @@ export default function AtendimentoPage() {
   // formRef.current mais atual, em vez de disparar uma segunda requisicao
   // concorrente.
   const salvamentoAtendimentoEmVooRef = useRef<Promise<number | null> | null>(null);
+  // Defesa sincrona contra clique duplo no catalogo: entre dois eventos de
+  // clique o React ainda pode nao ter refletido o novo exame em `form`.
+  const catalogoExamesPendentesRef = useRef<Set<number>>(new Set());
   const autosaveStateRef = useRef<"idle" | "local" | "dirty" | "saving" | "saved" | "error">("idle");
   const criandoAtendimentoAutomaticoRef = useRef(false);
   // Guard sincrono para criar/salvar documento clinico: setSalvandoDocumentoClinico
@@ -1569,6 +1572,16 @@ export default function AtendimentoPage() {
   useEffect(() => {
     formRef.current = form;
   }, [form]);
+
+  useEffect(() => {
+    const catalogosNoFormulario = new Set(
+      form.exames
+        .filter((exame) => !exame._destroy)
+        .map((exame) => Number(exame.catalogo_exame_id || 0))
+        .filter((id) => id > 0)
+    );
+    catalogosNoFormulario.forEach((id) => catalogoExamesPendentesRef.current.delete(id));
+  }, [form.exames]);
 
   useEffect(() => {
     selecionadoRef.current = selecionado;
@@ -4167,13 +4180,16 @@ export default function AtendimentoPage() {
     const exameExistente = formRef.current.exames.find(
       (exame) => !exame._destroy && Number(exame.catalogo_exame_id || 0) === item.id
     );
-    if (exameExistente) {
+    if (exameExistente || catalogoExamesPendentesRef.current.has(item.id)) {
       setExameBusca("");
       setExameFiltroRapido("todos");
-      setExamesExpandidos((prev) => ({ ...prev, [getExameStateKey(exameExistente)]: true }));
+      if (exameExistente) {
+        setExamesExpandidos((prev) => ({ ...prev, [getExameStateKey(exameExistente)]: true }));
+      }
       setSucesso(`Exame "${item.nome}" ja esta na solicitacao.`);
       return;
     }
+    catalogoExamesPendentesRef.current.add(item.id);
     mergeExamesNoFormulario([buildExamFromCatalog(item)]);
     setExameBusca("");
     setSucesso(`Exame "${item.nome}" adicionado a solicitacao.`);

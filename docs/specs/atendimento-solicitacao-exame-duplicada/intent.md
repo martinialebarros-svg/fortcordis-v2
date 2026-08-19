@@ -9,7 +9,7 @@ Uma solicitacao de exame pode reaparecer depois de removida quando o usuario a e
 
 ## Objetivo
 
-Manter uma unica solicitacao por exame de catalogo em cada atendimento, preservar a intencao de exclusao ocorrida durante o autosave e impedir que payloads atrasados recriem exames removidos.
+Manter uma unica selecao de exame de catalogo na tela, preservar a intencao de exclusao ocorrida durante o autosave e impedir que payloads atrasados recriem exames removidos.
 
 ## Nao objetivos
 
