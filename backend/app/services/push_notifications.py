@@ -42,7 +42,14 @@ except Exception:  # pragma: no cover - fallback for environments sem dependenci
     WebPushException = Exception  # type: ignore[assignment]
     webpush = None
 
-AGENDA_PUSH_ACTIONS_ORDER = ("created", "updated", "status_changed", "cancelled", "deleted")
+AGENDA_PUSH_ACTIONS_ORDER = (
+    "created",
+    "updated",
+    "status_changed",
+    "cancelled",
+    "deleted",
+    "whatsapp_reserva_resposta",
+)
 FINANCEIRO_PUSH_ACTIONS_ORDER = ("os_generated", "payment_received", "os_deleted", "payment_pending")
 WHATSAPP_PUSH_ACTIONS_ORDER = ("mensagem_recebida",)
 PUSH_ACTIONS_ORDER = AGENDA_PUSH_ACTIONS_ORDER + FINANCEIRO_PUSH_ACTIONS_ORDER + WHATSAPP_PUSH_ACTIONS_ORDER
@@ -523,7 +530,41 @@ def send_web_push_payload(
     return {"sent": sent, "failed": failed, "deactivated": deactivated}
 
 
-def _build_agenda_body(data: dict[str, Any]) -> str:
+_WHATSAPP_RESERVA_RESPOSTA_TITULOS = {
+    "confirmado": "Reserva confirmada pelo WhatsApp",
+    "ja_confirmado": "Reserva ja estava confirmada",
+    "confirmacao_apos_prazo": "Confirmacao recebida apos o prazo",
+    "confirmacao_dados_pendentes": "Confirmacao com cadastro pendente",
+    "revisao_manual": "Resposta do WhatsApp exige revisao manual",
+    "alteracao_solicitada": "Cliente solicitou alteracao pelo WhatsApp",
+    "agendamento_nao_encontrado": "Resposta do WhatsApp sem agendamento correspondente",
+}
+
+_WHATSAPP_RESERVA_RESPOSTA_CORPOS = {
+    "confirmado": "Reserva confirmada com sucesso pelo cliente via WhatsApp.",
+    "ja_confirmado": "Cliente confirmou, mas a reserva ja estava confirmada.",
+    "confirmacao_apos_prazo": "Cliente confirmou apos o prazo; o horario nao foi reativado automaticamente.",
+    "confirmacao_dados_pendentes": "Cliente confirmou, mas paciente e tutor ainda precisam ser vinculados.",
+    "revisao_manual": "Resposta recebida, mas o status atual do agendamento exige revisao manual.",
+    "alteracao_solicitada": "Cliente pediu alteracao do horario pelo WhatsApp.",
+    "agendamento_nao_encontrado": "Resposta recebida para um agendamento que nao foi encontrado.",
+}
+
+
+def _build_whatsapp_reserva_resposta_body(data: dict[str, Any]) -> str:
+    resultado = _clean_text(data.get("result")).lower()
+    status = _clean_text(data.get("status"))
+    texto = _WHATSAPP_RESERVA_RESPOSTA_CORPOS.get(resultado, "Resposta de confirmacao do WhatsApp recebida.")
+    if status:
+        texto = f"{texto} Status atual: {status}."
+    return texto
+
+
+def _build_agenda_body(action: str, data: dict[str, Any]) -> str:
+    action_norm = _clean_text(action).lower()
+    if action_norm == "whatsapp_reserva_resposta":
+        return _build_whatsapp_reserva_resposta_body(data)
+
     paciente = _first_text(data.get("paciente_nome"), data.get("paciente"))
     clinica = _first_text(data.get("clinica_nome"), data.get("clinica"))
     servico = _first_text(data.get("servico_nome"), data.get("servico"))
@@ -563,6 +604,10 @@ def _build_agenda_title(action: str, agendamento_id: int, data: dict[str, Any]) 
         return f"Status do agendamento #{agendamento_id} alterado"
     if action_norm == "cancelled":
         return f"Agendamento #{agendamento_id} cancelado"
+    if action_norm == "whatsapp_reserva_resposta":
+        resultado = _clean_text(data.get("result")).lower()
+        descricao = _WHATSAPP_RESERVA_RESPOSTA_TITULOS.get(resultado, "Resposta do WhatsApp recebida")
+        return f"{descricao} - agendamento #{agendamento_id}"
     return f"Agenda atualizada #{agendamento_id}"
 
 
@@ -623,7 +668,7 @@ def send_agenda_push_notification(
     target_url = f"/agenda?agendamento_id={int(agendamento_id)}&push_action={action_norm or 'updated'}"
     payload = {
         "title": _build_agenda_title(action_norm, agendamento_id, safe_data),
-        "body": _build_agenda_body(safe_data),
+        "body": _build_agenda_body(action_norm, safe_data),
         "url": target_url,
         "tag": f"agenda-{action_norm or 'updated'}-{agendamento_id}",
         "group_key": f"agenda:{action_norm or 'updated'}:{int(agendamento_id)}",

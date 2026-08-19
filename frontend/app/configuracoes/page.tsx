@@ -86,6 +86,11 @@ const TIPOS_PUSH_AGENDA_OPCOES: Array<{ valor: string; label: string; descricao:
   { valor: "status_changed", label: "Mudanca de status", descricao: "Quando o status mudar (confirmado, realizado etc.)." },
   { valor: "cancelled", label: "Agendamento cancelado", descricao: "Quando o agendamento for marcado como cancelado." },
   { valor: "deleted", label: "Agendamento excluido", descricao: "Quando um agendamento for removido." },
+  {
+    valor: "whatsapp_reserva_resposta",
+    label: "Resposta do WhatsApp",
+    descricao: "Quando o paciente responder ao botao de confirmacao da reserva pelo WhatsApp.",
+  },
 ];
 
 const TIPOS_PUSH_FINANCEIRO_OPCOES: Array<{ valor: string; label: string; descricao: string }> = [
