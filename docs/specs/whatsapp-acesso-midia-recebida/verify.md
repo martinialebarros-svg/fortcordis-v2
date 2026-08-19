@@ -113,3 +113,40 @@ Risco residual: sem cache de transcodificação — cada visualização de
 voz são curtos). Se a transcodificação falhar por qualquer motivo, o
 binário original ainda é servido e o fallback `onError` do frontend
 continua ativo como rede de segurança.
+
+## Investigação pós-deploy em produção - 2026-08-19
+
+Usuário testou em produção após o deploy: o arquivo baixado ainda veio
+como `.ogg` (não `.mp3`), indicando que a transcodificação está caindo no
+fallback silenciosamente em produção. Como a transcodificação sempre
+serve o original em caso de falha (por desenho, para nunca quebrar a
+resposta), isso não gerou erro visível — só o resultado indesejado de não
+converter.
+
+Hipótese mais provável: o binário `ffmpeg-static` baixado durante `npm
+ci` na VPS de produção não está presente/executável (`index.js` do pacote
+resolve o caminho esperado do binário só com base em
+`platform`/`arch` reconhecidos — **sem checar se o arquivo realmente
+existe em disco**), então `ffmpegPath` aponta para um arquivo inexistente
+e o `spawn` falha.
+
+Duas mudanças para diagnosticar e blindar sem precisar de outro round-trip
+de produção:
+- `transcodeOggOpusToMp3` (`whatsappService.ts`) agora chama
+  `existsSync(ffmpegPath)` explicitamente antes de tentar `spawn`, com
+  mensagem de erro específica ("binary download likely failed during npm
+  install") em vez de deixar o `spawn` falhar com um erro genérico de
+  ENOENT.
+- O log de fallback (`logger.warn`) passou a incluir `mimeType`,
+  `rawBufferBytes` e o `ffmpegPath` resolvido, para descartar outras
+  hipóteses (ex.: `mime_type` não contendo "ogg") na próxima ocorrência.
+- `scripts/deploy_prod_vps.sh`: nova função `ensure_ffmpeg_static_binary`
+  (mesmo padrão não-fatal já usado para Tesseract OCR em
+  `ensure_eco_study_ocr_dependencies`) chamada logo após o `npm ci` do
+  `whatsapp-stage-backend`, que resolve o binário via
+  `require('ffmpeg-static')`, confirma que existe e é executável, e loga
+  a versão. Não fatal — objetivo é aparecer no log do deploy (lido via
+  `gh run view --log`, sem precisar de SSH na VPS) e confirmar/descartar
+  a hipótese antes de decidir o próximo passo.
+
+Ainda não confirmado definitivamente até reler o log do próximo deploy.

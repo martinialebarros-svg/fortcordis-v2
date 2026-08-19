@@ -662,6 +662,19 @@ EOF
   run_systemctl_command enable "${WHATSAPP_STAGE_BACKEND_SERVICE}"
 }
 
+ensure_ffmpeg_static_binary() {
+  local backend_dir="$1"
+  local ffmpeg_bin
+  ffmpeg_bin="$(cd "${backend_dir}" && node -e "console.log(require('ffmpeg-static') || '')" 2>/dev/null || true)"
+
+  if [[ -z "${ffmpeg_bin}" || ! -x "${ffmpeg_bin}" ]]; then
+    log "WARN: ffmpeg-static binary unavailable (resolved path='${ffmpeg_bin:-<empty>}'); WhatsApp audio de voz sera servido sem transcodificacao (fallback OGG/Opus original)."
+    return 0
+  fi
+
+  log "ffmpeg-static binary ready: ${ffmpeg_bin} ($("${ffmpeg_bin}" -version 2>&1 | head -n 1))"
+}
+
 deploy_whatsapp_stage_backend() {
   if [[ "${ENABLE_WHATSAPP_STAGE_BACKEND}" != "1" ]]; then
     return 0
@@ -679,6 +692,7 @@ deploy_whatsapp_stage_backend() {
   log "WhatsApp ${WHATSAPP_RUNTIME_LABEL} backend: install deps + migrations"
   cd "${WHATSAPP_STAGE_BACKEND_DIR}"
   npm ci
+  ensure_ffmpeg_static_binary "${WHATSAPP_STAGE_BACKEND_DIR}"
   npm run build
   npm run migrate
 

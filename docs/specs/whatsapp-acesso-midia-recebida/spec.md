@@ -33,6 +33,12 @@
 - RF-009: mensagens enviadas por nós (`from_me: true`) nunca mostram esse
   botão, independente do tipo.
 
+- RF-007b: o deploy da VPS (`scripts/deploy_prod_vps.sh`) confirma, de
+  forma não-fatal, que o binário do `ffmpeg-static` foi instalado e é
+  executável logo após o `npm ci` do `whatsapp-stage-backend`, registrando
+  o resultado no log do deploy (mesmo padrão já usado para verificar o
+  Tesseract OCR).
+
 ## Requisitos não funcionais
 
 - NFR-001 (privacidade): o binário nunca é persistido no banco do serviço

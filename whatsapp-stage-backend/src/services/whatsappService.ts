@@ -1,5 +1,6 @@
 import axios, { AxiosError } from "axios";
 import { spawn } from "child_process";
+import { existsSync } from "fs";
 import ffmpegPath from "ffmpeg-static";
 import { logger } from "../utils/logger";
 import {
@@ -424,7 +425,11 @@ const MEDIA_DOWNLOAD_TIMEOUT_MS = 15000;
 export function transcodeOggOpusToMp3(buffer: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     if (!ffmpegPath) {
-      reject(new Error("ffmpeg binary not available"));
+      reject(new Error("ffmpeg-static did not resolve a binary path for this platform/arch"));
+      return;
+    }
+    if (!existsSync(ffmpegPath)) {
+      reject(new Error(`ffmpeg-static resolved path does not exist on disk: ${ffmpegPath} (binary download likely failed during npm install)`));
       return;
     }
 
@@ -514,6 +519,9 @@ export async function downloadWhatsAppMedia(
       } catch (transcodeError) {
         logger.warn("Failed to transcode WhatsApp OGG/Opus audio to mp3, serving original", {
           mediaId: params.mediaId,
+          mimeType,
+          rawBufferBytes: rawBuffer.length,
+          ffmpegPath: ffmpegPath || null,
           message: transcodeError instanceof Error ? transcodeError.message : String(transcodeError)
         });
       }
