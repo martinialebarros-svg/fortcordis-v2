@@ -35,7 +35,7 @@ const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
 const appSecret = process.env.WHATSAPP_APP_SECRET;
 const allowUnsigned = process.env.WEBHOOK_ALLOW_UNSIGNED === "true" && process.env.NODE_ENV !== "production";
 
-function extractMessageBody(message: WebhookMessage): string {
+export function extractMessageBody(message: WebhookMessage): string {
   const type = message.type;
 
   switch (type) {
@@ -53,6 +53,10 @@ function extractMessageBody(message: WebhookMessage): string {
       return message.video?.caption ?? "[video]";
     case "document":
       return message.document?.filename ?? "[document]";
+    case "reaction": {
+      const emoji = message.reaction?.emoji;
+      return emoji ? `Reagiu com ${emoji}` : "Removeu a reação";
+    }
     default:
       return "";
   }
