@@ -148,13 +148,26 @@ export function deriveAutomaticEchoMeasurements(
 ): Record<string, string> {
   const derived: Record<string, string> = {};
 
-  // A relação transmitral E/A é derivada das duas velocidades informadas no
-  // formulário. Quando uma delas não estiver disponível, preservamos eventual
+  // As relações diastólicas são derivadas das medidas de origem informadas no
+  // formulário. Quando alguma origem não estiver disponível, preservamos o
   // valor histórico importado pelo equipamento em vez de apagá-lo no save.
   const eWave = parsePositiveNumber(measurements.Onda_E);
   const aWave = parsePositiveNumber(measurements.Onda_A);
   if (eWave !== null && aWave !== null) {
     derived.E_A = formatDerivedValue(eWave / aWave);
+  }
+
+  const trivMs = parsePositiveNumber(measurements.TRIV);
+  if (eWave !== null && trivMs !== null) {
+    // O corte clínico de E/TRIV usa E em cm/s e TRIV em ms. O formulário
+    // armazena a velocidade da onda E em m/s, portanto convertemos somente
+    // o numerador antes de calcular o índice.
+    derived.E_TRIV = formatDerivedValue((eWave * 100) / trivMs);
+  }
+
+  const ePrime = parsePositiveNumber(measurements.e_doppler);
+  if (eWave !== null && ePrime !== null) {
+    derived.E_E_linha = formatDerivedValue(eWave / ePrime);
   }
 
   for (const [velocityKey, gradientKey] of Object.entries(

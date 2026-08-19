@@ -44,12 +44,17 @@
 - RF-025: reconhecer `E/TRIV`/`E/IVRT` como a medida canonica `E_TRIV`, sem
   confundi-la com uma segunda ocorrencia de `TRIV`; a sugestao continua sujeita
   a revisao antes de ser aplicada.
-- RF-026: exibir `E_TRIV` em novo e editar laudo e no PDF, com a indicacao
-  comparativa de que valores acima de 12 sao sugestivos de congestao venosa
-  pulmonar. A medida nao gera conclusao clinica automatica.
-- RF-027: tratar `E_A` como valor calculado a partir de `Onda_E / Onda_A` quando
-  ambas as velocidades estiverem disponiveis, deixando o campo somente leitura.
-  Sem as duas ondas, um valor historico importado permanece preservado.
+- RF-026: exibir `E_TRIV` em novo e editar laudo e no PDF, com a referencia
+  comparativa `<=2,5`; valores acima de `2,5` sao sugestivos de aumento das
+  pressoes de enchimento do VE. A medida nao gera conclusao clinica automatica.
+- RF-027: tratar `E_A` como valor calculado a partir de `Onda_E / Onda_A`,
+  `E_TRIV` a partir de `(Onda_E em m/s × 100) / TRIV em ms` e `E_E_linha` a
+  partir de `Onda_E / e_doppler`, deixando os tres campos somente leitura
+  quando as medidas de origem estiverem disponiveis. Sem todas as origens de
+  uma relacao, o valor historico importado correspondente permanece preservado.
+- RF-028: exibir `E_E_linha` no formulario e no PDF com a referencia
+  comparativa `<=12`; valores acima de `12` sao sugestivos de aumento das
+  pressoes de enchimento do VE, sem conclusao clinica automatica.
 
 ## Requisitos nao funcionais
 
@@ -138,7 +143,9 @@
   = 33,81 mm, a aba Referencias exibe FE 2D = 43% e Delta D/FS 2D = 21% e os
   interpreta pelas faixas `ef` e `fs`; valores de FE/FS que ja vierem do
   equipamento nao sao substituidos.
-- CA-025: com Onda E = 1,17 m/s e Onda A = 1,12 m/s, novo e editar laudo
-  exibem `E/A = 1,04` como campo calculado e somente leitura.
-- CA-026: o PDF que contem `E_TRIV = 14,92` exibe a medida e a referencia
-  comparativa de congestao venosa pulmonar para valores acima de 12.
+- CA-025: com Onda E = 1,20 m/s, Onda A = 0,60 m/s, TRIV = 48 ms e e' =
+  0,10 m/s, novo e editar laudo exibem `E/A = 2`, `E/TRIV = 2,5` e `E/e' = 12`
+  como campos calculados e somente leitura.
+- CA-026: o PDF que contem `E_TRIV = 2,93` e `E_E_linha = 14` exibe ambas as
+  medidas e as referencias comparativas de `<=2,5` para E/TRIV e `<=12` para
+  E/e', sem converter esses valores em conclusao automatica.

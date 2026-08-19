@@ -35,5 +35,6 @@ medidas do Modo M no formulario, mas serem comparadas aos mesmos intervalos
 clinicos configurados para funcao sistolica.
 
 A razão E/TRIV impressa pelo equipamento deve ser preservada como medida
-revisável, sem ser confundida com TRIV. O formulário calcula E/A diretamente
-das ondas E e A quando as duas velocidades estão disponíveis.
+revisável, sem ser confundida com TRIV. O formulário calcula E/A, E/TRIV e
+E/e' diretamente das respectivas medidas de origem quando elas estão
+disponíveis.

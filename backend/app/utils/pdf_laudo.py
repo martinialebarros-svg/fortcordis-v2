@@ -1433,12 +1433,12 @@ def gerar_pdf_laudo_eco(
             {'chave': 'E_A', 'label': 'E/A (relação E/A)', 'unidade': '', 'ref_min': 1.00, 'ref_max': 2.00},
             {'chave': 'TD', 'label': 'TD (tempo desaceleração)', 'unidade': 'ms', 'ref_min': 0.00, 'ref_max': 160.00},
             {'chave': 'TRIV', 'label': 'TRIV (tempo relaxamento isovolumétrico)', 'unidade': 'ms', 'ref_min': None, 'ref_max': None},
-            {'chave': 'E_TRIV', 'label': 'E/TRIV (relação E/TRIV)', 'unidade': '', 'ref_text': '≤12; >12 sugestivo de congestão venosa pulmonar'},
+            {'chave': 'E_TRIV', 'label': 'E/TRIV (índice E [cm/s] / TRIV [ms])', 'unidade': '', 'ref_text': '≤2,5; >2,5 sugestivo de aumento das pressões de enchimento do VE'},
             {'chave': 'MR_dp_dt', 'label': 'MR dp/dt', 'unidade': 'mmHg/s', 'ref_min': None, 'ref_max': None},
             {'chave': 'e_doppler', 'label': "e' (Doppler tecidual)", 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
             {'chave': 'a_doppler', 'label': "a' (Doppler tecidual)", 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
             {'chave': 'doppler_tecidual_relacao', 'label': "Doppler tecidual (Relação e'/a')", 'unidade': '', 'ref_min': None, 'ref_max': None},
-            {'chave': 'E_E_linha', 'label': "E/E'", 'unidade': '', 'ref_min': 0, 'ref_max': 12},
+            {'chave': 'E_E_linha', 'label': "E/E'", 'unidade': '', 'ref_text': '≤12; >12 sugestivo de aumento das pressões de enchimento do VE'},
         ]
         
         # Grupo: Regurgitações - SEM Interpretação
