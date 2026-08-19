@@ -151,6 +151,59 @@ def list_eligible_agendamentos_preview(
     return preview
 
 
+def list_clinicas_prontidao_whatsapp_lembrete(db: Session) -> dict[str, Any]:
+    """Audita, para cada clinica parceira ativa, se o numero de WhatsApp
+
+    que o lembrete automatico usaria (mesma resolucao de _resolve_destination:
+    primeiro item nao-vazio de `whatsapps`, com fallback para `telefone`)
+    passa na validacao usada no envio real (`normalize_whatsapp_number`).
+    Somente leitura, nao envia nada - serve para revisao manual antes de
+    habilitar o lembrete automatico em Configuracoes.
+    """
+    from app.models.clinica import Clinica
+    from app.services.whatsapp_agenda_service import normalize_whatsapp_number
+
+    clinicas = (
+        db.query(Clinica)
+        .filter(Clinica.ativo.is_(True))
+        .order_by(Clinica.nome.asc())
+        .all()
+    )
+
+    problemas: list[dict[str, Any]] = []
+    total_prontas = 0
+    for clinica in clinicas:
+        candidates = clinica.whatsapps if isinstance(clinica.whatsapps, list) else []
+        destino = next((str(value).strip() for value in candidates if str(value or "").strip()), None)
+        destino = destino or (str(clinica.telefone).strip() if clinica.telefone else None)
+
+        if not destino:
+            problemas.append({
+                "clinica_id": clinica.id,
+                "clinica_nome": clinica.nome,
+                "motivo": "sem_numero",
+            })
+            continue
+
+        try:
+            normalize_whatsapp_number(destino)
+            total_prontas += 1
+        except HTTPException:
+            problemas.append({
+                "clinica_id": clinica.id,
+                "clinica_nome": clinica.nome,
+                "motivo": "numero_invalido",
+                "valor_cadastrado": destino,
+            })
+
+    return {
+        "total_clinicas_ativas": len(clinicas),
+        "total_prontas": total_prontas,
+        "total_com_problema": len(problemas),
+        "problemas": problemas,
+    }
+
+
 def _mark_error(agendamento: Agendamento, error: str) -> None:
     agendamento.whatsapp_reminder_attempts = int(agendamento.whatsapp_reminder_attempts or 0) + 1
     agendamento.whatsapp_reminder_last_error = str(error or "").strip()[:800]

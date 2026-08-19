@@ -25,6 +25,7 @@ from app.services.whatsapp_agenda_service import (
 )
 from app.services.whatsapp_reminder_scheduler_service import (
     is_reminder_scheduler_enabled_in_db,
+    list_clinicas_prontidao_whatsapp_lembrete,
     list_eligible_agendamentos_preview,
 )
 from app.services.push_notifications import send_whatsapp_message_push_notification
@@ -230,6 +231,19 @@ def preview_whatsapp_reminder_eligibility(
         "count": len(agendamentos),
         "agendamentos": agendamentos,
     }
+
+
+@router.get("/agenda/whatsapp/lembrete-clinicas-prontidao")
+def preview_whatsapp_reminder_clinicas_prontidao(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Audita todas as clinicas parceiras ativas quanto ao numero de
+    WhatsApp que o lembrete automatico usaria, sem enviar nada. Serve para
+    revisar e corrigir cadastros antes de habilitar o lembrete automatico
+    em Configuracoes.
+    """
+    return list_clinicas_prontidao_whatsapp_lembrete(db)
 
 
 @router.post("/integracoes/whatsapp/notificacoes/mensagem-recebida")

@@ -245,11 +245,27 @@ interface AuditoriaEventoItem {
   metodo?: string | null;
 }
 
+interface ClinicaProntidaoProblema {
+  clinica_id: number;
+  clinica_nome: string;
+  motivo: "sem_numero" | "numero_invalido";
+  valor_cadastrado?: string;
+}
+
+interface ClinicaProntidaoWhatsapp {
+  total_clinicas_ativas: number;
+  total_prontas: number;
+  total_com_problema: number;
+  problemas: ClinicaProntidaoProblema[];
+}
+
 export default function ConfiguracoesPage() {
   const router = useRouter();
   const [aba, setAba] = useState<"empresa" | "usuario" | "usuarios">("empresa");
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
+  const [prontidaoClinicas, setProntidaoClinicas] = useState<ClinicaProntidaoWhatsapp | null>(null);
+  const [prontidaoClinicasStatus, setProntidaoClinicasStatus] = useState<"idle" | "loading" | "error">("idle");
 
   // Configurações da empresa
   const [configEmpresa, setConfigEmpresa] = useState<ConfiguracoesSistema>({
@@ -966,6 +982,18 @@ export default function ConfiguracoesPage() {
       setErroAuditoria(typeof detalhe === "string" ? detalhe : "Erro ao carregar auditoria.");
     } finally {
       setCarregandoAuditoria(false);
+    }
+  };
+
+  const verificarProntidaoClinicas = async () => {
+    try {
+      setProntidaoClinicasStatus("loading");
+      const resp = await api.get("/agenda/whatsapp/lembrete-clinicas-prontidao");
+      setProntidaoClinicas(resp?.data || null);
+      setProntidaoClinicasStatus("idle");
+    } catch {
+      setProntidaoClinicas(null);
+      setProntidaoClinicasStatus("error");
     }
   };
 
@@ -2468,6 +2496,53 @@ export default function ConfiguracoesPage() {
                   Somente administradores podem ativar ou desativar o lembrete automático.
                 </p>
               )}
+
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => void verificarProntidaoClinicas()}
+                  disabled={prontidaoClinicasStatus === "loading"}
+                  className="text-sm text-teal-700 hover:text-teal-800 underline disabled:opacity-50"
+                >
+                  {prontidaoClinicasStatus === "loading"
+                    ? "Verificando clínicas..."
+                    : "Verificar números de WhatsApp das clínicas antes de habilitar"}
+                </button>
+
+                {prontidaoClinicasStatus === "error" && (
+                  <p className="mt-2 text-xs text-red-700">Erro ao verificar. Tentar de novo.</p>
+                )}
+
+                {prontidaoClinicas && (
+                  <div className="mt-3">
+                    <p className="text-sm text-gray-700">
+                      {prontidaoClinicas.total_prontas} de {prontidaoClinicas.total_clinicas_ativas} clínicas ativas
+                      prontas para o lembrete automático.
+                    </p>
+                    {prontidaoClinicas.problemas.length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {prontidaoClinicas.problemas.map((problema) => (
+                          <li
+                            key={problema.clinica_id}
+                            className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center justify-between gap-2"
+                          >
+                            <span>
+                              <strong>{problema.clinica_nome}</strong>
+                              {" — "}
+                              {problema.motivo === "sem_numero"
+                                ? "sem WhatsApp cadastrado"
+                                : `número inválido (${problema.valor_cadastrado})`}
+                            </span>
+                            <a href={`/clinicas/${problema.clinica_id}`} className="text-teal-700 underline whitespace-nowrap">
+                              Corrigir
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Texto do Rodapé */}

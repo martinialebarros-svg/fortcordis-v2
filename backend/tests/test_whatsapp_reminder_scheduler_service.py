@@ -115,6 +115,54 @@ class WhatsAppReminderSchedulerServiceTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
+    def test_list_clinicas_prontidao_whatsapp_lembrete_classifica_por_motivo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    pronta = Clinica(nome="Clinica Pronta", whatsapps=["5585999998888"], telefone=None, ativo=True)
+                    sem_numero = Clinica(nome="Clinica Sem Numero", whatsapps=[], telefone=None, ativo=True)
+                    numero_invalido = Clinica(nome="Clinica Numero Invalido", whatsapps=["123"], telefone=None, ativo=True)
+                    inativa_sem_numero = Clinica(nome="Clinica Inativa", whatsapps=[], telefone=None, ativo=False)
+                    db.add_all([pronta, sem_numero, numero_invalido, inativa_sem_numero])
+                    db.commit()
+
+                    resultado = scheduler.list_clinicas_prontidao_whatsapp_lembrete(db)
+
+                    self.assertEqual(resultado["total_clinicas_ativas"], 3)
+                    self.assertEqual(resultado["total_prontas"], 1)
+                    self.assertEqual(resultado["total_com_problema"], 2)
+
+                    motivos_por_clinica = {p["clinica_nome"]: p["motivo"] for p in resultado["problemas"]}
+                    self.assertEqual(motivos_por_clinica["Clinica Sem Numero"], "sem_numero")
+                    self.assertEqual(motivos_por_clinica["Clinica Numero Invalido"], "numero_invalido")
+                    self.assertNotIn("Clinica Inativa", motivos_por_clinica)
+                    self.assertNotIn("Clinica Pronta", motivos_por_clinica)
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_list_clinicas_prontidao_whatsapp_lembrete_usa_telefone_como_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    clinica = Clinica(nome="Clinica Fallback", whatsapps=[""], telefone="5585999997777", ativo=True)
+                    db.add(clinica)
+                    db.commit()
+
+                    resultado = scheduler.list_clinicas_prontidao_whatsapp_lembrete(db)
+
+                    self.assertEqual(resultado["total_prontas"], 1)
+                    self.assertEqual(resultado["total_com_problema"], 0)
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
     def test_is_reminder_scheduler_enabled_in_db_reflete_configuracoes(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             SessionFactory, engine = self._build_session_factory(tmpdir)
