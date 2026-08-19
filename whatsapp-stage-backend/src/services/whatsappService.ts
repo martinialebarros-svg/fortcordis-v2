@@ -399,3 +399,59 @@ export async function uploadWhatsAppPdfWithRetry(
 
   throw new Error("Unexpected WhatsApp media upload retry flow termination");
 }
+
+export interface DownloadWhatsAppMediaParams {
+  mediaId: string;
+  accessToken: string;
+}
+
+export interface DownloadedWhatsAppMedia {
+  buffer: Buffer;
+  mimeType: string;
+}
+
+interface GraphMediaMetadataResponse {
+  url?: string;
+  mime_type?: string;
+  [key: string]: unknown;
+}
+
+const MEDIA_DOWNLOAD_TIMEOUT_MS = 15000;
+
+export async function downloadWhatsAppMedia(
+  params: DownloadWhatsAppMediaParams
+): Promise<DownloadedWhatsAppMedia> {
+  const metadataUrl = `${GRAPH_API_BASE_URL}/${params.mediaId}`;
+  const authHeader = { Authorization: `Bearer ${params.accessToken}` };
+
+  try {
+    const metadataResponse = await axios.get<GraphMediaMetadataResponse>(metadataUrl, {
+      headers: authHeader,
+      timeout: DEFAULT_TIMEOUT_MS
+    });
+    const downloadUrl = String(metadataResponse.data?.url || "").trim();
+    if (!downloadUrl) {
+      throw new Error("Meta media metadata response did not include a download url");
+    }
+
+    const binaryResponse = await axios.get<ArrayBuffer>(downloadUrl, {
+      headers: authHeader,
+      responseType: "arraybuffer",
+      timeout: MEDIA_DOWNLOAD_TIMEOUT_MS
+    });
+
+    const mimeType =
+      String(binaryResponse.headers["content-type"] || metadataResponse.data?.mime_type || "").trim() ||
+      "application/octet-stream";
+
+    return {
+      buffer: Buffer.from(binaryResponse.data),
+      mimeType
+    };
+  } catch (error) {
+    if (!(error as AxiosError).isAxiosError) {
+      throw error;
+    }
+    throw normalizeAxiosError(error as AxiosError, 1);
+  }
+}

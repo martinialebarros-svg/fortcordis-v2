@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { query, withTransaction } from "../services/dbService";
-import { sendWhatsAppMessageWithRetry } from "../services/whatsappService";
+import { downloadWhatsAppMedia, sendWhatsAppMessageWithRetry } from "../services/whatsappService";
 import {
   CustomerServiceWindow,
   describeCustomerServiceWindow
@@ -259,6 +259,61 @@ export async function listConversationMessages(req: Request, res: Response): Pro
       total: Number.parseInt(totalResult.rows[0]?.total ?? "0", 10)
     }
   });
+}
+
+const DOWNLOADABLE_MEDIA_TYPES = new Set(["image", "audio", "video", "document", "sticker"]);
+
+export async function getMessageMedia(req: Request, res: Response): Promise<void> {
+  const conversationId = req.params.id;
+  const messageId = req.params.messageId;
+
+  const result = await query<{ type: string; metadata: Record<string, unknown> | null; from_me: boolean }>(
+    `SELECT type, metadata, from_me FROM messages WHERE id = $1 AND conversation_id = $2`,
+    [messageId, conversationId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    res.status(404).json({ error: "Message not found" });
+    return;
+  }
+
+  if (!DOWNLOADABLE_MEDIA_TYPES.has(row.type)) {
+    res.status(422).json({ error: "Message does not have downloadable media" });
+    return;
+  }
+
+  const rawMessage = (row.metadata?.message ?? {}) as Record<string, unknown>;
+  const mediaObject = (rawMessage[row.type] ?? {}) as { id?: unknown; filename?: unknown };
+  const mediaId = typeof mediaObject.id === "string" ? mediaObject.id : null;
+
+  if (!mediaId) {
+    res.status(404).json({ error: "Media reference not found for this message" });
+    return;
+  }
+
+  if (!whatsappAccessToken) {
+    res.status(500).json({ error: "Missing WhatsApp API environment configuration" });
+    return;
+  }
+
+  try {
+    const media = await downloadWhatsAppMedia({ mediaId, accessToken: whatsappAccessToken });
+    res.setHeader("Content-Type", media.mimeType);
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    if (row.type === "document" && typeof mediaObject.filename === "string" && mediaObject.filename) {
+      res.setHeader("Content-Disposition", `inline; filename="${mediaObject.filename.replace(/"/g, "")}"`);
+    }
+    res.send(media.buffer);
+  } catch (error) {
+    logger.error("Failed to download WhatsApp media", {
+      conversationId,
+      messageId,
+      mediaId,
+      message: error instanceof Error ? error.message : String(error)
+    });
+    res.status(502).json({ error: "Failed to download media from WhatsApp. It may have expired." });
+  }
 }
 
 export async function sendConversationMessage(req: Request, res: Response): Promise<void> {

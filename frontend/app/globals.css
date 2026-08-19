@@ -4286,6 +4286,18 @@ body {
     @apply mt-1 block break-all;
   }
 
+  .fc-wa-media-button {
+    @apply mt-2 inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-ink-200 bg-ink-50 px-3 py-1.5 text-xs font-bold text-ink-600 outline-none transition hover:bg-ink-100 focus-visible:ring-2 focus-visible:ring-vital-100 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .fc-wa-media-download-link {
+    @apply mt-2 inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-vital-200 bg-white px-3 py-1.5 text-xs font-bold text-vital-700 outline-none transition hover:bg-vital-50 focus-visible:ring-2 focus-visible:ring-vital-100;
+  }
+
+  .fc-wa-media-preview {
+    @apply mt-2 max-h-64 w-full max-w-full rounded-lg object-contain;
+  }
+
   .fc-wa-composer {
     @apply border-t border-ink-100 bg-white p-0;
   }

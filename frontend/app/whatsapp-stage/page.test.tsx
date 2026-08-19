@@ -720,4 +720,58 @@ describe("WhatsAppStagePage", () => {
     expect(patchCalls).toContain("/whatsapp/conversations/60/seen");
     expect(screen.queryByLabelText("Não lida")).not.toBeInTheDocument();
   });
+
+  it("carrega e exibe a mídia recebida ao clicar no botão", async () => {
+    if (!URL.createObjectURL) {
+      // jsdom não implementa isso nativamente; stub mínimo só para este teste.
+      URL.createObjectURL = vi.fn(() => "blob:mock-url");
+    }
+    if (!URL.revokeObjectURL) {
+      URL.revokeObjectURL = vi.fn();
+    }
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
+          data: [{ id: "70", wa_phone_number: "558533330000", wa_psid: null, status: "open", subject: "Foto do exame",
+            last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: "2026-08-14T02:26:00.000Z",
+            created_at: "2026-08-14T02:00:00.000Z", updated_at: "2026-08-14T02:00:00.000Z" }],
+          pagination: { page: 1, limit: 20, total: 1 },
+        });
+        if (url === "/whatsapp/agents") return jsonResponse({ data: [] });
+        if (url === "/whatsapp/automation/templates") return jsonResponse({ data: [], source: "configured_catalog", meta_approval_live: null });
+        if (url.startsWith("/whatsapp/conversations/70/messages?")) return jsonResponse({
+          data: [{ id: "500", conversation_id: "70", wa_message_id: "wamid.foto", from_me: false, body: "[image]", type: "image", status: "received", created_at: "2026-08-14T02:26:00.000Z" }],
+          pagination: { page: 1, limit: 50, total: 1 },
+          customer_service_window: { last_inbound_at: "2026-08-14T02:26:00.000Z", expires_at: "2026-08-15T02:26:00.000Z", is_open: true },
+        });
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "70", last_seen_at: "2026-08-14T02:26:00.000Z" } });
+        if (url === "/whatsapp/conversations/70/messages/500/media") {
+          return {
+            ok: true,
+            status: 200,
+            blob: async () => new Blob(["fake-image-bytes"], { type: "image/jpeg" }),
+          } as unknown as Response;
+        }
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const botao = screen.getByRole("button", { name: "Ver imagem" });
+    fireEvent.click(botao);
+    await act(async () => {
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    });
+
+    expect(screen.getByRole("img", { name: "[image]" })).toBeInTheDocument();
+  });
 });

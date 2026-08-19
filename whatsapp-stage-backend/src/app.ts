@@ -2,6 +2,7 @@ import express, { NextFunction, Request, Response } from "express";
 import multer from "multer";
 import {
   claimConversation,
+  getMessageMedia,
   listConversationMessages,
   listConversations,
   markConversationSeen,
@@ -54,6 +55,7 @@ app.use("/admin", requireApiAuth);
 
 app.get("/conversations", asyncHandler(listConversations));
 app.get("/conversations/:id/messages", asyncHandler(listConversationMessages));
+app.get("/conversations/:id/messages/:messageId/media", asyncHandler(getMessageMedia));
 app.post("/conversations/:id/messages", asyncHandler(sendConversationMessage));
 app.patch("/conversations/:id/status", asyncHandler(updateConversationStatus));
 app.patch("/conversations/:id/seen", asyncHandler(markConversationSeen));

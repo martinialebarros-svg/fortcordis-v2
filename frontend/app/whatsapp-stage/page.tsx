@@ -272,6 +272,56 @@ function DomainContextPanel({
   </section>;
 }
 
+const DOWNLOADABLE_MEDIA_TYPES = new Set(["image", "audio", "video", "document", "sticker"]);
+const MEDIA_ACTION_LABEL: Record<string, string> = {
+  image: "Ver imagem", audio: "Ouvir áudio", video: "Ver vídeo",
+  document: "Baixar documento", sticker: "Ver sticker",
+};
+
+function WhatsAppMediaViewer({ conversationId, message }: { conversationId: string; message: Message }) {
+  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => () => { if (blobUrl) URL.revokeObjectURL(blobUrl); }, [blobUrl]);
+
+  if (!DOWNLOADABLE_MEDIA_TYPES.has(message.type)) return null;
+
+  const carregarMidia = async () => {
+    setState("loading");
+    try {
+      const response = await fetch(
+        `/whatsapp/conversations/${conversationId}/messages/${message.id}/media`,
+        { headers: getAuthHeaders() },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      setBlobUrl(URL.createObjectURL(blob));
+      setState("idle");
+    } catch {
+      setState("error");
+    }
+  };
+
+  if (blobUrl) {
+    if (message.type === "image" || message.type === "sticker") {
+      return <img src={blobUrl} alt={message.body || "Imagem recebida"} className="fc-wa-media-preview" />;
+    }
+    if (message.type === "audio") {
+      return <audio controls src={blobUrl} className="fc-wa-media-preview" />;
+    }
+    if (message.type === "video") {
+      return <video controls src={blobUrl} className="fc-wa-media-preview" />;
+    }
+    return <a href={blobUrl} download={message.body || "documento"} className="fc-wa-media-download-link">
+      <FileText className="h-4 w-4" /> Salvar {message.body || "documento"}
+    </a>;
+  }
+
+  return <button type="button" className="fc-wa-media-button" onClick={() => void carregarMidia()} disabled={state === "loading"}>
+    {state === "loading" ? "Carregando..." : state === "error" ? "Falha ao carregar. Tentar de novo" : MEDIA_ACTION_LABEL[message.type]}
+  </button>;
+}
+
 export default function WhatsAppStagePage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationsPagination, setConversationsPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0 });
@@ -636,6 +686,7 @@ export default function WhatsAppStagePage() {
                 const previous = messages[index - 1]; const showDay = !previous || new Date(previous.created_at).toDateString() !== new Date(message.created_at).toDateString();
                 return <Fragment key={message.id}>{showDay ? <div className="fc-wa-day-separator"><span>{formatMessageDay(message.created_at)}</span></div> : null}
                   <article className={`fc-wa-bubble ${message.from_me ? "fc-wa-bubble-agent" : "fc-wa-bubble-client"}`}><p>{message.body || `[${message.type}]`}</p>
+                    {!message.from_me && selectedConversationId ? <WhatsAppMediaViewer conversationId={selectedConversationId} message={message} /> : null}
                     <footer><time>{formatMessageTime(message.created_at)}</time><span className={`fc-wa-delivery fc-wa-delivery-${message.status}`}>{messageStatusIcon(message.status)} {messageStatusLabel(message.status)}</span></footer>
                     <details><summary>Detalhes técnicos</summary><span>Tipo: {message.type}</span>{message.wa_message_id ? <span>ID Meta: {message.wa_message_id}</span> : null}</details></article></Fragment>;
               })}</div>}</div>
