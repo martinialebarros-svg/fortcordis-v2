@@ -43,6 +43,7 @@ from app.schemas.ai_echo import (
     EchoApplyRequest,
     EchoClinicalStructureOutput,
     EchoFeedbackRequest,
+    EchoStructureRequest,
 )
 from app.services import ai_echo_providers, ai_echo_service
 from app.services.ai_echo_providers import AIEchoProviderError, StructuringResult
@@ -182,6 +183,16 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
         self.assertEqual(parse_spoken_number("1,74"), (1.74, "1.74"))
         self.assertEqual(parse_spoken_number("um ponto setenta e quatro"), (1.74, "1.74"))
         self.assertEqual(parse_spoken_number("um vírgula zero cinco"), (1.05, "1.05"))
+
+    def test_extracts_e_over_triv_without_creating_a_second_triv_measurement(self) -> None:
+        measurements, warnings = extract_measurements_from_transcript(
+            "Relação E/TRIV de 14,92."
+        )
+
+        values = {item.target_field_key: item.value for item in measurements}
+        self.assertEqual(values["E_TRIV"], 14.92)
+        self.assertNotIn("TRIV", values)
+        self.assertEqual(warnings, [])
 
     def test_rejects_negative_measurement_and_flags_percentage_above_100(self) -> None:
         measurements, warnings = extract_measurements_from_transcript(
@@ -981,6 +992,16 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                     "current_measurements": {},
                 }
             )
+
+    def test_accepts_e_over_triv_as_a_measurement_context_field(self) -> None:
+        payload = EchoStructureRequest.model_validate(
+            {
+                "edited_transcript": "Relação E/TRIV de 14,92.",
+                "current_measurements": {"E_TRIV": "14.92"},
+            }
+        )
+
+        self.assertEqual(payload.current_measurements["E_TRIV"], "14.92")
 
     def test_provider_failure_marks_session_failed_without_changing_draft(self) -> None:
         with self.session_factory() as db:

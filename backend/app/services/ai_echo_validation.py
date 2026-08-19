@@ -95,7 +95,14 @@ MEASUREMENT_PATTERNS = (
         None,
         "E_A",
     ),
-    MeasurementPattern(r"triv", "ivrt", "TRIV", "ms", "TRIV"),
+    MeasurementPattern(
+        r"(?:rela[cç][aã]o\s+)?e\s*/\s*(?:triv|ivrt)",
+        "mitral_e_triv_ratio",
+        "E/TRIV",
+        None,
+        "E_TRIV",
+    ),
+    MeasurementPattern(r"(?<!/)triv", "ivrt", "TRIV", "ms", "TRIV"),
     MeasurementPattern(
         r"(?:paat\s*/\s*pet|rela[cç][aã]o\s+paat\s+pet)",
         "paat_pet",

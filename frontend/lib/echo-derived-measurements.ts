@@ -148,6 +148,15 @@ export function deriveAutomaticEchoMeasurements(
 ): Record<string, string> {
   const derived: Record<string, string> = {};
 
+  // A relação transmitral E/A é derivada das duas velocidades informadas no
+  // formulário. Quando uma delas não estiver disponível, preservamos eventual
+  // valor histórico importado pelo equipamento em vez de apagá-lo no save.
+  const eWave = parsePositiveNumber(measurements.Onda_E);
+  const aWave = parsePositiveNumber(measurements.Onda_A);
+  if (eWave !== null && aWave !== null) {
+    derived.E_A = formatDerivedValue(eWave / aWave);
+  }
+
   for (const [velocityKey, gradientKey] of Object.entries(
     REGURGITATION_GRADIENTS
   )) {

@@ -45,6 +45,16 @@ Status: local_pass
 | CA-035 | persistência com medidas `*_2D` e `VE_tecnica_relatorio: 2d` é reconstruída pelo backend e pela reedição sem perder o seletor textual | local_pass |
 | CA-036 | laudo legado somente 2D infere o bloco correspondente e a versão do renderizador altera a chave de cache para impedir a reutilização do PDF vazio | local_pass |
 | CA-037 | ditado com refluxo pulmonar leve sem repercussão e demais parâmetros normais preserva o achado no campo pulmonar e na conclusão; a conclusão normal conflitante do provedor é descartada | local_pass |
+| CA-038 | `E_TRIV` é aceito no contexto estrito do assistente e o ditado `E/TRIV` não cria uma segunda medida de TRIV nem uma conclusão automática | local_pass |
+
+### Rodada atual: contexto E/TRIV
+
+- `EchoStructureRequest` aceita `E_TRIV` como medida adimensional e o contexto
+  seguro informa o método Doppler pulsado transmitral ao provedor.
+- A extração determinística separa `E/TRIV` de `TRIV`; o valor por si só não
+  dispara inferência ou conclusão de congestão venosa pulmonar.
+- `venv/bin/python -m unittest tests.test_ai_echo_voice_assistant -v` passou
+  dentro da rodada focada de 76 testes, junto do importador e do PDF.
 
 ## Evidência local executada
 

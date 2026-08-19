@@ -45,6 +45,7 @@ def _base_report(selected_technique: str) -> dict:
             "PAD_estimada": "10",
             "PSAP": "61.84",
             "e_doppler": "0.08",
+            "E_TRIV": "14.92",
         },
         "qualitativa": {},
         "conclusao": "Laudo de teste.",
@@ -76,6 +77,9 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("PSAP estimada", mode_2d_text)
         self.assertIn("61.84 mmHg", mode_2d_text)
         self.assertIn("0.08 m/s", mode_2d_text)
+        self.assertIn("E/TRIV", mode_2d_text)
+        self.assertIn("14.92", mode_2d_text)
+        self.assertRegex(mode_2d_text, r"congestão venosa\s+pulmonar")
 
     def test_persisted_2d_measurements_generate_2d_block(self) -> None:
         payload = _base_report("modo_m")

@@ -15,7 +15,7 @@ from app.services.image_header_import_service import _extract_text_with_tesserac
 
 MAX_ECO_STUDY_IMPORT_SIZE = 30 * 1024 * 1024
 MAX_ECO_STUDY_PDF_PAGES = 20
-ECO_STUDY_EXTRACTOR_VERSION = "5"
+ECO_STUDY_EXTRACTOR_VERSION = "6"
 GE_LOGIQ_E_PROFILE = "ge_logiq_e"
 GE_VIVID_IQ_PROFILE = "ge_vivid_iq"
 ALLOWED_ECO_STUDY_EXTENSIONS = {
@@ -47,6 +47,7 @@ class MeasurementDefinition:
 MEASUREMENT_DEFINITIONS: tuple[MeasurementDefinition, ...] = (
     MeasurementDefinition("AE_Ao", "AE/Ao", (r"(?:AE|LA)\s*/\s*Ao", r"LA\s*Ao\s*Ratio"), "ratio"),
     MeasurementDefinition("AP_Ao", "AP/Ao", (r"(?:AP|PA)\s*/\s*Ao",), "ratio"),
+    MeasurementDefinition("E_TRIV", "E/TRIV", (r"(?:Relacao\s*)?E\s*/\s*(?:TRIV|IVRT)", r"E\s*(?:TRIV|IVRT)\s*Ratio"), "ratio"),
     MeasurementDefinition("E_A", "E/A", (r"Relacao\s*E\s*/\s*A\s*VM", r"E\s*/\s*A\s*VM", r"(?:MV\s*)?E\s*/\s*A", r"E\s*A\s*Ratio"), "ratio"),
     MeasurementDefinition("doppler_tecidual_relacao", "e'/a'", (r"e['′]?\s*/\s*a['′]?",), "ratio"),
     MeasurementDefinition("E_E_linha", "E/e'", (r"E\s*/\s*e['′]?",), "ratio"),

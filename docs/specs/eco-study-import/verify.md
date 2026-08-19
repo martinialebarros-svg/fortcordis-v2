@@ -4,6 +4,19 @@
 
 Primeira entrega vertical publicada em stage; perfis GE LOGIQ e e GE Vivid IQ calibrados com estudos mantidos fora do repositorio.
 
+## Rodada atual: E/TRIV e E/A calculado
+
+- O extrator passou para a versao `6`, para que jobs concluidos da versao `5`
+  sejam reprocessados e possam oferecer a nova chave canonica `E_TRIV`.
+- `E/TRIV` e reconhecido tanto na camada textual/OCR quanto em XML, sem ser
+  contado como segunda medida de `TRIV`; permanece uma sugestao revisavel.
+- Novo e editar laudo exibem a medida e o PDF mostra a referencia comparativa
+  `<=12; >12 sugestivo de congestao venosa pulmonar`. Nenhuma conclusao clinica
+  e criada automaticamente.
+- `E/A` e calculado de `Onda_E / Onda_A` quando ambas existem e fica somente
+  leitura. Sem as duas ondas, um valor historico importado nao e apagado.
+- Validacao local: `venv/bin/python -m unittest tests.test_eco_study_extraction_service tests.test_pdf_laudo_echo_measurements tests.test_ai_echo_voice_assistant -v` passou com 76 testes; `frontend/node_modules/.bin/vitest run lib/echo-derived-measurements.test.ts app/laudos/hooks/useReferenciaEco.test.ts` passou com 4 testes; ESLint dirigido, `tsc --noEmit`, build Next.js, `py_compile` e `git diff --check` passaram.
+
 ## Correcao de referencias do VE em Modo 2D
 
 - A comparacao de `FE_Teicholz_2D` usa `ef_min`/`ef_max`, e a de

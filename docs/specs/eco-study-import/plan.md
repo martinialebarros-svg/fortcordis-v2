@@ -10,3 +10,5 @@
 8. Provisionar Tesseract em stage e expor seu estado nos checks de runtime.
 9. Mapear FE e Delta D/FS do Modo 2D para os mesmos intervalos de referencia
    configurados para o Modo M e cobrir a comparacao com regressao automatizada.
+10. Reconhecer E/TRIV como medida própria, exibi-la no formulário e no PDF com
+    referência clínica comparativa, e calcular E/A a partir das ondas E e A.

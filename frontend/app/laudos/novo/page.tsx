@@ -222,6 +222,7 @@ const PARAMETROS_MEDIDAS = [
   { key: "MV_E", label: "MV E (m/s)", categoria: "Mitral" },
   { key: "MV_A", label: "MV A (m/s)", categoria: "Mitral" },
   { key: "MV_E_A", label: "MV E/A", categoria: "Mitral" },
+  { key: "MV_E_TRIV", label: "MV E/TRIV", categoria: "Mitral" },
   { key: "MV_DT", label: "MV DT (ms)", categoria: "Mitral" },
   { key: "IVRT", label: "IVRT (ms)", categoria: "Tempos" },
   { key: "MR_Vmax", label: "MR Vmax (m/s)", categoria: "Regurgitação" },
@@ -516,6 +517,8 @@ export default function NovoLaudoPage() {
     medidas["Atrio_esquerdo"],
     medidas["Ao_nivel_AP"],
     medidas["AP"],
+    medidas["Onda_E"],
+    medidas["Onda_A"],
     medidas["e_doppler"],
     medidas["a_doppler"],
     medidas["DIVEd"],
@@ -674,6 +677,7 @@ export default function NovoLaudoPage() {
       "MV_E": "Onda_E",
       "MV_A": "Onda_A",
       "MV_E_A": "E_A",
+      "MV_E_TRIV": "E_TRIV",
       "MV_DT": "TD",
       "IVRT": "TRIV",
       "TDI_e": "e_doppler",
@@ -714,6 +718,8 @@ export default function NovoLaudoPage() {
       "Onda_E": "Onda_E",
       "Onda_A": "Onda_A",
       "E_A": "E_A",
+      "E_TRIV": "E_TRIV",
+      "E/TRIV": "E_TRIV",
       "TD": "TD",
       "TRIV": "TRIV",
       "e_doppler": "e_doppler",
@@ -1654,6 +1660,7 @@ export default function NovoLaudoPage() {
                           label="E/A (relação adimensional)"
                           value={medidas["E_A"] || ""}
                           onChange={(v) => handleMedidaChange("E_A", v)}
+                          readOnly
                         />
                         <MedidaInput 
                           label="TD (tempo de desaceleração, ms)"
@@ -1664,6 +1671,12 @@ export default function NovoLaudoPage() {
                           label="TRIV (tempo de relaxamento isovolumétrico, ms)"
                           value={medidas["TRIV"] || ""}
                           onChange={(v) => handleMedidaChange("TRIV", v)}
+                        />
+                        <MedidaInput
+                          label="E/TRIV (relação adimensional)"
+                          value={medidas["E_TRIV"] || ""}
+                          onChange={(v) => handleMedidaChange("E_TRIV", v)}
+                          reference="Ref.: ≤12; valores >12 são sugestivos de congestão venosa pulmonar."
                         />
                         <MedidaInput 
                           label="MR dp/dt (mmHg/s)"

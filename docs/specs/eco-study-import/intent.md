@@ -33,3 +33,7 @@ Uma base segura para calibrar o importador com estudos reais por aparelho, reduz
 As medidas de FE e encurtamento do VE em Modo 2D devem permanecer separadas das
 medidas do Modo M no formulario, mas serem comparadas aos mesmos intervalos
 clinicos configurados para funcao sistolica.
+
+A razão E/TRIV impressa pelo equipamento deve ser preservada como medida
+revisável, sem ser confundida com TRIV. O formulário calcula E/A diretamente
+das ondas E e A quando as duas velocidades estão disponíveis.

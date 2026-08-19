@@ -254,6 +254,10 @@ O módulo é aditivo e isolado:
 - RF-079: o cache do PDF inclui uma versão explícita do renderizador. Mudanças
   na leitura ou apresentação das medidas invalidam PDFs concluídos por versões
   anteriores, mesmo quando o laudo não foi editado depois da correção.
+- RF-080: `E_TRIV` é uma medida numérica permitida no contexto e no patch do
+  assistente de voz, identificada como relação adimensional de Doppler pulsado
+  transmitral. A presença desse valor não deve, isoladamente, gerar conclusão
+  automática de congestão venosa pulmonar.
 - RF-080: uma alteração leve explicitamente ditada não pode ser neutralizada
   pela afirmação de que os demais parâmetros estão normais. Refluxo pulmonar
   leve deve permanecer no campo da valva pulmonar e na conclusão, inclusive

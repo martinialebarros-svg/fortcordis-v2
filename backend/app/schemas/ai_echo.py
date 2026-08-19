@@ -56,6 +56,7 @@ EchoMeasurementFieldKey = Literal[
     "Onda_E",
     "Onda_A",
     "E_A",
+    "E_TRIV",
     "TD",
     "TRIV",
     "MR_dp_dt",
