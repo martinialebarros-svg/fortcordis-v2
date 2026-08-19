@@ -66,18 +66,42 @@ conversa, sob demanda, sem persistir o binário no nosso banco.
 - Erro de configuração (token/`PHONE_NUMBER_ID` ausente) retorna `500`
   claro em vez de deixar a exceção estourar sem resposta.
 
-## Adendo - Safari não toca o áudio do WhatsApp (Opus/OGG)
+## Adendo - Safari não toca o áudio do WhatsApp (Opus/OGG) [diagnóstico revisado, ver adendo seguinte]
 
-Confirmado em produção: a imagem carrega normalmente, mas o áudio mostra
-"Erro" no player nativo do Safari. Causa: o WhatsApp envia áudio como
-Opus dentro de contêiner OGG (`audio/ogg; codecs=opus`), e o WebKit/Safari
-não decodifica esse contêiner (suporta Opus só dentro de MP4/CAF, nunca
-Ogg). Não é bug do proxy — o binário chega correto, só não é reproduzível
-pelo `<audio>` nesse navegador especificamente.
+Primeiro reporte em produção: a imagem carrega normalmente, mas o áudio
+mostra "Erro" no player nativo do Safari. Diagnóstico inicial: WebKit não
+decodifica Opus dentro de contêiner OGG (suporta Opus só dentro de
+MP4/CAF, nunca Ogg).
 
-Decisão: sem transcodificação no servidor (exigiria ffmpeg como
+Decisão original: sem transcodificação no servidor (exigiria ffmpeg como
 dependência nova de infraestrutura, fora do escopo desta entrega). Em vez
 disso, o player escuta o evento `onError` do elemento `<audio>` e troca
 para um link de download ("baixar para ouvir em outro app") quando a
-reprodução falha — garante que o áudio nunca fica preso atrás de um
-player quebrado, mesmo sem conseguir tocar inline.
+reprodução falha.
+
+**Este diagnóstico estava incompleto** — ver adendo seguinte.
+
+## Adendo 2 - falha é universal (Chrome também falha), causa raiz é o contêiner OGG/Opus do WhatsApp
+
+Segundo reporte, agora em Chrome: o mesmo áudio falha da mesma forma
+("Erro", cai no fallback de download). Isso invalida a hipótese
+"Safari-specific" — Chrome tem suporte a Opus/Ogg nativamente, então não é
+um problema de compatibilidade de um navegador só.
+
+Usuário baixou o arquivo e confirmou que ele abre normalmente em outro
+aplicativo (player nativo do OS) — descarta corrupção de dados ou bug no
+proxy. A causa raiz é uma particularidade do contêiner OGG/Opus gerado
+pela própria integração do WhatsApp (Meta), que os decoders `<audio>` dos
+navegadores rejeitam mesmo suportando Opus/Ogg em tese — um problema
+conhecido de integrações com a Cloud API do WhatsApp, não específico de
+um navegador.
+
+Decisão revisada: transcodificar o áudio no servidor, de OGG/Opus para
+MP3, antes de servir ao navegador. Usa `ffmpeg-static` (binário ffmpeg
+pré-compilado, sem dependência de infraestrutura do host) via
+`child_process.spawn`, pipe stdin/stdout, sem tocar em disco. Em
+`downloadWhatsAppMedia` (`whatsappService.ts`): se o `mime_type` retornado
+pela Graph API contém `ogg`, tenta transcodificar; em caso de falha
+(timeout, ffmpeg indisponível, arquivo corrompido), cai para o binário
+original sem quebrar a resposta — o fallback `onError` do frontend
+continua como rede de segurança para esse caso residual.

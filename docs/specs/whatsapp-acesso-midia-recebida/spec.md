@@ -20,6 +20,12 @@
 - RF-007: qualquer falha na comunicação com a Graph API (token inválido,
   mídia expirada, erro de rede) resulta em `502` com mensagem clara,
   nunca deixa a exceção sem resposta.
+- RF-007a: se o `mime_type` do binário retornado contém `ogg` (áudio de
+  voz do WhatsApp, Opus dentro de contêiner OGG), o serviço tenta
+  transcodificar para MP3 (`ffmpeg-static`, via `spawn`, stdin/stdout,
+  sem tocar disco) antes de responder; em caso de falha na
+  transcodificação (timeout, ffmpeg indisponível, entrada corrompida),
+  serve o binário original sem quebrar a resposta.
 - RF-008: no frontend, cada mensagem recebida (`from_me: false`) cujo
   `type` seja baixável mostra um botão de ação; ao clicar, busca o
   binário autenticado e troca o botão pelo preview inline
@@ -60,3 +66,9 @@ baixável), `500` (config ausente), `502` (falha na Graph API).
 - CA-006: quando o elemento `<audio>` dispara `onError` (navegador não
   suporta o codec/contêiner), o player é substituído por um link de
   download do arquivo já carregado, em vez de deixar um player quebrado.
+- CA-007: áudio de voz do WhatsApp (`mime_type` contendo `ogg`) é
+  transcodificado para MP3 antes de chegar ao navegador, tocando inline
+  sem cair no fallback de download em uso normal.
+- CA-008: entrada inválida/corrompida na transcodificação rejeita com
+  erro tratado (não trava o processo, não derruba a requisição) e a
+  resposta cai para o binário original.

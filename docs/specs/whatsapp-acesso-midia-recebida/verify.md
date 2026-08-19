@@ -78,3 +78,38 @@ Risco residual adicional: o link de download baixa o arquivo Opus/OGG
 original — quem não tiver um player compatível no computador ainda
 precisa de outro app para ouvir. Transcodificação server-side (ffmpeg)
 ficou fora do escopo; reconsiderar se isso continuar sendo fricção real.
+
+## Resultado da transcodificação de áudio (correção de diagnóstico) - 2026-08-19
+
+Usuário reportou falha também em Chrome (não só Safari) e confirmou que o
+arquivo baixado abre normalmente em outro app — descartando corrupção e
+invalidando o diagnóstico "Safari-specific". Causa raiz: contêiner
+OGG/Opus do WhatsApp rejeitado pelos decoders `<audio>` dos navegadores
+de forma geral.
+
+- Confirmado que não havia ffmpeg no sistema nem uso prévio no repositório
+  (`grep` vazio); instalado `ffmpeg-static@5.3.0` via npm.
+- Validado manualmente via bash antes de escrever código: gerado um
+  OGG/Opus sintético (`ffmpeg -f lavfi -i "anullsrc=..." -c:a libopus`) e
+  transcodificado para MP3 tanto por arquivo quanto pelo padrão exato de
+  pipe stdin/stdout (`cat ... | ffmpeg -i pipe:0 ... pipe:1`), confirmado
+  MP3 válido via `file`.
+- `transcodeOggOpusToMp3` implementada em `whatsappService.ts`
+  (`child_process.spawn`, timeout de 20s com `SIGKILL`, sem tocar disco).
+  `downloadWhatsAppMedia` passou a chamar essa função quando o
+  `mime_type` retornado pela Graph API contém `ogg`, com fallback para o
+  binário original em caso de falha (nunca quebra a resposta).
+- `npx tsc --noEmit`: passou.
+- Novo `scripts/test-audio-transcode.ts` (`npm run test:audio-transcode`):
+  gera um OGG/Opus sintético via `ffmpeg-static`, chama a função real
+  (não o CLI), valida assinatura MP3 (ID3/frame sync) na saída, e confirma
+  que entrada inválida rejeita com erro (`ffmpeg exited with code ...`)
+  em vez de travar o processo. Passou.
+- `npm run test:message-media` (regressão): passou, sem mudança de
+  comportamento nos cenários existentes (404/422/502).
+
+Risco residual: sem cache de transcodificação — cada visualização de
+áudio roda o ffmpeg de novo (aceitável para o volume esperado, arquivos de
+voz são curtos). Se a transcodificação falhar por qualquer motivo, o
+binário original ainda é servido e o fallback `onError` do frontend
+continua ativo como rede de segurança.

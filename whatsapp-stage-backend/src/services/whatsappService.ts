@@ -1,4 +1,6 @@
 import axios, { AxiosError } from "axios";
+import { spawn } from "child_process";
+import ffmpegPath from "ffmpeg-static";
 import { logger } from "../utils/logger";
 import {
   APPROVED_TEMPLATE_LANGUAGE,
@@ -12,6 +14,7 @@ const graphApiVersion = process.env.WHATSAPP_GRAPH_API_VERSION || "v26.0";
 const GRAPH_API_BASE_URL = `https://graph.facebook.com/${graphApiVersion}`;
 const DEFAULT_TIMEOUT_MS = 10000;
 const MEDIA_UPLOAD_TIMEOUT_MS = 30000;
+const AUDIO_TRANSCODE_TIMEOUT_MS = 20000;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -418,6 +421,60 @@ interface GraphMediaMetadataResponse {
 
 const MEDIA_DOWNLOAD_TIMEOUT_MS = 15000;
 
+export function transcodeOggOpusToMp3(buffer: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    if (!ffmpegPath) {
+      reject(new Error("ffmpeg binary not available"));
+      return;
+    }
+
+    const ffmpeg = spawn(ffmpegPath, [
+      "-i", "pipe:0",
+      "-f", "mp3",
+      "-codec:a", "libmp3lame",
+      "-b:a", "128k",
+      "pipe:1"
+    ]);
+    const stdoutChunks: Buffer[] = [];
+    let stderrText = "";
+    let settled = false;
+
+    const timeoutId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      ffmpeg.kill("SIGKILL");
+      reject(new Error("Audio transcoding timed out"));
+    }, AUDIO_TRANSCODE_TIMEOUT_MS);
+
+    ffmpeg.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+    ffmpeg.stderr.on("data", (chunk: Buffer) => {
+      stderrText += chunk.toString();
+    });
+    ffmpeg.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      reject(error);
+    });
+    ffmpeg.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      if (code === 0 && stdoutChunks.length > 0) {
+        resolve(Buffer.concat(stdoutChunks));
+      } else {
+        reject(new Error(`ffmpeg exited with code ${code}: ${stderrText.slice(-500)}`));
+      }
+    });
+    ffmpeg.stdin.on("error", () => {
+      // Tratado pelo evento "close"/"error" do processo acima (ex.: EPIPE se o
+      // ffmpeg encerrar antes de consumir todo o stdin).
+    });
+    ffmpeg.stdin.write(buffer);
+    ffmpeg.stdin.end();
+  });
+}
+
 export async function downloadWhatsAppMedia(
   params: DownloadWhatsAppMediaParams
 ): Promise<DownloadedWhatsAppMedia> {
@@ -443,9 +500,27 @@ export async function downloadWhatsAppMedia(
     const mimeType =
       String(binaryResponse.headers["content-type"] || metadataResponse.data?.mime_type || "").trim() ||
       "application/octet-stream";
+    const rawBuffer = Buffer.from(binaryResponse.data);
+
+    // O audio de voz do WhatsApp vem em Opus dentro de um conteiner OGG que
+    // o decodificador <audio> de varios navegadores (Chrome incluido, nao so
+    // Safari) rejeita, mesmo quando o arquivo em si esta correto (players
+    // nativos como QuickTime tocam sem problema). Reempacota em mp3, que
+    // todo navegador suporta; se a conversao falhar, serve o original.
+    if (mimeType.toLowerCase().includes("ogg")) {
+      try {
+        const transcoded = await transcodeOggOpusToMp3(rawBuffer);
+        return { buffer: transcoded, mimeType: "audio/mpeg" };
+      } catch (transcodeError) {
+        logger.warn("Failed to transcode WhatsApp OGG/Opus audio to mp3, serving original", {
+          mediaId: params.mediaId,
+          message: transcodeError instanceof Error ? transcodeError.message : String(transcodeError)
+        });
+      }
+    }
 
     return {
-      buffer: Buffer.from(binaryResponse.data),
+      buffer: rawBuffer,
       mimeType
     };
   } catch (error) {
