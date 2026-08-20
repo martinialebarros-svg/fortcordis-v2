@@ -32,3 +32,34 @@ token válido localmente) — só revisão de código e verificação dos
 testes unitários da lógica de estado. Recomenda-se o usuário confirmar
 em stage/produção que as duas mensagens chegam encadeadas na próxima
 reserva real enviada.
+
+## Bug crítico corrigido: validação bloqueava o caso de uso real - 2026-08-19
+
+Usuário reproduziu com precisão em produção: (1) reserva com
+paciente/tutor preenchidos → mensagem sai; (2) reserva SEM preencher
+paciente/tutor → modal mostra erro "Cadastre e vincule o animal e o
+tutor..." e nada é enviado. Esse é exatamente o caso de uso que ele quer
+suportar (reservar o horário antes de saber quem é o paciente).
+
+- `test_build_reservation_template_aceita_reserva_sem_paciente_tutor_vinculados`:
+  `recipient_type="clinica"`, paciente/tutor nulos → sucesso,
+  `pet_name == "seu pet"`. Passou.
+- `test_build_reservation_template_exige_tutor_quando_destinatario_e_tutor`:
+  `recipient_type="tutor"`, tutor nulo → `409`. Passou.
+- `test_build_agenda_utility_template_missing_data_aceita_sem_paciente_tutor`:
+  `template_key="appointmentMissingData"`, paciente/tutor nulos →
+  sucesso, `parameters[1] == "seu pet"`. Passou.
+- `test_build_agenda_utility_template_outros_modelos_continuam_exigindo_paciente_tutor`:
+  `template_key="appointmentReminder"`, paciente/tutor nulos → `409`
+  (comportamento antigo preservado para os modelos que realmente
+  precisam do paciente já identificado). Passou.
+- Suíte completa do backend: 820 testes (4 novos), sem regressão.
+- Frontend: `tsc --noEmit`, `eslint --max-warnings=0`, `vitest run` (69
+  testes), `next build` — todos sem erros, após aplicar o mesmo
+  placeholder no preview da mensagem.
+
+Risco residual: não foi possível testar de ponta a ponta contra a Graph
+API real (token indisponível neste ambiente) que o texto final
+("...reservou o atendimento de seu pet para...") fica gramaticalmente
+aceitável em português — recomenda-se o usuário conferir o texto exato
+na próxima reserva real sem paciente vinculado.

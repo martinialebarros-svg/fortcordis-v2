@@ -4,7 +4,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import httpx
 from fastapi import HTTPException
@@ -85,6 +85,38 @@ def _allowed_numbers(values: list[Any]) -> set[str]:
     return allowed
 
 
+PLACEHOLDER_PET_NAME = "seu pet"
+
+
+def _resolver_paciente_tutor_opcionais(
+    db: Session, agendamento: Agendamento
+) -> tuple[Optional[Paciente], Optional[Tutor]]:
+    """Busca paciente/tutor vinculados a reserva, sem exigir que existam.
+
+    Uma reserva pode (e normalmente comeca assim) nao ter paciente/tutor
+    ainda vinculados - essa e a razao dela ser uma reserva e nao um
+    agendamento direto. So gera erro se o vinculo APONTA para um registro
+    inexistente (dado corrompido/orfao) ou se paciente e tutor vinculados
+    sao inconsistentes entre si - nunca por simples ausencia.
+    """
+    paciente: Optional[Paciente] = None
+    if agendamento.paciente_id:
+        paciente = db.query(Paciente).filter(Paciente.id == agendamento.paciente_id).first()
+        if paciente is None:
+            raise HTTPException(status_code=409, detail="Paciente vinculado a reserva nao foi encontrado.")
+
+    tutor: Optional[Tutor] = None
+    if agendamento.tutor_id:
+        tutor = db.query(Tutor).filter(Tutor.id == agendamento.tutor_id).first()
+        if tutor is None:
+            raise HTTPException(status_code=409, detail="Tutor vinculado a reserva nao foi encontrado.")
+
+    if paciente is not None and tutor is not None and int(paciente.tutor_id or 0) != int(tutor.id):
+        raise HTTPException(status_code=409, detail="Paciente e tutor vinculados a reserva sao inconsistentes.")
+
+    return paciente, tutor
+
+
 def build_reservation_template(
     db: Session,
     *,
@@ -101,12 +133,11 @@ def build_reservation_template(
     if deadline_utc is None or deadline_utc <= now.replace(tzinfo=None if deadline_utc.tzinfo is None else timezone.utc):
         raise HTTPException(status_code=409, detail="A reserva expirou e nao pode ser enviada automaticamente.")
 
-    paciente = db.query(Paciente).filter(Paciente.id == agendamento.paciente_id).first()
-    tutor = db.query(Tutor).filter(Tutor.id == agendamento.tutor_id).first()
-    if paciente is None or tutor is None or int(paciente.tutor_id or 0) != int(tutor.id):
+    paciente, tutor = _resolver_paciente_tutor_opcionais(db, agendamento)
+    if recipient_type == "tutor" and tutor is None:
         raise HTTPException(
             status_code=409,
-            detail="Cadastre e vincule o animal e o tutor antes de enviar a reserva pelo WhatsApp.",
+            detail="Vincule o tutor antes de enviar a reserva diretamente para ele pelo WhatsApp.",
         )
 
     normalized_destination = normalize_whatsapp_number(destination)
@@ -134,7 +165,7 @@ def build_reservation_template(
     return WhatsAppReservationTemplate(
         destination=normalized_destination,
         recipient_name=recipient_name[:120],
-        pet_name=str(paciente.nome or "").strip()[:120],
+        pet_name=(str(paciente.nome).strip()[:120] if paciente and paciente.nome else PLACEHOLDER_PET_NAME),
         appointment_date=appointment_local.strftime("%d/%m/%Y"),
         appointment_time=appointment_local.strftime("%H:%M"),
         confirmation_deadline=_as_local_display(deadline, include_date=True),
@@ -162,13 +193,23 @@ def build_agenda_utility_template(
             detail="Este modelo so pode ser enviado para um agendamento ativo.",
         )
 
-    paciente = db.query(Paciente).filter(Paciente.id == agendamento.paciente_id).first()
-    tutor = db.query(Tutor).filter(Tutor.id == agendamento.tutor_id).first()
-    if paciente is None or tutor is None or int(paciente.tutor_id or 0) != int(tutor.id):
-        raise HTTPException(
-            status_code=409,
-            detail="Vincule o animal e o tutor antes de enviar este modelo pelo WhatsApp.",
-        )
+    if template_key == "appointmentMissingData":
+        # E exatamente o modelo usado para pedir esses dados - nao faz
+        # sentido exigir que eles ja existam para poder enviar o pedido.
+        paciente, tutor = _resolver_paciente_tutor_opcionais(db, agendamento)
+        if recipient_type == "tutor" and tutor is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Vincule o tutor antes de enviar este modelo diretamente para ele pelo WhatsApp.",
+            )
+    else:
+        paciente = db.query(Paciente).filter(Paciente.id == agendamento.paciente_id).first()
+        tutor = db.query(Tutor).filter(Tutor.id == agendamento.tutor_id).first()
+        if paciente is None or tutor is None or int(paciente.tutor_id or 0) != int(tutor.id):
+            raise HTTPException(
+                status_code=409,
+                detail="Vincule o animal e o tutor antes de enviar este modelo pelo WhatsApp.",
+            )
 
     normalized_destination = normalize_whatsapp_number(destination)
     if recipient_type == "clinica":
@@ -197,7 +238,7 @@ def build_agenda_utility_template(
         destination=normalized_destination,
         parameters=(
             recipient_name[:120],
-            str(paciente.nome or "").strip()[:120],
+            (str(paciente.nome).strip()[:120] if paciente and paciente.nome else PLACEHOLDER_PET_NAME),
             appointment_local.strftime("%d/%m/%Y"),
             appointment_local.strftime("%H:%M"),
         ),

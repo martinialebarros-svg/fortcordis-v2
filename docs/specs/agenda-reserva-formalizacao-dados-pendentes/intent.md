@@ -78,3 +78,35 @@ Usuário reportou três pontos relacionados ao fluxo de reserva de horário:
   definição, com dados de paciente/tutor incompletos (é exatamente por
   isso que é uma reserva, não um agendamento direto) — não há checagem
   condicional antes de encadear o aviso.
+
+## Adendo - validação bloqueava exatamente o caso de uso pretendido (2026-08-19)
+
+Depois de deployado, o usuário reportou que reservas para "Lá no Pet" e
+"Pet do Parque" enviadas pelo botão "Enviar pelo FortCordis" chegavam de
+verdade no WhatsApp real, mas nunca apareciam na Central de Atendimento —
+nem por busca de nome nem de telefone, em nenhuma aba.
+
+Depois de reproduzir com o usuário (2 cenários testados por ele: com
+paciente/tutor preenchidos funciona; sem preencher, o modal mostra um
+erro "Cadastre e vincule o animal e o tutor..." e a mensagem NÃO sai),
+ficou claro que a causa raiz é outra e mais fundamental:
+`build_reservation_template` e `build_agenda_utility_template`
+(`whatsapp_agenda_service.py`) **exigiam paciente e tutor já vinculados**
+antes de permitir qualquer envio — inclusive para
+`appointmentMissingData`, o próprio modelo cujo propósito é pedir esses
+dados! Ou seja, o sistema exigia ter os dados pendentes preenchidos para
+poder avisar que os dados estavam pendentes — uma contradição que
+bloqueava exatamente o fluxo que o usuário descreveu desde o início
+("marcar como reserva sem preencher nome do tutor e do pet, e mesmo
+assim avisar a clínica").
+
+Fix: `paciente`/`tutor` passam a ser opcionais para `build_reservation_template`
+e para `build_agenda_utility_template` quando `template_key ==
+"appointmentMissingData"` — usa um placeholder ("seu pet") no lugar do
+nome do paciente quando ele ainda não existe. Os outros modelos
+(`appointmentReminder`, `appointmentChange`, `appointmentCancellation`)
+continuam exigindo paciente/tutor vinculados, pois são usados só depois
+que os dados já foram completados. Quando o destinatário é o próprio
+tutor (`recipient_type == "tutor"`), o tutor ainda precisa existir (não
+tem como mandar mensagem pra alguém cuja identidade é totalmente
+desconhecida) — só a checagem de paciente foi relaxada nesse caso.

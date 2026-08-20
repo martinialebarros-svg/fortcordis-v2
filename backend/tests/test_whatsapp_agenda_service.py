@@ -83,6 +83,100 @@ class WhatsAppAgendaServiceTest(unittest.TestCase):
         db.refresh(agendamento)
         return clinica, tutor, paciente, agendamento
 
+    def _seed_reservation_sem_paciente_tutor(self, db, *, expired=False):
+        clinica = Clinica(
+            nome="Clinica Teste",
+            telefone="(85) 98888-1111",
+            whatsapps=["5585988881111", "5585877772222"],
+            ativo=True,
+        )
+        db.add(clinica)
+        db.flush()
+        now = datetime.now(timezone.utc)
+        agendamento = Agendamento(
+            clinica_id=clinica.id,
+            tutor_id=None,
+            paciente_id=None,
+            inicio=now + timedelta(days=1),
+            fim=now + timedelta(days=1, minutes=30),
+            status="Reservado",
+            reserva_expira_em=now - timedelta(minutes=1) if expired else now + timedelta(hours=2),
+        )
+        db.add(agendamento)
+        db.commit()
+        db.refresh(agendamento)
+        return clinica, agendamento
+
+    def test_build_reservation_template_aceita_reserva_sem_paciente_tutor_vinculados(self):
+        tmpdir, db, engine = self._build_session()
+        try:
+            _clinica, agendamento = self._seed_reservation_sem_paciente_tutor(db)
+            template = build_reservation_template(
+                db,
+                agendamento=agendamento,
+                destination="(85) 98888-1111",
+                recipient_type="clinica",
+            )
+            self.assertEqual(template.recipient_name, "Clinica Teste")
+            self.assertEqual(template.pet_name, "seu pet")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_build_reservation_template_exige_tutor_quando_destinatario_e_tutor(self):
+        tmpdir, db, engine = self._build_session()
+        try:
+            _clinica, agendamento = self._seed_reservation_sem_paciente_tutor(db)
+            with self.assertRaises(HTTPException) as ctx:
+                build_reservation_template(
+                    db,
+                    agendamento=agendamento,
+                    destination="(85) 98888-1111",
+                    recipient_type="tutor",
+                )
+            self.assertEqual(ctx.exception.status_code, 409)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_build_agenda_utility_template_missing_data_aceita_sem_paciente_tutor(self):
+        tmpdir, db, engine = self._build_session()
+        try:
+            _clinica, agendamento = self._seed_reservation_sem_paciente_tutor(db)
+            template = build_agenda_utility_template(
+                db,
+                agendamento=agendamento,
+                destination="(85) 98888-1111",
+                recipient_type="clinica",
+                template_key="appointmentMissingData",
+            )
+            self.assertEqual(template.parameters[0], "Clinica Teste")
+            self.assertEqual(template.parameters[1], "seu pet")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_build_agenda_utility_template_outros_modelos_continuam_exigindo_paciente_tutor(self):
+        tmpdir, db, engine = self._build_session()
+        try:
+            _clinica, agendamento = self._seed_reservation_sem_paciente_tutor(db)
+            with self.assertRaises(HTTPException) as ctx:
+                build_agenda_utility_template(
+                    db,
+                    agendamento=agendamento,
+                    destination="(85) 98888-1111",
+                    recipient_type="clinica",
+                    template_key="appointmentReminder",
+                )
+            self.assertEqual(ctx.exception.status_code, 409)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_build_template_only_accepts_registered_recipient_number(self):
         tmpdir, db, engine = self._build_session()
         try:

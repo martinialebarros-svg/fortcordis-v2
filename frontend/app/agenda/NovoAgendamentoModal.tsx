@@ -2761,9 +2761,13 @@ export default function NovoAgendamentoModal({
 
   const obterMensagemAgendaAtual = (): string => {
     if (!mensagemAgendaCriada) return "";
+    const pacienteNomeOuPlaceholder = mensagemAgendaCriada.pacienteNome
+      || (modeloAgendaSelecionado === "reservation" || modeloAgendaSelecionado === "appointmentMissingData"
+        ? "seu pet"
+        : "");
     const parameters = [
       mensagemAgendaCriada.destinatarioNome,
-      mensagemAgendaCriada.pacienteNome,
+      pacienteNomeOuPlaceholder,
       mensagemAgendaCriada.dataLabel,
       mensagemAgendaCriada.horaLabel,
     ];
