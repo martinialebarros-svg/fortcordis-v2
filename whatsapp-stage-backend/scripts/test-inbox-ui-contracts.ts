@@ -35,7 +35,7 @@ async function run(): Promise<void> {
 
   assert.strictEqual(catalog.source, "configured_catalog");
   assert.strictEqual(catalog.meta_approval_live, null);
-  assert.strictEqual(catalog.data.length, 11);
+  assert.strictEqual(catalog.data.length, 12);
   assert.ok(catalog.data.every((template) => template.variable_labels.length === template.body_parameter_count));
   assert.ok(catalog.data.every((template) => template.meta_approval_live === null));
 
