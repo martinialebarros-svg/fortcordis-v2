@@ -1,11 +1,11 @@
 "use client";
 
-import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle, Building2, CalendarDays, Check, CheckCheck, ChevronRight,
   CircleDot, ClipboardList, Clock3, FileText, Filter, Inbox, Info, Link2,
-  MessageSquare, MessagesSquare, PawPrint, Pencil, RefreshCw, Search, Send, Settings,
+  MessageSquare, MessagesSquare, Paperclip, PawPrint, Pencil, RefreshCw, Search, Send, Settings,
   Sparkles, UserCheck, UserRound, Users, X,
 } from "lucide-react";
 import DashboardLayout from "../layout-dashboard";
@@ -159,6 +159,36 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<ApiResul
     : text.trim().slice(0, 500);
   return { ok: response.ok, status: response.status, data: null,
     errorText: normalizedText || `HTTP ${response.status}` };
+}
+
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/csv",
+  "text/plain",
+]);
+const ATTACHMENT_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt";
+
+async function requestWithAttachment<T>(url: string, file: File, body: string): Promise<ApiResult<T>> {
+  const formData = new FormData();
+  formData.append("attachment", file);
+  if (body.trim()) formData.append("body", body.trim());
+  const response = await fetch(url, { method: "POST", body: formData, headers: getAuthHeaders() });
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const parsed = (await response.json()) as T;
+    return { ok: response.ok, status: response.status, data: parsed,
+      errorText: response.ok ? undefined : JSON.stringify(parsed) };
+  }
+  const text = await response.text();
+  return { ok: response.ok, status: response.status, data: null,
+    errorText: text.trim().slice(0, 500) || `HTTP ${response.status}` };
 }
 
 function formatDateTime(value: string | null | undefined): string {
@@ -377,6 +407,8 @@ export default function WhatsAppStagePage() {
   const [editAgentRole, setEditAgentRole] = useState("agent");
   const [savingAgentId, setSavingAgentId] = useState<string | null>(null);
   const [sendMessageBody, setSendMessageBody] = useState("");
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [resendingMessageId, setResendingMessageId] = useState<string | null>(null);
   const [composerMode, setComposerMode] = useState<ComposerMode>("message");
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
@@ -556,6 +588,27 @@ export default function WhatsAppStagePage() {
     finally { setSavingStatus(false); }
   };
 
+  const clearAttachment = (): void => {
+    setAttachmentFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+  const handleAttachmentButtonClick = (): void => fileInputRef.current?.click();
+  const handleAttachmentChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    const file = event.target.files?.[0] || null;
+    if (!file) return;
+    if (!ALLOWED_ATTACHMENT_MIME_TYPES.has(file.type)) {
+      setErrorMessage("Tipo de arquivo não suportado. Envie PDF, Word, Excel, PowerPoint, CSV ou texto.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      setErrorMessage("Arquivo excede o limite de 8 MB.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    setAttachmentFile(file);
+  };
+
   const handleSendMessage = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     if (!selectedConversationId) { setErrorMessage("Selecione uma conversa para enviar mensagem."); return; }
@@ -563,24 +616,27 @@ export default function WhatsAppStagePage() {
       setErrorMessage(windowState.hasInboundMessage ? "A janela de 24 horas foi encerrada. Use o fluxo de modelo aprovado correspondente."
         : "Aguarde uma mensagem da clínica antes de responder com texto livre."); return;
     }
-    if (!sendMessageBody.trim()) { setErrorMessage("Digite uma mensagem antes de enviar."); return; }
-    const result = await requestJson<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
-      `/whatsapp/conversations/${selectedConversationId}/messages`, {
-        method: "POST", body: JSON.stringify({ body: sendMessageBody.trim(), type: "text" }),
-      });
+    if (!sendMessageBody.trim() && !attachmentFile) { setErrorMessage("Digite uma mensagem ou anexe um arquivo antes de enviar."); return; }
+    const result = attachmentFile
+      ? await requestWithAttachment<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
+          `/whatsapp/conversations/${selectedConversationId}/messages`, attachmentFile, sendMessageBody)
+      : await requestJson<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
+          `/whatsapp/conversations/${selectedConversationId}/messages`, {
+            method: "POST", body: JSON.stringify({ body: sendMessageBody.trim(), type: "text" }),
+          });
     if (!result.ok) {
       if (result.status === 409 && result.data?.code === "CUSTOMER_SERVICE_WINDOW_CLOSED") {
         if (result.data.customer_service_window) setCustomerServiceWindows((current) => ({
           ...current, [selectedConversationId]: result.data!.customer_service_window!,
         }));
         setErrorMessage("A janela de 24 horas foi encerrada. Use um modelo aprovado.");
-      } else setErrorMessage(result.errorText || `Falha ao enviar mensagem (HTTP ${result.status})`);
-    } else { setInfoMessage("Mensagem enviada."); setSendMessageBody(""); }
+      } else setErrorMessage(result.errorText || `Falha ao enviar ${attachmentFile ? "o anexo" : "mensagem"} (HTTP ${result.status})`);
+    } else { setInfoMessage(attachmentFile ? "Anexo enviado." : "Mensagem enviada."); setSendMessageBody(""); clearAttachment(); }
     await loadMessages(selectedConversationId, 1); await loadConversations(conversationsPagination.page || 1);
   };
 
   const handleResendMessage = async (message: Message): Promise<void> => {
-    if (!selectedConversationId || !message.body) return;
+    if (!selectedConversationId || !message.body || message.type !== "text") return;
     setResendingMessageId(message.id);
     const result = await requestJson<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
       `/whatsapp/conversations/${selectedConversationId}/messages`, {
@@ -730,9 +786,9 @@ export default function WhatsAppStagePage() {
                 const previous = messages[index - 1]; const showDay = !previous || new Date(previous.created_at).toDateString() !== new Date(message.created_at).toDateString();
                 return <Fragment key={message.id}>{showDay ? <div className="fc-wa-day-separator"><span>{formatMessageDay(message.created_at)}</span></div> : null}
                   <article className={`fc-wa-bubble ${message.from_me ? "fc-wa-bubble-agent" : "fc-wa-bubble-client"}`}><p>{message.body || `[${message.type}]`}</p>
-                    {!message.from_me && selectedConversationId ? <WhatsAppMediaViewer conversationId={selectedConversationId} message={message} /> : null}
+                    {selectedConversationId ? <WhatsAppMediaViewer conversationId={selectedConversationId} message={message} /> : null}
                     <footer><time>{formatMessageTime(message.created_at)}</time><span className={`fc-wa-delivery fc-wa-delivery-${message.status}`}>{messageStatusIcon(message.status)} {messageStatusLabel(message.status)}</span>
-                      {message.from_me && message.status === "failed" ? <button type="button" className="fc-wa-resend-button"
+                      {message.from_me && message.status === "failed" && message.type === "text" ? <button type="button" className="fc-wa-resend-button"
                         onClick={() => void handleResendMessage(message)} disabled={resendingMessageId === message.id}>
                         <RefreshCw className={`h-3.5 w-3.5 ${resendingMessageId === message.id ? "animate-spin" : ""}`} /> Reenviar
                       </button> : null}</footer>
@@ -744,10 +800,16 @@ export default function WhatsAppStagePage() {
               <button type="button" role="tab" aria-selected={composerMode === "template"} className={composerMode === "template" ? "active" : ""} onClick={() => setComposerMode("template")}><Sparkles className="h-4 w-4" /> Modelos configurados</button></div>
               {composerMode === "message" ? <form onSubmit={handleSendMessage}><div className="fc-wa-quick-responses" aria-label="Respostas rápidas">
                 {QUICK_RESPONSES.map((response) => <button key={response} type="button" onClick={() => setSendMessageBody(response)} disabled={!selectedConversationId || !windowState.isOpen}>{response}</button>)}</div>
-                <div className="fc-wa-compose-row"><textarea placeholder="Digite sua resposta" aria-label="Digite sua resposta" value={sendMessageBody} onChange={(event) => setSendMessageBody(event.target.value)}
+                <input ref={fileInputRef} type="file" className="sr-only" accept={ATTACHMENT_ACCEPT} aria-label="Selecionar arquivo para anexar" onChange={handleAttachmentChange} />
+                {attachmentFile ? <div className="fc-wa-attachment-chip"><FileText className="h-3.5 w-3.5" /><span>{attachmentFile.name}</span>
+                  <button type="button" onClick={clearAttachment} aria-label="Remover anexo"><X className="h-3.5 w-3.5" /></button></div> : null}
+                <div className="fc-wa-compose-row">
+                  <button type="button" className="fc-wa-icon-button" onClick={handleAttachmentButtonClick} disabled={!selectedConversationId || !windowState.isOpen}
+                    aria-label="Anexar arquivo" title="Anexar PDF, Word, Excel, PowerPoint, CSV ou texto (até 8 MB)"><Paperclip className="h-4 w-4" /></button>
+                  <textarea placeholder="Digite sua resposta" aria-label="Digite sua resposta" value={sendMessageBody} onChange={(event) => setSendMessageBody(event.target.value)}
                   onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}
                   disabled={!selectedConversationId || !windowState.isOpen} rows={3} />
-                  <button type="submit" className="fc-wa-send" disabled={!selectedConversationId || !windowState.isOpen || !sendMessageBody.trim()}><Send className="h-4 w-4" /> Enviar</button></div>
+                  <button type="submit" className="fc-wa-send" disabled={!selectedConversationId || !windowState.isOpen || (!sendMessageBody.trim() && !attachmentFile)}><Send className="h-4 w-4" /> Enviar</button></div>
                 <p className="fc-wa-composer-hint">{windowState.isOpen ? "Ctrl/Cmd + Enter para enviar" : "Texto livre indisponível. Consulte os modelos e use o fluxo correspondente."}</p></form> :
                 <div className="fc-wa-template-composer"><div className="fc-wa-template-notice"><Info className="h-4 w-4" /><span>Catálogo configurado no Fort Cordis. A aprovação atual na Meta não é consultada nesta tela.</span></div>
                   {loadingTemplates ? <div className="fc-wa-empty">Carregando modelos...</div> : templateCatalogError ? <div className="fc-wa-template-error">{templateCatalogError}</div> : templates.length === 0 ? <div className="fc-wa-empty">Nenhum modelo configurado.</div> : <>

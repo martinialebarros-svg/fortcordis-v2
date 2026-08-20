@@ -4331,6 +4331,18 @@ body {
     @apply shrink-0 rounded-full border border-ink-200 bg-ink-50 px-3 py-1.5 text-[11px] font-bold text-ink-600 transition hover:border-vital-200 hover:bg-vital-50 hover:text-vital-700 disabled:cursor-not-allowed disabled:opacity-45;
   }
 
+  .fc-wa-attachment-chip {
+    @apply mb-2 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-vital-200 bg-vital-50 px-3 py-1.5 text-xs font-bold text-vital-700;
+  }
+
+  .fc-wa-attachment-chip span {
+    @apply max-w-[16rem] truncate;
+  }
+
+  .fc-wa-attachment-chip button {
+    @apply grid h-5 w-5 shrink-0 place-items-center rounded-full text-vital-700 outline-none transition hover:bg-vital-100 focus-visible:ring-2 focus-visible:ring-vital-200;
+  }
+
   .fc-wa-compose-row {
     @apply flex items-end gap-2;
   }

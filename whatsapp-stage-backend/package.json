@@ -26,6 +26,7 @@
     "test:smoke-cleanup": "ts-node --transpile-only scripts/test-smoke-cleanup.ts",
     "test:webhook-message-body": "DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fortcordis_stage ts-node --transpile-only scripts/test-webhook-message-body.ts",
     "test:message-media": "ts-node --transpile-only scripts/test-message-media.ts",
+    "test:message-attachment": "DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fortcordis_stage ts-node --transpile-only scripts/test-message-attachment.ts",
     "test:audio-transcode": "ts-node --transpile-only scripts/test-audio-transcode.ts",
     "test:conversation-ordering": "ts-node --transpile-only scripts/test-conversation-ordering.ts",
     "test:approved-template-button-events": "DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fortcordis_stage ts-node --transpile-only scripts/test-approved-template-button-events.ts"

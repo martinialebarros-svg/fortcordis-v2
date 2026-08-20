@@ -239,6 +239,37 @@ export async function sendWhatsAppMessageWithRetry(
   return sendPayloadWithRetry({ phoneNumberId, accessToken, payload });
 }
 
+export interface SendDocumentMessageParams {
+  phoneNumberId: string;
+  accessToken: string;
+  to: string;
+  mediaId: string;
+  filename: string;
+  caption?: string;
+}
+
+export async function sendWhatsAppDocumentMessageWithRetry(
+  params: SendDocumentMessageParams
+): Promise<GraphMessageResponse> {
+  const payload = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: params.to,
+    type: "document",
+    document: {
+      id: params.mediaId,
+      filename: params.filename,
+      ...(params.caption ? { caption: params.caption } : {})
+    }
+  };
+
+  return sendPayloadWithRetry({
+    phoneNumberId: params.phoneNumberId,
+    accessToken: params.accessToken,
+    payload
+  });
+}
+
 export async function sendWhatsAppReservationTemplateWithRetry(
   params: ReservationTemplateParams
 ): Promise<GraphMessageResponse> {
@@ -350,13 +381,15 @@ export async function sendWhatsAppApprovedUtilityTemplateWithRetry(
   });
 }
 
-export async function uploadWhatsAppPdfWithRetry(
-  params: UploadWhatsAppPdfParams
-): Promise<{ id: string }> {
-  if (!params.content.length || params.content.subarray(0, 4).toString("ascii") !== "%PDF") {
-    throw new Error("Document content must be a valid PDF");
-  }
+interface UploadMediaWithRetryParams {
+  phoneNumberId: string;
+  accessToken: string;
+  filename: string;
+  content: Buffer;
+  mimeType: string;
+}
 
+async function uploadMediaWithRetry(params: UploadMediaWithRetryParams): Promise<{ id: string }> {
   const url = `${GRAPH_API_BASE_URL}/${params.phoneNumberId}/media`;
   const maxAttempts = 3;
 
@@ -365,7 +398,7 @@ export async function uploadWhatsAppPdfWithRetry(
     formData.append("messaging_product", "whatsapp");
     formData.append(
       "file",
-      new Blob([new Uint8Array(params.content)], { type: "application/pdf" }),
+      new Blob([new Uint8Array(params.content)], { type: params.mimeType }),
       params.filename
     );
 
@@ -402,6 +435,34 @@ export async function uploadWhatsAppPdfWithRetry(
   }
 
   throw new Error("Unexpected WhatsApp media upload retry flow termination");
+}
+
+export async function uploadWhatsAppPdfWithRetry(
+  params: UploadWhatsAppPdfParams
+): Promise<{ id: string }> {
+  if (!params.content.length || params.content.subarray(0, 4).toString("ascii") !== "%PDF") {
+    throw new Error("Document content must be a valid PDF");
+  }
+
+  return uploadMediaWithRetry({ ...params, mimeType: "application/pdf" });
+}
+
+export interface UploadWhatsAppDocumentParams {
+  phoneNumberId: string;
+  accessToken: string;
+  filename: string;
+  content: Buffer;
+  mimeType: string;
+}
+
+export async function uploadWhatsAppDocumentWithRetry(
+  params: UploadWhatsAppDocumentParams
+): Promise<{ id: string }> {
+  if (!params.content.length) {
+    throw new Error("Attachment content must not be empty");
+  }
+
+  return uploadMediaWithRetry(params);
 }
 
 export interface DownloadWhatsAppMediaParams {
