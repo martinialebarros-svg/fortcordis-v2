@@ -403,6 +403,14 @@ async function markMessageFailed(messageId: string, error: any): Promise<void> {
   );
 }
 
+export function decodeMultipartFilename(rawFilename: string): string {
+  // Busboy/Multer decode multipart header parameters as latin1 by default,
+  // even though browsers send the filename as raw UTF-8 bytes — without
+  // this round-trip, accented names (ex.: "laudo-coração.pdf") arrive
+  // mangled ("laudo-coraÃ§Ã£o.pdf").
+  return Buffer.from(rawFilename, "latin1").toString("utf8");
+}
+
 function sanitizeAttachmentFilename(rawFilename: string): string {
   const trimmed = rawFilename.trim();
   return (trimmed.length > 200 ? trimmed.slice(0, 200) : trimmed) || "anexo";
@@ -417,7 +425,7 @@ async function sendAttachmentMessage(
   accessToken: string,
   phoneNumberId: string
 ): Promise<void> {
-  const filename = sanitizeAttachmentFilename(file.originalname);
+  const filename = sanitizeAttachmentFilename(decodeMultipartFilename(file.originalname));
   const localMessageId = await insertPendingMessage(conversationId, filename, "document", {
     source: "agent_api",
     ...(caption ? { caption } : {})

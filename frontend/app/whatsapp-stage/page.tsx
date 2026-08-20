@@ -316,6 +316,7 @@ function WhatsAppMediaViewer({ conversationId, message }: { conversationId: stri
   useEffect(() => () => { if (blobUrl) URL.revokeObjectURL(blobUrl); }, [blobUrl]);
 
   if (!DOWNLOADABLE_MEDIA_TYPES.has(message.type)) return null;
+  if (message.status === "failed") return null;
 
   const carregarMidia = async () => {
     setState("loading");
@@ -598,12 +599,12 @@ export default function WhatsAppStagePage() {
     if (!file) return;
     if (!ALLOWED_ATTACHMENT_MIME_TYPES.has(file.type)) {
       setErrorMessage("Tipo de arquivo não suportado. Envie PDF, Word, Excel, PowerPoint, CSV ou texto.");
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      clearAttachment();
       return;
     }
     if (file.size > MAX_ATTACHMENT_BYTES) {
       setErrorMessage("Arquivo excede o limite de 8 MB.");
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      clearAttachment();
       return;
     }
     setAttachmentFile(file);

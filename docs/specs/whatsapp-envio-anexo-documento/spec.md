@@ -55,6 +55,20 @@ partir do texto digitado no composer.
   ainda não enviado (estado e `<input type="file">`) — evita que um
   arquivo selecionado para a conversa A seja enviado por engano para a
   conversa B ao trocar de contato antes de clicar em "Enviar".
+- RF-014: o nome do arquivo recebido via multipart é decodificado de
+  latin1 para UTF-8 antes de salvar/enviar — Multer/Busboy decodificam o
+  parâmetro `filename` do cabeçalho multipart como latin1 por padrão,
+  mesmo quando o navegador envia bytes UTF-8, o que corrompe nomes
+  acentuados (ex.: "laudo-coração.pdf").
+- RF-015: escolher um novo arquivo que falha na validação (tipo ou
+  tamanho) limpa também o anexo anterior já selecionado, não só o
+  `<input type="file">` — sem isso, uma tentativa de substituição
+  rejeitada deixava o arquivo anterior pronto para ser enviado sem que
+  o atendente percebesse.
+- RF-016: o visualizador de mídia não aparece para mensagens
+  `status: "failed"` — um anexo cujo envio falhou nunca teve o
+  `media_id` persistido, então o botão "Baixar documento" sempre
+  resultaria em 404 se exibido.
 
 ## Requisitos não funcionais (NFR)
 
@@ -127,6 +141,11 @@ partir do texto digitado no composer.
 - CA-008: anexar um arquivo na conversa A e depois clicar na conversa B
   (sem enviar) remove o chip do anexo e limpa o `<input type="file">` —
   o próximo envio em B não inclui o arquivo escolhido para A.
+- CA-009: com um anexo válido já selecionado, escolher em seguida um
+  arquivo de tipo/tamanho inválido remove o anexo anterior (chip some) —
+  não deixa o arquivo antigo pronto para envio.
+- CA-010: mensagem de documento `from_me: true` com `status: "failed"`
+  não mostra o botão "Baixar documento".
 
 ## Casos de borda
 
@@ -136,6 +155,8 @@ partir do texto digitado no composer.
   rede (`uploadWhatsAppDocumentWithRetry` valida conteúdo vazio).
 - CB-003: nome de arquivo muito longo é truncado para 200 caracteres
   antes de salvar/enviar (`sanitizeAttachmentFilename`).
+- CB-004: nome de arquivo com acentos (UTF-8) chega corretamente
+  decodificado, não mangled pelo default latin1 do Multer/Busboy.
 
 ## Fora de escopo
 

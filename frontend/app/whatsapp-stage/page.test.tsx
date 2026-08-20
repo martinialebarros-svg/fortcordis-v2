@@ -1041,4 +1041,83 @@ describe("WhatsAppStagePage", () => {
     expect(screen.queryByText("exame-paciente-a.pdf")).not.toBeInTheDocument();
     expect(fileInput.value).toBe("");
   });
+
+  it("remove o anexo anterior ao tentar substituí-lo por um arquivo inválido", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
+          data: [{ id: "210", wa_phone_number: "558533330001", wa_psid: null, status: "open", subject: "Troca de anexo",
+            last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: "2026-08-14T02:26:00.000Z",
+            created_at: "2026-08-14T02:00:00.000Z", updated_at: "2026-08-14T02:00:00.000Z" }],
+          pagination: { page: 1, limit: 20, total: 1 },
+        });
+        if (url === "/whatsapp/agents") return jsonResponse({ data: [] });
+        if (url === "/whatsapp/automation/templates") return jsonResponse({ data: [], source: "configured_catalog", meta_approval_live: null });
+        if (url.startsWith("/whatsapp/conversations/210/messages?")) return jsonResponse({
+          data: [], pagination: { page: 1, limit: 50, total: 0 },
+          customer_service_window: { last_inbound_at: "2026-08-14T02:26:00.000Z", expires_at: "2026-08-15T02:26:00.000Z", is_open: true },
+        });
+        if (url.startsWith("/api/v1/whatsapp-contexto?")) return notFoundDomainContextResponse();
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "210", last_seen_at: "2026-08-14T02:26:00.000Z" } });
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const validFile = new File(["conteudo"], "exame-valido.pdf", { type: "application/pdf" });
+    const fileInput = screen.getByLabelText("Selecionar arquivo para anexar") as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [validFile] } });
+    expect(screen.getByText("exame-valido.pdf")).toBeInTheDocument();
+
+    const invalidFile = new File(["conteudo"], "virus.exe", { type: "application/x-msdownload" });
+    fireEvent.change(fileInput, { target: { files: [invalidFile] } });
+
+    expect(screen.getByText(/Tipo de arquivo não suportado/)).toBeInTheDocument();
+    expect(screen.queryByText("exame-valido.pdf")).not.toBeInTheDocument();
+    expect(fileInput.value).toBe("");
+  });
+
+  it("não mostra o botão de mídia para um anexo enviado que falhou", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
+          data: [{ id: "220", wa_phone_number: "558533330002", wa_psid: null, status: "open", subject: "Anexo com falha",
+            last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: "2026-08-14T02:26:00.000Z",
+            created_at: "2026-08-14T02:00:00.000Z", updated_at: "2026-08-14T02:00:00.000Z" }],
+          pagination: { page: 1, limit: 20, total: 1 },
+        });
+        if (url === "/whatsapp/agents") return jsonResponse({ data: [] });
+        if (url === "/whatsapp/automation/templates") return jsonResponse({ data: [], source: "configured_catalog", meta_approval_live: null });
+        if (url.startsWith("/whatsapp/conversations/220/messages?")) return jsonResponse({
+          data: [{ id: "900", conversation_id: "220", wa_message_id: null, from_me: true, body: "exame.pdf",
+            type: "document", status: "failed", created_at: "2026-08-14T02:26:00.000Z" }],
+          pagination: { page: 1, limit: 50, total: 1 },
+          customer_service_window: { last_inbound_at: "2026-08-14T02:26:00.000Z", expires_at: "2026-08-15T02:26:00.000Z", is_open: true },
+        });
+        if (url.startsWith("/api/v1/whatsapp-contexto?")) return notFoundDomainContextResponse();
+        if (url.includes("/seen")) return jsonResponse({ data: { id: "220", last_seen_at: "2026-08-14T02:26:00.000Z" } });
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("exame.pdf")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Baixar documento" })).not.toBeInTheDocument();
+  });
 });

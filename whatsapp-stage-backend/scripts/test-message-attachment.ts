@@ -1,7 +1,7 @@
 import assert from "assert";
 import axios, { AxiosError } from "axios";
 import { Request, Response } from "express";
-import { sendConversationMessage } from "../src/controllers/conversationsController";
+import { decodeMultipartFilename, sendConversationMessage } from "../src/controllers/conversationsController";
 import {
   sendWhatsAppDocumentMessageWithRetry,
   uploadWhatsAppDocumentWithRetry,
@@ -188,6 +188,22 @@ async function run(): Promise<void> {
   assert.strictEqual(emptyCall.status(), 400, "a message with no body and no attachment should be rejected with 400");
 
   console.log("Conversation attachment validation tests passed.");
+
+  // Busboy/Multer decode multipart filenames as latin1 by default even though
+  // browsers send raw UTF-8 bytes — without the round-trip, accented filenames
+  // (very common in Portuguese: "laudo-coração.pdf") arrive mangled.
+  assert.strictEqual(
+    decodeMultipartFilename("laudo-coraÃ§Ã£o.pdf"),
+    "laudo-coração.pdf",
+    "UTF-8 filename mis-decoded as latin1 by Multer should be recovered"
+  );
+  assert.strictEqual(
+    decodeMultipartFilename("recibo.pdf"),
+    "recibo.pdf",
+    "plain ASCII filenames must round-trip unchanged"
+  );
+
+  console.log("Multipart filename decoding tests passed.");
 }
 
 void run()

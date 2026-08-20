@@ -12,7 +12,10 @@
 | CA-006 | aceitação | `WhatsAppMediaViewer` renderizado sem a condição `!message.from_me` | ok (revisão de código, sem teste de componente dedicado) |
 | CA-007 | aceitação | condição do botão "Reenviar" passou a incluir `message.type === "text"` | ok (revisão de código, sem teste de componente dedicado) |
 | CA-008 | aceitação | `page.test.tsx`: "limpa o anexo selecionado ao trocar de conversa" | ok |
+| CA-009 | aceitação | `page.test.tsx`: "remove o anexo anterior ao tentar substituí-lo por um arquivo inválido" | ok |
+| CA-010 | aceitação | `page.test.tsx`: "não mostra o botão de mídia para um anexo enviado que falhou" | ok |
 | NFR-002 | não funcional | allowlist explícita `ALLOWED_ATTACHMENT_MIME_TYPES`; teste de 422 confirma rejeição de mimetype fora da lista | ok |
+| CB-004 | caso de borda | `test-message-attachment.ts`: `decodeMultipartFilename` recupera nome UTF-8 mangled como latin1 | ok |
 
 ## Testes automatizados executados
 
@@ -45,8 +48,8 @@ Resumo dos resultados:
   sem tocar banco; `test:whatsapp-retry`, `test:approved-templates` e
   `test:auth-policy` passaram sem regressão.
 - Frontend: `tsc --noEmit` e `eslint --max-warnings=0` sem avisos;
-  `vitest run app/whatsapp-stage/page.test.tsx` — 16 testes passaram
-  (13 já existentes + 3 novos desta feature, ver adendo de revisão
+  `vitest run app/whatsapp-stage/page.test.tsx` — 18 testes passaram
+  (13 já existentes + 5 novos desta feature, ver adendos de revisão
   abaixo).
 
 ## Testes manuais
@@ -116,6 +119,45 @@ Dois apontamentos P1 do revisor automático (`chatgpt-codex-connector[bot]`):
    podem ser rejeitados antes de chegar ao Multer. Não corrigido nesta
    PR — sinalizado no comentário de revisão para confirmação manual no
    servidor (fora do controle de versão deste repositório).
+
+## Adendo 2 - revisão automatizada (Codex), segunda rodada na PR #63 - 2026-08-20
+
+Três apontamentos P2 do revisor automático, todos confirmados e corrigidos:
+
+1. **Nome de arquivo corrompido (encoding).** Confirmado: Multer/Busboy
+   decodificam o parâmetro `filename` do multipart como latin1 por
+   padrão, mesmo com o navegador enviando UTF-8 — um PDF chamado
+   "laudo-coração.pdf" chegava como "laudo-coraÃ§Ã£o.pdf" em
+   `file.originalname`, e esse nome corrompido era salvo e enviado ao
+   contato. Corrigida com `decodeMultipartFilename` (round-trip
+   `Buffer.from(raw, "latin1").toString("utf8")`), aplicada antes de
+   `sanitizeAttachmentFilename`. Teste novo em
+   `test-message-attachment.ts` cobre o caso acentuado e confirma que
+   nomes ASCII simples continuam inalterados (CB-004).
+2. **Anexo antigo não era limpo ao tentar substituí-lo por um inválido.**
+   Confirmado: `handleAttachmentChange` só resetava o valor do
+   `<input type="file">` nos dois ramos de rejeição (tipo/tamanho
+   inválido), deixando `attachmentFile` (o anexo válido escolhido
+   antes) intacto — um agente que tentasse trocar o anexo por um
+   arquivo inválido continuaria com o anexo anterior pronto para
+   envio, sem perceber. Corrigido chamando `clearAttachment()` (que já
+   limpava os dois) nos dois ramos. Novo teste "remove o anexo anterior
+   ao tentar substituí-lo por um arquivo inválido" (CA-009).
+3. **Botão de mídia quebrado em anexo com falha de envio.** Confirmado:
+   `WhatsAppMediaViewer` não checava `message.status`, então uma
+   mensagem de documento com `status: "failed"` (upload ou envio à
+   Graph API não completou, `metadata.message.document.id` nunca foi
+   gravado) ainda mostrava "Baixar documento" — clicar sempre resultaria
+   em `404` de `getMessageMedia` (sem `media_id` para buscar). Corrigido
+   com um segundo early-return no componente
+   (`if (message.status === "failed") return null;`). Novo teste "não
+   mostra o botão de mídia para um anexo enviado que falhou" (CA-010).
+
+Comandos re-executados após as correções: `npx tsc --noEmit` (backend e
+frontend), `npm run test:message-attachment`, `npx eslint
+app/whatsapp-stage/page.tsx app/whatsapp-stage/page.test.tsx
+--max-warnings=0`, `npx vitest run app/whatsapp-stage/page.test.tsx` (18
+testes, sem regressão). Todos passaram.
 
 ## Decisão de release
 
