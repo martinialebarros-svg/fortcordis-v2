@@ -40,7 +40,7 @@ export const AGENDA_STATUS_ACOES: AgendaStatusAction[] = [
 
 const PROXIMOS_STATUS: Record<AgendaStatus, AgendaStatus[]> = {
   Agendado: ["Reservado", "Confirmado", "Cancelado", "Faltou"],
-  Reservado: ["Confirmado", "Agendado", "Cancelado"],
+  Reservado: ["Agendado", "Confirmado", "Cancelado"],
   Confirmado: ["Em atendimento", "Cancelado", "Faltou"],
   "Em atendimento": ["Realizado", "Cancelado"],
   Realizado: ["Em atendimento"],

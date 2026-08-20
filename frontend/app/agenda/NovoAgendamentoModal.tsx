@@ -2842,10 +2842,31 @@ export default function NovoAgendamentoModal({
         mensagemAgendaCriada.destinatarioId,
         whatsappMensagemSelecionado,
       );
+
+      let avisoDadosPendentesEnviado = false;
+      if (modeloAgendaSelecionado === "reservation") {
+        try {
+          await api.post(`/agenda/${mensagemAgendaCriada.agendamentoId}/whatsapp/modelo`, {
+            destination: whatsappMensagemSelecionado,
+            recipient_type: mensagemAgendaCriada.destinatarioTipo,
+            idempotency_key: typeof globalThis.crypto?.randomUUID === "function"
+              ? globalThis.crypto.randomUUID()
+              : `agenda-appointmentMissingData-${mensagemAgendaCriada.agendamentoId}-${Date.now()}`,
+            template_key: "appointmentMissingData",
+          });
+          avisoDadosPendentesEnviado = true;
+        } catch {
+          // A reserva em si ja foi enviada com sucesso; o aviso de dados
+          // pendentes e um complemento, nao deve derrubar o feedback principal.
+        }
+      }
+
       setEnvioAutomaticoStatus("sent");
       setFeedbackMensagemAgenda(
         modeloAgendaSelecionado === "reservation"
-          ? "Reserva enviada pelo FortCordis. Os botões Confirmar e Solicitar alteração estão vinculados ao agendamento."
+          ? avisoDadosPendentesEnviado
+            ? "Reserva enviada, junto com o aviso de dados pendentes do tutor/paciente. Os botões Confirmar e Solicitar alteração estão vinculados ao agendamento."
+            : "Reserva enviada pelo FortCordis, mas não foi possível enviar o aviso de dados pendentes automaticamente. Os botões Confirmar e Solicitar alteração estão vinculados ao agendamento."
           : "Modelo enviado pelo FortCordis. As respostas chegarão à Caixa de Entrada do WhatsApp para acompanhamento da equipe."
       );
     } catch (error: any) {
