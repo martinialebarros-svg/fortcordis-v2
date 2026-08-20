@@ -689,6 +689,10 @@ export default function WhatsAppStagePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedConversationId]);
   useEffect(() => {
+    setAttachmentFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, [selectedConversationId]);
+  useEffect(() => {
     if (!selectedConversation) {
       setDomainContext(null); setDomainContextError(null); setLoadingDomainContext(false);
       return;

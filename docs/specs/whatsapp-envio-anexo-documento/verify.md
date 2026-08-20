@@ -11,6 +11,7 @@
 | CA-005 | aceitação | `test-message-attachment.ts`: `sendConversationMessage` com mimetype não permitido retorna 422 sem chamar `query` | ok |
 | CA-006 | aceitação | `WhatsAppMediaViewer` renderizado sem a condição `!message.from_me` | ok (revisão de código, sem teste de componente dedicado) |
 | CA-007 | aceitação | condição do botão "Reenviar" passou a incluir `message.type === "text"` | ok (revisão de código, sem teste de componente dedicado) |
+| CA-008 | aceitação | `page.test.tsx`: "limpa o anexo selecionado ao trocar de conversa" | ok |
 | NFR-002 | não funcional | allowlist explícita `ALLOWED_ATTACHMENT_MIME_TYPES`; teste de 422 confirma rejeição de mimetype fora da lista | ok |
 
 ## Testes automatizados executados
@@ -44,8 +45,9 @@ Resumo dos resultados:
   sem tocar banco; `test:whatsapp-retry`, `test:approved-templates` e
   `test:auth-policy` passaram sem regressão.
 - Frontend: `tsc --noEmit` e `eslint --max-warnings=0` sem avisos;
-  `vitest run app/whatsapp-stage/page.test.tsx` — 15 testes passaram
-  (13 já existentes + 2 novos desta feature).
+  `vitest run app/whatsapp-stage/page.test.tsx` — 16 testes passaram
+  (13 já existentes + 3 novos desta feature, ver adendo de revisão
+  abaixo).
 
 ## Testes manuais
 
@@ -71,6 +73,49 @@ Resumo dos resultados:
 ## Itens fora de escopo entregues
 
 - Nenhum.
+
+## Adendo - revisão automatizada (Codex) na PR #63 - 2026-08-20
+
+Dois apontamentos P1 do revisor automático (`chatgpt-codex-connector[bot]`):
+
+1. **Anexo não é limpo ao trocar de conversa.** Confirmado: `attachmentFile`/
+   `fileInputRef` eram estado de página, sem nenhum efeito reagindo a
+   `selectedConversationId`. Selecionar um arquivo na conversa A e trocar
+   para a conversa B sem enviar mantinha o arquivo escolhido — ao clicar
+   "Enviar" em B, o anexo de A seguiria para o contato errado (risco
+   real de vazamento de documento para o destinatário errado, não só um
+   texto de rascunho). Corrigido com um novo `useEffect` dedicado,
+   dependente de `selectedConversationId`, que limpa `attachmentFile` e
+   o valor do `<input type="file">` a cada troca de conversa — mesmo
+   padrão dos demais efeitos já existentes na página. Novo teste "limpa
+   o anexo selecionado ao trocar de conversa" (CA-008) cobre o cenário.
+   Nota: o rascunho de texto (`sendMessageBody`) já tinha esse mesmo
+   comportamento antes desta feature (não é uma regressão introduzida
+   aqui) e ficou fora desta correção — o risco de um anexo ir para o
+   contato errado é qualitativamente maior (documento potencialmente
+   sensível) do que um texto de rascunho remanescente.
+
+2. **Limite de corpo da requisição no Nginx para anexos até 8 MB.**
+   Apontamento: `scripts/provision_institutional_nginx.sh` define
+   `client_max_body_size 30m` só em `location /api/`, e um upload de
+   anexo poderia cair em outro `location` sem esse limite (default do
+   Nginx é 1 MB). Verificado: esse script provisiona o site
+   institucional (`fortcordis.com`/`www.fortcordis.com`, `SITE_NAME=
+   fortcordis-www`), que nem tem rota `/whatsapp/`. A Central de
+   Atendimento (`/whatsapp-stage`) roda em `app.fortcordis.com.br`
+   (`PUBLIC_URL` em `scripts/deploy_prod_vps.sh`), cujo `/whatsapp/:path*`
+   é reescrito pelo próprio Next.js (`frontend/next.config.js`) para o
+   `whatsapp-stage-backend` — não passa pelo `location /api/` do Nginx
+   institucional. A configuração de Nginx desse domínio real não está
+   neste repositório (`deploy_prod_vps.sh` só recarrega o Nginx via
+   `reload_nginx_if_possible`, não gera o site) — não há arquivo aqui
+   para confirmar ou corrigir o `client_max_body_size` efetivo desse
+   domínio. Risco residual genuíno: se o Nginx de `app.fortcordis.com.br`
+   não tiver um `client_max_body_size` de pelo menos 8 MB para `location
+   /` (ou para o path usado pelo proxy do Next.js), anexos acima de ~1 MB
+   podem ser rejeitados antes de chegar ao Multer. Não corrigido nesta
+   PR — sinalizado no comentário de revisão para confirmação manual no
+   servidor (fora do controle de versão deste repositório).
 
 ## Decisão de release
 

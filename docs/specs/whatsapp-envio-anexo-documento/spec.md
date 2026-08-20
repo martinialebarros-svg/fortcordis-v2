@@ -51,6 +51,10 @@ partir do texto digitado no composer.
   deixou de aparecer para `type !== "text"`, já que o reenvio só
   reconstrói a requisição a partir do texto salvo, não do arquivo
   original (ver `whatsapp-reenvio-mensagem-falha/spec.md`, RF-002).
+- RF-013: trocar a conversa selecionada limpa qualquer anexo escolhido e
+  ainda não enviado (estado e `<input type="file">`) — evita que um
+  arquivo selecionado para a conversa A seja enviado por engano para a
+  conversa B ao trocar de contato antes de clicar em "Enviar".
 
 ## Requisitos não funcionais (NFR)
 
@@ -120,6 +124,9 @@ partir do texto digitado no composer.
   visualizar/baixar na própria conversa (antes só valia para recebidas).
 - CA-007: mensagem de documento com falha de envio não mostra mais o
   botão "Reenviar".
+- CA-008: anexar um arquivo na conversa A e depois clicar na conversa B
+  (sem enviar) remove o chip do anexo e limpa o `<input type="file">` —
+  o próximo envio em B não inclui o arquivo escolhido para A.
 
 ## Casos de borda
 
