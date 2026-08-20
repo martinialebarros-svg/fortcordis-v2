@@ -275,6 +275,40 @@ class WhatsAppAgendaServiceTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_falar_equipe_cria_alerta_interno_independente_do_status(self):
+        tmpdir, db, engine = self._build_session()
+        try:
+            _clinica, _tutor, _paciente, agendamento = self._seed_reservation(db, status="Agendado")
+            result, idempotent = process_button_response(
+                db,
+                provider_message_id="wamid.falar-equipe.123",
+                outbound_message_id="wamid.outbound.999",
+                agendamento_id=agendamento.id,
+                action="falar_equipe",
+                from_phone="5585988881111",
+            )
+            db.refresh(agendamento)
+            self.assertFalse(idempotent)
+            self.assertEqual(result["result"], "falar_equipe_solicitado")
+            self.assertEqual(agendamento.status, "Agendado")
+            alerta = db.query(AlertaInterno).one()
+            self.assertEqual(alerta.tipo, "whatsapp_agenda_falar_equipe")
+
+            _result_again, idempotent_again = process_button_response(
+                db,
+                provider_message_id="wamid.falar-equipe.123",
+                outbound_message_id="wamid.outbound.999",
+                agendamento_id=agendamento.id,
+                action="falar_equipe",
+                from_phone="5585988881111",
+            )
+            self.assertTrue(idempotent_again)
+            self.assertEqual(db.query(AlertaInterno).count(), 1)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_delivery_contract_uses_internal_token_and_expected_parameters(self):
         response = SimpleNamespace(
             status_code=201,
@@ -334,6 +368,34 @@ class WhatsAppAgendaServiceTest(unittest.TestCase):
                     template_key="appointmentCancellation",
                 )
             self.assertEqual(invalid_cancellation.exception.status_code, 409)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_build_agenda_utility_template_formalized_monta_sete_parametros(self):
+        tmpdir, db, engine = self._build_session()
+        try:
+            _clinica, _tutor, _paciente, agendamento = self._seed_reservation(db, status="Agendado")
+            agendamento.servico = "Ecocardiograma"
+            db.commit()
+            db.refresh(agendamento)
+
+            template = build_agenda_utility_template(
+                db,
+                agendamento=agendamento,
+                destination="(85) 98888-1111",
+                recipient_type="clinica",
+                template_key="appointmentFormalized",
+            )
+
+            self.assertEqual(template.template_key, "appointmentFormalized")
+            self.assertEqual(len(template.parameters), 7)
+            self.assertEqual(template.parameters[0], "Clinica Teste")
+            self.assertEqual(template.parameters[1], "Ecocardiograma")
+            self.assertEqual(template.parameters[2], "Thor")
+            self.assertEqual(template.parameters[3], "Maria")
+            self.assertEqual(template.parameters[6], "Clinica Teste")
         finally:
             db.close()
             engine.dispose()

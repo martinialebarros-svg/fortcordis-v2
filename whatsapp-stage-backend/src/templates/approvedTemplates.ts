@@ -46,6 +46,18 @@ export const APPROVED_UTILITY_TEMPLATES = {
     quickReplies: ["Enviar dados", "Falar com a equipe"],
     buttonActions: ["enviar_dados", "falar_equipe"]
   },
+  appointmentFormalized: {
+    name: "agendamento_formalizado",
+    // Aguardando aprovacao da Meta - ver docs/specs/agenda-reserva-formalizacao-dados-pendentes/.
+    // Atualizar com o ID real assim que o modelo for aprovado no Business Manager.
+    metaId: "PENDING_META_APPROVAL",
+    body:
+      "Olá, {{1}}. Este é um aviso automático: o atendimento de {{2}} referente ao paciente {{3}}, " +
+      "tutor(a) {{4}}, foi agendado para o dia {{5}}, às {{6}}, na unidade {{7}}. " +
+      "Aguardamos vocês nessa data.",
+    quickReplies: [],
+    buttonActions: []
+  },
   portalReportAvailable: {
     name: "laudo_disponivel_portal",
     metaId: "1682393009502350",

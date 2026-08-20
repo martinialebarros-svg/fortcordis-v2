@@ -39,6 +39,11 @@ const TEMPLATE_CATALOG_METADATA: Record<ApprovedUtilityTemplateKey, TemplateCata
     workflow_label: "Dados pendentes do agendamento",
     variable_labels: ["Clínica ou destinatário", "Pet", "Data", "Horário"]
   },
+  appointmentFormalized: {
+    category: "agenda",
+    workflow_label: "Agendamento formalizado",
+    variable_labels: ["Clínica ou destinatário", "Serviço", "Pet", "Tutor", "Data", "Horário", "Unidade"]
+  },
   portalReportAvailable: {
     category: "laudos",
     workflow_label: "Laudo disponível no portal",

@@ -29,6 +29,13 @@ from app.services.whatsapp_reminder_scheduler_service import (
     list_eligible_agendamentos_preview,
 )
 from app.services.push_notifications import send_whatsapp_message_push_notification
+from app.services.agenda_formalizacao_service import (
+    build_formalizacao_url,
+    criar_ou_reutilizar_convite,
+    obter_contexto_publico,
+    obter_convite_valido,
+    processar_submissao,
+)
 
 
 router = APIRouter()
@@ -44,7 +51,7 @@ class ReservationButtonResponseRequest(BaseModel):
     provider_message_id: str = Field(..., min_length=8, max_length=160)
     outbound_message_id: str | None = Field(default=None, max_length=160)
     agendamento_id: int = Field(..., gt=0)
-    action: Literal["confirmar", "solicitar_alteracao"]
+    action: Literal["confirmar", "solicitar_alteracao", "falar_equipe"]
     from_phone: str = Field(..., min_length=10, max_length=32)
 
 
@@ -53,6 +60,12 @@ class AgendaUtilityTemplateSendRequest(BaseModel):
     recipient_type: Literal["clinica", "tutor"]
     idempotency_key: str = Field(..., min_length=8, max_length=128)
     template_key: AgendaUtilityTemplateKey
+
+
+class AgendaFormalizacaoSubmitRequest(BaseModel):
+    nome_paciente: str = Field(..., min_length=1, max_length=200)
+    nome_tutor: str = Field(..., min_length=1, max_length=200)
+    telefone_tutor: str = Field(..., min_length=8, max_length=32)
 
 
 class WhatsAppInboundMessageNotificationRequest(BaseModel):
@@ -244,6 +257,56 @@ def preview_whatsapp_reminder_clinicas_prontidao(
     em Configuracoes.
     """
     return list_clinicas_prontidao_whatsapp_lembrete(db)
+
+
+@router.get("/agenda/formalizacao/{token}")
+def get_formalizacao_context(token: str, db: Session = Depends(get_db)):
+    """Contexto publico (sem autenticacao) para a clinica conferir o
+
+    agendamento antes de preencher os dados do paciente/tutor - acesso
+    protegido apenas pelo token opaco do link.
+    """
+    invite = obter_convite_valido(db, token)
+    return obter_contexto_publico(db, invite)
+
+
+@router.post("/agenda/formalizacao/{token}")
+def submit_formalizacao(
+    token: str,
+    payload: AgendaFormalizacaoSubmitRequest,
+    db: Session = Depends(get_db),
+):
+    invite = obter_convite_valido(db, token)
+    agendamento = processar_submissao(
+        db,
+        invite=invite,
+        nome_paciente=payload.nome_paciente,
+        nome_tutor=payload.nome_tutor,
+        telefone_tutor=payload.telefone_tutor,
+    )
+    return {"agendamento_id": agendamento.id, "status": agendamento.status}
+
+
+@router.post("/integracoes/whatsapp/agenda/{agendamento_id}/link-formalizacao")
+def gerar_link_formalizacao(
+    agendamento_id: int,
+    _authenticated: None = Depends(_require_internal_token),
+    db: Session = Depends(get_db),
+):
+    """Chamado pelo whatsapp-stage-backend quando a clinica clica em
+
+    "Enviar dados" no modelo de dados pendentes - gera um convite novo e
+    devolve o link publico para ser enviado como texto livre na conversa.
+    """
+    agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
+    if agendamento is None:
+        raise HTTPException(status_code=404, detail="Agendamento nao encontrado.")
+
+    invite, raw_token = criar_ou_reutilizar_convite(db, agendamento)
+    return {
+        "link": build_formalizacao_url(raw_token),
+        "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
+    }
 
 
 @router.post("/integracoes/whatsapp/notificacoes/mensagem-recebida")

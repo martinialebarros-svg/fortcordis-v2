@@ -41,6 +41,7 @@ const SUBJECT_BY_TEMPLATE: Record<UtilityTemplateKey, SubjectType> = {
   appointmentChange: "agendamento",
   appointmentCancellation: "agendamento",
   appointmentMissingData: "agendamento",
+  appointmentFormalized: "agendamento",
   portalReportAvailable: "exame",
   receiptAvailable: "ordem_servico",
   receiptPdf: "ordem_servico",

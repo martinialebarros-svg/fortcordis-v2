@@ -17,6 +17,7 @@ import {
   WebhookStatusEvent
 } from "../types/whatsapp";
 import { handleAgendaButtonReply } from "../services/agendaButtonService";
+import { handleApprovedTemplateButtonReply } from "../services/approvedTemplateButtonService";
 import { notifyPushForInboundMessage } from "../services/whatsappPushNotificationService";
 import { canonicalWhatsAppIdentity } from "../utils/phoneNumber";
 
@@ -315,6 +316,7 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
 
     if (inserted) {
       await handleAgendaButtonReply(client, message);
+      await handleApprovedTemplateButtonReply(client, message);
       await touchConversation(
         conversation.id,
         client,

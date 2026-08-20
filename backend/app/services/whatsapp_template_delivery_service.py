@@ -15,6 +15,7 @@ ApprovedUtilityTemplateKey = Literal[
     "appointmentChange",
     "appointmentCancellation",
     "appointmentMissingData",
+    "appointmentFormalized",
     "portalReportAvailable",
     "receiptAvailable",
     "receiptPdf",

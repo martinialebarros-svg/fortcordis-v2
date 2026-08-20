@@ -23,13 +23,14 @@ from app.services.whatsapp_template_delivery_service import (
 )
 
 
-Action = Literal["confirmar", "solicitar_alteracao"]
+Action = Literal["confirmar", "solicitar_alteracao", "falar_equipe"]
 RecipientType = Literal["clinica", "tutor"]
 AgendaUtilityTemplateKey = Literal[
     "appointmentReminder",
     "appointmentChange",
     "appointmentCancellation",
     "appointmentMissingData",
+    "appointmentFormalized",
 ]
 LOCAL_TZ = timezone(timedelta(hours=-3))
 
@@ -52,7 +53,7 @@ class WhatsAppReservationTemplate:
 class WhatsAppAgendaUtilityTemplate:
     template_key: AgendaUtilityTemplateKey
     destination: str
-    parameters: tuple[str, str, str, str]
+    parameters: tuple[str, ...]
 
 
 def normalize_whatsapp_number(value: Any) -> str:
@@ -232,16 +233,34 @@ def build_agenda_utility_template(
     if appointment is None:
         raise HTTPException(status_code=409, detail="O agendamento nao possui horario valido.")
     appointment_local = appointment.astimezone(LOCAL_TZ) if appointment.tzinfo else appointment
+    pet_name = str(paciente.nome).strip()[:120] if paciente and paciente.nome else PLACEHOLDER_PET_NAME
+
+    if template_key == "appointmentFormalized":
+        clinica_registro = db.query(Clinica).filter(Clinica.id == agendamento.clinica_id).first()
+        unidade_nome = str((clinica_registro.nome if clinica_registro else None) or agendamento.clinica or "").strip()
+        servico_nome = str(agendamento.servico or "").strip() or "atendimento"
+        tutor_nome = str(tutor.nome).strip()[:120] if tutor and tutor.nome else "seu tutor"
+        parameters: tuple[str, ...] = (
+            recipient_name[:120],
+            servico_nome[:120],
+            pet_name,
+            tutor_nome,
+            appointment_local.strftime("%d/%m/%Y"),
+            appointment_local.strftime("%H:%M"),
+            unidade_nome[:120] or "Fort Cordis",
+        )
+    else:
+        parameters = (
+            recipient_name[:120],
+            pet_name,
+            appointment_local.strftime("%d/%m/%Y"),
+            appointment_local.strftime("%H:%M"),
+        )
 
     return WhatsAppAgendaUtilityTemplate(
         template_key=template_key,
         destination=normalized_destination,
-        parameters=(
-            recipient_name[:120],
-            (str(paciente.nome).strip()[:120] if paciente and paciente.nome else PLACEHOLDER_PET_NAME),
-            appointment_local.strftime("%d/%m/%Y"),
-            appointment_local.strftime("%H:%M"),
-        ),
+        parameters=parameters,
     )
 
 
@@ -368,6 +387,21 @@ def process_button_response(
                 clinica_id=agendamento.clinica_id,
             )
             result = "alteracao_solicitada"
+        elif action == "falar_equipe":
+            criar_alerta_interno(
+                db,
+                tipo="whatsapp_agenda_falar_equipe",
+                nivel="aviso",
+                titulo="Cliente pediu para falar com a equipe",
+                mensagem=(
+                    f"O destinatario {from_phone} pediu contato da equipe sobre o "
+                    f"agendamento #{agendamento.id}."
+                ),
+                entidade_tipo="agendamento",
+                entidade_id=agendamento.id,
+                clinica_id=agendamento.clinica_id,
+            )
+            result = "falar_equipe_solicitado"
         elif status_atual == "Confirmado":
             result = "ja_confirmado"
         elif status_atual != "Reservado":

@@ -51,17 +51,14 @@ quando eles NÃO existem ainda.
   os dois builders com/sem paciente-tutor e os dois tipos de
   destinatário; suíte completa do backend (820 testes) sem regressão.
 
-## Fase 4 - novo modelo "agendamento formalizado" (bloqueada)
+## Fase 4 - novo modelo "agendamento formalizado"
 
-Não implementada nesta entrega — depende de aprovação de um novo modelo
-pelo WhatsApp Business Manager (texto proposto em `intent.md`). Quando
-aprovado:
-- [ ] adicionar entrada no catálogo
-  (`whatsapp-stage-backend/src/templates/approvedTemplates.ts` e
-  `backend/app/services/whatsapp_agenda_service.py`);
-- [ ] botão "Avisar que foi agendado" na tela de edição do agendamento
-  existente (não só no modal de criação) — local escolhido pelo usuário;
-- [ ] testes cobrindo o novo endpoint/fluxo.
+Continuada em `docs/specs/agenda-formalizacao-portal-clinicas/` — o
+modelo `agendamento_formalizado` foi submetido à Meta (texto proposto
+neste `intent.md`, status "Em análise") e o catálogo/parâmetros já
+estão implementados; em vez de um botão manual na tela de edição, o
+disparo agora é automático (clínica preenche os dados via o link do
+Portal Clínicas → sistema envia `appointmentFormalized` sozinho).
 
 ## Rollback
 

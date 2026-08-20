@@ -15,6 +15,7 @@ async function run(): Promise<void> {
     appointmentChange: ["alteracao_de_agendamento", "1325207582741137", 4, 2],
     appointmentCancellation: ["cancelamento_de_agendamento", "1072585772303343", 4, 2],
     appointmentMissingData: ["dados_pendentes_agendamento", "2094851784715594", 4, 2],
+    appointmentFormalized: ["agendamento_formalizado", "PENDING_META_APPROVAL", 7, 0],
     portalReportAvailable: ["laudo_disponivel_portal", "1682393009502350", 3, 0],
     receiptAvailable: ["recibo_disponivel", "934407008986859", 4, 1],
     receiptPdf: ["recibo_pagamento_pdf", "1025876410335393", 7, 1],
@@ -23,7 +24,7 @@ async function run(): Promise<void> {
     pendingPaymentReminderBulk: ["lembrete_pagamento_pendente_multiplas_os", "1574210064240409", 4, 2]
   } as const;
 
-  assert.strictEqual(Object.keys(APPROVED_UTILITY_TEMPLATES).length, 11);
+  assert.strictEqual(Object.keys(APPROVED_UTILITY_TEMPLATES).length, 12);
   assert.strictEqual(APPROVED_TEMPLATE_LANGUAGE, "pt_BR");
   for (const [templateKey, definition] of Object.entries(APPROVED_UTILITY_TEMPLATES)) {
     const expected = expectedCatalog[templateKey as keyof typeof expectedCatalog];

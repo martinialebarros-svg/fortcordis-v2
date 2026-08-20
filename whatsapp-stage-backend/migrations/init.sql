@@ -198,6 +198,23 @@ ALTER TABLE approved_template_messages
 CREATE INDEX IF NOT EXISTS ix_approved_template_messages_subject
   ON approved_template_messages (subject_type, subject_id, created_at);
 
+-- Cliques em botoes de modelos aprovados genericos (fora do fluxo dedicado
+-- de reserva). Payloads sao opacos e ja vem com a "acao" da definicao do
+-- catalogo (approvedTemplates.ts) gravada em button_bindings.
+CREATE TABLE IF NOT EXISTS approved_template_button_events (
+  id BIGSERIAL PRIMARY KEY,
+  provider_message_id VARCHAR(160) NOT NULL,
+  template_message_id BIGINT NOT NULL REFERENCES approved_template_messages(id) ON DELETE CASCADE,
+  action VARCHAR(40) NOT NULL,
+  from_phone VARCHAR(32) NOT NULL,
+  processing_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  response_payload JSONB,
+  processing_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at TIMESTAMPTZ,
+  CONSTRAINT approved_template_button_events_provider_message_id_key UNIQUE (provider_message_id)
+);
+
 -- normalize duplicated conversations by phone (preserve oldest row)
 WITH ranked_phone AS (
   SELECT
