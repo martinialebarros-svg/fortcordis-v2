@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import { query, withTransaction } from "../services/dbService";
-import { downloadWhatsAppMedia, sendWhatsAppMessageWithRetry } from "../services/whatsappService";
+import {
+  downloadWhatsAppMedia,
+  sendWhatsAppDocumentMessageWithRetry,
+  sendWhatsAppMessageWithRetry,
+  uploadWhatsAppDocumentWithRetry
+} from "../services/whatsappService";
 import {
   CustomerServiceWindow,
   describeCustomerServiceWindow
@@ -9,6 +14,18 @@ import { logger } from "../utils/logger";
 
 const whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 const phoneNumberId = process.env.PHONE_NUMBER_ID;
+
+const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/csv",
+  "text/plain"
+]);
 
 interface ConversationRow {
   id: string;
@@ -323,13 +340,157 @@ export async function getMessageMedia(req: Request, res: Response): Promise<void
   }
 }
 
+async function insertPendingMessage(
+  conversationId: string,
+  body: string,
+  type: string,
+  metadata: Record<string, unknown>
+): Promise<string> {
+  const inserted = await query<{ id: string }>(
+    `
+      INSERT INTO messages (
+        conversation_id,
+        from_me,
+        body,
+        type,
+        metadata,
+        status,
+        created_at
+      )
+      VALUES ($1, true, $2, $3, $4::jsonb, 'pending', now())
+      RETURNING id
+    `,
+    [conversationId, body, type, JSON.stringify(metadata)]
+  );
+  return inserted.rows[0].id;
+}
+
+async function markMessageSent(
+  messageId: string,
+  waMessageId: string | null,
+  metadataPatch: Record<string, unknown>
+): Promise<void> {
+  await query(
+    `
+      UPDATE messages
+      SET wa_message_id = $1,
+          status = 'sent',
+          metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+      WHERE id = $3
+    `,
+    [waMessageId, JSON.stringify(metadataPatch), messageId]
+  );
+}
+
+async function markMessageFailed(messageId: string, error: any): Promise<void> {
+  await query(
+    `
+      UPDATE messages
+      SET status = 'failed',
+          metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+      WHERE id = $2
+    `,
+    [
+      JSON.stringify({
+        graph_error: {
+          message: error?.message,
+          status: error?.response?.status,
+          data: error?.response?.data
+        }
+      }),
+      messageId
+    ]
+  );
+}
+
+export function decodeMultipartFilename(rawFilename: string): string {
+  // Busboy/Multer decode multipart header parameters as latin1 by default,
+  // even though browsers send the filename as raw UTF-8 bytes — without
+  // this round-trip, accented names (ex.: "laudo-coração.pdf") arrive
+  // mangled ("laudo-coraÃ§Ã£o.pdf").
+  return Buffer.from(rawFilename, "latin1").toString("utf8");
+}
+
+function sanitizeAttachmentFilename(rawFilename: string): string {
+  const trimmed = rawFilename.trim();
+  return (trimmed.length > 200 ? trimmed.slice(0, 200) : trimmed) || "anexo";
+}
+
+async function sendAttachmentMessage(
+  res: Response,
+  conversationId: string,
+  waPhoneNumber: string,
+  file: Express.Multer.File,
+  caption: string,
+  accessToken: string,
+  phoneNumberId: string
+): Promise<void> {
+  const filename = sanitizeAttachmentFilename(decodeMultipartFilename(file.originalname));
+  const localMessageId = await insertPendingMessage(conversationId, filename, "document", {
+    source: "agent_api",
+    ...(caption ? { caption } : {})
+  });
+
+  try {
+    const media = await uploadWhatsAppDocumentWithRetry({
+      phoneNumberId,
+      accessToken,
+      filename,
+      content: file.buffer,
+      mimeType: file.mimetype
+    });
+
+    const graphResponse = await sendWhatsAppDocumentMessageWithRetry({
+      phoneNumberId,
+      accessToken,
+      to: waPhoneNumber,
+      mediaId: media.id,
+      filename,
+      caption: caption || undefined
+    });
+
+    const waMessageId = graphResponse.messages?.[0]?.id ?? null;
+
+    await markMessageSent(localMessageId, waMessageId, {
+      graph_response: graphResponse,
+      message: {
+        type: "document",
+        document: { id: media.id, filename, ...(caption ? { caption } : {}) }
+      }
+    });
+    await touchConversation(conversationId);
+
+    res.status(201).json({ id: localMessageId, wa_message_id: waMessageId, status: "sent" });
+  } catch (error: any) {
+    logger.error("Graph API attachment send failed", {
+      conversationId,
+      localMessageId,
+      message: error?.message
+    });
+
+    await markMessageFailed(localMessageId, error);
+    await touchConversation(conversationId);
+
+    res.status(502).json({
+      error: "Failed to send attachment to WhatsApp Graph API",
+      local_message_id: localMessageId
+    });
+  }
+}
+
 export async function sendConversationMessage(req: Request, res: Response): Promise<void> {
   const conversationId = req.params.id;
-  const body = req.body?.body;
+  const file = req.file;
+  const caption = typeof req.body?.body === "string" ? req.body.body.trim() : "";
   const type = req.body?.type ?? "text";
 
-  if (typeof body !== "string" || body.trim().length === 0) {
+  if (!file && caption.length === 0) {
     res.status(400).json({ error: "body is required" });
+    return;
+  }
+
+  if (file && !ALLOWED_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
+    res.status(422).json({ error: "Unsupported attachment file type" });
     return;
   }
 
@@ -365,47 +526,33 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
     return;
   }
 
-  const insertedMessage = await query<{ id: string }>(
-    `
-      INSERT INTO messages (
-        conversation_id,
-        from_me,
-        body,
-        type,
-        metadata,
-        status,
-        created_at
-      )
-      VALUES ($1, true, $2, $3, $4::jsonb, 'pending', now())
-      RETURNING id
-    `,
-    [conversationId, body.trim(), type, JSON.stringify({ source: "agent_api" })]
-  );
+  if (file) {
+    await sendAttachmentMessage(
+      res,
+      conversationId,
+      conversation.wa_phone_number,
+      file,
+      caption,
+      whatsappAccessToken,
+      phoneNumberId
+    );
+    return;
+  }
 
-  const localMessageId = insertedMessage.rows[0].id;
+  const localMessageId = await insertPendingMessage(conversationId, caption, type, { source: "agent_api" });
 
   try {
     const graphResponse = await sendWhatsAppMessageWithRetry({
       phoneNumberId,
       accessToken: whatsappAccessToken,
       to: conversation.wa_phone_number,
-      body: body.trim(),
+      body: caption,
       type
     });
 
     const waMessageId = graphResponse.messages?.[0]?.id ?? null;
 
-    await query(
-      `
-        UPDATE messages
-        SET wa_message_id = $1,
-            status = 'sent',
-            metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
-        WHERE id = $3
-      `,
-      [waMessageId, JSON.stringify({ graph_response: graphResponse }), localMessageId]
-    );
-
+    await markMessageSent(localMessageId, waMessageId, { graph_response: graphResponse });
     await touchConversation(conversationId);
 
     res.status(201).json({
@@ -420,25 +567,7 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
       message: error?.message
     });
 
-    await query(
-      `
-        UPDATE messages
-        SET status = 'failed',
-            metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-        WHERE id = $2
-      `,
-      [
-        JSON.stringify({
-          graph_error: {
-            message: error?.message,
-            status: error?.response?.status,
-            data: error?.response?.data
-          }
-        }),
-        localMessageId
-      ]
-    );
-
+    await markMessageFailed(localMessageId, error);
     await touchConversation(conversationId);
 
     res.status(502).json({
