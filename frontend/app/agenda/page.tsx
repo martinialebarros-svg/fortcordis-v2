@@ -46,6 +46,14 @@ import {
   normalizarAgendaRotaRegras,
   type AgendaRotaRenderingPolicyConfig,
 } from "@/lib/agenda-route-rules";
+import {
+  PRAZO_REABILITACAO_HORAS_MAX,
+  PRAZO_REABILITACAO_HORAS_MIN,
+  PRAZO_REABILITACAO_HORAS_PADRAO,
+  calcularPrazoReabilitacao,
+  normalizarPrazoReabilitacaoHoras,
+  podeReabilitarReserva,
+} from "@/lib/agenda-reabilitar-reserva";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
 import {
   montarGoogleMapsDestinoLocal,
@@ -55,7 +63,7 @@ import {
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
-  Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign, MapPin, Wallet
+  Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign, MapPin, Wallet, TimerReset
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
 import ClienteInfoModal from "./ClienteInfoModal";
@@ -375,6 +383,11 @@ export default function AgendaPage() {
   const [atualizandoStatus, setAtualizandoStatus] = useState<number | null>(null);
   const [modalTipoHorario, setModalTipoHorario] = useState<{ id: number; status: StatusType } | null>(null);
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
+  const [modalReabilitarReserva, setModalReabilitarReserva] = useState<Agendamento | null>(null);
+  const [prazoReabilitacaoHoras, setPrazoReabilitacaoHoras] = useState<string>(
+    String(PRAZO_REABILITACAO_HORAS_PADRAO)
+  );
+  const [reabilitandoReservaId, setReabilitandoReservaId] = useState<number | null>(null);
   const [osGerada, setOsGerada] = useState<{ numero_os: string; valor_final: number } | null>(null);
   const [laudosVinculados, setLaudosVinculados] = useState<LaudosVinculadosPorAgendamento>({});
   const [ordensServicoPorAgendamento, setOrdensServicoPorAgendamento] = useState<Record<number, OrdemServicoResumo>>({});
@@ -1551,6 +1564,82 @@ export default function AgendaPage() {
     setModalTipoHorario(null);
   };
 
+  const abrirModalReabilitarReserva = (agendamento: Agendamento) => {
+    setErro("");
+    setPrazoReabilitacaoHoras(String(PRAZO_REABILITACAO_HORAS_PADRAO));
+    setModalReabilitarReserva(agendamento);
+  };
+
+  const confirmarReabilitacaoReserva = async () => {
+    const alvo = modalReabilitarReserva;
+    if (!alvo) return;
+
+    const horas = normalizarPrazoReabilitacaoHoras(prazoReabilitacaoHoras);
+    if (horas === null) {
+      setErro(
+        `Informe um prazo entre ${PRAZO_REABILITACAO_HORAS_MIN} e ${PRAZO_REABILITACAO_HORAS_MAX} horas.`
+      );
+      return;
+    }
+
+    setReabilitandoReservaId(alvo.id);
+    try {
+      const enviarReabilitacao = (confirmarSlotReservaExpirada = false) =>
+        api.post(`/agenda/${alvo.id}/reabilitar-reserva`, {
+          prazo_confirmacao_horas: horas,
+          confirmar_slot_reserva_expirada: confirmarSlotReservaExpirada,
+        });
+
+      let response;
+      try {
+        response = await enviarReabilitacao(false);
+      } catch (errorInicial: any) {
+        const detail = errorInicial?.response?.data?.detail;
+        if (
+          errorInicial?.response?.status !== 409 ||
+          detail?.codigo !== "CONFIRMACAO_SLOT_RESERVA_EXPIRADA"
+        ) {
+          throw errorInicial;
+        }
+        const confirmou = await fortinho.confirm({
+          title: "ATENÇÃO: outra reserva expirada neste horário",
+          message:
+            "Outra clínica também teve uma reserva expirada neste slot. Confira as mensagens do WhatsApp antes de devolver o horário para esta clínica.",
+          mood: "alert",
+          gesture: "open-arms",
+          confirmLabel: "Revisei as mensagens e quero continuar",
+          cancelLabel: "Voltar e verificar WhatsApp",
+        });
+        if (!confirmou) return;
+        response = await enviarReabilitacao(true);
+      }
+
+      setModalReabilitarReserva(null);
+      setErro("");
+      await carregarAgendamentos();
+      fortinho.notify({
+        title: "Reserva reabilitada",
+        message:
+          response.data?.mensagem ||
+          "O horário voltou a ficar reservado até o novo prazo de confirmação.",
+        mood: "happy",
+        gesture: "wave",
+      });
+    } catch (error: any) {
+      console.error("Erro ao reabilitar reserva expirada:", error);
+      const detail = error?.response?.data?.detail;
+      const detailTexto =
+        typeof detail === "string"
+          ? detail
+          : typeof detail?.mensagem === "string"
+            ? detail.mensagem
+            : error?.message;
+      setErro("Erro ao reabilitar reserva: " + String(detailTexto || "Falha inesperada."));
+    } finally {
+      setReabilitandoReservaId(null);
+    }
+  };
+
   const cancelarAgendamento = async (id: number) => {
     try {
       await api.patch(`/agenda/${id}/status?status=Cancelado`);
@@ -2523,6 +2612,25 @@ export default function AgendaPage() {
 
                       {/* Ações */}
                       <div className="flex flex-wrap gap-2 lg:flex-[1.5_1_0%] lg:justify-end">
+                        {/* Reserva expirada que a clínica voltou a pedir: segura o
+                            horário de novo, com um prazo novo, sem exigir os dados
+                            do paciente agora. */}
+                        {podeReabilitarReserva(ag.status) && (
+                          <button
+                            onClick={() => abrirModalReabilitarReserva(ag)}
+                            disabled={reabilitandoReservaId === ag.id}
+                            title="Reservar este horário novamente por mais um período"
+                            className="px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors flex items-center gap-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200"
+                          >
+                            {reabilitandoReservaId === ag.id ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <TimerReset className="w-3.5 h-3.5" />
+                            )}
+                            Reabilitar reserva
+                          </button>
+                        )}
+
                         {/* Botões de mudança de status */}
                         {proximosStatus.map((novoStatus) => {
                           const desfazerRealizado = ag.status === 'Realizado' && novoStatus === 'Em atendimento';
@@ -2935,6 +3043,108 @@ export default function AgendaPage() {
             </div>
           </div>
         )}
+
+        {/* Modal de reabilitação de reserva expirada */}
+        {modalReabilitarReserva && (() => {
+          const horasInformadas = normalizarPrazoReabilitacaoHoras(prazoReabilitacaoHoras);
+          const previsao =
+            horasInformadas === null
+              ? null
+              : calcularPrazoReabilitacao(horasInformadas, modalReabilitarReserva.inicio);
+          const salvando = reabilitandoReservaId === modalReabilitarReserva.id;
+
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <div className="mx-4 w-full max-w-md rounded-lg bg-white p-6">
+                <h3 className="text-lg font-bold text-gray-900">Reabilitar reserva</h3>
+                <p className="mt-1 text-sm text-gray-600">
+                  A reserva de{" "}
+                  <span className="font-semibold">
+                    {obterTituloAgendamentoPorOrigem(
+                      modalReabilitarReserva.origem_atendimento,
+                      modalReabilitarReserva.clinica
+                    )}
+                  </span>{" "}
+                  em {formatarDataHoraAgendamento(modalReabilitarReserva)} volta a segurar o
+                  horário por mais um período, até a clínica enviar os dados do paciente.
+                </p>
+
+                <div className="mt-4">
+                  <label
+                    htmlFor="reabilitar-reserva-horas"
+                    className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800"
+                  >
+                    Novo prazo para confirmação
+                  </label>
+                  <div className="flex max-w-xs overflow-hidden rounded-lg border border-amber-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200">
+                    <input
+                      id="reabilitar-reserva-horas"
+                      type="number"
+                      min={PRAZO_REABILITACAO_HORAS_MIN}
+                      max={PRAZO_REABILITACAO_HORAS_MAX}
+                      step="0.5"
+                      inputMode="decimal"
+                      value={prazoReabilitacaoHoras}
+                      onChange={(event) => setPrazoReabilitacaoHoras(event.target.value)}
+                      className="min-w-0 flex-1 border-0 px-3 py-2 text-gray-900 outline-none"
+                    />
+                    <span className="flex items-center border-l border-amber-200 bg-amber-50 px-3 font-medium text-amber-800">
+                      horas
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm">
+                    {horasInformadas === null ? (
+                      <span className="text-red-600">
+                        Informe um prazo entre {PRAZO_REABILITACAO_HORAS_MIN} e{" "}
+                        {PRAZO_REABILITACAO_HORAS_MAX} horas.
+                      </span>
+                    ) : previsao?.indisponivel ? (
+                      <span className="text-red-600">
+                        Este horário está próximo demais (ou já passou) para uma nova reserva.
+                        Agende direto com os dados do paciente ou escolha outro horário.
+                      </span>
+                    ) : (
+                      <span className="text-gray-700">
+                        Confirmar até <span className="font-semibold">{previsao?.prazoLegivel}</span>
+                        {previsao?.encurtado
+                          ? " (encurtado para terminar antes do horário reservado)"
+                          : ""}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <p className="mt-4 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
+                  O sistema confere se o horário continua livre e sem conflito com outros
+                  agendamentos antes de reservar de novo. Avise a clínica do novo prazo pelo
+                  WhatsApp.
+                </p>
+
+                <div className="mt-6 flex justify-end gap-3">
+                  <button
+                    onClick={() => setModalReabilitarReserva(null)}
+                    disabled={salvando}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-gray-600 hover:text-gray-900"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={confirmarReabilitacaoReserva}
+                    disabled={salvando || horasInformadas === null || Boolean(previsao?.indisponivel)}
+                    className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {salvando ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <TimerReset className="h-4 w-4" />
+                    )}
+                    Reabilitar reserva
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Modal de Seleção de Tipo de Horário */}
         {modalTipoHorario && (
