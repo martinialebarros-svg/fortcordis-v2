@@ -77,6 +77,13 @@ ORIGEM_ATENDIMENTO_PADRAO = "clinica_parceira"
 ORIGEM_ATENDIMENTO_DOMICILIAR = "domiciliar"
 MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
 MAX_DESLOCAMENTO_TRECHO_VIZINHO_MIN = 45
+# Reabilitacao de reserva expirada: a clinica volta a pedir o mesmo horario
+# depois do vencimento e o slot segue livre, entao a reserva ganha um novo
+# prazo ate a chegada dos dados do paciente.
+PRAZO_REABILITACAO_RESERVA_HORAS_PADRAO = 3.0
+PRAZO_REABILITACAO_RESERVA_HORAS_MIN = 0.5
+PRAZO_REABILITACAO_RESERVA_HORAS_MAX = 72.0
+MARGEM_MINIMA_PRAZO_RESERVA_MIN = 5
 AGENDA_WRITE_LOCK_KEY = 24052301
 ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS = 30
 ASSISTENTE_BUSCA_DIA_VAZIO_EXTRA_MAX_DIAS = 7
@@ -269,6 +276,21 @@ class AssistenteOfertaPayload(BaseModel):
     ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
     incluir_mesma_clinica: bool = Field(default=True)
     janela_dias_proximidade: int = Field(default=7, ge=0, le=30)
+
+
+class ReabilitarReservaPayload(BaseModel):
+    prazo_confirmacao_horas: Optional[float] = Field(
+        default=None,
+        ge=PRAZO_REABILITACAO_RESERVA_HORAS_MIN,
+        le=PRAZO_REABILITACAO_RESERVA_HORAS_MAX,
+        description="Novo prazo de confirmacao em horas contadas de agora (padrao 3h).",
+    )
+    reserva_expira_em: Optional[datetime] = Field(
+        default=None,
+        description="Prazo exato de confirmacao; quando informado, ignora prazo_confirmacao_horas.",
+    )
+    confirmar_slot_reserva_expirada: bool = Field(default=False)
+    confirmar_conflito_deslocamento: bool = Field(default=False)
 
 
 def _parse_hora_hhmm(value: Optional[str], fallback: str) -> str:
@@ -2232,6 +2254,52 @@ def _expirar_reservas_vencidas(db: Session) -> int:
     return expiradas
 
 
+def _calcular_prazo_reabilitacao_reserva(
+    agendamento: Agendamento,
+    *,
+    horas: Optional[float] = None,
+    prazo_explicito: Optional[datetime] = None,
+) -> tuple[datetime, bool]:
+    """Resolve o novo prazo de confirmacao ao reabilitar uma reserva expirada.
+
+    Devolve o prazo em horario local (naive, como o resto do modulo persiste) e
+    se ele precisou ser encurtado para terminar antes do horario reservado.
+    """
+    agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None, second=0, microsecond=0)
+    inicio_local = _to_local_naive(_coerce_datetime(agendamento.inicio))
+    if inicio_local is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Horario de inicio invalido para reabilitar a reserva.",
+        )
+
+    limite_local = (
+        inicio_local - timedelta(minutes=MARGEM_MINIMA_PRAZO_RESERVA_MIN)
+    ).replace(second=0, microsecond=0)
+    if limite_local <= agora_local:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Este horario esta proximo demais (ou ja passou) para uma nova reserva. "
+                "Agende direto com os dados do paciente ou escolha outro horario."
+            ),
+        )
+
+    if prazo_explicito is not None:
+        prazo_local = _to_local_naive(_coerce_datetime(prazo_explicito))
+        if prazo_local is None:
+            raise HTTPException(status_code=422, detail="Prazo de confirmacao invalido.")
+        return prazo_local.replace(second=0, microsecond=0), False
+
+    horas_pedidas = horas if horas is not None else PRAZO_REABILITACAO_RESERVA_HORAS_PADRAO
+    prazo_local = (agora_local + timedelta(hours=float(horas_pedidas))).replace(
+        second=0, microsecond=0
+    )
+    if prazo_local <= limite_local:
+        return prazo_local, False
+    return limite_local, True
+
+
 def _status_efetivo_agendamento(agendamento: Agendamento) -> str:
     status_atual = str(agendamento.status or "").strip() or "Agendado"
     if status_atual != "Reservado":
@@ -2274,7 +2342,9 @@ def _exigir_confirmacao_reativacao_reserva_expirada(
         raise HTTPException(
             status_code=409,
             detail=(
-                "Para reativar uma reserva expirada, altere primeiro o status para Agendado."
+                "Para reativar uma reserva expirada, use 'Reabilitar reserva' "
+                "(segura o horario com um novo prazo de confirmacao) ou altere "
+                "primeiro o status para Agendado."
             ),
         )
     reativando = tentativa_status_ativo and status_novo == "Agendado"
@@ -6174,6 +6244,142 @@ def atualizar_status(
     )
 
     return resposta
+
+
+@router.post("/{agendamento_id}/reabilitar-reserva")
+def reabilitar_reserva_expirada(
+    agendamento_id: int,
+    payload: ReabilitarReservaPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Devolve uma reserva expirada ao status Reservado com um novo prazo.
+
+    Caso de uso: o prazo venceu sem os dados do paciente, mas depois disso a
+    clinica voltou a querer o mesmo horario. Se o slot continua livre e sem
+    conflito com outros agendamentos, a reserva volta a segurar o horario por
+    mais um periodo, ate a clinica enviar os dados do paciente e do tutor.
+    """
+    _ensure_agendamento_workflow_columns(db)
+    _adquirir_lock_escrita_agenda(db)
+    _expirar_reservas_vencidas(db)
+
+    db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
+    if not db_agendamento:
+        raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
+
+    if payload.confirmar_conflito_deslocamento and not _usuario_tem_papel(current_user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Somente administradores podem confirmar excecao de conflito operacional.",
+        )
+
+    status_anterior = str(db_agendamento.status or "").strip() or "Agendado"
+    if status_anterior != "Expirado":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Somente reservas expiradas podem ser reabilitadas "
+                f"(status atual: {status_anterior})."
+            ),
+        )
+
+    prazo_anterior = _to_local_naive(
+        _coerce_datetime(getattr(db_agendamento, "reserva_expira_em", None))
+    )
+    novo_prazo, prazo_encurtado = _calcular_prazo_reabilitacao_reserva(
+        db_agendamento,
+        horas=payload.prazo_confirmacao_horas,
+        prazo_explicito=payload.reserva_expira_em,
+    )
+
+    db_agendamento.status = "Reservado"
+    db_agendamento.reserva_expira_em = novo_prazo
+    _apply_service_duration_if_needed(db, db_agendamento)
+    _validar_regras_origem_agendamento(db, db_agendamento, contexto="reabilitar a reserva")
+    _validar_prazo_reserva(db_agendamento)
+    _validar_agendamento_no_funcionamento(db, db_agendamento)
+    reservas_expiradas_revisadas = _validar_slot_disponivel(
+        db,
+        db_agendamento,
+        agendamento_id_excluir=agendamento_id,
+        confirmar_slot_reserva_expirada=payload.confirmar_slot_reserva_expirada,
+    )
+    _validar_deslocamento_agendamento(
+        db,
+        db_agendamento,
+        agendamento_id_excluir=agendamento_id,
+        confirmar_conflito_deslocamento=payload.confirmar_conflito_deslocamento,
+    )
+
+    related = _fetch_related_names(db, db_agendamento)
+    _sync_denormalized_fields(db_agendamento, related)
+    db_agendamento.atualizado_em = datetime.now()
+    db_agendamento.updated_at = datetime.now()
+
+    _commit_agenda_write(db)
+    db.refresh(db_agendamento)
+
+    related = _fetch_related_names(db, db_agendamento)
+    contexto = _contexto_agendamento_auditoria(db_agendamento, related)
+    prazo_final = _to_local_naive(_coerce_datetime(db_agendamento.reserva_expira_em)) or novo_prazo
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="agenda",
+        entidade="agendamento",
+        entidade_id=db_agendamento.id,
+        acao="AGENDAMENTO_RESERVA_REABILITADA",
+        descricao=(
+            "Reserva expirada reabilitada com novo prazo de confirmacao "
+            f"{prazo_final.strftime('%d/%m/%Y %H:%M')} - "
+            f"{_descricao_contexto_agendamento(contexto)}"
+        ),
+        detalhes={
+            "status_anterior": status_anterior,
+            "status_novo": db_agendamento.status,
+            "prazo_anterior": prazo_anterior.isoformat() if prazo_anterior else None,
+            "prazo_novo": prazo_final.isoformat(),
+            "prazo_confirmacao_horas": payload.prazo_confirmacao_horas,
+            "prazo_encurtado_para_caber_antes_do_atendimento": prazo_encurtado,
+            "confirmou_revisao_slot_reserva_expirada": bool(reservas_expiradas_revisadas),
+            "reservas_expiradas_revisadas_ids": [item.id for item in reservas_expiradas_revisadas],
+            "override_conflito_deslocamento": bool(payload.confirmar_conflito_deslocamento),
+            "contexto_agendamento": contexto,
+        },
+        request=request,
+    )
+
+    _notificar_agenda_update(
+        db=db,
+        action="status_changed",
+        agendamento_id=db_agendamento.id,
+        data=_montar_payload_realtime(
+            agendamento=db_agendamento,
+            related=related,
+            usuario=current_user,
+            base={
+                "status_anterior": status_anterior,
+                "status_novo": db_agendamento.status,
+            },
+        ),
+    )
+
+    mensagem = (
+        "Reserva reabilitada. A clinica tem ate "
+        f"{prazo_final.strftime('%d/%m/%Y %H:%M')} para enviar os dados do paciente."
+    )
+    if prazo_encurtado:
+        mensagem += " O prazo foi encurtado para terminar antes do horario reservado."
+
+    return {
+        **_serialize_agendamento(db_agendamento, **related),
+        "mensagem": mensagem,
+        "prazo_encurtado": prazo_encurtado,
+    }
+
+
 @router.delete("/{agendamento_id}")
 def deletar_agendamento(
     agendamento_id: int,
