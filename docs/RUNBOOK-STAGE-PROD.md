@@ -72,37 +72,30 @@ Aplicado em `sync-portal-email-env.yml`, `provision-institutional-host.yml`,
 Limite conhecido: esses dois guards vivem dentro do proprio workflow, que vem do
 ref do dispatch — logo protegem contra **acidente** (rodar produção a partir de
 `stage` sem perceber), nao contra edicao deliberada do workflow em `stage` por
-quem tem permissao de push. A trava real para esse caso e do lado do GitHub:
-mover `VPS_SSH_KEY`/`VPS_HOST`/`VPS_SUDO_PASSWORD` para um Environment
-(Settings -> Environments) chamado `production`, com required reviewers e
-limitado a branch `main`, para que qualquer job que use esses secrets dependa de
-aprovacao humana.
+quem tem permissao de push.
 
-Antes de migrar, saiba quem consome esses secrets: **seis jobs**, nao quatro. Os
-quatro manuais (`sync-portal-email-env`, `provision-institutional-host`,
-`recover-frases-prod`, `fix-database`) ja declaram `environment:` no YAML — esses
-estao prontos. Os dois deploys automaticos (`deploy.yml` job `deploy` e
-`deploy-stage.yml` job `deploy-stage`) tambem usam `VPS_SSH_KEY`/`VPS_HOST` e
-**nao** tem binding: remover os secrets do repositorio sem trata-los quebra todo
-push em `main` e em `stage`.
+Fechar essa segunda ameaca nao e ajuste de YAML, e um trabalho proprio, ainda
+nao feito:
 
-Duas formas de fazer, e a escolha e do dono do repositorio:
+- `VPS_SSH_KEY`/`VPS_HOST`/`VPS_SUDO_PASSWORD` sao secrets de repositorio e
+  **as mesmas credenciais servem stage e produção** — nao existe hoje credencial
+  separada por ambiente.
+- Nove jobs os consomem: os 4 manuais de produção, os 3 manuais de stage
+  (`recover-frases-stage`, `sync-frases-store-stage`, `sync-frases-to-stage`) e
+  os 2 deploys automaticos (`deploy`, `deploy-stage`).
+- Enquanto as credenciais estiverem no escopo do repositorio, gatear por
+  Environment nao impede nada contra quem edita workflow: basta o YAML omitir
+  `environment:` e ler o secret do repositorio. Para valer, seria preciso
+  credencial exclusiva de stage na VPS, mover as de produção para um Environment
+  e vincular todos os consumidores — e, se o deploy automatico de `main` entrar
+  nesse Environment com required reviewers, produção deixa de ser deploy
+  desatendido.
 
-1. **Gatear so os manuais** (pragmatico): crie o Environment `production` com
-   required reviewers limitado a `main` e coloque copias dos tres secrets nele;
-   mantenha os secrets de repositorio para os deploys automaticos continuarem
-   sem aprovacao. Os dispatches manuais passam a exigir revisor humano; o
-   deploy automatico segue como hoje. Limite: como os secrets seguem no
-   repositorio, a protecao nao cobre o caminho do deploy automatico.
-2. **Gatear tudo** (estrito): adicione `environment: production` ao job `deploy`
-   de `deploy.yml` e `environment: stage` ao job `deploy-stage` de
-   `deploy-stage.yml`, mova os secrets para os Environments e remova do
-   repositorio. Consequencia direta: com required reviewers em `production`,
-   **todo push em `main` passa a esperar aprovacao humana** antes de deployar —
-   ou seja, produção deixa de ser deploy desatendido.
-
-Enquanto um Environment nao tiver regras configuradas, o binding nao muda
-comportamento: os secrets de repositorio continuam funcionando normalmente.
+O que existe hoje: os 4 jobs manuais de produção declaram `environment:
+production`. Isso nao fecha a ameaca acima, mas permite uma trava util e barata
+— adicionar required reviewers a esse Environment faz **dispatch manual em
+produção exigir aprovacao humana**, protegendo contra disparo descuidado.
+Enquanto o Environment nao tiver regras, o binding nao muda nada.
 
 ## Fluxo recomendado (automatizado)
 
