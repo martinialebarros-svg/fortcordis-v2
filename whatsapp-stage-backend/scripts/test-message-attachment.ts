@@ -1,7 +1,11 @@
 import assert from "assert";
 import axios, { AxiosError } from "axios";
 import { Request, Response } from "express";
-import { decodeMultipartFilename, sendConversationMessage } from "../src/controllers/conversationsController";
+import {
+  decodeMultipartFilename,
+  sanitizeAttachmentFilename,
+  sendConversationMessage
+} from "../src/controllers/conversationsController";
 import {
   sendWhatsAppDocumentMessageWithRetry,
   uploadWhatsAppDocumentWithRetry,
@@ -187,7 +191,50 @@ async function run(): Promise<void> {
   );
   assert.strictEqual(emptyCall.status(), 400, "a message with no body and no attachment should be rejected with 400");
 
+  // A zero-byte attachment with an otherwise allowed extension/mimetype must be
+  // rejected before any pending message is created or upload attempted — no
+  // DB/network needed, same as the mimetype rejection above.
+  const emptyFileCall = fakeResponse();
+  await sendConversationMessage(
+    {
+      params: { id: "does-not-matter" },
+      body: {},
+      file: {
+        originalname: "vazio.pdf",
+        mimetype: "application/pdf",
+        buffer: Buffer.alloc(0),
+        size: 0
+      } as Express.Multer.File
+    } as unknown as Request,
+    emptyFileCall.response
+  );
+  assert.strictEqual(emptyFileCall.status(), 422, "a zero-byte attachment should be rejected with 422");
+
   console.log("Conversation attachment validation tests passed.");
+
+  // Truncating an overlong filename must preserve the extension and stay
+  // Unicode-safe (no broken surrogate pairs), not just chop the raw string.
+  const longStem = "a".repeat(250);
+  const truncated = sanitizeAttachmentFilename(`${longStem}.pdf`);
+  assert.ok(truncated.endsWith(".pdf"), "truncated filename must keep its extension");
+  assert.ok(truncated.length <= 200, "truncated filename must respect the max length");
+
+  const longStemWithEmoji = `laudo-${"😀".repeat(120)}`;
+  const truncatedEmoji = sanitizeAttachmentFilename(`${longStemWithEmoji}.docx`);
+  assert.ok(truncatedEmoji.endsWith(".docx"), "truncated filename with emoji must keep its extension");
+  assert.strictEqual(
+    Array.from(truncatedEmoji).some((char) => char === "�"),
+    false,
+    "truncation must not split a surrogate pair into an invalid character"
+  );
+
+  assert.strictEqual(
+    sanitizeAttachmentFilename("recibo.pdf"),
+    "recibo.pdf",
+    "a filename within the limit must be returned unchanged"
+  );
+
+  console.log("Attachment filename truncation tests passed.");
 
   // Busboy/Multer decode multipart filenames as latin1 by default even though
   // browsers send raw UTF-8 bytes — without the round-trip, accented filenames

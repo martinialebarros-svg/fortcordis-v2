@@ -35,9 +35,15 @@ partir do texto digitado no composer.
   para que `GET .../messages/:messageId/media`
   (`whatsapp-acesso-midia-recebida`) funcione também para o que o
   atendente enviou.
-- RF-008: falha em qualquer uma das 2 chamadas à Graph API marca a
-  mensagem como `failed` e responde `502`, sem deixar a exceção sem
-  resposta — mesmo padrão do envio de texto.
+- RF-008: falha em qualquer uma das 2 chamadas à Graph API (upload ou
+  envio da mensagem) marca a mensagem como `failed` e responde `502`,
+  sem deixar a exceção sem resposta — mesmo padrão do envio de texto.
+  Uma falha ao persistir o estado de sucesso *depois* que a Graph API já
+  aceitou a entrega (ex.: erro transitório de banco) não reclassifica a
+  mensagem para `failed` nem responde `502` — o documento já chegou ao
+  destinatário; o backend loga o erro de persistência e ainda responde
+  `201`, para não induzir o atendente a reenviar um documento que o
+  contato já recebeu.
 - RF-009: no frontend, o botão de anexo abre o seletor de arquivo; ao
   escolher um arquivo fora da lista permitida ou maior que 8 MB, mostra
   erro sem chegar a chamar a API.
@@ -151,10 +157,15 @@ partir do texto digitado no composer.
 
 - CB-001: janela de 24h fechada + tentativa de anexar → mesmo `409` já
   usado para texto livre.
-- CB-002: arquivo de 0 bytes é rejeitado antes de qualquer chamada de
-  rede (`uploadWhatsAppDocumentWithRetry` valida conteúdo vazio).
-- CB-003: nome de arquivo muito longo é truncado para 200 caracteres
-  antes de salvar/enviar (`sanitizeAttachmentFilename`).
+- CB-002: arquivo de 0 bytes é rejeitado com `422` em
+  `sendConversationMessage`, antes de criar a mensagem pendente ou
+  chamar `uploadWhatsAppDocumentWithRetry` (que também mantém sua
+  própria validação de conteúdo vazio, como defesa em profundidade).
+- CB-003: nome de arquivo muito longo é truncado para no máximo 200
+  caracteres preservando a extensão (`.pdf`, `.docx`, etc.) e cortando
+  apenas o restante do nome em um limite seguro de Unicode (por code
+  point, não por unidade UTF-16) — evita tanto perder a extensão quanto
+  quebrar um par substituto (emoji/CJK) no meio.
 - CB-004: nome de arquivo com acentos (UTF-8) chega corretamente
   decodificado, não mangled pelo default latin1 do Multer/Busboy.
 
