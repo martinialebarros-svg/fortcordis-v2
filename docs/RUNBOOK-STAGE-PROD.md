@@ -25,8 +25,19 @@ Guard automatico: `.github/workflows/branch-flow-guard.yml` marca com falha
 qualquer PR que mire `main` sem vir de `stage`. Escape hatch para hotfix urgente
 de produção: branch `hotfix/<slug>` ou label `hotfix` no PR.
 
-**Todo hotfix aplicado direto em `main` exige backport imediato para `stage`**
-(`git checkout stage && git merge origin/main && git push`). Enquanto `main`
+**Todo hotfix aplicado direto em `main` exige backport imediato para `stage`**:
+
+```bash
+git fetch origin
+git checkout stage
+git pull --ff-only origin stage
+git merge origin/main      # so agora origin/main inclui o hotfix
+git push origin stage
+```
+
+O `git fetch` no inicio nao e opcional: sem ele, `origin/main` local pode estar
+anterior ao hotfix, o merge nao traz nada e o push "conclui" com `stage` ainda
+sem a correcao. Enquanto `main`
 tiver commit que `stage` nao tem, a promocao seguinte roda com
 `git merge -X theirs origin/stage` (default de `promote_stage_to_main.sh`), que
 resolve conflito em favor de `stage` **sem avisar** — ou seja, pode desfazer
@@ -67,12 +78,31 @@ mover `VPS_SSH_KEY`/`VPS_HOST`/`VPS_SUDO_PASSWORD` para um Environment
 limitado a branch `main`, para que qualquer job que use esses secrets dependa de
 aprovacao humana.
 
-Os quatro jobs de produção **ja declaram** `environment: production` no YAML
-(`fix-database.yml` escolhe pelo input), porque mover os secrets sem esse
-binding tiraria o acesso do job e quebraria o dispatch. Ou seja, a migracao e so
-configuracao: criar o Environment, mover os tres secrets para ele, adicionar
-required reviewers e limitar a `main`. Enquanto o Environment nao tiver regras,
-o binding nao muda nada — os secrets de repositorio continuam funcionando.
+Antes de migrar, saiba quem consome esses secrets: **seis jobs**, nao quatro. Os
+quatro manuais (`sync-portal-email-env`, `provision-institutional-host`,
+`recover-frases-prod`, `fix-database`) ja declaram `environment:` no YAML — esses
+estao prontos. Os dois deploys automaticos (`deploy.yml` job `deploy` e
+`deploy-stage.yml` job `deploy-stage`) tambem usam `VPS_SSH_KEY`/`VPS_HOST` e
+**nao** tem binding: remover os secrets do repositorio sem trata-los quebra todo
+push em `main` e em `stage`.
+
+Duas formas de fazer, e a escolha e do dono do repositorio:
+
+1. **Gatear so os manuais** (pragmatico): crie o Environment `production` com
+   required reviewers limitado a `main` e coloque copias dos tres secrets nele;
+   mantenha os secrets de repositorio para os deploys automaticos continuarem
+   sem aprovacao. Os dispatches manuais passam a exigir revisor humano; o
+   deploy automatico segue como hoje. Limite: como os secrets seguem no
+   repositorio, a protecao nao cobre o caminho do deploy automatico.
+2. **Gatear tudo** (estrito): adicione `environment: production` ao job `deploy`
+   de `deploy.yml` e `environment: stage` ao job `deploy-stage` de
+   `deploy-stage.yml`, mova os secrets para os Environments e remova do
+   repositorio. Consequencia direta: com required reviewers em `production`,
+   **todo push em `main` passa a esperar aprovacao humana** antes de deployar —
+   ou seja, produção deixa de ser deploy desatendido.
+
+Enquanto um Environment nao tiver regras configuradas, o binding nao muda
+comportamento: os secrets de repositorio continuam funcionando normalmente.
 
 ## Fluxo recomendado (automatizado)
 
