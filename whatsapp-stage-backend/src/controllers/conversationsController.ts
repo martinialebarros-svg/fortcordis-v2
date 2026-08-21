@@ -27,6 +27,8 @@ const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
   "text/plain"
 ]);
 
+const WHATSAPP_DOCUMENT_CAPTION_MAX_LENGTH = 1024;
+
 interface ConversationRow {
   id: string;
   wa_phone_number: string;
@@ -497,6 +499,14 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
 
   if (file && !ALLOWED_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
     res.status(422).json({ error: "Unsupported attachment file type" });
+    return;
+  }
+
+  if (file && caption.length > WHATSAPP_DOCUMENT_CAPTION_MAX_LENGTH) {
+    res.status(422).json({
+      error: `Attachment caption exceeds ${WHATSAPP_DOCUMENT_CAPTION_MAX_LENGTH} characters`,
+      code: "CAPTION_TOO_LONG"
+    });
     return;
   }
 

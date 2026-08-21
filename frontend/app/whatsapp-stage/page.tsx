@@ -174,6 +174,7 @@ const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
   "text/plain",
 ]);
 const ATTACHMENT_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt";
+const ATTACHMENT_CAPTION_MAX_LENGTH = 1024;
 
 async function requestWithAttachment<T>(url: string, file: File, body: string): Promise<ApiResult<T>> {
   const formData = new FormData();
@@ -618,6 +619,9 @@ export default function WhatsAppStagePage() {
         : "Aguarde uma mensagem da clínica antes de responder com texto livre."); return;
     }
     if (!sendMessageBody.trim() && !attachmentFile) { setErrorMessage("Digite uma mensagem ou anexe um arquivo antes de enviar."); return; }
+    if (attachmentFile && sendMessageBody.length > ATTACHMENT_CAPTION_MAX_LENGTH) {
+      setErrorMessage(`A legenda do anexo excede ${ATTACHMENT_CAPTION_MAX_LENGTH} caracteres.`); return;
+    }
     const result = attachmentFile
       ? await requestWithAttachment<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
           `/whatsapp/conversations/${selectedConversationId}/messages`, attachmentFile, sendMessageBody)
