@@ -8,6 +8,33 @@ Este runbook descreve o processo seguro para promover codigo de `stage` para `pr
 - Diretório prod: `/var/www/fortcordis-v2`
 - Stage (se na mesma VPS): `/var/www/fortcordis-stage`
 
+## Fluxo de entrega (stage-first)
+
+Regra: **nenhuma feature entra direto em produção**. `main` so recebe o que ja
+rodou em stage.
+
+1. Feature/fix sai de `stage` e abre PR com base `stage`.
+2. Merge em `stage` -> deploy automatico de stage (`.github/workflows/deploy-stage.yml`).
+3. Teste em stage (ver secao de smoke/preflight abaixo).
+4. Promocao para produção, por um dos dois caminhos:
+   - PR de release `stage -> main` (titulo `chore(release): promover <resumo>`), ou
+   - `bash scripts/promote_stage_to_main.sh` (worktree isolado, merge `--no-ff`).
+5. Merge/push em `main` -> deploy automatico de produção (`.github/workflows/deploy.yml`).
+
+Guard automatico: `.github/workflows/branch-flow-guard.yml` marca com falha
+qualquer PR que mire `main` sem vir de `stage`. Escape hatch para hotfix urgente
+de produção: branch `hotfix/<slug>` ou label `hotfix` no PR.
+
+Passo manual pendente (precisa de admin do repositorio, nao da para automatizar
+por API nesta sessao):
+
+- **Default branch = `stage`** em Settings -> General -> Default branch. Sem
+  isso, todo PR novo (inclusive os abertos por agentes) continua nascendo com
+  base `main` e o guard so avisa depois.
+- Opcional, para bloquear de fato: Settings -> Branches -> proteger `main`
+  exigindo PR + o check `Branch Flow Guard`. O guard sozinho sinaliza, mas nao
+  impede o merge nem cobre push direto em `main`.
+
 ## Fluxo recomendado (automatizado)
 
 ### 1) Local: promover stage -> main sem tocar no runtime local

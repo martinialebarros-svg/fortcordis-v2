@@ -1,0 +1,42 @@
+name: Branch Flow Guard
+
+# Fluxo stage-first: uma feature entra por `stage`, e produção (`main`) só
+# recebe o que já rodou em stage, via PR de promoção `stage -> main`.
+# Este guard não substitui protecao de branch (que bloqueia push direto em
+# main); ele marca com falha qualquer PR de feature que mire main.
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled]
+
+jobs:
+  base-deve-ser-promocao:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Exigir que main receba apenas promocao de stage (ou hotfix marcado)
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -euo pipefail
+          echo "head_ref=${HEAD_REF} labels=${LABELS}"
+
+          if [[ "${HEAD_REF}" == "stage" ]]; then
+            echo "OK: promocao stage -> main."
+            exit 0
+          fi
+
+          if [[ "${HEAD_REF}" == hotfix/* ]] || [[ ",${LABELS}," == *,hotfix,* ]]; then
+            echo "OK: hotfix direto em main (escape hatch explicito)."
+            exit 0
+          fi
+
+          echo "::error::Fluxo stage-first: PRs de feature devem mirar 'stage', nao 'main'."
+          echo "Troque o base branch deste PR para 'stage' (Edit -> base: stage)."
+          echo "Produção recebe as mudancas depois, pelo PR de promocao 'stage -> main'"
+          echo "ou por 'bash scripts/promote_stage_to_main.sh'."
+          echo "Se for hotfix urgente de produção: use branch 'hotfix/<slug>' ou adicione a label 'hotfix'."
+          exit 1
