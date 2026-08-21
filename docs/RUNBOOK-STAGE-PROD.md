@@ -35,6 +35,12 @@ por API nesta sessao):
   exigindo PR + o check `Branch Flow Guard`. O guard sozinho sinaliza, mas nao
   impede o merge nem cobre push direto em `main`.
 
+Workflow manual novo que aplique algo em produção deve fixar `ref: main` no
+`actions/checkout` (padrao ja usado em `recover-frases-prod.yml`,
+`sync-portal-email-env.yml` e `provision-institutional-host.yml`). Sem isso, o
+ref default do dispatch acompanha o default branch e passa a trazer script de
+`stage` — codigo ainda nao promovido — para dentro de produção.
+
 ## Fluxo recomendado (automatizado)
 
 ### 1) Local: promover stage -> main sem tocar no runtime local

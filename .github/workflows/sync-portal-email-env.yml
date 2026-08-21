@@ -13,6 +13,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          # Workflow manual que aplica scripts em producao: fixa `main` para o
+          # ref escolhido no dispatch nunca trazer script nao promovido (o
+          # default do dispatch acompanha o default branch do repositorio).
+          ref: main
 
       - name: Setup SSH key
         env:
