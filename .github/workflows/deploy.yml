@@ -95,6 +95,7 @@ jobs:
           npm run test:customer-service-window
           npm run test:phone-number
           npm run test:whatsapp-retry
+          npm run test:message-attachment
           npm run test:auth-policy
           npm run test:webhook-cleanup-config
           npm run test:log-redaction

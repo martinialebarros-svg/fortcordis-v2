@@ -7,6 +7,7 @@
 | CA-001 | teste `reenvia uma mensagem com falha`: botão "Reenviar" presente para mensagem `status: "failed"` | passou |
 | CA-002 | mesmo teste: `POST /whatsapp/conversations/90/messages` com `{body: "Olá, tudo bem?", type: "text"}` | passou |
 | CA-003 | mesmo teste: texto "Mensagem reenviada." aparece após o clique, botão desaparece (mensagem recarregada com novo status) | passou |
+| CA-004 | revisão de código (`whatsapp-envio-anexo-documento`): condição do botão passou a incluir `message.type === "text"` | ok (sem teste de componente dedicado) |
 
 ## Comandos executados
 

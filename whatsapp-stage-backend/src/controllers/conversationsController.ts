@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import { query, withTransaction } from "../services/dbService";
-import { downloadWhatsAppMedia, sendWhatsAppMessageWithRetry } from "../services/whatsappService";
+import {
+  downloadWhatsAppMedia,
+  sendWhatsAppDocumentMessageWithRetry,
+  sendWhatsAppMessageWithRetry,
+  uploadWhatsAppDocumentWithRetry
+} from "../services/whatsappService";
 import {
   CustomerServiceWindow,
   describeCustomerServiceWindow
@@ -9,6 +14,32 @@ import { logger } from "../utils/logger";
 
 const whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 const phoneNumberId = process.env.PHONE_NUMBER_ID;
+
+const ATTACHMENT_EXTENSION_MIME_TYPES: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".csv": "text/csv",
+  ".txt": "text/plain"
+};
+
+const GENERIC_ATTACHMENT_MIME_TYPES = new Set(["", "application/octet-stream", "application/binary"]);
+
+function resolveAttachmentMimeType(filename: string, reportedMimeType: string): string | null {
+  const extension = filename.slice(filename.lastIndexOf(".")).toLowerCase();
+  const expectedMimeType = ATTACHMENT_EXTENSION_MIME_TYPES[extension];
+  if (!expectedMimeType) return null;
+  if (reportedMimeType === expectedMimeType || GENERIC_ATTACHMENT_MIME_TYPES.has(reportedMimeType)) {
+    return expectedMimeType;
+  }
+  return null;
+}
+
+const WHATSAPP_DOCUMENT_CAPTION_MAX_LENGTH = 1024;
 
 interface ConversationRow {
   id: string;
@@ -292,7 +323,13 @@ export async function getMessageMedia(req: Request, res: Response): Promise<void
 
   const rawMessage = (row.metadata?.message ?? {}) as Record<string, unknown>;
   const mediaObject = (rawMessage[row.type] ?? {}) as { id?: unknown; filename?: unknown };
-  const mediaId = typeof mediaObject.id === "string" ? mediaObject.id : null;
+  const approvedTemplateMediaId = row.metadata?.wa_media_id;
+  const mediaId = typeof mediaObject.id === "string"
+    ? mediaObject.id
+    : typeof approvedTemplateMediaId === "string" ? approvedTemplateMediaId : null;
+  const filename = typeof mediaObject.filename === "string" && mediaObject.filename
+    ? mediaObject.filename
+    : typeof row.metadata?.document_filename === "string" ? row.metadata.document_filename : null;
 
   if (!mediaId) {
     res.status(404).json({ error: "Media reference not found for this message" });
@@ -308,8 +345,13 @@ export async function getMessageMedia(req: Request, res: Response): Promise<void
     const media = await downloadWhatsAppMedia({ mediaId, accessToken: whatsappAccessToken });
     res.setHeader("Content-Type", media.mimeType);
     res.setHeader("Cache-Control", "private, max-age=3600");
-    if (row.type === "document" && typeof mediaObject.filename === "string" && mediaObject.filename) {
-      res.setHeader("Content-Disposition", `inline; filename="${mediaObject.filename.replace(/"/g, "")}"`);
+    if (row.type === "document" && filename) {
+      const asciiFallback = filename.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "");
+      const encodedFilename = encodeURIComponent(filename);
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`
+      );
     }
     res.send(media.buffer);
   } catch (error) {
@@ -323,13 +365,169 @@ export async function getMessageMedia(req: Request, res: Response): Promise<void
   }
 }
 
+async function insertPendingMessage(
+  conversationId: string,
+  body: string,
+  type: string,
+  metadata: Record<string, unknown>
+): Promise<string> {
+  const inserted = await query<{ id: string }>(
+    `
+      INSERT INTO messages (
+        conversation_id,
+        from_me,
+        body,
+        type,
+        metadata,
+        status,
+        created_at
+      )
+      VALUES ($1, true, $2, $3, $4::jsonb, 'pending', now())
+      RETURNING id
+    `,
+    [conversationId, body, type, JSON.stringify(metadata)]
+  );
+  return inserted.rows[0].id;
+}
+
+async function markMessageSent(
+  messageId: string,
+  waMessageId: string | null,
+  metadataPatch: Record<string, unknown>
+): Promise<void> {
+  await query(
+    `
+      UPDATE messages
+      SET wa_message_id = $1,
+          status = 'sent',
+          metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+      WHERE id = $3
+    `,
+    [waMessageId, JSON.stringify(metadataPatch), messageId]
+  );
+}
+
+async function markMessageFailed(messageId: string, error: any): Promise<void> {
+  await query(
+    `
+      UPDATE messages
+      SET status = 'failed',
+          metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+      WHERE id = $2
+    `,
+    [
+      JSON.stringify({
+        graph_error: {
+          message: error?.message,
+          status: error?.response?.status,
+          data: error?.response?.data
+        }
+      }),
+      messageId
+    ]
+  );
+}
+
+export function decodeMultipartFilename(rawFilename: string): string {
+  // Busboy/Multer decode multipart header parameters as latin1 by default,
+  // even though browsers send the filename as raw UTF-8 bytes — without
+  // this round-trip, accented names (ex.: "laudo-coração.pdf") arrive
+  // mangled ("laudo-coraÃ§Ã£o.pdf").
+  return Buffer.from(rawFilename, "latin1").toString("utf8");
+}
+
+function sanitizeAttachmentFilename(rawFilename: string): string {
+  const trimmed = rawFilename.trim();
+  return (trimmed.length > 200 ? trimmed.slice(0, 200) : trimmed) || "anexo";
+}
+
+async function sendAttachmentMessage(
+  res: Response,
+  conversationId: string,
+  waPhoneNumber: string,
+  file: Express.Multer.File,
+  mimeType: string,
+  caption: string,
+  accessToken: string,
+  phoneNumberId: string
+): Promise<void> {
+  const filename = sanitizeAttachmentFilename(decodeMultipartFilename(file.originalname));
+  const localMessageId = await insertPendingMessage(conversationId, filename, "document", {
+    source: "agent_api",
+    ...(caption ? { caption } : {})
+  });
+
+  try {
+    const media = await uploadWhatsAppDocumentWithRetry({
+      phoneNumberId,
+      accessToken,
+      filename,
+      content: file.buffer,
+      mimeType
+    });
+
+    const graphResponse = await sendWhatsAppDocumentMessageWithRetry({
+      phoneNumberId,
+      accessToken,
+      to: waPhoneNumber,
+      mediaId: media.id,
+      filename,
+      caption: caption || undefined
+    });
+
+    const waMessageId = graphResponse.messages?.[0]?.id ?? null;
+
+    await markMessageSent(localMessageId, waMessageId, {
+      graph_response: graphResponse,
+      message: {
+        type: "document",
+        document: { id: media.id, filename, ...(caption ? { caption } : {}) }
+      }
+    });
+    await touchConversation(conversationId);
+
+    res.status(201).json({ id: localMessageId, wa_message_id: waMessageId, status: "sent" });
+  } catch (error: any) {
+    logger.error("Graph API attachment send failed", {
+      conversationId,
+      localMessageId,
+      message: error?.message
+    });
+
+    await markMessageFailed(localMessageId, error);
+    await touchConversation(conversationId);
+
+    res.status(502).json({
+      error: "Failed to send attachment to WhatsApp Graph API",
+      local_message_id: localMessageId
+    });
+  }
+}
+
 export async function sendConversationMessage(req: Request, res: Response): Promise<void> {
   const conversationId = req.params.id;
-  const body = req.body?.body;
+  const file = req.file;
+  const caption = typeof req.body?.body === "string" ? req.body.body.trim() : "";
   const type = req.body?.type ?? "text";
 
-  if (typeof body !== "string" || body.trim().length === 0) {
+  if (!file && caption.length === 0) {
     res.status(400).json({ error: "body is required" });
+    return;
+  }
+
+  const resolvedAttachmentMimeType = file
+    ? resolveAttachmentMimeType(decodeMultipartFilename(file.originalname), file.mimetype)
+    : null;
+  if (file && !resolvedAttachmentMimeType) {
+    res.status(422).json({ error: "Unsupported attachment file type" });
+    return;
+  }
+
+  if (file && caption.length > WHATSAPP_DOCUMENT_CAPTION_MAX_LENGTH) {
+    res.status(422).json({
+      error: `Attachment caption exceeds ${WHATSAPP_DOCUMENT_CAPTION_MAX_LENGTH} characters`,
+      code: "CAPTION_TOO_LONG"
+    });
     return;
   }
 
@@ -365,47 +563,34 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
     return;
   }
 
-  const insertedMessage = await query<{ id: string }>(
-    `
-      INSERT INTO messages (
-        conversation_id,
-        from_me,
-        body,
-        type,
-        metadata,
-        status,
-        created_at
-      )
-      VALUES ($1, true, $2, $3, $4::jsonb, 'pending', now())
-      RETURNING id
-    `,
-    [conversationId, body.trim(), type, JSON.stringify({ source: "agent_api" })]
-  );
+  if (file) {
+    await sendAttachmentMessage(
+      res,
+      conversationId,
+      conversation.wa_phone_number,
+      file,
+      resolvedAttachmentMimeType as string,
+      caption,
+      whatsappAccessToken,
+      phoneNumberId
+    );
+    return;
+  }
 
-  const localMessageId = insertedMessage.rows[0].id;
+  const localMessageId = await insertPendingMessage(conversationId, caption, type, { source: "agent_api" });
 
   try {
     const graphResponse = await sendWhatsAppMessageWithRetry({
       phoneNumberId,
       accessToken: whatsappAccessToken,
       to: conversation.wa_phone_number,
-      body: body.trim(),
+      body: caption,
       type
     });
 
     const waMessageId = graphResponse.messages?.[0]?.id ?? null;
 
-    await query(
-      `
-        UPDATE messages
-        SET wa_message_id = $1,
-            status = 'sent',
-            metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
-        WHERE id = $3
-      `,
-      [waMessageId, JSON.stringify({ graph_response: graphResponse }), localMessageId]
-    );
-
+    await markMessageSent(localMessageId, waMessageId, { graph_response: graphResponse });
     await touchConversation(conversationId);
 
     res.status(201).json({
@@ -420,25 +605,7 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
       message: error?.message
     });
 
-    await query(
-      `
-        UPDATE messages
-        SET status = 'failed',
-            metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-        WHERE id = $2
-      `,
-      [
-        JSON.stringify({
-          graph_error: {
-            message: error?.message,
-            status: error?.response?.status,
-            data: error?.response?.data
-          }
-        }),
-        localMessageId
-      ]
-    );
-
+    await markMessageFailed(localMessageId, error);
     await touchConversation(conversationId);
 
     res.status(502).json({
