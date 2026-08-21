@@ -27,6 +27,27 @@ const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
   "text/plain"
 ]);
 
+const ATTACHMENT_EXTENSION_MIME_TYPES: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".csv": "text/csv",
+  ".txt": "text/plain"
+};
+
+const GENERIC_ATTACHMENT_MIME_TYPES = new Set(["", "application/octet-stream", "application/binary"]);
+
+function resolveAttachmentMimeType(filename: string, reportedMimeType: string): string | null {
+  if (ALLOWED_ATTACHMENT_MIME_TYPES.has(reportedMimeType)) return reportedMimeType;
+  if (!GENERIC_ATTACHMENT_MIME_TYPES.has(reportedMimeType)) return null;
+  const extension = filename.slice(filename.lastIndexOf(".")).toLowerCase();
+  return ATTACHMENT_EXTENSION_MIME_TYPES[extension] ?? null;
+}
+
 const WHATSAPP_DOCUMENT_CAPTION_MAX_LENGTH = 1024;
 
 interface ConversationRow {
@@ -334,7 +355,12 @@ export async function getMessageMedia(req: Request, res: Response): Promise<void
     res.setHeader("Content-Type", media.mimeType);
     res.setHeader("Cache-Control", "private, max-age=3600");
     if (row.type === "document" && filename) {
-      res.setHeader("Content-Disposition", `inline; filename="${filename.replace(/"/g, "")}"`);
+      const asciiFallback = filename.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "");
+      const encodedFilename = encodeURIComponent(filename);
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`
+      );
     }
     res.send(media.buffer);
   } catch (error) {
@@ -429,6 +455,7 @@ async function sendAttachmentMessage(
   conversationId: string,
   waPhoneNumber: string,
   file: Express.Multer.File,
+  mimeType: string,
   caption: string,
   accessToken: string,
   phoneNumberId: string
@@ -445,7 +472,7 @@ async function sendAttachmentMessage(
       accessToken,
       filename,
       content: file.buffer,
-      mimeType: file.mimetype
+      mimeType
     });
 
     const graphResponse = await sendWhatsAppDocumentMessageWithRetry({
@@ -497,7 +524,10 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
     return;
   }
 
-  if (file && !ALLOWED_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
+  const resolvedAttachmentMimeType = file
+    ? resolveAttachmentMimeType(decodeMultipartFilename(file.originalname), file.mimetype)
+    : null;
+  if (file && !resolvedAttachmentMimeType) {
     res.status(422).json({ error: "Unsupported attachment file type" });
     return;
   }
@@ -548,6 +578,7 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
       conversationId,
       conversation.wa_phone_number,
       file,
+      resolvedAttachmentMimeType as string,
       caption,
       whatsappAccessToken,
       phoneNumberId
