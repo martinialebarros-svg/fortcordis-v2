@@ -436,9 +436,23 @@ export function decodeMultipartFilename(rawFilename: string): string {
   return Buffer.from(rawFilename, "latin1").toString("utf8");
 }
 
-function sanitizeAttachmentFilename(rawFilename: string): string {
+const ATTACHMENT_FILENAME_MAX_LENGTH = 200;
+
+export function sanitizeAttachmentFilename(rawFilename: string): string {
   const trimmed = rawFilename.trim();
-  return (trimmed.length > 200 ? trimmed.slice(0, 200) : trimmed) || "anexo";
+  if (!trimmed) return "anexo";
+  if (trimmed.length <= ATTACHMENT_FILENAME_MAX_LENGTH) return trimmed;
+
+  const dotIndex = trimmed.lastIndexOf(".");
+  const hasExtension = dotIndex > 0 && dotIndex < trimmed.length - 1;
+  const extension = hasExtension ? trimmed.slice(dotIndex) : "";
+  const stem = hasExtension ? trimmed.slice(0, dotIndex) : trimmed;
+
+  const stemCodePoints = Array.from(stem);
+  const maxStemLength = Math.max(1, ATTACHMENT_FILENAME_MAX_LENGTH - extension.length);
+  const truncatedStem = stemCodePoints.slice(0, maxStemLength).join("");
+
+  return `${truncatedStem}${extension}` || "anexo";
 }
 
 async function sendAttachmentMessage(
@@ -457,8 +471,10 @@ async function sendAttachmentMessage(
     ...(caption ? { caption } : {})
   });
 
+  let media: Awaited<ReturnType<typeof uploadWhatsAppDocumentWithRetry>>;
+  let graphResponse: Awaited<ReturnType<typeof sendWhatsAppDocumentMessageWithRetry>>;
   try {
-    const media = await uploadWhatsAppDocumentWithRetry({
+    media = await uploadWhatsAppDocumentWithRetry({
       phoneNumberId,
       accessToken,
       filename,
@@ -466,7 +482,7 @@ async function sendAttachmentMessage(
       mimeType
     });
 
-    const graphResponse = await sendWhatsAppDocumentMessageWithRetry({
+    graphResponse = await sendWhatsAppDocumentMessageWithRetry({
       phoneNumberId,
       accessToken,
       to: waPhoneNumber,
@@ -474,19 +490,6 @@ async function sendAttachmentMessage(
       filename,
       caption: caption || undefined
     });
-
-    const waMessageId = graphResponse.messages?.[0]?.id ?? null;
-
-    await markMessageSent(localMessageId, waMessageId, {
-      graph_response: graphResponse,
-      message: {
-        type: "document",
-        document: { id: media.id, filename, ...(caption ? { caption } : {}) }
-      }
-    });
-    await touchConversation(conversationId);
-
-    res.status(201).json({ id: localMessageId, wa_message_id: waMessageId, status: "sent" });
   } catch (error: any) {
     logger.error("Graph API attachment send failed", {
       conversationId,
@@ -501,7 +504,30 @@ async function sendAttachmentMessage(
       error: "Failed to send attachment to WhatsApp Graph API",
       local_message_id: localMessageId
     });
+    return;
   }
+
+  const waMessageId = graphResponse.messages?.[0]?.id ?? null;
+
+  try {
+    await markMessageSent(localMessageId, waMessageId, {
+      graph_response: graphResponse,
+      message: {
+        type: "document",
+        document: { id: media.id, filename, ...(caption ? { caption } : {}) }
+      }
+    });
+    await touchConversation(conversationId);
+  } catch (error: any) {
+    logger.error("Failed to persist sent attachment message state", {
+      conversationId,
+      localMessageId,
+      waMessageId,
+      message: error?.message
+    });
+  }
+
+  res.status(201).json({ id: localMessageId, wa_message_id: waMessageId, status: "sent" });
 }
 
 export async function sendConversationMessage(req: Request, res: Response): Promise<void> {
@@ -528,6 +554,11 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
       error: `Attachment caption exceeds ${WHATSAPP_DOCUMENT_CAPTION_MAX_LENGTH} characters`,
       code: "CAPTION_TOO_LONG"
     });
+    return;
+  }
+
+  if (file && file.buffer.length === 0) {
+    res.status(422).json({ error: "Attachment file is empty" });
     return;
   }
 
