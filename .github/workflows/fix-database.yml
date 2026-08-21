@@ -15,6 +15,9 @@ on:
 jobs:
   fix-database:
     runs-on: ubuntu-latest
+    # Mesmo motivo dos workflows exclusivos de produção, mas aqui o alvo
+    # vem do input: o Environment acompanha a escolha.
+    environment: ${{ inputs.environment == 'production' && 'production' || 'stage' }}
     steps:
       - name: Exigir dispatch a partir de main para producao
         if: inputs.environment == 'production'

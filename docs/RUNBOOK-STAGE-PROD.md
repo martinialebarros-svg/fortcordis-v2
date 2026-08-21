@@ -25,6 +25,15 @@ Guard automatico: `.github/workflows/branch-flow-guard.yml` marca com falha
 qualquer PR que mire `main` sem vir de `stage`. Escape hatch para hotfix urgente
 de produção: branch `hotfix/<slug>` ou label `hotfix` no PR.
 
+**Todo hotfix aplicado direto em `main` exige backport imediato para `stage`**
+(`git checkout stage && git merge origin/main && git push`). Enquanto `main`
+tiver commit que `stage` nao tem, a promocao seguinte roda com
+`git merge -X theirs origin/stage` (default de `promote_stage_to_main.sh`), que
+resolve conflito em favor de `stage` **sem avisar** — ou seja, pode desfazer
+silenciosamente a correcao de emergencia. Se por qualquer motivo o backport nao
+tiver sido feito, promova com `PREFER_STAGE_ON_CONFLICTS=0
+bash scripts/promote_stage_to_main.sh` e resolva os conflitos a mao.
+
 Passo manual pendente (precisa de admin do repositorio, nao da para automatizar
 por API nesta sessao):
 
@@ -54,8 +63,16 @@ ref do dispatch — logo protegem contra **acidente** (rodar produção a partir
 `stage` sem perceber), nao contra edicao deliberada do workflow em `stage` por
 quem tem permissao de push. A trava real para esse caso e do lado do GitHub:
 mover `VPS_SSH_KEY`/`VPS_HOST`/`VPS_SUDO_PASSWORD` para um Environment
-(Settings -> Environments) com required reviewers e limitado a branch `main`,
-para que qualquer job que use esses secrets dependa de aprovacao humana.
+(Settings -> Environments) chamado `production`, com required reviewers e
+limitado a branch `main`, para que qualquer job que use esses secrets dependa de
+aprovacao humana.
+
+Os quatro jobs de produção **ja declaram** `environment: production` no YAML
+(`fix-database.yml` escolhe pelo input), porque mover os secrets sem esse
+binding tiraria o acesso do job e quebraria o dispatch. Ou seja, a migracao e so
+configuracao: criar o Environment, mover os tres secrets para ele, adicionar
+required reviewers e limitar a `main`. Enquanto o Environment nao tiver regras,
+o binding nao muda nada — os secrets de repositorio continuam funcionando.
 
 ## Fluxo recomendado (automatizado)
 

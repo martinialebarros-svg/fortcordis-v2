@@ -19,6 +19,11 @@ on:
 jobs:
   recover-prod:
     runs-on: ubuntu-latest
+    # Job de produção: o binding de Environment precisa existir no YAML
+    # para que mover os secrets da VPS para um Environment protegido
+    # (required reviewers) seja so uma mudanca de configuracao. Sem
+    # `environment:`, o job perde acesso a esses secrets.
+    environment: production
     steps:
       - name: Exigir dispatch a partir de main
         env:

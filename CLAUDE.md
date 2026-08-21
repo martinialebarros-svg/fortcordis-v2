@@ -9,7 +9,9 @@ feature entra direto em `main`**:
 - Produção recebe depois, pelo PR de promocao `stage -> main`
   (`chore(release): promover <resumo>`) ou por `bash scripts/promote_stage_to_main.sh`.
 - Hotfix urgente de produção e a unica excecao: branch `hotfix/<slug>` ou label
-  `hotfix` no PR, mirando `main`.
+  `hotfix` no PR, mirando `main`. Depois de mergear o hotfix, faca o backport
+  para `stage` na hora: a promocao seguinte resolve conflito em favor de `stage`
+  por default e pode desfazer a correcao sem avisar.
 
 `.github/workflows/branch-flow-guard.yml` sinaliza com falha qualquer PR que
 mire `main` fora dessas condicoes. Detalhes e passos manuais de configuracao:
