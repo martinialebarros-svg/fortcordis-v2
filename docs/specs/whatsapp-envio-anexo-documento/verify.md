@@ -159,8 +159,38 @@ app/whatsapp-stage/page.tsx app/whatsapp-stage/page.test.tsx
 --max-warnings=0`, `npx vitest run app/whatsapp-stage/page.test.tsx` (18
 testes, sem regressão). Todos passaram.
 
+## Adendo 3 - risco do Nginx confirmado e corrigido em produção - 2026-08-21
+
+O risco residual do item 2 do primeiro adendo (acima) se confirmou na
+prática: usuário tentou anexar um PDF em produção e recebeu `413
+(Request Entity Too Large)` em `POST /whatsapp/conversations/49/messages`,
+direto no console do navegador — sem corpo JSON de erro, sinal de que a
+rejeição aconteceu antes de chegar no Node (Multer sempre responde com
+JSON).
+
+Confirmado por acesso SSH à VPS (`grep -rl "app.fortcordis.com.br"
+/etc/nginx/`): o arquivo ativo é `/etc/nginx/sites-available/
+fortcordis-app`, e exatamente como suspeitado, o `location /` (porta
+3000, por onde passam as requisições de `/whatsapp/*` via rewrite do
+Next.js) não tinha `client_max_body_size` — só o `location /api/` tinha
+(`30m`), então `location /` caía no default do Nginx (1 MB).
+
+Corrigido diretamente no servidor (fora deste repositório, já que essa
+configuração não é versionada aqui): backup do arquivo,
+`client_max_body_size 30m;` adicionado ao `location /` (mesmo valor já
+usado no `/api/`), `nginx -t` validado antes de `systemctl reload
+nginx`. Usuário confirmou reenvio do mesmo PDF com sucesso após o
+reload — RF-006 agora validado ponta a ponta em produção com arquivo
+real, não só com mocks.
+
+Nota para o futuro: se este domínio algum dia ganhar um script de
+provisionamento versionado (nos moldes de
+`scripts/provision_institutional_nginx.sh`), incluir
+`client_max_body_size` também no `location /`, não só no `/api/`.
+
 ## Decisão de release
 
+- [x] Aprovado para produção — confirmado pelo usuário com um PDF real
+  após o ajuste de `client_max_body_size` no Nginx (Adendo 3).
 - [ ] Aprovado para stage.
-- [ ] Aprovado para produção.
 - [ ] Não aprovado (descrever motivo).
