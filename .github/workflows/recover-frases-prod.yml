@@ -20,6 +20,25 @@ jobs:
   recover-prod:
     runs-on: ubuntu-latest
     steps:
+      - name: Exigir dispatch a partir de main
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          # Em workflow_dispatch o YAML executado vem do ref selecionado, nao
+          # do default branch: fixar `ref` no checkout protege os arquivos
+          # copiados, mas nao os proprios passos `run` deste job. Este guard
+          # evita o acidente de rodar produção a partir de `stage` (que passa a
+          # ser o ref default do dispatch). Nao protege contra edicao
+          # deliberada do workflow em `stage` - para isso, ver a nota de
+          # Environment protegido em docs/RUNBOOK-STAGE-PROD.md.
+          if [[ "${DISPATCH_REF}" != "refs/heads/main" ]]; then
+            echo "::error::Este workflow aplica mudancas em produção e deve ser disparado com a branch 'main' (ref recebido: ${DISPATCH_REF})."
+            echo "Reexecute selecionando 'main' no seletor de branch do dispatch."
+            exit 1
+          fi
+          echo "OK: dispatch a partir de main."
+
       - name: Checkout code
         uses: actions/checkout@v5
         with:

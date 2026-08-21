@@ -35,11 +35,27 @@ por API nesta sessao):
   exigindo PR + o check `Branch Flow Guard`. O guard sozinho sinaliza, mas nao
   impede o merge nem cobre push direto em `main`.
 
-Workflow manual novo que aplique algo em produção deve fixar `ref: main` no
-`actions/checkout` (padrao ja usado em `recover-frases-prod.yml`,
-`sync-portal-email-env.yml` e `provision-institutional-host.yml`). Sem isso, o
-ref default do dispatch acompanha o default branch e passa a trazer script de
-`stage` — codigo ainda nao promovido — para dentro de produção.
+Workflow manual que aplique algo em produção precisa de duas travas, porque em
+`workflow_dispatch` o YAML executado vem do ref selecionado no dispatch (e esse
+ref default acompanha o default branch do repositorio):
+
+1. `ref: main` no `actions/checkout` — garante que os arquivos copiados para a
+   VPS sao os promovidos, nao os de `stage`.
+2. Passo inicial exigindo `github.ref == refs/heads/main` — garante que os
+   proprios passos `run` do job sao os promovidos. O checkout pinado nao cobre
+   isso.
+
+Aplicado em `sync-portal-email-env.yml`, `provision-institutional-host.yml`,
+`recover-frases-prod.yml` e (condicionado a `environment=production`)
+`fix-database.yml`.
+
+Limite conhecido: esses dois guards vivem dentro do proprio workflow, que vem do
+ref do dispatch — logo protegem contra **acidente** (rodar produção a partir de
+`stage` sem perceber), nao contra edicao deliberada do workflow em `stage` por
+quem tem permissao de push. A trava real para esse caso e do lado do GitHub:
+mover `VPS_SSH_KEY`/`VPS_HOST`/`VPS_SUDO_PASSWORD` para um Environment
+(Settings -> Environments) com required reviewers e limitado a branch `main`,
+para que qualquer job que use esses secrets dependa de aprovacao humana.
 
 ## Fluxo recomendado (automatizado)
 
