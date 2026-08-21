@@ -69,7 +69,10 @@ jobs:
           EOF
 
       - name: Cleanup remote temp script
-        if: always()
+        # `always()` sozinho furava o guard de ref: este passo abre SSH na VPS
+        # de produção, entao tambem precisa estar restrito a `main` (mantendo a
+        # limpeza apos falha quando o dispatch e legitimo).
+        if: always() && github.ref == 'refs/heads/main'
         run: |
           ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             'rm -f /tmp/sync_portal_email_env.sh'
