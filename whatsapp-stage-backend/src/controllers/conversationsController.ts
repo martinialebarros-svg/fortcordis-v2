@@ -309,7 +309,13 @@ export async function getMessageMedia(req: Request, res: Response): Promise<void
 
   const rawMessage = (row.metadata?.message ?? {}) as Record<string, unknown>;
   const mediaObject = (rawMessage[row.type] ?? {}) as { id?: unknown; filename?: unknown };
-  const mediaId = typeof mediaObject.id === "string" ? mediaObject.id : null;
+  const approvedTemplateMediaId = row.metadata?.wa_media_id;
+  const mediaId = typeof mediaObject.id === "string"
+    ? mediaObject.id
+    : typeof approvedTemplateMediaId === "string" ? approvedTemplateMediaId : null;
+  const filename = typeof mediaObject.filename === "string" && mediaObject.filename
+    ? mediaObject.filename
+    : typeof row.metadata?.document_filename === "string" ? row.metadata.document_filename : null;
 
   if (!mediaId) {
     res.status(404).json({ error: "Media reference not found for this message" });
@@ -325,8 +331,8 @@ export async function getMessageMedia(req: Request, res: Response): Promise<void
     const media = await downloadWhatsAppMedia({ mediaId, accessToken: whatsappAccessToken });
     res.setHeader("Content-Type", media.mimeType);
     res.setHeader("Cache-Control", "private, max-age=3600");
-    if (row.type === "document" && typeof mediaObject.filename === "string" && mediaObject.filename) {
-      res.setHeader("Content-Disposition", `inline; filename="${mediaObject.filename.replace(/"/g, "")}"`);
+    if (row.type === "document" && filename) {
+      res.setHeader("Content-Disposition", `inline; filename="${filename.replace(/"/g, "")}"`);
     }
     res.send(media.buffer);
   } catch (error) {
