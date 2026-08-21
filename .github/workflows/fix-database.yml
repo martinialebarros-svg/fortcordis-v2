@@ -15,7 +15,25 @@ on:
 jobs:
   fix-database:
     runs-on: ubuntu-latest
+    # Mesmo motivo dos workflows exclusivos de produção, mas aqui o alvo
+    # vem do input: o Environment acompanha a escolha.
+    environment: ${{ inputs.environment == 'production' && 'production' || 'stage' }}
     steps:
+      - name: Exigir dispatch a partir de main para producao
+        if: inputs.environment == 'production'
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          # Vale a mesma regra dos workflows exclusivos de produção: o YAML
+          # executado vem do ref do dispatch, entao rodar com environment=
+          # production a partir de `stage` executaria passos nao promovidos.
+          if [[ "${DISPATCH_REF}" != "refs/heads/main" ]]; then
+            echo "::error::environment=production exige dispatch com a branch 'main' (ref recebido: ${DISPATCH_REF})."
+            exit 1
+          fi
+          echo "OK: dispatch a partir de main."
+
       - name: Checkout code
         uses: actions/checkout@v5
         with:
