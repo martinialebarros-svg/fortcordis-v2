@@ -15,18 +15,6 @@ import { logger } from "../utils/logger";
 const whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 const phoneNumberId = process.env.PHONE_NUMBER_ID;
 
-const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "text/csv",
-  "text/plain"
-]);
-
 const ATTACHMENT_EXTENSION_MIME_TYPES: Record<string, string> = {
   ".pdf": "application/pdf",
   ".doc": "application/msword",
@@ -42,10 +30,13 @@ const ATTACHMENT_EXTENSION_MIME_TYPES: Record<string, string> = {
 const GENERIC_ATTACHMENT_MIME_TYPES = new Set(["", "application/octet-stream", "application/binary"]);
 
 function resolveAttachmentMimeType(filename: string, reportedMimeType: string): string | null {
-  if (ALLOWED_ATTACHMENT_MIME_TYPES.has(reportedMimeType)) return reportedMimeType;
-  if (!GENERIC_ATTACHMENT_MIME_TYPES.has(reportedMimeType)) return null;
   const extension = filename.slice(filename.lastIndexOf(".")).toLowerCase();
-  return ATTACHMENT_EXTENSION_MIME_TYPES[extension] ?? null;
+  const expectedMimeType = ATTACHMENT_EXTENSION_MIME_TYPES[extension];
+  if (!expectedMimeType) return null;
+  if (reportedMimeType === expectedMimeType || GENERIC_ATTACHMENT_MIME_TYPES.has(reportedMimeType)) {
+    return expectedMimeType;
+  }
+  return null;
 }
 
 const WHATSAPP_DOCUMENT_CAPTION_MAX_LENGTH = 1024;

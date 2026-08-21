@@ -162,17 +162,6 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<ApiResul
 }
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "text/csv",
-  "text/plain",
-]);
 const ATTACHMENT_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt";
 const ATTACHMENT_CAPTION_MAX_LENGTH = 1024;
 const ATTACHMENT_EXTENSION_MIME_TYPES: Record<string, string> = {
@@ -189,10 +178,10 @@ const ATTACHMENT_EXTENSION_MIME_TYPES: Record<string, string> = {
 const GENERIC_ATTACHMENT_MIME_TYPES = new Set(["", "application/octet-stream", "application/binary"]);
 
 function isAllowedAttachment(file: File): boolean {
-  if (ALLOWED_ATTACHMENT_MIME_TYPES.has(file.type)) return true;
-  if (!GENERIC_ATTACHMENT_MIME_TYPES.has(file.type)) return false;
   const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
-  return extension in ATTACHMENT_EXTENSION_MIME_TYPES;
+  const expectedMimeType = ATTACHMENT_EXTENSION_MIME_TYPES[extension];
+  if (!expectedMimeType) return false;
+  return file.type === expectedMimeType || GENERIC_ATTACHMENT_MIME_TYPES.has(file.type);
 }
 
 async function requestWithAttachment<T>(url: string, file: File, body: string): Promise<ApiResult<T>> {
