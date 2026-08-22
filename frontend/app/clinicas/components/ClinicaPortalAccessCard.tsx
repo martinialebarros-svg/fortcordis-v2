@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Copy,
+  ExternalLink,
   Link2,
   Loader2,
   MessageCircle,
@@ -15,7 +16,11 @@ import {
 
 import api from "@/lib/axios";
 import { extractApiErrorMessageSync } from "@/lib/api-error";
-import { buildClinicInviteMessage, getPortalAdminAuthHeaders } from "@/lib/portal-clinic-admin";
+import {
+  buildClinicInviteMessage,
+  buildClinicWhatsappLink,
+  getPortalAdminAuthHeaders,
+} from "@/lib/portal-clinic-admin";
 import { formatPortalDateTime } from "@/lib/portal-datetime";
 import type {
   PortalAdminClinicAccessSummaryResponse,
@@ -215,6 +220,13 @@ export default function ClinicaPortalAccessCard({
     } catch {
       setError("Nao foi possivel copiar a mensagem automaticamente.");
     }
+  }
+
+  function handleOpenWhatsapp() {
+    if (!inviteMessage) {
+      return;
+    }
+    window.open(buildClinicWhatsappLink(deliveryTarget, inviteMessage), "_blank", "noopener,noreferrer");
   }
 
   async function handleRevokeInvite(inviteId: number) {
@@ -438,6 +450,14 @@ export default function ClinicaPortalAccessCard({
                   >
                     <MessageCircle className="w-4 h-4" />
                     Copiar mensagem
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenWhatsapp}
+                    className="inline-flex items-center gap-2 rounded-lg border border-teal-300 px-3 py-2 text-sm font-medium text-teal-900 hover:bg-white"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Abrir no WhatsApp
                   </button>
                   <button
                     type="button"
