@@ -188,6 +188,73 @@ provisionamento versionado (nos moldes de
 `scripts/provision_institutional_nginx.sh`), incluir
 `client_max_body_size` também no `location /`, não só no `/api/`.
 
+## Adendo 4 - revisão automatizada (Codex) na PR #66 - 2026-08-21
+
+Três apontamentos P2 do revisor automático, na PR que trouxe este
+commit de volta para `stage`, todos confirmados e corrigidos:
+
+1. **Anexo entregue era marcado como "falha".** Confirmado:
+   `sendAttachmentMessage` tratava a chamada de persistência
+   (`markMessageSent`) dentro do mesmo `try` das duas chamadas à Graph
+   API — se o Meta já tivesse aceitado o documento mas a gravação
+   pós-envio no banco falhasse (ex.: erro transitório de conexão), a
+   exceção caía no `catch` de erro de provedor, marcava a mensagem como
+   `failed` e respondia `502`, mesmo o destinatário já tendo recebido o
+   arquivo. Corrigido separando as duas chamadas à Graph API (upload +
+   envio) em um bloco isolado — só essas alimentam `markMessageFailed`/
+   `502` — de um segundo bloco que tenta persistir o sucesso; falha
+   nesse segundo bloco apenas loga (`"Failed to persist sent attachment
+   message state"`) e a resposta continua `201`, já que a entrega em si
+   foi bem-sucedida (RF-008 atualizado).
+2. **Anexo vazio (0 bytes) não era rejeitado antes de criar a
+   mensagem.** Confirmado: um arquivo de 0 bytes com extensão/mimetype
+   permitido passava pela validação em `sendConversationMessage`,
+   criava a mensagem pendente, e só falhava depois dentro de
+   `uploadWhatsAppDocumentWithRetry` — deixando uma mensagem "falha"
+   permanente sem que nenhuma chamada de rede tivesse sido tentada, e
+   respondendo `502` (em vez de um erro de validação claro). Corrigida
+   com uma checagem de `file.buffer.length === 0` em
+   `sendConversationMessage`, antes de qualquer criação de mensagem —
+   mesmo padrão das demais validações de entrada (mimetype, legenda),
+   respondendo `422` (CB-002 atualizado). Novo teste em
+   `test-message-attachment.ts` cobre um PDF de 0 bytes.
+3. **Truncamento de nome de arquivo cortava a extensão.** Confirmado:
+   `sanitizeAttachmentFilename` truncava a string inteira (incluindo a
+   extensão) em 200 caracteres, então um nome muito longo perdia o
+   `.pdf`/`.docx` final — o destinatário recebia um documento com nome
+   sem extensão. Truncar por unidade UTF-16 (`string.slice`) também
+   podia partir um par substituto (emoji/CJK) ao meio, gerando um nome
+   Unicode malformado que a Graph API poderia rejeitar. Corrigida para
+   truncar apenas o "stem" (nome sem extensão) por code point
+   (`Array.from`, não `slice` bruto), preservando a extensão original
+   dentro do limite de 200 caracteres (CB-003 atualizado). Novos testes
+   em `test-message-attachment.ts` cobrem um nome longo simples e um
+   nome longo com emoji repetido, confirmando que a extensão sobrevive
+   e que nenhum caractere de substituição inválido (`�`) aparece no
+   resultado.
+
+Comandos re-executados após as correções:
+
+```bash
+cd whatsapp-stage-backend
+npx tsc --noEmit -p .
+npm run test:message-attachment
+npm run test:whatsapp-retry       # regressao
+npm run test:approved-templates   # regressao
+npm run test:auth-policy          # regressao
+```
+
+Todos passaram, sem regressão nos fluxos existentes.
+
+Risco residual: o caso 1 (falha de persistência pós-envio bem-sucedido)
+não tem teste automatizado dedicado — exigiria mockar `dbService.query`
+para simular uma falha de gravação após o Graph API já ter respondido
+com sucesso, e o script de teste atual não usa um banco real nesse
+ponto (ver limitação já registrada nos adendos anteriores). Verificado
+por revisão de código e execução manual do fluxo (leitura do diff
+confirma que o `try/catch` de persistência não alimenta mais
+`markMessageFailed`).
+
 ## Decisão de release
 
 - [x] Aprovado para produção — confirmado pelo usuário com um PDF real

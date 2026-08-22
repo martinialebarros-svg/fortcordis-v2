@@ -23,9 +23,38 @@ concurrency:
 jobs:
   provision-prod-host:
     runs-on: ubuntu-latest
+    # Job de produção: o binding de Environment precisa existir no YAML
+    # para que mover os secrets da VPS para um Environment protegido
+    # (required reviewers) seja so uma mudanca de configuracao. Sem
+    # `environment:`, o job perde acesso a esses secrets.
+    environment: production
     steps:
+      - name: Exigir dispatch a partir de main
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          # Em workflow_dispatch o YAML executado vem do ref selecionado, nao
+          # do default branch: fixar `ref` no checkout protege os arquivos
+          # copiados, mas nao os proprios passos `run` deste job. Este guard
+          # evita o acidente de rodar produção a partir de `stage` (que passa a
+          # ser o ref default do dispatch). Nao protege contra edicao
+          # deliberada do workflow em `stage` - para isso, ver a nota de
+          # Environment protegido em docs/RUNBOOK-STAGE-PROD.md.
+          if [[ "${DISPATCH_REF}" != "refs/heads/main" ]]; then
+            echo "::error::Este workflow aplica mudancas em produção e deve ser disparado com a branch 'main' (ref recebido: ${DISPATCH_REF})."
+            echo "Reexecute selecionando 'main' no seletor de branch do dispatch."
+            exit 1
+          fi
+          echo "OK: dispatch a partir de main."
+
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          # Workflow manual que aplica scripts em producao: fixa `main` para o
+          # ref escolhido no dispatch nunca trazer script nao promovido (o
+          # default do dispatch acompanha o default branch do repositorio).
+          ref: main
 
       - name: Setup SSH key
         env:
@@ -63,7 +92,10 @@ jobs:
           EOF
 
       - name: Cleanup remote temp script
-        if: always()
+        # `always()` sozinho furava o guard de ref: este passo abre SSH na VPS
+        # de produção, entao tambem precisa estar restrito a `main` (mantendo a
+        # limpeza apos falha quando o dispatch e legitimo).
+        if: always() && github.ref == 'refs/heads/main'
         run: |
           ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             'rm -f /tmp/provision_institutional_nginx.sh'

@@ -162,18 +162,27 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<ApiResul
 }
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "text/csv",
-  "text/plain",
-]);
 const ATTACHMENT_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt";
+const ATTACHMENT_CAPTION_MAX_LENGTH = 1024;
+const ATTACHMENT_EXTENSION_MIME_TYPES: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".csv": "text/csv",
+  ".txt": "text/plain",
+};
+const GENERIC_ATTACHMENT_MIME_TYPES = new Set(["", "application/octet-stream", "application/binary"]);
+
+function isAllowedAttachment(file: File): boolean {
+  const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+  const expectedMimeType = ATTACHMENT_EXTENSION_MIME_TYPES[extension];
+  if (!expectedMimeType) return false;
+  return file.type === expectedMimeType || GENERIC_ATTACHMENT_MIME_TYPES.has(file.type);
+}
 
 async function requestWithAttachment<T>(url: string, file: File, body: string): Promise<ApiResult<T>> {
   const formData = new FormData();
@@ -385,6 +394,8 @@ export default function WhatsAppStagePage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [templates, setTemplates] = useState<TemplateCatalogItem[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const selectedConversationIdRef = useRef<string | null>(null);
+  useEffect(() => { selectedConversationIdRef.current = selectedConversationId; }, [selectedConversationId]);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [loadingAgents, setLoadingAgents] = useState(false);
@@ -597,7 +608,7 @@ export default function WhatsAppStagePage() {
   const handleAttachmentChange = (event: ChangeEvent<HTMLInputElement>): void => {
     const file = event.target.files?.[0] || null;
     if (!file) return;
-    if (!ALLOWED_ATTACHMENT_MIME_TYPES.has(file.type)) {
+    if (!isAllowedAttachment(file)) {
       setErrorMessage("Tipo de arquivo não suportado. Envie PDF, Word, Excel, PowerPoint, CSV ou texto.");
       clearAttachment();
       return;
@@ -618,22 +629,30 @@ export default function WhatsAppStagePage() {
         : "Aguarde uma mensagem da clínica antes de responder com texto livre."); return;
     }
     if (!sendMessageBody.trim() && !attachmentFile) { setErrorMessage("Digite uma mensagem ou anexe um arquivo antes de enviar."); return; }
+    if (attachmentFile && sendMessageBody.length > ATTACHMENT_CAPTION_MAX_LENGTH) {
+      setErrorMessage(`A legenda do anexo excede ${ATTACHMENT_CAPTION_MAX_LENGTH} caracteres.`); return;
+    }
+    const requestConversationId = selectedConversationId;
     const result = attachmentFile
       ? await requestWithAttachment<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
-          `/whatsapp/conversations/${selectedConversationId}/messages`, attachmentFile, sendMessageBody)
+          `/whatsapp/conversations/${requestConversationId}/messages`, attachmentFile, sendMessageBody)
       : await requestJson<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
-          `/whatsapp/conversations/${selectedConversationId}/messages`, {
+          `/whatsapp/conversations/${requestConversationId}/messages`, {
             method: "POST", body: JSON.stringify({ body: sendMessageBody.trim(), type: "text" }),
           });
     if (!result.ok) {
       if (result.status === 409 && result.data?.code === "CUSTOMER_SERVICE_WINDOW_CLOSED") {
         if (result.data.customer_service_window) setCustomerServiceWindows((current) => ({
-          ...current, [selectedConversationId]: result.data!.customer_service_window!,
+          ...current, [requestConversationId]: result.data!.customer_service_window!,
         }));
         setErrorMessage("A janela de 24 horas foi encerrada. Use um modelo aprovado.");
       } else setErrorMessage(result.errorText || `Falha ao enviar ${attachmentFile ? "o anexo" : "mensagem"} (HTTP ${result.status})`);
-    } else { setInfoMessage(attachmentFile ? "Anexo enviado." : "Mensagem enviada."); setSendMessageBody(""); clearAttachment(); }
-    await loadMessages(selectedConversationId, 1); await loadConversations(conversationsPagination.page || 1);
+    } else {
+      setInfoMessage(attachmentFile ? "Anexo enviado." : "Mensagem enviada.");
+      if (selectedConversationIdRef.current === requestConversationId) { setSendMessageBody(""); clearAttachment(); }
+    }
+    await loadMessages(requestConversationId, 1, { isCurrent: () => selectedConversationIdRef.current === requestConversationId });
+    await loadConversations(conversationsPagination.page || 1);
   };
 
   const handleResendMessage = async (message: Message): Promise<void> => {
