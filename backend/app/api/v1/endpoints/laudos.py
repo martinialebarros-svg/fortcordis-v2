@@ -1648,6 +1648,9 @@ def listar_laudos(
             "data_laudo": _iso_or_str(laudo.data_laudo),
             "created_at": _iso_or_str(laudo.created_at),
             "tem_pdf_externo": bool(_extrair_pdf_externo_laudo(laudo.anexos)),
+            "whatsapp_liberacao_status": laudo.whatsapp_liberacao_status,
+            "whatsapp_liberacao_em": _iso_or_str(laudo.whatsapp_liberacao_em),
+            "whatsapp_liberacao_erro": laudo.whatsapp_liberacao_erro,
             **_serialize_portal_release_state(
                 db,
                 laudo=laudo,
@@ -3142,7 +3145,29 @@ def avisar_laudo_liberado_por_whatsapp(
             idempotency_key=payload.idempotency_key,
         )
     except WhatsAppTemplateDeliveryError as exc:
+        laudo.whatsapp_liberacao_status = "falhou"
+        laudo.whatsapp_liberacao_em = datetime.utcnow()
+        laudo.whatsapp_liberacao_erro = str(exc)[:500]
+        db.commit()
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="laudos",
+            entidade="laudo",
+            entidade_id=laudo.id,
+            acao="LAUDO_PORTAL_WHATSAPP_FALHOU",
+            descricao="Falha ao enviar aviso de laudo disponivel pelo WhatsApp oficial.",
+            detalhes={
+                "destination_suffix": destination[-4:],
+                "erro": str(exc)[:500],
+            },
+            request=request,
+        )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    laudo.whatsapp_liberacao_status = "enviado"
+    laudo.whatsapp_liberacao_em = datetime.utcnow()
+    laudo.whatsapp_liberacao_erro = None
+    db.commit()
 
     registrar_auditoria(
         current_user=current_user,
