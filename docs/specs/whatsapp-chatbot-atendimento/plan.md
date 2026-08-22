@@ -77,6 +77,9 @@ uma mensagem gerada chegue a um cliente.
       em `backend/data/`, no padrão do vocabulário do ai-echo (RF-011, RF-023).
 - [ ] P3.4 handoff: `PATCH /conversations/:id/status` no Node, `criar_alerta_interno`
       e push (RF-011, RF-023).
+- [ ] P3.4b texto de handoff ciente do expediente (RF-033): dentro da janela
+      operacional informa transferência, fora dela informa o próximo horário de
+      atendimento, reaproveitando `_agenda_day_window`/`_agenda_configuration_rules`.
 - [ ] P3.5 endpoints de estado por conversa e `GET /whatsapp/bot/preview`
       somente leitura (CA-019).
 - [ ] P3.6 testes de cada portão e do fluxo de emergência sem chamada ao LLM.
@@ -92,15 +95,19 @@ uma mensagem gerada chegue a um cliente.
 
 - [ ] P4.1 `whatsapp_bot_tools.py`: allowlist própria, escopo de
       `tutor_id`/`clinica_id` aplicado no código (RF-018).
-- [ ] P4.2 `whatsapp_bot_prompt.py`: personas por `match_type`, versão de prompt,
-      regra de "só falo do que veio de fonte" (RF-017, RF-020, RF-021).
-- [ ] P4.3 classificação de intent contra a allowlist da RF-019.
+- [ ] P4.2 `whatsapp_bot_prompt.py`: as duas personas (`tutor` e `clinica`) por
+      `match_type`, versão de prompt, regra de "só falo do que veio de fonte"
+      (RF-017, RF-020, RF-021).
+- [ ] P4.3 classificação de intent contra a allowlist **por persona** da RF-019,
+      incluindo o bloco comum que sempre vira rascunho (OS, cobrança, valor em
+      aberto).
 - [ ] P4.4 validador de saída (RF-022) e tetos de volume/tamanho (RF-025).
 - [ ] P4.5 registro completo em `whatsapp_bot_respostas` (RF-026) e envio via
       Node no modo `auto` com `metadata.origem = "bot"` (RF-027).
 - [ ] P4.6 testes com provider fake (sem rede), no padrão dos providers
-      protocolares do ai-echo: intent fora da allowlist, resposta clínica
-      bloqueada, resposta sem fonte, teto estourado.
+      protocolares do ai-echo: intent fora da allowlist (nas duas personas),
+      escopo cruzado clínica/tutor, resposta clínica bloqueada, resposta sem
+      fonte, teto estourado.
 - Critério de conclusão: em stage, com conversa em `suggest`, rascunhos reais
   aparecem gravados e nenhum envio acontece.
 - Risco: o maior da entrega. Mitigado por `suggest` como padrão, validador de
@@ -131,11 +138,17 @@ uma mensagem gerada chegue a um cliente.
       habilitação, para medir alcance real (mesma prática que revelou os 10
       agendamentos elegíveis no lembrete automático).
 - [ ] P6.3 stage: toggle ligado em `suggest`, acompanhamento de taxa de aceite
-      dos rascunhos por pelo menos uma semana de tráfego real.
+      dos rascunhos por pelo menos uma semana de tráfego real, com o número
+      separado por persona (tutor e clínica erram de formas diferentes) e por
+      faixa de horário (dentro e fora do expediente).
 - [ ] P6.4 produção: `suggest` primeiro. `auto` só depois, e só para a allowlist
-      da RF-019, com decisão registrada no `verify.md`.
+      da RF-019, com decisão registrada no `verify.md`. Se a taxa de aceite
+      divergir muito entre as personas, ligar `auto` só para a que estiver
+      pronta — o modo é por conversa, então isso não exige mudança de código.
 - [ ] P6.5 métricas: contenção (respostas sem handoff), taxa de bloqueio do
-      validador, custo por conversa, latência da primeira resposta.
+      validador, custo por conversa, latência da primeira resposta — todas
+      quebradas por persona e por dentro/fora do expediente, já que o bot
+      atende 24/7.
 - Critério de conclusão: decisão de release documentada com números, não com
   impressão.
 - Risco: ligar `auto` cedo demais. Mitigado por P6.3/P6.4 serem sequenciais e
@@ -161,9 +174,14 @@ uma mensagem gerada chegue a um cliente.
   modo `auto`, dono da revisão das transcrições).
 - Confirmação em stage do comportamento real do nono dígito antes de fechar a
   Fase 3.
-- Conteúdo institucional na base de conhecimento (horário, endereço, área de
-  atendimento, como agendar) — sem isso o bot não tem fonte e, por RF-020, não
+- Conteúdo institucional na base de conhecimento **para as duas personas**:
+  tutor (horário, endereço, área de atendimento, como agendar, formas de
+  contato) e clínica parceira (dias e área de atendimento, como solicitar
+  exame, fluxo de laudo). Sem isso o bot não tem fonte e, por RF-020, não
   responde nada.
+- Janela operacional da agenda preenchida e correta, inclusive exceções e
+  feriados — é a fonte do "quando a equipe volta" nos handoffs fora do
+  expediente (RF-033).
 - `WHATSAPP_INTERNAL_API_TOKEN` já configurado nos dois lados (é o mesmo segredo
   usado hoje pelo push e pelas automações).
 

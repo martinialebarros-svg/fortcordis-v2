@@ -35,6 +35,10 @@ Status: draft
 | CA-020 | aceitação | teste de autorização em `test_configuracoes_autorizacao.py` (403 para não admin) + smoke sem restart | pendente |
 | CA-021 | aceitação | teste do worker com advisory lock ocupado: ciclo pulado, 0 jobs tocados | pendente |
 | CA-022 | aceitação | teste de redação de log: corpo completo e número completo ausentes da saída | pendente |
+| CA-023 | aceitação | teste de escopo entre personas: conversa `clinica` sem dado de tutor de outra clínica, e vice-versa | pendente |
+| CA-024 | aceitação | teste de allowlist: intent de OS/cobrança em `auto` -> `draft` nas duas personas | pendente |
+| CA-025 | aceitação | teste de handoff: fora da janela informa próximo horário; dentro, informa transferência; emergência mantém contato imediato | pendente |
+| CA-026 | aceitação | teste de corrida: claim durante o debounce -> job `suppressed`, sem envio e sem rascunho | pendente |
 | NFR-001 | não funcional | inspeção de `config.py`/`.env.example`/migração: todos os defaults desligados | pendente |
 | NFR-002 | não funcional | medição do tempo do endpoint de mensagem recebida antes e depois do enfileiramento | pendente |
 | NFR-003 | não funcional | `build_runtime_report()` expondo `whatsapp_bot_worker` | pendente |
@@ -89,6 +93,24 @@ Resumo dos resultados:
 7. Janela de 24h fechada — nenhuma mensagem enviada.
 8. Desmarcar o toggle em Configurações durante tráfego — o bot para no ciclo
    seguinte, sem restart.
+9. Conversa de clínica parceira e conversa de tutor lado a lado — confirmar que
+   a persona, o tom e o escopo de dado mudam, e que nenhuma alcança dado da
+   outra.
+10. Mensagem fora do expediente (bot roda 24/7) — o handoff informa o próximo
+    horário de atendimento, não "vou transferir agora".
+11. Atendente dá claim enquanto o debounce corre — o bot não responde por cima.
+
+## Números a coletar na Fase 6.3 (stage)
+
+Sem estes, a decisão de ligar o modo `auto` é chute:
+
+| Métrica | Quebra |
+| --- | --- |
+| Taxa de aceite dos rascunhos | por persona (tutor / clínica) |
+| Taxa de bloqueio do validador de saída | por motivo |
+| Contenção (resposta sem handoff) | por persona e por dentro/fora do expediente |
+| Latência da primeira resposta | por dentro/fora do expediente |
+| Custo por conversa | total e p95 |
 
 ## Regressão e riscos residuais
 
@@ -102,6 +124,15 @@ Resumo dos resultados:
 - A colisão de `DISTRIBUTED_LOCK_KEY` entre o worker de lembrete e o do
   assistente IA continua existindo (fora de escopo aqui) — o worker do bot usa
   chave própria e não piora o quadro.
+- Com o bot 24/7, a janela operacional da agenda é usada como proxy do horário
+  em que alguém realmente lê o inbox (CB-010). Se as duas divergirem na
+  prática, o texto de handoff fora do expediente vai prometer um horário
+  errado — sinal para criar configuração própria de horário de atendimento.
+- Atender as duas personas no mesmo canal concentra o risco de vazamento no
+  `match_type` e nos filtros das tools; CA-023 cobre o caminho feliz, mas
+  número mal cadastrado ou compartilhado entre clínica e tutor continua caindo
+  em `ambiguous`, que por RF-016 não revela nada — seguro, porém inútil para o
+  cliente até alguém corrigir o cadastro.
 
 ## Itens fora de escopo entregues
 

@@ -15,6 +15,11 @@ o texto na central de atendimento (modo `suggest`, padrão) ou **envia** direto
 (modo `auto`, restrito a uma allowlist estreita de intents). Agendamento
 autônomo, reengajamento por template e mídia recebida ficam fora.
 
+Atende **as duas personas desde a primeira fase** — tutor e clínica parceira,
+com prompts, allowlists e escopos de dado separados — e **roda 24/7**, sem
+janela de horário própria: a convivência com a equipe é resolvida pelos portões
+de pausa e claim, não por relógio.
+
 ## Requisitos funcionais
 
 ### Gatilho e fila
@@ -81,6 +86,12 @@ autônomo, reengajamento por template e mídia recebida ficam fora.
 - RF-013: mensagem de tipo diferente de `text` (áudio, imagem, documento,
   sticker, reação, interativo) não é respondida pelo bot: vira handoff com
   motivo registrado.
+- RF-032 (24/7): o bot não tem janela de horário própria — atende a qualquer
+  hora, todo dia. A convivência com a equipe durante o expediente é resolvida
+  pelos portões que já existem (pausa por mensagem humana e por claim, RF-010),
+  não por relógio. Consequência assumida: dentro do expediente o bot pode
+  responder antes de um atendente que já estava lendo a conversa; o debounce da
+  RF-004 é a folga que torna isso raro, e o CB-009 cobre a corrida.
 
 ### Identidade e contexto
 
@@ -99,9 +110,10 @@ autônomo, reengajamento por template e mídia recebida ficam fora.
   não menciona nenhum dado de registro — nome de pet, agendamento, ordem de
   serviço, valor, data. Responde só com informação institucional pública e
   oferece handoff.
-- RF-017: persona e escopo de dados variam por `match_type`. `clinica` e `tutor`
-  têm prompts e allowlists de tool distintos; nenhum dos dois enxerga dado do
-  outro.
+- RF-017: as duas personas entram desde a Fase 1. Persona, prompt, allowlist de
+  intent e escopo de dados variam por `match_type` (`tutor` e `clinica`);
+  nenhuma das duas enxerga dado da outra. Um número que resolve para clínica
+  nunca recebe resposta com dado de tutor de outra clínica, e vice-versa.
 
 ### Geração
 
@@ -110,11 +122,19 @@ autônomo, reengajamento por template e mídia recebida ficam fora.
   `assistente_ia_tools.py`, que operam com autoridade de staff. Toda tool do bot
   recebe o `tutor_id`/`clinica_id` já resolvido como **filtro aplicado no
   código**, nunca como instrução de prompt.
-- RF-019 (allowlist de intents do modo `auto`, Fase 1): horário de
-  funcionamento, endereço e área de atendimento, como agendar, formas de
-  contato, "o laudo saiu?" (só `pronto` / `ainda não`, sem conteúdo) e preço de
-  serviço em tabela. Intent fora da allowlist **sempre** vira rascunho, mesmo
-  com a conversa em `auto`.
+- RF-019 (allowlist de intents do modo `auto`, Fase 1): a lista é **por
+  persona**, e intent fora dela **sempre** vira rascunho, mesmo com a conversa
+  em `auto`.
+  - `tutor`: horário de funcionamento, endereço e área de atendimento, como
+    agendar, formas de contato, "o laudo do meu pet saiu?" (só `pronto` /
+    `ainda não`, sem nenhum conteúdo do laudo) e preço de serviço em tabela.
+  - `clinica`: horário de funcionamento, área e dias de atendimento, como
+    solicitar exame/agendar, formas de contato, status de laudo de paciente
+    **daquela clínica** (só `pronto` / `ainda não`) e preço de serviço em
+    tabela.
+  - Fora da allowlist nas duas personas na Fase 1, sempre rascunho: qualquer
+    coisa de ordem de serviço, cobrança, valor em aberto, repasse ou
+    negociação comercial — mesmo com o dado disponível no contexto.
 - RF-020: a resposta só pode afirmar o que veio de tool ou de
   `search_knowledge` (`assistente_ia_management.py:701`). Sem fonte, o bot não
   responde: gera rascunho e oferece handoff. Proibido responder de memória do
@@ -137,6 +157,15 @@ autônomo, reengajamento por template e mídia recebida ficam fora.
   `handoff_motivo = "emergencia"`.
 - RF-024: toda mensagem enviada pelo bot se identifica como atendimento
   automático e diz como falar com uma pessoa.
+- RF-033 (expediente no texto do handoff): como o bot roda 24/7 mas a equipe
+  não, todo handoff precisa dizer **quando** uma pessoa responde, não só que
+  vai transferir. Dentro da janela de funcionamento, o texto informa que a
+  conversa foi passada para a equipe; fora dela, informa o próximo horário de
+  atendimento. A fonte é a janela operacional da agenda já existente
+  (`_agenda_day_window`/`_agenda_configuration_rules` em
+  `assistente_ia_tools.py`, mesma base de `consultar_funcionamento_agenda`),
+  incluindo exceções e feriados. Handoff de emergência (RF-023) é exceção:
+  orienta contato telefônico imediato em qualquer horário.
 - RF-025: teto de `WHATSAPP_BOT_MAX_REPLIES_PER_CONVERSATION_DAY` (default 20)
   respostas automáticas por conversa por dia e de
   `WHATSAPP_BOT_MAX_REPLY_CHARS` (default 900) caracteres por resposta.
@@ -313,6 +342,19 @@ Novas em `app/core/config.py` + `.env.example`, todas com default seguro:
   processamento duplicado entre instâncias.
 - CA-022: nenhum log emitido pelo fluxo do bot contém o corpo completo da
   mensagem do cliente nem o número completo.
+- CA-023 (escopo entre personas): conversa resolvida como `clinica` produz
+  resposta apenas com agendamentos/pacientes daquela clínica, e conversa
+  resolvida como `tutor` apenas com os pets daquele tutor — nenhuma das duas
+  alcança dado da outra.
+- CA-024: intent de ordem de serviço, cobrança ou valor em aberto, em conversa
+  `auto`, resulta em `draft` nas duas personas, mesmo com o dado presente no
+  contexto.
+- CA-025: handoff disparado fora da janela de funcionamento informa o próximo
+  horário de atendimento; dentro da janela, informa que a conversa foi passada
+  para a equipe. Handoff de emergência mantém o texto de contato imediato nos
+  dois casos.
+- CA-026: claim de atendente durante a janela de debounce faz o job terminar
+  como `suppressed`, sem envio e sem rascunho novo.
 
 ## Casos de borda
 
@@ -338,6 +380,15 @@ Novas em `app/core/config.py` + `.env.example`, todas com default seguro:
 - CB-008: deploy do Node novo antes do Python novo — campos extras são ignorados
   pelo Python antigo; deploy do Python novo antes do Node novo — o gatilho não
   traz `wa_message_id` e a reconciliação assume.
+- CB-009: atendente dá claim ou começa a responder durante a janela de debounce
+  — os portões são reavaliados no momento em que o job roda, depois do
+  debounce, então o job termina como `suppressed` e o bot não fala por cima da
+  pessoa. É o caso mais provável de acontecer no dia a dia com o bot 24/7
+  ligado durante o expediente.
+- CB-010: a janela de funcionamento da agenda não é necessariamente a janela em
+  que alguém está de olho no inbox. Enquanto não existir configuração própria de
+  horário de atendimento, RF-033 usa a janela da agenda como proxy — registrado
+  como limitação conhecida, não como equivalência.
 
 ## Fora de escopo
 

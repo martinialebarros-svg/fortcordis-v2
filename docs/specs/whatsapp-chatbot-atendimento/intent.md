@@ -62,6 +62,12 @@ um cliente para outro.
 - **Dois modos, com o seguro como padrão:** `suggest` (copiloto — o bot gera, a
   equipe revisa e envia) e `auto` (envio direto, restrito a uma allowlist
   estreita de intents). O padrão institucional nasce em `suggest`.
+- **As duas personas desde a Fase 1: tutor e clínica parceira** — decisão
+  confirmada com o usuário. Prompts, allowlists de intent e escopos de dado
+  separados por `match_type`; nenhuma das duas alcança dado da outra.
+- **24/7, sem janela de horário própria** — decisão confirmada com o usuário. A
+  convivência com a equipe durante o expediente é resolvida pelos portões de
+  pausa e claim, não por relógio.
 - **Guardrails clínicos duros**, detalhados na spec: zero conteúdo clínico,
   emergência vai direto para humano, escopo de dados amarrado à identidade
   resolvida, nada de preço/prazo/resultado sem fonte.
@@ -118,23 +124,40 @@ um cliente para outro.
 - **Começar como copiloto, não como resposta automática.** O modo `suggest`
   mede a qualidade real contra clientes reais com risco zero de reputação, e a
   taxa de aceite dos rascunhos é o dado que autoriza (ou não) ligar o `auto`.
+- **24/7 tem duas consequências que não existiriam num bot só noturno.**
+  Primeira: dentro do expediente o bot pode responder antes de um atendente que
+  já estava lendo a conversa — o debounce de 12s torna isso raro e o portão de
+  claim resolve a corrida, mas é um comportamento aceito, não um bug. Segunda:
+  fora do expediente, "vou te transferir" é promessa falsa se ninguém vai
+  responder às 2h da manhã; por isso todo handoff tem que dizer *quando* uma
+  pessoa responde (RF-033), usando a janela operacional da agenda como fonte.
+  Essa janela é a da agenda, não a do inbox — enquanto não existir configuração
+  própria de horário de atendimento, é um proxy, registrado como limitação
+  conhecida (CB-010).
+- **Atender as duas personas dobra a superfície de vazamento.** Clínica e tutor
+  compartilham o mesmo canal e o mesmo motor; o que separa os dois é o
+  `match_type` resolvido e o filtro aplicado no código das tools, nunca uma
+  instrução de prompt. Cobrado por CA-023.
 - **Número reaproveitado / contato ambíguo.** `resolve_whatsapp_context` já
   distingue `matched` / `ambiguous` / `not_found`. Fora de `matched` o bot não
   cita nenhum dado de registro — é a defesa contra vazar dado de um cliente para
   outro quando uma operadora reatribui um número.
 
+## Perguntas respondidas
+
+- **Público: as duas personas, tutor e clínica parceira, desde a Fase 1.**
+  Refletido em RF-017, RF-019 (allowlist por persona) e CA-023.
+- **Horário: 24/7.** Refletido em RF-032, RF-033 (texto de handoff ciente do
+  expediente), CB-009 e CB-010.
+
 ## Perguntas abertas
 
-- O bot atende tutor, clínica parceira, ou os dois na Fase 1? O contexto já
-  distingue os dois por `match_type`, mas são personas e escopos de dado
-  diferentes — dá para ligar um de cada vez.
-- Modo `auto` roda 24/7 ou só fora do expediente (dentro do expediente fica em
-  `suggest`, com a equipe no controle)?
 - Quem revisa periodicamente as transcrições e o feedback dos rascunhos
-  recusados? Sem dono, a allowlist de intents nunca evolui.
+  recusados? Sem dono, a allowlist de intents nunca evolui. **Não bloqueia a
+  implementação** — precisa estar definido antes da Fase 6.3.
 - Node e Python compartilham o mesmo Postgres em stage/produção? O desenho não
-  depende disso (tudo via HTTP), mas a resposta destrava simplificações na
-  varredura de reconciliação.
+  depende disso (tudo via HTTP, NFR-007), então **não bloqueia**; a resposta só
+  destravaria simplificações na varredura de reconciliação.
 
 ## Definition of Ready (gate para spec)
 
@@ -143,4 +166,5 @@ um cliente para outro.
 - [x] Restrições estão registradas (Meta 24h, responsabilidade clínica, dois
       interruptores, sem dependência de banco compartilhado).
 - [x] Riscos iniciais estão mapeados.
-- [ ] Perguntas abertas respondidas com o usuário.
+- [x] Perguntas bloqueantes respondidas com o usuário (público e horário); as
+      duas restantes são operacionais e não travam a implementação.
