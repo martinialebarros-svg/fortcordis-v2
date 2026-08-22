@@ -4,10 +4,10 @@ Data: 2026-08-20
 Responsavel: Martiniano + Claude  
 Status: draft
 
-> Nenhuma fase do `plan.md` foi executada. Este arquivo existe preenchido com a
-> matriz de rastreabilidade planejada — a evidência de cada critério é
-> registrada conforme as fases forem entregues, e nenhum item pode ser marcado
-> como `ok` sem teste ou log correspondente.
+> Fase 1 (schema/config) entregue em 2026-08-22 — só migração, models e
+> settings, sem mudança de comportamento em runtime. As demais fases do
+> `plan.md` seguem pendentes. Nenhum item é marcado como `ok` sem teste ou log
+> correspondente.
 
 ## Matriz de rastreabilidade
 
@@ -39,13 +39,13 @@ Status: draft
 | CA-024 | aceitação | teste de allowlist: intent de OS/cobrança em `auto` -> `draft` nas duas personas | pendente |
 | CA-025 | aceitação | teste de handoff: fora da janela informa próximo horário; dentro, informa transferência; emergência mantém contato imediato | pendente |
 | CA-026 | aceitação | teste de corrida: claim durante o debounce -> job `suppressed`, sem envio e sem rascunho | pendente |
-| NFR-001 | não funcional | inspeção de `config.py`/`.env.example`/migração: todos os defaults desligados | pendente |
-| NFR-002 | não funcional | medição do tempo do endpoint de mensagem recebida antes e depois do enfileiramento | pendente |
-| NFR-003 | não funcional | `build_runtime_report()` expondo `whatsapp_bot_worker` | pendente |
-| NFR-004 | não funcional | revisão dos logs emitidos em um ciclo completo em stage | pendente |
-| NFR-005 | não funcional | contadores de custo por conversa em `whatsapp_bot_respostas` + degradação para `suggest` | pendente |
-| NFR-006 | não funcional | teste de migração idempotente (aplicar duas vezes, e no-op sem tabela) | pendente |
-| NFR-007 | não funcional | inspeção: nenhuma query do backend principal em `conversations`/`messages` | pendente |
+| NFR-001 | não funcional | inspeção de `config.py`/`.env.example`/migração: todos os defaults desligados | ok — `WHATSAPP_BOT_ENABLED=False` (`backend/app/core/config.py`), `whatsapp_bot_atendimento_habilitado`/`whatsapp_bot_modo` nascem `false`/`suggest` (migração `20260820_75`, testado em `test_whatsapp_bot_migration.test_upgrade_adiciona_colunas_em_configuracoes_com_default_seguro`) |
+| NFR-002 | não funcional | medição do tempo do endpoint de mensagem recebida antes e depois do enfileiramento | pendente (Fase 2) |
+| NFR-003 | não funcional | `build_runtime_report()` expondo `whatsapp_bot_worker` | pendente (Fase 2) |
+| NFR-004 | não funcional | revisão dos logs emitidos em um ciclo completo em stage | pendente (Fase 3+) |
+| NFR-005 | não funcional | contadores de custo por conversa em `whatsapp_bot_respostas` + degradação para `suggest` | pendente (Fase 4) |
+| NFR-006 | não funcional | teste de migração idempotente (aplicar duas vezes, e no-op sem tabela) | ok — `backend/tests/test_whatsapp_bot_migration.py` (4 testes: tabelas+índices, unicidade de `wa_message_id`, colunas em `configuracoes` com default seguro, no-op sem `configuracoes`), rodado duas vezes em sequência em cada teste |
+| NFR-007 | não funcional | inspeção: nenhuma query do backend principal em `conversations`/`messages` | pendente (não se aplica ainda — nenhum service criado nesta fase) |
 
 ## Testes automatizados a executar
 
@@ -73,10 +73,17 @@ npx tsc --noEmit
 npx next build
 ```
 
-Resumo dos resultados:
-- Backend: pendente.
-- Serviço WhatsApp: pendente.
-- Frontend: pendente.
+Resumo dos resultados (Fase 1, 2026-08-22):
+- Backend: `test_whatsapp_bot_migration` (4/4 ok, isolado). `unittest discover -s tests -p "test_*.py"`
+  completo: 850 testes, 0 falha, 0 erro — suíte cresceu de ~805 para 850 porque
+  esta sessão também trouxe os testes de `agenda-formalizacao-portal-clinicas`
+  que já estavam pendentes de sincronizar nesta branch; nenhum teste novo desta
+  fase quebrou algo existente. Migração `20260820_75` aplicada com sucesso via
+  `setup_database.py` num sqlite de dev novo (88 migrações no total).
+  `tests.test_whatsapp_bot_queue_service/_worker_service/_gates/_generation`
+  ainda não existem — são das Fases 2-4, fora do escopo desta entrega.
+- Serviço WhatsApp: não tocado nesta fase (Fase 1 é só backend/schema).
+- Frontend: não tocado nesta fase (Fase 1 é só backend/schema).
 
 ## Testes manuais planejados (stage)
 

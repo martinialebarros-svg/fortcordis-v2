@@ -26,17 +26,21 @@ uma mensagem gerada chegue a um cliente.
 
 ### Fase 1 - schema e configuração
 
-- [ ] P1.1 migração `20260820_75_whatsapp_bot_atendimento.py`: `whatsapp_bot_jobs`,
+- [x] P1.1 migração `20260820_75_whatsapp_bot_atendimento.py`: `whatsapp_bot_jobs`,
       `whatsapp_bot_respostas`, `whatsapp_bot_conversa_estado` e as duas colunas
       novas em `configuracoes`, idempotente, no padrão das migrações 72-74.
-- [ ] P1.2 models correspondentes em `app/models/whatsapp_bot.py` e campos novos
+- [x] P1.2 models correspondentes em `app/models/whatsapp_bot.py` e campos novos
       em `app/models/configuracao.py`.
-- [ ] P1.3 settings `WHATSAPP_BOT_*` em `app/core/config.py` + `.env.example`,
+- [x] P1.3 settings `WHATSAPP_BOT_*` em `app/core/config.py` + `.env.example`,
       todas com default seguro (RF-008, NFR-001).
-- [ ] P1.4 teste de migração (idempotência, no-op sem tabela), no padrão de
+- [x] P1.4 teste de migração (idempotência, no-op sem tabela), no padrão de
       `test_whatsapp_reminder_migration.py`.
 - Critério de conclusão: migração aplica no sqlite de dev, suíte de backend sem
-  regressão, nenhum comportamento novo em runtime.
+  regressão, nenhum comportamento novo em runtime. **Cumprido em 2026-08-22**:
+  migração `20260820_75` aplicada via `setup_database.py` num sqlite novo (88
+  migrações), `unittest discover` completo em 850/850 sem falha. Nenhum service
+  ou endpoint novo criado; as tabelas e colunas ficam sem leitor/escritor até a
+  Fase 2.
 - Risco: baixo — só schema.
 - Rollback: colunas e tabelas novas ficam sem uso; nenhuma migração reversa é
   necessária.

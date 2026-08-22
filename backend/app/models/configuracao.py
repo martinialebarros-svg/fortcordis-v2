@@ -35,6 +35,8 @@ class Configuracao(Base):
     mostrar_assinatura = Column(Boolean, default=True)
     fortinho_habilitado = Column(Boolean, default=False)
     whatsapp_lembrete_automatico_habilitado = Column(Boolean, default=False)
+    whatsapp_bot_atendimento_habilitado = Column(Boolean, default=False)
+    whatsapp_bot_modo = Column(String(20), default="suggest")
 
     # Configurações de agendamento
     horario_comercial_inicio = Column(String(5), default="08:00")
