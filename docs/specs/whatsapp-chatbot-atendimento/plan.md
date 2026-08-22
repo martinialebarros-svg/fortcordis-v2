@@ -47,24 +47,34 @@ uma mensagem gerada chegue a um cliente.
 
 ### Fase 2 - gatilho, fila e worker
 
-- [ ] P2.1 campos opcionais em `WhatsAppInboundMessageNotificationRequest` e o
+- [x] P2.1 campos opcionais em `WhatsAppInboundMessageNotificationRequest` e o
       envio deles em `whatsappPushNotificationService.ts` (RF-001).
-- [ ] P2.2 enfileiramento em `notify_whatsapp_inbound_message`, isolado em
+- [x] P2.2 enfileiramento em `notify_whatsapp_inbound_message`, isolado em
       try/except próprio, sem afetar o push (RF-002, CA-004).
-- [ ] P2.3 `app/services/whatsapp_bot_queue_service.py`: criar job com debounce,
+- [x] P2.3 `app/services/whatsapp_bot_queue_service.py`: criar job com debounce,
       supersede do job `pending` anterior, unique por `wa_message_id`
       (RF-003, RF-004).
-- [ ] P2.4 `app/services/whatsapp_bot_worker_service.py`: loop, lock local,
+- [x] P2.4 `app/services/whatsapp_bot_worker_service.py`: loop, lock local,
       advisory lock com chave `80433003`, retry com `attempts`/`last_error`
       (RF-005, RF-007) — processando com gerador stub que só marca `suppressed`.
-- [ ] P2.5 wire em `app/main.py` (start/shutdown junto aos demais workers) e
+- [x] P2.5 wire em `app/main.py` (start/shutdown junto aos demais workers) e
       estado em `app/core/runtime_checks.py` (NFR-003).
-- [ ] P2.6 varredura de reconciliação contra `GET /conversations` do Node
+- [x] P2.6 varredura de reconciliação contra `GET /conversations` do Node
       (RF-006), com cliente HTTP dedicado usando `x-whatsapp-internal-token`.
-- [ ] P2.7 testes: dedupe, debounce/supersede, retry/limite, lock ocupado,
+- [x] P2.7 testes: dedupe, debounce/supersede, retry/limite, lock ocupado,
       reconciliação, e o teste de que falha no enfileiramento não quebra o push.
 - Critério de conclusão: jobs entram, o worker consome e nada é gerado nem
-  enviado; `unittest discover` sem regressão.
+  enviado; `unittest discover` sem regressão. **Cumprido em 2026-08-22**:
+  smoke end-to-end manual (webhook -> `enqueue_job_for_inbound_message` ->
+  worker -> `whatsapp_bot_respostas.decisao='suppressed'`) confirmado num
+  sqlite de dev real, com o worker rodando de verdade (thread + poll). Suíte
+  completa do backend em 868/868 (18 testes novos desta fase). Nota de escopo:
+  RF-008 (os dois interruptores) ainda não bloqueia o processamento do
+  worker nesta fase — isso é o gate da Fase 3 (P3.2); o worker desta fase
+  sempre processa e sempre termina em `suppressed`, nunca em geração ou
+  envio, então rodar incondicionalmente é seguro. `is_whatsapp_bot_enabled()`
+  já existe e alimenta o campo `enabled` da observabilidade (NFR-003), mas
+  não gateia o loop ainda.
 - Risco: o endpoint de mensagem recebida está no caminho quente do webhook — se
   o enfileiramento demorar ou levantar, o Node perde o push. Mitigado por
   try/except próprio, uma única linha gravada e NFR-002.

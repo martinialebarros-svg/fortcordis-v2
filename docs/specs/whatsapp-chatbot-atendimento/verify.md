@@ -4,19 +4,20 @@ Data: 2026-08-20
 Responsavel: Martiniano + Claude  
 Status: draft
 
-> Fase 1 (schema/config) entregue em 2026-08-22 — só migração, models e
-> settings, sem mudança de comportamento em runtime. As demais fases do
-> `plan.md` seguem pendentes. Nenhum item é marcado como `ok` sem teste ou log
-> correspondente.
+> Fase 1 (schema/config) e Fase 2 (gatilho/fila/worker) entregues em
+> 2026-08-22. A Fase 2 prova o caminho webhook -> job -> worker -> registro
+> de ponta a ponta, sempre terminando em `suppressed` — nenhuma geração nem
+> envio acontece ainda (isso é Fase 4/6). As demais fases seguem pendentes.
+> Nenhum item é marcado como `ok` sem teste ou log correspondente.
 
 ## Matriz de rastreabilidade
 
 | ID | Tipo | Evidência planejada | Status |
 | --- | --- | --- | --- |
-| CA-001 | aceitação | teste de fila: inbound de texto cria 1 job `pending` com `scheduled_for` futuro | pendente |
-| CA-002 | aceitação | teste de fila: segundo POST com o mesmo `wa_message_id` não cria job | pendente |
-| CA-003 | aceitação | teste de debounce: 3 mensagens -> 2 jobs `superseded` + 1 ativo, 1 resposta | pendente |
-| CA-004 | aceitação | teste do endpoint: enfileiramento com exceção forçada mantém `200` e as contagens do push | pendente |
+| CA-001 | aceitação | teste de fila: inbound de texto cria 1 job `pending` com `scheduled_for` futuro | ok — `test_whatsapp_bot_queue_service.test_enqueue_cria_job_pending_com_debounce` |
+| CA-002 | aceitação | teste de fila: segundo POST com o mesmo `wa_message_id` não cria job | ok — `test_whatsapp_bot_queue_service.test_reentrega_do_mesmo_wa_message_id_nao_cria_segundo_job` |
+| CA-003 | aceitação | teste de debounce: 3 mensagens -> 2 jobs `superseded` + 1 ativo, 1 resposta | ok (debounce/supersede) — `test_whatsapp_bot_queue_service.test_mensagem_nova_supersede_job_pending_anterior_da_mesma_conversa`; a parte "1 resposta" só existe a partir da Fase 4 (geração), aqui o job ativo termina em `suppressed` (P2.4) |
+| CA-004 | aceitação | teste do endpoint: enfileiramento com exceção forçada mantém `200` e as contagens do push | ok — `test_whatsapp_bot_webhook_enqueue.test_falha_no_enfileiramento_mantem_contagens_do_push_e_bot_job_enqueued_false` (chamada direta da funcao do endpoint; nao ha teste HTTP via TestClient neste modulo, seguindo o padrao já usado no resto da suíte) |
 | CA-005 | aceitação | teste dos portões com cada interruptor em `false`: 0 jobs processados, 0 envios | pendente |
 | CA-006 | aceitação | teste do worker em `suggest`: decisão `draft`, cliente HTTP do Node nunca chamado | pendente |
 | CA-007 | aceitação | teste de pausa: mensagem humana -> `pausado_ate` no futuro, próximo job `suppressed` | pendente |
@@ -33,19 +34,19 @@ Status: draft
 | CA-018 | aceitação | teste de envio em `auto`: chamada ao Node com `metadata.origem = "bot"` | pendente |
 | CA-019 | aceitação | teste do preview: nenhum job alterado, nenhuma geração, nenhum envio | pendente |
 | CA-020 | aceitação | teste de autorização em `test_configuracoes_autorizacao.py` (403 para não admin) + smoke sem restart | pendente |
-| CA-021 | aceitação | teste do worker com advisory lock ocupado: ciclo pulado, 0 jobs tocados | pendente |
+| CA-021 | aceitação | teste do worker com advisory lock ocupado: ciclo pulado, 0 jobs tocados | ok — `test_whatsapp_bot_worker_service.test_run_due_once_pula_ciclo_com_lock_distribuido_ocupado` |
 | CA-022 | aceitação | teste de redação de log: corpo completo e número completo ausentes da saída | pendente |
 | CA-023 | aceitação | teste de escopo entre personas: conversa `clinica` sem dado de tutor de outra clínica, e vice-versa | pendente |
 | CA-024 | aceitação | teste de allowlist: intent de OS/cobrança em `auto` -> `draft` nas duas personas | pendente |
 | CA-025 | aceitação | teste de handoff: fora da janela informa próximo horário; dentro, informa transferência; emergência mantém contato imediato | pendente |
 | CA-026 | aceitação | teste de corrida: claim durante o debounce -> job `suppressed`, sem envio e sem rascunho | pendente |
 | NFR-001 | não funcional | inspeção de `config.py`/`.env.example`/migração: todos os defaults desligados | ok — `WHATSAPP_BOT_ENABLED=False` (`backend/app/core/config.py`), `whatsapp_bot_atendimento_habilitado`/`whatsapp_bot_modo` nascem `false`/`suggest` (migração `20260820_75`, testado em `test_whatsapp_bot_migration.test_upgrade_adiciona_colunas_em_configuracoes_com_default_seguro`) |
-| NFR-002 | não funcional | medição do tempo do endpoint de mensagem recebida antes e depois do enfileiramento | pendente (Fase 2) |
-| NFR-003 | não funcional | `build_runtime_report()` expondo `whatsapp_bot_worker` | pendente (Fase 2) |
+| NFR-002 | não funcional | medição do tempo do endpoint de mensagem recebida antes e depois do enfileiramento | ok (ordem de grandeza) — 30 chamadas locais em sqlite, com enfileiramento: média 2.77ms / p95 0.98ms; sem os campos novos (payload antigo): média ~0ms. Bem abaixo do orçamento de ~50ms; não é uma medição de stage/produção com Postgres real |
+| NFR-003 | não funcional | `build_runtime_report()` expondo `whatsapp_bot_worker` | ok — `report["observability"]["whatsapp_bot_worker"]` com `enabled`, `status`, `thread_alive`, `worker_started`, `stop_signal_set`, `poll_seconds`, `pending_jobs`, `last_cycle_at`, verificado por inspeção direta (`build_runtime_report()`) e pela suíte completa (nenhuma regressão nos demais workers) |
 | NFR-004 | não funcional | revisão dos logs emitidos em um ciclo completo em stage | pendente (Fase 3+) |
 | NFR-005 | não funcional | contadores de custo por conversa em `whatsapp_bot_respostas` + degradação para `suggest` | pendente (Fase 4) |
 | NFR-006 | não funcional | teste de migração idempotente (aplicar duas vezes, e no-op sem tabela) | ok — `backend/tests/test_whatsapp_bot_migration.py` (4 testes: tabelas+índices, unicidade de `wa_message_id`, colunas em `configuracoes` com default seguro, no-op sem `configuracoes`), rodado duas vezes em sequência em cada teste |
-| NFR-007 | não funcional | inspeção: nenhuma query do backend principal em `conversations`/`messages` | pendente (não se aplica ainda — nenhum service criado nesta fase) |
+| NFR-007 | não funcional | inspeção: nenhuma query do backend principal em `conversations`/`messages` | ok — a reconciliação (`whatsapp_bot_worker_service.run_reconciliation_sweep`) só fala com o Node via `httpx` + `x-whatsapp-internal-token` (`GET /conversations`, `GET /conversations/:id/messages`); nenhum acesso direto ao Postgres do whatsapp-stage-backend em nenhum arquivo desta fase |
 
 ## Testes automatizados a executar
 
@@ -84,6 +85,30 @@ Resumo dos resultados (Fase 1, 2026-08-22):
   ainda não existem — são das Fases 2-4, fora do escopo desta entrega.
 - Serviço WhatsApp: não tocado nesta fase (Fase 1 é só backend/schema).
 - Frontend: não tocado nesta fase (Fase 1 é só backend/schema).
+
+Resumo dos resultados (Fase 2, 2026-08-22):
+- Backend: `test_whatsapp_bot_queue_service` (6/6), `test_whatsapp_bot_worker_service`
+  (9/9, inclui lock ocupado, retry/limite de tentativas e reconciliação com
+  `httpx.get` mockado) e `test_whatsapp_bot_webhook_enqueue` (3/3, CA-004).
+  `unittest discover -s tests -p "test_*.py"` completo: 868/868, 0 falha —
+  cresceu de 850 para 868 com os 18 testes novos desta fase, sem regressão.
+  Smoke end-to-end manual num sqlite de dev real (não um teste automatizado):
+  `notify_whatsapp_inbound_message` com payload completo -> `bot_job_enqueued=true`
+  -> worker real (thread + poll, debounce=1s) -> job `done` com resposta
+  `decisao=suppressed`, `motivo=fase_2_gerador_stub_sem_geracao_real` em ~2s.
+  Medição de latência do endpoint (NFR-002, local/sqlite, não é stage): 30
+  chamadas com os campos novos, média 2.77ms / p95 0.98ms.
+  `tests.test_whatsapp_bot_gates/_generation` ainda não existem — são das
+  Fases 3-4.
+- Serviço WhatsApp: `npm run build` (tsc) limpo e `npm run test:phone-number`
+  ok. Sem teste dedicado para `notifyPushForInboundMessage` — não havia
+  precedente de teste unitário para essa função (é fire-and-forget, hoje só
+  exercitada via webhook completo em stage); os testes que dependem de
+  Postgres (`test:inbox-ui` e outros com `DATABASE_URL=postgres://...`) não
+  rodaram nesta sessão por não terem essa role/banco disponíveis no ambiente
+  local usado.
+- Frontend: não tocado nesta fase (Fase 2 é gatilho/fila/worker no backend +
+  transporte no Node; UI é Fase 5).
 
 ## Testes manuais planejados (stage)
 
