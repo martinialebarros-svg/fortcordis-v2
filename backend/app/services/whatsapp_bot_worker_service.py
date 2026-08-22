@@ -11,8 +11,23 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.database import SessionLocal
-from app.models.configuracao import Configuracao
 from app.models.whatsapp_bot import WhatsAppBotJob, WhatsAppBotResposta
+from app.services.whatsapp_bot_gates import (
+    detecta_emergencia,
+    detecta_pedido_humano,
+    is_customer_service_window_open,
+    is_locally_paused,
+    is_supported_message_type,
+    is_whatsapp_bot_enabled,
+    pause_conversation,
+    resolve_conversation_mode,
+    resolve_conversation_state,
+)
+from app.services.whatsapp_bot_handoff_service import (
+    EMERGENCY_FIXED_MESSAGE,
+    build_handoff_message,
+    trigger_active_handoff,
+)
 from app.services.whatsapp_bot_queue_service import enqueue_job_for_inbound_message
 
 logger = logging.getLogger(__name__)
@@ -90,27 +105,6 @@ def _reconcile_window_minutes() -> int:
     return parsed if parsed > 0 else 30
 
 
-def is_whatsapp_bot_enabled() -> bool:
-    """Fonte de verdade do RF-008 para observabilidade (NFR-003).
-
-    Nao usado ainda para bloquear o processamento nesta fase (Fase 2 nunca
-    gera nem envia nada, so prova o caminho fila -> worker -> registro); o
-    gate de verdade e implementado na Fase 3 (portoes). Falha fecha (retorna
-    False), no mesmo espirito do lembrete automatico.
-    """
-    if not settings.WHATSAPP_BOT_ENABLED:
-        return False
-    db = SessionLocal()
-    try:
-        config = db.query(Configuracao).first()
-        return bool(config and config.whatsapp_bot_atendimento_habilitado)
-    except Exception:
-        logger.exception("Falha ao consultar configuracao do bot de atendimento do WhatsApp.")
-        return False
-    finally:
-        db.close()
-
-
 def _fetch_next_due_job(db: Session, *, now: datetime) -> Optional[WhatsAppBotJob]:
     query = (
         db.query(WhatsAppBotJob)
@@ -126,21 +120,133 @@ def _fetch_next_due_job(db: Session, *, now: datetime) -> Optional[WhatsAppBotJo
     return query.first()
 
 
-def _process_job(db: Session, job: WhatsAppBotJob) -> str:
-    """Fase 2 (P2.4): gerador stub - so prova o caminho fila -> worker ->
-
-    registro. Nenhuma geracao real (Fase 4) nem envio (Fase 6) acontece
-    aqui; todo job processado termina como `suppressed`.
-    """
+def _record_resposta(
+    db: Session,
+    job: WhatsAppBotJob,
+    *,
+    decisao: str,
+    motivo: str,
+    texto_gerado: Optional[str] = None,
+) -> None:
     db.add(
         WhatsAppBotResposta(
             job_id=job.id,
             wa_identity=job.wa_identity,
             conversation_id=job.conversation_id,
-            decisao="suppressed",
-            motivo="fase_2_gerador_stub_sem_geracao_real",
+            decisao=decisao,
+            motivo=motivo,
+            texto_gerado=texto_gerado,
         )
     )
+
+
+def _process_job(db: Session, job: WhatsAppBotJob) -> str:
+    """Fase 3 (P3.2-P3.4): portoes de decisao, deteccao de pedido de humano
+
+    e de emergencia. Ainda sem gerador real (Fase 4) nem envio ao cliente
+    (Fase 6, per plan.md: "as fases 1-3 nao enviam nenhuma mensagem") -
+    `texto_gerado` guarda o texto que SERIA usado, para a Fase 6 so precisar
+    ligar o envio. Toda mensagem real termina em `suppressed` ou `handoff`.
+    """
+    if not is_whatsapp_bot_enabled():
+        _record_resposta(db, job, decisao="suppressed", motivo="bot_desabilitado")
+        job.status = "done"
+        return "done"
+
+    estado = resolve_conversation_state(db, job.wa_identity)
+    modo = resolve_conversation_mode(db, job.wa_identity, estado=estado)
+    if modo == "off":
+        _record_resposta(db, job, decisao="suppressed", motivo="modo_off")
+        job.status = "done"
+        return "done"
+
+    if is_locally_paused(estado):
+        _record_resposta(db, job, decisao="suppressed", motivo="pausado")
+        job.status = "done"
+        return "done"
+
+    client_config = _bot_internal_client_config()
+    if client_config is None:
+        raise RuntimeError("Servico interno do WhatsApp nao configurado (URL/token ausentes).")
+    base_url, headers, timeout = client_config
+
+    conversation = _fetch_conversation_by_phone(
+        base_url=base_url, headers=headers, timeout=timeout, wa_identity=job.wa_identity
+    )
+    if conversation is None:
+        raise RuntimeError(f"Conversa nao encontrada no servico WhatsApp para o job {job.id}.")
+
+    last_message = _fetch_last_message(
+        base_url=base_url,
+        headers=headers,
+        timeout=timeout,
+        conversation_id=job.conversation_id,
+        raise_on_error=True,
+    )
+    if last_message is None:
+        raise RuntimeError(f"Nenhuma mensagem encontrada no servico WhatsApp para o job {job.id}.")
+
+    corpo = str(last_message.get("body") or "")
+
+    # RF-023 (emergencia): prioridade maxima, nao passa pelo gerador e ignora
+    # pausa/janela - e o unico handoff que se mantem em qualquer horario.
+    if detecta_emergencia(corpo):
+        trigger_active_handoff(
+            db,
+            wa_identity=job.wa_identity,
+            conversation_id=job.conversation_id,
+            motivo="emergencia",
+            nivel="critico",
+            titulo="Possivel emergencia recebida no WhatsApp",
+            mensagem_alerta=(
+                f"Mensagem com termos de emergencia detectada na conversa {job.conversation_id}. "
+                "Verifique com urgencia."
+            ),
+        )
+        _record_resposta(
+            db, job, decisao="handoff", motivo="emergencia", texto_gerado=EMERGENCY_FIXED_MESSAGE
+        )
+        job.status = "done"
+        return "done"
+
+    # RF-010: mensagem humana (from_me=true) ou claim de atendente pausa o
+    # bot - reavaliado a cada job, entao uma pausa comecada depois deste job
+    # ter sido enfileirado ainda e pega antes de qualquer resposta.
+    if conversation.get("last_agent_id") or last_message.get("from_me"):
+        pause_conversation(db, job.wa_identity)
+        _record_resposta(db, job, decisao="suppressed", motivo="pausado")
+        job.status = "done"
+        return "done"
+
+    if not is_supported_message_type(last_message.get("type")):
+        _record_resposta(db, job, decisao="handoff", motivo="tipo_nao_suportado")
+        job.status = "done"
+        return "done"
+
+    if detecta_pedido_humano(corpo):
+        texto_handoff = build_handoff_message(db)
+        trigger_active_handoff(
+            db,
+            wa_identity=job.wa_identity,
+            conversation_id=job.conversation_id,
+            motivo="pedido_humano",
+            nivel="aviso",
+            titulo="Cliente pediu atendimento humano no WhatsApp",
+            mensagem_alerta=f"Pedido de atendimento humano na conversa {job.conversation_id}.",
+        )
+        _record_resposta(db, job, decisao="handoff", motivo="pedido_humano", texto_gerado=texto_handoff)
+        job.status = "done"
+        return "done"
+
+    if not is_customer_service_window_open(_parse_conversation_timestamp(conversation.get("last_inbound_at"))):
+        _record_resposta(db, job, decisao="suppressed", motivo="janela_fechada")
+        job.status = "done"
+        return "done"
+
+    # Todos os portoes abertos e nada de especial detectado - Fase 4 ainda
+    # nao existe, entao a mensagem fica suppressed em vez de gerar qualquer
+    # coisa.
+    _record_resposta(db, job, decisao="suppressed", motivo="fase_3_sem_gerador_ainda")
     job.status = "done"
     return "done"
 
@@ -259,7 +365,12 @@ def _fetch_recently_active_conversations(
 
 
 def _fetch_last_message(
-    *, base_url: str, headers: dict[str, str], timeout: int, conversation_id: str
+    *,
+    base_url: str,
+    headers: dict[str, str],
+    timeout: int,
+    conversation_id: str,
+    raise_on_error: bool = False,
 ) -> Optional[dict[str, Any]]:
     try:
         response = httpx.get(
@@ -271,6 +382,8 @@ def _fetch_last_message(
         response.raise_for_status()
         payload = response.json()
     except Exception:
+        if raise_on_error:
+            raise
         logger.exception(
             "Falha ao consultar mensagens da conversa %s para reconciliacao do bot.", conversation_id
         )
@@ -278,6 +391,26 @@ def _fetch_last_message(
 
     rows = payload.get("data") or []
     return rows[-1] if rows else None
+
+
+def _fetch_conversation_by_phone(
+    *, base_url: str, headers: dict[str, str], timeout: int, wa_identity: str
+) -> Optional[dict[str, Any]]:
+    """Usada pelos portoes (RF-010/RF-012): uma unica conversa, pelo telefone
+
+    canonico, para saber se esta reivindicada por um atendente (`last_agent_id`)
+    e qual o `last_inbound_at` real (fonte da janela de 24h).
+    """
+    response = httpx.get(
+        f"{base_url}/conversations",
+        params={"phone": wa_identity, "limit": 1},
+        headers=headers,
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    rows = payload.get("data") or []
+    return rows[0] if rows else None
 
 
 def run_reconciliation_sweep(db: Session) -> dict[str, int]:

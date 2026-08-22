@@ -100,6 +100,10 @@ def obter_configuracoes(
             "whatsapp_lembrete_automatico_habilitado": bool(
                 getattr(config, "whatsapp_lembrete_automatico_habilitado", False)
             ),
+            "whatsapp_bot_atendimento_habilitado": bool(
+                getattr(config, "whatsapp_bot_atendimento_habilitado", False)
+            ),
+            "whatsapp_bot_modo": getattr(config, "whatsapp_bot_modo", None) or "suggest",
             "horario_comercial_inicio": config.horario_comercial_inicio,
             "horario_comercial_fim": config.horario_comercial_fim,
             "dias_trabalho": config.dias_trabalho,
@@ -130,6 +134,7 @@ def atualizar_configuracoes(
         "website", "texto_cabecalho_laudo", "texto_rodape_laudo",
         "mostrar_logomarca", "mostrar_assinatura", "fortinho_habilitado",
         "whatsapp_lembrete_automatico_habilitado",
+        "whatsapp_bot_atendimento_habilitado", "whatsapp_bot_modo",
         "horario_comercial_inicio", "horario_comercial_fim", "dias_trabalho",
         "agenda_semanal", "agenda_feriados", "agenda_excecoes", "agenda_rota_regras",
     ]
@@ -149,6 +154,27 @@ def atualizar_configuracoes(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Apenas administradores podem ativar ou desativar o lembrete automatico de WhatsApp.",
+            )
+    if "whatsapp_bot_atendimento_habilitado" in dados and not current_user.tem_papel("admin"):
+        valor_atual = _coerce_bool(getattr(config, "whatsapp_bot_atendimento_habilitado", False))
+        valor_novo = _coerce_bool(dados.get("whatsapp_bot_atendimento_habilitado"))
+        if valor_novo != valor_atual:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Apenas administradores podem ativar ou desativar o atendimento automatico de WhatsApp.",
+            )
+    if "whatsapp_bot_modo" in dados:
+        modo_novo = str(dados.get("whatsapp_bot_modo") or "").strip().lower()
+        if modo_novo not in {"off", "suggest", "auto"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="whatsapp_bot_modo deve ser 'off', 'suggest' ou 'auto'.",
+            )
+        dados["whatsapp_bot_modo"] = modo_novo
+        if not current_user.tem_papel("admin") and modo_novo != str(getattr(config, "whatsapp_bot_modo", None) or "suggest"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Apenas administradores podem alterar o modo padrao do atendimento automatico de WhatsApp.",
             )
     if "agenda_excecoes" in dados and not current_user.tem_papel("admin"):
         excecoes_atuais = carregar_agenda_excecoes(getattr(config, "agenda_excecoes", None))

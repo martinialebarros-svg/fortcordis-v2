@@ -197,27 +197,10 @@ class WhatsAppBotWorkerServiceTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
-    def test_is_whatsapp_bot_enabled_reflete_env_e_banco(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            SessionFactory, engine = self._build_session_factory(tmpdir)
-            try:
-                with patch.object(worker, "SessionLocal", SessionFactory):
-                    with patch.object(worker.settings, "WHATSAPP_BOT_ENABLED", False):
-                        self.assertFalse(worker.is_whatsapp_bot_enabled())
-
-                    with patch.object(worker.settings, "WHATSAPP_BOT_ENABLED", True):
-                        self.assertFalse(worker.is_whatsapp_bot_enabled())
-
-                        db = SessionFactory()
-                        try:
-                            db.add(Configuracao(whatsapp_bot_atendimento_habilitado=True))
-                            db.commit()
-                        finally:
-                            db.close()
-
-                        self.assertTrue(worker.is_whatsapp_bot_enabled())
-            finally:
-                engine.dispose()
+    # is_whatsapp_bot_enabled agora vive em whatsapp_bot_gates (RF-008) - ver
+    # test_whatsapp_bot_gates.test_is_whatsapp_bot_enabled_exige_env_e_banco.
+    # worker.is_whatsapp_bot_enabled continua disponivel (reexportado), so nao
+    # e mais testado aqui para nao duplicar o teste com um SessionLocal errado.
 
     def test_reconciliation_enfileira_ultima_mensagem_inbound_sem_job(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

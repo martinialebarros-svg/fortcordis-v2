@@ -83,25 +83,45 @@ uma mensagem gerada chegue a um cliente.
 
 ### Fase 3 - portões, identidade e guardrails de entrada
 
-- [ ] P3.1 correção do nono dígito em `_has_exact_phone`/`resolve_whatsapp_context`
+- [x] P3.1 correção do nono dígito em `_has_exact_phone`/`resolve_whatsapp_context`
       (RF-015), com teste cobrindo a forma canônica vinda do Node (CA-012).
-- [ ] P3.2 `whatsapp_bot_gates.py`: toggles, modo por conversa, pausa por humano,
+- [x] P3.2 `whatsapp_bot_gates.py`: toggles, modo por conversa, pausa por humano,
       janela de 24h, tipo de mensagem (RF-008 a RF-013).
-- [ ] P3.3 detecção de pedido de humano e de emergência, com listas versionadas
+- [x] P3.3 detecção de pedido de humano e de emergência, com listas versionadas
       em `backend/data/`, no padrão do vocabulário do ai-echo (RF-011, RF-023).
-- [ ] P3.4 handoff: `PATCH /conversations/:id/status` no Node, `criar_alerta_interno`
+- [x] P3.4 handoff: `PATCH /conversations/:id/status` no Node, `criar_alerta_interno`
       e push (RF-011, RF-023).
-- [ ] P3.4b texto de handoff ciente do expediente (RF-033): dentro da janela
+- [x] P3.4b texto de handoff ciente do expediente (RF-033): dentro da janela
       operacional informa transferência, fora dela informa o próximo horário de
       atendimento, reaproveitando `_agenda_day_window`/`_agenda_configuration_rules`.
-- [ ] P3.5 endpoints de estado por conversa e `GET /whatsapp/bot/preview`
+- [x] P3.5 endpoints de estado por conversa e `GET /whatsapp/bot/preview`
       somente leitura (CA-019).
-- [ ] P3.6 testes de cada portão e do fluxo de emergência sem chamada ao LLM.
+- [x] P3.6 testes de cada portão e do fluxo de emergência sem chamada ao LLM.
+- Nota de escopo (não listado como P-task, mas necessário para RF-008/CA-020
+  serem testáveis de ponta a ponta): `PUT /configuracoes` ganhou
+  `whatsapp_bot_atendimento_habilitado`/`whatsapp_bot_modo` na allowlist,
+  com guarda admin-only e validação de enum, no mesmo padrão de
+  `whatsapp_lembrete_automatico_habilitado`.
 - Critério de conclusão: com o bot "habilitado", toda mensagem real termina em
   `suppressed` ou `handoff` — o caminho inteiro é exercitado sem gerar texto.
+  **Cumprido em 2026-08-22**: `_process_job` agora e uma arvore de decisao
+  completa (enabled -> modo/pausa -> emergencia -> claim/from_me -> tipo ->
+  pedido de humano -> janela -> fallback suppressed), coberta por 11 testes
+  de integracao (`test_whatsapp_bot_process_job.py`) que simulam cada ramo
+  com o Node mockado, mais 10 testes unitarios dos portoes isolados
+  (`test_whatsapp_bot_gates.py`) e 8 do servico de handoff
+  (`test_whatsapp_bot_handoff_service.py`). Nenhum caminho chama gerador ou
+  envia mensagem ao cliente - `texto_gerado` fica gravado (fixo, nao gerado
+  por LLM) para a Fase 6 so precisar ligar o envio de fato. Smoke manual
+  live confirmou que o worker sobrevive a uma falha de rede do Node
+  (RuntimeError -> attempts incrementado -> retry no proximo ciclo, sem
+  derrubar a thread).
 - Risco: a correção do nono dígito toca um endpoint em uso pela central
   (`whatsapp-contexto`); precisa de teste de não regressão para os formatos que
-  já funcionam hoje.
+  já funcionam hoje. **Coberto**: `test_whatsapp_conversation_context.py`
+  ganhou 2 casos novos (identidade canonica sem nono digito, e um fixo de
+  12 digitos que nao deve ganhar variante fantasma) sem alterar nenhum dos
+  4 testes existentes.
 - Rollback: reverter o gate service; a correção do nono dígito é independente e
   pode ficar (é melhoria isolada).
 

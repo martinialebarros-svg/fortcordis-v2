@@ -39,6 +39,7 @@ from app.api.v1.endpoints import (
     tabelas_preco,
     tutores,
     whatsapp_agenda,
+    whatsapp_bot,
     whatsapp_contexto,
     xml_import,
 )
@@ -426,6 +427,11 @@ app.include_router(
     whatsapp_contexto.router,
     prefix="/api/v1/whatsapp-contexto",
     tags=["whatsapp_contexto"],
+)
+app.include_router(
+    whatsapp_bot.router,
+    prefix="/api/v1/whatsapp/bot",
+    tags=["whatsapp_bot"],
 )
 app.include_router(pacientes.router, prefix="/api/v1/pacientes", tags=["pacientes"])
 app.include_router(clinicas.router, prefix="/api/v1/clinicas", tags=["clinicas"])

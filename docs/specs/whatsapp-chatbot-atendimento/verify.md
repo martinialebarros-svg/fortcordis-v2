@@ -4,11 +4,12 @@ Data: 2026-08-20
 Responsavel: Martiniano + Claude  
 Status: draft
 
-> Fase 1 (schema/config) e Fase 2 (gatilho/fila/worker) entregues em
-> 2026-08-22. A Fase 2 prova o caminho webhook -> job -> worker -> registro
-> de ponta a ponta, sempre terminando em `suppressed` — nenhuma geração nem
-> envio acontece ainda (isso é Fase 4/6). As demais fases seguem pendentes.
-> Nenhum item é marcado como `ok` sem teste ou log correspondente.
+> Fases 1-3 entregues em 2026-08-22 (schema/config, gatilho/fila/worker,
+> portões/identidade/guardrails de entrada). Com o bot habilitado, toda
+> mensagem real hoje termina em `suppressed` ou `handoff` — nenhuma geração
+> nem envio ao cliente acontece ainda (isso é Fase 4/6). As demais fases
+> seguem pendentes. Nenhum item é marcado como `ok` sem teste ou log
+> correspondente.
 
 ## Matriz de rastreabilidade
 
@@ -18,32 +19,32 @@ Status: draft
 | CA-002 | aceitação | teste de fila: segundo POST com o mesmo `wa_message_id` não cria job | ok — `test_whatsapp_bot_queue_service.test_reentrega_do_mesmo_wa_message_id_nao_cria_segundo_job` |
 | CA-003 | aceitação | teste de debounce: 3 mensagens -> 2 jobs `superseded` + 1 ativo, 1 resposta | ok (debounce/supersede) — `test_whatsapp_bot_queue_service.test_mensagem_nova_supersede_job_pending_anterior_da_mesma_conversa`; a parte "1 resposta" só existe a partir da Fase 4 (geração), aqui o job ativo termina em `suppressed` (P2.4) |
 | CA-004 | aceitação | teste do endpoint: enfileiramento com exceção forçada mantém `200` e as contagens do push | ok — `test_whatsapp_bot_webhook_enqueue.test_falha_no_enfileiramento_mantem_contagens_do_push_e_bot_job_enqueued_false` (chamada direta da funcao do endpoint; nao ha teste HTTP via TestClient neste modulo, seguindo o padrao já usado no resto da suíte) |
-| CA-005 | aceitação | teste dos portões com cada interruptor em `false`: 0 jobs processados, 0 envios | pendente |
-| CA-006 | aceitação | teste do worker em `suggest`: decisão `draft`, cliente HTTP do Node nunca chamado | pendente |
-| CA-007 | aceitação | teste de pausa: mensagem humana -> `pausado_ate` no futuro, próximo job `suppressed` | pendente |
-| CA-008 | aceitação | teste de janela: `last_inbound_at` com mais de 24h -> `suppressed` | pendente |
-| CA-009 | aceitação | teste por tipo: `audio`/`image`/`document` -> `handoff` sem geração | pendente |
-| CA-010 | aceitação | teste de pedido de humano: `pending` no Node, alerta criado, provider de LLM não chamado | pendente |
-| CA-011 | aceitação | teste de emergência: resposta fixa, `criar_alerta_interno(nivel="critico")`, gerador não chamado | pendente |
-| CA-012 | aceitação | teste do nono dígito em `test_whatsapp_conversation_context.py`: `matched` para as duas formas | pendente |
-| CA-013 | aceitação | teste de escopo: contexto `ambiguous`/`not_found` -> resposta sem dado de registro | pendente |
+| CA-005 | aceitação | teste dos portões com cada interruptor em `false`: 0 jobs processados, 0 envios | ok (interruptor combinado RF-008) — `test_whatsapp_bot_gates.test_is_whatsapp_bot_enabled_exige_env_e_banco` (env off, banco off, os dois) + `test_whatsapp_bot_process_job.test_bot_desabilitado_suprime_sem_chamar_node` (job vira `suppressed`, zero chamadas ao Node) |
+| CA-006 | aceitação | teste do worker em `suggest`: decisão `draft`, cliente HTTP do Node nunca chamado | pendente (Fase 4 — sem gerador ainda não existe candidato para virar `draft`; `resolve_conversation_mode` já resolve `suggest` corretamente, ver `test_whatsapp_bot_gates`) |
+| CA-007 | aceitação | teste de pausa: mensagem humana -> `pausado_ate` no futuro, próximo job `suppressed` | ok — `test_whatsapp_bot_process_job.test_resposta_humana_from_me_pausa` (detecta `from_me=true` no Node e pausa) e `test_pausa_local_ainda_vigente_suprime_sem_chamar_node` (pausa já vigente localmente) |
+| CA-008 | aceitação | teste de janela: `last_inbound_at` com mais de 24h -> `suppressed` | ok — `test_whatsapp_bot_process_job.test_janela_de_24h_fechada_suprime` + `test_whatsapp_bot_gates.test_customer_service_window` (unitário, replica `describeCustomerServiceWindow`) |
+| CA-009 | aceitação | teste por tipo: `audio`/`image`/`document` -> `handoff` sem geração | ok — `test_whatsapp_bot_process_job.test_tipo_nao_suportado_vira_handoff_sem_alerta` + `test_whatsapp_bot_gates.test_is_supported_message_type` (audio/image/document/sticker/reaction/interactive/button, todos `False`) |
+| CA-010 | aceitação | teste de pedido de humano: `pending` no Node, alerta criado, provider de LLM não chamado | ok — `test_whatsapp_bot_process_job.test_pedido_de_humano_dispara_handoff_com_alerta_patch_e_push` (PATCH status=pending, alerta `nivel=aviso`, push chamados; nenhum provider de LLM existe ainda nesta fase para "não chamar") |
+| CA-011 | aceitação | teste de emergência: resposta fixa, `criar_alerta_interno(nivel="critico")`, gerador não chamado | ok — `test_whatsapp_bot_process_job.test_emergencia_dispara_handoff_critico_com_alerta_patch_e_push` (texto fixo em `texto_gerado`, alerta `nivel=critico`, `handoff_motivo=emergencia`) + `test_emergencia_ignora_pausa_e_janela_fechada` (prioridade sobre os outros portões) |
+| CA-012 | aceitação | teste do nono dígito em `test_whatsapp_conversation_context.py`: `matched` para as duas formas | ok — `test_resolve_tutor_and_pet` (forma local, já existia) + `test_resolve_tutor_pela_identidade_canonica_sem_nono_digito` (forma canonica do Node, novo) |
+| CA-013 | aceitação | teste de escopo: contexto `ambiguous`/`not_found` -> resposta sem dado de registro | pendente (Fase 4 — depende de geração real; `resolve_whatsapp_context` já devolve `ambiguous`/`not_found` corretamente, testado desde antes desta spec) |
 | CA-014 | aceitação | teste de allowlist: intent fora da lista em conversa `auto` -> `draft` | pendente |
 | CA-015 | aceitação | teste do validador: candidata com conteúdo clínico -> `blocked` + motivo gravado | pendente |
 | CA-016 | aceitação | teste de fonte: sem tool e sem trecho recuperado -> não envia | pendente |
 | CA-017 | aceitação | teste de teto: acima do limite diário -> `suppressed` com motivo de teto | pendente |
 | CA-018 | aceitação | teste de envio em `auto`: chamada ao Node com `metadata.origem = "bot"` | pendente |
-| CA-019 | aceitação | teste do preview: nenhum job alterado, nenhuma geração, nenhum envio | pendente |
-| CA-020 | aceitação | teste de autorização em `test_configuracoes_autorizacao.py` (403 para não admin) + smoke sem restart | pendente |
+| CA-019 | aceitação | teste do preview: nenhum job alterado, nenhuma geração, nenhum envio | ok — `test_whatsapp_bot_endpoints.test_preview_nao_altera_nada_e_conta_por_status_e_decisao` (endpoint é só leitura/agregação; contagens de jobs/respostas antes e depois idênticas) |
+| CA-020 | aceitação | teste de autorização em `test_configuracoes_autorizacao.py` (403 para não admin) + smoke sem restart | ok — 5 testes novos em `test_configuracoes_autorizacao.py` (403 para `whatsapp_bot_atendimento_habilitado` e `whatsapp_bot_modo`, 422 para modo invalido, reenvio sem mudança permitido para não-admin, admin habilita e muda modo); "sem restart" decorre de `is_whatsapp_bot_enabled()`/`resolve_conversation_mode()` lerem o banco a cada chamada, sem cache — não medido em stage real |
 | CA-021 | aceitação | teste do worker com advisory lock ocupado: ciclo pulado, 0 jobs tocados | ok — `test_whatsapp_bot_worker_service.test_run_due_once_pula_ciclo_com_lock_distribuido_ocupado` |
-| CA-022 | aceitação | teste de redação de log: corpo completo e número completo ausentes da saída | pendente |
-| CA-023 | aceitação | teste de escopo entre personas: conversa `clinica` sem dado de tutor de outra clínica, e vice-versa | pendente |
-| CA-024 | aceitação | teste de allowlist: intent de OS/cobrança em `auto` -> `draft` nas duas personas | pendente |
-| CA-025 | aceitação | teste de handoff: fora da janela informa próximo horário; dentro, informa transferência; emergência mantém contato imediato | pendente |
-| CA-026 | aceitação | teste de corrida: claim durante o debounce -> job `suppressed`, sem envio e sem rascunho | pendente |
+| CA-022 | aceitação | teste de redação de log: corpo completo e número completo ausentes da saída | ok (revisão estática, não automatizada) — nenhum `logger.*` em `whatsapp_bot_worker_service.py`/`whatsapp_bot_gates.py`/`whatsapp_bot_handoff_service.py` referencia `wa_identity` ou corpo de mensagem; só `job.id`/`conversation_id` (id opaco do Node, não é telefone) e contagens. Falta um teste automatizado que capture o log handler e afirme isso (registrado como pendencia) |
+| CA-023 | aceitação | teste de escopo entre personas: conversa `clinica` sem dado de tutor de outra clínica, e vice-versa | pendente (Fase 4 — depende das tools com escopo) |
+| CA-024 | aceitação | teste de allowlist: intent de OS/cobrança em `auto` -> `draft` nas duas personas | pendente (Fase 4) |
+| CA-025 | aceitação | teste de handoff: fora da janela informa próximo horário; dentro, informa transferência; emergência mantém contato imediato | ok — `test_whatsapp_bot_handoff_service.py`: dentro do expediente (`test_build_handoff_message_dentro_do_expediente_informa_transferencia`), fora dele com o próximo horário (`..._fora_do_expediente_informa_proximo_horario`, `..._tarde_de_sabado_aponta_segunda`); emergência usa `EMERGENCY_FIXED_MESSAGE` sempre, independente de horário (`test_whatsapp_bot_process_job.test_emergencia_ignora_pausa_e_janela_fechada`) |
+| CA-026 | aceitação | teste de corrida: claim durante o debounce -> job `suppressed`, sem envio e sem rascunho | ok — `test_whatsapp_bot_process_job.test_claim_detectado_no_node_pausa_e_grava_estado_local` (`last_agent_id` preenchido no Node -> `suppressed`/`pausado`, nenhum PATCH/alerta/push chamado) |
 | NFR-001 | não funcional | inspeção de `config.py`/`.env.example`/migração: todos os defaults desligados | ok — `WHATSAPP_BOT_ENABLED=False` (`backend/app/core/config.py`), `whatsapp_bot_atendimento_habilitado`/`whatsapp_bot_modo` nascem `false`/`suggest` (migração `20260820_75`, testado em `test_whatsapp_bot_migration.test_upgrade_adiciona_colunas_em_configuracoes_com_default_seguro`) |
 | NFR-002 | não funcional | medição do tempo do endpoint de mensagem recebida antes e depois do enfileiramento | ok (ordem de grandeza) — 30 chamadas locais em sqlite, com enfileiramento: média 2.77ms / p95 0.98ms; sem os campos novos (payload antigo): média ~0ms. Bem abaixo do orçamento de ~50ms; não é uma medição de stage/produção com Postgres real |
 | NFR-003 | não funcional | `build_runtime_report()` expondo `whatsapp_bot_worker` | ok — `report["observability"]["whatsapp_bot_worker"]` com `enabled`, `status`, `thread_alive`, `worker_started`, `stop_signal_set`, `poll_seconds`, `pending_jobs`, `last_cycle_at`, verificado por inspeção direta (`build_runtime_report()`) e pela suíte completa (nenhuma regressão nos demais workers) |
-| NFR-004 | não funcional | revisão dos logs emitidos em um ciclo completo em stage | pendente (Fase 3+) |
+| NFR-004 | não funcional | revisão dos logs emitidos em um ciclo completo em stage | parcial — revisão estática do código desta fase ok (ver CA-022); revisão de log real de stage segue pendente |
 | NFR-005 | não funcional | contadores de custo por conversa em `whatsapp_bot_respostas` + degradação para `suggest` | pendente (Fase 4) |
 | NFR-006 | não funcional | teste de migração idempotente (aplicar duas vezes, e no-op sem tabela) | ok — `backend/tests/test_whatsapp_bot_migration.py` (4 testes: tabelas+índices, unicidade de `wa_message_id`, colunas em `configuracoes` com default seguro, no-op sem `configuracoes`), rodado duas vezes em sequência em cada teste |
 | NFR-007 | não funcional | inspeção: nenhuma query do backend principal em `conversations`/`messages` | ok — a reconciliação (`whatsapp_bot_worker_service.run_reconciliation_sweep`) só fala com o Node via `httpx` + `x-whatsapp-internal-token` (`GET /conversations`, `GET /conversations/:id/messages`); nenhum acesso direto ao Postgres do whatsapp-stage-backend em nenhum arquivo desta fase |
@@ -56,7 +57,11 @@ cd backend
 venv/bin/python -m unittest tests.test_whatsapp_bot_migration -v
 venv/bin/python -m unittest tests.test_whatsapp_bot_queue_service -v
 venv/bin/python -m unittest tests.test_whatsapp_bot_worker_service -v
+venv/bin/python -m unittest tests.test_whatsapp_bot_webhook_enqueue -v
 venv/bin/python -m unittest tests.test_whatsapp_bot_gates -v
+venv/bin/python -m unittest tests.test_whatsapp_bot_handoff_service -v
+venv/bin/python -m unittest tests.test_whatsapp_bot_process_job -v
+venv/bin/python -m unittest tests.test_whatsapp_bot_endpoints -v
 venv/bin/python -m unittest tests.test_whatsapp_bot_generation -v
 venv/bin/python -m unittest tests.test_whatsapp_conversation_context -v
 venv/bin/python -m unittest tests.test_configuracoes_autorizacao -v
@@ -109,6 +114,24 @@ Resumo dos resultados (Fase 2, 2026-08-22):
   local usado.
 - Frontend: não tocado nesta fase (Fase 2 é gatilho/fila/worker no backend +
   transporte no Node; UI é Fase 5).
+
+Resumo dos resultados (Fase 3, 2026-08-22):
+- Backend: `test_whatsapp_bot_gates` (10/10), `test_whatsapp_bot_handoff_service`
+  (8/8), `test_whatsapp_bot_process_job` (11/11 — cada ramo da árvore de
+  decisão, incluindo emergência sobrepondo pausa/janela e claim detectado
+  via `last_agent_id`), `test_whatsapp_bot_endpoints` (6/6, os 3 endpoints
+  novos), `test_whatsapp_conversation_context` (6/6, +2 do nono dígito),
+  `test_configuracoes_autorizacao` (9/9, +5 do toggle/modo do bot).
+  `unittest discover -s tests -p "test_*.py"` completo: 909/909, 0 falha —
+  cresceu de 868 para 909 com os 41 testes novos/alterados desta fase
+  (35 novos + os que passaram a exercitar o motivo `bot_desabilitado` em
+  vez do stub da Fase 2), sem regressão. Smoke manual live (não automatizado):
+  worker real com o bot habilitado e `WHATSAPP_AGENDA_SERVICE_URL` vazio —
+  o job vai para `error`/retry (`attempts=1`, `last_error` gravado) sem
+  derrubar a thread do worker.
+- Serviço WhatsApp: não tocado nesta fase (Fase 3 é toda backend Python:
+  portões, vocabulário, handoff, endpoints).
+- Frontend: não tocado nesta fase (a UI dos controles de conversa é Fase 5).
 
 ## Testes manuais planejados (stage)
 
