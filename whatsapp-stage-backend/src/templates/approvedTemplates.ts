@@ -112,6 +112,38 @@ export const APPROVED_UTILITY_TEMPLATES = {
       "Detalhamento: {{4}}. Se o pagamento já foi realizado, desconsidere esta mensagem.",
     quickReplies: ["Já paguei", "Falar com financeiro"],
     buttonActions: ["ja_paguei", "falar_financeiro"]
+  },
+  portalClinicInviteActivation: {
+    name: "convite_portal_clinica",
+    // Aguardando aprovacao da Meta - ver docs/specs/whatsapp-portal-clinic-invite-template/.
+    // Atualizar com o ID real assim que o modelo for aprovado no Business Manager.
+    metaId: "PENDING_META_APPROVAL",
+    body:
+      "Olá, equipe {{1}}. A Fort Cordis liberou acesso ao Portal Fort Cordis para acompanhar exames e " +
+      "laudos da unidade. Use o link para ativar o acesso e criar a senha: {{2}} . O link expira em " +
+      "{{3}} e não deve ser compartilhado fora da equipe autorizada.",
+    quickReplies: [],
+    buttonActions: []
+  },
+  portalClinicInviteLoginAccess: {
+    name: "acesso_portal_clinica",
+    // Aguardando aprovacao da Meta - ver docs/specs/whatsapp-portal-clinic-invite-template/.
+    metaId: "PENDING_META_APPROVAL",
+    body:
+      "Olá, equipe {{1}}. O acesso da unidade ao Portal Fort Cordis continua ativo. Entre pelo link: " +
+      "{{2}} . Email cadastrado: {{3}}.",
+    quickReplies: [],
+    buttonActions: []
+  },
+  portalClinicInviteTemporaryPassword: {
+    name: "senha_temporaria_portal_clinica",
+    // Aguardando aprovacao da Meta - ver docs/specs/whatsapp-portal-clinic-invite-template/.
+    metaId: "PENDING_META_APPROVAL",
+    body:
+      "Olá, equipe {{1}}. Liberamos o acesso da unidade ao Portal Fort Cordis. Entre pelo link: {{2}} . " +
+      "Email: {{3}}. Senha temporária: {{4}} .",
+    quickReplies: [],
+    buttonActions: []
   }
 } as const;
 

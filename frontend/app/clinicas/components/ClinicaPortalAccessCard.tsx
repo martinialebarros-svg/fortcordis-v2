@@ -3,11 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Copy,
-  ExternalLink,
   Link2,
   Loader2,
   MessageCircle,
   RefreshCcw,
+  Send,
   ShieldCheck,
   Trash2,
   UserPlus,
@@ -16,11 +16,7 @@ import {
 
 import api from "@/lib/axios";
 import { extractApiErrorMessageSync } from "@/lib/api-error";
-import {
-  buildClinicInviteMessage,
-  buildClinicWhatsappLink,
-  getPortalAdminAuthHeaders,
-} from "@/lib/portal-clinic-admin";
+import { buildClinicInviteMessage, getPortalAdminAuthHeaders } from "@/lib/portal-clinic-admin";
 import { formatPortalDateTime } from "@/lib/portal-datetime";
 import type {
   PortalAdminClinicAccessSummaryResponse,
@@ -33,6 +29,14 @@ type ClinicaPortalAccessCardProps = {
   clinicaNome: string;
   defaultWhatsapp?: string;
   defaultEmail?: string;
+};
+
+type InviteRequestParams = {
+  deliveryTarget: string;
+  inviteEmail: string;
+  expiresInHours: string;
+  senhaTemporaria: boolean;
+  responsavelNome: string;
 };
 
 const ACCOUNT_STATUS_LABELS: Record<string, string> = {
@@ -92,6 +96,7 @@ export default function ClinicaPortalAccessCard({
   const [senhaTemporaria, setSenhaTemporaria] = useState(false);
   const [responsavelNome, setResponsavelNome] = useState("");
   const [lastInvite, setLastInvite] = useState<PortalAdminClinicInviteResponse | null>(null);
+  const [lastInviteRequest, setLastInviteRequest] = useState<InviteRequestParams | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -144,7 +149,15 @@ export default function ClinicaPortalAccessCard({
     void loadSummary();
   }, [clinicaId]);
 
-  async function handleGenerateInvite() {
+  async function handleGenerateInvite(overrides?: InviteRequestParams) {
+    const requestParams: InviteRequestParams = {
+      deliveryTarget: (overrides?.deliveryTarget ?? deliveryTarget).trim(),
+      inviteEmail: (overrides?.inviteEmail ?? inviteEmail).trim(),
+      expiresInHours: overrides?.expiresInHours ?? expiresInHours,
+      senhaTemporaria: overrides?.senhaTemporaria ?? senhaTemporaria,
+      responsavelNome: (overrides?.responsavelNome ?? responsavelNome).trim(),
+    };
+
     setSubmitting(true);
     setError("");
     setMessage("");
@@ -153,16 +166,17 @@ export default function ClinicaPortalAccessCard({
         `/portal/admin/clinicas/${clinicaId}/convites`,
         {
           delivery_channel: "whatsapp",
-          delivery_target: deliveryTarget.trim(),
-          account_email: inviteEmail.trim(),
-          expires_in_hours: Number.parseInt(expiresInHours, 10) || 72,
+          delivery_target: requestParams.deliveryTarget,
+          account_email: requestParams.inviteEmail,
+          expires_in_hours: Number.parseInt(requestParams.expiresInHours, 10) || 72,
           allow_manual_copy: true,
-          senha_temporaria: senhaTemporaria,
-          responsavel_nome: senhaTemporaria ? responsavelNome.trim() : undefined,
+          senha_temporaria: requestParams.senhaTemporaria,
+          responsavel_nome: requestParams.senhaTemporaria ? requestParams.responsavelNome : undefined,
         },
         { headers: getPortalAdminAuthHeaders() },
       );
       setLastInvite(response.data);
+      setLastInviteRequest(requestParams);
       setMessage(
         response.data.access_mode === "login"
           ? response.data.delivery_status === "sent"
@@ -222,11 +236,11 @@ export default function ClinicaPortalAccessCard({
     }
   }
 
-  function handleOpenWhatsapp() {
-    if (!inviteMessage) {
+  async function handleResendWhatsapp() {
+    if (!lastInviteRequest) {
       return;
     }
-    window.open(buildClinicWhatsappLink(deliveryTarget, inviteMessage), "_blank", "noopener,noreferrer");
+    await handleGenerateInvite(lastInviteRequest);
   }
 
   async function handleRevokeInvite(inviteId: number) {
@@ -453,11 +467,12 @@ export default function ClinicaPortalAccessCard({
                   </button>
                   <button
                     type="button"
-                    onClick={handleOpenWhatsapp}
-                    className="inline-flex items-center gap-2 rounded-lg border border-teal-300 px-3 py-2 text-sm font-medium text-teal-900 hover:bg-white"
+                    onClick={() => void handleResendWhatsapp()}
+                    disabled={submitting || !lastInviteRequest}
+                    className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-3 py-2 text-sm font-bold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-teal-300"
                   >
-                    <ExternalLink className="w-4 h-4" />
-                    Abrir no WhatsApp
+                    {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    Reenviar pelo WhatsApp
                   </button>
                   <button
                     type="button"

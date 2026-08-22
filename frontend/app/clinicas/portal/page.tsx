@@ -18,6 +18,7 @@ import {
   MessageCircle,
   RefreshCcw,
   Search,
+  Send,
   ShieldCheck,
   TriangleAlert,
   UserMinus,
@@ -31,11 +32,7 @@ import {
   formatarWhatsAppVisual,
   normalizarWhatsappsParaApi,
 } from "@/lib/clinica-whatsapp";
-import {
-  buildClinicInviteMessage,
-  buildClinicWhatsappLink,
-  getPortalAdminAuthHeaders,
-} from "@/lib/portal-clinic-admin";
+import { buildClinicInviteMessage, getPortalAdminAuthHeaders } from "@/lib/portal-clinic-admin";
 import { formatPortalDateTime, portalDateTimeMillis } from "@/lib/portal-datetime";
 import type {
   PortalAdminClinicAccessOverviewItem,
@@ -52,6 +49,16 @@ type StatusFilter =
   | "not_invited"
   | "locked"
   | "pending_verification";
+
+type InviteRequestParams = {
+  clinicaId: number;
+  clinicaNome: string;
+  deliveryTarget: string;
+  inviteEmail: string;
+  expiresInHours: string;
+  senhaTemporaria: boolean;
+  responsavelNome: string;
+};
 
 type QuickView =
   | "all"
@@ -286,6 +293,7 @@ export default function PortalClinicManagementPage() {
   const [responsavelNome, setResponsavelNome] = useState("");
   const [generatedInvite, setGeneratedInvite] = useState<PortalAdminClinicInviteResponse | null>(null);
   const [generatedClinicName, setGeneratedClinicName] = useState("");
+  const [lastInviteRequest, setLastInviteRequest] = useState<InviteRequestParams | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -436,44 +444,60 @@ export default function PortalClinicManagementPage() {
     setInviteEmail(selectedClinic.login_email || selectedClinic.contato_email || "");
   }, [selectedClinic]);
 
-  async function handleGenerateInvite() {
-    if (!selectedClinic) {
+  async function handleGenerateInvite(overrides?: InviteRequestParams) {
+    const clinicaId = overrides?.clinicaId ?? selectedClinic?.clinica_id;
+    const clinicaNome = overrides?.clinicaNome ?? selectedClinic?.clinica_nome;
+    if (!clinicaId || !clinicaNome) {
       setError("Selecione a clinica que vai receber o convite.");
       return;
     }
-    if (!deliveryTarget.trim()) {
+    const requestDeliveryTarget = overrides?.deliveryTarget ?? deliveryTarget;
+    if (!requestDeliveryTarget.trim()) {
       setError("Informe o WhatsApp da clinica para envio do convite.");
       return;
     }
-    const normalizedDeliveryTarget = normalizarWhatsappsParaApi([deliveryTarget])[0] || "";
-    if (!inviteEmail.trim()) {
+    const normalizedDeliveryTarget = normalizarWhatsappsParaApi([requestDeliveryTarget])[0] || "";
+    const requestInviteEmail = (overrides?.inviteEmail ?? inviteEmail).trim();
+    if (!requestInviteEmail) {
       setError("Informe o email institucional que sera usado pela clinica no login.");
       return;
     }
-    if (senhaTemporaria && !responsavelNome.trim()) {
+    const requestSenhaTemporaria = overrides?.senhaTemporaria ?? senhaTemporaria;
+    const requestResponsavelNome = (overrides?.responsavelNome ?? responsavelNome).trim();
+    if (requestSenhaTemporaria && !requestResponsavelNome) {
       setError("Informe o nome do responsavel na clinica para gerar a senha temporaria.");
       return;
     }
+    const requestExpiresInHours = overrides?.expiresInHours ?? expiresInHours;
 
     setSubmitting(true);
     setError("");
     setMessage("");
     try {
       const response = await api.post<PortalAdminClinicInviteResponse>(
-        `/portal/admin/clinicas/${selectedClinic.clinica_id}/convites`,
+        `/portal/admin/clinicas/${clinicaId}/convites`,
         {
           delivery_channel: "whatsapp",
           delivery_target: normalizedDeliveryTarget,
-          account_email: inviteEmail.trim(),
-          expires_in_hours: Number.parseInt(expiresInHours, 10) || 72,
+          account_email: requestInviteEmail,
+          expires_in_hours: Number.parseInt(requestExpiresInHours, 10) || 72,
           allow_manual_copy: true,
-          senha_temporaria: senhaTemporaria,
-          responsavel_nome: senhaTemporaria ? responsavelNome.trim() : undefined,
+          senha_temporaria: requestSenhaTemporaria,
+          responsavel_nome: requestSenhaTemporaria ? requestResponsavelNome : undefined,
         },
         { headers: getPortalAdminAuthHeaders() },
       );
       setGeneratedInvite(response.data);
-      setGeneratedClinicName(selectedClinic.clinica_nome);
+      setGeneratedClinicName(clinicaNome);
+      setLastInviteRequest({
+        clinicaId,
+        clinicaNome,
+        deliveryTarget: normalizedDeliveryTarget,
+        inviteEmail: requestInviteEmail,
+        expiresInHours: requestExpiresInHours,
+        senhaTemporaria: requestSenhaTemporaria,
+        responsavelNome: requestResponsavelNome,
+      });
       setMessage(
         response.data.access_mode === "login"
           ? response.data.delivery_status === "sent"
@@ -532,11 +556,11 @@ export default function PortalClinicManagementPage() {
     }
   }
 
-  function handleOpenWhatsapp() {
-    if (!inviteMessage) {
+  async function handleResendWhatsapp() {
+    if (!lastInviteRequest) {
       return;
     }
-    window.open(buildClinicWhatsappLink(deliveryTarget, inviteMessage), "_blank", "noopener,noreferrer");
+    await handleGenerateInvite(lastInviteRequest);
   }
 
   function handleResetFilters() {
@@ -1123,11 +1147,12 @@ export default function PortalClinicManagementPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={handleOpenWhatsapp}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+                    onClick={() => void handleResendWhatsapp()}
+                    disabled={submitting || !lastInviteRequest}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                   >
-                    <ExternalLink className="h-4 w-4" />
-                    Abrir no WhatsApp
+                    {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Reenviar pelo WhatsApp
                   </button>
                 </div>
               </div>
