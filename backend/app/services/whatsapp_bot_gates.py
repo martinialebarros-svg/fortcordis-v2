@@ -118,8 +118,9 @@ def pause_conversation(
     """RF-010: mensagem humana (from_me=true) ou claim de atendente pausa o
 
     bot por `WHATSAPP_BOT_HANDOFF_PAUSE_HOURS`. Mensagem enviada pelo proprio
-    bot nao pausa - o bot nao envia nada ainda (Fases 1-3), entao qualquer
-    `from_me=true` observado hoje e necessariamente humano.
+    bot não pausa por este detector. O envio assistido de um rascunho aprovado
+    pausa explicitamente a conversa no endpoint de revisão, com o atendente
+    responsável registrado.
     """
     now = now or _utc_now()
     estado = resolve_conversation_state(db, wa_identity)

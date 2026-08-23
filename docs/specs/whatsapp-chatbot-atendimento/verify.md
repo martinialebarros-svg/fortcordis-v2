@@ -6,15 +6,19 @@ Status: draft
 
 > Fases 1-3 entregues em 2026-08-22 (schema/config, gatilho/fila/worker,
 > portões/identidade/guardrails de entrada). Fase 4 (geração e guardrails de
-> saída) entregue em código em 2026-08-23, mas **não fechada**: nenhum envio ao
-> cliente existe (RF-027 é Fase 6) e ainda não houve smoke do pipeline do bot em
-> stage. O transporte Meta -> inbox foi comprovado com mensagem real em stage;
-> um smoke local com provider real passou em `suggest` após a correção.
+> saída) entregue em código e fechada no backend de stage em 2026-08-23: o job
+> real `21` gerou e persistiu um rascunho em `suggest` com tool de preço, sem
+> qualquer mensagem de saída. A Fase 5 foi implementada e validada localmente:
+> revisão, edição, descarte, envio idempotente, selo e controles de operação.
+> Ela ainda não foi publicada nem testada pela tela em stage. O envio sem
+> revisão no modo `auto` continua inexistente (RF-027 é Fase 6). O transporte
+> Meta -> inbox também foi comprovado com mensagem real em stage.
 > As quatro divergências D1-D4 levantadas na auditoria foram corrigidas
 > localmente e estão registradas na seção "Divergências resolvidas" abaixo.
 > Com o bot habilitado, toda mensagem real hoje termina
-> em `suppressed`, `handoff`, `blocked` ou `draft`. As Fases 5 e 6 seguem
-> pendentes. Nenhum item é marcado como `ok` sem teste ou log correspondente.
+> em `suppressed`, `handoff`, `blocked` ou `draft`. A publicação/validação
+> manual da Fase 5 e toda a Fase 6 seguem pendentes. Nenhum item é marcado como
+> `ok` sem teste ou log correspondente.
 
 ## Matriz de rastreabilidade
 
@@ -37,7 +41,7 @@ Status: draft
 | CA-015 | aceitação | teste do validador: candidata com conteúdo clínico -> `blocked` + motivo gravado | ok — `test_conteudo_clinico_gerado_vira_blocked_com_motivo`, `GuardrailBloqueioClinicoTest` e `test_resultado_do_gerador_e_persistido_com_auditoria_completa`, que relê `decisao`, `motivo`, texto, modelo, prompt, tools, tokens, latência e contexto da linha persistida |
 | CA-016 | aceitação | teste de fonte: sem tool e sem trecho recuperado -> não envia | ok local — `test_sem_fonte_nao_responde` e `test_tool_sem_relacao_nao_conta_como_fonte_da_intent`; no fluxo completo, `test_tool_sem_relacao_nao_autoriza_status_de_laudo` prova que horário não serve de fonte para laudo. Smoke real de preço confirmou a tool específica; status e stage seguem pendentes |
 | CA-017 | aceitação | teste de teto: acima do limite diário -> `suppressed` com motivo de teto | ok — `test_whatsapp_bot_generation.test_teto_diario_suprime_antes_de_gastar_token` (decisão `suppressed`, motivo `teto_diario`, `provider.generate` não chamado); teto aplicado em `whatsapp_bot_generation.py:127-135` antes de gastar token. Ressalva: `contar_respostas_do_dia` só soma `decisao == "sent"`, que não é alcançável até a Fase 6 — em tráfego real o contador é sempre 0 hoje |
-| CA-018 | aceitação | teste de envio em `auto`: chamada ao Node com `metadata.origem = "bot"` | pendente — envio adiado para a Fase 6 por dependência real do lado Node: `sendConversationMessage` crava `{source: "agent_api"}` (`whatsapp-stage-backend/src/controllers/conversationsController.ts:611`) e não aceita `metadata` do chamador; o endpoint também não tem idempotência. Não existe nenhum `httpx.post` no backend do bot. Hoje só há `test_whatsapp_bot_generation.test_aprovada_em_auto_ainda_nao_envia_nesta_fase` |
+| CA-018 | aceitação | teste de envio em `auto`: chamada ao Node com `metadata.origem = "bot"` | parcial — o transporte para rascunho de `suggest` aprovado por humano está implementado e testado: backend envia `origem=bot`, `source=bot_suggest_reviewed`, `resposta_id` e chave idempotente; Node aceita somente via token interno. O envio sem revisão em `auto` continua pendente e bloqueado até a Fase 6; `test_aprovada_em_auto_ainda_nao_envia_nesta_fase` preserva esse limite |
 | CA-019 | aceitação | teste do preview: nenhum job alterado, nenhuma geração, nenhum envio | ok — `test_whatsapp_bot_endpoints.test_preview_nao_altera_nada_e_conta_por_status_e_decisao` (endpoint é só leitura/agregação; contagens de jobs/respostas antes e depois idênticas) |
 | CA-020 | aceitação | teste de autorização em `test_configuracoes_autorizacao.py` (403 para não admin) + smoke sem restart | ok — 5 testes novos em `test_configuracoes_autorizacao.py` (403 para `whatsapp_bot_atendimento_habilitado` e `whatsapp_bot_modo`, 422 para modo invalido, reenvio sem mudança permitido para não-admin, admin habilita e muda modo); "sem restart" decorre de `is_whatsapp_bot_enabled()`/`resolve_conversation_mode()` lerem o banco a cada chamada, sem cache — não medido em stage real |
 | CA-021 | aceitação | teste do worker com advisory lock ocupado: ciclo pulado, 0 jobs tocados | ok — `test_whatsapp_bot_worker_service.test_run_due_once_pula_ciclo_com_lock_distribuido_ocupado` |
@@ -53,6 +57,7 @@ Status: draft
 | NFR-005 | não funcional | contadores de custo por conversa em `whatsapp_bot_respostas` + degradação para `suggest` | ok local — usage é somado em todas as rodadas e persistido (teste de auditoria completa); `WHATSAPP_BOT_MAX_TOKENS_PER_DAY=100000` soma input+output global do dia e, no teto, cria `draft/teto_global_tokens` sem chamar o provider (`test_teto_global_de_tokens_degrada_para_draft_antes_do_provider`) |
 | NFR-006 | não funcional | teste de migração idempotente (aplicar duas vezes, e no-op sem tabela) | ok — `backend/tests/test_whatsapp_bot_migration.py` (4 testes: tabelas+índices, unicidade de `wa_message_id`, colunas em `configuracoes` com default seguro, no-op sem `configuracoes`), rodado duas vezes em sequência em cada teste |
 | NFR-007 | não funcional | inspeção: nenhuma query do backend principal em `conversations`/`messages` | ok — a reconciliação (`whatsapp_bot_worker_service.run_reconciliation_sweep`) só fala com o Node via `httpx` + `x-whatsapp-internal-token` (`GET /conversations`, `GET /conversations/:id/messages`); nenhum acesso direto ao Postgres do whatsapp-stage-backend em nenhum arquivo desta fase |
+| NFR-008 | não funcional | repetição/concorrência de envio assistido não chama a Graph API duas vezes | ok local — backend faz claim condicional `draft -> sending`, repetição após `sent` é idempotente e falha de transporte restaura `draft`; Node serializa por advisory lock e índice único parcial de `idempotency_key`, retorna o existente em `sent`/`delivered`/`read` e falha fechado em `pending`. Coberto por `test_enviar_rascunho_editado_e_idempotente`, `test_falha_no_node_devolve_rascunho_para_revisao` e `test:inbox-ui` |
 
 ## Divergências resolvidas (auditoria da Fase 4, 2026-08-23)
 
@@ -200,15 +205,69 @@ Resumo da correção da auditoria (2026-08-23):
   e `messages` confirmados, FortZap Stage inscrito na WABA e inbound persistido
   na inbox como `Recebida`, sem resposta automatica. Isso valida transporte,
   nao o pipeline Python do chatbot.
-- O criterio de conclusao da Fase 4 permanece aberto ate o rascunho real do bot
-  aparecer persistido e operavel na central de stage.
+- O critério de conclusão do backend da Fase 4 foi fechado pelo rascunho real
+  persistido em stage. Torná-lo visível e operável na central é a Fase 5.
+
+## Validação local da Fase 5 (2026-08-23)
+
+- Central: rascunho pendente acima do composer com **Enviar**, **Editar e
+  enviar** e **Descartar**; aviso e bloqueio de texto livre fora da janela de
+  24h; polling do estado do bot; modo/pausa por conversa; selo próprio na
+  timeline para envio assistido.
+- Configurações -> Empresa: toggle institucional e modo padrão, com gravação
+  somente por admin. `auto` está visível, mas desabilitado até a Fase 6.
+- Backend Python: endpoints de enviar/descartar, claim atômico
+  `draft -> sending`, feedback, texto efetivo, atendente, pausa após envio,
+  auditoria e restauração para `draft` em falha de transporte.
+- Serviço Node: metadata do bot aceito apenas com `internal_token`, chave
+  idempotente vinculada ao `resposta_id`, advisory lock transacional e índice
+  único parcial. Repetições de mensagem já `sent`/`delivered`/`read` retornam a
+  linha existente; `pending` falha fechado sem nova chamada à Graph API.
+- Testes executados: **119/119** testes `test_whatsapp_bot*.py`, **9/9** de
+  autorização de Configurações, `npm run build` e `npm run test:inbox-ui` no
+  serviço Node, ESLint focado, `tsc --noEmit` e `next build` no frontend — tudo
+  aprovado. A suíte completa do backend terminou em **974/974**, sem falhas;
+  `npm run test:phone-number` e `git diff --check` também passaram.
+- Não executado: deploy, migração Node em stage, clique real em
+  Enviar/Editar/Descartar ou qualquer mensagem externa. Produção não foi
+  alterada.
+
+## Smoke E2E real do chatbot em stage (2026-08-23)
+
+- `RUN_SMOKE=1 bash scripts/whatsapp_stage_preflight.sh` executado na VPS:
+  `PASS`, 0 falhas e 0 avisos; assinatura obrigatória, identidade Meta, app
+  inscrito na WABA, autenticação, serviços, HTTP e idempotência aprovados.
+- Preview antes da ativação: `whatsapp_bot_enabled_env=false`, toggle do banco
+  `false`, `whatsapp_bot_ativo=false`, modo `suggest`; após o smoke sintético,
+  nenhum job permaneceu pendente.
+- O primeiro inbound com o bot ativo terminou em
+  `handoff/identidade_nao_resolvida`, `resolution=ambiguous`, antes do provider:
+  zero tokens e nenhum texto gerado/enviado. O mesmo contato estava em duas
+  clínicas (IDs 8 e 51) e um tutor (ID 192), confirmando o fail-closed da
+  RF-016.
+- Após confirmação explícita, o contato foi removido somente das duas clínicas
+  em stage e preservado no tutor ID 192. A transação só foi confirmada depois
+  de `resolve_whatsapp_context` retornar `matched/tutor`; dois eventos de
+  auditoria `REMOVER_CONTATO_AMBIGUO_STAGE` foram gravados sem o número.
+- Segundo inbound: job `21`, `done`, tentativas `0`, sem erro; decisão
+  `draft`, motivo `modo_suggest`, resolução `matched/tutor`, modelo
+  `gpt-5.6-sol`, prompt `whatsapp-bot-v1-tutor-95dba6ab`, tool tentada e
+  confirmada `consultar_preco_tabela`, 2.592 tokens de entrada, 280 de saída e
+  latência de 11.794 ms.
+- O rascunho persistido informou o valor literal de tabela do ecocardiograma.
+  `texto_enviado` permaneceu vazio. Consulta independente à tabela `messages`
+  na janela do job encontrou um inbound `text/received` e zero linhas
+  `from_me`, comprovando ausência de resposta automática.
+- Runtime ao final: `WHATSAPP_BOT_ENABLED=true`, toggle do banco `true`, modo
+  institucional `suggest`, backend saudável. Produção não foi alterada.
 
 ## Testes manuais planejados (stage)
 
-1. `GET /api/v1/whatsapp/bot/preview` com o bot desligado — medir alcance real
-   antes de habilitar, sem gerar nem enviar nada.
-2. Conversa real em `suggest`: confirmar que o rascunho aparece na central e que
-   nada é enviado sem clique.
+1. [concluído] Preview com o bot desligado antes da habilitação, sem geração ou
+   envio.
+2. [parcial] Conversa real em `suggest`: rascunho persistido e ausência de envio
+   comprovados; exibição/ação foi implementada localmente e ainda precisa ser
+   publicada/testada na central de stage.
 3. "Quero falar com um atendente" — handoff imediato, conversa em `pending`,
    push recebido pela equipe.
 4. Termo de emergência — resposta fixa, alerta interno `critico`, nenhuma
@@ -265,7 +324,7 @@ Sem estes, a decisão de ligar o modo `auto` é chute:
 
 ## Decisão de release
 
-- [ ] Aprovado para stage.
+- [x] Aprovado para stage em `suggest` para continuidade da Fase 5.
 - [ ] Aprovado para produção em modo `suggest`.
 - [ ] Aprovado para produção em modo `auto` (allowlist da RF-019).
 - [ ] Não aprovado (descrever motivo).

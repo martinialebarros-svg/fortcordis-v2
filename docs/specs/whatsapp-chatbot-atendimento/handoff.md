@@ -2,9 +2,10 @@
 
 Data: 2026-08-23
 Responsável: Martiniano + Codex
-Status: em implementação; Fases 1-3 concluídas, Fase 4 corrigida e validada;
+Status: em implementação; Fases 1-4 concluídas e validadas em stage;
+Fase 5 implementada e validada localmente, ainda não publicada;
 identidade Meta exclusiva e callback publicados em stage no SHA `abc5a380`;
-transporte E2E concluido; rascunho real em stage e Fases 5-6 pendentes
+transporte e rascunho E2E concluídos; Fase 6 pendente
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -26,9 +27,9 @@ FortCordis v2.
   `abc5a380e6202dae8bb96b57250abd0f08a0beba`.
 - `origin/main` e produção permanecem no SHA
   `447ddc530fa0a3ea135eeff427fca1eed637b65d`.
-- O HEAD deste worktree pode estar commits documentais locais à frente de
-  `origin/stage`, contendo apenas documentação de handoff/verificação. Não faça
-  push ou deploy automático desses commits ao retomar.
+- O worktree contém mudanças locais não commitadas da Fase 5 em backend,
+  serviço Node, frontend e SDD. Não faça push ou deploy automático ao retomar;
+  revise e publique somente após autorização explícita.
 - Preserve o checkout principal e alterações não relacionadas. Não promova
   para produção. O callback e a publicacao de stage ja foram verificados; antes
   de enviar nova mensagem externa ou modificar callback, verify token,
@@ -64,6 +65,9 @@ gh run view 32637525655 --json status,conclusion,url,headSha,name
 - Fase 4: provider OpenAI, personas, tools próprias e escopadas, guardrails,
   auditoria e geração somente de rascunho/handoff; envio automático ainda não
   existe.
+- Fase 5 local: painel de rascunho com enviar/editar/descartar, selo de envio
+  assistido, controles por conversa, card institucional, endpoints de revisão
+  e transporte Node idempotente. Ainda não foi publicada em stage.
 
 A auditoria identificou D1-D4 e todas foram corrigidas localmente:
 
@@ -88,6 +92,19 @@ Arquivos principais alterados nesta correção:
 - testes `backend/tests/test_whatsapp_bot_*`
 - `spec.md`, `plan.md`, `verify.md` e este handoff
 
+Arquivos principais da Fase 5 ainda não publicada:
+
+- `backend/app/api/v1/endpoints/whatsapp_bot.py`
+- `backend/tests/test_whatsapp_bot_endpoints.py`
+- `backend/app/services/whatsapp_bot_gates.py`
+- `whatsapp-stage-backend/src/controllers/conversationsController.ts`
+- `whatsapp-stage-backend/migrations/init.sql`
+- `whatsapp-stage-backend/scripts/test-inbox-ui-contracts.ts`
+- `frontend/app/whatsapp-stage/page.tsx`
+- `frontend/app/configuracoes/page.tsx`
+- `frontend/app/globals.css`
+- `spec.md`, `plan.md`, `verify.md` e este handoff
+
 ## Credencial e smoke real
 
 Uma chave nova chamada `fortcordis-whatsapp-chatbot` foi criada em
@@ -104,25 +121,40 @@ Smoke local real já executado com dados fictícios, em `suggest` e sem envio:
 - latência: 8.735 ms;
 - texto final presente; nenhum envio ao WhatsApp foi acionado.
 
+Smoke real de stage concluído em `2026-08-23`, também em `suggest` e sem envio:
+
+- preflight remoto com `RUN_SMOKE=1`: `PASS`, 0 falhas e 0 avisos;
+- preview inicial: os dois portões desligados, modo `suggest` e nenhum job
+  pendente depois do smoke sintético;
+- runtime atual: `WHATSAPP_BOT_ENABLED=true`, toggle do banco ligado, modo
+  institucional `suggest`; produção não foi alterada;
+- o primeiro teste real caiu corretamente em `handoff/identidade_nao_resolvida`
+  porque o contato estava em duas clínicas e um tutor, sem gastar tokens;
+- após confirmação explícita, o contato foi removido somente das clínicas IDs
+  8 e 51 em stage, preservado no tutor ID 192 e a correção foi auditada;
+- o segundo teste real gerou o job `21`, `done`, decisão
+  `draft/modo_suggest`, persona `tutor`, modelo `gpt-5.6-sol`, prompt
+  `whatsapp-bot-v1-tutor-95dba6ab`, tool `consultar_preco_tabela` confirmada,
+  2.592 tokens de entrada, 280 de saída e latência de 11.794 ms;
+- o texto ficou em `whatsapp_bot_respostas.texto_gerado`, enquanto
+  `texto_enviado` permaneceu vazio; a inbox mostrou um único inbound
+  `received` e zero mensagens `from_me` na janela do teste.
+
 ## Próxima sequência recomendada
 
-1. Execute o preflight final com assinatura obrigatória e smoke funcional:
-   `RUN_SMOKE=1 bash scripts/whatsapp_stage_preflight.sh`. Não use o bypass
-   pre-corte `WHATSAPP_REQUIRE_SUBSCRIBED_APP=0` nessa validação final.
-2. Antes de habilitar o bot, consulte o preview e confirme os toggles atuais.
-   O transporte real ja esta provado; o proximo E2E deve testar somente o
-   pipeline do chatbot, sempre em `suggest` e sem envio automatico.
-3. Faça um E2E controlado de intent permitida e confirme job, rascunho
-   persistido, tools/tokens e ausencia de resposta automatica.
-4. Revalide produção: callback ainda em
+1. Revise o diff local da Fase 5 e rode o SDD guardrail e os gates completos.
+2. Após autorização explícita, publique somente em stage e confirme a migração
+   do índice idempotente do serviço Node; mantenha `suggest` e `auto` bloqueado.
+3. Abra a conversa real do job `21` na central e valide primeiro a exibição do
+   rascunho, modo, pausa e descarte com um rascunho descartável. Para testar
+   **Enviar** ou **Editar e enviar**, obtenha nova confirmação explícita porque
+   isso envia mensagem externa ao contato.
+4. Revalide produção antes e depois de qualquer publicação futura: callback em
    `https://app.fortcordis.com.br/whatsapp/webhook`, health `200` e rota
    protegida `401`.
-5. Confirmar que preço chama `consultar_preco_tabela`, laudo chama
-   `consultar_status_laudo`, o rascunho é persistido com tokens/tools e nada é
-   enviado ao cliente.
-6. Só então iniciar a Fase 5: painel de rascunho na central, ações
-   Enviar/Editar/Descartar, selo do bot e controles por conversa/Configurações.
-7. Manter a Fase 6 bloqueada até haver preview e métricas reais de `suggest` em
+5. Teste depois a segunda tool real, `consultar_status_laudo`, sem usar dados
+   clínicos no texto de teste e ainda sem envio automático.
+6. Manter a Fase 6 bloqueada até haver painel e métricas reais de `suggest` em
    stage. `auto` não deve ser ligado por inferência.
 
 ## Diagnostico e isolamento Meta de stage (2026-08-23)
@@ -204,21 +236,29 @@ Smoke local real já executado com dados fictícios, em `suggest` e sem envio:
 
 ## Validação
 
-Use um ambiente Python 3.12 com `backend/requirements.txt`. No worktree atual,
-os testes foram executados num venv temporário fora do repositório porque não há
-`backend/venv`. Última validação local: backend completo **971/971**, serviço
-Node com build, teste de identidade de telefone e contratos da inbox aprovados.
+O worktree reutiliza o venv do checkout principal em
+`/Users/martiniano/fortcordis-v2/backend/venv` e as dependências do frontend por
+symlink ignorado. Última validação da Fase 5: **119/119** testes focados do bot,
+**9/9** de autorização, serviço Node com build e contratos da inbox, frontend
+com ESLint, `tsc --noEmit` e `next build`, todos aprovados. A suíte completa do
+backend foi reexecutada nesta fase e terminou em **974/974**, sem falhas;
+`test:phone-number` e `git diff --check` também passaram.
 
 ```bash
 cd /Users/martiniano/fortcordis-v2/.claude/worktrees/whatsapp-chatbot-handoff-2d02ad/backend
-python -m unittest discover -s tests -p "test_whatsapp_bot*.py" -v
-python -m unittest tests.test_whatsapp_conversation_context tests.test_configuracoes_autorizacao -v
-python -m unittest discover -s tests -p "test_*.py"
+/Users/martiniano/fortcordis-v2/backend/venv/bin/python -m unittest discover -s tests -p "test_whatsapp_bot*.py" -v
+/Users/martiniano/fortcordis-v2/backend/venv/bin/python -m unittest tests.test_whatsapp_conversation_context tests.test_configuracoes_autorizacao -v
+/Users/martiniano/fortcordis-v2/backend/venv/bin/python -m unittest discover -s tests -p "test_*.py"
 
 cd ../whatsapp-stage-backend
 npm run build
 npm run test:phone-number
 npm run test:inbox-ui
+
+cd ../frontend
+npm run build
+./node_modules/.bin/eslint app/whatsapp-stage/page.tsx app/configuracoes/page.tsx --max-warnings=0
+./node_modules/.bin/tsc --noEmit
 ```
 
 Atualize `spec.md` e `verify.md` no mesmo diff de qualquer mudança em código,
@@ -229,15 +269,16 @@ como exige o SDD guardrail. Registre somente evidência realmente executada.
 - Entregue: implementação das Fases 1-4, correções D1-D4, identidade Meta de
   stage isolada, token permanente de usuário de sistema, secrets/variables,
   publicação protegida, callback, `messages`, publicacao Meta, inscricao WABA e
-  transporte E2E.
-- Comprovado: workflows terminais verdes, desafio Meta aceito, saida entregue,
-  inbound real persistido e smokes HTTP de stage/produção.
-- Não executado: preflight remoto formal com `RUN_SMOKE=1`, rascunho real do bot
-  em stage e promoção para produção.
-- Bloqueio atual: nenhum no transporte WhatsApp; o proximo marco pertence ao
-  pipeline do chatbot, que deve continuar em `suggest`.
-- Próximo marco: preflight formal + E2E de rascunho em `suggest`, mantendo
-  produção intacta.
+  transporte E2E; Fase 5 implementada e validada localmente.
+- Comprovado: workflows terminais verdes, desafio Meta aceito, saída entregue,
+  inbound real persistido, preflight remoto formal, geração real com tool de
+  preço, rascunho auditado e ausência de envio automático.
+- Não executado: publicação/operação da Fase 5 em stage, demais casos manuais
+  da matriz, observação de uma semana e qualquer promoção para produção.
+- Bloqueio atual: a interface e o transporte revisado existem apenas no diff
+  local; stage ainda serve o SHA anterior e não exibe as ações novas.
+- Próximo marco: gates completos e publicação autorizada da Fase 5 somente em
+  stage, mantendo `suggest` e produção intacta.
 
 ## Limites de segurança
 

@@ -4262,6 +4262,10 @@ body {
     @apply whitespace-pre-wrap text-sm leading-5 text-ink-900;
   }
 
+  .fc-wa-bot-badge {
+    @apply mb-1.5 inline-flex items-center gap-1 rounded-full border border-vital-200 bg-white/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-vital-700;
+  }
+
   .fc-wa-bubble footer {
     @apply mt-1.5 flex items-center justify-end gap-2 text-[10px] font-medium text-ink-400;
   }
@@ -4307,6 +4311,49 @@ body {
 
   .fc-wa-media-preview {
     @apply mt-2 max-h-64 w-full max-w-full rounded-lg object-contain;
+  }
+
+  .fc-wa-bot-draft,
+  .fc-wa-bot-draft-loading {
+    @apply border-t border-vital-200 bg-vital-50/70 p-3;
+  }
+
+  .fc-wa-bot-draft-loading {
+    @apply text-xs font-bold text-vital-700;
+  }
+
+  .fc-wa-bot-draft-heading {
+    @apply mb-2 flex items-center justify-between gap-3;
+  }
+
+  .fc-wa-bot-draft-heading span {
+    @apply inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wide text-vital-700;
+  }
+
+  .fc-wa-bot-draft-heading small,
+  .fc-wa-bot-draft-warning,
+  .fc-wa-bot-state-note {
+    @apply text-[10px] font-medium text-ink-500;
+  }
+
+  .fc-wa-bot-draft > p {
+    @apply whitespace-pre-wrap rounded-xl border border-vital-100 bg-white p-3 text-sm leading-5 text-ink-900;
+  }
+
+  .fc-wa-bot-draft > textarea {
+    @apply w-full rounded-xl border border-vital-200 bg-white p-3 text-sm leading-5 text-ink-900 outline-none focus:ring-2 focus:ring-vital-100 disabled:opacity-60;
+  }
+
+  .fc-wa-bot-draft-actions {
+    @apply mt-2 flex flex-wrap items-center gap-2;
+  }
+
+  .fc-wa-bot-draft-warning {
+    @apply mt-2 block rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-amber-800;
+  }
+
+  .fc-wa-bot-state-note {
+    @apply block;
   }
 
   .fc-wa-composer {

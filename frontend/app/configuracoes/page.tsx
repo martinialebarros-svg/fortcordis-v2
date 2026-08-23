@@ -53,6 +53,8 @@ interface ConfiguracoesSistema {
   mostrar_assinatura: boolean;
   fortinho_habilitado: boolean;
   whatsapp_lembrete_automatico_habilitado: boolean;
+  whatsapp_bot_atendimento_habilitado: boolean;
+  whatsapp_bot_modo: "off" | "suggest" | "auto";
   agenda_semanal: AgendaSemanalConfig;
   agenda_feriados: AgendaFeriadoConfig[];
   agenda_excecoes: AgendaExcecaoConfig[];
@@ -285,6 +287,8 @@ export default function ConfiguracoesPage() {
     mostrar_assinatura: true,
     fortinho_habilitado: false,
     whatsapp_lembrete_automatico_habilitado: false,
+    whatsapp_bot_atendimento_habilitado: false,
+    whatsapp_bot_modo: "suggest",
     agenda_semanal: normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL),
     agenda_feriados: [],
     agenda_excecoes: [],
@@ -1012,6 +1016,8 @@ export default function ConfiguracoesPage() {
       if (!isAdmin) {
         delete payload.fortinho_habilitado;
         delete payload.whatsapp_lembrete_automatico_habilitado;
+        delete payload.whatsapp_bot_atendimento_habilitado;
+        delete payload.whatsapp_bot_modo;
       }
       await api.put("/configuracoes", payload);
       setConfigEmpresa((prev) => ({
@@ -2553,6 +2559,54 @@ export default function ConfiguracoesPage() {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Atendimento automatico WhatsApp */}
+            <div className="fc-settings-card">
+              <h2 className="text-lg font-semibold mb-2">Atendimento automático (WhatsApp)</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Controla o copiloto da Central de WhatsApp. Em modo sugerir, as respostas ficam
+                como rascunho e só chegam ao contato depois da revisão de um atendente.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="whatsapp_bot_atendimento_habilitado"
+                  checked={configEmpresa.whatsapp_bot_atendimento_habilitado}
+                  disabled={!isAdmin}
+                  onChange={(e) => setConfigEmpresa({ ...configEmpresa, whatsapp_bot_atendimento_habilitado: e.target.checked })}
+                  className="w-4 h-4 text-teal-600 disabled:opacity-50"
+                />
+                <label htmlFor="whatsapp_bot_atendimento_habilitado" className="text-sm text-gray-700">
+                  Ativar copiloto de atendimento
+                </label>
+              </div>
+              <label className="mt-4 block text-sm text-gray-700">
+                <span className="mb-1 block font-medium">Modo padrão</span>
+                <select
+                  value={configEmpresa.whatsapp_bot_modo}
+                  disabled={!isAdmin}
+                  onChange={(e) => setConfigEmpresa({ ...configEmpresa, whatsapp_bot_modo: e.target.value as "off" | "suggest" | "auto" })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white disabled:opacity-50"
+                >
+                  <option value="off">Desligado</option>
+                  <option value="suggest">Sugerir rascunho para revisão</option>
+                  <option value="auto" disabled>Automático (aguarda rollout)</option>
+                </select>
+              </label>
+              <p className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                O modo automático permanece bloqueado até a fase de observação em stage. Use “Sugerir” durante a validação.
+              </p>
+              {!isAdmin ? (
+                <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                  Somente administradores podem alterar o controle institucional.
+                </p>
+              ) : (
+                <button type="button" onClick={salvarConfigEmpresa} disabled={salvando}
+                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50">
+                  <Save className="w-4 h-4" /> {salvando ? "Salvando..." : "Salvar atendimento automático"}
+                </button>
+              )}
             </div>
 
             {/* Texto do Rodapé */}

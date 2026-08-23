@@ -181,12 +181,19 @@ de pausa e claim, não por relógio.
   `POST /conversations/:id/messages` do serviço Node com header
   `x-whatsapp-internal-token`, e o `metadata` da mensagem marca a origem
   (`{"origem": "bot", "resposta_id": ...}`) para o histórico distinguir bot de
-  humano.
+  humano. O mesmo transporte é usado para um rascunho de `suggest` aprovado
+  por atendente, com `source="bot_suggest_reviewed"` e chave idempotente
+  derivada do `resposta_id`; o serviço Node só aceita esse metadata via token
+  interno e impede dois envios da mesma resposta.
 - RF-028: na central de atendimento, rascunho pendente aparece acima do
   composer com as ações **Enviar**, **Editar e enviar** e **Descartar**;
-  descartar grava feedback negativo na resposta.
+  descartar grava feedback negativo na resposta. Enviar faz uma transição
+  atômica `draft -> sending -> sent`, grava texto efetivo, feedback positivo e
+  atendente responsável; falha de transporte devolve o item a `draft` sem
+  marcar envio.
 - RF-029: mensagens enviadas pelo bot têm selo visual próprio na timeline da
-  conversa.
+  conversa. O selo depende do metadata validado no serviço interno, e não de
+  um campo arbitrário enviado pelo navegador.
 - RF-030: a central permite, por conversa, alternar `auto` / `suggest` / `off` e
   "pausar bot por 12h".
 - RF-031: card "Atendimento automático (WhatsApp)" em Configurações -> Empresa,
@@ -220,6 +227,10 @@ de pausa e claim, não por relógio.
 - NFR-007 (independência de banco): nenhuma consulta do backend principal lê ou
   escreve diretamente nas tabelas do `whatsapp-stage-backend`
   (`conversations`, `messages`); toda troca é por HTTP com token interno.
+- NFR-008 (idempotência de envio assistido): `messages.metadata.idempotency_key`
+  possui índice único parcial no serviço Node. Repetição após `sent`,
+  `delivered` ou `read` retorna o envio existente; repetição enquanto `pending`
+  falha fechada com `MESSAGE_SEND_IN_PROGRESS`, sem nova chamada à Graph API.
 
 ## Contratos técnicos
 

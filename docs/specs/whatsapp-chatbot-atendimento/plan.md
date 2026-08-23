@@ -141,41 +141,49 @@ uma mensagem gerada chegue a um cliente.
       volume/tamanho (RF-025) e teto global diário de tokens (NFR-005).
 - [ ] P4.5 registro completo em `whatsapp_bot_respostas` (RF-026) e envio via
       Node no modo `auto` com `metadata.origem = "bot"` (RF-027). **Metade
-      entregue**: o registro grava os 12 campos da RF-026; o envio não existe e
-      depende de mudança no serviço Node (`sendConversationMessage` crava
-      `{source: "agent_api"}` e o endpoint não tem idempotência) — movido para a
-      Fase 6, ver CA-018.
+      entregue**: o registro grava os 12 campos da RF-026. A Fase 5 adicionou
+      ao Node metadata interno validado e idempotência para rascunho de
+      `suggest` aprovado por atendente; o envio sem revisão no modo `auto`
+      continua proibido e foi movido para a Fase 6, ver CA-018.
 - [x] P4.6 testes com provider fake (sem rede), no padrão dos providers
       protocolares do ai-echo: intent fora da allowlist (nas duas personas),
       escopo cruzado clínica/tutor, resposta clínica bloqueada, resposta sem
       fonte, tool loop stateless, teto estourado, persistência dos campos de
       auditoria e redação de telefone em erro/log.
 - Critério de conclusão: em stage, com conversa em `suggest`, rascunhos reais
-  aparecem gravados e nenhum envio acontece. **NÃO cumprido em 2026-08-23**: o
-  código está entregue e um smoke local real em `suggest` passou com
-  `gpt-5.6-sol` + `consultar_preco_tabela`, sem envio. As quatro divergências
-  D1-D4 levantadas na auditoria foram corrigidas localmente em 2026-08-23 e têm
-  cobertura automatizada. Falta executar em stage e comprovar que o rascunho
-  aparece gravado/operável na central para fechar o critério; a fase permanece
-  aberta por essa evidência de ambiente.
+  aparecem gravados e nenhum envio acontece. **Cumprido no backend de stage em
+  2026-08-23**: após corrigir uma ambiguidade cadastral fail-closed, o job real
+  `21` resolveu a persona `tutor`, chamou `consultar_preco_tabela`, gravou
+  `draft/modo_suggest` com modelo, prompt, tools, tokens e latência e deixou
+  `texto_enviado` vazio. A inbox registrou somente o inbound `received`, com
+  zero mensagens `from_me` na janela do teste. Exibir e operar esse rascunho na
+  central continua sendo o critério próprio da Fase 5, não um bloqueio da
+  geração/persistência da Fase 4.
 - Risco: o maior da entrega. Mitigado por `suggest` como padrão, validador de
-  saída e allowlist estreita. Confirmado pela auditoria que **nada é enviável**
-  nesta fase: não há um único `httpx.post` no backend do bot.
+  saída e allowlist estreita. No runtime de stage validado para esta fase não
+  havia envio; o endpoint de aprovação humana foi implementado depois, na
+  Fase 5, e ainda não foi publicado.
 - Rollback: `configuracoes.whatsapp_bot_modo = 'off'` para todas as conversas, ou
   desmarcar o toggle institucional.
 
 ### Fase 5 - central de atendimento e Configurações
 
-- [ ] P5.1 painel de rascunho acima do composer com Enviar / Editar e enviar /
-      Descartar (RF-028).
-- [ ] P5.2 selo de mensagem do bot na timeline (RF-029).
-- [ ] P5.3 controles de modo e pausa por conversa (RF-030).
-- [ ] P5.4 card "Atendimento automático (WhatsApp)" em Configurações -> Empresa
-      (RF-031), no padrão do card do lembrete.
-- [ ] P5.5 testes de componente e `npx tsc --noEmit` / `eslint` / `next build`
-      limpos.
+- [x] P5.1 painel de rascunho acima do composer com Enviar / Editar e enviar /
+      Descartar (RF-028), incluindo claim atômico, feedback e idempotência no
+      transporte Node.
+- [x] P5.2 selo de mensagem do bot na timeline (RF-029), aceito somente em
+      chamadas autenticadas pelo token interno.
+- [x] P5.3 controles de modo e pausa por conversa (RF-030); `auto` permanece
+      visível, porém bloqueado até o rollout.
+- [x] P5.4 card "Atendimento automático (WhatsApp)" em Configurações -> Empresa
+      (RF-031), no padrão do card do lembrete e gravável somente por admin.
+- [x] P5.5 testes de endpoint/autorização e contrato, `tsc --noEmit`, `eslint`,
+      builds Node/Next e suíte focada do chatbot limpos. O teste manual da tela
+      publicada em stage continua no critério de conclusão.
 - Critério de conclusão: um atendente consegue operar o copiloto inteiro pela
-  tela, sem console nem chamada manual de API.
+  tela, sem console nem chamada manual de API. **Implementação e validação
+  local concluídas em 2026-08-23; publicação e operação manual em stage ainda
+  pendentes.**
 - Risco: baixo; a tela já existe e a mudança é aditiva.
 - Rollback: esconder o painel por flag de UI mantém o backend intacto.
 

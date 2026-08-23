@@ -5,6 +5,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -37,6 +38,29 @@ class WhatsAppBotEndpointsTest(unittest.TestCase):
 
     def _user(self, user_id=1):
         return SimpleNamespace(id=user_id)
+
+    def _create_draft(self, db, *, texto="Rascunho original"):
+        job = WhatsAppBotJob(
+            wa_identity="558588018899",
+            conversation_id="77",
+            wa_message_id=f"wamid.{texto}",
+            status="done",
+            scheduled_for=datetime.now(timezone.utc),
+        )
+        db.add(job)
+        db.commit()
+        resposta = WhatsAppBotResposta(
+            job_id=job.id,
+            wa_identity=job.wa_identity,
+            conversation_id=job.conversation_id,
+            decisao="draft",
+            motivo="modo_suggest",
+            texto_gerado=texto,
+        )
+        db.add(resposta)
+        db.commit()
+        db.refresh(resposta)
+        return resposta
 
     def test_get_estado_sem_linha_usa_default_institucional(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -217,6 +241,126 @@ class WhatsAppBotEndpointsTest(unittest.TestCase):
                     self.assertEqual(verify.query(WhatsAppBotResposta).count(), 1)
                 finally:
                     verify.close()
+            finally:
+                engine.dispose()
+
+    def test_enviar_rascunho_editado_e_idempotente(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    resposta = self._create_draft(db)
+                    node_response = Mock()
+                    node_response.raise_for_status.return_value = None
+                    node_response.json.return_value = {"status": "sent", "idempotent": False}
+                    with (
+                        patch.object(whatsapp_bot.settings, "WHATSAPP_AGENDA_SERVICE_URL", "http://node"),
+                        patch.object(whatsapp_bot.settings, "WHATSAPP_AGENDA_INTERNAL_TOKEN", "internal"),
+                        patch.object(whatsapp_bot.httpx, "post", return_value=node_response) as post,
+                        patch.object(whatsapp_bot, "registrar_auditoria") as audit,
+                    ):
+                        primeira = whatsapp_bot.enviar_rascunho(
+                            resposta.id,
+                            whatsapp_bot.WhatsAppBotRespostaEnviarRequest(texto="Texto revisado"),
+                            db=db,
+                            current_user=self._user(42),
+                        )
+                        segunda = whatsapp_bot.enviar_rascunho(
+                            resposta.id,
+                            whatsapp_bot.WhatsAppBotRespostaEnviarRequest(),
+                            db=db,
+                            current_user=self._user(42),
+                        )
+
+                    self.assertEqual(primeira["status"], "sent")
+                    self.assertFalse(primeira["idempotent"])
+                    self.assertTrue(segunda["idempotent"])
+                    post.assert_called_once()
+                    request_json = post.call_args.kwargs["json"]
+                    self.assertEqual(request_json["body"], "Texto revisado")
+                    self.assertEqual(request_json["metadata"]["origem"], "bot")
+                    self.assertEqual(
+                        request_json["metadata"]["idempotency_key"],
+                        f"whatsapp-bot-resposta-{resposta.id}",
+                    )
+                    audit.assert_called_once()
+
+                    db.expire_all()
+                    persistida = db.query(WhatsAppBotResposta).filter_by(id=resposta.id).first()
+                    self.assertEqual(persistida.decisao, "sent")
+                    self.assertEqual(persistida.feedback, "positivo")
+                    self.assertEqual(persistida.texto_enviado, "Texto revisado")
+                    self.assertEqual(persistida.enviado_por_id, 42)
+                    estado = db.query(WhatsAppBotConversaEstado).filter_by(
+                        wa_identity=resposta.wa_identity
+                    ).first()
+                    self.assertIsNotNone(estado)
+                    self.assertIsNotNone(estado.pausado_ate)
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_descartar_rascunho_sem_envio_e_idempotente(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    resposta = self._create_draft(db, texto="Descartar")
+                    with patch.object(whatsapp_bot, "registrar_auditoria") as audit:
+                        primeira = whatsapp_bot.descartar_rascunho(
+                            resposta.id, db=db, current_user=self._user(7)
+                        )
+                        segunda = whatsapp_bot.descartar_rascunho(
+                            resposta.id, db=db, current_user=self._user(7)
+                        )
+                    self.assertFalse(primeira["idempotent"])
+                    self.assertTrue(segunda["idempotent"])
+                    audit.assert_called_once()
+                    db.expire_all()
+                    persistida = db.query(WhatsAppBotResposta).filter_by(id=resposta.id).first()
+                    self.assertEqual(persistida.decisao, "draft")
+                    self.assertEqual(persistida.feedback, "negativo")
+                    self.assertIsNone(persistida.texto_enviado)
+                    self.assertEqual(persistida.enviado_por_id, 7)
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_falha_no_node_devolve_rascunho_para_revisao(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    resposta = self._create_draft(db, texto="Tentar depois")
+                    with (
+                        patch.object(whatsapp_bot.settings, "WHATSAPP_AGENDA_SERVICE_URL", "http://node"),
+                        patch.object(whatsapp_bot.settings, "WHATSAPP_AGENDA_INTERNAL_TOKEN", "internal"),
+                        patch.object(whatsapp_bot.httpx, "post", side_effect=RuntimeError("offline")),
+                        patch.object(whatsapp_bot, "registrar_auditoria") as audit,
+                    ):
+                        with self.assertRaises(HTTPException) as raised:
+                            whatsapp_bot.enviar_rascunho(
+                                resposta.id,
+                                whatsapp_bot.WhatsAppBotRespostaEnviarRequest(),
+                                db=db,
+                                current_user=self._user(42),
+                            )
+
+                    self.assertEqual(raised.exception.status_code, 502)
+                    audit.assert_not_called()
+                    db.expire_all()
+                    persistida = db.query(WhatsAppBotResposta).filter_by(id=resposta.id).first()
+                    self.assertEqual(persistida.decisao, "draft")
+                    self.assertIsNone(persistida.feedback)
+                    self.assertIsNone(persistida.texto_enviado)
+                    self.assertIsNone(persistida.enviado_por_id)
+                finally:
+                    db.close()
             finally:
                 engine.dispose()
 
