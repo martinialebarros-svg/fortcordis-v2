@@ -1,7 +1,7 @@
 # Plan - whatsapp-chatbot-atendimento
 
-Data: 2026-08-20  
-Responsavel: Martiniano + Claude  
+Data: 2026-08-20
+Responsavel: Martiniano + Claude
 Status: draft
 
 ## Sequência de fases

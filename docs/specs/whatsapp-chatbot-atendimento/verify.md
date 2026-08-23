@@ -1,7 +1,7 @@
 # Verify - whatsapp-chatbot-atendimento
 
-Data: 2026-08-20  
-Responsavel: Martiniano + Claude  
+Data: 2026-08-20
+Responsavel: Martiniano + Claude
 Status: draft
 
 > Fases 1-3 entregues em 2026-08-22 (schema/config, gatilho/fila/worker,
