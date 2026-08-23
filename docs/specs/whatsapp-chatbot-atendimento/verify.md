@@ -7,7 +7,8 @@ Status: draft
 > Fases 1-3 entregues em 2026-08-22 (schema/config, gatilho/fila/worker,
 > portões/identidade/guardrails de entrada). Fase 4 (geração e guardrails de
 > saída) entregue em código em 2026-08-23, mas **não fechada**: nenhum envio ao
-> cliente existe (RF-027 é Fase 6) e ainda não houve smoke com provider real.
+> cliente existe (RF-027 é Fase 6) e ainda não houve smoke em stage. Um smoke
+> local com provider real passou em `suggest` após a correção.
 > As quatro divergências D1-D4 levantadas na auditoria foram corrigidas
 > localmente e estão registradas na seção "Divergências resolvidas" abaixo.
 > Com o bot habilitado, toda mensagem real hoje termina
@@ -33,7 +34,7 @@ Status: draft
 | CA-013 | aceitação | teste de escopo: contexto `ambiguous`/`not_found` -> resposta sem dado de registro | ok — `test_identidade_nao_resolvida_nao_chama_provider`, `test_identidade_ambigua_nao_chama_provider_nem_expoe_candidatos` e `test_todos_portoes_abertos_com_identidade_nao_resolvida_vira_handoff`; nos dois estados o provider não é chamado e nenhum candidato entra em `texto_gerado` |
 | CA-014 | aceitação | teste de allowlist: intent fora da lista em conversa `auto` -> `draft` | ok — `test_intent_fora_da_allowlist_em_auto_vira_rascunho` grava `draft/intent_fora_allowlist`; `test_intent_fora_da_allowlist_em_suggest_continua_editavel` prova que o modo copiloto mantém o texto editável |
 | CA-015 | aceitação | teste do validador: candidata com conteúdo clínico -> `blocked` + motivo gravado | ok — `test_conteudo_clinico_gerado_vira_blocked_com_motivo`, `GuardrailBloqueioClinicoTest` e `test_resultado_do_gerador_e_persistido_com_auditoria_completa`, que relê `decisao`, `motivo`, texto, modelo, prompt, tools, tokens, latência e contexto da linha persistida |
-| CA-016 | aceitação | teste de fonte: sem tool e sem trecho recuperado -> não envia | ok local — `test_sem_fonte_nao_responde` e `test_tool_sem_relacao_nao_conta_como_fonte_da_intent`; no fluxo completo, `test_tool_sem_relacao_nao_autoriza_status_de_laudo` prova que horário não serve de fonte para laudo. O smoke com provider real segue pendente |
+| CA-016 | aceitação | teste de fonte: sem tool e sem trecho recuperado -> não envia | ok local — `test_sem_fonte_nao_responde` e `test_tool_sem_relacao_nao_conta_como_fonte_da_intent`; no fluxo completo, `test_tool_sem_relacao_nao_autoriza_status_de_laudo` prova que horário não serve de fonte para laudo. Smoke real de preço confirmou a tool específica; status e stage seguem pendentes |
 | CA-017 | aceitação | teste de teto: acima do limite diário -> `suppressed` com motivo de teto | ok — `test_whatsapp_bot_generation.test_teto_diario_suprime_antes_de_gastar_token` (decisão `suppressed`, motivo `teto_diario`, `provider.generate` não chamado); teto aplicado em `whatsapp_bot_generation.py:127-135` antes de gastar token. Ressalva: `contar_respostas_do_dia` só soma `decisao == "sent"`, que não é alcançável até a Fase 6 — em tráfego real o contador é sempre 0 hoje |
 | CA-018 | aceitação | teste de envio em `auto`: chamada ao Node com `metadata.origem = "bot"` | pendente — envio adiado para a Fase 6 por dependência real do lado Node: `sendConversationMessage` crava `{source: "agent_api"}` (`whatsapp-stage-backend/src/controllers/conversationsController.ts:611`) e não aceita `metadata` do chamador; o endpoint também não tem idempotência. Não existe nenhum `httpx.post` no backend do bot. Hoje só há `test_whatsapp_bot_generation.test_aprovada_em_auto_ainda_nao_envia_nesta_fase` |
 | CA-019 | aceitação | teste do preview: nenhum job alterado, nenhuma geração, nenhum envio | ok — `test_whatsapp_bot_endpoints.test_preview_nao_altera_nada_e_conta_por_status_e_decisao` (endpoint é só leitura/agregação; contagens de jobs/respostas antes e depois idênticas) |
@@ -58,11 +59,12 @@ Status: draft
   `blocked` apenas por inelegibilidade ao modo automático.
 - **D2 resolvida:** `GuardrailVeredito` separa `aprovado` (segurança editorial)
   de `auto_elegivel`; em `suggest`, resposta segura continua editável.
-- **D3 resolvida localmente:** o provider devolve `function_call`, o orquestrador
+- **D3 resolvida:** o provider devolve `function_call`, o orquestrador
   executa a tool escopada, anexa `function_call_output` e reenvia todo o estado
   com `store=False`, por no máximo duas rodadas. Fonte agora é específica por
-  intent; preço/status são renderizados do payload literal. Falta confirmar o
-  contrato contra o provider real.
+  intent; preço/status são renderizados do payload literal. O contrato foi
+  confirmado em smoke local real com `consultar_preco_tabela`; stage permanece
+  pendente.
 - **D4 resolvida localmente:** falhas HTTP por telefone são relançadas sem URL,
   e logs/`last_error` passam por redação; teste com `assertLogs` cobre o número
   completo.
@@ -189,9 +191,12 @@ Resumo da correção da auditoria (2026-08-23):
 - Validação final local: backend completo **971/971**, 0 falha/erro; serviço
   Node com `npm run build`, `npm run test:phone-number` e
   `npm run test:inbox-ui` aprovados. O frontend não foi tocado nesta correção.
-- Provider real e stage continuam **não testados**: o conector OpenAI Platform
-  ainda retorna reautenticação necessária e nenhuma chave foi gravada
-  localmente. O critério de conclusão da Fase 4 permanece aberto.
+- Smoke local real em `suggest`: `gpt-5.6-sol`, decisão `draft`, motivo
+  `modo_suggest`, tool tentada/confirmada `consultar_preco_tabela`, 2.462 tokens
+  de entrada, 199 de saída e 8.735 ms; texto gerado presente e nenhum caminho de
+  envio executado. A chave nova foi gravada somente no `backend/.env` ignorado.
+- Stage continua **não testado**. O critério de conclusão da Fase 4 permanece
+  aberto até o rascunho real aparecer persistido e operável na central de stage.
 
 ## Testes manuais planejados (stage)
 

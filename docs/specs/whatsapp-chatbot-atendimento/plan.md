@@ -152,11 +152,12 @@ uma mensagem gerada chegue a um cliente.
       auditoria e redação de telefone em erro/log.
 - Critério de conclusão: em stage, com conversa em `suggest`, rascunhos reais
   aparecem gravados e nenhum envio acontece. **NÃO cumprido em 2026-08-23**: o
-  código está entregue, mas nenhuma geração com provider real foi executada em
-  stage ou fora dele. As quatro divergências D1-D4 levantadas na auditoria foram
-  corrigidas localmente em 2026-08-23 e têm cobertura automatizada; falta a
-  credencial/reautorização do OpenAI Platform e o smoke real em `suggest` para
-  fechar o critério. A fase permanece aberta por essa evidência externa.
+  código está entregue e um smoke local real em `suggest` passou com
+  `gpt-5.6-sol` + `consultar_preco_tabela`, sem envio. As quatro divergências
+  D1-D4 levantadas na auditoria foram corrigidas localmente em 2026-08-23 e têm
+  cobertura automatizada. Falta executar em stage e comprovar que o rascunho
+  aparece gravado/operável na central para fechar o critério; a fase permanece
+  aberta por essa evidência de ambiente.
 - Risco: o maior da entrega. Mitigado por `suggest` como padrão, validador de
   saída e allowlist estreita. Confirmado pela auditoria que **nada é enviável**
   nesta fase: não há um único `httpx.post` no backend do bot.

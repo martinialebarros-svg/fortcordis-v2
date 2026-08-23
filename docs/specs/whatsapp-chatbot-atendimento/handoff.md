@@ -2,8 +2,8 @@
 
 Data: 2026-08-23
 Responsável: Martiniano + Codex
-Status: em implementação; Fases 1-3 concluídas, Fase 4 corrigida localmente e
-aguardando smoke real, Fases 5-6 pendentes
+Status: em implementação; Fases 1-3 concluídas, Fase 4 corrigida e validada
+localmente com provider real, stage/Fases 5-6 pendentes
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -67,32 +67,33 @@ Arquivos principais alterados nesta correção:
 - testes `backend/tests/test_whatsapp_bot_*`
 - `spec.md`, `plan.md`, `verify.md` e este handoff
 
-## Bloqueio externo atual
+## Credencial e smoke real
 
-Não há `OPENAI_API_KEY` utilizável no worktree e nenhuma chave foi gravada em
-`backend/.env`. O usuário autorizou criar uma chave nova e gravá-la nesse
-arquivo ignorado pelo Git, mas o conector OpenAI Platform continua retornando:
+Uma chave nova chamada `fortcordis-whatsapp-chatbot` foi criada em
+**Personal / Default project** e gravada como `OPENAI_API_KEY` apenas no
+`backend/.env` ignorado pelo Git deste worktree. Nunca imprima, copie para logs,
+commite ou transfira esse valor sem autorização explícita.
 
-`This app connection requires reauthentication before other actions on this app can succeed.`
+Smoke local real já executado com dados fictícios, em `suggest` e sem envio:
 
-O app aparece habilitado em **Configurações -> Plug-ins**, mas a reautorização
-precisa ser concluída em **Configurações -> Conexões -> OpenAI Platform**. Não
-imprima, copie para logs ou versione a chave. Antes de criar outra, verifique se
-a tentativa anterior não criou uma chave remota duplicada. Confirme com o
-usuário no último passo antes de gravar qualquer segredo.
+- modelo `gpt-5.6-sol`;
+- decisão `draft`, motivo `modo_suggest`;
+- `consultar_preco_tabela` foi chamada e retornou `ok`;
+- uso agregado: 2.462 tokens de entrada e 199 de saída;
+- latência: 8.735 ms;
+- texto final presente; nenhum envio ao WhatsApp foi acionado.
 
 ## Próxima sequência recomendada
 
-1. Finalizar validação local da correção: suíte completa do backend, build/teste
-   do serviço Node e checagem do diff.
-2. Reautorizar OpenAI Platform, criar/gravar a chave somente após confirmação e
-   executar um smoke controlado com provider real, sempre em `suggest`.
-3. Confirmar que uma pergunta de preço chama `consultar_preco_tabela`, que uma
-   pergunta de laudo chama `consultar_status_laudo`, que o rascunho é persistido
-   com tokens/tools e que nada é enviado ao cliente.
-4. Só então iniciar a Fase 5: painel de rascunho na central, ações
+1. Preparar um teste controlado em stage, sempre em `suggest`, com a credencial
+   configurada pelo mecanismo de secrets do ambiente — nunca copiando o `.env`
+   local para o repositório.
+2. Confirmar que preço chama `consultar_preco_tabela`, laudo chama
+   `consultar_status_laudo`, o rascunho é persistido com tokens/tools e nada é
+   enviado ao cliente.
+3. Só então iniciar a Fase 5: painel de rascunho na central, ações
    Enviar/Editar/Descartar, selo do bot e controles por conversa/Configurações.
-5. Manter a Fase 6 bloqueada até haver preview e métricas reais de `suggest` em
+4. Manter a Fase 6 bloqueada até haver preview e métricas reais de `suggest` em
    stage. `auto` não deve ser ligado por inferência.
 
 ## Validação
