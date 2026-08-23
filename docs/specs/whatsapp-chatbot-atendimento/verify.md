@@ -699,11 +699,44 @@ retorno da tool (ancora valor e horário). Um texto com endereço inventado
 passaria como aprovado. Em `suggest` isso é revisado por humano; em `auto`
 seria uma afirmação falsa enviada ao cliente.
 
-Correção proposta, ainda **não implementada**: `consultar_dados_institucionais`
-deve devolver `ok=False` quando os campos que sustentam a intent estiverem
-vazios (endereço para `endereco`; telefone/e-mail para `formas_contato`), com
-diagnóstico apontando o campo em falta — e o guardrail precisa ancorar endereço
-e telefone no retorno literal da tool, como já faz com valor e horário.
+#### Correção implementada (2026-08-23, após autorização explícita)
+
+Três frentes, com o achado acima como caso de regressão:
+
+1. **A tool falha fechado.** `consultar_dados_institucionais` devolve
+   `ok=False` quando não há endereço nem contato publicável, com
+   `campos_vazios` e mensagem apontando `Configurações > Empresa`. Passou a
+   devolver `tem_endereco` e `tem_contato`, porque uma única tool sustenta
+   duas intents. Cidade e estado não contam como endereço, e espaço em branco
+   não conta como dado.
+2. **A prontidão decide por intent.** `_CAMPO_EXIGIDO_POR_INTENT` liga
+   `endereco` a `tem_endereco` e `formas_contato` a `tem_contato`. Com
+   telefone preenchido e endereço vazio, o painel agora mostra contato verde e
+   endereço pendente — antes mostrava os dois verdes.
+3. **O guardrail ancora contato e endereço.** Dois motivos novos:
+   `contato_fora_da_fonte` (telefone ou CEP que não veio da tool, comparado
+   pela cauda dos dígitos para `+55`/DDD não gerarem falso bloqueio) e
+   `endereco_sem_fonte` (resposta cita logradouro e o cadastro não tem
+   endereço algum).
+
+Limite declarado: **não** se tenta conferir prosa de endereço contra o
+cadastro. Quando a fonte tem endereço, o texto passa sem comparação palavra a
+palavra — texto livre não suporta isso de forma confiável. O que fica fechado é
+afirmar endereço sem ter dado, que era o caminho real medido em stage.
+
+Evidência:
+
+| Item | Evidência |
+| --- | --- |
+| Tool falha fechado | `test_whatsapp_bot_tools.test_cadastro_institucional_vazio_falha_fechado` (só cidade/estado → `ok=False`, `campos_vazios` = email/endereco/telefone) |
+| Separação por campo | `test_cadastro_..._so_telefone_preenchido_habilita_contato_e_nao_endereco` |
+| Espaço em branco | `test_espaco_em_branco_nao_conta_como_dado` |
+| Painel deixa de dar falso verde | `test_whatsapp_bot_painel.test_prontidao_nao_da_verde_com_cadastro_institucional_vazio` (as duas personas, `endereco` e `formas_contato`) |
+| Painel separa as duas intents | `test_prontidao_separa_endereco_de_formas_de_contato` |
+| Ancoragem de contato e endereço | 6 casos novos em `evals/whatsapp_bot_cases.json` (33 no total): telefone inventado, telefone da fonte com `+55`, CEP inventado, logradouro sem cadastro, logradouro com cadastro, contato sem número |
+| Contrato dos motivos | `test_whatsapp_bot_evals.test_cobertura_de_todos_os_motivos_de_bloqueio` obriga caso de regressão para cada `MotivoBloqueio`; foi ele que reprovou a primeira versão desta correção, antes dos casos existirem |
+
+Suíte focada do bot **164/164** (era 159).
 
 ### Pendente na Fase 6
 
@@ -715,8 +748,13 @@ e telefone no retorno literal da tool, como já faz com valor e horário.
   mensagem e sem envio automático.
 - Conteúdo institucional sem PII cadastrado, para fechar as quatro pendências
   de conhecimento da prontidão.
-- Correção do falso verde de `consultar_dados_institucionais` (acima) e as
-  demais nove guardas do handoff, antes de qualquer envio automático.
+- As **outras nove guardas** do handoff, antes de qualquer envio automático. A
+  guarda 10 (falso verde de `consultar_dados_institucionais`) foi corrigida em
+  2026-08-23; as nove restantes seguem sem implementação.
+- Preencher `Endereço`, `Telefone` e `E-mail` em Configurações > Empresa no
+  stage — o usuário assumiu esse passo. Enquanto estiverem vazios, a prontidão
+  vai mostrar `endereco` e `formas_contato` como pendentes nas duas personas,
+  que passou a ser o retrato correto.
 
 ## Regressão e riscos residuais
 
@@ -739,12 +777,16 @@ e telefone no retorno literal da tool, como já faz com valor e horário.
   número mal cadastrado ou compartilhado entre clínica e tutor continua caindo
   em `ambiguous`, que por RF-016 não revela nada — seguro, porém inútil para o
   cliente até alguém corrigir o cadastro.
-- **O painel de prontidão pode dar verde sem dado** (ver "Falso verde
-  confirmado" acima). Enquanto `consultar_dados_institucionais` responder
-  `ok=True` com campos nulos, o painel — cuja função é justamente dizer se o
-  bot consegue responder — informa o contrário do que acontece, e a RF-020
-  aceita esse retorno como fonte. É o risco mais próximo de virar resposta
-  errada ao cliente quando o `auto` ligar.
+- O falso verde do painel e a falta de ancoragem de contato/endereço foram
+  **corrigidos em 2026-08-23** (guarda 10 das dez do handoff). O que resta do
+  risco: a ancoragem de endereço impede afirmar logradouro sem dado, mas não
+  compara prosa contra o cadastro — com endereço cadastrado, um número ou
+  complemento errado ainda passaria. Em `suggest` um humano revisa; antes do
+  `auto`, vale um caso de teste real com endereço preenchido.
+- As **outras nove guardas** do handoff continuam abertas e nenhuma delas está
+  implementada. Envio automático sem tratá-las reenviaria ao cliente no retry,
+  faria o bot ver a própria mensagem e transformaria `sent` em duas coisas
+  diferentes, contaminando justamente o número que autoriza o `auto`.
 
 ## Itens fora de escopo entregues
 

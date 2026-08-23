@@ -55,6 +55,25 @@ ROTULO_INTENT: dict[str, str] = {
     "como_solicitar_exame": "Como solicitar exame",
 }
 
+# Campo do cadastro institucional que cada intent exige de fato. A tool
+# `consultar_dados_institucionais` sustenta duas intents com dados diferentes:
+# ficar so no `ok` dela reporta verde sem endereco e sem telefone.
+_CAMPO_EXIGIDO_POR_INTENT: dict[str, str] = {
+    "endereco": "tem_endereco",
+    "formas_contato": "tem_contato",
+}
+
+FALTA_CAMPO_INSTITUCIONAL: dict[str, str] = {
+    "tem_endereco": (
+        "Endereco vazio em Configuracoes > Empresa. Cidade e estado nao bastam: "
+        "o cliente precisa do logradouro para chegar."
+    ),
+    "tem_contato": (
+        "Telefone e e-mail vazios em Configuracoes > Empresa. Preencha ao menos "
+        "um para o bot poder dizer como falar com uma pessoa."
+    ),
+}
+
 # Onde o admin resolve cada falta. Texto de produto, nao de log.
 COMO_RESOLVER: dict[str, str] = {
     "consultar_dados_institucionais": (
@@ -136,6 +155,18 @@ def _sondar_intent(
         return item
 
     pronto = bool(resultado.get("ok"))
+
+    # Uma tool, duas intents: `consultar_dados_institucionais` pode estar `ok`
+    # com endereco e sem telefone, ou o contrario. Sem esta checagem por campo
+    # a prontidao volta a dar o falso verde que stage exibiu em 2026-08-23.
+    campo_exigido = _CAMPO_EXIGIDO_POR_INTENT.get(intent)
+    if pronto and campo_exigido and not resultado.get(campo_exigido):
+        item.update({
+            "pronto": False,
+            "diagnostico": FALTA_CAMPO_INSTITUCIONAL[campo_exigido],
+        })
+        return item
+
     item["pronto"] = pronto
     item["diagnostico"] = None if pronto else _diagnostico_do_resultado(nome_tool, resultado)
     return item

@@ -122,6 +122,56 @@ class WhatsAppBotPainelTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
+    def test_prontidao_nao_da_verde_com_cadastro_institucional_vazio(self) -> None:
+        """Falso verde medido em stage (2026-08-23).
+
+        Existia linha de `Configuracao` com so cidade e estado. A tool
+        respondia `ok=True`, e o painel — cuja funcao e justamente dizer se o
+        bot consegue responder — pintava `endereco` e `formas_contato` de
+        verde sem haver endereco nem telefone cadastrado.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    db.add(Configuracao(cidade="Fortaleza", estado="CE"))
+                    db.commit()
+                    with self._sem_rede():
+                        r = readiness.coletar_prontidao(db)
+                finally:
+                    db.close()
+
+                for persona in ("tutor", "clinica"):
+                    itens = {i["intent"]: i for i in r["personas"][persona]["itens"]}
+                    for intent in ("endereco", "formas_contato"):
+                        self.assertFalse(itens[intent]["pronto"], f"{persona}/{intent}")
+                        self.assertTrue(itens[intent]["diagnostico"], f"{persona}/{intent}")
+            finally:
+                engine.dispose()
+
+    def test_prontidao_separa_endereco_de_formas_de_contato(self) -> None:
+        """Uma tool sustenta duas intents; o veredito nao pode ser um so."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    # Telefone preenchido, endereco ainda vazio.
+                    db.add(Configuracao(cidade="Fortaleza", telefone="(85) 3333-4444"))
+                    db.commit()
+                    with self._sem_rede():
+                        r = readiness.coletar_prontidao(db)
+                finally:
+                    db.close()
+
+                tutor = {i["intent"]: i for i in r["personas"]["tutor"]["itens"]}
+                self.assertTrue(tutor["formas_contato"]["pronto"])
+                self.assertFalse(tutor["endereco"]["pronto"])
+                self.assertIn("Endereco vazio", tutor["endereco"]["diagnostico"])
+            finally:
+                engine.dispose()
+
     def test_prontidao_explica_categoria_errada_em_vez_de_so_dizer_nao(self) -> None:
         """O diagnostico e o ponto do painel: cadastrar as cegas foi o que
         deixou a regressao do piso passar tres fases."""

@@ -39,6 +39,9 @@ def _turno_do_caso(case: dict) -> gr.TurnoDeGeracao:
         horarios_permitidos=set(bruto.get("horarios_permitidos") or []),
         datas_permitidas=set(bruto.get("datas_permitidas") or []),
         textos_clinicos_proibidos=list(bruto.get("textos_clinicos_proibidos") or []),
+        telefones_permitidos=set(bruto.get("telefones_permitidos") or []),
+        ceps_permitidos=set(bruto.get("ceps_permitidos") or []),
+        tem_endereco_na_fonte=bool(bruto.get("tem_endereco_na_fonte")),
     )
 
 

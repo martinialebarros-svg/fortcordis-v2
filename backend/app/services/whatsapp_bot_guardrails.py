@@ -45,6 +45,8 @@ MotivoBloqueio = Literal[
     "sem_fonte",
     "teto_diario",
     "teto_caracteres",
+    "contato_fora_da_fonte",
+    "endereco_sem_fonte",
     "vazamento_conteudo_laudo",
 ]
 
@@ -105,6 +107,9 @@ class TurnoDeGeracao:
     horarios_permitidos: set[str] = field(default_factory=set)
     datas_permitidas: set[str] = field(default_factory=set)
     textos_clinicos_proibidos: list[str] = field(default_factory=list)
+    telefones_permitidos: set[str] = field(default_factory=set)
+    ceps_permitidos: set[str] = field(default_factory=set)
+    tem_endereco_na_fonte: bool = False
 
     @property
     def tem_fonte(self) -> bool:
@@ -188,6 +193,17 @@ def contar_respostas_do_dia(db: Session, wa_identity: str, *, now: Optional[date
 _RE_VALOR = re.compile(r"(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{2})|\d+(?:[.,]\d{2}))")
 _RE_HORARIO = re.compile(r"\b([01]?\d|2[0-3])\s*[:h]\s*([0-5]\d)\b")
 _RE_DATA = re.compile(r"\b(\d{1,2})\s*/\s*(\d{1,2})(?:\s*/\s*(\d{2,4}))?\b")
+_RE_CEP = re.compile(r"\b\d{5}-\d{3}\b")
+_RE_TELEFONE = re.compile(
+    r"(?:\+?55[\s.-]?)?(?:\(?\d{2}\)?[\s.-]?)?\d{4,5}[\s.-]?\d{4}\b"
+)
+
+# Palavras que so aparecem quando a resposta esta dando um endereco. Servem
+# para detectar endereco afirmado SEM fonte; nao tentam conferir prosa contra
+# o cadastro, o que texto livre nao suporta de forma confiavel.
+_TERMOS_DE_LOGRADOURO: frozenset[str] = frozenset({
+    "rua", "avenida", "av", "travessa", "alameda", "rodovia", "estrada",
+})
 
 
 def _valores_no_texto(texto: str) -> set[str]:
@@ -203,6 +219,42 @@ def _valores_no_texto(texto: str) -> set[str]:
 
 def _horarios_no_texto(texto: str) -> set[str]:
     return {f"{int(h):02d}:{m}" for h, m in _RE_HORARIO.findall(texto.lower())}
+
+
+def _so_digitos(valor: Any) -> str:
+    return "".join(c for c in str(valor or "") if c.isdigit())
+
+
+def _ceps_no_texto(texto: str) -> set[str]:
+    return {_so_digitos(bruto) for bruto in _RE_CEP.findall(texto or "")}
+
+
+def _telefones_no_texto(texto: str) -> set[str]:
+    """Sequencias com cara de telefone, ja sem os CEPs.
+
+    CEP tem os mesmos 8 digitos de um fixo, entao ele sai do texto antes -
+    senao todo endereco com CEP seria acusado de telefone inventado.
+    """
+    sem_cep = _RE_CEP.sub(" ", texto or "")
+    return {
+        digitos
+        for digitos in (_so_digitos(b) for b in _RE_TELEFONE.findall(sem_cep))
+        if len(digitos) >= 8
+    }
+
+
+def _telefone_ancorado(candidato: str, permitidos: set[str]) -> bool:
+    """Compara pela cauda, para o DDI/DDD nao criar falso bloqueio.
+
+    O cadastro guarda `(85) 3333-4444` e a resposta pode dizer
+    `+55 85 3333-4444`. Sao o mesmo numero; comparar string exata acusaria
+    invencao onde nao ha.
+    """
+    return any(
+        p.endswith(candidato) or candidato.endswith(p)
+        for p in permitidos
+        if len(p) >= 8
+    )
 
 
 def avaliar_resposta(
@@ -280,6 +332,36 @@ def avaliar_resposta(
             detalhe=f"horarios sem fonte: {sorted(horarios_nao_ancorados)}",
         )
 
+    # RF-022: telefone/CEP que nao vieram do cadastro institucional. Mesma
+    # regra ja aplicada a valor e horario: o conjunto permitido vem do retorno
+    # LITERAL da tool, nao do que o modelo diz ter usado.
+    contatos_texto = _telefones_no_texto(texto) | _ceps_no_texto(texto)
+    permitidos_contato = turno.telefones_permitidos | turno.ceps_permitidos
+    nao_ancorados_contato = {
+        candidato
+        for candidato in contatos_texto
+        if not _telefone_ancorado(candidato, permitidos_contato)
+    }
+    if nao_ancorados_contato:
+        return GuardrailVeredito(
+            aprovado=False,
+            motivo="contato_fora_da_fonte",
+            detalhe=f"telefone/CEP sem fonte: {sorted(nao_ancorados_contato)}",
+        )
+
+    # RF-020/RF-022: endereco afirmado sem endereco no cadastro. Nao tentamos
+    # conferir a prosa contra o cadastro - texto livre nao suporta comparacao
+    # confiavel -, mas afirmar logradouro quando a fonte nao tem NENHUM
+    # endereco e invencao pura, e era o caminho que stage deixava passar.
+    if not turno.tem_endereco_na_fonte:
+        tokens = set(texto_normalizado.split())
+        if tokens & _TERMOS_DE_LOGRADOURO:
+            return GuardrailVeredito(
+                aprovado=False,
+                motivo="endereco_sem_fonte",
+                detalhe="resposta cita logradouro e o cadastro institucional nao tem endereco",
+            )
+
     # RF-019: intent fora da allowlist continua segura para revisao humana,
     # mas nunca e elegivel ao modo automatico.
     permitidas = INTENTS_AUTO_POR_PERSONA.get(turno.persona, frozenset())
@@ -337,5 +419,13 @@ def turno_a_partir_dos_resultados(
         if nome == "buscar_conhecimento_institucional":
             if resultado.get("trechos"):
                 turno.tem_trecho_conhecimento = True
+
+        if nome == "consultar_dados_institucionais":
+            turno.tem_endereco_na_fonte = bool(resultado.get("tem_endereco"))
+            telefone = _so_digitos(resultado.get("telefone"))
+            if len(telefone) >= 8:
+                turno.telefones_permitidos.add(telefone)
+            for cep in _RE_CEP.findall(str(resultado.get("endereco") or "")):
+                turno.ceps_permitidos.add(_so_digitos(cep))
 
     return turno

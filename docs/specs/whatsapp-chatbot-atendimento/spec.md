@@ -177,6 +177,21 @@ de pausa e claim, não por relógio.
   sintoma ("é normal?", "é grave?"), promessa de prazo não confirmada por tool
   ou valor não vindo de tabela de preço. Bloqueio nunca vira silêncio: vira
   rascunho com o motivo registrado e handoff sinalizado.
+  - **Ancoragem de contato e endereço (2026-08-23).** Valor e horário já eram
+    ancorados no retorno literal da tool; telefone, CEP e endereço não eram, e
+    stage mostrou que isso deixava passar texto inventado. Agora:
+    `contato_fora_da_fonte` bloqueia telefone ou CEP que não venha de
+    `consultar_dados_institucionais` (comparação pela cauda dos dígitos, para
+    `+55`/DDD não gerarem falso bloqueio); `endereco_sem_fonte` bloqueia
+    resposta que cita logradouro quando o cadastro institucional **não tem
+    endereço nenhum**. Comparar prosa de endereço contra o cadastro não é
+    tentado — texto livre não suporta isso de forma confiável —, então o
+    escopo declarado é impedir afirmação sem dado, não conferir cada palavra.
+  - **Fonte institucional exige dado, não só linha de cadastro (2026-08-23).**
+    `consultar_dados_institucionais` falha fechado quando não há endereço nem
+    contato publicável, e devolve `tem_endereco`/`tem_contato` porque uma única
+    tool sustenta as intents `endereco` e `formas_contato`. Cidade e estado
+    sozinhos não são endereço.
 - RF-023 (emergência): termos de emergência na entrada ("não está respirando",
   "desmaiou", "convulsão", "sangramento", "atropelado", "engasgado" e afins,
   em lista versionada) **não passam pelo gerador**. Resposta fixa e curta

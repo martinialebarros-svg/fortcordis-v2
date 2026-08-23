@@ -96,6 +96,71 @@ class WhatsAppBotToolsDbTest(unittest.TestCase):
             table.create(engine, checkfirst=True)
         return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine
 
+    # --- dados institucionais --------------------------------------------
+
+    def test_cadastro_institucional_vazio_falha_fechado(self) -> None:
+        """Regressao medida em stage (2026-08-23).
+
+        Existia linha de `Configuracao` com endereco, telefone e e-mail
+        vazios, e a tool devolvia `ok=True`. Isso dava fonte valida sem dado:
+        a prontidao ficava verde e a RF-020 aceitava o turno como ancorado.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    db.add(Configuracao(cidade="Fortaleza", estado="CE"))
+                    db.commit()
+                    ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=1)
+                    res = tools.consultar_dados_institucionais(ctx)
+                    self.assertFalse(res["ok"])
+                    self.assertFalse(res["tem_endereco"])
+                    self.assertFalse(res["tem_contato"])
+                    # Cidade/estado sozinhos nao sao endereco publicavel.
+                    self.assertEqual(
+                        sorted(res["campos_vazios"]), ["email", "endereco", "telefone"]
+                    )
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_so_telefone_preenchido_habilita_contato_e_nao_endereco(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    db.add(Configuracao(telefone="(85) 3333-4444"))
+                    db.commit()
+                    ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=1)
+                    res = tools.consultar_dados_institucionais(ctx)
+                    self.assertTrue(res["ok"])
+                    self.assertTrue(res["tem_contato"])
+                    self.assertFalse(res["tem_endereco"])
+                    self.assertIsNone(res["endereco"])
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_espaco_em_branco_nao_conta_como_dado(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    db.add(Configuracao(endereco="   ", telefone="\t"))
+                    db.commit()
+                    ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=1)
+                    res = tools.consultar_dados_institucionais(ctx)
+                    self.assertFalse(res["ok"])
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
     # --- horario ---------------------------------------------------------
 
     def test_horario_em_dia_util_devolve_janela(self) -> None:

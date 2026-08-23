@@ -223,19 +223,69 @@ def consultar_dados_institucionais(ctx: WhatsAppBotToolContext) -> dict[str, Any
     operacional (residencial), nao endereco institucional publicavel. E
     nunca `horario_comercial_inicio/fim`, que sao legados e contradizem a
     agenda real.
+
+    Falha FECHADO quando nao ha dado publicavel. Ate 2026-08-23 esta funcao
+    devolvia `ok=True` sempre que existisse uma linha de `Configuracao`, mesmo
+    com todos os campos nulos. Duas consequencias medidas em stage: a
+    prontidao pintava `endereco` e `formas_contato` de verde com o cadastro
+    vazio, e o turno ficava com fonte valida para a RF-020 sem ter dado algum,
+    de modo que endereco inventado passava aprovado.
+
+    `tem_endereco` e `tem_contato` existem porque uma unica tool sustenta
+    DUAS intents. Sem eles nao da para a prontidao ser honesta por intent nem
+    para o guardrail saber se ha endereco a ancorar.
     """
     config = _configuracao(ctx.db)
     if config is None:
         return {"ok": False, "error": "Dados institucionais nao configurados."}
+
+    def _limpo(valor: Any) -> Optional[str]:
+        texto = str(valor or "").strip()
+        return texto or None
+
+    endereco = _limpo(config.endereco)
+    telefone = _limpo(config.telefone)
+    email = _limpo(config.email)
+    cidade = _limpo(config.cidade)
+    estado = _limpo(config.estado)
+
+    # Cidade/estado NAO valem como endereco: "Fortaleza/CE" nao diz ao cliente
+    # onde ele deve chegar. Contato exige telefone ou e-mail de verdade.
+    tem_endereco = endereco is not None
+    tem_contato = telefone is not None or email is not None
+
+    if not tem_endereco and not tem_contato:
+        vazios = [
+            nome
+            for nome, valor in (
+                ("endereco", endereco),
+                ("telefone", telefone),
+                ("email", email),
+            )
+            if valor is None
+        ]
+        return {
+            "ok": False,
+            "error": (
+                "Cadastro institucional sem endereco e sem contato publicavel. "
+                "Preencha em Configuracoes > Empresa: " + ", ".join(vazios) + "."
+            ),
+            "tem_endereco": False,
+            "tem_contato": False,
+            "campos_vazios": vazios,
+        }
+
     return {
         "ok": True,
-        "nome_empresa": config.nome_empresa or None,
-        "endereco": config.endereco or None,
-        "telefone": config.telefone or None,
-        "email": config.email or None,
-        "cidade": config.cidade or None,
-        "estado": config.estado or None,
-        "website": config.website or None,
+        "tem_endereco": tem_endereco,
+        "tem_contato": tem_contato,
+        "nome_empresa": _limpo(config.nome_empresa),
+        "endereco": endereco,
+        "telefone": telefone,
+        "email": email,
+        "cidade": cidade,
+        "estado": estado,
+        "website": _limpo(config.website),
     }
 
 
