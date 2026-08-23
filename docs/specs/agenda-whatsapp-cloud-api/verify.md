@@ -21,11 +21,11 @@ Status: production-cutover-in-progress
 | CA-012 | fallback do cliente Graph e default do deploy usam `v26.0` | passou no deploy e no callback real de stage |
 | CA-013 | `test-phone-number.ts` cobre equivalencia com/sem nono digito e rejeita DDD/sufixo diferentes | passou localmente |
 | CA-014 | controllers inbound/outbound usam `canonicalWhatsAppIdentity` como chave de conversa | build + inspecao passaram localmente |
-| CA-015 | deploy sincroniza chaves Meta a partir de arquivo protegido, valida presenca/formato e nao imprime valores | pendente de deploy |
-| CA-016 | runtime exclusivo na porta `3020`, health publico e smoke autenticado/assinado | pendente de deploy |
+| CA-015 | workflow de producao preserva o `.env` do proprio runtime, valida IDs esperados e nao usa mais o arquivo de stage | passou localmente; proximo deploy pendente |
+| CA-016 | runtime exclusivo na porta `3020`, health publico e smoke autenticado/assinado | passou em producao |
 | CA-017 | workflow busca e executa o script de deploy diretamente do snapshot remoto, sem depender da copia antiga presente no checkout do VPS | passou por inspecao + parse YAML |
 | CA-018 | `test-database-config.ts` cobre padrao seguro, excecao TLS escopada e recusas; deploy valida o booleano antes de gravar o ambiente | passou localmente |
-| CA-019 | Painel do App e obrigatorio para Webhooks do WhatsApp; callback e `messages` devem ser conferidos visualmente apos salvar | pendente de confirmacao no painel |
+| CA-019 | Painel do App e obrigatorio para Webhooks do WhatsApp; callback de producao e `messages` foram conferidos visualmente | passou |
 
 ## Comandos executados
 

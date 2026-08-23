@@ -3,7 +3,8 @@
 Data: 2026-08-23
 Responsável: Martiniano + Codex
 Status: em implementação; Fases 1-3 concluídas, Fase 4 corrigida e validada
-localmente com provider real, stage/Fases 5-6 pendentes
+localmente com provider real; isolamento Meta de stage preparado localmente;
+corte externo e Fases 5-6 pendentes
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -85,16 +86,37 @@ Smoke local real já executado com dados fictícios, em `suggest` e sem envio:
 
 ## Próxima sequência recomendada
 
-1. Preparar um teste controlado em stage, sempre em `suggest`, com a credencial
+1. Concluir `docs/specs/whatsapp-stage-meta-isolation`: criar app, WABA e numero
+   de teste exclusivos de stage, cadastrar os tres Secrets e as tres Variables
+   do workflow e validar o callback de stage sem alterar producao.
+2. Preparar um teste controlado em stage, sempre em `suggest`, com a credencial
    configurada pelo mecanismo de secrets do ambiente — nunca copiando o `.env`
    local para o repositório.
-2. Confirmar que preço chama `consultar_preco_tabela`, laudo chama
+3. Confirmar que preço chama `consultar_preco_tabela`, laudo chama
    `consultar_status_laudo`, o rascunho é persistido com tokens/tools e nada é
    enviado ao cliente.
-3. Só então iniciar a Fase 5: painel de rascunho na central, ações
+4. Só então iniciar a Fase 5: painel de rascunho na central, ações
    Enviar/Editar/Descartar, selo do bot e controles por conversa/Configurações.
-4. Manter a Fase 6 bloqueada até haver preview e métricas reais de `suggest` em
+5. Manter a Fase 6 bloqueada até haver preview e métricas reais de `suggest` em
    stage. `auto` não deve ser ligado por inferência.
+
+## Diagnostico e isolamento Meta de stage (2026-08-23)
+
+- VPS, health, auth, token e identidade Graph estavam saudaveis.
+- O app FortZap continuava apontando para
+  `https://app.fortcordis.com.br/whatsapp/webhook`; por isso stage nao recebia
+  mensagens reais.
+- O workflow de producao ainda copiava o `.env` Meta de stage; isso foi removido
+  localmente.
+- Stage agora falha fechado se `PHONE_NUMBER_ID`, `META_APP_ID` ou
+  `WHATSAPP_BUSINESS_ACCOUNT_ID` coincidirem com producao.
+- Novas GitHub Variables exigidas: `WHATSAPP_PHONE_NUMBER_ID_STAGE`,
+  `WHATSAPP_META_APP_ID_STAGE`, `WHATSAPP_BUSINESS_ACCOUNT_ID_STAGE`.
+- Em 2026-08-23, essas tres Variables ainda nao existiam; os Secrets antigos
+  existem, mas pertencem ao arranjo compartilhado e devem ser substituidos pela
+  credencial do app exclusivo antes do deploy.
+- Nao publicar em `stage` antes de criar/cadastrar a identidade Meta isolada,
+  pois o novo pipeline recusara corretamente a configuracao compartilhada.
 
 ## Validação
 
