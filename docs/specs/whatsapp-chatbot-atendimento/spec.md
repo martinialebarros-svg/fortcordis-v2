@@ -267,6 +267,14 @@ Novos (autenticados como os demais endpoints de WhatsApp, papéis
   jobs estariam em cada estado agora, sem gerar nem enviar nada (mesmo papel do
   `lembrete-preview`, que existe justamente para inspecionar alcance antes de
   ligar).
+- `GET /api/v1/whatsapp/bot/metricas?dias=7` -> somente leitura (Fase 6,
+  P6.3/P6.5): agrega `whatsapp_bot_respostas` na janela informada e devolve
+  aceite, aceite sem edição, edição entre aceitos, descarte, bloqueio,
+  contenção, latência p50/p95, tokens e custo, com as mesmas quebras em
+  `geral`, `por_persona`, `por_faixa_horario` e `por_persona_e_faixa`.
+  Nenhuma linha é criada, alterada ou apagada. O campo
+  `pronto_para_decidir_auto` é um checklist informativo de suficiência de
+  amostra e **não autoriza** ligar `auto`.
 
 ### Banco/migrações
 
@@ -299,7 +307,11 @@ Novas em `app/core/config.py` + `.env.example`, todas com default seguro:
 `WHATSAPP_BOT_MAX_TOKENS_PER_DAY=100000`,
 `WHATSAPP_BOT_MAX_REPLY_CHARS=900`,
 `WHATSAPP_BOT_RECONCILE_EVERY_CYCLES=60`,
-`WHATSAPP_BOT_RECONCILE_WINDOW_MINUTES=30`.
+`WHATSAPP_BOT_RECONCILE_WINDOW_MINUTES=30`,
+`WHATSAPP_BOT_INPUT_COST_PER_MILLION=0.0` e
+`WHATSAPP_BOT_OUTPUT_COST_PER_MILLION=0.0` (Fase 6). Com as duas em `0.0`
+o painel de métricas marca `custo_configurado=false` e **não** apresenta
+custo, em vez de exibir zero como se o uso fosse gratuito.
 
 ### Frontend
 

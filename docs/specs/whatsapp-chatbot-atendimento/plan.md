@@ -206,8 +206,14 @@ uma mensagem gerada chegue a um cliente.
 
 ### Fase 6 - rollout e observabilidade
 
-- [ ] P6.1 casos de regressão em `backend/evals/whatsapp_bot_cases.json`, no
+- [x] P6.1 casos de regressão em `backend/evals/whatsapp_bot_cases.json`, no
       padrão de `assistente_ia_admin_cases.json`, cobrindo cada guardrail.
+      **Entregue 2026-08-23**: 27 casos + `test_whatsapp_bot_evals.py` (9
+      testes), determinísticos e sem rede. Cobrem os quatro grupos clínicos,
+      vazamento de laudo, fonte ausente e fonte de outra intent, valor/prazo
+      não ancorados com os pares aprovados, o bloco comum da CA-024 nas duas
+      personas e o teto de caracteres. `teto_diario` fica de fora por depender
+      de contagem no banco (já coberto em `test_whatsapp_bot_generation`).
 - [ ] P6.2 `GET /whatsapp/bot/preview` rodado em stage antes de qualquer
       habilitação, para medir alcance real (mesma prática que revelou os 10
       agendamentos elegíveis no lembrete automático).
@@ -219,10 +225,15 @@ uma mensagem gerada chegue a um cliente.
       da RF-019, com decisão registrada no `verify.md`. Se a taxa de aceite
       divergir muito entre as personas, ligar `auto` só para a que estiver
       pronta — o modo é por conversa, então isso não exige mudança de código.
-- [ ] P6.5 métricas: contenção (respostas sem handoff), taxa de bloqueio do
+- [x] P6.5 métricas: contenção (respostas sem handoff), taxa de bloqueio do
       validador, custo por conversa, latência da primeira resposta — todas
       quebradas por persona e por dentro/fora do expediente, já que o bot
-      atende 24/7.
+      atende 24/7. **Entregue 2026-08-23**:
+      `whatsapp_bot_metrics_service.py` + `GET /whatsapp/bot/metricas`,
+      somente leitura, sem migração. Distingue aceite limpo de aceite
+      editado (o envio grava `positivo` mesmo com edição), exclui rascunho
+      pendente do denominador, usa a janela da agenda para a faixa de
+      horário e não apresenta custo quando a taxa não está configurada.
 - Critério de conclusão: decisão de release documentada com números, não com
   impressão.
 - Risco: ligar `auto` cedo demais. Mitigado por P6.3/P6.4 serem sequenciais e

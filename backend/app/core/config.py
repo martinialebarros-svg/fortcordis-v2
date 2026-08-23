@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     WHATSAPP_BOT_MAX_REPLIES_PER_CONVERSATION_DAY: int = 20
     WHATSAPP_BOT_MAX_TOKENS_PER_DAY: int = 100000
     WHATSAPP_BOT_MAX_REPLY_CHARS: int = 900
+    # Fase 6 (P6.5): custo por milhao de tokens do bot. Default 0.0, como
+    # em AI_ECHO_*_COST_PER_MILLION - com 0.0 o painel reporta tokens e
+    # marca o custo como nao configurado, em vez de exibir R$ 0,00 como
+    # se fosse gratuito.
+    WHATSAPP_BOT_INPUT_COST_PER_MILLION: float = 0.0
+    WHATSAPP_BOT_OUTPUT_COST_PER_MILLION: float = 0.0
     WHATSAPP_BOT_RECONCILE_EVERY_CYCLES: int = 60
     WHATSAPP_BOT_RECONCILE_WINDOW_MINUTES: int = 30
     PUBLIC_APP_BASE_URL: str = ""

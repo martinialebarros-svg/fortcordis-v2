@@ -23,6 +23,10 @@ from app.services.whatsapp_bot_gates import (
     resolve_conversation_mode,
     resolve_conversation_state,
 )
+from app.services.whatsapp_bot_metrics_service import (
+    JANELA_PADRAO_DIAS,
+    coletar_metricas_observacao,
+)
 from app.services.auditoria_service import registrar_auditoria
 
 router = APIRouter()
@@ -351,3 +355,20 @@ def preview_whatsapp_bot(
         "jobs_por_status": jobs_por_status,
         "respostas_por_decisao": respostas_por_decisao,
     }
+
+
+@router.get("/metricas")
+def metricas_observacao(
+    dias: int = JANELA_PADRAO_DIAS,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    """P6.3/P6.5: metricas da observacao em `suggest`, somente leitura.
+
+    Aceite, edicao, descarte, bloqueios, latencia e custo, quebrados por
+    persona e por dentro/fora do expediente. Nenhuma linha e alterada e
+    nenhuma geracao ou envio acontece - e o insumo da decisao de `auto`, que
+    continua exigindo autorizacao humana registrada no verify.md.
+    """
+    del current_user
+    return coletar_metricas_observacao(db, dias=dias)

@@ -379,6 +379,91 @@ Sem estes, a decisão de ligar o modo `auto` é chute:
 | Latência da primeira resposta | por dentro/fora do expediente |
 | Custo por conversa | total e p95 |
 
+### Instrumentação entregue (P6.1 e P6.5, 2026-08-23)
+
+Estes dois itens do `plan.md` passam de pendentes a implementados. A coleta em
+si (P6.3) continua pendente por depender de uma semana de tráfego real.
+
+**P6.1 — casos de regressão dos guardrails.**
+`backend/evals/whatsapp_bot_cases.json` (27 casos) e o teste de contrato
+`backend/tests/test_whatsapp_bot_evals.py` (9 testes, todos ok). O dataset é
+avaliado por `avaliar_resposta` **sem LLM e sem rede**: cada caso declara o
+texto candidato, o estado do turno e o veredito esperado
+(`aprovado`, `auto_elegivel`, `motivo`). Cobertura verificada por teste:
+
+- os quatro grupos clínicos (`diagnostico`, `dose_medicacao`, `prognostico`,
+  `avaliacao_sintoma`), incluindo o caso em que a resposta está ancorada em
+  trecho da base — "veio da base" não é passe livre;
+- `vazamento_conteudo_laudo`;
+- `sem_fonte`, inclusive os dois casos em que a fonte existe mas é **de outra
+  intent** (horário não autoriza preço; dados institucionais não autorizam
+  laudo);
+- `valor_fora_tabela` e `prazo_nao_confirmado`, com os pares aprovados
+  correspondentes (valor e horário ancorados no retorno literal da tool);
+- `intent_fora_allowlist` para todo o bloco comum da CA-024 nas duas personas,
+  mais as intents cruzadas de persona (`como_agendar` na clínica,
+  `como_solicitar_exame` no tutor) e `outro`;
+- `teto_caracteres`;
+- pelo menos um caso aprovado e auto-elegível em cada persona.
+
+`teto_diario` é a única exceção declarada no teste de cobertura: depende de
+contagem no banco, não de texto candidato, e já é coberto por
+`test_whatsapp_bot_generation.test_teto_diario_suprime_antes_de_gastar_token`.
+
+Dois guards adicionais protegem a integridade da métrica por motivo:
+`avaliar_resposta` usa o **nome do grupo** da deny-list como `motivo` com um
+`type: ignore`, então um grupo novo no JSON com nome fora de `MotivoBloqueio`
+passaria em runtime e sujaria a agregação sem quebrar teste algum. O teste
+`test_grupo_da_deny_list_sempre_mapeia_para_motivo_do_literal` fecha isso, e
+`test_deny_list_nao_tem_termo_vazio_nem_generico_demais` recusa termo vazio ou
+de 1 caractere. Ambos foram verificados como **não vazios**: simulando um grupo
+`conteudo_experimental`, `avaliar_resposta` de fato produz
+`motivo="conteudo_experimental"`, fora do `Literal`.
+
+**P6.5 — métricas de observação.**
+`backend/app/services/whatsapp_bot_metrics_service.py` e
+`GET /api/v1/whatsapp/bot/metricas?dias=7`, cobertos por
+`backend/tests/test_whatsapp_bot_metrics.py` (9 testes, todos ok). Nenhuma
+migração foi necessária: todas as métricas são deriváveis das colunas que já
+existem.
+
+Decisões de medição que mudam a leitura do número e por isso ficam registradas:
+
+- **Aceite com edição é distinguido do aceite limpo.** O endpoint de envio
+  grava `feedback="positivo"` mesmo quando o atendente reescreveu o texto, logo
+  o feedback sozinho superestima a qualidade do rascunho. A métrica deriva
+  "editado" de `texto_enviado != texto_gerado` e expõe `taxa_aceite`,
+  `taxa_aceite_sem_edicao` e `taxa_edicao_entre_aceitos` separadamente.
+- **Rascunho pendente não entra no denominador do aceite.** Só rascunho já
+  decidido (enviado ou descartado) conta; senão a taxa começaria baixa e subiria
+  sozinha conforme a equipe trabalha, medindo backlog em vez de qualidade.
+- **Faixa de horário usa a janela operacional da agenda**
+  (`is_within_operating_window`), a mesma fonte do texto de handoff da RF-033,
+  para "dentro/fora do expediente" não divergir do que o cliente ouve. Vale a
+  limitação já registrada no CB-010: essa janela é proxy do horário em que
+  alguém lê o inbox.
+- **Custo não finge zero.** Com `WHATSAPP_BOT_*_COST_PER_MILLION=0.0` (default),
+  `custo_configurado=false` e `custo_total`/`custo_por_conversa` vêm `null`.
+  Tokens continuam somados e reportados.
+- **`pronto_para_decidir_auto` é checklist, não autorização.** Reporta
+  `decididos_por_persona`, o mínimo adotado (`20` por persona) e quais personas
+  atingiram amostra. `test_checklist_de_auto_nunca_autoriza_sozinho` fixa que o
+  campo não habilita nada; ligar `auto` continua exigindo autorização humana
+  explícita registrada aqui.
+
+Suítes após esta entrega: **992/992** na suíte completa do backend (era 974),
+**137/137** na suíte focada do bot (era 119) e **15/15** em
+`test_whatsapp_conversation_context` + `test_configuracoes_autorizacao`.
+
+### Pendente na Fase 6
+
+- P6.2: `GET /whatsapp/bot/preview` executado e revisado em stage.
+- P6.3: uma semana de tráfego real em `suggest`, com os números acima
+  coletados e transcritos nesta seção.
+- P6.4: decisão de `auto` registrada com número, após autorização explícita.
+- Teste real de `consultar_status_laudo` em stage, sem conteúdo clínico na
+  mensagem e sem envio automático.
+
 ## Regressão e riscos residuais
 
 - A correção do nono dígito (RF-015) altera um endpoint já consumido pela
