@@ -622,7 +622,14 @@ arquivos; `eslint` sem warning em `configuracoes/page.tsx` e na lib nova;
 | Frontend antes de publicar | 98/98, `eslint` sem warning, `tsc --noEmit` limpo, `next build` concluído |
 | Gate SDD `origin/stage..HEAD` | `PASSED` |
 | Stage antes e depois | raiz `200`, `app.stage/whatsapp/health` `200`, `/whatsapp/conversations` `401`, `/whatsapp-stage` `307` |
-| Produção antes e depois | raiz `200`, health `200`, rota protegida `401`; `origin/main` inalterado em `447ddc53` |
+| Produção antes e depois | raiz `200`, health `200`, rota protegida `401`; `origin/main` inalterado em `447ddc53` nesta publicação |
+
+> Nota de fim de sessão: `origin/main` avançou depois, de `447ddc53` para
+> `683195bd`, por uma promoção alheia a este trabalho (PR #71, promoção do #70
+> — agenda). Verificado que **nenhum arquivo `whatsapp_bot` existe em
+> `origin/main`** (`git ls-tree -r --name-only origin/main | grep -c
+> whatsapp_bot` → `0`, contra 38 em `origin/stage`). O bot continua sem nunca
+> ter ido para produção.
 
 ### P6.2 — preview executado em stage (2026-08-23)
 

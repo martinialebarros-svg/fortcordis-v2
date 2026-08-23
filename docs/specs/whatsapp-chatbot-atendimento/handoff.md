@@ -6,9 +6,11 @@ Status: Fases 1-5 concluídas e publicadas. Fase 6 parcial: evals (P6.1),
 métricas (P6.5), correção crítica da base institucional, painel de configuração
 e **P6.2 cumprido** (preview rodado em stage). A **guarda 10 está fechada**: o
 falso verde da prontidão foi medido em stage, corrigido e reconfirmado no
-ambiente. `origin/stage` em `992b07e6`, sincronizado com esta branch — nada
-pendente de publicar. Produção intacta em `447ddc53`, sem nunca ter recebido o
-bot. `auto` permanece bloqueado, e as outras nove guardas seguem abertas.
+ambiente. `origin/stage` em `0861b7f3`, sincronizado com esta branch — nada
+pendente de publicar. Produção em `683195bd` e **sem nunca ter recebido o bot**
+— `git ls-tree -r --name-only origin/main | grep -c whatsapp_bot` devolve `0`,
+contra 38 em `origin/stage`. `auto` permanece bloqueado, e as outras nove
+guardas seguem abertas.
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -26,13 +28,15 @@ FortCordis v2.
 - Worktree isolado atual:
   `/Users/martiniano/fortcordis-v2/.claude/worktrees/whatsapp-chatbot-handoff-2d02ad`
 - Branch: `claude/whatsapp-chatbot-handoff-2d02ad`
-- `origin/stage` e o runtime de stage estão no SHA
-  `992b07e6` (registro do P6.2 e correção da guarda 10, publicados em
-  2026-08-23 sobre o PR #70).
+- `origin/stage` e o runtime de stage estão no SHA `0861b7f3` (registro do
+  P6.2, correção da guarda 10 e confirmação em stage, publicados em 2026-08-23
+  sobre o PR #70).
 - A branch está **sincronizada** com `origin/stage`: nada pendente de publicar.
   Qualquer publicação futura exige autorização explícita.
-- `origin/main` e produção permanecem no SHA
-  `447ddc530fa0a3ea135eeff427fca1eed637b65d`.
+- `origin/main` e produção estão em `683195bd` (avançou de `447ddc53` em
+  2026-08-23 pelo PR #71, promoção do #70 — agenda, **nada do bot**). Confira
+  sempre com `git rev-parse origin/main`; este SHA envelhece a cada promoção.
+  O que não muda: nenhum arquivo `whatsapp_bot` existe em `origin/main`.
 - O código da Fase 5, o hotfix do nono dígito e a proteção de reenvio do bot já
   foram publicados em stage.
 - A instrumentação da Fase 6 (P6.1 evals + P6.5 métricas), o painel de
@@ -61,8 +65,8 @@ Depois confirme o estado corrente com:
 git status --short --branch
 git fetch origin stage main
 git rev-parse HEAD origin/stage origin/main
-gh run view 32672704495 --json status,conclusion,url,headSha,name
-gh run view 32672704470 --json status,conclusion,url,headSha,name
+gh run view 32673322362 --json status,conclusion,url,headSha,name
+gh run view 32673322519 --json status,conclusion,url,headSha,name
 ```
 
 E leia primeiro este arquivo, começando pela seção
@@ -272,10 +276,11 @@ Não executado, e por quê:
 | `e1a92b95` | provas do deploy anterior | `32665608058` | `32665608079` |
 | `718712c6` | registro consolidado | `32666120138` | `32666120067` |
 | `937d17b5` | **correção crítica da base institucional** | `32668582834` | `32668582870` |
-| `7dca1d45` | **painel de configuração — NÃO PUBLICADO** | — | — |
+| `7dca1d45` | painel de configuração (publicado na parte 3, dentro de `6f446d29`) | — | — |
 
-Todos os runs acima terminaram em `success`. `origin/stage` = `937d17b5`.
-`origin/main` = `447ddc53`, inalterado em toda a sessão.
+Todos os runs acima terminaram em `success`. Ao fim daquela sessão
+`origin/stage` = `937d17b5` e `origin/main` = `447ddc53`; os dois avançaram
+depois — veja a parte 3.
 
 ### A correção crítica (leia antes de mexer na base de conhecimento)
 
@@ -399,9 +404,15 @@ documentos limpos sem PII → usuário aprova → cadastro pelo painel.
 | --- | --- | --- | --- |
 | `6f446d29` | painel de configuração + handoff | `32670249325` | `32670249345` |
 | `992b07e6` | registro do P6.2 + correção da guarda 10 + handoff | `32672704495` | `32672704470` |
+| `0861b7f3` | confirmação em stage do fim do falso verde | `32673322362` | `32673322519` |
 
-Todos `success`. `origin/stage` = `992b07e6`. `origin/main` = `447ddc53`,
-inalterado.
+Todos `success`. `origin/stage` = `0861b7f3` (o último commit, documental, saiu
+nos runs `32673322362` e `32673322519`, ambos `success`).
+
+`origin/main` avançou de `447ddc53` para `683195bd` durante a sessão, por uma
+promoção alheia a este trabalho (PR #71, promoção do #70 — agenda). Verificado:
+zero arquivos `whatsapp_bot` em `origin/main`. O bot continua sem nunca ter ido
+para produção.
 
 **Rebase no meio do caminho.** Entre as duas publicações, `origin/stage` avançou
 para `a128f665` (PR #70, exceção de deslocamento na agenda), então a segunda
