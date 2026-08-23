@@ -198,7 +198,9 @@ uma mensagem gerada chegue a um cliente.
   corretamente a `draft`. P5.6 foi publicada em stage no SHA `5f6ca72b` e,
   após nova confirmação, o reenvio único foi aceito e marcado `delivered` pela
   Meta. O estado interno foi reconciliado sem nova chamada externa; P5.7 fecha
-  o desvio encontrado no botão genérico de reenvio.**
+  o desvio encontrado no botão genérico de reenvio e foi publicada somente em
+  stage no SHA `29f68f22`, com workflows, runtime e smoke autenticado
+  aprovados.**
 - Risco: baixo; a tela já existe e a mudança é aditiva.
 - Rollback: esconder o painel por flag de UI mantém o backend intacto.
 

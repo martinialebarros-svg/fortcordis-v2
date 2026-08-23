@@ -4,8 +4,9 @@ Data: 2026-08-23
 Responsável: Martiniano + Codex
 Status: em implementação; Fases 1-5 concluídas e validadas em stage; primeiro
 envio assistido controlado diagnosticou divergência brasileira do nono dígito,
-com correção publicada em stage no SHA `5f6ca72b`; reenvio único confirmado
-pela Meta como `delivered` e estado reconciliado; Fase 6 pendente
+com correção publicada em stage; reenvio único confirmado pela Meta como
+`delivered`, estado reconciliado e proteção preventiva publicada no SHA
+`29f68f22`; Fase 6 pendente
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -24,12 +25,12 @@ FortCordis v2.
   `/Users/martiniano/fortcordis-v2/.claude/worktrees/whatsapp-chatbot-handoff-2d02ad`
 - Branch: `claude/whatsapp-chatbot-handoff-2d02ad`
 - `origin/stage` e o runtime de stage estão no SHA
-  `5f6ca72b55170bc2820b296b3e66d299199b42d1`.
+  `29f68f2295864bd42de4a6947ba02fbb8344adf1`.
 - `origin/main` e produção permanecem no SHA
   `447ddc530fa0a3ea135eeff427fca1eed637b65d`.
-- O código da Fase 5 e o hotfix do nono dígito já foram publicados. Pode haver
-  um commit documental local
-  posterior registrando as provas do deploy; não o promova para produção.
+- O código da Fase 5, o hotfix do nono dígito e a proteção de reenvio do bot já
+  foram publicados. Pode haver um commit documental local posterior
+  registrando as provas do deploy; não o promova para produção.
 - Preserve o checkout principal e alterações não relacionadas. Não promova
   para produção. O callback e a publicacao de stage ja foram verificados; antes
   de enviar nova mensagem externa ou modificar callback, verify token,
@@ -51,8 +52,8 @@ Depois confirme o estado corrente com:
 git status --short --branch
 git fetch origin stage main
 git rev-parse HEAD origin/stage origin/main
-gh run view 32661248713 --json status,conclusion,url,headSha,name
-gh run view 32661248721 --json status,conclusion,url,headSha,name
+gh run view 32663269023 --json status,conclusion,url,headSha,name
+gh run view 32663268982 --json status,conclusion,url,headSha,name
 ```
 
 ## Estado implementado
@@ -174,19 +175,20 @@ Publicação e smoke da Fase 5 concluídos em `2026-08-23`:
   nova chamada externa: metadata/chave idempotente migraram para a entrega, a
   falha `2430` ficou marcada como substituída e a resposta `7` passou a `sent`
   com texto, feedback, atendente e pausa. A auditoria foi gravada uma vez;
-- foi implementado um hotfix de UI para reenvios futuros do bot usarem o
-  endpoint Python e para esconder o botão da falha substituída. Publique e
-  valide esse hotfix em stage antes de encerrar a correção;
+- o hotfix de UI para reenvios futuros do bot usarem o endpoint Python e para
+  esconder o botão da falha substituída foi publicado somente em stage no SHA
+  `29f68f22`. Os workflows, o runtime, os serviços e a tela autenticada foram
+  validados;
 - produção permaneceu em `447ddc53`, saudável e sem alteração.
 
 ## Próxima sequência recomendada
 
 1. Mantenha stage em `suggest` e `auto` bloqueado.
 2. Não envie nem reenvie novamente a resposta `7`: ela já está `delivered` e
-   reconciliada. Publique o hotfix preventivo de UI somente em stage, valide
-   que o rascunho sumiu, a entrega tem selo e a falha substituída não oferece
-   **Reenviar**. Para **Descartar** outro rascunho, use um caso descartável e
-   confirme antes porque grava feedback persistente.
+   reconciliada. O hotfix preventivo já está em stage; a entrega tem selo, o
+   rascunho sumiu e a falha substituída não oferece **Reenviar**. Para
+   **Descartar** outro rascunho, use um caso descartável e confirme antes
+   porque grava feedback persistente.
 3. Inicie a observação da Fase 6: aceite/descarte por persona, bloqueios,
    latência e custo; não autorize `auto` sem pelo menos uma semana de dados.
 4. Revalide produção antes e depois de qualquer publicação futura: callback em

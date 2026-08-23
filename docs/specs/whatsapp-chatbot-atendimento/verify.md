@@ -296,6 +296,20 @@ Resumo da correção da auditoria (2026-08-23):
   passam a chamar `/api/v1/whatsapp/bot/respostas/{id}/enviar`; tentativas
   substituídas não oferecem **Reenviar**. O teste focado da página passou
   **19/19**, além de ESLint e `tsc --noEmit`.
+- A correção preventiva foi publicada somente em stage no SHA
+  `29f68f2295864bd42de4a6947ba02fbb8344adf1`. `Deploy to Stage (VPS)` run
+  `32663269023` e `Migration CI` run `32663268982` terminaram em `success`;
+  SDD guardrail, quality gate, suíte backend, lint/build frontend e testes Node
+  ficaram verdes. A VPS confirmou o mesmo SHA e os três serviços `active`.
+- No smoke pós-deploy, raiz e health de stage retornaram `200` e a rota
+  protegida `/whatsapp/agents` retornou `401`. A tela autenticada mostrou uma
+  entrega com selo do bot, nenhuma região de rascunho pendente e zero botões
+  **Reenviar**, preservando a falha apenas como histórico.
+- A verificação persistida confirmou exatamente duas linhas para o mesmo corpo
+  desde a tentativa original: `2430` em `failed`, substituída por `2437`, e
+  `2437` em `delivered` com ID externo e chave idempotente. A resposta `7`
+  permaneceu `sent`, com feedback positivo e atendente, e existe exatamente um
+  evento `RECONCILIAR_REENVIO_RASCUNHO`.
 - Produção permaneceu em `447ddc53`, com raiz/health `200` e rota protegida
   `401`; nenhum push ou deploy de produção foi executado.
 
