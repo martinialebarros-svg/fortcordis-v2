@@ -253,11 +253,28 @@ Resumo da correção da auditoria (2026-08-23):
   preservado e foi cancelada, retornando ao estado de revisão. O card de
   Configurações estava visível, toggle ligado, `suggest` selecionado e `auto`
   desabilitado. Nenhum erro de console foi observado.
-- Não executado: clique em **Enviar**, **Enviar edição** ou **Descartar**. Logo,
-  nenhuma nova mensagem externa ou feedback persistente foi produzido nesta
-  validação.
+- Depois de autorização explícita, o clique em **Enviar** foi executado uma
+  vez. A Meta recusou o destinatário com HTTP `400`,
+  `OAuthException/131030` (`Recipient phone number not in allowed list`): a
+  conversa interna estava na forma brasileira sem nono dígito, enquanto o
+  destinatário de teste permitido estava cadastrado com ele. A tentativa não
+  recebeu `wa_message_id`; a única linha Node ficou `failed`, e a resposta
+  Python voltou a `draft`, sem `texto_enviado`, feedback ou atendente gravado.
+  **Enviar edição** e **Descartar** não foram acionados.
 - Produção permaneceu no SHA `447ddc53`; raiz e health `200`, rota protegida
   `401`. Nenhum deploy ou configuração de produção foi alterado.
+
+### Correção do destinatário Graph após o primeiro envio controlado
+
+- `whatsappGraphRecipient` preserva a identidade canônica da conversa, mas
+  recompõe o nono dígito para celulares brasileiros antes de enviar texto ou
+  anexo à Graph API. Fixos brasileiros e números internacionais não mudam.
+- `npm run test:phone-number` cobre as duas formas do celular, fixo e número
+  internacional; `npm run build` do serviço Node passou.
+- A repetição do envio continua protegida pela mesma chave
+  `whatsapp-bot-resposta-7`: a linha `failed` será reutilizada em vez de criar
+  outra mensagem. O reteste externo só pode ocorrer após publicação em stage e
+  nova confirmação específica.
 
 ## Smoke E2E real do chatbot em stage (2026-08-23)
 
@@ -293,8 +310,9 @@ Resumo da correção da auditoria (2026-08-23):
 1. [concluído] Preview com o bot desligado antes da habilitação, sem geração ou
    envio.
 2. [parcial] Conversa real em `suggest`: rascunho persistido, exibido na central
-   e edição cancelada sem perda. Ausência de envio comprovada; os cliques
-   Enviar/Descartar aguardam confirmação específica.
+   e edição cancelada sem perda. A primeira tentativa autorizada de Enviar foi
+   recusada pela Meta antes da aceitação e voltou a `draft`; reteste da
+   normalização Graph e Descartar aguardam confirmação específica.
 3. "Quero falar com um atendente" — handoff imediato, conversa em `pending`,
    push recebido pela equipe.
 4. Termo de emergência — resposta fixa, alerta interno `critico`, nenhuma

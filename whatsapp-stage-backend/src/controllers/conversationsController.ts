@@ -11,6 +11,7 @@ import {
   describeCustomerServiceWindow
 } from "../services/customerServiceWindow";
 import { logger } from "../utils/logger";
+import { whatsappGraphRecipient } from "../utils/phoneNumber";
 
 const whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 const phoneNumberId = process.env.PHONE_NUMBER_ID;
@@ -587,7 +588,7 @@ async function sendAttachmentMessage(
     graphResponse = await sendWhatsAppDocumentMessageWithRetry({
       phoneNumberId,
       accessToken,
-      to: waPhoneNumber,
+      to: whatsappGraphRecipient(waPhoneNumber),
       mediaId: media.id,
       filename,
       caption: caption || undefined
@@ -745,7 +746,7 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
     graphResponse = await sendWhatsAppMessageWithRetry({
       phoneNumberId,
       accessToken: whatsappAccessToken,
-      to: conversation.wa_phone_number,
+      to: whatsappGraphRecipient(conversation.wa_phone_number),
       body: caption,
       type
     });

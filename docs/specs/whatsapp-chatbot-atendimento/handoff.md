@@ -2,9 +2,9 @@
 
 Data: 2026-08-23
 Responsável: Martiniano + Codex
-Status: em implementação; Fases 1-5 concluídas e validadas em stage;
-identidade Meta exclusiva, callback, transporte, rascunho E2E e interface de
-revisão publicados em stage no SHA `02566851`; Fase 6 pendente
+Status: em implementação; Fases 1-5 concluídas e validadas em stage; primeiro
+envio assistido controlado diagnosticou divergência brasileira do nono dígito,
+com correção preparada para stage; Fase 6 pendente
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -66,6 +66,9 @@ gh run view 32661248721 --json status,conclusion,url,headSha,name
 - Fase 5 em stage: painel de rascunho com enviar/editar/descartar, selo de envio
   assistido, controles por conversa, card institucional, endpoints de revisão
   e transporte Node idempotente.
+- Hotfix da Fase 5: `whatsappGraphRecipient` mantém a conversa canônica sem o
+  nono dígito e recompõe a forma móvel E.164 somente no destinatário enviado à
+  Graph API, para texto e anexo.
 
 A auditoria identificou D1-D4 e todas foram corrigidas localmente:
 
@@ -153,15 +156,23 @@ Publicação e smoke da Fase 5 concluídos em `2026-08-23`:
   controles por conversa e card institucional; editar abriu e cancelar
   preservou o texto, sem erros no console;
 - toggle continuou ligado, modo `suggest` selecionado e `auto` desabilitado;
-- nenhum botão de envio ou descarte foi acionado; nenhuma mensagem externa ou
-  feedback persistente foi criado nesta validação;
+- depois de confirmação explícita, **Enviar** foi acionado uma vez. A Meta
+  recusou antes da aceitação com `OAuthException/131030` porque a conversa
+  estava sem o nono dígito e o destinatário permitido, com ele;
+- a tentativa ficou em uma única linha Node `failed`, sem `wa_message_id`; o
+  rascunho Python voltou a `draft`, sem texto enviado, feedback ou atendente;
+- a correção de destinatário Graph foi implementada e testada localmente. Não
+  clique em **Reenviar** nem em **Enviar** novamente antes de confirmar que o
+  hotfix foi publicado em stage e obter nova autorização específica;
 - produção permaneceu em `447ddc53`, saudável e sem alteração.
 
 ## Próxima sequência recomendada
 
 1. Mantenha stage em `suggest` e `auto` bloqueado.
-2. Para testar **Enviar** ou **Editar e enviar**, obtenha confirmação explícita
-   no momento da ação porque o clique envia mensagem externa ao contato. Para
+2. Publique e valide primeiro o hotfix de destinatário Graph em stage. Depois,
+   para testar **Enviar**, **Reenviar** ou **Editar e enviar**, obtenha nova
+   confirmação explícita no momento da ação. A chave idempotente reutiliza a
+   tentativa `failed`, mas o clique ainda é uma nova ação externa. Para
    **Descartar**, use um rascunho descartável e confirme antes porque grava
    feedback persistente.
 3. Inicie a observação da Fase 6: aceite/descarte por persona, bloqueios,

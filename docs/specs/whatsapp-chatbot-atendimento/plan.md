@@ -180,13 +180,19 @@ uma mensagem gerada chegue a um cliente.
 - [x] P5.5 testes de endpoint/autorização e contrato, `tsc --noEmit`, `eslint`,
       builds Node/Next e suíte focada do chatbot limpos; smoke autenticado da
       tela publicada em stage aprovado sem envio externo.
+- [x] P5.6 separar identidade interna e destinatário Graph para celulares
+      brasileiros: a conversa continua canônica sem nono dígito, enquanto
+      texto e anexo saem em E.164 móvel com o nono dígito. A regressão cobre
+      celular nas duas formas, fixo brasileiro e número internacional.
 - Critério de conclusão: um atendente consegue operar o copiloto inteiro pela
   tela, sem console nem chamada manual de API. **Implementação publicada em
   stage no SHA `02566851` em 2026-08-23. A tela autenticada exibiu o rascunho
   real, os três controles, modo/pausa e o card institucional; o modo de edição
-  foi aberto e cancelado sem perda de texto. Enviar e Descartar não foram
-  acionados porque produzem efeito externo/persistente e exigem confirmação no
-  momento do teste.**
+  foi aberto e cancelado sem perda de texto. Depois de confirmação explícita,
+  uma tentativa de Enviar foi feita: a Meta recusou a identidade canônica sem
+  nono dígito com `131030`, sem aceitar mensagem externa, e o rascunho voltou
+  corretamente a `draft`. P5.6 corrige o destinatário Graph; o reteste externo
+  exige nova confirmação no momento da ação.**
 - Risco: baixo; a tela já existe e a mudança é aditiva.
 - Rollback: esconder o painel por flag de UI mantém o backend intacto.
 

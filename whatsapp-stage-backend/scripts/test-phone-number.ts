@@ -2,13 +2,18 @@ import assert from "assert";
 import {
   areEquivalentWhatsAppNumbers,
   canonicalWhatsAppIdentity,
-  digitsOnly
+  digitsOnly,
+  whatsappGraphRecipient
 } from "../src/utils/phoneNumber";
 
 function run(): void {
   assert.strictEqual(digitsOnly("+55 (85) 98801-8899"), "5585988018899");
   assert.strictEqual(canonicalWhatsAppIdentity("5585988018899"), "558588018899");
   assert.strictEqual(canonicalWhatsAppIdentity("558588018899"), "558588018899");
+  assert.strictEqual(whatsappGraphRecipient("558588018899"), "5585988018899");
+  assert.strictEqual(whatsappGraphRecipient("5585988018899"), "5585988018899");
+  assert.strictEqual(whatsappGraphRecipient("558532101234"), "558532101234");
+  assert.strictEqual(whatsappGraphRecipient("14155552671"), "14155552671");
 
   assert.strictEqual(areEquivalentWhatsAppNumbers("5585988018899", "558588018899"), true);
   assert.strictEqual(areEquivalentWhatsAppNumbers("+55 85 98801-8899", "55 85 8801-8899"), true);

@@ -105,7 +105,10 @@ de pausa e claim, não por relógio.
   os dígitos e só prefixa `55`. `_has_exact_phone` passa a comparar o número
   cadastrado e o número consultado **pelas duas formas** (com e sem o nono
   dígito), mantendo `normalized_phone` na resposta como está hoje para não
-  quebrar quem já consome o endpoint.
+  quebrar quem já consome o endpoint. Para chamadas de saída da Graph API, a
+  identidade canônica brasileira de 12 dígitos volta à forma móvel E.164 com o
+  nono dígito quando o assinante começa em `6`-`9`; números fixos e números de
+  outros países permanecem inalterados.
 - RF-016: quando `resolution != "matched"` (`ambiguous` ou `not_found`), o bot
   não menciona nenhum dado de registro — nome de pet, agendamento, ordem de
   serviço, valor, data. Responde só com informação institucional pública e
@@ -184,7 +187,9 @@ de pausa e claim, não por relógio.
   humano. O mesmo transporte é usado para um rascunho de `suggest` aprovado
   por atendente, com `source="bot_suggest_reviewed"` e chave idempotente
   derivada do `resposta_id`; o serviço Node só aceita esse metadata via token
-  interno e impede dois envios da mesma resposta.
+  interno e impede dois envios da mesma resposta. O destinatário entregue à
+  Graph API usa a forma móvel E.164 da RF-015, sem alterar a identidade interna
+  usada para agrupar a conversa.
 - RF-028: na central de atendimento, rascunho pendente aparece acima do
   composer com as ações **Enviar**, **Editar e enviar** e **Descartar**;
   descartar grava feedback negativo na resposta. Enviar faz uma transição

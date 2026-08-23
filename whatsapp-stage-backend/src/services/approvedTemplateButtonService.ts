@@ -6,7 +6,8 @@ import { WebhookMessage } from "../types/whatsapp";
 import { logger } from "../utils/logger";
 import {
   areEquivalentWhatsAppNumbers,
-  canonicalWhatsAppIdentity
+  canonicalWhatsAppIdentity,
+  whatsappGraphRecipient
 } from "../utils/phoneNumber";
 
 interface TemplateButtonBinding {
@@ -62,7 +63,7 @@ async function sendFreeTextReply(destinationPhone: string, body: string): Promis
     const graphResponse = await sendWhatsAppMessageWithRetry({
       phoneNumberId,
       accessToken: whatsappAccessToken,
-      to: destinationPhone,
+      to: whatsappGraphRecipient(destinationPhone),
       body,
       type: "text"
     });
