@@ -280,14 +280,22 @@ Resumo da correção da auditoria (2026-08-23):
   móvel com 13 dígitos, sem alterar fixo brasileiro ou número internacional.
   Raiz e health de stage retornaram `200`; a rota protegida retornou `401`.
 - A inbox autenticada continuou mostrando a conversa Martiniano Barros, a
-  única linha `Falhou`, o botão **Reenviar** e o rascunho original com
-  **Enviar**. O banco continuou com exatamente uma tentativa, sem
-  `wa_message_id`; a resposta `7` permaneceu `draft`, sem feedback,
-  `texto_enviado` ou atendente.
-- A repetição do envio continua protegida pela mesma chave
-  `whatsapp-bot-resposta-7`: a linha `failed` será reutilizada em vez de criar
-  outra mensagem. O reteste externo só pode ocorrer após nova confirmação
-  específica.
+  linha `Falhou`, o botão **Reenviar** e o rascunho original com **Enviar**.
+- Após nova confirmação explícita, **Reenviar** foi clicado exatamente uma
+  vez. A Meta aceitou a mensagem e o webhook confirmou `delivered`, com ID
+  externo, na linha Node `2437`. Não houve outro clique nem nova tentativa.
+- O botão genérico havia usado `source=agent_api`, criando uma segunda linha em
+  vez de concluir a resposta Python. O estado foi reconciliado sem chamada à
+  Meta: a linha entregue recebeu metadata do bot e a chave
+  `whatsapp-bot-resposta-7`; a falha histórica `2430` foi marcada como
+  substituída; a resposta `7` passou a `sent`, com texto efetivo, feedback
+  positivo, atendente e pausa. Um evento
+  `RECONCILIAR_REENVIO_RASCUNHO` foi gravado; a inbox deixou de exibir o
+  rascunho pendente e mostrou a entrega com selo do bot.
+- Correção preventiva: mensagens falhas com `source=bot_suggest_reviewed`
+  passam a chamar `/api/v1/whatsapp/bot/respostas/{id}/enviar`; tentativas
+  substituídas não oferecem **Reenviar**. O teste focado da página passou
+  **19/19**, além de ESLint e `tsc --noEmit`.
 - Produção permaneceu em `447ddc53`, com raiz/health `200` e rota protegida
   `401`; nenhum push ou deploy de produção foi executado.
 
@@ -324,10 +332,11 @@ Resumo da correção da auditoria (2026-08-23):
 
 1. [concluído] Preview com o bot desligado antes da habilitação, sem geração ou
    envio.
-2. [parcial] Conversa real em `suggest`: rascunho persistido, exibido na central
-   e edição cancelada sem perda. A primeira tentativa autorizada de Enviar foi
-   recusada pela Meta antes da aceitação e voltou a `draft`; reteste da
-   normalização Graph e Descartar aguardam confirmação específica.
+2. [concluído] Conversa real em `suggest`: rascunho persistido, exibido,
+   revisado e reenviado após duas confirmações explícitas. A primeira tentativa
+   foi recusada antes da aceitação; o reenvio único após a normalização Graph
+   chegou a `delivered`. Estado Python/Node reconciliado e auditado. Descartar
+   permanece como caso separado, sem necessidade para comprovar o envio.
 3. "Quero falar com um atendente" — handoff imediato, conversa em `pending`,
    push recebido pela equipe.
 4. Termo de emergência — resposta fixa, alerta interno `critico`, nenhuma

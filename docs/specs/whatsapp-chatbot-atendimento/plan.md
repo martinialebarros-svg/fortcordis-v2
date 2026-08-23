@@ -184,6 +184,10 @@ uma mensagem gerada chegue a um cliente.
       brasileiros: a conversa continua canônica sem nono dígito, enquanto
       texto e anexo saem em E.164 móvel com o nono dígito. A regressão cobre
       celular nas duas formas, fixo brasileiro e número internacional.
+- [x] P5.7 rotear **Reenviar** de mensagem do bot pelo endpoint idempotente da
+      resposta Python e ocultar o botão de uma falha histórica já substituída
+      por entrega reconciliada. Mensagens humanas falhas mantêm o reenvio
+      genérico existente.
 - Critério de conclusão: um atendente consegue operar o copiloto inteiro pela
   tela, sem console nem chamada manual de API. **Implementação publicada em
   stage no SHA `02566851` em 2026-08-23. A tela autenticada exibiu o rascunho
@@ -191,8 +195,10 @@ uma mensagem gerada chegue a um cliente.
   foi aberto e cancelado sem perda de texto. Depois de confirmação explícita,
   uma tentativa de Enviar foi feita: a Meta recusou a identidade canônica sem
   nono dígito com `131030`, sem aceitar mensagem externa, e o rascunho voltou
-  corretamente a `draft`. P5.6 foi publicada em stage no SHA `5f6ca72b`; o
-  reteste externo exige nova confirmação no momento da ação.**
+  corretamente a `draft`. P5.6 foi publicada em stage no SHA `5f6ca72b` e,
+  após nova confirmação, o reenvio único foi aceito e marcado `delivered` pela
+  Meta. O estado interno foi reconciliado sem nova chamada externa; P5.7 fecha
+  o desvio encontrado no botão genérico de reenvio.**
 - Risco: baixo; a tela já existe e a mudança é aditiva.
 - Rollback: esconder o painel por flag de UI mantém o backend intacto.
 

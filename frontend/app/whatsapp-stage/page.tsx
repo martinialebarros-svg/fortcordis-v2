@@ -13,6 +13,10 @@ import {
   CustomerServiceWindow,
   evaluateCustomerServiceWindow,
 } from "@/lib/whatsapp-customer-service-window";
+import {
+  buildMessageResendRequest,
+  shouldOfferMessageResend,
+} from "@/lib/whatsapp-message-retry";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
 type AssignedFilter = "all" | "assigned" | "unassigned";
@@ -801,9 +805,10 @@ export default function WhatsAppStagePage() {
   const handleResendMessage = async (message: Message): Promise<void> => {
     if (!selectedConversationId || !message.body || message.type !== "text") return;
     setResendingMessageId(message.id);
+    const retryRequest = buildMessageResendRequest(message, selectedConversationId);
     const result = await requestJson<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
-      `/whatsapp/conversations/${selectedConversationId}/messages`, {
-        method: "POST", body: JSON.stringify({ body: message.body, type: message.type }),
+      retryRequest.url, {
+        method: "POST", body: JSON.stringify(retryRequest.body),
       });
     if (!result.ok) {
       if (result.status === 409 && result.data?.code === "CUSTOMER_SERVICE_WINDOW_CLOSED") {
@@ -812,9 +817,10 @@ export default function WhatsAppStagePage() {
         }));
         setErrorMessage("A janela de 24 horas foi encerrada. Use um modelo aprovado.");
       } else setErrorMessage(result.errorText || `Falha ao reenviar mensagem (HTTP ${result.status})`);
-    } else setInfoMessage("Mensagem reenviada.");
+    } else setInfoMessage(retryRequest.botReviewed ? "Rascunho revisado e reenviado." : "Mensagem reenviada.");
     setResendingMessageId(null);
     await loadMessages(selectedConversationId, 1); await loadConversations(conversationsPagination.page || 1);
+    if (retryRequest.botReviewed) await refreshSelectedBotState();
   };
 
   const handleTemplateSelection = (templateKey: string): void => {
@@ -963,7 +969,7 @@ export default function WhatsAppStagePage() {
                     <p>{message.body || `[${message.type}]`}</p>
                     {selectedConversationId ? <WhatsAppMediaViewer conversationId={selectedConversationId} message={message} /> : null}
                     <footer><time>{formatMessageTime(message.created_at)}</time><span className={`fc-wa-delivery fc-wa-delivery-${message.status}`}>{messageStatusIcon(message.status)} {messageStatusLabel(message.status)}</span>
-                      {message.from_me && message.status === "failed" && message.type === "text" ? <button type="button" className="fc-wa-resend-button"
+                      {shouldOfferMessageResend(message) ? <button type="button" className="fc-wa-resend-button"
                         onClick={() => void handleResendMessage(message)} disabled={resendingMessageId === message.id}>
                         <RefreshCw className={`h-3.5 w-3.5 ${resendingMessageId === message.id ? "animate-spin" : ""}`} /> Reenviar
                       </button> : null}</footer>

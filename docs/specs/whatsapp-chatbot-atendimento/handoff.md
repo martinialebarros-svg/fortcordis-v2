@@ -4,8 +4,8 @@ Data: 2026-08-23
 Responsável: Martiniano + Codex
 Status: em implementação; Fases 1-5 concluídas e validadas em stage; primeiro
 envio assistido controlado diagnosticou divergência brasileira do nono dígito,
-com correção publicada em stage no SHA `5f6ca72b`; reteste externo aguarda nova
-autorização; Fase 6 pendente
+com correção publicada em stage no SHA `5f6ca72b`; reenvio único confirmado
+pela Meta como `delivered` e estado reconciliado; Fase 6 pendente
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -71,6 +71,8 @@ gh run view 32661248721 --json status,conclusion,url,headSha,name
 - Hotfix da Fase 5: `whatsappGraphRecipient` mantém a conversa canônica sem o
   nono dígito e recompõe a forma móvel E.164 somente no destinatário enviado à
   Graph API, para texto e anexo.
+- Segurança do reenvio: falha de mensagem do bot volta ao endpoint idempotente
+  Python; falha histórica já substituída por entrega não oferece novo botão.
 
 A auditoria identificou D1-D4 e todas foram corrigidas localmente:
 
@@ -166,20 +168,25 @@ Publicação e smoke da Fase 5 concluídos em `2026-08-23`:
 - a correção de destinatário Graph foi publicada no SHA `5f6ca72b`. Deploy run
   `32662352928` e Migration CI run `32662352859` terminaram em `success`; VPS,
   serviços, health, rota protegida e transformação móvel foram validados;
-- a inbox e o banco ainda mostram exatamente uma tentativa `failed`, sem ID da
-  Meta, e a resposta `7` em `draft`, sem feedback ou texto enviado. Não clique
-  em **Reenviar** nem em **Enviar** novamente sem nova autorização específica;
+- após nova autorização explícita, **Reenviar** foi clicado uma única vez. A
+  linha `2437` recebeu ID da Meta e chegou a `delivered`;
+- o reenvio genérico criou a linha como `agent_api`; isso foi reconciliado sem
+  nova chamada externa: metadata/chave idempotente migraram para a entrega, a
+  falha `2430` ficou marcada como substituída e a resposta `7` passou a `sent`
+  com texto, feedback, atendente e pausa. A auditoria foi gravada uma vez;
+- foi implementado um hotfix de UI para reenvios futuros do bot usarem o
+  endpoint Python e para esconder o botão da falha substituída. Publique e
+  valide esse hotfix em stage antes de encerrar a correção;
 - produção permaneceu em `447ddc53`, saudável e sem alteração.
 
 ## Próxima sequência recomendada
 
 1. Mantenha stage em `suggest` e `auto` bloqueado.
-2. O hotfix de destinatário Graph já está publicado e validado em stage. Para
-   testar **Enviar**, **Reenviar** ou **Editar e enviar**, obtenha nova
-   confirmação explícita no momento da ação. A chave idempotente reutiliza a
-   tentativa `failed`, mas o clique ainda é uma nova ação externa. Para
-   **Descartar**, use um rascunho descartável e confirme antes porque grava
-   feedback persistente.
+2. Não envie nem reenvie novamente a resposta `7`: ela já está `delivered` e
+   reconciliada. Publique o hotfix preventivo de UI somente em stage, valide
+   que o rascunho sumiu, a entrega tem selo e a falha substituída não oferece
+   **Reenviar**. Para **Descartar** outro rascunho, use um caso descartável e
+   confirme antes porque grava feedback persistente.
 3. Inicie a observação da Fase 6: aceite/descarte por persona, bloqueios,
    latência e custo; não autorize `auto` sem pelo menos uma semana de dados.
 4. Revalide produção antes e depois de qualquer publicação futura: callback em

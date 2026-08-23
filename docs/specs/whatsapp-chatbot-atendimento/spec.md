@@ -195,7 +195,11 @@ de pausa e claim, não por relógio.
   descartar grava feedback negativo na resposta. Enviar faz uma transição
   atômica `draft -> sending -> sent`, grava texto efetivo, feedback positivo e
   atendente responsável; falha de transporte devolve o item a `draft` sem
-  marcar envio.
+  marcar envio. O **Reenviar** de uma mensagem falha que tenha
+  `source="bot_suggest_reviewed"` retorna ao endpoint Python da resposta, em vez
+  de usar o envio humano genérico do Node, preservando decisão, feedback e
+  chave idempotente. Uma tentativa histórica marcada como substituída por uma
+  entrega reconciliada não oferece novo botão de reenvio.
 - RF-029: mensagens enviadas pelo bot têm selo visual próprio na timeline da
   conversa. O selo depende do metadata validado no serviço interno, e não de
   um campo arbitrário enviado pelo navegador.
