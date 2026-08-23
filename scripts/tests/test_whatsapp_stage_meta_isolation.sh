@@ -125,6 +125,14 @@ done
 grep -Fq 'WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION="1"' \
   "${REPO_ROOT}/scripts/deploy_stage_vps.sh"
 
+stage_workflow="${REPO_ROOT}/.github/workflows/deploy-stage.yml"
+grep -Fq 'git archive --format=tar "origin/${BRANCH}"' "${stage_workflow}"
+grep -Fq 'bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"' "${stage_workflow}"
+if grep -Fq 'BRANCH="$BRANCH" bash scripts/deploy_stage_vps.sh' "${stage_workflow}"; then
+  echo "Stage workflow can still start the stale deploy script from the VPS checkout." >&2
+  exit 1
+fi
+
 fake_bin="${FIXTURE_ROOT}/fake-bin"
 mkdir -p "${fake_bin}"
 cat > "${fake_bin}/curl" <<'FAKE_CURL'

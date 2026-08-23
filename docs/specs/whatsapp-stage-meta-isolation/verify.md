@@ -36,6 +36,13 @@ validados; deploy, callback e E2E pendentes
   mas falhou porque o app ainda nao esta assinado. A assinatura pertence a P10,
   depois do deploy e junto ao callback; o pre-corte foi separado do preflight
   final sem mudar o default fail-closed.
+- terceiro deploy do SHA `18008107` (run `32637005889`) passou a configuracao
+  isolada e os guardrails pre-corte, mas a VPS iniciou a copia antiga de
+  `deploy_stage_vps.sh` antes do `git fetch/reset` interno. Essa copia ainda
+  exigia os IDs de producao, falhou e reverteu com sucesso para `2588bfc4`.
+  O workflow passou a carregar os dois scripts de deploy diretamente do novo
+  `origin/stage` em diretorio temporario, preservando o checkout e os artefatos
+  de runtime ate o backup/rollback controlado pelo script novo.
 
 ## Matriz
 
@@ -51,6 +58,7 @@ validados; deploy, callback e E2E pendentes
 | CA-008 | Graph mock aceita relacao coerente, rejeita numero divergente e teste somente leitura passou contra a identidade atualmente instalada no VPS | passou |
 | CA-009 | numero Meta `NOT_VERIFIED` falha por padrao e passa apenas com modo de teste explicito de stage | passou localmente |
 | CA-010 | app nao assinado falha por padrao e passa somente no modo pre-corte; preflight final segue exigindo assinatura | passou localmente |
+| CA-011 | teste exige bootstrap dos scripts pelo novo `origin/stage` e rejeita chamada direta da copia antiga na VPS | passou localmente |
 
 ## Comandos executados
 

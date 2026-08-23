@@ -33,6 +33,10 @@ Status: implementado localmente; corte Meta pendente
   pode ficar pendente apenas com `WHATSAPP_REQUIRE_SUBSCRIBED_APP=0`. O
   verificador e o preflight usam `1` por padrao e exigem a assinatura para a
   validacao final posterior ao callback.
+- RF-010: o workflow carrega `deploy_stage_vps.sh` e `deploy_prod_vps.sh` do
+  `origin/stage` em diretorio temporario antes de iniciar o deploy. O checkout
+  remoto antigo continua intacto ate o proprio script novo criar o backup dos
+  artefatos de runtime e registrar o SHA de rollback.
 
 ## Requisitos nao funcionais
 
@@ -93,6 +97,9 @@ e `WHATSAPP_BUSINESS_ACCOUNT_ID` no `.env` remoto.
 - CA-010: app nao assinado falha por padrao; somente o pre-corte do workflow de
   stage usa `WHATSAPP_REQUIRE_SUBSCRIBED_APP=0`, enquanto o preflight final
   continua exigindo assinatura.
+- CA-011: uma VPS posicionada no SHA anterior executa os scripts de deploy do
+  novo `origin/stage`, sem reset antecipado do checkout e sem perder a origem
+  do rollback.
 
 ## Rollback
 

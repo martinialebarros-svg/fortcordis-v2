@@ -393,8 +393,22 @@ jobs:
             fi
 
             cd "$APP_DIR"
+            echo "Loading the stage deploy scripts from origin/${BRANCH}..."
+            git fetch origin "$BRANCH"
+            deploy_scripts_dir="$(mktemp -d)"
+            cleanup_deploy_scripts() {
+              rm -rf -- "$deploy_scripts_dir"
+            }
+            trap cleanup_deploy_scripts EXIT
+            git archive --format=tar "origin/${BRANCH}" -- \
+              scripts/deploy_stage_vps.sh \
+              scripts/deploy_prod_vps.sh | tar -xf - -C "$deploy_scripts_dir"
+
             echo "Running standardized stage deploy script..."
-            SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' APP_DIR="$APP_DIR" BRANCH="$BRANCH" bash scripts/deploy_stage_vps.sh
+            SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' \
+              APP_DIR="$APP_DIR" \
+              BRANCH="$BRANCH" \
+              bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"
           EOF
 
       - name: Run one-shot AI echo canary on Stage
