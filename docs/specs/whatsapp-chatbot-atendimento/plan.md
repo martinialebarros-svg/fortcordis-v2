@@ -128,17 +128,17 @@ uma mensagem gerada chegue a um cliente.
 ### Fase 4 - geração e guardrails de saída
 
 - [x] P4.1 `whatsapp_bot_tools.py`: allowlist própria, escopo de
-      `tutor_id`/`clinica_id` aplicado no código (RF-018). Ressalva: o escopo
-      está implementado e testado, mas duas das cinco tools ficam inalcançáveis
-      no fluxo real por falta de loop de tool call (D3 no `verify.md`).
+      `tutor_id`/`clinica_id` aplicado no código (RF-018), alcançável por loop
+      stateless de tool call com no máximo duas rodadas.
 - [x] P4.2 `whatsapp_bot_prompt.py`: as duas personas (`tutor` e `clinica`) por
       `match_type`, versão de prompt, regra de "só falo do que veio de fonte"
       (RF-017, RF-020, RF-021).
 - [x] P4.3 classificação de intent contra a allowlist **por persona** da RF-019,
       incluindo o bloco comum que sempre vira rascunho (OS, cobrança, valor em
-      aberto). Ressalva: grava `blocked` onde a spec pede `draft` (D1) e a
-      allowlist se aplica também em `suggest` (D2).
-- [x] P4.4 validador de saída (RF-022) e tetos de volume/tamanho (RF-025).
+      aberto). Segurança editorial e elegibilidade ao modo `auto` são decisões
+      separadas; `suggest` mantém a resposta editável.
+- [x] P4.4 validador de saída (RF-022), fonte específica por intent, tetos de
+      volume/tamanho (RF-025) e teto global diário de tokens (NFR-005).
 - [ ] P4.5 registro completo em `whatsapp_bot_respostas` (RF-026) e envio via
       Node no modo `auto` com `metadata.origem = "bot"` (RF-027). **Metade
       entregue**: o registro grava os 12 campos da RF-026; o envio não existe e
@@ -148,16 +148,15 @@ uma mensagem gerada chegue a um cliente.
 - [x] P4.6 testes com provider fake (sem rede), no padrão dos providers
       protocolares do ai-echo: intent fora da allowlist (nas duas personas),
       escopo cruzado clínica/tutor, resposta clínica bloqueada, resposta sem
-      fonte, teto estourado.
+      fonte, tool loop stateless, teto estourado, persistência dos campos de
+      auditoria e redação de telefone em erro/log.
 - Critério de conclusão: em stage, com conversa em `suggest`, rascunhos reais
   aparecem gravados e nenhum envio acontece. **NÃO cumprido em 2026-08-23**: o
-  código está entregue e a suíte completa passa em 956/956 (47 testes novos,
-  todos com provider fake), mas nenhuma geração com provider real foi executada,
-  em stage ou fora dele, e a auditoria da entrega levantou quatro divergências
-  entre spec e código (D1 a D4, registradas no `verify.md`). D3 — não existe
-  loop de tool call, então `consultar_status_laudo` e `consultar_preco_tabela`
-  nunca rodam e a regra de fonte da RF-020 fica inerte — precisa de decisão
-  antes de qualquer teste em stage. A fase fica aberta.
+  código está entregue, mas nenhuma geração com provider real foi executada em
+  stage ou fora dele. As quatro divergências D1-D4 levantadas na auditoria foram
+  corrigidas localmente em 2026-08-23 e têm cobertura automatizada; falta a
+  credencial/reautorização do OpenAI Platform e o smoke real em `suggest` para
+  fechar o critério. A fase permanece aberta por essa evidência externa.
 - Risco: o maior da entrega. Mitigado por `suggest` como padrão, validador de
   saída e allowlist estreita. Confirmado pela auditoria que **nada é enviável**
   nesta fase: não há um único `httpx.post` no backend do bot.

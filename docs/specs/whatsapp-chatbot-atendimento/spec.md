@@ -135,10 +135,11 @@ de pausa e claim, não por relógio.
   - Fora da allowlist nas duas personas na Fase 1, sempre rascunho: qualquer
     coisa de ordem de serviço, cobrança, valor em aberto, repasse ou
     negociação comercial — mesmo com o dado disponível no contexto.
-- RF-020: a resposta só pode afirmar o que veio de tool ou de
-  `search_knowledge` (`assistente_ia_management.py:701`). Sem fonte, o bot não
-  responde: gera rascunho e oferece handoff. Proibido responder de memória do
-  modelo.
+- RF-020: a resposta só pode afirmar o que veio da **tool específica da intent**
+  ou de `search_knowledge` (`assistente_ia_management.py:701`) nas intents
+  institucionais. Consultar horário, por exemplo, não autoriza afirmar preço ou
+  status de laudo. Sem a fonte correspondente, o bot não responde: gera
+  rascunho e oferece handoff. Proibido responder de memória do modelo.
 - RF-021: o prompt é versionado em `WHATSAPP_BOT_PROMPT_VERSION` e a versão fica
   gravada em cada resposta, no mesmo espírito de `PROMPT_VERSION` do ai-echo.
 
@@ -210,7 +211,8 @@ de pausa e claim, não por relógio.
   Node (`wpp-03-redacao-logs-for36`). Preview em log é truncado e o número é
   mascarado nos últimos 4 dígitos, como no preview do lembrete.
 - NFR-005 (custo): além do teto por conversa da RF-025, teto global diário
-  configurável; ao estourar, o bot degrada para `suggest` e registra o motivo,
+  configurável; ao estourar, nenhuma nova chamada paga é aberta, o resultado
+  vira `draft` com motivo `teto_global_tokens` e segue para revisão da equipe,
   sem parar o atendimento humano.
 - NFR-006 (migração): migração versionada e idempotente
   `backend/migrations/versions/20260820_75_whatsapp_bot_atendimento.py`, no
@@ -274,6 +276,7 @@ Novas em `app/core/config.py` + `.env.example`, todas com default seguro:
 `WHATSAPP_BOT_SCHEDULER_DISTRIBUTED_LOCK_KEY=80433003`,
 `WHATSAPP_BOT_MAX_ATTEMPTS=3`, `WHATSAPP_BOT_HANDOFF_PAUSE_HOURS=12`,
 `WHATSAPP_BOT_MAX_REPLIES_PER_CONVERSATION_DAY=20`,
+`WHATSAPP_BOT_MAX_TOKENS_PER_DAY=100000`,
 `WHATSAPP_BOT_MAX_REPLY_CHARS=900`,
 `WHATSAPP_BOT_RECONCILE_EVERY_CYCLES=60`,
 `WHATSAPP_BOT_RECONCILE_WINDOW_MINUTES=30`.

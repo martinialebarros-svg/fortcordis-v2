@@ -22,6 +22,7 @@ from app.models.whatsapp_bot import WhatsAppBotConversaEstado, WhatsAppBotJob, W
 from app.services import whatsapp_bot_gates as gates
 from app.services import whatsapp_bot_handoff_service as handoff_service
 from app.services import whatsapp_bot_worker_service as worker
+from app.services.whatsapp_bot_generation import ResultadoGeracao
 
 
 def _fake_response(payload):
@@ -461,6 +462,69 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
                     self.assertEqual(resposta.motivo, "identidade_nao_resolvida")
                     self.assertEqual(resposta.resolution, "not_found")
                     self.assertIsNone(resposta.texto_gerado)
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_resultado_do_gerador_e_persistido_com_auditoria_completa(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            job = self._make_job(db)
+                            job_id = job.id
+                            gerado = ResultadoGeracao(
+                                decisao="blocked",
+                                motivo="diagnostico",
+                                texto_gerado="texto bloqueado",
+                                modelo="fake-model",
+                                prompt_version="prompt-v1",
+                                tools_usadas='{"tools_ok":["consultar_dados_institucionais"]}',
+                                input_tokens=120,
+                                output_tokens=40,
+                                latencia_ms=321,
+                                resolution="matched",
+                                match_type="tutor",
+                            )
+                            with patch.object(worker, "gerar_resposta", return_value=gerado):
+                                self._run_with_node_mocks(
+                                    db,
+                                    job,
+                                    conversation_row={
+                                        "id": "conv-1",
+                                        "wa_phone_number": "558588018899",
+                                        "last_agent_id": None,
+                                        "last_inbound_at": datetime.now(timezone.utc).isoformat(),
+                                    },
+                                    message_row={
+                                        "wa_message_id": "wamid.1",
+                                        "from_me": False,
+                                        "type": "text",
+                                        "body": "mensagem segura para o teste",
+                                    },
+                                )
+                        finally:
+                            db.close()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter_by(job_id=job_id).first()
+                    self.assertEqual(resposta.decisao, "blocked")
+                    self.assertEqual(resposta.motivo, "diagnostico")
+                    self.assertEqual(resposta.texto_gerado, "texto bloqueado")
+                    self.assertEqual(resposta.modelo, "fake-model")
+                    self.assertEqual(resposta.prompt_version, "prompt-v1")
+                    self.assertIn("consultar_dados_institucionais", resposta.tools_usadas)
+                    self.assertEqual(resposta.input_tokens, 120)
+                    self.assertEqual(resposta.output_tokens, 40)
+                    self.assertEqual(resposta.latencia_ms, 321)
+                    self.assertEqual(resposta.resolution, "matched")
+                    self.assertEqual(resposta.match_type, "tutor")
                 finally:
                     verify.close()
             finally:

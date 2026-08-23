@@ -80,7 +80,10 @@ _INTENTS_SEM_FONTE_PERMITIDA: frozenset[str] = frozenset()
 
 @dataclass(frozen=True)
 class GuardrailVeredito:
+    """Separa seguranca editorial de elegibilidade ao modo automatico."""
+
     aprovado: bool
+    auto_elegivel: bool = True
     motivo: Optional[MotivoBloqueio] = None
     detalhe: Optional[str] = None
 
@@ -106,6 +109,18 @@ class TurnoDeGeracao:
     @property
     def tem_fonte(self) -> bool:
         return bool(self.tools_ok) or self.tem_trecho_conhecimento
+
+
+_FONTE_EXIGIDA_POR_INTENT: dict[str, frozenset[str]] = {
+    "horario_funcionamento": frozenset({"consultar_horario_funcionamento"}),
+    "endereco": frozenset({"consultar_dados_institucionais"}),
+    "formas_contato": frozenset({"consultar_dados_institucionais"}),
+    "preco_servico": frozenset({"consultar_preco_tabela"}),
+    "status_laudo": frozenset({"consultar_status_laudo"}),
+    "area_atendimento": frozenset({"buscar_conhecimento_institucional"}),
+    "como_agendar": frozenset({"buscar_conhecimento_institucional"}),
+    "como_solicitar_exame": frozenset({"buscar_conhecimento_institucional"}),
+}
 
 
 def _normalizar(value: Any) -> str:
@@ -230,10 +245,19 @@ def avaliar_resposta(
                 detalhe="texto do laudo/exame presente na resposta",
             )
 
-    # RF-020: sem fonte, o bot nao afirma nada.
-    if not turno.tem_fonte and intent not in _INTENTS_SEM_FONTE_PERMITIDA:
+    # RF-020: a fonte precisa sustentar A INTENT, nao apenas ter sido chamada
+    # em algum momento do turno. Uma consulta de horario nao autoriza afirmar
+    # preco ou status de laudo.
+    fontes_exigidas = _FONTE_EXIGIDA_POR_INTENT.get(intent)
+    if fontes_exigidas:
+        fonte_presente = bool(fontes_exigidas.intersection(turno.tools_ok))
+    else:
+        fonte_presente = turno.tem_fonte
+    if not fonte_presente and intent not in _INTENTS_SEM_FONTE_PERMITIDA:
         return GuardrailVeredito(
-            aprovado=False, motivo="sem_fonte", detalhe="nenhuma tool ok e nenhum trecho recuperado"
+            aprovado=False,
+            motivo="sem_fonte",
+            detalhe=f"fonte exigida ausente para intent {intent}",
         )
 
     # RF-022: valor que nao veio de tabela de preco.
@@ -256,11 +280,13 @@ def avaliar_resposta(
             detalhe=f"horarios sem fonte: {sorted(horarios_nao_ancorados)}",
         )
 
-    # RF-019: intent fora da allowlist da persona -> rascunho, mesmo em auto.
+    # RF-019: intent fora da allowlist continua segura para revisao humana,
+    # mas nunca e elegivel ao modo automatico.
     permitidas = INTENTS_AUTO_POR_PERSONA.get(turno.persona, frozenset())
     if intent not in permitidas:
         return GuardrailVeredito(
-            aprovado=False,
+            aprovado=True,
+            auto_elegivel=False,
             motivo="intent_fora_allowlist",
             detalhe=f"intent {intent} nao e auto na persona {turno.persona}",
         )

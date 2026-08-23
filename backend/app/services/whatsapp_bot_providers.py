@@ -8,9 +8,8 @@ Molde: `ai_echo_providers.py` (Protocol + factory por string + erro unico com
   paciente retido no servidor do provider.
 - `safety_identifier` derivado da identidade do WhatsApp, nao de um usuario
   admin.
-- Teto de 1 rodada de tools (o assistente permite 7). Estouro NAO levanta:
-  vira rascunho, porque a regra da Fase 4 e "bloqueio vira rascunho, nunca
-  silencio".
+- Teto de 2 rodadas de tools (o assistente permite 7). O orquestrador decide
+  o fallback seguro quando o modelo excede esse teto.
 """
 from __future__ import annotations
 
@@ -25,7 +24,7 @@ from app.schemas.whatsapp_bot import WhatsAppBotReplyOutput
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_ROUNDS = 1
+MAX_TOOL_ROUNDS = 2
 
 # O worker roda a cada WHATSAPP_BOT_SCHEDULER_POLL_SECONDS (default 5s) e o
 # job tem debounce proprio; um timeout generoso aqui so atrasaria a deteccao
@@ -45,11 +44,12 @@ class WhatsAppBotProviderError(RuntimeError):
 class GeneratedReply:
     """Saida do provider, com o metadado que o registro da RF-026 exige."""
 
-    output: WhatsAppBotReplyOutput
+    output: Optional[WhatsAppBotReplyOutput]
     model: str
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    continuation_input: list[Any] = field(default_factory=list)
 
 
 class WhatsAppBotReplyProvider(Protocol):
@@ -60,6 +60,7 @@ class WhatsAppBotReplyProvider(Protocol):
         payload: dict[str, Any],
         tools: list[dict[str, Any]],
         safety_scope: str,
+        continuation_input: Optional[list[Any]] = None,
     ) -> GeneratedReply:
         ...
 
@@ -103,15 +104,25 @@ class OpenAIWhatsAppBotProvider:
         payload: dict[str, Any],
         tools: list[dict[str, Any]],
         safety_scope: str,
+        continuation_input: Optional[list[Any]] = None,
     ) -> GeneratedReply:
         safety_identifier = hashlib.sha256(
             f"fortcordis-whatsapp-bot:{safety_scope}".encode("utf-8")
         ).hexdigest()[:64]
         try:
+            request_input: list[Any] = list(continuation_input or [])
+            if not request_input:
+                request_input = [
+                    {
+                        "role": "user",
+                        "content": json.dumps(payload, ensure_ascii=False, default=str),
+                    }
+                ]
+
             response = self.client.responses.parse(
                 model=self.model,
                 instructions=instructions,
-                input=json.dumps(payload, ensure_ascii=False, default=str),
+                input=request_input,
                 text_format=WhatsAppBotReplyOutput,
                 tools=tools or None,
                 parallel_tool_calls=False,
@@ -122,8 +133,18 @@ class OpenAIWhatsAppBotProvider:
         except Exception as exc:  # noqa: BLE001 - classificado abaixo
             raise _safe_provider_error(exc) from exc
 
+        response_output = list(getattr(response, "output", None) or [])
+        tool_calls = [
+            {
+                "call_id": getattr(item, "call_id", None),
+                "name": getattr(item, "name", None),
+                "arguments": getattr(item, "arguments", "{}"),
+            }
+            for item in response_output
+            if getattr(item, "type", None) == "function_call"
+        ]
         parsed = getattr(response, "output_parsed", None)
-        if parsed is None:
+        if parsed is None and not tool_calls:
             raise WhatsAppBotProviderError(
                 "Resposta do provider fora do formato esperado.", code="invalid_structured_output"
             )
@@ -133,6 +154,10 @@ class OpenAIWhatsAppBotProvider:
             model=self.model,
             input_tokens=getattr(usage, "input_tokens", None) if usage else None,
             output_tokens=getattr(usage, "output_tokens", None) if usage else None,
+            tool_calls=tool_calls,
+            # Com `store=False`, o proximo turno precisa reenviar a entrada e
+            # todos os itens de saida (inclusive reasoning/function_call).
+            continuation_input=[*request_input, *response_output],
         )
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -33,6 +34,9 @@ from app.services.whatsapp_bot_queue_service import enqueue_job_for_inbound_mess
 
 logger = logging.getLogger(__name__)
 
+_SENSITIVE_QUERY_RE = re.compile(r"([?&](?:phone|telefone|wa_identity)=)[^&\s]+", re.IGNORECASE)
+_PHONE_LIKE_RE = re.compile(r"(?<!\d)\+?\d{8,15}(?!\d)")
+
 _WORKER_THREAD: Optional[threading.Thread] = None
 _WORKER_LOCK = threading.Lock()
 _WORKER_STOP_EVENT = threading.Event()
@@ -50,6 +54,14 @@ def _safe_int(value: Any, default: int) -> int:
         return int(value)
     except Exception:
         return default
+
+
+def _safe_job_error(exc: Exception) -> str:
+    """Mensagem operacional sem telefone completo nem query string sensivel."""
+    message = str(exc or "Erro inesperado.")
+    message = _SENSITIVE_QUERY_RE.sub(r"\1[REDACTED]", message)
+    message = _PHONE_LIKE_RE.sub("[REDACTED]", message)
+    return message[:800]
 
 
 def _is_postgres(db: Session) -> bool:
@@ -316,12 +328,16 @@ def run_whatsapp_bot_worker_due_once(*, limit: int = 50) -> dict[str, int]:
             try:
                 result = _process_job(db, job)
             except Exception as exc:
-                logger.exception(
-                    "Falha inesperada ao processar job do bot de atendimento WhatsApp id=%s",
+                safe_error = _safe_job_error(exc)
+                # Nao use `logger.exception`: o traceback de HTTPStatusError
+                # inclui a URL completa com `phone=` e vazaria o numero.
+                logger.error(
+                    "Falha inesperada ao processar job do bot de atendimento WhatsApp id=%s erro=%s",
                     job.id,
+                    safe_error,
                 )
                 job.attempts = int(job.attempts or 0) + 1
-                job.last_error = str(exc)[:800]
+                job.last_error = safe_error
                 if job.attempts >= _max_attempts():
                     job.status = "error"
                 else:
@@ -433,14 +449,19 @@ def _fetch_conversation_by_phone(
     canonico, para saber se esta reivindicada por um atendente (`last_agent_id`)
     e qual o `last_inbound_at` real (fonte da janela de 24h).
     """
-    response = httpx.get(
-        f"{base_url}/conversations",
-        params={"phone": wa_identity, "limit": 1},
-        headers=headers,
-        timeout=timeout,
-    )
-    response.raise_for_status()
-    payload = response.json()
+    try:
+        response = httpx.get(
+            f"{base_url}/conversations",
+            params={"phone": wa_identity, "limit": 1},
+            headers=headers,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Falha ao consultar conversa no servico WhatsApp ({type(exc).__name__})."
+        ) from None
     rows = payload.get("data") or []
     return rows[0] if rows else None
 

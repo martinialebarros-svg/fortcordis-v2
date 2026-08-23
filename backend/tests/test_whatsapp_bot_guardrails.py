@@ -16,7 +16,16 @@ from app.services import whatsapp_bot_guardrails as gr
 
 
 def _turno(**kwargs) -> gr.TurnoDeGeracao:
-    base = {"persona": "tutor", "tools_ok": ["consultar_dados_institucionais"]}
+    base = {
+        "persona": "tutor",
+        "tools_ok": [
+            "consultar_dados_institucionais",
+            "consultar_horario_funcionamento",
+            "consultar_preco_tabela",
+            "consultar_status_laudo",
+            "buscar_conhecimento_institucional",
+        ],
+    }
     base.update(kwargs)
     return gr.TurnoDeGeracao(**base)
 
@@ -115,6 +124,19 @@ class GuardrailFonteEAncoragemTest(unittest.TestCase):
         self.assertFalse(veredito.aprovado)
         self.assertEqual(veredito.motivo, "valor_fora_tabela")
 
+    def test_tool_sem_relacao_nao_conta_como_fonte_da_intent(self) -> None:
+        veredito = gr.avaliar_resposta(
+            texto="O ecocardiograma custa R$ 420,00.",
+            intent="preco_servico",
+            modo="auto",
+            turno=_turno(
+                tools_ok=["consultar_horario_funcionamento"],
+                valores_permitidos={"420.00"},
+            ),
+        )
+        self.assertFalse(veredito.aprovado)
+        self.assertEqual(veredito.motivo, "sem_fonte")
+
     def test_valor_ancorado_na_tabela_passa(self) -> None:
         veredito = gr.avaliar_resposta(
             texto="O ecocardiograma custa R$ 420,00.",
@@ -155,7 +177,8 @@ class GuardrailAllowlistDeIntentTest(unittest.TestCase):
                     modo="auto",
                     turno=_turno(persona=persona),
                 )
-                self.assertFalse(veredito.aprovado, f"{persona}/{intent}")
+                self.assertTrue(veredito.aprovado, f"{persona}/{intent}")
+                self.assertFalse(veredito.auto_elegivel, f"{persona}/{intent}")
                 self.assertEqual(veredito.motivo, "intent_fora_allowlist", f"{persona}/{intent}")
 
     def test_intent_de_outra_persona_nao_e_auto(self) -> None:
@@ -166,7 +189,8 @@ class GuardrailAllowlistDeIntentTest(unittest.TestCase):
             modo="auto",
             turno=_turno(persona="clinica"),
         )
-        self.assertFalse(veredito.aprovado)
+        self.assertTrue(veredito.aprovado)
+        self.assertFalse(veredito.auto_elegivel)
         self.assertEqual(veredito.motivo, "intent_fora_allowlist")
 
         veredito = gr.avaliar_resposta(
@@ -175,14 +199,16 @@ class GuardrailAllowlistDeIntentTest(unittest.TestCase):
             modo="auto",
             turno=_turno(persona="tutor"),
         )
-        self.assertFalse(veredito.aprovado)
+        self.assertTrue(veredito.aprovado)
+        self.assertFalse(veredito.auto_elegivel)
         self.assertEqual(veredito.motivo, "intent_fora_allowlist")
 
     def test_outro_nunca_e_auto(self) -> None:
         veredito = gr.avaliar_resposta(
             texto="Vou passar para a equipe.", intent="outro", modo="auto", turno=_turno()
         )
-        self.assertFalse(veredito.aprovado)
+        self.assertTrue(veredito.aprovado)
+        self.assertFalse(veredito.auto_elegivel)
         self.assertEqual(veredito.motivo, "intent_fora_allowlist")
 
 

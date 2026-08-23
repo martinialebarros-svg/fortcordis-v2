@@ -123,6 +123,47 @@ class WhatsAppBotWorkerServiceTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
+    def test_falha_nao_vaza_telefone_em_log_nem_last_error(self) -> None:
+        telefone = "558588018899"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    queue_service.enqueue_job_for_inbound_message(
+                        db,
+                        wa_identity=telefone,
+                        conversation_id="conv-pii",
+                        wa_message_id="wamid.pii",
+                        now=datetime.now(timezone.utc) - timedelta(seconds=30),
+                    )
+                finally:
+                    db.close()
+
+                erro = RuntimeError(
+                    f"GET http://127.0.0.1:3010/conversations?phone={telefone}&limit=1 falhou"
+                )
+                with self.assertLogs(worker.logger.name, level="ERROR") as captured:
+                    with patch.object(worker, "SessionLocal", SessionFactory):
+                        with patch.object(worker, "_distributed_lock_enabled", return_value=False):
+                            with patch.object(worker, "_process_job", side_effect=erro):
+                                payload = worker.run_whatsapp_bot_worker_due_once(limit=10)
+
+                self.assertEqual(payload, {"processed": 1, "done": 0, "errors": 1})
+                logs = "\n".join(captured.output)
+                self.assertNotIn(telefone, logs)
+                self.assertIn("[REDACTED]", logs)
+
+                verify = SessionFactory()
+                try:
+                    job = verify.query(WhatsAppBotJob).filter_by(wa_message_id="wamid.pii").first()
+                    self.assertNotIn(telefone, job.last_error or "")
+                    self.assertIn("[REDACTED]", job.last_error or "")
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
     def test_job_para_de_ser_reprocessado_ao_esgotar_tentativas(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             SessionFactory, engine = self._build_session_factory(tmpdir)

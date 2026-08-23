@@ -82,7 +82,10 @@ def _contexto_tutor(contexto: dict[str, Any], *, tutor_id: Optional[int]) -> dic
         for a in (contexto.get("agendamentos") or [])
         if isinstance(a, dict)
         and _ativo(a.get("status"))
-        and (a.get("tutor_id") == tutor_id or a.get("pet_id") in pet_ids)
+        and (
+            a.get("pet_id") in pet_ids
+            or (a.get("pet_id") is None and a.get("tutor_id") == tutor_id)
+        )
     ][:MAX_AGENDAMENTOS]
 
     return {

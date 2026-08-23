@@ -1,8 +1,9 @@
 """Orquestracao da geracao de resposta (Fase 4, P4.1-P4.5).
 
 Fluxo de um turno:
-  resolve identidade -> recorta contexto por persona -> roda tools da persona
-  -> gera com o provider -> guardrail -> decide (draft | blocked | suppressed)
+  resolve identidade -> recorta contexto por persona -> provider pede tools
+  -> executa tools escopadas -> gera resposta final -> guardrail -> decide
+  (draft | blocked | suppressed)
 
 O que este modulo NAO faz nesta fase: enviar ao cliente. O envio (RF-027)
 depende de o servico Node aceitar `metadata` do chamador, o que hoje ele NAO
@@ -18,12 +19,15 @@ import json
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.models.whatsapp_bot import WhatsAppBotResposta
 from app.services.whatsapp_bot_context import build_safe_context
 from app.services.whatsapp_bot_guardrails import (
     GuardrailVeredito,
@@ -37,12 +41,12 @@ from app.services.whatsapp_bot_prompt import (
     resolve_prompt_version,
 )
 from app.services.whatsapp_bot_providers import (
+    MAX_TOOL_ROUNDS,
     WhatsAppBotProviderError,
     get_whatsapp_bot_reply_provider,
 )
 from app.services.whatsapp_bot_tools import (
     TOOL_SCHEMAS,
-    TOOLS_POR_PERSONA,
     WhatsAppBotToolContext,
     WhatsAppBotToolError,
     execute_bot_tool,
@@ -69,14 +73,100 @@ class ResultadoGeracao:
     match_type: Optional[str] = None
 
 
-# Tools rodadas por intent presumida. Nesta fase nao ha classificacao previa
-# de intent (o modelo classifica na saida), entao rodamos o conjunto barato e
-# somente-leitura da persona e deixamos o modelo usar o que precisar. Isso
-# mantem o teto de 1 rodada de tools do provider.
-_TOOLS_DE_PARTIDA = (
-    "consultar_horario_funcionamento",
-    "consultar_dados_institucionais",
-)
+def _max_tokens_per_day() -> int:
+    try:
+        parsed = int(settings.WHATSAPP_BOT_MAX_TOKENS_PER_DAY)
+    except Exception:
+        parsed = 100000
+    return parsed if parsed > 0 else 100000
+
+
+def contar_tokens_do_dia(db: Session, *, now: Optional[datetime] = None) -> int:
+    """Custo global ja registrado hoje, antes de abrir uma nova chamada paga."""
+    now = now or datetime.now(timezone.utc)
+    inicio_do_dia = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
+    total = (
+        db.query(
+            func.coalesce(func.sum(WhatsAppBotResposta.input_tokens), 0)
+            + func.coalesce(func.sum(WhatsAppBotResposta.output_tokens), 0)
+        )
+        .filter(WhatsAppBotResposta.created_at >= inicio_do_dia)
+        .scalar()
+    )
+    return int(total or 0)
+
+
+def _somar_tokens(total: Optional[int], parcela: Optional[int]) -> Optional[int]:
+    if parcela is None:
+        return total
+    return int(total or 0) + int(parcela)
+
+
+def _argumentos_da_tool(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    try:
+        parsed = json.loads(str(raw or "{}"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _resultado_ok(
+    resultados: list[tuple[str, dict[str, Any]]], nome: str
+) -> Optional[dict[str, Any]]:
+    for tool_nome, resultado in reversed(resultados):
+        if tool_nome == nome and isinstance(resultado, dict) and resultado.get("ok"):
+            return resultado
+    return None
+
+
+def _texto_deterministico_para_dado_sensivel(
+    *, intent: str, texto_modelo: str, resultados: list[tuple[str, dict[str, Any]]]
+) -> str:
+    """Preco e status saem do payload literal, nao da redacao livre do modelo."""
+    sufixo = " Se quiser falar com uma pessoa, é só pedir."
+    if intent == "preco_servico":
+        resultado = _resultado_ok(resultados, "consultar_preco_tabela")
+        itens = list((resultado or {}).get("itens") or [])[:3]
+        if itens:
+            detalhes = "; ".join(
+                f"{str(item.get('servico') or 'servico')}: R$ {str(item.get('valor') or '').replace('.', ',')}"
+                for item in itens
+            )
+            return f"Atendimento automático da FortCordis: valores de tabela - {detalhes}.{sufixo}"
+
+    if intent == "status_laudo":
+        resultado = _resultado_ok(resultados, "consultar_status_laudo")
+        itens = list((resultado or {}).get("itens") or [])[:3]
+        if itens:
+            detalhes = []
+            for item in itens:
+                pet = str(item.get("pet_nome") or "pet")
+                tipo = str(item.get("tipo_exame") or "exame")
+                status = "está pronto" if item.get("status_cliente") == "pronto" else "ainda não está pronto"
+                detalhes.append(f"{tipo} de {pet} {status}")
+            return f"Atendimento automático da FortCordis: {'; '.join(detalhes)}.{sufixo}"
+
+    return texto_modelo
+
+
+def _tools_usadas_json(
+    persona: str,
+    resultados: list[tuple[str, dict[str, Any]]],
+    *,
+    fontes_declaradas: Optional[list[str]] = None,
+) -> str:
+    turno = turno_a_partir_dos_resultados(persona, resultados)
+    return json.dumps(
+        {
+            "tools_tentadas": [nome for nome, _ in resultados],
+            "tools_ok": turno.tools_ok,
+            "fontes_declaradas": fontes_declaradas or [],
+            "tem_trecho_conhecimento": turno.tem_trecho_conhecimento,
+        },
+        ensure_ascii=False,
+    )
 
 
 def _resolver_contexto(db: Session, wa_identity: str) -> dict[str, Any]:
@@ -144,6 +234,21 @@ def gerar_resposta(
             match_type=None,
         )
 
+    # NFR-005: inclui drafts e bloqueios, pois ambos ja consumiram tokens.
+    # Ao atingir o teto, nao abre nova chamada paga nem envia em `auto`: cria
+    # um rascunho operacional para o atendimento humano continuar.
+    if contar_tokens_do_dia(db) >= _max_tokens_per_day():
+        return ResultadoGeracao(
+            decisao="draft",
+            motivo="teto_global_tokens",
+            texto_gerado=(
+                "Atendimento automático temporariamente direcionado para revisão da equipe."
+            ),
+            prompt_version=resolve_prompt_version(match_type),
+            resolution=resolution,
+            match_type=match_type,
+        )
+
     try:
         tool_ctx = WhatsAppBotToolContext(
             db=db, match_type=match_type, tutor_id=tutor_id, clinica_id=clinica_id
@@ -154,22 +259,6 @@ def gerar_resposta(
             decisao="handoff", motivo="escopo_incoerente", resolution=resolution, match_type=match_type
         )
 
-    resultados: list[tuple[str, dict[str, Any]]] = []
-    for nome in _TOOLS_DE_PARTIDA:
-        if nome in (TOOLS_POR_PERSONA.get(match_type) or {}):
-            resultados.append((nome, execute_bot_tool(tool_ctx, nome)))
-
-    # A base institucional e a fonte de "como agendar"/"area de atendimento",
-    # que nao tem tabela propria no sistema.
-    resultados.append(
-        (
-            "buscar_conhecimento_institucional",
-            execute_bot_tool(
-                tool_ctx, "buscar_conhecimento_institucional", {"consulta": corpo_mensagem}
-            ),
-        )
-    )
-
     contexto_seguro = build_safe_context(
         contexto, match_type=match_type, tutor_id=tutor_id, clinica_id=clinica_id
     )
@@ -179,55 +268,121 @@ def gerar_resposta(
         mensagem_cliente=corpo_mensagem,
         persona=match_type,
         contexto_seguro=contexto_seguro,
-        resultados_de_tools=[{"tool": n, "resultado": r} for n, r in resultados],
+        resultados_de_tools=[],
     )
 
     provider = provider or get_whatsapp_bot_reply_provider()
     iniciado = time.perf_counter()
+    resultados: list[tuple[str, dict[str, Any]]] = []
+    continuation_input: Optional[list[Any]] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    tool_rounds = 0
+    gerado = None
     try:
-        gerado = provider.generate(
-            instructions=instructions,
-            payload=payload,
-            tools=list(TOOL_SCHEMAS),
-            safety_scope=wa_identity,
-        )
+        while True:
+            gerado = provider.generate(
+                instructions=instructions,
+                payload=payload,
+                tools=list(TOOL_SCHEMAS),
+                safety_scope=wa_identity,
+                continuation_input=continuation_input,
+            )
+            input_tokens = _somar_tokens(input_tokens, gerado.input_tokens)
+            output_tokens = _somar_tokens(output_tokens, gerado.output_tokens)
+
+            if gerado.tool_calls:
+                if tool_rounds >= MAX_TOOL_ROUNDS:
+                    return ResultadoGeracao(
+                        decisao="draft",
+                        motivo="limite_rodadas_tools",
+                        texto_gerado=(
+                            "Atendimento automático da FortCordis: não consegui confirmar "
+                            "essa informação com segurança. A equipe pode continuar o atendimento."
+                        ),
+                        modelo=gerado.model,
+                        prompt_version=prompt_version,
+                        tools_usadas=_tools_usadas_json(match_type, resultados),
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        latencia_ms=int((time.perf_counter() - iniciado) * 1000),
+                        resolution=resolution,
+                        match_type=match_type,
+                    )
+
+                tool_outputs: list[dict[str, Any]] = []
+                for call in gerado.tool_calls:
+                    call_id = str(call.get("call_id") or "").strip()
+                    nome = str(call.get("name") or "").strip()
+                    if not call_id:
+                        raise WhatsAppBotProviderError(
+                            "Tool call sem identificador.", code="invalid_tool_call"
+                        )
+                    resultado_tool = execute_bot_tool(
+                        tool_ctx, nome, _argumentos_da_tool(call.get("arguments"))
+                    )
+                    resultados.append((nome, resultado_tool))
+                    tool_outputs.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps(resultado_tool, ensure_ascii=False, default=str),
+                        }
+                    )
+                continuation_input = [*gerado.continuation_input, *tool_outputs]
+                tool_rounds += 1
+                continue
+
+            if gerado.output is None:
+                raise WhatsAppBotProviderError(
+                    "Resposta final ausente.", code="invalid_structured_output"
+                )
+            break
     except WhatsAppBotProviderError as exc:
         return ResultadoGeracao(
             decisao="handoff",
             motivo=f"provider:{exc.code}",
+            modelo=gerado.model if gerado is not None else None,
             prompt_version=prompt_version,
+            tools_usadas=_tools_usadas_json(match_type, resultados),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             resolution=resolution,
             match_type=match_type,
             latencia_ms=int((time.perf_counter() - iniciado) * 1000),
         )
     latencia_ms = int((time.perf_counter() - iniciado) * 1000)
+    assert gerado is not None and gerado.output is not None
+
+    texto_final = _texto_deterministico_para_dado_sensivel(
+        intent=gerado.output.intent,
+        texto_modelo=gerado.output.texto,
+        resultados=resultados,
+    )
 
     turno = turno_a_partir_dos_resultados(match_type, resultados)
     veredito: GuardrailVeredito = avaliar_resposta(
-        texto=gerado.output.texto,
+        texto=texto_final,
         intent=gerado.output.intent,
         modo=modo,
         turno=turno,
     )
 
-    tools_usadas = json.dumps(
-        {
-            "tools_ok": turno.tools_ok,
-            "fontes_declaradas": gerado.output.fontes,
-            "tem_trecho_conhecimento": turno.tem_trecho_conhecimento,
-        },
-        ensure_ascii=False,
+    tools_usadas = _tools_usadas_json(
+        match_type,
+        resultados,
+        fontes_declaradas=gerado.output.fontes,
     )
 
     base = ResultadoGeracao(
         decisao="draft",
         motivo="",
-        texto_gerado=gerado.output.texto,
+        texto_gerado=texto_final,
         modelo=gerado.model,
         prompt_version=prompt_version,
         tools_usadas=tools_usadas,
-        input_tokens=gerado.input_tokens,
-        output_tokens=gerado.output_tokens,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         latencia_ms=latencia_ms,
         resolution=resolution,
         match_type=match_type,
@@ -242,6 +397,11 @@ def gerar_resposta(
     if gerado.output.precisa_humano:
         base.decisao = "handoff"
         base.motivo = "modelo_pediu_humano"
+        return base
+
+    if modo == "auto" and not veredito.auto_elegivel:
+        base.decisao = "draft"
+        base.motivo = str(veredito.motivo or "intent_fora_allowlist")
         return base
 
     # Aprovado. Em `auto` o envio entraria aqui - mas RF-027 depende de

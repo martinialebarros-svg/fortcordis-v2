@@ -32,17 +32,47 @@ from app.services import whatsapp_bot_generation as generation
 from app.services.whatsapp_bot_providers import GeneratedReply, WhatsAppBotProviderError
 
 
-def fake_provider(*, texto, intent, fontes=None, precisa_humano=False):
-    """Provider FAKE, sem rede - padrao do ai-echo (SimpleNamespace + Mock)."""
+def fake_provider(
+    *, texto, intent, fontes=None, precisa_humano=False, tool_name=None, tool_arguments=None
+):
+    """Provider fake de duas etapas: function_call -> saida estruturada."""
+    fonte_padrao = {
+        "horario_funcionamento": "consultar_horario_funcionamento",
+        "endereco": "consultar_dados_institucionais",
+        "formas_contato": "consultar_dados_institucionais",
+        "preco_servico": "consultar_preco_tabela",
+        "status_laudo": "consultar_status_laudo",
+    }.get(intent, "consultar_dados_institucionais")
+    nome = tool_name or fonte_padrao
+    argumentos_padrao = {
+        "consultar_horario_funcionamento": {"data": None},
+        "consultar_dados_institucionais": {},
+        "consultar_preco_tabela": {"servico_nome": "Ecocardiograma", "regiao": "fortaleza"},
+        "consultar_status_laudo": {"pet_nome": "Thor"},
+    }.get(nome, {"consulta": "atendimento FortCordis"})
+    tool_turn = GeneratedReply(
+        output=None,
+        model="fake-model",
+        input_tokens=60,
+        output_tokens=5,
+        tool_calls=[
+            {
+                "call_id": "call-1",
+                "name": nome,
+                "arguments": tool_arguments if tool_arguments is not None else argumentos_padrao,
+            }
+        ],
+        continuation_input=[{"type": "function_call", "call_id": "call-1", "name": nome}],
+    )
     reply = GeneratedReply(
         output=WhatsAppBotReplyOutput(
             texto=texto, intent=intent, fontes=fontes or [], precisa_humano=precisa_humano
         ),
         model="fake-model",
-        input_tokens=120,
-        output_tokens=40,
+        input_tokens=60,
+        output_tokens=35,
     )
-    return SimpleNamespace(generate=Mock(return_value=reply))
+    return SimpleNamespace(generate=Mock(side_effect=[tool_turn, reply]))
 
 
 class WhatsAppBotGenerationTest(unittest.TestCase):
@@ -100,6 +130,39 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
 
                 self.assertEqual(resultado.decisao, "handoff")
                 self.assertEqual(resultado.motivo, "identidade_nao_resolvida")
+                provider.generate.assert_not_called()
+            finally:
+                engine.dispose()
+
+    def test_identidade_ambigua_nao_chama_provider_nem_expoe_candidatos(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    provider = SimpleNamespace(
+                        generate=Mock(side_effect=AssertionError("provider nao deve ser chamado"))
+                    )
+                    contexto = {
+                        "resolution": "ambiguous",
+                        "match_type": None,
+                        "tutores": [{"id": 1, "nome": "Pessoa privada"}],
+                    }
+                    with patch.object(generation, "_resolver_contexto", return_value=contexto):
+                        resultado = generation.gerar_resposta(
+                            db,
+                            wa_identity="5585900000000",
+                            corpo_mensagem="qual o horario?",
+                            modo="suggest",
+                            provider=provider,
+                        )
+                finally:
+                    db.close()
+
+                self.assertEqual(resultado.decisao, "handoff")
+                self.assertEqual(resultado.motivo, "identidade_nao_resolvida")
+                self.assertEqual(resultado.resolution, "ambiguous")
+                self.assertIsNone(resultado.texto_gerado)
                 provider.generate.assert_not_called()
             finally:
                 engine.dispose()
@@ -204,7 +267,7 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
-    def test_intent_fora_da_allowlist_em_auto_vira_blocked(self) -> None:
+    def test_intent_fora_da_allowlist_em_auto_vira_rascunho(self) -> None:
         """CA-014/CA-024."""
         with tempfile.TemporaryDirectory() as tmpdir:
             Factory, engine = self._factory(tmpdir)
@@ -226,8 +289,34 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
                 finally:
                     db.close()
 
-                self.assertEqual(resultado.decisao, "blocked")
+                self.assertEqual(resultado.decisao, "draft")
                 self.assertEqual(resultado.motivo, "intent_fora_allowlist")
+            finally:
+                engine.dispose()
+
+    def test_intent_fora_da_allowlist_em_suggest_continua_editavel(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed_tutor(db)
+                    provider = fake_provider(
+                        texto="Sobre a cobranca, a equipe vai te responder.",
+                        intent="cobranca",
+                    )
+                    resultado = generation.gerar_resposta(
+                        db,
+                        wa_identity="5585999990001",
+                        corpo_mensagem="tenho valor em aberto?",
+                        modo="suggest",
+                        provider=provider,
+                    )
+                finally:
+                    db.close()
+
+                self.assertEqual(resultado.decisao, "draft")
+                self.assertEqual(resultado.motivo, "modo_suggest")
             finally:
                 engine.dispose()
 
@@ -292,6 +381,145 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
                 self.assertEqual(resultado.decisao, "draft")
                 self.assertEqual(resultado.motivo, "aprovado_aguardando_envio_fase6")
                 self.assertIsNone(resultado.texto_enviado)
+            finally:
+                engine.dispose()
+
+    def test_tool_de_preco_roda_e_texto_final_vem_do_payload_literal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed_tutor(db)
+                    provider = fake_provider(
+                        texto="O valor e R$ 999,00.",
+                        intent="preco_servico",
+                    )
+                    resultado = generation.gerar_resposta(
+                        db,
+                        wa_identity="5585999990001",
+                        corpo_mensagem="quanto custa o ecocardiograma?",
+                        modo="suggest",
+                        provider=provider,
+                    )
+                finally:
+                    db.close()
+
+                self.assertEqual(resultado.decisao, "draft")
+                self.assertIn("R$ 420,00", resultado.texto_gerado)
+                self.assertNotIn("999", resultado.texto_gerado)
+                self.assertIn("consultar_preco_tabela", resultado.tools_usadas)
+                self.assertEqual(provider.generate.call_count, 2)
+                segunda_entrada = provider.generate.call_args_list[1].kwargs["continuation_input"]
+                self.assertEqual(segunda_entrada[-1]["type"], "function_call_output")
+                self.assertIn('"valor": "420.00"', segunda_entrada[-1]["output"])
+            finally:
+                engine.dispose()
+
+    def test_tool_sem_relacao_nao_autoriza_status_de_laudo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed_tutor(db)
+                    provider = fake_provider(
+                        texto="O laudo do Thor esta pronto.",
+                        intent="status_laudo",
+                        tool_name="consultar_horario_funcionamento",
+                    )
+                    resultado = generation.gerar_resposta(
+                        db,
+                        wa_identity="5585999990001",
+                        corpo_mensagem="o laudo saiu?",
+                        modo="auto",
+                        provider=provider,
+                    )
+                finally:
+                    db.close()
+
+                self.assertEqual(resultado.decisao, "blocked")
+                self.assertEqual(resultado.motivo, "sem_fonte")
+            finally:
+                engine.dispose()
+
+    def test_limite_de_rodadas_de_tools_vira_rascunho_seguro(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed_tutor(db)
+                    tool_turn = GeneratedReply(
+                        output=None,
+                        model="fake-model",
+                        input_tokens=10,
+                        output_tokens=2,
+                        tool_calls=[
+                            {
+                                "call_id": "call-loop",
+                                "name": "consultar_dados_institucionais",
+                                "arguments": {},
+                            }
+                        ],
+                        continuation_input=[{"type": "function_call", "call_id": "call-loop"}],
+                    )
+                    provider = SimpleNamespace(generate=Mock(return_value=tool_turn))
+                    with patch.object(generation, "MAX_TOOL_ROUNDS", 1):
+                        resultado = generation.gerar_resposta(
+                            db,
+                            wa_identity="5585999990001",
+                            corpo_mensagem="como falo com voces?",
+                            modo="suggest",
+                            provider=provider,
+                        )
+                finally:
+                    db.close()
+
+                self.assertEqual(resultado.decisao, "draft")
+                self.assertEqual(resultado.motivo, "limite_rodadas_tools")
+                self.assertIn("não consegui confirmar", resultado.texto_gerado)
+                self.assertEqual(provider.generate.call_count, 2)
+            finally:
+                engine.dispose()
+
+    def test_teto_global_de_tokens_degrada_para_draft_antes_do_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed_tutor(db)
+                    db.add(
+                        WhatsAppBotResposta(
+                            job_id=99,
+                            wa_identity="5585000000000",
+                            conversation_id="conv-outra",
+                            decisao="draft",
+                            motivo="modo_suggest",
+                            input_tokens=80,
+                            output_tokens=20,
+                        )
+                    )
+                    db.commit()
+                    provider = SimpleNamespace(
+                        generate=Mock(side_effect=AssertionError("provider nao deve ser chamado"))
+                    )
+                    with patch.object(generation.settings, "WHATSAPP_BOT_MAX_TOKENS_PER_DAY", 100):
+                        resultado = generation.gerar_resposta(
+                            db,
+                            wa_identity="5585999990001",
+                            corpo_mensagem="qual o horario?",
+                            modo="auto",
+                            provider=provider,
+                        )
+                finally:
+                    db.close()
+
+                self.assertEqual(resultado.decisao, "draft")
+                self.assertEqual(resultado.motivo, "teto_global_tokens")
+                self.assertIn("revisão da equipe", resultado.texto_gerado)
+                provider.generate.assert_not_called()
             finally:
                 engine.dispose()
 
