@@ -42,6 +42,13 @@ class Laudo(Base):
     clinic_id = Column(Integer, nullable=True)  # ID da clínica vinculada
     veterinario_parceiro_id = Column(Integer, nullable=True, index=True)  # Parceiro externo que encaminhou o caso
 
+    # Resultado da ultima tentativa de aviso de liberacao pelo WhatsApp
+    # (POST /laudos/{id}/portal/whatsapp) - sucesso/falha do envio, nao
+    # confirmacao de entrega/leitura (essa vive so no whatsapp-stage-backend).
+    whatsapp_liberacao_status = Column(String, nullable=True)  # "enviado" | "falhou"
+    whatsapp_liberacao_em = Column(DateTime(timezone=True), nullable=True)
+    whatsapp_liberacao_erro = Column(Text, nullable=True)
+
     # Dados adicionais
     data_exame = Column(DateTime(timezone=True))  # Data do exame
     medico_solicitante = Column(String)  # Médico solicitante

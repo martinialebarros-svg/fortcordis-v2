@@ -12,9 +12,12 @@ import {
 } from "@/lib/laudos";
 import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
+import { extractApiErrorMessageSync } from "@/lib/api-error";
 import {
+  AlertCircle,
   AlertTriangle,
   Calendar,
+  Check,
   ChevronDown,
   Clock,
   Download,
@@ -56,6 +59,9 @@ interface Laudo {
   portal_veterinario_liberado?: boolean;
   portal_destinos_pendentes?: string[];
   portal_pode_liberar?: boolean;
+  whatsapp_liberacao_status?: "enviado" | "falhou" | null;
+  whatsapp_liberacao_em?: string | null;
+  whatsapp_liberacao_erro?: string | null;
 }
 
 interface Exame {
@@ -189,6 +195,8 @@ export default function LaudosPage() {
   const [loadingMoreLaudos, setLoadingMoreLaudos] = useState(false);
   const [liberandoLaudoId, setLiberandoLaudoId] = useState<number | null>(null);
   const [avisandoLaudoId, setAvisandoLaudoId] = useState<number | null>(null);
+  const [toastWhatsapp, setToastWhatsapp] = useState<{ texto: string; classe: string } | null>(null);
+  const toastWhatsappTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const laudosRequestIdRef = useRef(0);
   const novoLaudoMenuRef = useRef<HTMLDivElement | null>(null);
   const [novoLaudoMenuAberto, setNovoLaudoMenuAberto] = useState(false);
@@ -475,6 +483,17 @@ export default function LaudosPage() {
     }
   };
 
+  const mostrarToastWhatsapp = (texto: string, classe: string) => {
+    setToastWhatsapp({ texto, classe });
+    if (toastWhatsappTimeoutRef.current) {
+      clearTimeout(toastWhatsappTimeoutRef.current);
+    }
+    toastWhatsappTimeoutRef.current = setTimeout(() => {
+      setToastWhatsapp(null);
+      toastWhatsappTimeoutRef.current = null;
+    }, 4000);
+  };
+
   const avisarLaudoPorWhatsApp = async (laudo: Laudo) => {
     if (!laudo.portal_clinica_liberado && !isPortalReleased(laudo.status)) {
       alert("Libere o laudo no portal antes de enviar o aviso por WhatsApp.");
@@ -491,10 +510,29 @@ export default function LaudosPage() {
       await api.post(`/laudos/${laudo.id}/portal/whatsapp`, {
         idempotency_key: idempotencyKey,
       });
-      alert("Aviso enviado pelo WhatsApp oficial da Fort Cordis.");
+      const agora = new Date().toISOString();
+      setLaudos((prev) =>
+        prev.map((item) =>
+          item.id === laudo.id
+            ? { ...item, whatsapp_liberacao_status: "enviado", whatsapp_liberacao_em: agora, whatsapp_liberacao_erro: null }
+            : item
+        )
+      );
+      mostrarToastWhatsapp(
+        "Aviso enviado pelo WhatsApp oficial da Fort Cordis.",
+        "border-teal-200 bg-teal-50 text-teal-900"
+      );
     } catch (error) {
-      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
-      alert(detail || "Erro ao enviar o aviso por WhatsApp.");
+      const detail = extractApiErrorMessageSync(error, "Erro ao enviar o aviso por WhatsApp.");
+      const agora = new Date().toISOString();
+      setLaudos((prev) =>
+        prev.map((item) =>
+          item.id === laudo.id
+            ? { ...item, whatsapp_liberacao_status: "falhou", whatsapp_liberacao_em: agora, whatsapp_liberacao_erro: detail }
+            : item
+        )
+      );
+      mostrarToastWhatsapp(detail, "border-rose-200 bg-rose-50 text-rose-900");
     } finally {
       setAvisandoLaudoId(null);
     }
@@ -599,6 +637,13 @@ export default function LaudosPage() {
   return (
     <DashboardLayout>
       <div className="fc-clinical-page">
+        {toastWhatsapp && (
+          <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[70] lg:top-4">
+            <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastWhatsapp.classe}`}>
+              <span className="font-medium">{toastWhatsapp.texto}</span>
+            </div>
+          </div>
+        )}
         <header className="fc-clinical-header">
           <div>
             <span className="fc-clinical-kicker">
@@ -843,6 +888,25 @@ export default function LaudosPage() {
                           <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(laudo.status)}`}>
                             {laudo.status}
                           </span>
+                          {laudo.whatsapp_liberacao_status && (
+                            <span
+                              className={`fc-wa-envio-badge fc-wa-envio-badge-${laudo.whatsapp_liberacao_status}`}
+                              title={
+                                laudo.whatsapp_liberacao_status === "falhou"
+                                  ? laudo.whatsapp_liberacao_erro || "Falha ao enviar o aviso por WhatsApp."
+                                  : laudo.whatsapp_liberacao_em
+                                  ? `Enviado em ${formatOperationalDate(laudo.whatsapp_liberacao_em)}`
+                                  : "Aviso enviado por WhatsApp."
+                              }
+                            >
+                              {laudo.whatsapp_liberacao_status === "enviado" ? (
+                                <Check className="h-3 w-3" />
+                              ) : (
+                                <AlertCircle className="h-3 w-3" />
+                              )}
+                              {laudo.whatsapp_liberacao_status === "enviado" ? "WhatsApp enviado" : "WhatsApp falhou"}
+                            </span>
+                          )}
                           {canReleasePortal(laudo) && (
                             <button
                               onClick={() => liberarNoPortalClinica(laudo)}
