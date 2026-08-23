@@ -3,8 +3,8 @@
 Data: 2026-08-23
 Responsável: Martiniano + Codex
 Status: em implementação; Fases 1-3 concluídas, Fase 4 corrigida e validada
-localmente com provider real; isolamento Meta de stage preparado localmente;
-corte externo e Fases 5-6 pendentes
+localmente com provider real; identidade Meta exclusiva de stage criada e
+cadastrada no GitHub; token permanente, deploy, callback e Fases 5-6 pendentes
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -86,9 +86,10 @@ Smoke local real já executado com dados fictícios, em `suggest` e sem envio:
 
 ## Próxima sequência recomendada
 
-1. Concluir `docs/specs/whatsapp-stage-meta-isolation`: criar app, WABA e numero
-   de teste exclusivos de stage, cadastrar os tres Secrets e as tres Variables
-   do workflow e validar o callback de stage sem alterar producao.
+1. Concluir `docs/specs/whatsapp-stage-meta-isolation`: substituir o token
+   temporario por um token de usuario do sistema sem expiracao, publicar/deployar
+   somente apos autorizacao explicita e entao validar o callback de stage sem
+   alterar producao.
 2. Preparar um teste controlado em stage, sempre em `suggest`, com a credencial
    configurada pelo mecanismo de secrets do ambiente — nunca copiando o `.env`
    local para o repositório.
@@ -112,11 +113,34 @@ Smoke local real já executado com dados fictícios, em `suggest` e sem envio:
   `WHATSAPP_BUSINESS_ACCOUNT_ID` coincidirem com producao.
 - Novas GitHub Variables exigidas: `WHATSAPP_PHONE_NUMBER_ID_STAGE`,
   `WHATSAPP_META_APP_ID_STAGE`, `WHATSAPP_BUSINESS_ACCOUNT_ID_STAGE`.
-- Em 2026-08-23, essas tres Variables ainda nao existiam; os Secrets antigos
-  existem, mas pertencem ao arranjo compartilhado e devem ser substituidos pela
-  credencial do app exclusivo antes do deploy.
-- Nao publicar em `stage` antes de criar/cadastrar a identidade Meta isolada,
-  pois o novo pipeline recusara corretamente a configuracao compartilhada.
+- Identidade exclusiva criada em 2026-08-23:
+  - app `FortZap Stage`, App ID `1683447519419173`;
+  - `Test WhatsApp Business Account`, WABA ID `4413513738886247`;
+  - numero de teste `+1 555-639-7864`, Phone Number ID `1161616897025933`.
+- GitHub Variables cadastradas: `WHATSAPP_PHONE_NUMBER_ID_STAGE`,
+  `WHATSAPP_META_APP_ID_STAGE` e `WHATSAPP_BUSINESS_ACCOUNT_ID_STAGE`.
+- GitHub Secrets substituidos sem exibir valores:
+  `WHATSAPP_APP_SECRET_STAGE`, `WHATSAPP_VERIFY_TOKEN_STAGE` e
+  `WHATSAPP_ACCESS_TOKEN_STAGE`.
+- O token atualmente salvo e um token Meta `USER` temporario, validado contra o
+  app, WABA e numero acima, com expiracao em `2026-08-23 09:00 -03:00`. Nao o
+  trate como credencial pronta para deploy depois desse horario.
+- Usuario de sistema `FortZap Stage` criado como `Employee`, ID
+  `61593589415414`, com apenas dois ativos:
+  - app `FortZap Stage`: acesso total;
+  - WABA de teste: `Números de telefone (apenas visualização)` e `Mensagens`.
+  Nenhum app, WABA ou numero de producao foi atribuido a esse usuario.
+- A geracao de token sem expiracao, com
+  `whatsapp_business_management` e `whatsapp_business_messaging`, ficou
+  bloqueada pela verificacao de seguranca da conta Meta. Dois codigos SMS foram
+  aceitos, mas o painel voltou a pedir verificacao mesmo apos recarga. Nao
+  repetir o ciclo cegamente: concluir a verificacao/2FA em navegador reconhecido
+  e so entao gerar, validar e substituir `WHATSAPP_ACCESS_TOKEN_STAGE`.
+- Nenhum callback foi alterado, nenhum deploy foi executado e nenhum commit foi
+  enviado ao origin. Producao permanece intacta.
+- Depois do token permanente e de autorizacao explicita para publicar: deployar
+  stage, configurar `https://app.stage.fortcordis.com.br/whatsapp/webhook` com o
+  verify token ja salvo, assinar `messages`, executar E2E e revalidar producao.
 
 ## Validação
 
