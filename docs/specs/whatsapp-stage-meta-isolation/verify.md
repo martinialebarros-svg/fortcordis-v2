@@ -2,8 +2,8 @@
 
 Data: 2026-08-23
 Responsaveis: Martiniano + Codex
-Status: validacao local concluida; identidade externa criada; token permanente,
-deploy, callback e E2E pendentes
+Status: validacao local concluida; identidade externa e token permanente
+validados; deploy, callback e E2E pendentes
 
 ## Diagnostico atual
 
@@ -19,12 +19,13 @@ deploy, callback e E2E pendentes
 - app `FortZap Stage` criado com App ID `1683447519419173`;
 - WABA de teste `4413513738886247` e Phone Number ID `1161616897025933`;
 - tres Variables e tres Secrets de stage cadastrados no GitHub sem exposicao;
-- token temporario validado por Graph contra app, WABA e numero, mas expira em
-  `2026-08-23 09:00 -03:00`;
+- token permanente `SYSTEM_USER`, sem expiracao, validado por Graph contra app,
+  WABA e numero e salvo no GitHub sem exposicao;
 - usuario de sistema isolado `FortZap Stage` (`61593589415414`) criado com
   acesso apenas ao app de stage e ao WABA de teste;
-- emissao do token sem expiracao bloqueada por verificacao repetida da conta
-  Meta, mesmo apos dois codigos SMS e recarga do painel.
+- verificacao da conta concluida no perfil reconhecido do Chrome; token emitido
+  com apenas `whatsapp_business_management` e
+  `whatsapp_business_messaging`.
 
 ## Matriz
 
@@ -36,7 +37,7 @@ deploy, callback e E2E pendentes
 | CA-004 | teste verifica access token, App Secret, verify token e token interno | passou, nenhuma exposicao |
 | CA-005 | parse Ruby/Psych dos workflows stage/producao | passou |
 | CA-006 | teste rejeita a antiga fonte `/var/www/fortcordis-stage/.../.env` no workflow de producao | passou |
-| CA-007 | app/WABA/numero exclusivos criados; deploy, callback e smoke real ainda nao executados | parcial |
+| CA-007 | app/WABA/numero exclusivos e token permanente validados; deploy, callback e smoke real ainda nao executados | parcial |
 | CA-008 | Graph mock aceita relacao coerente, rejeita numero divergente e teste somente leitura passou contra a identidade atualmente instalada no VPS | passou |
 
 ## Comandos executados
@@ -73,21 +74,23 @@ tambem passaram na rodada final.
 - `WHATSAPP_APP_SECRET_STAGE`, `WHATSAPP_VERIFY_TOKEN_STAGE` e
   `WHATSAPP_ACCESS_TOKEN_STAGE` aparecem no GitHub Secrets; valores nao foram
   impressos nem persistidos em arquivo.
-- O token temporario retornou identidade coerente para o app, WABA e numero e
-  foi classificado pela Meta como `USER`, com expiracao em
-  `2026-08-23 09:00 -03:00`.
+- O token permanente foi classificado pela Meta como `SYSTEM_USER`, com
+  `expires_at=0`, App ID `1683447519419173` e permissoes concedidas
+  `whatsapp_business_management` e `whatsapp_business_messaging`.
+- As consultas Graph confirmaram que o WABA `4413513738886247` contem o Phone
+  Number ID `1161616897025933` e que o numero responde com essa identidade.
+- `WHATSAPP_ACCESS_TOKEN_STAGE` foi atualizado no GitHub em
+  `2026-08-23T11:19:26Z`; o valor nao foi impresso nem salvo em arquivo e a area
+  de transferencia foi limpa.
 - O usuario de sistema `FortZap Stage` (`61593589415414`) tem exatamente dois
   ativos: app `FortZap Stage` com acesso total e WABA de teste com visualizacao
   de numeros e permissao de mensagens. Producao nao foi atribuida.
-- A Meta aceitou dois codigos SMS, mas continuou exibindo `Verificar conta` ao
-  tentar gerar token `Nunca` com `whatsapp_business_management` e
-  `whatsapp_business_messaging`. O token permanente nao foi emitido.
+- A verificacao no perfil reconhecido do Chrome permitiu selecionar o app
+  `FortZap Stage`, expiracao `Nunca` e somente as duas permissoes de WhatsApp;
+  o token permanente foi emitido e validado.
 
 ## Pendente antes de declarar stage funcional
 
-- concluir verificacao/2FA da conta Meta em navegador reconhecido;
-- gerar token do usuario de sistema sem expiracao, validar Graph e substituir o
-  token temporario no GitHub;
 - callback de stage verificado e `messages` assinado;
 - workflow terminal verde;
 - mensagem externa controlada aparecendo na inbox de stage e resposta recebida;

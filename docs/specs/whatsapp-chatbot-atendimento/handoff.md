@@ -4,7 +4,8 @@ Data: 2026-08-23
 Responsável: Martiniano + Codex
 Status: em implementação; Fases 1-3 concluídas, Fase 4 corrigida e validada
 localmente com provider real; identidade Meta exclusiva de stage criada e
-cadastrada no GitHub; token permanente, deploy, callback e Fases 5-6 pendentes
+cadastrada no GitHub; token permanente validado; deploy, callback e Fases 5-6
+pendentes
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -86,10 +87,9 @@ Smoke local real já executado com dados fictícios, em `suggest` e sem envio:
 
 ## Próxima sequência recomendada
 
-1. Concluir `docs/specs/whatsapp-stage-meta-isolation`: substituir o token
-   temporario por um token de usuario do sistema sem expiracao, publicar/deployar
-   somente apos autorizacao explicita e entao validar o callback de stage sem
-   alterar producao.
+1. Concluir `docs/specs/whatsapp-stage-meta-isolation`: publicar/deployar o
+   isolamento e a identidade exclusiva somente apos autorizacao explicita e
+   entao validar o callback de stage sem alterar producao.
 2. Preparar um teste controlado em stage, sempre em `suggest`, com a credencial
    configurada pelo mecanismo de secrets do ambiente — nunca copiando o `.env`
    local para o repositório.
@@ -122,25 +122,26 @@ Smoke local real já executado com dados fictícios, em `suggest` e sem envio:
 - GitHub Secrets substituidos sem exibir valores:
   `WHATSAPP_APP_SECRET_STAGE`, `WHATSAPP_VERIFY_TOKEN_STAGE` e
   `WHATSAPP_ACCESS_TOKEN_STAGE`.
-- O token atualmente salvo e um token Meta `USER` temporario, validado contra o
-  app, WABA e numero acima, com expiracao em `2026-08-23 09:00 -03:00`. Nao o
-  trate como credencial pronta para deploy depois desse horario.
+- `WHATSAPP_ACCESS_TOKEN_STAGE` foi substituido em `2026-08-23T11:19:26Z` por
+  um token Meta `SYSTEM_USER` sem expiracao (`expires_at=0`). A validacao Graph
+  confirmou App ID `1683447519419173`, WABA ID `4413513738886247`, Phone Number
+  ID `1161616897025933` e as permissoes `whatsapp_business_management` e
+  `whatsapp_business_messaging`. O valor nao foi impresso nem persistido em
+  arquivo e a area de transferencia foi limpa.
 - Usuario de sistema `FortZap Stage` criado como `Employee`, ID
   `61593589415414`, com apenas dois ativos:
   - app `FortZap Stage`: acesso total;
   - WABA de teste: `Números de telefone (apenas visualização)` e `Mensagens`.
   Nenhum app, WABA ou numero de producao foi atribuido a esse usuario.
-- A geracao de token sem expiracao, com
-  `whatsapp_business_management` e `whatsapp_business_messaging`, ficou
-  bloqueada pela verificacao de seguranca da conta Meta. Dois codigos SMS foram
-  aceitos, mas o painel voltou a pedir verificacao mesmo apos recarga. Nao
-  repetir o ciclo cegamente: concluir a verificacao/2FA em navegador reconhecido
-  e so entao gerar, validar e substituir `WHATSAPP_ACCESS_TOKEN_STAGE`.
+- A verificacao de seguranca foi concluida no perfil reconhecido do Chrome e o
+  token sem expiracao foi emitido para o usuario de sistema isolado. Nao gerar
+  outro token salvo se esta credencial for explicitamente revogada ou falhar em
+  validacao futura.
 - Nenhum callback foi alterado, nenhum deploy foi executado e nenhum commit foi
   enviado ao origin. Producao permanece intacta.
-- Depois do token permanente e de autorizacao explicita para publicar: deployar
-  stage, configurar `https://app.stage.fortcordis.com.br/whatsapp/webhook` com o
-  verify token ja salvo, assinar `messages`, executar E2E e revalidar producao.
+- Depois de autorizacao explicita para publicar: deployar stage, configurar
+  `https://app.stage.fortcordis.com.br/whatsapp/webhook` com o verify token ja
+  salvo, assinar `messages`, executar E2E e revalidar producao.
 
 ## Validação
 
