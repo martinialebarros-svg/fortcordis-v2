@@ -768,6 +768,25 @@ Nota: com o cadastro **inteiramente** vazio o diagnóstico exibido vem do
 endereço vazio —, coberto por
 `test_prontidao_separa_endereco_de_formas_de_contato`.
 
+#### O caso parcial aconteceu no ambiente real
+
+Logo depois, o usuário preencheu `Telefone`, `E-mail` e `Website` em
+Configurações > Empresa e deixou `Endereço` vazio — sem combinar, produzindo o
+caso parcial que até então só existia em teste unitário. Resultado em stage:
+
+| | Valor |
+| --- | --- |
+| Resumo | **6 prontos / 8 pendentes** (era 4/10) |
+| `formas_contato` (as duas personas) | **pronto**, com telefone e e-mail reais |
+| `endereco` (as duas personas) | pendente, "Endereco vazio em Configuracoes > Empresa. Cidade e estado nao bastam" |
+
+É a separação por intent funcionando fora do teste: mesma tool, mesmo `ok=True`,
+vereditos diferentes. Antes desta correção o mesmo cadastro pintaria as duas de
+verde. Confirmado também que o banco reflete o formulário (`endereco` com
+comprimento `0` em ambos), então não foi falha de salvamento.
+
+Falta preencher `Endereço` para fechar as duas intents institucionais.
+
 ### Pendente na Fase 6
 
 - P6.3: tráfego real em `suggest` **em produção**, com os números coletados e
