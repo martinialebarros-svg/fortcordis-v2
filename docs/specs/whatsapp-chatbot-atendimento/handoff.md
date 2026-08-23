@@ -5,10 +5,9 @@ Responsável: Martiniano + Codex + Claude
 Status: em implementação; Fases 1-5 concluídas e validadas em stage; reenvio
 único confirmado pela Meta como `delivered`, estado reconciliado e proteção
 preventiva publicada no SHA `29f68f22`; Fase 6 **parcialmente entregue** —
-P6.1 (evals de guardrail) e P6.5 (métricas) implementados e commitados
-localmente (código em `3880a87d`+`e2bc474a`; commits posteriores são apenas
-documentais), ainda **não publicados em stage**; P6.2, P6.3 e P6.4
-pendentes
+P6.1 (evals de guardrail) e P6.5 (métricas) implementados e **publicados em
+stage** no SHA `b8b4875c`, com Deploy e Migration CI `success`; P6.2, P6.3 e
+P6.4 pendentes
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -27,15 +26,16 @@ FortCordis v2.
   `/Users/martiniano/fortcordis-v2/.claude/worktrees/whatsapp-chatbot-handoff-2d02ad`
 - Branch: `claude/whatsapp-chatbot-handoff-2d02ad`
 - `origin/stage` e o runtime de stage estão no SHA
-  `29f68f2295864bd42de4a6947ba02fbb8344adf1`.
+  `b8b4875ccfa69bd0538317dd1078e149c8f76cf9` (avançou de `29f68f22` em
+  2026-08-23, publicação da instrumentação da Fase 6).
 - `origin/main` e produção permanecem no SHA
   `447ddc530fa0a3ea135eeff427fca1eed637b65d`.
 - O código da Fase 5, o hotfix do nono dígito e a proteção de reenvio do bot já
   foram publicados em stage.
-- **Novo desde a última sessão**: a branch local está à frente de
-  `origin/stage` com a instrumentação da Fase 6 — `3880a87d` (P6.1 + P6.5) e
-  `e2bc474a` (memoização) —, mais commits documentais. Confirme a ponta com
-  `git rev-parse HEAD`. Nada foi publicado: `origin/stage` segue em `29f68f22` e
+- A instrumentação da Fase 6 (`3880a87d` P6.1+P6.5 e `e2bc474a` memoização)
+  **já está publicada em stage**. Pode haver um commit documental local
+  posterior registrando as provas do deploy; não o promova para produção.
+  Estado após a publicação: `origin/stage` segue em `29f68f22` e
   `origin/main`/produção em `447ddc53`. Não promova para produção.
 - Preserve o checkout principal e alterações não relacionadas. Não promova
   para produção. O callback e a publicacao de stage ja foram verificados; antes
@@ -249,7 +249,8 @@ Não executado, e por quê:
   papel autenticado e não havia `CANARY_BEARER_TOKEN`/`CANARY_USERNAME`/
   `CANARY_PASSWORD` no ambiente desta sessão. Não pedi nem manipulei segredo
   para isso. Além disso, `GET /whatsapp/bot/metricas` **ainda não existe em
-  stage** — só passa a existir depois de publicar a branch.
+  stage** (isso mudou: foi publicado, ver a seção de publicação no
+  `verify.md`).
 - **Teste real de `consultar_status_laudo`** continua pendente: exige stage
   autenticado e é passo posterior à observação.
 - Nenhum clique em Enviar/Reenviar/Descartar. A resposta `7` não foi tocada.
@@ -257,12 +258,11 @@ Não executado, e por quê:
 
 ## Próxima sequência recomendada
 
-1. **Publicar a instrumentação da Fase 6 em stage.** A branch está à frente
-   de `origin/stage` (código em `3880a87d`+`e2bc474a`; confirme a ponta com
-   `git rev-parse HEAD`). Sem publicar,
-   `GET /whatsapp/bot/metricas` não existe no runtime e a observação da Fase 6
-   não pode começar. Revalide stage e produção antes e depois. Não promova para
-   produção.
+1. ~~Publicar a instrumentação da Fase 6 em stage.~~ **Concluído em
+   2026-08-23**: `origin/stage` em `b8b4875c`, Deploy run `32664954776` e
+   Migration CI run `32664954786` ambos `success`, produção intacta em
+   `447ddc53`. `GET /api/v1/whatsapp/bot/metricas` responde `401` no runtime
+   (existe e está protegido), contra `404` de rota inexistente.
 2. **P6.2 — preview de elegibilidade em stage.** Exige credencial autenticada
    (`CANARY_BEARER_TOKEN` ou `CANARY_USERNAME`/`CANARY_PASSWORD`), que não
    estava disponível na sessão anterior. Rode `GET /api/v1/whatsapp/bot/preview`

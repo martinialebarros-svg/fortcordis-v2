@@ -466,6 +466,43 @@ Suítes após esta entrega: **994/994** na suíte completa do backend (era 974),
 **139/139** na suíte focada do bot (era 119) e **15/15** em
 `test_whatsapp_conversation_context` + `test_configuracoes_autorizacao`.
 
+### Publicação da instrumentação da Fase 6 em stage (2026-08-23)
+
+Publicado após autorização explícita, por fast-forward, sem force:
+
+- `origin/stage` avançou `29f68f22..b8b4875c` (6 commits: 5 desta sessão mais o
+  commit documental `6a19d9b6` que já estava na branch; conferido como
+  docs-only antes de publicar);
+- a branch `claude/whatsapp-chatbot-handoff-2d02ad` também foi publicada, para
+  rastreabilidade;
+- `origin/main` e produção permaneceram em `447ddc53`, sem alteração.
+
+Workflows terminais no SHA `b8b4875c`:
+
+- Deploy to Stage (VPS) run `32664954776`: `success`;
+- Migration CI run `32664954786`: `success`.
+
+Revalidação externa antes e depois, sem autenticação, com resultado idêntico:
+
+| Alvo | Antes | Depois |
+| --- | --- | --- |
+| `stage.fortcordis.com.br/` | `200` | `200` |
+| `app.stage.../whatsapp/health` | `200` | `200` |
+| `app.stage.../whatsapp/conversations` sem credencial | `401` | `401` |
+| `stage.../whatsapp-stage` | — | `307` (redirect de autenticação) |
+| produção `app.fortcordis.com.br/` | `200` | `200` |
+| produção `/whatsapp/health` | `200` | `200` |
+| produção `/whatsapp/conversations` sem credencial | `401` | `401` |
+
+Prova de que o endpoint novo entrou no runtime, sem precisar de credencial: em
+`app.stage` e em `stage`, `GET /api/v1/whatsapp/bot/metricas` responde `401`,
+**igual** ao `GET /api/v1/whatsapp/bot/preview` que já existia, enquanto uma
+rota inexistente (`/api/v1/whatsapp/bot/nao-existe-xyz`) responde `404`. Ou
+seja, a rota existe e está protegida — não é `404` de código ausente.
+
+O bot continua em `suggest`; nada foi habilitado, enviado ou reenviado nesta
+publicação.
+
 ### Pendente na Fase 6
 
 - P6.2: `GET /whatsapp/bot/preview` executado e revisado em stage.
