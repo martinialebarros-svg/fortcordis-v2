@@ -785,7 +785,33 @@ vereditos diferentes. Antes desta correção o mesmo cadastro pintaria as duas d
 verde. Confirmado também que o banco reflete o formulário (`endereco` com
 comprimento `0` em ambos), então não foi falha de salvamento.
 
-Falta preencher `Endereço` para fechar as duas intents institucionais.
+#### Fechamento: cadastro completo, prontidão honesta
+
+Com `Endereço` preenchido (51 caracteres, **com CEP**), a prontidão em stage
+fechou em **8 prontos / 6 pendentes**:
+
+| Intent | Tutor | Clínica |
+| --- | --- | --- |
+| `horario_funcionamento` | pronto | pronto |
+| `endereco` | pronto | pronto |
+| `formas_contato` | pronto | pronto |
+| `preco_servico` | pronto | pronto |
+| `area_atendimento` | pendente (base) | pendente (base) |
+| `como_agendar` / `como_solicitar_exame` | pendente (base) | pendente (base) |
+| `status_laudo` | depende da conversa | depende da conversa |
+
+Os oito verdes agora têm dado real por trás — coincidem em número com os oito
+de antes da correção, mas quatro daqueles eram falsos. A sequência completa
+ficou registrada acima: 8 (com 4 falsos) → 4 → 6 (parcial) → 8 verdadeiros.
+
+Efeito colateral relevante: como o endereço cadastrado **contém CEP**, a âncora
+`ceps_permitidos` do guardrail passa a ser alimentada com dado real em stage, e
+não só nos evals. Um CEP diferente do cadastrado numa resposta agora cai em
+`contato_fora_da_fonte`.
+
+As seis pendências restantes são todas esperadas: quatro dependem do conteúdo
+institucional (export das conversas, ainda não recebido) e duas dependem de
+conversa real com exame, por desenho.
 
 ### Pendente na Fase 6
 
@@ -800,10 +826,9 @@ Falta preencher `Endereço` para fechar as duas intents institucionais.
 - As **outras nove guardas** do handoff, antes de qualquer envio automático. A
   guarda 10 (falso verde de `consultar_dados_institucionais`) foi corrigida em
   2026-08-23; as nove restantes seguem sem implementação.
-- Preencher `Endereço`, `Telefone` e `E-mail` em Configurações > Empresa no
-  stage — o usuário assumiu esse passo. Enquanto estiverem vazios, a prontidão
-  vai mostrar `endereco` e `formas_contato` como pendentes nas duas personas,
-  que passou a ser o retrato correto.
+- ~~Preencher `Endereço`, `Telefone` e `E-mail` em Configurações > Empresa no
+  stage.~~ **Feito pelo usuário em 2026-08-23**; a prontidão fechou em 8
+  prontos / 6 pendentes, todos os verdes com dado real.
 
 ## Regressão e riscos residuais
 

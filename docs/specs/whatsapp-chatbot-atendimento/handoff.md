@@ -446,9 +446,12 @@ apontando "Preencha endereco, telefone e e-mail em Configuracoes > Empresa". Os
 quatro verdes restantes (`horario_funcionamento` e `preco_servico` nas duas
 personas) têm dado real por trás.
 
-**Pendente com o usuário**: preencher `Endereço`, `Telefone` e `E-mail` em
-Configurações > Empresa no stage. Ele assumiu esse passo. Até lá a prontidão
-mostra essas duas intents como pendentes, que passou a ser o retrato correto.
+**Resolvido na mesma sessão**: o usuário preencheu `Telefone`, `E-mail`,
+`Website` e depois `Endereço`. A prontidão fechou em **8 prontos / 6
+pendentes**, todos os verdes com dado real. O preenchimento em duas etapas
+produziu de brinde, no ambiente real, o caso parcial que só tinha teste
+unitário: com telefone preenchido e endereço vazio, `formas_contato` ficou
+verde e `endereco` pendente — mesma tool, vereditos diferentes.
 
 ### Validação desta sessão
 
@@ -460,18 +463,24 @@ stage `200`/`200`/`401`/`307`, produção `200`/`200`/`401`.
 
 ## Próxima sequência recomendada
 
-1. Pedir ao usuário que preencha `Endereço`, `Telefone` e `E-mail` em
-   Configurações > Empresa no stage; depois clicar em **Verificar** e conferir
-   que `endereco` e `formas_contato` ficaram verdes **por dado real**, não por
-   `ok=True` vazio.
-3. **Conteúdo institucional**: receber o export das conversas, extrair os fatos
+1. **Conteúdo institucional**: receber o export das conversas, extrair os fatos
    generalizáveis sem PII, submeter à aprovação e cadastrar pelo painel.
    Conferir na prontidão que as quatro intents de conhecimento ficaram verdes
    (`area_atendimento` e `como_agendar` no tutor; `area_atendimento` e
-   `como_solicitar_exame` na clínica).
+   `como_solicitar_exame` na clínica). É o que falta para a prontidão sair de
+   8/6 para 12/2.
+2. **Teste real de `endereco` com o cadastro preenchido**, em `suggest`. Agora
+   que o endereço de stage tem CEP, a âncora `ceps_permitidos` está viva com
+   dado real. O que este teste procura é o limite declarado da correção: o
+   guardrail impede endereço **sem fonte**, mas não compara a prosa contra o
+   cadastro — logradouro certo com número errado passaria. Vale ver o que o
+   modelo escreve de fato antes de cogitar `auto`.
+3. **Teste real de `consultar_status_laudo`**, sem conteúdo clínico na mensagem
+   e sem envio automático — a única intent que a prontidão não consegue medir.
 4. **P6.3 em produção em `suggest`** (ver reescopo acima), coletando por
    `GET /whatsapp/bot/metricas`. Mínimo de 20 rascunhos decididos por persona.
-   Stage não serve para isso, e agora há número para provar.
+   Stage não serve para isso, e agora há número para provar: uma semana rendeu
+   1 rascunho decidido.
 5. **Envio automático** somente depois, tratando as **nove guardas restantes**
    (a 10 está fechada), e **somente** com autorização explícita registrada no
    `verify.md`.
