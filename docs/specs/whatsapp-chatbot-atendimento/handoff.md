@@ -6,7 +6,8 @@ Status: em implementação; Fases 1-5 concluídas e validadas em stage; reenvio
 único confirmado pela Meta como `delivered`, estado reconciliado e proteção
 preventiva publicada no SHA `29f68f22`; Fase 6 **parcialmente entregue** —
 P6.1 (evals de guardrail) e P6.5 (métricas) implementados e commitados
-localmente em `e2bc474a`, ainda **não publicados em stage**; P6.2, P6.3 e P6.4
+localmente (código em `3880a87d`+`e2bc474a`, HEAD em `6ba81f02`), ainda
+**não publicados em stage**; P6.2, P6.3 e P6.4
 pendentes
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
@@ -31,9 +32,10 @@ FortCordis v2.
   `447ddc530fa0a3ea135eeff427fca1eed637b65d`.
 - O código da Fase 5, o hotfix do nono dígito e a proteção de reenvio do bot já
   foram publicados em stage.
-- **Novo desde a última sessão**: a branch local está em `e2bc474a`, dois
-  commits à frente de `origin/stage`, com a instrumentação da Fase 6
-  (P6.1 + P6.5). Nada foi publicado: `origin/stage` segue em `29f68f22` e
+- **Novo desde a última sessão**: a branch local está em `6ba81f02`, três
+  commits à frente de `origin/stage` — a instrumentação da Fase 6 em
+  `3880a87d` (P6.1 + P6.5) e `e2bc474a` (memoização), mais este commit
+  documental. Nada foi publicado: `origin/stage` segue em `29f68f22` e
   `origin/main`/produção em `447ddc53`. Não promova para produção.
 - Preserve o checkout principal e alterações não relacionadas. Não promova
   para produção. O callback e a publicacao de stage ja foram verificados; antes
@@ -256,7 +258,7 @@ Não executado, e por quê:
 ## Próxima sequência recomendada
 
 1. **Publicar a instrumentação da Fase 6 em stage.** A branch está em
-   `e2bc474a`, dois commits à frente de `origin/stage`. Sem publicar,
+   `6ba81f02`, três commits à frente de `origin/stage`. Sem publicar,
    `GET /whatsapp/bot/metricas` não existe no runtime e a observação da Fase 6
    não pode começar. Revalide stage e produção antes e depois. Não promova para
    produção.
@@ -417,7 +419,8 @@ como exige o SDD guardrail. Registre somente evidência realmente executada.
 - Bloqueio atual: `auto` permanece deliberadamente indisponível até haver dados
   reais de aceite e segurança da Fase 6.
 - Fase 6, parte 1 (2026-08-23): evals de guardrail (P6.1) e métricas (P6.5)
-  entregues e commitados em `e2bc474a`, ainda não publicados. P6.2 ficou
+  entregues e commitados (código em `3880a87d`+`e2bc474a`), ainda não
+  publicados. P6.2 ficou
   bloqueado por falta de credencial autenticada nesta sessão.
 - Próximo marco: teste controlado de uma ação de revisão com confirmação
   específica e início das métricas de `suggest`; produção permanece intacta.
