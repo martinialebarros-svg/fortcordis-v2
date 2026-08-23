@@ -2,12 +2,11 @@
 
 Data: 2026-08-23
 Responsável: Martiniano + Codex + Claude
-Status: em implementação; Fases 1-5 concluídas e validadas em stage; reenvio
-único confirmado pela Meta como `delivered`, estado reconciliado e proteção
-preventiva publicada no SHA `29f68f22`; Fase 6 **parcialmente entregue** —
-P6.1 (evals de guardrail) e P6.5 (métricas) implementados e **publicados em
-stage** no SHA `b8b4875c`, com Deploy e Migration CI `success`; P6.2, P6.3 e
-P6.4 pendentes
+Status: Fases 1-5 concluídas e publicadas. Fase 6 parcial: evals (P6.1),
+métricas (P6.5), correção crítica da base institucional e painel de
+configuração implementados. `origin/stage` em `937d17b5`; o painel
+(`7dca1d45`) está commitado local e **não publicado**. Produção intacta em
+`447ddc53`, sem nunca ter recebido o bot. `auto` permanece bloqueado.
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -257,32 +256,146 @@ Não executado, e por quê:
 - Nenhum clique em Enviar/Reenviar/Descartar. A resposta `7` não foi tocada.
 - Nada publicado, nada promovido, nenhuma configuração Meta alterada.
 
+## Sessão de 2026-08-23 (Fase 6 parte 2): correção crítica e painel
+
+### SHAs e workflows
+
+| SHA | Conteúdo | Deploy to Stage | Migration CI |
+| --- | --- | --- | --- |
+| `b8b4875c` | instrumentação Fase 6 (P6.1 evals + P6.5 métricas) | `32664954776` | `32664954786` |
+| `e1a92b95` | provas do deploy anterior | `32665608058` | `32665608079` |
+| `718712c6` | registro consolidado | `32666120138` | `32666120067` |
+| `937d17b5` | **correção crítica da base institucional** | `32668582834` | `32668582870` |
+| `7dca1d45` | **painel de configuração — NÃO PUBLICADO** | — | — |
+
+Todos os runs acima terminaram em `success`. `origin/stage` = `937d17b5`.
+`origin/main` = `447ddc53`, inalterado em toda a sessão.
+
+### A correção crítica (leia antes de mexer na base de conhecimento)
+
+`buscar_conhecimento_institucional` comparava o `score` **normalizado** de
+`search_knowledge` (teto `1.0`) contra um piso de `2.0`. O piso era
+inalcançável, então a tool devolvia `ok=False` para toda pergunta e todo
+documento. `area_atendimento`, `como_agendar` e `como_solicitar_exame` — os três
+intents que significam "como a FortCordis funciona" — terminavam sempre em
+`blocked/sem_fonte`. Em `suggest` isso ficou invisível: o atendente revisava o
+rascunho reprovado e respondia à mão.
+
+Passou por três fases porque nenhum teste ligava o wrapper ao retorno real de
+`search_knowledge`. `backend/tests/test_whatsapp_bot_conhecimento.py` fecha esse
+caminho e prova ausência de rede (`_embed_texts` com `side_effect`).
+
+Prova numérica: documento institucional realista deu `keyword_score = 13`,
+`score` normalizado `0.35`. Piso antigo rejeitava; piso novo aceita.
+
+Corrigido em três frentes: piso na escala própria de cada sinal
+(`keyword_score >= 2.0` **ou** `semantic_score >= 0.25`); categoria tolerante a
+acento/caixa/hífen/underscore/sufixo casando pela primeira palavra em
+`{institucional, atendimento}`; e descarte deixou de ser silencioso (o retorno
+traz `motivo` e `descartados` por causa).
+
+`manual` permanece **fora** da audiência de propósito: é o balde default
+compartilhado com procedimento clínico de staff, e a base não tem coluna de
+audiência.
+
+### Painel de configuração (commitado, não publicado)
+
+Card **Painel do atendimento automático** em Configurações > Empresa, com
+quatro seções, mais três endpoints e uma lib de frontend:
+
+- `GET /whatsapp/bot/prontidao` — por persona e intent, se a fonte responde
+  agora, com diagnóstico acionável. **Zero LLM**, travado por teste.
+- `GET/POST /whatsapp/bot/conhecimento` — listagem separando visível de
+  ignorado; cadastro com categoria derivada de `publico` e `fonte` obrigatória.
+- `POST /whatsapp/bot/simular` — mostra o que o bot responderia. **Não envia e
+  não persiste**, para não contaminar o denominador de aceite.
+- `frontend/lib/whatsapp-bot-painel.ts` — formatação testada; `null` vira `—`,
+  nunca `0%`.
+
+`gerar_resposta` ganhou `persona_forcada`, usado **somente** pela simulação,
+com escopo sintético cujos ids nunca casam registro real.
+
+### Validação executada nesta sessão
+
+Backend **1014/1014**; frontend **98/98** em 15 arquivos; `eslint` sem warning;
+`tsc --noEmit` limpo; `next build` concluído; gate SDD aprovado em todos os
+commits. Revalidação externa antes e depois de cada publicação: stage `200`/
+`307`/`401`, produção `200`/`200`/`401`.
+
+### Guardas obrigatórias antes de ligar envio automático
+
+Investigação em cinco frentes levantou o que segue. **Nada disso está
+implementado** — o envio automático não existe no código. Não implemente o
+envio sem tratar cada item:
+
+1. **Retry reenviaria ao cliente.** A idempotência do Node é por `resposta_id`,
+   e o retry do worker cria uma resposta nova com chave nova. Ancore o envio em
+   identidade estável por **job** e aborte se já existir resposta `sent`/
+   `sending` para aquele `job_id`.
+2. **O bot veria a própria mensagem.** O portão `from_me` não distingue
+   mensagem do bot de mensagem de humano. Depois do primeiro envio automático,
+   um job concorrente pausa a conversa 12h em silêncio, sem alerta e sem
+   `pending` no Node. Ignore mensagens com `metadata.origem == "bot"`.
+3. **Não pause após envio automático.** `pause_conversation` é semântica de
+   handoff humano. Aplicada a cada resposta do bot, limitaria a uma resposta
+   por conversa a cada 12h.
+4. **`_fetch_last_message` lê a mensagem errada.** Pede `page=1&limit=200` de um
+   endpoint ordenado ASC: em conversa com mais de 200 mensagens devolve a 200ª
+   **mais antiga** como se fosse a última.
+5. **`sent` passaria a significar duas coisas.** Aceite humano e envio do bot.
+   As métricas classificam todo `sent` como aceito, então o número que autoriza
+   o `auto` passaria a ser produzido pelo `auto`. Separe por
+   `enviado_por_id IS NULL` e não grave `feedback="positivo"` em envio
+   automático.
+6. **`blocked` e `handoff` são invisíveis na central.** `_estado_payload` só
+   mostra `draft`. Em `auto` isso é exatamente o silêncio que a RF-022 proíbe.
+7. **A trava de `auto` é só de UI** (`disabled` no `<option>`). O backend aceita
+   `auto` por conversa sem papel admin. Migre a trava para o backend.
+8. **O "dia" dos tetos é UTC**, não `America/Fortaleza`, e o contador é
+   compartilhado com envios humanos.
+9. **Contexto de uma única mensagem** contradiz a CA-003 (três mensagens no
+   debounce, uma resposta considerando as três).
+10. **`consultar_dados_institucionais` devolve `ok=True` com endereço NULL**,
+    dando fonte válida sem dado. O guardrail não ancora endereço nem telefone,
+    então texto inventado passa como aprovado.
+
+### Reescopo necessário do P6.3
+
+Stage **não pode** produzir os números de aceite: o número é de teste da Meta e
+só troca mensagem com destinatários pré-verificados
+(`docs/specs/whatsapp-stage-meta-isolation/verify.md`). Stage valida
+funcionalmente cada intent; a coleta estatística tem que acontecer em
+**produção em `suggest`**. Nunca aponte stage para o número/WABA de produção
+para "conseguir tráfego".
+
+### Conteúdo institucional: fluxo acordado com o usuário
+
+O usuário vai exportar conversas reais do WhatsApp das secretárias e quer que
+elas alimentem a base. **Restrição não negociável**: essas conversas contêm PII
+real (nomes, telefones, nomes de pets, possivelmente conteúdo clínico e
+financeiro), e a base é lida pelo bot para responder **outros** clientes, além
+de ser compartilhada com o assistente interno. O texto bruto **nunca** entra na
+base. Fluxo: export → extrair apenas fatos institucionais generalizáveis →
+documentos limpos sem PII → usuário aprova → cadastro pelo painel.
+
 ## Próxima sequência recomendada
 
-1. ~~Publicar a instrumentação da Fase 6 em stage.~~ **Concluído em
-   2026-08-23**, em dois ciclos de fast-forward: código em `b8b4875c`
-   (runs `32664954776` e `32664954786`) e registros em `e1a92b95` (runs
-   `32665608058` e `32665608079`), todos `success`. Produção intacta em
-   `447ddc53`. `GET /api/v1/whatsapp/bot/metricas` responde `401` no runtime
-   (existe e está protegido), contra `404` de rota inexistente.
-2. **P6.2 — preview de elegibilidade em stage.** Exige credencial autenticada
-   (`CANARY_BEARER_TOKEN` ou `CANARY_USERNAME`/`CANARY_PASSWORD`), que não
-   estava disponível na sessão anterior. Rode `GET /api/v1/whatsapp/bot/preview`
-   e registre o resultado no `verify.md`. É somente leitura (CA-019).
-3. **P6.3 — abrir a janela de observação.** Mantenha stage em `suggest` com
-   `auto` bloqueado e deixe acumular pelo menos uma semana de tráfego real.
-   Consulte `GET /api/v1/whatsapp/bot/metricas?dias=7` e transcreva os números
-   no `verify.md`, na seção "Números a coletar na Fase 6.3".
-4. **Ao ler as métricas, saiba o que cada número quer dizer.** `taxa_aceite`
-   inclui rascunho editado; `taxa_aceite_sem_edicao` é o número que mede a
-   qualidade real do rascunho, e a diferença entre os dois é o trabalho que a
-   equipe teve. Rascunho pendente não entra no denominador. `custo_total` vem
-   `null` até alguém configurar `WHATSAPP_BOT_*_COST_PER_MILLION`.
-5. **Teste real de `consultar_status_laudo`** em stage, com mensagem sem
-   conteúdo clínico e sem envio automático, depois da observação começar.
-6. **Não habilite `auto` por inferência.** `pronto_para_decidir_auto` é
-   checklist de amostra, não autorização. Peça autorização específica e registre
-   a decisão com número no `verify.md`.
+1. **Publicar o painel** (`7dca1d45`) em stage. Fast-forward de `origin/stage`,
+   revalidando antes e depois. Não promova para produção.
+2. Abrir `Configurações > Empresa` em stage, clicar em **Verificar** na
+   prontidão e registrar no `verify.md` o que aparece — com a base corrigida, o
+   diagnóstico agora é real.
+3. **P6.2**: rodar `GET /whatsapp/bot/preview` em stage. Exige credencial
+   autenticada (`CANARY_BEARER_TOKEN` ou `CANARY_USERNAME`/`CANARY_PASSWORD`),
+   ausente nas duas últimas sessões. Alternativa sem credencial: abrir a URL no
+   navegador autenticado.
+4. **Conteúdo institucional**: receber o export das conversas, extrair os fatos
+   generalizáveis sem PII, submeter à aprovação e cadastrar pelo painel.
+   Conferir na prontidão que as três intents de conhecimento ficaram verdes.
+5. **P6.3 em produção em `suggest`** (ver reescopo acima), coletando por
+   `GET /whatsapp/bot/metricas`. Mínimo de 20 rascunhos decididos por persona.
+6. **Envio automático** somente depois, tratando as dez guardas listadas acima,
+   e **somente** com autorização explícita registrada no `verify.md`.
 
 ## Limites obrigatórios da próxima sessão
 
