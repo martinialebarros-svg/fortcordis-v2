@@ -3,10 +3,12 @@
 Data: 2026-08-23
 Responsável: Martiniano + Codex + Claude
 Status: Fases 1-5 concluídas e publicadas. Fase 6 parcial: evals (P6.1),
-métricas (P6.5), correção crítica da base institucional e painel de
-configuração implementados. `origin/stage` em `937d17b5`; o painel
-(`7dca1d45`) está commitado local e **não publicado**. Produção intacta em
-`447ddc53`, sem nunca ter recebido o bot. `auto` permanece bloqueado.
+métricas (P6.5), correção crítica da base institucional, painel de configuração
+e **P6.2 cumprido** (preview rodado em stage). `origin/stage` em `6f446d29`,
+com o painel já publicado. Dois commits locais **não publicados**: `425a936d`
+(registro do P6.2 e da prontidão real) e `e9aa3fc8` (correção da guarda 10).
+Produção intacta em `447ddc53`, sem nunca ter recebido o bot. `auto` permanece
+bloqueado.
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -25,8 +27,11 @@ FortCordis v2.
   `/Users/martiniano/fortcordis-v2/.claude/worktrees/whatsapp-chatbot-handoff-2d02ad`
 - Branch: `claude/whatsapp-chatbot-handoff-2d02ad`
 - `origin/stage` e o runtime de stage estão no SHA
-  `b8b4875ccfa69bd0538317dd1078e149c8f76cf9` (avançou de `29f68f22` em
-  2026-08-23, publicação da instrumentação da Fase 6).
+  `6f446d29646abecdd1ea360b040320894a572051` (publicação do painel de
+  configuração em 2026-08-23).
+- A branch está **2 commits à frente** de `origin/stage`: `425a936d` (registro
+  do P6.2 e da prontidão) e `e9aa3fc8` (correção da guarda 10). Publicar exige
+  autorização explícita.
 - `origin/main` e produção permanecem no SHA
   `447ddc530fa0a3ea135eeff427fca1eed637b65d`.
 - O código da Fase 5, o hotfix do nono dígito e a proteção de reenvio do bot já
@@ -58,9 +63,12 @@ Depois confirme o estado corrente com:
 git status --short --branch
 git fetch origin stage main
 git rev-parse HEAD origin/stage origin/main
-gh run view 32663269023 --json status,conclusion,url,headSha,name
-gh run view 32663268982 --json status,conclusion,url,headSha,name
+gh run view 32670249325 --json status,conclusion,url,headSha,name
+gh run view 32670249345 --json status,conclusion,url,headSha,name
 ```
+
+E leia primeiro este arquivo, começando pela seção
+"Sessão de 2026-08-23 (Fase 6 parte 3)", que tem o estado mais recente.
 
 ## Estado implementado
 
@@ -355,9 +363,16 @@ envio sem tratar cada item:
    compartilhado com envios humanos.
 9. **Contexto de uma única mensagem** contradiz a CA-003 (três mensagens no
    debounce, uma resposta considerando as três).
-10. **`consultar_dados_institucionais` devolve `ok=True` com endereço NULL**,
-    dando fonte válida sem dado. O guardrail não ancora endereço nem telefone,
-    então texto inventado passa como aprovado.
+10. ~~**`consultar_dados_institucionais` devolve `ok=True` com endereço
+    NULL**, dando fonte válida sem dado. O guardrail não ancora endereço nem
+    telefone, então texto inventado passa como aprovado.~~ **CORRIGIDO em
+    2026-08-23 no commit `e9aa3fc8`**, depois de o falso verde ser medido em
+    stage. A tool falha fechado sem dado publicável, a prontidão decide por
+    intent (`tem_endereco`/`tem_contato`) e o guardrail ganhou
+    `contato_fora_da_fonte` e `endereco_sem_fonte`. Limite declarado: prosa de
+    endereço não é comparada contra o cadastro.
+
+**Nove guardas seguem abertas** (1 a 9). Nenhuma delas está implementada.
 
 ### Reescopo necessário do P6.3
 
@@ -378,24 +393,71 @@ de ser compartilhada com o assistente interno. O texto bruto **nunca** entra na
 base. Fluxo: export → extrair apenas fatos institucionais generalizáveis →
 documentos limpos sem PII → usuário aprova → cadastro pelo painel.
 
+## Sessão de 2026-08-23 (Fase 6 parte 3): publicação, P6.2 e guarda 10
+
+### SHAs e workflows
+
+| SHA | Conteúdo | Deploy to Stage | Migration CI |
+| --- | --- | --- | --- |
+| `6f446d29` | painel de configuração + handoff (publicado) | `32670249325` | `32670249345` |
+| `425a936d` | registro do P6.2 e da prontidão real — **NÃO PUBLICADO** | — | — |
+| `e9aa3fc8` | correção da guarda 10 — **NÃO PUBLICADO** | — | — |
+
+Os dois runs terminaram em `success`. `origin/stage` = `6f446d29`.
+`origin/main` = `447ddc53`, inalterado.
+
+### P6.2 cumprido
+
+Rodado no navegador autenticado. A sessão de stage do Chrome havia expirado; o
+usuário fez o login, e **nenhuma credencial foi digitada ou manipulada por
+agente**. Preview às `2026-08-23T22:32:00Z`: bot ativo em `suggest`, 22 jobs
+`done`, 50 `superseded`, respostas `1 sent / 13 handoff / 8 suppressed`, nenhum
+rascunho pendente. A resposta `7` não foi tocada.
+
+`GET /whatsapp/bot/metricas?dias=7` no mesmo instante fecha o reescopo do P6.3
+com número: **1 rascunho decidido em uma semana**, persona `tutor`, contra o
+mínimo de 20 por persona. Os 13 handoffs são todos `identidade_nao_resolvida`,
+coerente com um número de teste que só fala com destinatários pré-verificados.
+
+### Prontidão e o falso verde
+
+Botão **Verificar** clicado: 14 itens, 8 prontos, 6 pendentes. Quatro dos oito
+verdes eram **falsos** — `consultar_dados_institucionais` devolvia `ok=True` com
+o cadastro de stage vazio (só Cidade e Estado). Era a guarda 10, até então só
+teoria. Corrigida em `e9aa3fc8`; detalhes e evidência no `verify.md`.
+
+**Pendente com o usuário**: preencher `Endereço`, `Telefone` e `E-mail` em
+Configurações > Empresa no stage. Ele assumiu esse passo. Até lá a prontidão
+mostra essas duas intents como pendentes, que passou a ser o retrato correto.
+
+### Validação desta sessão
+
+Backend **1019/1019** (era 1014); focada do bot **164/164** (era 159); frontend
+**98/98**, `eslint` sem warning, `tsc --noEmit` limpo, `next build` concluído
+(rodados antes da publicação; o frontend não foi tocado depois). Gate SDD
+aprovado em cada commit. Revalidação externa antes e depois da publicação:
+stage `200`/`200`/`401`/`307`, produção `200`/`200`/`401`.
+
 ## Próxima sequência recomendada
 
-1. **Publicar o painel** (`7dca1d45`) em stage. Fast-forward de `origin/stage`,
-   revalidando antes e depois. Não promova para produção.
-2. Abrir `Configurações > Empresa` em stage, clicar em **Verificar** na
-   prontidão e registrar no `verify.md` o que aparece — com a base corrigida, o
-   diagnóstico agora é real.
-3. **P6.2**: rodar `GET /whatsapp/bot/preview` em stage. Exige credencial
-   autenticada (`CANARY_BEARER_TOKEN` ou `CANARY_USERNAME`/`CANARY_PASSWORD`),
-   ausente nas duas últimas sessões. Alternativa sem credencial: abrir a URL no
-   navegador autenticado.
-4. **Conteúdo institucional**: receber o export das conversas, extrair os fatos
+1. **Publicar `425a936d` e `e9aa3fc8`** em stage, com autorização explícita.
+   Fast-forward de `origin/stage`, revalidando antes e depois. Não promova para
+   produção.
+2. Pedir ao usuário que preencha `Endereço`, `Telefone` e `E-mail` em
+   Configurações > Empresa no stage; depois clicar em **Verificar** e conferir
+   que `endereco` e `formas_contato` ficaram verdes **por dado real**, não por
+   `ok=True` vazio.
+3. **Conteúdo institucional**: receber o export das conversas, extrair os fatos
    generalizáveis sem PII, submeter à aprovação e cadastrar pelo painel.
-   Conferir na prontidão que as três intents de conhecimento ficaram verdes.
-5. **P6.3 em produção em `suggest`** (ver reescopo acima), coletando por
+   Conferir na prontidão que as quatro intents de conhecimento ficaram verdes
+   (`area_atendimento` e `como_agendar` no tutor; `area_atendimento` e
+   `como_solicitar_exame` na clínica).
+4. **P6.3 em produção em `suggest`** (ver reescopo acima), coletando por
    `GET /whatsapp/bot/metricas`. Mínimo de 20 rascunhos decididos por persona.
-6. **Envio automático** somente depois, tratando as dez guardas listadas acima,
-   e **somente** com autorização explícita registrada no `verify.md`.
+   Stage não serve para isso, e agora há número para provar.
+5. **Envio automático** somente depois, tratando as **nove guardas restantes**
+   (a 10 está fechada), e **somente** com autorização explícita registrada no
+   `verify.md`.
 
 ## Limites obrigatórios da próxima sessão
 
