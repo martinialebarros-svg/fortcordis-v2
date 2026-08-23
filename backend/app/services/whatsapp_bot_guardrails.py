@@ -1,0 +1,315 @@
+"""Guardrails de saida do chatbot de atendimento (Fase 4, RF-019/020/022/025).
+
+Diferenca deliberada em relacao a `ai_echo_validation.py`: la o "bloqueio" e
+codificado como warning numa lista e quem impede a aplicacao e o humano na
+tela de revisao. No modo `auto` do bot nao existe esse humano, entao aqui o
+veredito e EXPLICITO (`GuardrailVeredito.aprovado`) e o motivo e um `Literal`
+fechado, para virar metrica na Fase 6.
+
+Tambem nao portamos duas praticas do ai-echo:
+- supressao de alerta por casamento de substring
+  (`_filter_contextual_provider_warnings`), que inverte o risco;
+- reescrita silenciosa do texto do modelo. Aqui, detectou -> RASCUNHO com
+  motivo, nunca um texto "limpo" enviado ao cliente.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import re
+import unicodedata
+from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Literal, Optional
+
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.models.whatsapp_bot import WhatsAppBotResposta
+
+logger = logging.getLogger(__name__)
+
+DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+BLOQUEIO_CLINICO_PATH = DATA_DIR / "whatsapp_bot_bloqueio_clinico_termos.json"
+
+MotivoBloqueio = Literal[
+    "diagnostico",
+    "dose_medicacao",
+    "prognostico",
+    "avaliacao_sintoma",
+    "prazo_nao_confirmado",
+    "valor_fora_tabela",
+    "intent_fora_allowlist",
+    "sem_fonte",
+    "teto_diario",
+    "teto_caracteres",
+    "vazamento_conteudo_laudo",
+]
+
+# RF-019: intents elegiveis ao modo `auto`, POR PERSONA. Fora daqui a
+# resposta sempre vira rascunho, mesmo com a conversa em `auto` e mesmo com
+# o dado disponivel no contexto.
+INTENTS_AUTO_POR_PERSONA: dict[str, frozenset[str]] = {
+    "tutor": frozenset({
+        "horario_funcionamento",
+        "endereco",
+        "area_atendimento",
+        "formas_contato",
+        "preco_servico",
+        "status_laudo",
+        "como_agendar",
+    }),
+    "clinica": frozenset({
+        "horario_funcionamento",
+        "endereco",
+        "area_atendimento",
+        "formas_contato",
+        "preco_servico",
+        "status_laudo",
+        "como_solicitar_exame",
+    }),
+}
+
+# Intents que exigem fonte factual (tool ou trecho de conhecimento). As
+# demais - como `formas_contato` - tambem exigem, porque telefone/endereco
+# vem de `Configuracao` via tool.
+_INTENTS_SEM_FONTE_PERMITIDA: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class GuardrailVeredito:
+    aprovado: bool
+    motivo: Optional[MotivoBloqueio] = None
+    detalhe: Optional[str] = None
+
+
+@dataclass
+class TurnoDeGeracao:
+    """O que de fato aconteceu no turno, para o guardrail comparar.
+
+    `valores_permitidos` e `horarios_permitidos` sao preenchidos a partir do
+    retorno LITERAL das tools - e o que sustenta a regra de "prazo/valor nao
+    confirmado por tool" (RF-022) sem depender de o modelo declarar suas
+    fontes honestamente.
+    """
+
+    persona: str
+    tools_ok: list[str] = field(default_factory=list)
+    tem_trecho_conhecimento: bool = False
+    valores_permitidos: set[str] = field(default_factory=set)
+    horarios_permitidos: set[str] = field(default_factory=set)
+    datas_permitidas: set[str] = field(default_factory=set)
+    textos_clinicos_proibidos: list[str] = field(default_factory=list)
+
+    @property
+    def tem_fonte(self) -> bool:
+        return bool(self.tools_ok) or self.tem_trecho_conhecimento
+
+
+def _normalizar(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    decomposed = unicodedata.normalize("NFKD", raw)
+    sem_acento = "".join(c for c in decomposed if not unicodedata.combining(c))
+    alfanumerico = "".join(c if c.isalnum() else " " for c in sem_acento)
+    return " ".join(alfanumerico.split())
+
+
+@lru_cache(maxsize=1)
+def _carregar_grupos_bloqueio() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    try:
+        payload = json.loads(BLOQUEIO_CLINICO_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        # Degradar em silencio aqui seria desligar o guardrail clinico. Loga.
+        logger.exception("Falha ao carregar a lista de bloqueio clinico do bot do WhatsApp.")
+        return tuple()
+    grupos = payload.get("grupos") if isinstance(payload, dict) else None
+    if not isinstance(grupos, dict):
+        logger.error("Lista de bloqueio clinico do bot em formato inesperado.")
+        return tuple()
+    return tuple(
+        (str(nome), tuple(_normalizar(t) for t in termos if str(t or "").strip()))
+        for nome, termos in grupos.items()
+        if isinstance(termos, list)
+    )
+
+
+def _max_reply_chars() -> int:
+    try:
+        parsed = int(settings.WHATSAPP_BOT_MAX_REPLY_CHARS)
+    except Exception:
+        parsed = 900
+    return parsed if parsed > 0 else 900
+
+
+def _max_replies_per_day() -> int:
+    try:
+        parsed = int(settings.WHATSAPP_BOT_MAX_REPLIES_PER_CONVERSATION_DAY)
+    except Exception:
+        parsed = 20
+    return parsed if parsed > 0 else 20
+
+
+def contar_respostas_do_dia(db: Session, wa_identity: str, *, now: Optional[datetime] = None) -> int:
+    """Respostas efetivamente ENVIADAS hoje nesta conversa (RF-025).
+
+    Conta so `decisao == "sent"`: rascunho nao consome teto, senao uma
+    conversa cheia de rascunhos deixaria de gerar sugestao para a equipe.
+    """
+    now = now or datetime.now(timezone.utc)
+    inicio_do_dia = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
+    return (
+        db.query(WhatsAppBotResposta)
+        .filter(
+            WhatsAppBotResposta.wa_identity == wa_identity,
+            WhatsAppBotResposta.decisao == "sent",
+            WhatsAppBotResposta.created_at >= inicio_do_dia,
+        )
+        .count()
+    )
+
+
+_RE_VALOR = re.compile(r"(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{2})|\d+(?:[.,]\d{2}))")
+_RE_HORARIO = re.compile(r"\b([01]?\d|2[0-3])\s*[:h]\s*([0-5]\d)\b")
+_RE_DATA = re.compile(r"\b(\d{1,2})\s*/\s*(\d{1,2})(?:\s*/\s*(\d{2,4}))?\b")
+
+
+def _valores_no_texto(texto: str) -> set[str]:
+    encontrados: set[str] = set()
+    for bruto in _RE_VALOR.findall(texto.lower()):
+        normalizado = bruto.replace(".", "").replace(",", ".")
+        try:
+            encontrados.add(f"{float(normalizado):.2f}")
+        except ValueError:
+            continue
+    return encontrados
+
+
+def _horarios_no_texto(texto: str) -> set[str]:
+    return {f"{int(h):02d}:{m}" for h, m in _RE_HORARIO.findall(texto.lower())}
+
+
+def avaliar_resposta(
+    *,
+    texto: str,
+    intent: str,
+    modo: str,
+    turno: TurnoDeGeracao,
+) -> GuardrailVeredito:
+    """Veredito unico sobre uma resposta candidata.
+
+    Ordem deliberada: primeiro os bloqueios de conteudo clinico (o requisito
+    mais importante da entrega), depois fonte, depois ancoragem de
+    valor/horario, depois allowlist de intent, por ultimo tetos. Assim o
+    motivo gravado e sempre o mais grave, nao o primeiro que casou por acaso.
+    """
+    texto_normalizado = _normalizar(texto)
+
+    # RF-022: conteudo clinico. Roda TAMBEM quando a resposta esta ancorada
+    # em trecho da base - "veio da base" nao e passe livre, porque a base
+    # contem procedimento clinico de staff.
+    for grupo, termos in _carregar_grupos_bloqueio():
+        for termo in termos:
+            if termo and termo in texto_normalizado:
+                return GuardrailVeredito(
+                    aprovado=False,
+                    motivo=grupo,  # type: ignore[arg-type]
+                    detalhe=f"termo bloqueado: {termo}",
+                )
+
+    # Vazamento de conteudo de laudo: o turno sabe quais textos clinicos
+    # foram carregados; se algum aparecer (mesmo parafraseado por copia
+    # literal de trecho), bloqueia.
+    for proibido in turno.textos_clinicos_proibidos:
+        trecho = _normalizar(proibido)
+        if len(trecho) >= 12 and trecho in texto_normalizado:
+            return GuardrailVeredito(
+                aprovado=False,
+                motivo="vazamento_conteudo_laudo",
+                detalhe="texto do laudo/exame presente na resposta",
+            )
+
+    # RF-020: sem fonte, o bot nao afirma nada.
+    if not turno.tem_fonte and intent not in _INTENTS_SEM_FONTE_PERMITIDA:
+        return GuardrailVeredito(
+            aprovado=False, motivo="sem_fonte", detalhe="nenhuma tool ok e nenhum trecho recuperado"
+        )
+
+    # RF-022: valor que nao veio de tabela de preco.
+    valores_texto = _valores_no_texto(texto)
+    nao_ancorados = valores_texto - turno.valores_permitidos
+    if nao_ancorados:
+        return GuardrailVeredito(
+            aprovado=False,
+            motivo="valor_fora_tabela",
+            detalhe=f"valores sem fonte: {sorted(nao_ancorados)}",
+        )
+
+    # RF-022: prazo/horario nao confirmado por tool.
+    horarios_texto = _horarios_no_texto(texto)
+    horarios_nao_ancorados = horarios_texto - turno.horarios_permitidos
+    if horarios_nao_ancorados:
+        return GuardrailVeredito(
+            aprovado=False,
+            motivo="prazo_nao_confirmado",
+            detalhe=f"horarios sem fonte: {sorted(horarios_nao_ancorados)}",
+        )
+
+    # RF-019: intent fora da allowlist da persona -> rascunho, mesmo em auto.
+    permitidas = INTENTS_AUTO_POR_PERSONA.get(turno.persona, frozenset())
+    if intent not in permitidas:
+        return GuardrailVeredito(
+            aprovado=False,
+            motivo="intent_fora_allowlist",
+            detalhe=f"intent {intent} nao e auto na persona {turno.persona}",
+        )
+
+    # RF-025: teto de caracteres.
+    if len(texto or "") > _max_reply_chars():
+        return GuardrailVeredito(
+            aprovado=False,
+            motivo="teto_caracteres",
+            detalhe=f"{len(texto)} > {_max_reply_chars()}",
+        )
+
+    return GuardrailVeredito(aprovado=True)
+
+
+def turno_a_partir_dos_resultados(
+    persona: str, resultados: list[tuple[str, dict[str, Any]]]
+) -> TurnoDeGeracao:
+    """Constroi o `TurnoDeGeracao` a partir do retorno LITERAL das tools.
+
+    E aqui que "valor/horario com fonte" ganha significado: o conjunto
+    permitido vem do payload que a tool devolveu, nao do que o modelo diz
+    ter usado.
+    """
+    turno = TurnoDeGeracao(persona=persona)
+    for nome, resultado in resultados:
+        if not isinstance(resultado, dict) or not resultado.get("ok"):
+            continue
+        turno.tools_ok.append(nome)
+
+        if nome == "consultar_preco_tabela":
+            for item in resultado.get("itens") or []:
+                valor = str(item.get("valor") or "").strip()
+                if valor:
+                    try:
+                        turno.valores_permitidos.add(f"{float(valor):.2f}")
+                    except ValueError:
+                        continue
+
+        if nome == "consultar_horario_funcionamento":
+            for chave in ("inicio", "fim"):
+                valor = resultado.get(chave)
+                if valor:
+                    turno.horarios_permitidos.add(str(valor))
+            if resultado.get("data"):
+                turno.datas_permitidas.add(str(resultado["data"]))
+
+        if nome == "buscar_conhecimento_institucional":
+            if resultado.get("trechos"):
+                turno.tem_trecho_conhecimento = True
+
+    return turno

@@ -425,7 +425,13 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
-    def test_todos_portoes_abertos_sem_gerador_ainda_suprime(self) -> None:
+    def test_todos_portoes_abertos_com_identidade_nao_resolvida_vira_handoff(self) -> None:
+        """Fase 4: passados os portoes, o job entra na geracao.
+
+        Aqui a identidade nao resolve (a base deste teste nao tem as tabelas
+        de cadastro), e RF-016 manda nao mencionar nenhum dado de registro -
+        entao o caminho correto e handoff, sem chamar provider nenhum.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             SessionFactory, engine = self._build_session_factory(tmpdir)
             try:
@@ -451,8 +457,10 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
                 verify = SessionFactory()
                 try:
                     resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
-                    self.assertEqual(resposta.decisao, "suppressed")
-                    self.assertEqual(resposta.motivo, "fase_3_sem_gerador_ainda")
+                    self.assertEqual(resposta.decisao, "handoff")
+                    self.assertEqual(resposta.motivo, "identidade_nao_resolvida")
+                    self.assertEqual(resposta.resolution, "not_found")
+                    self.assertIsNone(resposta.texto_gerado)
                 finally:
                     verify.close()
             finally:

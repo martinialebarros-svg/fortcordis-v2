@@ -127,25 +127,40 @@ uma mensagem gerada chegue a um cliente.
 
 ### Fase 4 - geração e guardrails de saída
 
-- [ ] P4.1 `whatsapp_bot_tools.py`: allowlist própria, escopo de
-      `tutor_id`/`clinica_id` aplicado no código (RF-018).
-- [ ] P4.2 `whatsapp_bot_prompt.py`: as duas personas (`tutor` e `clinica`) por
+- [x] P4.1 `whatsapp_bot_tools.py`: allowlist própria, escopo de
+      `tutor_id`/`clinica_id` aplicado no código (RF-018). Ressalva: o escopo
+      está implementado e testado, mas duas das cinco tools ficam inalcançáveis
+      no fluxo real por falta de loop de tool call (D3 no `verify.md`).
+- [x] P4.2 `whatsapp_bot_prompt.py`: as duas personas (`tutor` e `clinica`) por
       `match_type`, versão de prompt, regra de "só falo do que veio de fonte"
       (RF-017, RF-020, RF-021).
-- [ ] P4.3 classificação de intent contra a allowlist **por persona** da RF-019,
+- [x] P4.3 classificação de intent contra a allowlist **por persona** da RF-019,
       incluindo o bloco comum que sempre vira rascunho (OS, cobrança, valor em
-      aberto).
-- [ ] P4.4 validador de saída (RF-022) e tetos de volume/tamanho (RF-025).
+      aberto). Ressalva: grava `blocked` onde a spec pede `draft` (D1) e a
+      allowlist se aplica também em `suggest` (D2).
+- [x] P4.4 validador de saída (RF-022) e tetos de volume/tamanho (RF-025).
 - [ ] P4.5 registro completo em `whatsapp_bot_respostas` (RF-026) e envio via
-      Node no modo `auto` com `metadata.origem = "bot"` (RF-027).
-- [ ] P4.6 testes com provider fake (sem rede), no padrão dos providers
+      Node no modo `auto` com `metadata.origem = "bot"` (RF-027). **Metade
+      entregue**: o registro grava os 12 campos da RF-026; o envio não existe e
+      depende de mudança no serviço Node (`sendConversationMessage` crava
+      `{source: "agent_api"}` e o endpoint não tem idempotência) — movido para a
+      Fase 6, ver CA-018.
+- [x] P4.6 testes com provider fake (sem rede), no padrão dos providers
       protocolares do ai-echo: intent fora da allowlist (nas duas personas),
       escopo cruzado clínica/tutor, resposta clínica bloqueada, resposta sem
       fonte, teto estourado.
 - Critério de conclusão: em stage, com conversa em `suggest`, rascunhos reais
-  aparecem gravados e nenhum envio acontece.
+  aparecem gravados e nenhum envio acontece. **NÃO cumprido em 2026-08-23**: o
+  código está entregue e a suíte completa passa em 956/956 (47 testes novos,
+  todos com provider fake), mas nenhuma geração com provider real foi executada,
+  em stage ou fora dele, e a auditoria da entrega levantou quatro divergências
+  entre spec e código (D1 a D4, registradas no `verify.md`). D3 — não existe
+  loop de tool call, então `consultar_status_laudo` e `consultar_preco_tabela`
+  nunca rodam e a regra de fonte da RF-020 fica inerte — precisa de decisão
+  antes de qualquer teste em stage. A fase fica aberta.
 - Risco: o maior da entrega. Mitigado por `suggest` como padrão, validador de
-  saída e allowlist estreita.
+  saída e allowlist estreita. Confirmado pela auditoria que **nada é enviável**
+  nesta fase: não há um único `httpx.post` no backend do bot.
 - Rollback: `configuracoes.whatsapp_bot_modo = 'off'` para todas as conversas, ou
   desmarcar o toggle institucional.
 

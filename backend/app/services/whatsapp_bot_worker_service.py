@@ -23,6 +23,7 @@ from app.services.whatsapp_bot_gates import (
     resolve_conversation_mode,
     resolve_conversation_state,
 )
+from app.services.whatsapp_bot_generation import gerar_resposta
 from app.services.whatsapp_bot_handoff_service import (
     EMERGENCY_FIXED_MESSAGE,
     build_handoff_message,
@@ -127,6 +128,14 @@ def _record_resposta(
     decisao: str,
     motivo: str,
     texto_gerado: Optional[str] = None,
+    modelo: Optional[str] = None,
+    prompt_version: Optional[str] = None,
+    tools_usadas: Optional[str] = None,
+    input_tokens: Optional[int] = None,
+    output_tokens: Optional[int] = None,
+    latencia_ms: Optional[int] = None,
+    resolution: Optional[str] = None,
+    match_type: Optional[str] = None,
 ) -> None:
     db.add(
         WhatsAppBotResposta(
@@ -136,17 +145,24 @@ def _record_resposta(
             decisao=decisao,
             motivo=motivo,
             texto_gerado=texto_gerado,
+            modelo=modelo,
+            prompt_version=prompt_version,
+            tools_usadas=tools_usadas,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            latencia_ms=latencia_ms,
+            resolution=resolution,
+            match_type=match_type,
         )
     )
 
 
 def _process_job(db: Session, job: WhatsAppBotJob) -> str:
-    """Fase 3 (P3.2-P3.4): portoes de decisao, deteccao de pedido de humano
+    """Portoes de decisao (Fase 3) + geracao com guardrails (Fase 4).
 
-    e de emergencia. Ainda sem gerador real (Fase 4) nem envio ao cliente
-    (Fase 6, per plan.md: "as fases 1-3 nao enviam nenhuma mensagem") -
-    `texto_gerado` guarda o texto que SERIA usado, para a Fase 6 so precisar
-    ligar o envio. Toda mensagem real termina em `suppressed` ou `handoff`.
+    Toda mensagem real termina em `suppressed`, `handoff`, `blocked` ou
+    `draft`. `sent` NAO e alcancavel: o envio ao cliente e da Fase 6, e a
+    RF-027 (metadata.origem) ainda depende de mudanca no servico Node.
     """
     if not is_whatsapp_bot_enabled():
         _record_resposta(db, job, decisao="suppressed", motivo="bot_desabilitado")
@@ -243,10 +259,26 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         job.status = "done"
         return "done"
 
-    # Todos os portoes abertos e nada de especial detectado - Fase 4 ainda
-    # nao existe, entao a mensagem fica suppressed em vez de gerar qualquer
-    # coisa.
-    _record_resposta(db, job, decisao="suppressed", motivo="fase_3_sem_gerador_ainda")
+    # Todos os portoes abertos: agora gera (Fase 4). O gerador aplica os
+    # guardrails de saida e nunca envia - o resultado e draft/blocked/handoff.
+    resultado = gerar_resposta(
+        db, wa_identity=job.wa_identity, corpo_mensagem=corpo, modo=modo
+    )
+    _record_resposta(
+        db,
+        job,
+        decisao=resultado.decisao,
+        motivo=resultado.motivo,
+        texto_gerado=resultado.texto_gerado,
+        modelo=resultado.modelo,
+        prompt_version=resultado.prompt_version,
+        tools_usadas=resultado.tools_usadas,
+        input_tokens=resultado.input_tokens,
+        output_tokens=resultado.output_tokens,
+        latencia_ms=resultado.latencia_ms,
+        resolution=resultado.resolution,
+        match_type=resultado.match_type,
+    )
     job.status = "done"
     return "done"
 
