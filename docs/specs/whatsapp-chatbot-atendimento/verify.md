@@ -8,16 +8,18 @@ Status: draft
 > portões/identidade/guardrails de entrada). Fase 4 (geração e guardrails de
 > saída) entregue em código e fechada no backend de stage em 2026-08-23: o job
 > real `21` gerou e persistiu um rascunho em `suggest` com tool de preço, sem
-> qualquer mensagem de saída. A Fase 5 foi implementada e validada localmente:
+> qualquer mensagem de saída. A Fase 5 foi implementada, publicada e validada
+> em stage:
 > revisão, edição, descarte, envio idempotente, selo e controles de operação.
-> Ela ainda não foi publicada nem testada pela tela em stage. O envio sem
-> revisão no modo `auto` continua inexistente (RF-027 é Fase 6). O transporte
-> Meta -> inbox também foi comprovado com mensagem real em stage.
+> A tela autenticada exibiu o rascunho real e permitiu entrar/sair da edição
+> sem enviar. O envio sem revisão no modo `auto` continua inexistente (RF-027
+> é Fase 6). O transporte Meta -> inbox também foi comprovado com mensagem
+> real em stage.
 > As quatro divergências D1-D4 levantadas na auditoria foram corrigidas
 > localmente e estão registradas na seção "Divergências resolvidas" abaixo.
 > Com o bot habilitado, toda mensagem real hoje termina
-> em `suppressed`, `handoff`, `blocked` ou `draft`. A publicação/validação
-> manual da Fase 5 e toda a Fase 6 seguem pendentes. Nenhum item é marcado como
+> em `suppressed`, `handoff`, `blocked` ou `draft`. O clique controlado em
+> Enviar/Descartar e toda a Fase 6 seguem pendentes. Nenhum item é marcado como
 > `ok` sem teste ou log correspondente.
 
 ## Matriz de rastreabilidade
@@ -208,7 +210,7 @@ Resumo da correção da auditoria (2026-08-23):
 - O critério de conclusão do backend da Fase 4 foi fechado pelo rascunho real
   persistido em stage. Torná-lo visível e operável na central é a Fase 5.
 
-## Validação local da Fase 5 (2026-08-23)
+## Validação e publicação da Fase 5 (2026-08-23)
 
 - Central: rascunho pendente acima do composer com **Enviar**, **Editar e
   enviar** e **Descartar**; aviso e bloqueio de texto livre fora da janela de
@@ -228,9 +230,34 @@ Resumo da correção da auditoria (2026-08-23):
   serviço Node, ESLint focado, `tsc --noEmit` e `next build` no frontend — tudo
   aprovado. A suíte completa do backend terminou em **974/974**, sem falhas;
   `npm run test:phone-number` e `git diff --check` também passaram.
-- Não executado: deploy, migração Node em stage, clique real em
-  Enviar/Editar/Descartar ou qualquer mensagem externa. Produção não foi
-  alterada.
+- Publicação: fast-forward de `origin/stage` para
+  `0256685177380ff62b247ef0719ad43086267ae5`. `Deploy to Stage (VPS)` run
+  `32661248713` e `Migration CI` run `32661248721` terminaram em `success`.
+  SDD guardrail, quality gate, suíte completa, builds e testes Node passaram.
+- O deploy registrou `Migration applied successfully`, health do backend
+  WhatsApp, readiness, canário autenticado e restore drill aprovados. Na VPS,
+  backend, frontend e WhatsApp estavam `active`; o índice
+  `ux_messages_bot_idempotency_key` foi confirmado como presente.
+- Runtime preservado: `WHATSAPP_BOT_ENABLED=true`, toggle institucional `true`,
+  modo `suggest`. O modo `auto` permaneceu desabilitado na interface.
+- Smoke HTTP: raiz e health de stage `200`; `/whatsapp-stage` redireciona do
+  domínio canônico para `app.stage` (`307`) e termina em `200`; rota protegida
+  `/whatsapp/conversations` retorna `401` sem credencial.
+- Bundle servido: todos os chunks referenciados pelo HTML de
+  `/whatsapp-stage` e `/configuracoes` foram baixados; os marcadores do selo,
+  copiloto, rascunho e card institucional estavam presentes (acentos aparecem
+  escapados no JavaScript minificado).
+- Smoke autenticado no Chrome: a conversa Martiniano Barros exibiu o rascunho
+  real com **Enviar**, **Editar e enviar** e **Descartar**; o painel de copiloto
+  mostrou origem institucional e pausa por 12h. A edição abriu com o texto
+  preservado e foi cancelada, retornando ao estado de revisão. O card de
+  Configurações estava visível, toggle ligado, `suggest` selecionado e `auto`
+  desabilitado. Nenhum erro de console foi observado.
+- Não executado: clique em **Enviar**, **Enviar edição** ou **Descartar**. Logo,
+  nenhuma nova mensagem externa ou feedback persistente foi produzido nesta
+  validação.
+- Produção permaneceu no SHA `447ddc53`; raiz e health `200`, rota protegida
+  `401`. Nenhum deploy ou configuração de produção foi alterado.
 
 ## Smoke E2E real do chatbot em stage (2026-08-23)
 
@@ -265,9 +292,9 @@ Resumo da correção da auditoria (2026-08-23):
 
 1. [concluído] Preview com o bot desligado antes da habilitação, sem geração ou
    envio.
-2. [parcial] Conversa real em `suggest`: rascunho persistido e ausência de envio
-   comprovados; exibição/ação foi implementada localmente e ainda precisa ser
-   publicada/testada na central de stage.
+2. [parcial] Conversa real em `suggest`: rascunho persistido, exibido na central
+   e edição cancelada sem perda. Ausência de envio comprovada; os cliques
+   Enviar/Descartar aguardam confirmação específica.
 3. "Quero falar com um atendente" — handoff imediato, conversa em `pending`,
    push recebido pela equipe.
 4. Termo de emergência — resposta fixa, alerta interno `critico`, nenhuma

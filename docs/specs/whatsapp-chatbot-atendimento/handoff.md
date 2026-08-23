@@ -2,10 +2,9 @@
 
 Data: 2026-08-23
 Responsável: Martiniano + Codex
-Status: em implementação; Fases 1-4 concluídas e validadas em stage;
-Fase 5 implementada e validada localmente, ainda não publicada;
-identidade Meta exclusiva e callback publicados em stage no SHA `abc5a380`;
-transporte e rascunho E2E concluídos; Fase 6 pendente
+Status: em implementação; Fases 1-5 concluídas e validadas em stage;
+identidade Meta exclusiva, callback, transporte, rascunho E2E e interface de
+revisão publicados em stage no SHA `02566851`; Fase 6 pendente
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -24,12 +23,11 @@ FortCordis v2.
   `/Users/martiniano/fortcordis-v2/.claude/worktrees/whatsapp-chatbot-handoff-2d02ad`
 - Branch: `claude/whatsapp-chatbot-handoff-2d02ad`
 - `origin/stage` e o runtime de stage estão no SHA
-  `abc5a380e6202dae8bb96b57250abd0f08a0beba`.
+  `0256685177380ff62b247ef0719ad43086267ae5`.
 - `origin/main` e produção permanecem no SHA
   `447ddc530fa0a3ea135eeff427fca1eed637b65d`.
-- O worktree contém mudanças locais não commitadas da Fase 5 em backend,
-  serviço Node, frontend e SDD. Não faça push ou deploy automático ao retomar;
-  revise e publique somente após autorização explícita.
+- O código da Fase 5 já foi publicado. Pode haver um commit documental local
+  posterior registrando as provas do deploy; não o promova para produção.
 - Preserve o checkout principal e alterações não relacionadas. Não promova
   para produção. O callback e a publicacao de stage ja foram verificados; antes
   de enviar nova mensagem externa ou modificar callback, verify token,
@@ -51,8 +49,8 @@ Depois confirme o estado corrente com:
 git status --short --branch
 git fetch origin stage main
 git rev-parse HEAD origin/stage origin/main
-gh run view 32637525688 --json status,conclusion,url,headSha,name
-gh run view 32637525655 --json status,conclusion,url,headSha,name
+gh run view 32661248713 --json status,conclusion,url,headSha,name
+gh run view 32661248721 --json status,conclusion,url,headSha,name
 ```
 
 ## Estado implementado
@@ -65,9 +63,9 @@ gh run view 32637525655 --json status,conclusion,url,headSha,name
 - Fase 4: provider OpenAI, personas, tools próprias e escopadas, guardrails,
   auditoria e geração somente de rascunho/handoff; envio automático ainda não
   existe.
-- Fase 5 local: painel de rascunho com enviar/editar/descartar, selo de envio
+- Fase 5 em stage: painel de rascunho com enviar/editar/descartar, selo de envio
   assistido, controles por conversa, card institucional, endpoints de revisão
-  e transporte Node idempotente. Ainda não foi publicada em stage.
+  e transporte Node idempotente.
 
 A auditoria identificou D1-D4 e todas foram corrigidas localmente:
 
@@ -92,7 +90,7 @@ Arquivos principais alterados nesta correção:
 - testes `backend/tests/test_whatsapp_bot_*`
 - `spec.md`, `plan.md`, `verify.md` e este handoff
 
-Arquivos principais da Fase 5 ainda não publicada:
+Arquivos principais da Fase 5:
 
 - `backend/app/api/v1/endpoints/whatsapp_bot.py`
 - `backend/tests/test_whatsapp_bot_endpoints.py`
@@ -140,15 +138,34 @@ Smoke real de stage concluído em `2026-08-23`, também em `suggest` e sem envio
   `texto_enviado` permaneceu vazio; a inbox mostrou um único inbound
   `received` e zero mensagens `from_me` na janela do teste.
 
+Publicação e smoke da Fase 5 concluídos em `2026-08-23`:
+
+- `origin/stage` e a VPS avançaram por fast-forward para `02566851`;
+- Deploy to Stage run `32661248713` e Migration CI run `32661248721`:
+  `success` terminal;
+- migração Node aplicada e índice `ux_messages_bot_idempotency_key` presente;
+- serviços backend, frontend e WhatsApp `active`; health/readiness/canário e
+  restore drill aprovados;
+- stage: raiz/health `200`, rota protegida `401`, `/whatsapp-stage` `307` para
+  `app.stage` e `200` no destino;
+- bundles servidos continham os marcadores da nova central e Configurações;
+- Chrome autenticado mostrou o rascunho do job `21`, Enviar/Editar/Descartar,
+  controles por conversa e card institucional; editar abriu e cancelar
+  preservou o texto, sem erros no console;
+- toggle continuou ligado, modo `suggest` selecionado e `auto` desabilitado;
+- nenhum botão de envio ou descarte foi acionado; nenhuma mensagem externa ou
+  feedback persistente foi criado nesta validação;
+- produção permaneceu em `447ddc53`, saudável e sem alteração.
+
 ## Próxima sequência recomendada
 
-1. Revise o diff local da Fase 5 e rode o SDD guardrail e os gates completos.
-2. Após autorização explícita, publique somente em stage e confirme a migração
-   do índice idempotente do serviço Node; mantenha `suggest` e `auto` bloqueado.
-3. Abra a conversa real do job `21` na central e valide primeiro a exibição do
-   rascunho, modo, pausa e descarte com um rascunho descartável. Para testar
-   **Enviar** ou **Editar e enviar**, obtenha nova confirmação explícita porque
-   isso envia mensagem externa ao contato.
+1. Mantenha stage em `suggest` e `auto` bloqueado.
+2. Para testar **Enviar** ou **Editar e enviar**, obtenha confirmação explícita
+   no momento da ação porque o clique envia mensagem externa ao contato. Para
+   **Descartar**, use um rascunho descartável e confirme antes porque grava
+   feedback persistente.
+3. Inicie a observação da Fase 6: aceite/descarte por persona, bloqueios,
+   latência e custo; não autorize `auto` sem pelo menos uma semana de dados.
 4. Revalide produção antes e depois de qualquer publicação futura: callback em
    `https://app.fortcordis.com.br/whatsapp/webhook`, health `200` e rota
    protegida `401`.
@@ -269,16 +286,16 @@ como exige o SDD guardrail. Registre somente evidência realmente executada.
 - Entregue: implementação das Fases 1-4, correções D1-D4, identidade Meta de
   stage isolada, token permanente de usuário de sistema, secrets/variables,
   publicação protegida, callback, `messages`, publicacao Meta, inscricao WABA e
-  transporte E2E; Fase 5 implementada e validada localmente.
+  transporte E2E; Fase 5 publicada e validada visualmente em stage.
 - Comprovado: workflows terminais verdes, desafio Meta aceito, saída entregue,
   inbound real persistido, preflight remoto formal, geração real com tool de
   preço, rascunho auditado e ausência de envio automático.
-- Não executado: publicação/operação da Fase 5 em stage, demais casos manuais
-  da matriz, observação de uma semana e qualquer promoção para produção.
-- Bloqueio atual: a interface e o transporte revisado existem apenas no diff
-  local; stage ainda serve o SHA anterior e não exibe as ações novas.
-- Próximo marco: gates completos e publicação autorizada da Fase 5 somente em
-  stage, mantendo `suggest` e produção intacta.
+- Não executado: clique de Enviar/Descartar na Fase 5, demais casos manuais da
+  matriz, observação de uma semana e qualquer promoção para produção.
+- Bloqueio atual: `auto` permanece deliberadamente indisponível até haver dados
+  reais de aceite e segurança da Fase 6.
+- Próximo marco: teste controlado de uma ação de revisão com confirmação
+  específica e início das métricas de `suggest`; produção permanece intacta.
 
 ## Limites de segurança
 

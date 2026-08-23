@@ -178,12 +178,15 @@ uma mensagem gerada chegue a um cliente.
 - [x] P5.4 card "Atendimento automático (WhatsApp)" em Configurações -> Empresa
       (RF-031), no padrão do card do lembrete e gravável somente por admin.
 - [x] P5.5 testes de endpoint/autorização e contrato, `tsc --noEmit`, `eslint`,
-      builds Node/Next e suíte focada do chatbot limpos. O teste manual da tela
-      publicada em stage continua no critério de conclusão.
+      builds Node/Next e suíte focada do chatbot limpos; smoke autenticado da
+      tela publicada em stage aprovado sem envio externo.
 - Critério de conclusão: um atendente consegue operar o copiloto inteiro pela
-  tela, sem console nem chamada manual de API. **Implementação e validação
-  local concluídas em 2026-08-23; publicação e operação manual em stage ainda
-  pendentes.**
+  tela, sem console nem chamada manual de API. **Implementação publicada em
+  stage no SHA `02566851` em 2026-08-23. A tela autenticada exibiu o rascunho
+  real, os três controles, modo/pausa e o card institucional; o modo de edição
+  foi aberto e cancelado sem perda de texto. Enviar e Descartar não foram
+  acionados porque produzem efeito externo/persistente e exigem confirmação no
+  momento do teste.**
 - Risco: baixo; a tela já existe e a mudança é aditiva.
 - Rollback: esconder o painel por flag de UI mantém o backend intacto.
 
