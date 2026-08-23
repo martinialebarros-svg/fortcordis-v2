@@ -207,11 +207,28 @@ def gerar_resposta(
     corpo_mensagem: str,
     modo: str,
     provider: Any = None,
+    persona_forcada: Optional[str] = None,
 ) -> ResultadoGeracao:
-    """Gera (ou recusa gerar) uma resposta para uma mensagem inbound."""
+    """Gera (ou recusa gerar) uma resposta para uma mensagem inbound.
+
+    `persona_forcada` existe apenas para a SIMULACAO do painel de
+    configuracao, onde nao ha cliente real: a identidade sintetica resolve
+    como `not_found` e o fluxo abortaria antes de exercitar as tools. Com ela,
+    a persona e assumida e o escopo de dado do cliente fica VAZIO (ids
+    sinteticos que nunca casam registro), entao as tools institucionais
+    funcionam e as de dado do cliente devolvem vazio - sem vazar nada de
+    ninguem. Nunca use isso no caminho de atendimento real: fora da
+    simulacao, persona sem identidade resolvida e handoff (RF-016).
+    """
     contexto = _resolver_contexto(db, wa_identity)
     resolution = str(contexto.get("resolution") or "not_found")
     match_type, tutor_id, clinica_id = _escopo_da_persona(contexto)
+
+    if persona_forcada in ("tutor", "clinica"):
+        match_type = persona_forcada
+        tutor_id = 0 if persona_forcada == "tutor" else None
+        clinica_id = 0 if persona_forcada == "clinica" else None
+        resolution = "simulacao"
 
     # RF-025: teto diario por conversa, antes de gastar token.
     if contar_respostas_do_dia(db, wa_identity) >= int(

@@ -558,6 +558,57 @@ semântico falha o teste em vez de fazer chamada paga em silêncio.
 
 Suítes: **1002/1002** na completa do backend, **147/147** na focada do bot.
 
+### Painel de configuração do bot (2026-08-23)
+
+Interface pedida para o trabalho de alimentar e observar o bot deixar de ser
+às cegas. Quatro seções num card em Configurações > Empresa, mais três
+endpoints novos e uma lib de frontend.
+
+**Backend** (`test_whatsapp_bot_painel.py`, 12 testes):
+
+- `whatsapp_bot_readiness_service.py` + `GET /whatsapp/bot/prontidao`: sonda a
+  tool que sustenta cada intent, por persona. **Zero chamada de LLM** — travado
+  por `test_prontidao_nao_chama_llm`, que injeta `AssertionError` no provider.
+  O valor está no diagnóstico: `test_prontidao_explica_categoria_errada_em_vez_de_so_dizer_nao`
+  e `test_prontidao_explica_fonte_ausente` fixam que o painel diz *o que* está
+  errado, em vez de só dizer que não sabe — que é precisamente o que deixou a
+  regressão do piso de relevância passar por três fases.
+- `GET /whatsapp/bot/conhecimento`: separa visível de ignorado pela mesma regra
+  de audiência da tool (`test_listagem_separa_visivel_de_ignorado_pelo_bot`).
+- `POST /whatsapp/bot/conhecimento` (admin): categoria derivada de `publico`,
+  nunca digitada (`test_publico_define_categoria_sem_campo_livre` cobre os três
+  valores), `publico` inválido é 422, e `fonte` é obrigatória no schema
+  (`test_fonte_e_obrigatoria_no_schema`).
+- `whatsapp_bot_simulation_service.py` + `POST /whatsapp/bot/simular`: executa a
+  geração real e **não persiste nada** — `test_simulacao_nao_persiste_resposta`
+  afirma `WhatsAppBotResposta.count() == 0` depois de uma simulação bem
+  sucedida. Se gravasse, a simulação entraria no denominador de aceite e
+  contaminaria o número que autoriza o modo `auto`.
+- `gerar_resposta` ganhou `persona_forcada`, usado **somente** pela simulação:
+  a identidade sintética resolve como `not_found` e o fluxo abortaria antes de
+  exercitar as tools. O escopo aplicado é sintético (ids que nunca casam
+  registro), e `test_persona_forcada_nao_vaza_dado_de_cliente` prova que
+  `consultar_status_laudo` com esse escopo não alcança um laudo real semeado no
+  banco.
+
+**Frontend** (`lib/whatsapp-bot-painel.test.ts`, 12 testes):
+
+- `formatarTaxa`/`formatarCusto`/`formatarLatencia`/`formatarInteiro` tratam
+  `null` como `—` e tarifa ausente como `não configurado`. O teste
+  `nunca transforma null em 0%` existe porque essa renderização ingênua faria
+  "não medido" parecer "medido e ruim" para quem decide o `auto`.
+- `resumirProntidao` separa `acionaveis` (o admin resolve cadastrando) de
+  pendência que só se resolve em conversa real; sem isso o painel mostraria uma
+  pendência permanente e treinaria o usuário a ignorar o vermelho.
+- `linhasDoChecklist` transforma `pronto_para_decidir_auto` em lista de itens
+  com a observação visível — nunca em selo de liberado.
+- `validarConteudoBot` espelha as regras do backend antes de gastar requisição,
+  incluindo a exigência de fonte.
+
+**Validação executada**: backend **1014/1014**; frontend **98/98** em 15
+arquivos; `eslint` sem warning em `configuracoes/page.tsx` e na lib nova;
+`tsc --noEmit` limpo; `next build` concluído.
+
 ### Pendente na Fase 6
 
 - P6.2: `GET /whatsapp/bot/preview` executado e revisado em stage.

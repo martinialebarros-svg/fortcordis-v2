@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import require_any_papel
+from app.core.security import require_any_papel, require_papel
 from app.db.database import get_db
 from app.models.configuracao import Configuracao
 from app.models.user import User
@@ -23,6 +23,7 @@ from app.services.whatsapp_bot_gates import (
     resolve_conversation_mode,
     resolve_conversation_state,
 )
+from app.services.whatsapp_bot_readiness_service import coletar_prontidao
 from app.services.whatsapp_bot_metrics_service import (
     JANELA_PADRAO_DIAS,
     coletar_metricas_observacao,
@@ -372,3 +373,147 @@ def metricas_observacao(
     """
     del current_user
     return coletar_metricas_observacao(db, dias=dias)
+
+
+# --------------------------------------------------------------------------
+# Painel de configuracao do bot (Fase 6)
+# --------------------------------------------------------------------------
+
+# Categoria imposta ao conteudo cadastrado por aqui. O campo livre da tela do
+# assistente interno e a origem do erro mais comum: com o default `manual` o
+# documento fica invisivel para o bot, em silencio. Aqui a audiencia nao e
+# digitada, e derivada da persona escolhida.
+_CATEGORIA_POR_PUBLICO = {
+    "tutor": "institucional_tutor",
+    "clinica": "institucional_clinica",
+    "ambos": "institucional",
+}
+
+
+class WhatsAppBotConhecimentoCreateRequest(BaseModel):
+    titulo: str = Field(min_length=3, max_length=220)
+    conteudo: str = Field(min_length=20)
+    publico: str = Field(
+        default="ambos", description="tutor | clinica | ambos - define a categoria."
+    )
+    fonte: str = Field(
+        min_length=2,
+        max_length=500,
+        description="Obrigatoria: a RF-020 exige que o bot cite fonte.",
+    )
+    indexar_semanticamente: bool = False
+
+
+class WhatsAppBotSimulacaoRequest(BaseModel):
+    mensagem: str = Field(min_length=3, max_length=1000)
+    persona: str = Field(default="tutor", description="tutor | clinica")
+
+
+@router.get("/prontidao")
+def prontidao_do_bot(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    """Por persona e intent: o bot consegue responder hoje, e o que falta.
+
+    Somente leitura e sem chamada de LLM - cada intent e verificada rodando a
+    tool que a sustenta. Mede se a FONTE existe, nao se a resposta e boa.
+    """
+    del current_user
+    return coletar_prontidao(db)
+
+
+@router.get("/conhecimento")
+def listar_conhecimento_do_bot(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    """Lista apenas o conteudo que o BOT enxerga.
+
+    A base e compartilhada com o assistente interno; esta rota filtra pela
+    mesma regra de audiencia da tool, para a tela nao mostrar documento que o
+    bot descarta (nem esconder documento que ele usa).
+    """
+    del current_user
+    from app.services.assistente_ia_management import list_documents
+    from app.services.whatsapp_bot_tools import _categoria_e_institucional
+
+    todos = list_documents(db, include_archived=False)
+    visiveis, ignorados = [], []
+    for item in todos:
+        alvo = visiveis if _categoria_e_institucional(item.get("category")) else ignorados
+        alvo.append(item)
+    return {
+        "visiveis_para_o_bot": visiveis,
+        "ignorados_pelo_bot": ignorados,
+        "total_visiveis": len(visiveis),
+        "total_ignorados": len(ignorados),
+    }
+
+
+@router.post("/conhecimento")
+def criar_conhecimento_do_bot(
+    payload: WhatsAppBotConhecimentoCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    """Cadastra conteudo JA com a audiencia e a fonte corretas.
+
+    Diferenca em relacao a tela do assistente interno: categoria nao e campo
+    livre (deriva de `publico`) e `fonte` e obrigatoria. As duas coisas que
+    silenciosamente tornavam um documento invisivel para o bot deixam de ser
+    possiveis por construcao.
+    """
+    publico = str(payload.publico or "ambos").strip().lower()
+    categoria = _CATEGORIA_POR_PUBLICO.get(publico)
+    if categoria is None:
+        raise HTTPException(
+            status_code=422, detail="publico deve ser 'tutor', 'clinica' ou 'ambos'."
+        )
+
+    from app.services.assistente_ia_management import create_document
+
+    documento = create_document(
+        db,
+        current_user,
+        title=payload.titulo,
+        content=payload.conteudo,
+        category=categoria,
+        source=payload.fonte,
+        semantic_index=payload.indexar_semanticamente,
+    )
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="whatsapp_chatbot",
+        entidade="assistente_ia_conhecimento_documento",
+        entidade_id=None,
+        acao="CADASTRAR_CONHECIMENTO_BOT",
+        descricao=f"Conteudo institucional do bot cadastrado para publico '{publico}'.",
+    )
+    return {"documento": documento, "categoria_aplicada": categoria, "publico": publico}
+
+
+@router.post("/simular")
+def simular_resposta_do_bot(
+    payload: WhatsAppBotSimulacaoRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    """Mostra o que o bot responderia, SEM enviar e SEM gravar auditoria.
+
+    Faz chamada real de LLM, portanto custa tokens. Nada e persistido em
+    `whatsapp_bot_respostas`: se gravasse, a simulacao entraria nas metricas
+    de aceite e contaminaria justamente o numero que autoriza o modo `auto`.
+    """
+    persona = str(payload.persona or "tutor").strip().lower()
+    if persona not in ("tutor", "clinica"):
+        raise HTTPException(status_code=422, detail="persona deve ser 'tutor' ou 'clinica'.")
+
+    from app.services.whatsapp_bot_simulation_service import simular_resposta
+
+    try:
+        return simular_resposta(
+            db, mensagem=payload.mensagem, persona=persona, solicitado_por_id=current_user.id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None

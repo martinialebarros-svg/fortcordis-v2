@@ -291,6 +291,27 @@ Novos (autenticados como os demais endpoints de WhatsApp, papéis
   jobs estariam em cada estado agora, sem gerar nem enviar nada (mesmo papel do
   `lembrete-preview`, que existe justamente para inspecionar alcance antes de
   ligar).
+- `GET /api/v1/whatsapp/bot/prontidao` -> somente leitura, **sem chamada de
+  LLM**: para cada persona e intent, se a fonte que sustenta a intent
+  (`_FONTE_EXIGIDA_POR_INTENT`) responde `ok` agora, e um `diagnostico`
+  acionável quando não. Mede se a FONTE existe, não se a resposta é boa.
+  `status_laudo` é marcada `depende_da_conversa`, porque depende do exame do
+  cliente e não de configuração prévia.
+- `GET /api/v1/whatsapp/bot/conhecimento` -> lista a base separando
+  `visiveis_para_o_bot` de `ignorados_pelo_bot`, aplicando a mesma regra de
+  audiência da tool. A tela não mostra como disponível um documento que o bot
+  descarta, nem esconde um que ele usa.
+- `POST /api/v1/whatsapp/bot/conhecimento` (admin) -> cadastra conteúdo com a
+  categoria derivada de `publico` (`tutor`/`clinica`/`ambos`) e `fonte`
+  **obrigatória**. As duas coisas que silenciosamente tornavam um documento
+  invisível para o bot deixam de ser possíveis por construção.
+- `POST /api/v1/whatsapp/bot/simular` -> executa o pipeline de geração com uma
+  mensagem sintética e devolve intent, tools, veredito e texto. **Não envia e
+  não persiste**: se gravasse em `whatsapp_bot_respostas`, a simulação entraria
+  no denominador de aceite e contaminaria justamente o número que autoriza o
+  modo `auto`. Usa `persona_forcada` com escopo sintético (ids que nunca casam
+  registro real), então as tools institucionais funcionam e as de dado do
+  cliente voltam vazias. Faz chamada real de LLM e consome tokens.
 - `GET /api/v1/whatsapp/bot/metricas?dias=7` -> somente leitura (Fase 6,
   P6.3/P6.5): agrega `whatsapp_bot_respostas` na janela informada e devolve
   aceite, aceite sem edição, edição entre aceitos, descarte, bloqueio,
@@ -338,6 +359,21 @@ o painel de métricas marca `custo_configurado=false` e **não** apresenta
 custo, em vez de exibir zero como se o uso fosse gratuito.
 
 ### Frontend
+
+- `frontend/app/configuracoes/page.tsx`: card **Painel do atendimento
+  automático**, logo após o card institucional do bot, com quatro seções —
+  prontidão por intent, conteúdo do bot, observação (métricas) e teste sem
+  envio. A lógica de formatação e validação vive em
+  `frontend/lib/whatsapp-bot-painel.ts` e é testada lá: a página tem mais de
+  3400 linhas e nenhum teste de componente, então criar o primeiro só para um
+  card seria desproporcional.
+- Regra de renderização que não pode ser violada: o backend usa `null` para
+  "sem amostra" em toda taxa e para "tarifa não configurada" em custo.
+  `formatarTaxa`/`formatarCusto` devolvem `—` e `não configurado`; renderizar
+  `null` como `0%` faria "não medido" parecer "medido e ruim".
+- `pronto_para_decidir_auto` é renderizado como **lista de itens com a
+  observação visível**, nunca como selo de liberado, e não habilita a opção
+  `auto` em nenhuma hipótese.
 
 - `frontend/app/whatsapp-stage/page.tsx`: painel de rascunho acima do composer,
   selo de mensagem enviada pelo bot na timeline, controle de modo/pausa por
