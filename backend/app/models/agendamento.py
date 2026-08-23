@@ -65,3 +65,17 @@ class Agendamento(Base):
     whatsapp_reminder_sent_at = Column(DateTime(timezone=True), nullable=True)
     whatsapp_reminder_attempts = Column(Integer, nullable=False, default=0)
     whatsapp_reminder_last_error = Column(Text, nullable=True)
+
+    # Excecao de deslocamento concedida por admin (ver
+    # _validar_deslocamento_agendamento em app/api/v1/endpoints/agenda.py).
+    # Antes disso a concessao era transiente (`confirmar_conflito_deslocamento`
+    # valia so para a requisicao em curso), entao reabilitar ou reativar o
+    # agendamento depois tornava a bater na mesma validacao. A coluna de escopo
+    # guarda a assinatura da rota aprovada (horario, destino e servico): se
+    # algum desses campos mudar, a excecao deixa de valer e a validacao volta
+    # a rodar normalmente.
+    excecao_deslocamento_concedida_em = Column(DateTime(timezone=True), nullable=True)
+    excecao_deslocamento_concedida_por_id = Column(Integer, nullable=True)
+    excecao_deslocamento_concedida_por_nome = Column(String, nullable=True)
+    excecao_deslocamento_motivo = Column(Text, nullable=True)
+    excecao_deslocamento_escopo = Column(String(64), nullable=True)
