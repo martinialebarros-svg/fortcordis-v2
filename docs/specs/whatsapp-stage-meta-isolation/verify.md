@@ -2,8 +2,8 @@
 
 Data: 2026-08-23
 Responsaveis: Martiniano + Codex
-Status: identidade isolada publicada e validada em stage; callback Meta e E2E
-pendentes
+Status: identidade isolada e callback Meta publicados e validados em stage;
+E2E externo pendente
 
 ## Diagnostico atual
 
@@ -48,6 +48,18 @@ pendentes
   confirmou health do backend WhatsApp, executou seus smokes, o canario
   autenticado e o restore drill. Migration CI `32637525655` tambem concluiu
   com sucesso no mesmo SHA.
+- o verify token exclusivo de stage foi rotacionado sem exposicao, salvo no
+  GitHub Secret em `2026-08-23T13:45:45Z` e sincronizado no runtime pela
+  tentativa 2 do run `32637525688`, concluida com sucesso as `13:50:55Z`;
+- a Meta aceitou o desafio do callback
+  `https://app.stage.fortcordis.com.br/whatsapp/webhook` no app
+  `FortZap Stage` e assinou `messages` em `v26.0` as `10:52:16`;
+- o envio do exemplo controlado `Incoming Message` do campo `messages` foi
+  acionado no painel Meta. A superficie disponivel nao exibiu confirmacao
+  independente do recebimento no runtime; como o app ainda esta nao publicado,
+  a Meta informa que apenas webhooks sinteticos do painel sao entregues;
+- nenhum envio externo foi executado: o painel nao tem destinatario selecionado
+  nem token temporario gerado. O teste nao deve inferir um numero de destino;
 - smokes externos posteriores: raiz de stage `200`; `/whatsapp-stage` `307`
   para autenticacao e `200` seguindo o redirecionamento; health WhatsApp `200`;
   rota de conversas anonima `401`; host `app.stage` com health `200` e webhook
@@ -65,7 +77,7 @@ pendentes
 | CA-004 | teste verifica access token, App Secret, verify token e token interno | passou, nenhuma exposicao |
 | CA-005 | parse Ruby/Psych dos workflows stage/producao | passou |
 | CA-006 | teste rejeita a antiga fonte `/var/www/fortcordis-stage/.../.env` no workflow de producao | passou |
-| CA-007 | app/WABA/numero exclusivos, token permanente, deploy e smokes estruturais validados; callback e E2E real ainda pendentes | parcial |
+| CA-007 | app/WABA/numero exclusivos, token permanente, deploy, callback e `messages` validados; E2E externo ainda pendente | parcial |
 | CA-008 | Graph mock aceita relacao coerente, rejeita numero divergente e teste somente leitura passou contra a identidade atualmente instalada no VPS | passou |
 | CA-009 | numero Meta `NOT_VERIFIED` falha por padrao e passa apenas com modo de teste explicito de stage | passou localmente |
 | CA-010 | app nao assinado falha por padrao e passa somente no modo pre-corte; preflight final segue exigindo assinatura | passou localmente |
@@ -119,9 +131,27 @@ tambem passaram na rodada final.
 - A verificacao no perfil reconhecido do Chrome permitiu selecionar o app
   `FortZap Stage`, expiracao `Nunca` e somente as duas permissoes de WhatsApp;
   o token permanente foi emitido e validado.
+- `WHATSAPP_VERIFY_TOKEN_STAGE` foi rotacionado no GitHub em
+  `2026-08-23T13:45:45Z`, sincronizado no VPS e descartado da memoria da sessao
+  depois que a Meta aceitou o callback; o valor nao foi impresso nem mantido na
+  area de transferencia.
+- O callback do app `FortZap Stage` foi verificado em
+  `https://app.stage.fortcordis.com.br/whatsapp/webhook`; `messages` esta
+  assinado em `v26.0`. A Meta tambem manteve/assinou automaticamente campos
+  operacionais frequentes do WABA; nenhum deles foi removido por inferencia.
+- O envio do webhook sintetico `Incoming Message` foi acionado no painel Meta;
+  a confirmacao independente no runtime permanece pendente. O app permanece
+  nao publicado e nao foi publicado durante esta atividade.
 
 ## Pendente antes de declarar stage funcional
 
-- callback de stage verificado e `messages` assinado;
-- mensagem externa controlada aparecendo na inbox de stage e resposta recebida;
-- rechecagem final do callback/health de producao.
+- publicar o app Meta somente apos autorizacao explicita e requisitos de
+  publicacao revisados, ou definir um mecanismo de teste permitido equivalente;
+- selecionar e confirmar explicitamente o destinatario de teste;
+- mensagem externa controlada aparecendo na inbox de stage, rascunho em
+  `suggest` persistido e resposta controlada recebida;
+- executar o preflight remoto final com assinatura obrigatoria e
+  `RUN_SMOKE=1`; a tentativa 2 do deploy validou runtime, health, canario e
+  restore drill, mas manteve o bypass pre-corte apenas para a checagem Graph;
+- rechecagem visual final do callback de producao; health e protecao HTTP ja
+  foram revalidados e producao permaneceu inalterada.

@@ -19,3 +19,7 @@ Data: 2026-08-23
   terminal.
 - [ ] P10. Configurar o callback do app de stage, executar teste controlado de
   recebimento e envio e confirmar que producao permaneceu intacta.
+  Callback verificado e `messages` assinado em 2026-08-23; o webhook sintetico
+  do painel foi disparado e producao foi revalidada. O E2E com mensagem externa
+  continua pendente porque o app esta nao publicado e nao ha destinatario de
+  teste selecionado no painel.

@@ -3,8 +3,8 @@
 Data: 2026-08-23
 Responsável: Martiniano + Codex
 Status: em implementação; Fases 1-3 concluídas, Fase 4 corrigida e validada;
-identidade Meta exclusiva publicada em stage no SHA `abc5a380`; callback Meta,
-E2E controlado e Fases 5-6 pendentes
+identidade Meta exclusiva e callback publicados em stage no SHA `abc5a380`;
+E2E externo e Fases 5-6 pendentes
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -26,12 +26,13 @@ FortCordis v2.
   `abc5a380e6202dae8bb96b57250abd0f08a0beba`.
 - `origin/main` e produção permanecem no SHA
   `447ddc530fa0a3ea135eeff427fca1eed637b65d`.
-- O HEAD deste worktree pode estar um commit documental local à frente de
-  `origin/stage`, contendo apenas este handoff atualizado. Não faça push ou
-  deploy automático desse commit ao retomar.
+- O HEAD deste worktree pode estar commits documentais locais à frente de
+  `origin/stage`, contendo apenas documentação de handoff/verificação. Não faça
+  push ou deploy automático desses commits ao retomar.
 - Preserve o checkout principal e alterações não relacionadas. Não promova
-  para produção. Antes de modificar callback, verify token ou assinatura
-  `messages`, obtenha confirmação explícita no momento da ação.
+  para produção. O callback de stage ja foi verificado; antes de publicar o app
+  Meta, escolher destinatario, enviar mensagem externa ou modificar callback,
+  verify token ou assinaturas, obtenha confirmação explícita no momento da ação.
 
 Antes de editar, rode `git status --short --branch` e leia, nesta ordem:
 
@@ -105,19 +106,17 @@ Smoke local real já executado com dados fictícios, em `suggest` e sem envio:
 
 ## Próxima sequência recomendada
 
-1. Retomar pelo pedido de confirmação deixado ao usuário: configurar no app
-   **FortZap Stage** o callback
-   `https://app.stage.fortcordis.com.br/whatsapp/webhook`, transmitir um verify
-   token exclusivo de stage e assinar `messages`. A mensagem atual do usuário
-   solicita apenas o handoff por falta de créditos e **não** deve ser tratada
-   como confirmação do corte externo.
-2. O verify token atual está armazenado como GitHub Secret e no `.env` remoto,
-   mas não deve ser exibido ou recuperado por logs. Como a área de transferência
-   foi limpa, use uma destas opções somente após confirmação: transferência
-   direta e silenciosa do VPS para o campo do painel, ou rotação segura de um
-   novo token com atualização atômica de GitHub Secret, VPS e painel Meta.
-3. Configure o callback no painel do app `FortZap Stage` — nunca no app de
-   produção — e assine somente o campo `messages`.
+1. Confirmar no painel que o app **FortZap Stage** permanece com o callback
+   `https://app.stage.fortcordis.com.br/whatsapp/webhook` e `messages` assinado
+   em `v26.0`. O verify token rotacionado esta no GitHub Secret e no runtime;
+   nunca o recupere ou imprima.
+2. Revisar os requisitos e o impacto de publicar o app Meta. O painel informa
+   que, enquanto o app estiver nao publicado, somente webhooks sinteticos
+   enviados pelo proprio painel sao entregues. Nao publique sem nova
+   autorizacao explicita.
+3. Definir com Martiniano o numero destinatario do teste. O painel atualmente
+   mostra `Selecione um numero do destinatario` e o botao de envio desabilitado;
+   nao cadastre nem envie a um contato por inferencia.
 4. Execute o preflight final com assinatura obrigatória e smoke funcional:
    `RUN_SMOKE=1 bash scripts/whatsapp_stage_preflight.sh`. Não use o bypass
    pre-corte `WHATSAPP_REQUIRE_SUBSCRIBED_APP=0` nessa validação final.
@@ -187,7 +186,20 @@ Smoke local real já executado com dados fictícios, em `suggest` e sem envio:
     verificação Meta.
 - Produção foi revalidada depois do deploy: raiz e health HTTP `200`, rota
   protegida HTTP `401`, `origin/main` inalterado. Nenhum callback foi alterado.
-- O corte Meta continua pendente e requer nova confirmação explícita.
+- O verify token de stage foi rotacionado sem exposicao, salvo no GitHub Secret
+  em `2026-08-23T13:45:45Z` e sincronizado no runtime pela tentativa 2 do run
+  `32637525688`, concluida com `success` no mesmo SHA.
+- A Meta verificou o callback
+  `https://app.stage.fortcordis.com.br/whatsapp/webhook`; `messages` esta
+  assinado em `v26.0`. O painel tambem manteve/assinou automaticamente campos
+  operacionais frequentes; nenhum foi removido sem autorizacao.
+- O envio do exemplo sintetico `Incoming Message` foi acionado no painel. A
+  superficie disponivel nao confirmou seu recebimento no runtime; ele nao
+  substitui o E2E real nem aparece como conversa real.
+- O app `FortZap Stage` permanece nao publicado. Nenhuma publicacao do app,
+  selecao de destinatario ou mensagem externa foi executada.
+- O painel nao tem token temporario gerado nem destinatario selecionado; por
+  isso o envio real permanece bloqueado com seguranca.
 
 ## Validação
 
@@ -214,14 +226,15 @@ como exige o SDD guardrail. Registre somente evidência realmente executada.
 ## Relatório executivo para a nova sessão
 
 - Entregue: implementação das Fases 1-4, correções D1-D4, identidade Meta de
-  stage isolada, token permanente de usuário de sistema, secrets/variables e
-  publicação protegida de stage.
-- Comprovado: workflows terminais verdes e smokes de stage/produção.
-- Não executado: alteração de callback, assinatura `messages`, E2E real e
-  promoção para produção.
-- Bloqueio atual: confirmação humana no momento da alteração externa da Meta.
-- Próximo marco: callback de stage verificado + `messages` assinado + preflight
-  final + E2E em `suggest`, mantendo produção intacta.
+  stage isolada, token permanente de usuário de sistema, secrets/variables,
+  publicação protegida, callback verificado e `messages` assinado.
+- Comprovado: workflows terminais verdes, desafio Meta aceito, acionamento do
+  webhook sintetico e smokes HTTP de stage/produção.
+- Não executado: publicação do app Meta, seleção de destinatário, E2E externo,
+  preflight remoto final com assinatura obrigatoria e promoção para produção.
+- Bloqueio atual: o app nao publicado recebe apenas testes do painel; falta
+  autorização de publicação e confirmação do número destinatário.
+- Próximo marco: preflight final + E2E em `suggest`, mantendo produção intacta.
 
 ## Limites de segurança
 
