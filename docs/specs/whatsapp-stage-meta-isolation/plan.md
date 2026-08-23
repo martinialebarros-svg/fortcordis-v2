@@ -15,6 +15,7 @@ Data: 2026-08-23
   atualizar exemplo de ambiente e runbooks.
 - [x] P7. Criar app/WABA/numero de teste de stage no painel Meta.
 - [x] P8. Cadastrar GitHub Secrets/Variables de stage com confirmacao explicita.
-- [ ] P9. Publicar em stage e executar preflight/health/smoke terminal.
+- [x] P9. Publicar em stage e executar preflight pre-corte, health e smoke
+  terminal.
 - [ ] P10. Configurar o callback do app de stage, executar teste controlado de
   recebimento e envio e confirmar que producao permaneceu intacta.

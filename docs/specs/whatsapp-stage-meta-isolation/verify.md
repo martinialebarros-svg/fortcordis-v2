@@ -2,8 +2,8 @@
 
 Data: 2026-08-23
 Responsaveis: Martiniano + Codex
-Status: validacao local concluida; identidade externa e token permanente
-validados; deploy, callback e E2E pendentes
+Status: identidade isolada publicada e validada em stage; callback Meta e E2E
+pendentes
 
 ## Diagnostico atual
 
@@ -43,6 +43,17 @@ validados; deploy, callback e E2E pendentes
   O workflow passou a carregar os dois scripts de deploy diretamente do novo
   `origin/stage` em diretorio temporario, preservando o checkout e os artefatos
   de runtime ate o backup/rollback controlado pelo script novo.
+- quarto deploy do SHA `abc5a380` (run `32637525688`) concluiu com sucesso. O
+  runtime registrou o HEAD `abc5a38`, validou a configuracao Meta de Stage,
+  confirmou health do backend WhatsApp, executou seus smokes, o canario
+  autenticado e o restore drill. Migration CI `32637525655` tambem concluiu
+  com sucesso no mesmo SHA.
+- smokes externos posteriores: raiz de stage `200`; `/whatsapp-stage` `307`
+  para autenticacao e `200` seguindo o redirecionamento; health WhatsApp `200`;
+  rota de conversas anonima `401`; host `app.stage` com health `200` e webhook
+  sem challenge `403`.
+- producao permaneceu em `447ddc53` e foi revalidada com raiz/health `200` e
+  rota protegida `401`. Nenhum callback foi alterado.
 
 ## Matriz
 
@@ -54,7 +65,7 @@ validados; deploy, callback e E2E pendentes
 | CA-004 | teste verifica access token, App Secret, verify token e token interno | passou, nenhuma exposicao |
 | CA-005 | parse Ruby/Psych dos workflows stage/producao | passou |
 | CA-006 | teste rejeita a antiga fonte `/var/www/fortcordis-stage/.../.env` no workflow de producao | passou |
-| CA-007 | app/WABA/numero exclusivos e token permanente validados; deploy, callback e smoke real ainda nao executados | parcial |
+| CA-007 | app/WABA/numero exclusivos, token permanente, deploy e smokes estruturais validados; callback e E2E real ainda pendentes | parcial |
 | CA-008 | Graph mock aceita relacao coerente, rejeita numero divergente e teste somente leitura passou contra a identidade atualmente instalada no VPS | passou |
 | CA-009 | numero Meta `NOT_VERIFIED` falha por padrao e passa apenas com modo de teste explicito de stage | passou localmente |
 | CA-010 | app nao assinado falha por padrao e passa somente no modo pre-corte; preflight final segue exigindo assinatura | passou localmente |
@@ -112,6 +123,5 @@ tambem passaram na rodada final.
 ## Pendente antes de declarar stage funcional
 
 - callback de stage verificado e `messages` assinado;
-- workflow terminal verde;
 - mensagem externa controlada aparecendo na inbox de stage e resposta recebida;
 - rechecagem final do callback/health de producao.
