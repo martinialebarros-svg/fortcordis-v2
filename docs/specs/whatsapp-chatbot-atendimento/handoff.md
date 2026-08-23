@@ -1,12 +1,13 @@
 # Handoff - whatsapp-chatbot-atendimento
 
 Data: 2026-08-23
-Responsável: Martiniano + Codex
-Status: em implementação; Fases 1-5 concluídas e validadas em stage; primeiro
-envio assistido controlado diagnosticou divergência brasileira do nono dígito,
-com correção publicada em stage; reenvio único confirmado pela Meta como
-`delivered`, estado reconciliado e proteção preventiva publicada no SHA
-`29f68f22`; Fase 6 pendente
+Responsável: Martiniano + Codex + Claude
+Status: em implementação; Fases 1-5 concluídas e validadas em stage; reenvio
+único confirmado pela Meta como `delivered`, estado reconciliado e proteção
+preventiva publicada no SHA `29f68f22`; Fase 6 **parcialmente entregue** —
+P6.1 (evals de guardrail) e P6.5 (métricas) implementados e commitados
+localmente em `e2bc474a`, ainda **não publicados em stage**; P6.2, P6.3 e P6.4
+pendentes
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -29,8 +30,11 @@ FortCordis v2.
 - `origin/main` e produção permanecem no SHA
   `447ddc530fa0a3ea135eeff427fca1eed637b65d`.
 - O código da Fase 5, o hotfix do nono dígito e a proteção de reenvio do bot já
-  foram publicados. Pode haver um commit documental local posterior
-  registrando as provas do deploy; não o promova para produção.
+  foram publicados em stage.
+- **Novo desde a última sessão**: a branch local está em `e2bc474a`, dois
+  commits à frente de `origin/stage`, com a instrumentação da Fase 6
+  (P6.1 + P6.5). Nada foi publicado: `origin/stage` segue em `29f68f22` e
+  `origin/main`/produção em `447ddc53`. Não promova para produção.
 - Preserve o checkout principal e alterações não relacionadas. Não promova
   para produção. O callback e a publicacao de stage ja foram verificados; antes
   de enviar nova mensagem externa ou modificar callback, verify token,
@@ -181,23 +185,114 @@ Publicação e smoke da Fase 5 concluídos em `2026-08-23`:
   validados;
 - produção permaneceu em `447ddc53`, saudável e sem alteração.
 
+## Sessão de 2026-08-23 (Fase 6, parte 1): instrumentação
+
+Entregue e commitado localmente, **sem publicar**:
+
+- **P6.1 — evals de guardrail.** `backend/evals/whatsapp_bot_cases.json` com 27
+  casos e `backend/tests/test_whatsapp_bot_evals.py` com 9 testes. Cada caso
+  declara texto candidato, estado do turno e veredito esperado, e roda por
+  `avaliar_resposta` **sem LLM e sem rede** — como o eval do assistente, que
+  também valida contrato em vez de gastar chamada paga. Cobre os quatro grupos
+  clínicos (inclusive resposta ancorada em trecho da base, que não é passe
+  livre), vazamento de laudo, fonte ausente **e fonte de outra intent**, valor e
+  prazo não ancorados com os pares aprovados, o bloco comum da CA-024 nas duas
+  personas, intents cruzadas de persona e o teto de caracteres. `teto_diario`
+  fica declaradamente de fora (depende de contagem no banco, já coberto em
+  `test_whatsapp_bot_generation`).
+- **Guard de integridade da métrica.** `avaliar_resposta` usa o **nome do grupo**
+  da deny-list como `motivo`, com `type: ignore`. Um grupo novo no JSON com nome
+  fora de `MotivoBloqueio` passaria em runtime e sujaria a agregação por motivo
+  sem quebrar teste algum. Isso agora é travado por teste, e o guard foi
+  **verificado como não vazio**: simulando um grupo `conteudo_experimental`,
+  `avaliar_resposta` produz de fato `motivo="conteudo_experimental"`, fora do
+  `Literal`.
+- **P6.5 — métricas.** `backend/app/services/whatsapp_bot_metrics_service.py` e
+  `GET /api/v1/whatsapp/bot/metricas?dias=7`, somente leitura, **sem migração**
+  (tudo deriva de colunas existentes), com 11 testes. Quatro decisões de medição
+  que mudam a leitura do número:
+  - aceite limpo separado de aceite editado, porque o endpoint de envio grava
+    `feedback="positivo"` mesmo quando o atendente reescreveu o texto — o
+    feedback sozinho **superestima** a qualidade do rascunho;
+  - rascunho pendente fora do denominador do aceite, senão a taxa mede backlog
+    em vez de qualidade;
+  - faixa de horário pela janela operacional da agenda, a mesma fonte do texto
+    de handoff da RF-033 (memoizada, com equivalência travada por teste em 168
+    pontos e 1 consulta para 25 linhas);
+  - custo não finge zero: com `WHATSAPP_BOT_*_COST_PER_MILLION=0.0` (default),
+    `custo_configurado=false` e os valores vêm `null`, com tokens ainda somados.
+- `pronto_para_decidir_auto` é **checklist, não autorização**: reporta
+  `decididos_por_persona`, o mínimo adotado (20 por persona) e quais personas
+  atingiram amostra. Um teste fixa que o campo não habilita nada.
+
+Novas configurações (defaults seguros, já em `.env.example`):
+`WHATSAPP_BOT_INPUT_COST_PER_MILLION=0.0` e
+`WHATSAPP_BOT_OUTPUT_COST_PER_MILLION=0.0`.
+
+Validação executada nesta sessão:
+
+- suíte completa do backend **994/994**; focada do bot **139/139**;
+  `test_whatsapp_conversation_context` + `test_configuracoes_autorizacao`
+  **15/15**;
+- gate SDD local aprovado no diff `origin/stage..HEAD` (código acompanhado de
+  `spec.md` + `verify.md`);
+- revalidação externa **sem autenticação**: stage raiz `200`,
+  `app.stage/whatsapp/health` `200`, `/whatsapp/conversations` `401`;
+  produção raiz `200`, health `200`, rota protegida `401`, `origin/main`
+  inalterado.
+
+Não executado, e por quê:
+
+- **P6.2 (preview em stage) não rodou: falta credencial.** O endpoint exige
+  papel autenticado e não havia `CANARY_BEARER_TOKEN`/`CANARY_USERNAME`/
+  `CANARY_PASSWORD` no ambiente desta sessão. Não pedi nem manipulei segredo
+  para isso. Além disso, `GET /whatsapp/bot/metricas` **ainda não existe em
+  stage** — só passa a existir depois de publicar `e2bc474a`.
+- **Teste real de `consultar_status_laudo`** continua pendente: exige stage
+  autenticado e é passo posterior à observação.
+- Nenhum clique em Enviar/Reenviar/Descartar. A resposta `7` não foi tocada.
+- Nada publicado, nada promovido, nenhuma configuração Meta alterada.
+
 ## Próxima sequência recomendada
 
-1. Mantenha stage em `suggest` e `auto` bloqueado.
-2. Não envie nem reenvie novamente a resposta `7`: ela já está `delivered` e
-   reconciliada. O hotfix preventivo já está em stage; a entrega tem selo, o
-   rascunho sumiu e a falha substituída não oferece **Reenviar**. Para
-   **Descartar** outro rascunho, use um caso descartável e confirme antes
-   porque grava feedback persistente.
-3. Inicie a observação da Fase 6: aceite/descarte por persona, bloqueios,
-   latência e custo; não autorize `auto` sem pelo menos uma semana de dados.
-4. Revalide produção antes e depois de qualquer publicação futura: callback em
-   `https://app.fortcordis.com.br/whatsapp/webhook`, health `200` e rota
-   protegida `401`.
-5. Teste depois a segunda tool real, `consultar_status_laudo`, sem usar dados
-   clínicos no texto de teste e ainda sem envio automático.
-6. Manter a Fase 6 bloqueada até haver painel e métricas reais de `suggest` em
-   stage. `auto` não deve ser ligado por inferência.
+1. **Publicar a instrumentação da Fase 6 em stage.** A branch está em
+   `e2bc474a`, dois commits à frente de `origin/stage`. Sem publicar,
+   `GET /whatsapp/bot/metricas` não existe no runtime e a observação da Fase 6
+   não pode começar. Revalide stage e produção antes e depois. Não promova para
+   produção.
+2. **P6.2 — preview de elegibilidade em stage.** Exige credencial autenticada
+   (`CANARY_BEARER_TOKEN` ou `CANARY_USERNAME`/`CANARY_PASSWORD`), que não
+   estava disponível na sessão anterior. Rode `GET /api/v1/whatsapp/bot/preview`
+   e registre o resultado no `verify.md`. É somente leitura (CA-019).
+3. **P6.3 — abrir a janela de observação.** Mantenha stage em `suggest` com
+   `auto` bloqueado e deixe acumular pelo menos uma semana de tráfego real.
+   Consulte `GET /api/v1/whatsapp/bot/metricas?dias=7` e transcreva os números
+   no `verify.md`, na seção "Números a coletar na Fase 6.3".
+4. **Ao ler as métricas, saiba o que cada número quer dizer.** `taxa_aceite`
+   inclui rascunho editado; `taxa_aceite_sem_edicao` é o número que mede a
+   qualidade real do rascunho, e a diferença entre os dois é o trabalho que a
+   equipe teve. Rascunho pendente não entra no denominador. `custo_total` vem
+   `null` até alguém configurar `WHATSAPP_BOT_*_COST_PER_MILLION`.
+5. **Teste real de `consultar_status_laudo`** em stage, com mensagem sem
+   conteúdo clínico e sem envio automático, depois da observação começar.
+6. **Não habilite `auto` por inferência.** `pronto_para_decidir_auto` é
+   checklist de amostra, não autorização. Peça autorização específica e registre
+   a decisão com número no `verify.md`.
+
+## Limites obrigatórios da próxima sessão
+
+- Preserve o checkout principal e alterações não relacionadas.
+- Não promova nada para produção sem autorização explícita.
+- Não envie nem reenvie a resposta `7`: já está `delivered` e reconciliada.
+- Não clique em Enviar, Reenviar ou Descartar sem confirmação explícita no
+  momento da ação. Descartar grava feedback persistente.
+- Não altere callback, verify token, assinaturas, credenciais ou configuração da
+  Meta sem confirmação explícita.
+- Nunca exiba nem registre tokens e segredos.
+- Mantenha o bot em `suggest`.
+- Toda alteração de código atualiza `spec.md` e `verify.md` no mesmo ciclo (gate
+  SDD). Valide localmente com
+  `python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEAD`.
 
 ## Diagnostico e isolamento Meta de stage (2026-08-23)
 
@@ -280,7 +375,9 @@ Publicação e smoke da Fase 5 concluídos em `2026-08-23`:
 
 O worktree reutiliza o venv do checkout principal em
 `/Users/martiniano/fortcordis-v2/backend/venv` e as dependências do frontend por
-symlink ignorado. Última validação da Fase 5: **119/119** testes focados do bot,
+symlink ignorado. Validação mais recente (Fase 6, parte 1): **139/139** testes focados do bot
+e **994/994** na suíte completa. Validação anterior da Fase 5: **119/119**
+testes focados do bot,
 **9/9** de autorização, serviço Node com build e contratos da inbox, frontend
 com ESLint, `tsc --noEmit` e `next build`, todos aprovados. A suíte completa do
 backend foi reexecutada nesta fase e terminou em **974/974**, sem falhas;
@@ -319,6 +416,9 @@ como exige o SDD guardrail. Registre somente evidência realmente executada.
   matriz, observação de uma semana e qualquer promoção para produção.
 - Bloqueio atual: `auto` permanece deliberadamente indisponível até haver dados
   reais de aceite e segurança da Fase 6.
+- Fase 6, parte 1 (2026-08-23): evals de guardrail (P6.1) e métricas (P6.5)
+  entregues e commitados em `e2bc474a`, ainda não publicados. P6.2 ficou
+  bloqueado por falta de credencial autenticada nesta sessão.
 - Próximo marco: teste controlado de uma ação de revisão com confirmação
   específica e início das métricas de `suggest`; produção permanece intacta.
 
