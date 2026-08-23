@@ -609,14 +609,114 @@ endpoints novos e uma lib de frontend.
 arquivos; `eslint` sem warning em `configuracoes/page.tsx` e na lib nova;
 `tsc --noEmit` limpo; `next build` concluído.
 
+### Publicação do painel em stage (2026-08-23)
+
+`origin/stage` avançou por fast-forward de `937d17b5` para `6f446d29` (painel
+`7dca1d45` + registro documental `6f446d29`), depois de autorização explícita.
+
+| Item | Evidência |
+| --- | --- |
+| Deploy to Stage | run `32670249325`, `success` |
+| Migration CI | run `32670249345`, `success` |
+| Backend antes de publicar | 1014/1014 |
+| Frontend antes de publicar | 98/98, `eslint` sem warning, `tsc --noEmit` limpo, `next build` concluído |
+| Gate SDD `origin/stage..HEAD` | `PASSED` |
+| Stage antes e depois | raiz `200`, `app.stage/whatsapp/health` `200`, `/whatsapp/conversations` `401`, `/whatsapp-stage` `307` |
+| Produção antes e depois | raiz `200`, health `200`, rota protegida `401`; `origin/main` inalterado em `447ddc53` |
+
+### P6.2 — preview executado em stage (2026-08-23)
+
+Executado no navegador autenticado (a sessão anterior havia expirado; o usuário
+fez o login, nenhuma credencial foi digitada nem manipulada por agente).
+`GET /api/v1/whatsapp/bot/preview` em `2026-08-23T22:32:00Z`:
+
+| Campo | Valor |
+| --- | --- |
+| `whatsapp_bot_enabled_env` | `true` |
+| `whatsapp_bot_atendimento_habilitado_banco` | `true` |
+| `whatsapp_bot_ativo` | `true` |
+| `whatsapp_bot_modo_institucional` | `suggest` |
+| `jobs_por_status` | `superseded` 50, `done` 22 |
+| `respostas_por_decisao` | `sent` 1, `handoff` 13, `suppressed` 8 |
+
+Nenhum `draft` pendente: o único `sent` é a resposta `7`, já reconciliada, e não
+foi tocada. **P6.2 fica cumprido.**
+
+`GET /whatsapp/bot/metricas?dias=7` no mesmo instante, para o alcance real:
+22 respostas, 12 conversas distintas, 1 rascunho decidido (persona `tutor`,
+aceito sem edição), 13 handoffs — **todos** `identidade_nao_resolvida` — e 8
+supressões (`bot_desabilitado` 5, `pausado` 3). Contenção geral `0,0714`;
+latência p50/p95 `11.794 ms` com uma única amostra; `custo_configurado=false`.
+`pronto_para_decidir_auto` reporta `decididos_por_persona={"tutor": 1}` contra o
+mínimo de 20, `amostra_suficiente_nas_duas_personas=false`.
+
+Isso confirma numericamente o reescopo do P6.3: em uma semana stage produziu
+**um** rascunho decidido. O número de teste da Meta só fala com destinatários
+pré-verificados, então a estatística de aceite tem que vir de produção em
+`suggest`.
+
+### Prontidão verificada em stage (2026-08-23)
+
+Botão **Verificar** clicado em Configurações > Empresa, no painel publicado.
+`GET /api/v1/whatsapp/bot/prontidao` respondeu `200`. Resumo: **14 itens, 8
+prontos, 6 pendentes**, com `bot_ativo=true`.
+
+| Intent | Tutor | Clínica | Fonte |
+| --- | --- | --- | --- |
+| Horário de funcionamento | pronto | pronto | `consultar_horario_funcionamento` |
+| Endereço | pronto* | pronto* | `consultar_dados_institucionais` |
+| Formas de contato | pronto* | pronto* | `consultar_dados_institucionais` |
+| Preço de serviço (tabela) | pronto | pronto | `consultar_preco_tabela` |
+| Área de atendimento | pendente | pendente | `buscar_conhecimento_institucional` |
+| Como agendar | pendente | — | `buscar_conhecimento_institucional` |
+| Como solicitar exame | — | pendente | `buscar_conhecimento_institucional` |
+| Status de laudo | pendente | pendente | `consultar_status_laudo` |
+
+As quatro pendências de conhecimento trazem o diagnóstico acionável esperado
+("cadastre um documento na base com categoria começando por `institucional` ou
+`atendimento` e com a fonte preenchida") — é exatamente o que o passo de
+conteúdo institucional vai resolver. `status_laudo` aparece com
+`depende_da_conversa=true`, por desenho: não há configuração prévia.
+
+#### Falso verde confirmado em Endereço e Formas de contato
+
+`*` Os quatro verdes marcados acima **não são confiáveis**. É a guarda 10 do
+handoff, agora comprovada com dado real de stage e não só por leitura de código:
+
+- `consultar_dados_institucionais`
+  (`backend/app/services/whatsapp_bot_tools.py`) devolve `ok=True` sempre que
+  existir uma linha de `Configuracao`, mesmo com **todos** os campos nulos —
+  só devolve `ok=False` quando não há linha nenhuma.
+- Inspeção somente leitura do formulário de Configurações em stage: `Endereço`,
+  `Telefone`, `E-mail` e `Website` estão **vazios**; só `Cidade` (9 caracteres)
+  e `Estado` (2) têm conteúdo.
+- Logo o painel afirma que o bot "consegue responder" endereço e formas de
+  contato quando não existe endereço nem telefone cadastrado.
+
+Agravante para a RF-020: esse `ok=True` também conta como fonte válida no
+`TurnoDeGeracao`, e o guardrail não ancora endereço nem telefone contra o
+retorno da tool (ancora valor e horário). Um texto com endereço inventado
+passaria como aprovado. Em `suggest` isso é revisado por humano; em `auto`
+seria uma afirmação falsa enviada ao cliente.
+
+Correção proposta, ainda **não implementada**: `consultar_dados_institucionais`
+deve devolver `ok=False` quando os campos que sustentam a intent estiverem
+vazios (endereço para `endereco`; telefone/e-mail para `formas_contato`), com
+diagnóstico apontando o campo em falta — e o guardrail precisa ancorar endereço
+e telefone no retorno literal da tool, como já faz com valor e horário.
+
 ### Pendente na Fase 6
 
-- P6.2: `GET /whatsapp/bot/preview` executado e revisado em stage.
-- P6.3: uma semana de tráfego real em `suggest`, com os números acima
-  coletados e transcritos nesta seção.
+- P6.3: tráfego real em `suggest` **em produção**, com os números coletados e
+  transcritos nesta seção. Mínimo de 20 rascunhos decididos por persona; hoje
+  stage tem 1 no total.
 - P6.4: decisão de `auto` registrada com número, após autorização explícita.
 - Teste real de `consultar_status_laudo` em stage, sem conteúdo clínico na
   mensagem e sem envio automático.
+- Conteúdo institucional sem PII cadastrado, para fechar as quatro pendências
+  de conhecimento da prontidão.
+- Correção do falso verde de `consultar_dados_institucionais` (acima) e as
+  demais nove guardas do handoff, antes de qualquer envio automático.
 
 ## Regressão e riscos residuais
 
@@ -639,6 +739,12 @@ arquivos; `eslint` sem warning em `configuracoes/page.tsx` e na lib nova;
   número mal cadastrado ou compartilhado entre clínica e tutor continua caindo
   em `ambiguous`, que por RF-016 não revela nada — seguro, porém inútil para o
   cliente até alguém corrigir o cadastro.
+- **O painel de prontidão pode dar verde sem dado** (ver "Falso verde
+  confirmado" acima). Enquanto `consultar_dados_institucionais` responder
+  `ok=True` com campos nulos, o painel — cuja função é justamente dizer se o
+  bot consegue responder — informa o contrário do que acontece, e a RF-020
+  aceita esse retorno como fonte. É o risco mais próximo de virar resposta
+  errada ao cliente quando o `auto` ligar.
 
 ## Itens fora de escopo entregues
 
