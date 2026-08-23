@@ -32,6 +32,10 @@ validados; deploy, callback e E2E pendentes
 - guardrail corrigido para aceitar esse estado somente com
   `WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER=1` no workflow de stage; sem a flag, o
   mesmo estado continua falhando fechado.
+- segundo deploy do SHA `9834ce53` (run `32636752681`) confirmou numero e WABA,
+  mas falhou porque o app ainda nao esta assinado. A assinatura pertence a P10,
+  depois do deploy e junto ao callback; o pre-corte foi separado do preflight
+  final sem mudar o default fail-closed.
 
 ## Matriz
 
@@ -46,6 +50,7 @@ validados; deploy, callback e E2E pendentes
 | CA-007 | app/WABA/numero exclusivos e token permanente validados; deploy, callback e smoke real ainda nao executados | parcial |
 | CA-008 | Graph mock aceita relacao coerente, rejeita numero divergente e teste somente leitura passou contra a identidade atualmente instalada no VPS | passou |
 | CA-009 | numero Meta `NOT_VERIFIED` falha por padrao e passa apenas com modo de teste explicito de stage | passou localmente |
+| CA-010 | app nao assinado falha por padrao e passa somente no modo pre-corte; preflight final segue exigindo assinatura | passou localmente |
 
 ## Comandos executados
 

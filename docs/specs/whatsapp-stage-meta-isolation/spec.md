@@ -25,10 +25,14 @@ Status: implementado localmente; corte Meta pendente
   producao.
 - RF-007: o exemplo de ambiente nao incorpora IDs reais de producao.
 - RF-008: antes de gravar a configuracao, uma consulta somente leitura a Graph
-  confirma que o token resolve o numero, que o numero pertence a WABA e que o
-  app esta assinado nessa WABA. `NOT_VERIFIED` e aceito somente para numero de
-  teste fornecido pela Meta quando o workflow de stage ativa explicitamente
+  confirma que o token resolve o numero e que o numero pertence a WABA.
+  `NOT_VERIFIED` e aceito somente para numero de teste fornecido pela Meta
+  quando o workflow de stage ativa explicitamente
   `WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER=1`.
+- RF-009: no deploy anterior ao corte do callback, a assinatura do app na WABA
+  pode ficar pendente apenas com `WHATSAPP_REQUIRE_SUBSCRIBED_APP=0`. O
+  verificador e o preflight usam `1` por padrao e exigem a assinatura para a
+  validacao final posterior ao callback.
 
 ## Requisitos nao funcionais
 
@@ -86,6 +90,9 @@ e `WHATSAPP_BUSINESS_ACCOUNT_ID` no `.env` remoto.
 - CA-009: o workflow de stage pode aceitar `NOT_VERIFIED` somente com
   `WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER=1`; producao e chamadas sem a flag
   continuam fail-closed.
+- CA-010: app nao assinado falha por padrao; somente o pre-corte do workflow de
+  stage usa `WHATSAPP_REQUIRE_SUBSCRIBED_APP=0`, enquanto o preflight final
+  continua exigindo assinatura.
 
 ## Rollback
 

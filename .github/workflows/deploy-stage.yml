@@ -295,6 +295,7 @@ jobs:
             WHATSAPP_BUSINESS_ACCOUNT_ID="$WHATSAPP_BUSINESS_ACCOUNT_ID_STAGE" \
             WHATSAPP_GRAPH_API_VERSION=v26.0 \
             WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER=1 \
+            WHATSAPP_REQUIRE_SUBSCRIBED_APP=0 \
             bash scripts/whatsapp_meta_identity_check.sh
 
           printf '%s\n%s\n%s\n%s\n%s\n%s\n' \

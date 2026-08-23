@@ -146,7 +146,11 @@ case "${url}" in
     printf '%s\n' '{"data":[{"id":"223456789012345"}]}'
     ;;
   */423456789012345/subscribed_apps)
-    printf '%s\n' '{"data":[{"whatsapp_business_api_data":{"id":"323456789012345"}}]}'
+    if [[ "${FAKE_GRAPH_UNSUBSCRIBED:-0}" == "1" ]]; then
+      printf '%s\n' '{"data":[]}'
+    else
+      printf '%s\n' '{"data":[{"whatsapp_business_api_data":{"id":"323456789012345"}}]}'
+    fi
     ;;
   *)
     printf '%s\n' '{"error":{"code":100}}'
@@ -198,6 +202,38 @@ grep -Fq "Numero de teste Meta explicitamente autorizado para stage" \
   <<<"${graph_unverified_test_output}"
 grep -Fq "WhatsApp Meta identity check passed" <<<"${graph_unverified_test_output}"
 assert_not_exposed "${graph_unverified_test_output}"
+
+if graph_unsubscribed_default_output="$(
+  PATH="${fake_bin}:${PATH}" \
+    FAKE_GRAPH_UNSUBSCRIBED=1 \
+    WHATSAPP_ACCESS_TOKEN="${ACCESS_TOKEN}" \
+    PHONE_NUMBER_ID=223456789012345 \
+    META_APP_ID=323456789012345 \
+    WHATSAPP_BUSINESS_ACCOUNT_ID=423456789012345 \
+    WHATSAPP_GRAPH_API_VERSION=v26.0 \
+    bash "${REPO_ROOT}/scripts/whatsapp_meta_identity_check.sh" 2>&1
+)"; then
+  echo "Graph identity check accepted an unsubscribed app by default." >&2
+  exit 1
+fi
+grep -Fq "META_APP_ID nao esta assinado" <<<"${graph_unsubscribed_default_output}"
+assert_not_exposed "${graph_unsubscribed_default_output}"
+
+graph_unsubscribed_precutover_output="$(
+  PATH="${fake_bin}:${PATH}" \
+    FAKE_GRAPH_UNSUBSCRIBED=1 \
+    WHATSAPP_REQUIRE_SUBSCRIBED_APP=0 \
+    WHATSAPP_ACCESS_TOKEN="${ACCESS_TOKEN}" \
+    PHONE_NUMBER_ID=223456789012345 \
+    META_APP_ID=323456789012345 \
+    WHATSAPP_BUSINESS_ACCOUNT_ID=423456789012345 \
+    WHATSAPP_GRAPH_API_VERSION=v26.0 \
+    bash "${REPO_ROOT}/scripts/whatsapp_meta_identity_check.sh"
+)"
+grep -Fq "Assinatura do app na WABA pendente para o corte do callback" \
+  <<<"${graph_unsubscribed_precutover_output}"
+grep -Fq "WhatsApp Meta identity check passed" <<<"${graph_unsubscribed_precutover_output}"
+assert_not_exposed "${graph_unsubscribed_precutover_output}"
 
 if graph_mismatch_output="$(
   PATH="${fake_bin}:${PATH}" \

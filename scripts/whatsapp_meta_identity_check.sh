@@ -8,6 +8,7 @@ WHATSAPP_BUSINESS_ACCOUNT_ID="${WHATSAPP_BUSINESS_ACCOUNT_ID:-}"
 WHATSAPP_GRAPH_API_VERSION="${WHATSAPP_GRAPH_API_VERSION:-v26.0}"
 WHATSAPP_GRAPH_API_BASE_URL="${WHATSAPP_GRAPH_API_BASE_URL:-https://graph.facebook.com}"
 WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER="${WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER:-0}"
+WHATSAPP_REQUIRE_SUBSCRIBED_APP="${WHATSAPP_REQUIRE_SUBSCRIBED_APP:-1}"
 
 fail() {
   printf '[FAIL] %s\n' "$1" >&2
@@ -33,6 +34,10 @@ fi
 if [[ "${WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER}" != "0" && \
       "${WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER}" != "1" ]]; then
   fail "WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER deve ser 0 ou 1"
+fi
+if [[ "${WHATSAPP_REQUIRE_SUBSCRIBED_APP}" != "0" && \
+      "${WHATSAPP_REQUIRE_SUBSCRIBED_APP}" != "1" ]]; then
+  fail "WHATSAPP_REQUIRE_SUBSCRIBED_APP deve ser 0 ou 1"
 fi
 
 graph_get() {
@@ -105,12 +110,15 @@ printf '[OK] Numero de stage pertence a WABA esperada\n'
 subscribed_apps_response="$(graph_get "${WHATSAPP_BUSINESS_ACCOUNT_ID}/subscribed_apps")" \
   || fail "Consulta dos apps assinantes da WABA falhou"
 assert_graph_success "${subscribed_apps_response}" "Consulta dos apps assinantes da WABA"
-if ! jq -e --arg expected "${META_APP_ID}" \
+if jq -e --arg expected "${META_APP_ID}" \
   'any((.data // [])[]; ((.id // "") | tostring) == $expected or ((.whatsapp_business_api_data.id // "") | tostring) == $expected)' \
   <<<"${subscribed_apps_response}" >/dev/null; then
+  printf '[OK] App de stage esta assinado na WABA esperada\n'
+elif [[ "${WHATSAPP_REQUIRE_SUBSCRIBED_APP}" == "1" ]]; then
   fail "META_APP_ID nao esta assinado na WABA informada"
+else
+  printf '[WARN] Assinatura do app na WABA pendente para o corte do callback\n'
 fi
-printf '[OK] App de stage esta assinado na WABA esperada\n'
 
 unset phone_response phone_verification_status waba_phones_response subscribed_apps_response \
   WHATSAPP_ACCESS_TOKEN
