@@ -477,10 +477,18 @@ Publicado após autorização explícita, por fast-forward, sem force:
   rastreabilidade;
 - `origin/main` e produção permaneceram em `447ddc53`, sem alteração.
 
-Workflows terminais no SHA `b8b4875c`:
+A publicação ocorreu em dois ciclos, ambos por fast-forward e ambos com os dois
+workflows terminais em `success`:
 
-- Deploy to Stage (VPS) run `32664954776`: `success`;
-- Migration CI run `32664954786`: `success`.
+| SHA | Conteúdo | Deploy to Stage | Migration CI |
+| --- | --- | --- | --- |
+| `b8b4875c` | instrumentação da Fase 6 (código + specs) | `32664954776` | `32664954786` |
+| `e1a92b95` | somente `handoff.md` e `verify.md` com as provas do 1º ciclo | `32665608058` | `32665608079` |
+
+Ao final, `origin/stage`, o runtime de stage e a branch
+`claude/whatsapp-chatbot-handoff-2d02ad` ficaram sincronizados. Este registro
+cobre os dois ciclos de propósito: documentar cada commit documental em um novo
+commit documental seria recursão sem valor, então o ciclo se encerra aqui.
 
 Revalidação externa antes e depois, sem autenticação, com resultado idêntico:
 

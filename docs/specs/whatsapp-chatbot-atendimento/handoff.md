@@ -33,8 +33,9 @@ FortCordis v2.
 - O código da Fase 5, o hotfix do nono dígito e a proteção de reenvio do bot já
   foram publicados em stage.
 - A instrumentação da Fase 6 (`3880a87d` P6.1+P6.5 e `e2bc474a` memoização)
-  **já está publicada em stage**. Pode haver um commit documental local
-  posterior registrando as provas do deploy; não o promova para produção.
+  **já está publicada em stage**, junto com os registros documentais. Ao fim
+  da sessão de 2026-08-23, `origin/stage`, o runtime e esta branch estavam
+  sincronizados — confirme a ponta com `git rev-parse HEAD origin/stage`.
   Estado após a publicação: `origin/stage` segue em `29f68f22` e
   `origin/main`/produção em `447ddc53`. Não promova para produção.
 - Preserve o checkout principal e alterações não relacionadas. Não promova
@@ -259,8 +260,9 @@ Não executado, e por quê:
 ## Próxima sequência recomendada
 
 1. ~~Publicar a instrumentação da Fase 6 em stage.~~ **Concluído em
-   2026-08-23**: `origin/stage` em `b8b4875c`, Deploy run `32664954776` e
-   Migration CI run `32664954786` ambos `success`, produção intacta em
+   2026-08-23**, em dois ciclos de fast-forward: código em `b8b4875c`
+   (runs `32664954776` e `32664954786`) e registros em `e1a92b95` (runs
+   `32665608058` e `32665608079`), todos `success`. Produção intacta em
    `447ddc53`. `GET /api/v1/whatsapp/bot/metricas` responde `401` no runtime
    (existe e está protegido), contra `404` de rota inexistente.
 2. **P6.2 — preview de elegibilidade em stage.** Exige credencial autenticada
