@@ -738,6 +738,29 @@ Evidência:
 
 Suíte focada do bot **164/164** (era 159).
 
+#### Confirmação em stage depois de publicar
+
+Publicado em `992b07e6` (Deploy run `32672704495`, Migration CI run
+`32672704470`, ambos `success`). `GET /whatsapp/bot/prontidao` refeito no mesmo
+ambiente onde o falso verde tinha sido medido:
+
+| | Antes da correção | Depois |
+| --- | --- | --- |
+| Resumo | 8 prontos / 6 pendentes | **4 prontos / 10 pendentes** |
+| `endereco` (as duas personas) | pronto (falso) | pendente, "Preencha endereco, telefone e e-mail em Configuracoes > Empresa" |
+| `formas_contato` (as duas personas) | pronto (falso) | pendente, mesmo diagnóstico |
+| `horario_funcionamento`, `preco_servico` | pronto | pronto (inalterado, com dado real) |
+
+Os quatro verdes que sobraram são os que têm dado por trás. O cadastro de stage
+segue vazio de propósito até o usuário preenchê-lo — a mudança aqui é o painel
+passar a dizer a verdade sobre isso.
+
+Nota: com o cadastro **inteiramente** vazio o diagnóstico exibido vem do
+`error` da tool, que lista os três campos de uma vez. A mensagem por campo
+(`FALTA_CAMPO_INSTITUCIONAL`) aparece no caso parcial — telefone preenchido e
+endereço vazio —, coberto por
+`test_prontidao_separa_endereco_de_formas_de_contato`.
+
 ### Pendente na Fase 6
 
 - P6.3: tráfego real em `suggest` **em produção**, com os números coletados e

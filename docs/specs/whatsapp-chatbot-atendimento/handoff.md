@@ -4,11 +4,11 @@ Data: 2026-08-23
 Responsável: Martiniano + Codex + Claude
 Status: Fases 1-5 concluídas e publicadas. Fase 6 parcial: evals (P6.1),
 métricas (P6.5), correção crítica da base institucional, painel de configuração
-e **P6.2 cumprido** (preview rodado em stage). `origin/stage` em `6f446d29`,
-com o painel já publicado. Dois commits locais **não publicados**: `425a936d`
-(registro do P6.2 e da prontidão real) e `e9aa3fc8` (correção da guarda 10).
-Produção intacta em `447ddc53`, sem nunca ter recebido o bot. `auto` permanece
-bloqueado.
+e **P6.2 cumprido** (preview rodado em stage). A **guarda 10 está fechada**: o
+falso verde da prontidão foi medido em stage, corrigido e reconfirmado no
+ambiente. `origin/stage` em `992b07e6`, sincronizado com esta branch — nada
+pendente de publicar. Produção intacta em `447ddc53`, sem nunca ter recebido o
+bot. `auto` permanece bloqueado, e as outras nove guardas seguem abertas.
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -27,21 +27,19 @@ FortCordis v2.
   `/Users/martiniano/fortcordis-v2/.claude/worktrees/whatsapp-chatbot-handoff-2d02ad`
 - Branch: `claude/whatsapp-chatbot-handoff-2d02ad`
 - `origin/stage` e o runtime de stage estão no SHA
-  `6f446d29646abecdd1ea360b040320894a572051` (publicação do painel de
-  configuração em 2026-08-23).
-- A branch está **2 commits à frente** de `origin/stage`: `425a936d` (registro
-  do P6.2 e da prontidão) e `e9aa3fc8` (correção da guarda 10). Publicar exige
-  autorização explícita.
+  `992b07e6` (registro do P6.2 e correção da guarda 10, publicados em
+  2026-08-23 sobre o PR #70).
+- A branch está **sincronizada** com `origin/stage`: nada pendente de publicar.
+  Qualquer publicação futura exige autorização explícita.
 - `origin/main` e produção permanecem no SHA
   `447ddc530fa0a3ea135eeff427fca1eed637b65d`.
 - O código da Fase 5, o hotfix do nono dígito e a proteção de reenvio do bot já
   foram publicados em stage.
-- A instrumentação da Fase 6 (`3880a87d` P6.1+P6.5 e `e2bc474a` memoização)
-  **já está publicada em stage**, junto com os registros documentais. Ao fim
-  da sessão de 2026-08-23, `origin/stage`, o runtime e esta branch estavam
-  sincronizados — confirme a ponta com `git rev-parse HEAD origin/stage`.
-  Estado após a publicação: `origin/stage` segue em `29f68f22` e
-  `origin/main`/produção em `447ddc53`. Não promova para produção.
+- A instrumentação da Fase 6 (P6.1 evals + P6.5 métricas), o painel de
+  configuração e a correção da guarda 10 **já estão publicados em stage**,
+  junto com os registros documentais. Confirme a ponta com
+  `git rev-parse HEAD origin/stage` — os SHAs desta seção envelhecem rápido, a
+  tabela da "parte 3" tem os mais recentes. Não promova para produção.
 - Preserve o checkout principal e alterações não relacionadas. Não promova
   para produção. O callback e a publicacao de stage ja foram verificados; antes
   de enviar nova mensagem externa ou modificar callback, verify token,
@@ -63,8 +61,8 @@ Depois confirme o estado corrente com:
 git status --short --branch
 git fetch origin stage main
 git rev-parse HEAD origin/stage origin/main
-gh run view 32670249325 --json status,conclusion,url,headSha,name
-gh run view 32670249345 --json status,conclusion,url,headSha,name
+gh run view 32672704495 --json status,conclusion,url,headSha,name
+gh run view 32672704470 --json status,conclusion,url,headSha,name
 ```
 
 E leia primeiro este arquivo, começando pela seção
@@ -366,7 +364,7 @@ envio sem tratar cada item:
 10. ~~**`consultar_dados_institucionais` devolve `ok=True` com endereço
     NULL**, dando fonte válida sem dado. O guardrail não ancora endereço nem
     telefone, então texto inventado passa como aprovado.~~ **CORRIGIDO em
-    2026-08-23 no commit `e9aa3fc8`**, depois de o falso verde ser medido em
+    2026-08-23 no commit `5f290036`**, depois de o falso verde ser medido em
     stage. A tool falha fechado sem dado publicável, a prontidão decide por
     intent (`tem_endereco`/`tem_contato`) e o guardrail ganhou
     `contato_fora_da_fonte` e `endereco_sem_fonte`. Limite declarado: prosa de
@@ -399,12 +397,17 @@ documentos limpos sem PII → usuário aprova → cadastro pelo painel.
 
 | SHA | Conteúdo | Deploy to Stage | Migration CI |
 | --- | --- | --- | --- |
-| `6f446d29` | painel de configuração + handoff (publicado) | `32670249325` | `32670249345` |
-| `425a936d` | registro do P6.2 e da prontidão real — **NÃO PUBLICADO** | — | — |
-| `e9aa3fc8` | correção da guarda 10 — **NÃO PUBLICADO** | — | — |
+| `6f446d29` | painel de configuração + handoff | `32670249325` | `32670249345` |
+| `992b07e6` | registro do P6.2 + correção da guarda 10 + handoff | `32672704495` | `32672704470` |
 
-Os dois runs terminaram em `success`. `origin/stage` = `6f446d29`.
-`origin/main` = `447ddc53`, inalterado.
+Todos `success`. `origin/stage` = `992b07e6`. `origin/main` = `447ddc53`,
+inalterado.
+
+**Rebase no meio do caminho.** Entre as duas publicações, `origin/stage` avançou
+para `a128f665` (PR #70, exceção de deslocamento na agenda), então a segunda
+deixou de ser fast-forward. Os três commits foram rebaseados sobre a base nova
+(SHAs finais `2b7acc0c`, `5f290036`, `992b07e6`); o #70 não toca nada do bot, e
+a suíte completa passou a **1030/1030** por cima dele, sem regressão.
 
 ### P6.2 cumprido
 
@@ -424,7 +427,13 @@ coerente com um número de teste que só fala com destinatários pré-verificado
 Botão **Verificar** clicado: 14 itens, 8 prontos, 6 pendentes. Quatro dos oito
 verdes eram **falsos** — `consultar_dados_institucionais` devolvia `ok=True` com
 o cadastro de stage vazio (só Cidade e Estado). Era a guarda 10, até então só
-teoria. Corrigida em `e9aa3fc8`; detalhes e evidência no `verify.md`.
+teoria. Corrigida em `5f290036`; detalhes e evidência no `verify.md`.
+
+Confirmado em stage depois de publicar: a prontidão passou de 8 prontos / 6
+pendentes para **4 prontos / 10 pendentes**, com `endereco` e `formas_contato`
+apontando "Preencha endereco, telefone e e-mail em Configuracoes > Empresa". Os
+quatro verdes restantes (`horario_funcionamento` e `preco_servico` nas duas
+personas) têm dado real por trás.
 
 **Pendente com o usuário**: preencher `Endereço`, `Telefone` e `E-mail` em
 Configurações > Empresa no stage. Ele assumiu esse passo. Até lá a prontidão
@@ -440,10 +449,7 @@ stage `200`/`200`/`401`/`307`, produção `200`/`200`/`401`.
 
 ## Próxima sequência recomendada
 
-1. **Publicar `425a936d` e `e9aa3fc8`** em stage, com autorização explícita.
-   Fast-forward de `origin/stage`, revalidando antes e depois. Não promova para
-   produção.
-2. Pedir ao usuário que preencha `Endereço`, `Telefone` e `E-mail` em
+1. Pedir ao usuário que preencha `Endereço`, `Telefone` e `E-mail` em
    Configurações > Empresa no stage; depois clicar em **Verificar** e conferir
    que `endereco` e `formas_contato` ficaram verdes **por dado real**, não por
    `ok=True` vazio.
