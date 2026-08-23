@@ -17,9 +17,9 @@ Data: 2026-08-23
 - [x] P8. Cadastrar GitHub Secrets/Variables de stage com confirmacao explicita.
 - [x] P9. Publicar em stage e executar preflight pre-corte, health e smoke
   terminal.
-- [ ] P10. Configurar o callback do app de stage, executar teste controlado de
+- [x] P10. Configurar o callback do app de stage, executar teste controlado de
   recebimento e envio e confirmar que producao permaneceu intacta.
-  Callback verificado e `messages` assinado em 2026-08-23; o webhook sintetico
-  do painel foi disparado e producao foi revalidada. O E2E com mensagem externa
-  continua pendente porque o app esta nao publicado e nao ha destinatario de
-  teste selecionado no painel.
+  Callback verificado, `messages` assinado, app publicado e FortZap Stage
+  inscrito na WABA em 2026-08-23. A mensagem de saida foi entregue e a mensagem
+  real posterior a assinatura apareceu como `Recebida` na inbox de stage, sem
+  resposta automatica. Producao foi revalidada e permaneceu intacta.

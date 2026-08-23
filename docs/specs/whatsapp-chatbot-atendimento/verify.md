@@ -7,8 +7,9 @@ Status: draft
 > Fases 1-3 entregues em 2026-08-22 (schema/config, gatilho/fila/worker,
 > portões/identidade/guardrails de entrada). Fase 4 (geração e guardrails de
 > saída) entregue em código em 2026-08-23, mas **não fechada**: nenhum envio ao
-> cliente existe (RF-027 é Fase 6) e ainda não houve smoke em stage. Um smoke
-> local com provider real passou em `suggest` após a correção.
+> cliente existe (RF-027 é Fase 6) e ainda não houve smoke do pipeline do bot em
+> stage. O transporte Meta -> inbox foi comprovado com mensagem real em stage;
+> um smoke local com provider real passou em `suggest` após a correção.
 > As quatro divergências D1-D4 levantadas na auditoria foram corrigidas
 > localmente e estão registradas na seção "Divergências resolvidas" abaixo.
 > Com o bot habilitado, toda mensagem real hoje termina
@@ -195,8 +196,12 @@ Resumo da correção da auditoria (2026-08-23):
   `modo_suggest`, tool tentada/confirmada `consultar_preco_tabela`, 2.462 tokens
   de entrada, 199 de saída e 8.735 ms; texto gerado presente e nenhum caminho de
   envio executado. A chave nova foi gravada somente no `backend/.env` ignorado.
-- Stage continua **não testado**. O critério de conclusão da Fase 4 permanece
-  aberto até o rascunho real aparecer persistido e operável na central de stage.
+- O transporte real de stage foi testado em 2026-08-23: app publicado, callback
+  e `messages` confirmados, FortZap Stage inscrito na WABA e inbound persistido
+  na inbox como `Recebida`, sem resposta automatica. Isso valida transporte,
+  nao o pipeline Python do chatbot.
+- O criterio de conclusao da Fase 4 permanece aberto ate o rascunho real do bot
+  aparecer persistido e operavel na central de stage.
 
 ## Testes manuais planejados (stage)
 

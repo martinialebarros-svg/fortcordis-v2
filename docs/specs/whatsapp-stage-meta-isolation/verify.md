@@ -2,8 +2,7 @@
 
 Data: 2026-08-23
 Responsaveis: Martiniano + Codex
-Status: identidade isolada e callback Meta publicados e validados em stage;
-E2E externo pendente
+Status: identidade isolada, callback e transporte E2E validados em stage
 
 ## Diagnostico atual
 
@@ -54,12 +53,26 @@ E2E externo pendente
 - a Meta aceitou o desafio do callback
   `https://app.stage.fortcordis.com.br/whatsapp/webhook` no app
   `FortZap Stage` e assinou `messages` em `v26.0` as `10:52:16`;
-- o envio do exemplo controlado `Incoming Message` do campo `messages` foi
-  acionado no painel Meta. A superficie disponivel nao exibiu confirmacao
-  independente do recebimento no runtime; como o app ainda esta nao publicado,
-  a Meta informa que apenas webhooks sinteticos do painel sao entregues;
-- nenhum envio externo foi executado: o painel nao tem destinatario selecionado
-  nem token temporario gerado. O teste nao deve inferir um numero de destino;
+- as URLs legais publicas de stage (`/privacidade`, `/termos` e
+  `/exclusao-de-dados`) foram salvas no app e o FortZap Stage foi publicado com
+  confirmacao visual da Meta;
+- o numero de Martiniano, previamente verificado na lista de destinatarios de
+  teste, foi selecionado. A mensagem padrao de teste da Meta foi enviada e o
+  painel registrou `sent` e `delivered`; o recebimento no celular foi confirmado
+  pelo destinatario;
+- o primeiro teste de resposta real provou que publicar o app nao bastava: a
+  Meta recebeu o texto, mas a inbox de stage nao o persistiu;
+- a consulta `GET /4413513738886247/subscribed_apps` revelou somente o app
+  interno `WA DevX Webhook Events 1P App`; o `FortZap Stage` nao estava inscrito
+  na WABA. `POST /4413513738886247/subscribed_apps` adicionou o app de stage sem
+  remover a inscricao interna;
+- a consulta Graph posterior confirmou duas inscricoes e o App ID
+  `1683447519419173` associado a `FortZap Stage`;
+- apos a inscricao, a mensagem real controlada apareceu na inbox como
+  `Recebida`, com a conversa de Martiniano em `Em atendimento`, sem atendente e
+  sem marcador de resposta automatica. Isso tambem provou que o App Secret
+  instalado valida corretamente `X-Hub-Signature-256`; a abertura/rotacao do
+  segredo foi cancelada e nenhum novo deploy foi feito;
 - smokes externos posteriores: raiz de stage `200`; `/whatsapp-stage` `307`
   para autenticacao e `200` seguindo o redirecionamento; health WhatsApp `200`;
   rota de conversas anonima `401`; host `app.stage` com health `200` e webhook
@@ -77,7 +90,7 @@ E2E externo pendente
 | CA-004 | teste verifica access token, App Secret, verify token e token interno | passou, nenhuma exposicao |
 | CA-005 | parse Ruby/Psych dos workflows stage/producao | passou |
 | CA-006 | teste rejeita a antiga fonte `/var/www/fortcordis-stage/.../.env` no workflow de producao | passou |
-| CA-007 | app/WABA/numero exclusivos, token permanente, deploy, callback e `messages` validados; E2E externo ainda pendente | parcial |
+| CA-007 | app/WABA/numero exclusivos, token permanente, deploy, callback, publicacao, inscricao Graph, envio entregue e inbound persistido na inbox | passou |
 | CA-008 | Graph mock aceita relacao coerente, rejeita numero divergente e teste somente leitura passou contra a identidade atualmente instalada no VPS | passou |
 | CA-009 | numero Meta `NOT_VERIFIED` falha por padrao e passa apenas com modo de teste explicito de stage | passou localmente |
 | CA-010 | app nao assinado falha por padrao e passa somente no modo pre-corte; preflight final segue exigindo assinatura | passou localmente |
@@ -139,19 +152,25 @@ tambem passaram na rodada final.
   `https://app.stage.fortcordis.com.br/whatsapp/webhook`; `messages` esta
   assinado em `v26.0`. A Meta tambem manteve/assinou automaticamente campos
   operacionais frequentes do WABA; nenhum deles foi removido por inferencia.
-- O envio do webhook sintetico `Incoming Message` foi acionado no painel Meta;
-  a confirmacao independente no runtime permanece pendente. O app permanece
-  nao publicado e nao foi publicado durante esta atividade.
+- O app `FortZap Stage` foi publicado depois que a Meta validou as URLs legais
+  publicas de stage.
+- O destinatario controlado recebeu a mensagem de saida. O primeiro inbound
+  apos a publicacao nao chegou ao runtime porque o app ainda nao estava inscrito
+  na WABA.
+- A Graph API confirmou e corrigiu a inscricao: `FortZap Stage`
+  (`1683447519419173`) e o app interno da Meta ficaram inscritos simultaneamente
+  na WABA `4413513738886247`.
+- O inbound posterior a inscricao foi persistido e exibido na inbox de stage
+  como `Recebida`; nenhum envio automatico foi observado.
 
-## Pendente antes de declarar stage funcional
+## Pendente depois do transporte E2E
 
-- publicar o app Meta somente apos autorizacao explicita e requisitos de
-  publicacao revisados, ou definir um mecanismo de teste permitido equivalente;
-- selecionar e confirmar explicitamente o destinatario de teste;
-- mensagem externa controlada aparecendo na inbox de stage, rascunho em
-  `suggest` persistido e resposta controlada recebida;
-- executar o preflight remoto final com assinatura obrigatoria e
-  `RUN_SMOKE=1`; a tentativa 2 do deploy validou runtime, health, canario e
-  restore drill, mas manteve o bypass pre-corte apenas para a checagem Graph;
-- rechecagem visual final do callback de producao; health e protecao HTTP ja
-  foram revalidados e producao permaneceu inalterada.
+- executar, quando houver acesso remoto seguro, o comando formal
+  `RUN_SMOKE=1 bash scripts/whatsapp_stage_preflight.sh` sem o bypass pre-corte;
+  a assinatura obrigatoria ja foi comprovada diretamente pela Graph e pelo E2E,
+  mas o script remoto final ainda nao foi executado nesta rodada;
+- validar separadamente o pipeline do chatbot em `suggest`: job, rascunho,
+  tokens/tools e ausencia de envio automatico. Isso nao faz parte do transporte
+  Meta/Node concluido aqui;
+- rechecagem visual final do callback de producao; health e protecao HTTP foram
+  revalidados e producao permaneceu inalterada.

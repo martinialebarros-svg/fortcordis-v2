@@ -4,7 +4,7 @@ Data: 2026-08-23
 Responsável: Martiniano + Codex
 Status: em implementação; Fases 1-3 concluídas, Fase 4 corrigida e validada;
 identidade Meta exclusiva e callback publicados em stage no SHA `abc5a380`;
-E2E externo e Fases 5-6 pendentes
+transporte E2E concluido; rascunho real em stage e Fases 5-6 pendentes
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -30,9 +30,9 @@ FortCordis v2.
   `origin/stage`, contendo apenas documentação de handoff/verificação. Não faça
   push ou deploy automático desses commits ao retomar.
 - Preserve o checkout principal e alterações não relacionadas. Não promova
-  para produção. O callback de stage ja foi verificado; antes de publicar o app
-  Meta, escolher destinatario, enviar mensagem externa ou modificar callback,
-  verify token ou assinaturas, obtenha confirmação explícita no momento da ação.
+  para produção. O callback e a publicacao de stage ja foram verificados; antes
+  de enviar nova mensagem externa ou modificar callback, verify token,
+  assinaturas ou credenciais, obtenha confirmação explícita no momento da ação.
 
 Antes de editar, rode `git status --short --branch` e leia, nesta ordem:
 
@@ -106,31 +106,23 @@ Smoke local real já executado com dados fictícios, em `suggest` e sem envio:
 
 ## Próxima sequência recomendada
 
-1. Confirmar no painel que o app **FortZap Stage** permanece com o callback
-   `https://app.stage.fortcordis.com.br/whatsapp/webhook` e `messages` assinado
-   em `v26.0`. O verify token rotacionado esta no GitHub Secret e no runtime;
-   nunca o recupere ou imprima.
-2. Revisar os requisitos e o impacto de publicar o app Meta. O painel informa
-   que, enquanto o app estiver nao publicado, somente webhooks sinteticos
-   enviados pelo proprio painel sao entregues. Nao publique sem nova
-   autorizacao explicita.
-3. Definir com Martiniano o numero destinatario do teste. O painel atualmente
-   mostra `Selecione um numero do destinatario` e o botao de envio desabilitado;
-   nao cadastre nem envie a um contato por inferencia.
-4. Execute o preflight final com assinatura obrigatória e smoke funcional:
+1. Execute o preflight final com assinatura obrigatória e smoke funcional:
    `RUN_SMOKE=1 bash scripts/whatsapp_stage_preflight.sh`. Não use o bypass
    pre-corte `WHATSAPP_REQUIRE_SUBSCRIBED_APP=0` nessa validação final.
-5. Faça um E2E controlado com o número de teste da Meta, sempre em `suggest`, e
-   confirme entrada na inbox de stage, geração do rascunho e resposta esperada.
-6. Revalide produção: callback ainda em
+2. Antes de habilitar o bot, consulte o preview e confirme os toggles atuais.
+   O transporte real ja esta provado; o proximo E2E deve testar somente o
+   pipeline do chatbot, sempre em `suggest` e sem envio automatico.
+3. Faça um E2E controlado de intent permitida e confirme job, rascunho
+   persistido, tools/tokens e ausencia de resposta automatica.
+4. Revalide produção: callback ainda em
    `https://app.fortcordis.com.br/whatsapp/webhook`, health `200` e rota
    protegida `401`.
-7. Confirmar que preço chama `consultar_preco_tabela`, laudo chama
+5. Confirmar que preço chama `consultar_preco_tabela`, laudo chama
    `consultar_status_laudo`, o rascunho é persistido com tokens/tools e nada é
    enviado ao cliente.
-8. Só então iniciar a Fase 5: painel de rascunho na central, ações
+6. Só então iniciar a Fase 5: painel de rascunho na central, ações
    Enviar/Editar/Descartar, selo do bot e controles por conversa/Configurações.
-9. Manter a Fase 6 bloqueada até haver preview e métricas reais de `suggest` em
+7. Manter a Fase 6 bloqueada até haver preview e métricas reais de `suggest` em
    stage. `auto` não deve ser ligado por inferência.
 
 ## Diagnostico e isolamento Meta de stage (2026-08-23)
@@ -193,13 +185,22 @@ Smoke local real já executado com dados fictícios, em `suggest` e sem envio:
   `https://app.stage.fortcordis.com.br/whatsapp/webhook`; `messages` esta
   assinado em `v26.0`. O painel tambem manteve/assinou automaticamente campos
   operacionais frequentes; nenhum foi removido sem autorizacao.
-- O envio do exemplo sintetico `Incoming Message` foi acionado no painel. A
-  superficie disponivel nao confirmou seu recebimento no runtime; ele nao
-  substitui o E2E real nem aparece como conversa real.
-- O app `FortZap Stage` permanece nao publicado. Nenhuma publicacao do app,
-  selecao de destinatario ou mensagem externa foi executada.
-- O painel nao tem token temporario gerado nem destinatario selecionado; por
-  isso o envio real permanece bloqueado com seguranca.
+- As URLs legais publicas de stage foram salvas e a Meta confirmou a publicacao
+  do app `FortZap Stage`.
+- O numero controlado de Martiniano ja constava na lista de destinatarios. A
+  mensagem padrao de saida foi enviada e confirmada como recebida no celular.
+- O primeiro inbound publicado nao chegou a stage porque o app nao estava
+  inscrito na WABA. `GET /subscribed_apps` mostrava apenas o app interno
+  `WA DevX Webhook Events 1P App`.
+- `POST /4413513738886247/subscribed_apps` adicionou `FortZap Stage`; a consulta
+  posterior confirmou os dois apps inscritos, sem remover o interno da Meta.
+- A mensagem real posterior apareceu como `Recebida` na inbox de stage, na
+  conversa Martiniano Barros, `Em atendimento`, sem atendente e sem resposta
+  automatica. A captura do usuario e a verificacao independente da UI
+  confirmaram a persistencia.
+- A abertura do App Secret foi cancelada: o E2E provou que a assinatura
+  `X-Hub-Signature-256` ja e valida. Nenhum segredo foi revelado, rotacionado ou
+  enviado ao GitHub/VPS nessa etapa e nenhum deploy adicional foi executado.
 
 ## Validação
 
@@ -227,14 +228,16 @@ como exige o SDD guardrail. Registre somente evidência realmente executada.
 
 - Entregue: implementação das Fases 1-4, correções D1-D4, identidade Meta de
   stage isolada, token permanente de usuário de sistema, secrets/variables,
-  publicação protegida, callback verificado e `messages` assinado.
-- Comprovado: workflows terminais verdes, desafio Meta aceito, acionamento do
-  webhook sintetico e smokes HTTP de stage/produção.
-- Não executado: publicação do app Meta, seleção de destinatário, E2E externo,
-  preflight remoto final com assinatura obrigatoria e promoção para produção.
-- Bloqueio atual: o app nao publicado recebe apenas testes do painel; falta
-  autorização de publicação e confirmação do número destinatário.
-- Próximo marco: preflight final + E2E em `suggest`, mantendo produção intacta.
+  publicação protegida, callback, `messages`, publicacao Meta, inscricao WABA e
+  transporte E2E.
+- Comprovado: workflows terminais verdes, desafio Meta aceito, saida entregue,
+  inbound real persistido e smokes HTTP de stage/produção.
+- Não executado: preflight remoto formal com `RUN_SMOKE=1`, rascunho real do bot
+  em stage e promoção para produção.
+- Bloqueio atual: nenhum no transporte WhatsApp; o proximo marco pertence ao
+  pipeline do chatbot, que deve continuar em `suggest`.
+- Próximo marco: preflight formal + E2E de rascunho em `suggest`, mantendo
+  produção intacta.
 
 ## Limites de segurança
 
