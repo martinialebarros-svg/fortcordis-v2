@@ -143,6 +143,30 @@ de pausa e claim, não por relógio.
   institucionais. Consultar horário, por exemplo, não autoriza afirmar preço ou
   status de laudo. Sem a fonte correspondente, o bot não responde: gera
   rascunho e oferece handoff. Proibido responder de memória do modelo.
+  - **Audiência da base (2026-08-23).** A base é compartilhada com o
+    assistente interno e não tem coluna de audiência; o default de categoria em
+    toda a cadeia de criação é `manual`, o balde onde já mora procedimento
+    clínico de staff. Por isso a audiência do bot é explícita por categoria:
+    `buscar_conhecimento_institucional` aceita apenas categoria cuja primeira
+    palavra normalizada seja `institucional` ou `atendimento` (tolerante a
+    acento, caixa, hífen, underscore e sufixo livre — a UI de admin é campo de
+    texto livre). `manual` **não** entra: alargar o balde default faria manual
+    clínico interno alimentar resposta a cliente.
+  - **Relevância medida na escala própria de cada sinal.** `search_knowledge`
+    mistura dois sinais em `score` (`0.35 * keyword_normalizado + 0.65 *
+    cosseno`, teto `1.0`), e a normalização lexical divide pelo maior
+    `keyword_score` do lote — o melhor hit lexical vale sempre exatamente
+    `0.35`, independente da qualidade. Logo o piso é
+    `CONHECIMENTO_KEYWORD_SCORE_MINIMO = 2.0` sobre `keyword_score` (absoluto:
+    5/termo no título, 1/termo no conteúdo) **ou**
+    `CONHECIMENTO_SEMANTIC_SCORE_MINIMO = 0.25` sobre `semantic_score`
+    (cosseno). Item achado só pela semântica tem `keyword_score == 0` e item
+    achado só lexicalmente tem `semantic_score is None`; avaliar os dois pelo
+    mesmo número rejeitaria metade dos acertos legítimos.
+  - **Descarte é diagnosticável.** O retorno traz `motivo` e `descartados`
+    (`categoria`, `sem_fonte`, `pouco_relevante`). Sem isso, um admin que
+    cadastra com a categoria default vê o bot responder "não sei" sem nenhuma
+    pista do motivo.
 - RF-021: o prompt é versionado em `WHATSAPP_BOT_PROMPT_VERSION` e a versão fica
   gravada em cada resposta, no mesmo espírito de `PROMPT_VERSION` do ai-echo.
 

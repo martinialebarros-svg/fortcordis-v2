@@ -511,6 +511,53 @@ seja, a rota existe e está protegida — não é `404` de código ausente.
 O bot continua em `suggest`; nada foi habilitado, enviado ou reenviado nesta
 publicação.
 
+### Regressão crítica corrigida: base institucional inalcançável (2026-08-23)
+
+**O bug.** `buscar_conhecimento_institucional` comparava o `score` normalizado
+de `search_knowledge` (teto `1.0`) contra um piso de `2.0`. O piso era
+**matematicamente inalcançável**, então a tool devolvia `ok=False` para toda
+pergunta e todo documento — inclusive um com categoria e fonte perfeitas.
+
+**Impacto.** `_FONTE_EXIGIDA_POR_INTENT` amarra `area_atendimento`,
+`como_agendar` e `como_solicitar_exame` a essa tool. Os três — exatamente os
+intents que significam "como a FortCordis funciona", e 3 dos 7 auto-elegíveis
+de cada persona — terminavam sempre em `blocked/sem_fonte`. Em `suggest` isso
+ficou invisível: o atendente revisava o rascunho reprovado e respondia à mão,
+sem perceber que a base nunca respondeu.
+
+**Por que passou por três fases.** Nenhum teste ligava o wrapper ao retorno
+real de `search_knowledge`; todos montavam `tools_ok` à mão.
+
+**Prova numérica** (documento institucional realista, pergunta "como faço para
+agendar uma consulta?"): `keyword_score = 13`, `score` normalizado `= 0.35`,
+`semantic_score = None`. Piso antigo (`score >= 2.0`) → rejeita. Piso novo por
+escala (`keyword_score >= 2.0`) → aceita.
+
+**Correções.**
+
+1. Piso aplicado na escala própria de cada sinal (`CONHECIMENTO_KEYWORD_SCORE_MINIMO`
+   sobre `keyword_score`, `CONHECIMENTO_SEMANTIC_SCORE_MINIMO` sobre
+   `semantic_score`), aceitando por qualquer um dos dois.
+2. Allowlist de categoria tolerante (acento, caixa, hífen, underscore, sufixo)
+   com casamento pela primeira palavra em `{institucional, atendimento}`.
+   `manual` permanece **fora** de propósito — é o balde default compartilhado
+   com procedimento clínico de staff.
+3. Descarte deixou de ser silencioso: o retorno traz `motivo` e `descartados`
+   por causa (`categoria`, `sem_fonte`, `pouco_relevante`), e um `logger.info`
+   registra quando havia candidatos e todos foram descartados.
+
+**Teste que fecha o caminho.** `backend/tests/test_whatsapp_bot_conhecimento.py`
+(8 testes): documento institucional realista é recuperado de ponta a ponta;
+categoria default `manual` é descartada com diagnóstico; documento sem fonte é
+descartado com diagnóstico; seis variações de grafia de categoria são aceitas;
+categorias de staff (`manual`, `operacao`, `procedimento`, `clinico`)
+permanecem fora; base vazia e documento arquivado não estouram; e um guard
+impede reintroduzir piso fora de escala. O teste **prova ausência de rede**:
+`_embed_texts` recebe `side_effect=AssertionError`, então alcançar o caminho
+semântico falha o teste em vez de fazer chamada paga em silêncio.
+
+Suítes: **1002/1002** na completa do backend, **147/147** na focada do bot.
+
 ### Pendente na Fase 6
 
 - P6.2: `GET /whatsapp/bot/preview` executado e revisado em stage.

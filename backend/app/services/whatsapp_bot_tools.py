@@ -57,21 +57,49 @@ MAX_LAUDOS_NO_PAYLOAD = 6
 MAX_TRECHOS_CONHECIMENTO = 3
 EXCERPT_MAX_CHARS = 500
 
-# Piso proprio de relevancia. `search_knowledge` nao tem piso no caminho
-# lexical: um unico casamento de substring de 3 chars ja produz um item
-# "com fonte". Sem piso, "tem fonte" (RF-020) perde significado.
-CONHECIMENTO_SCORE_MINIMO = 2.0
+# Pisos de relevancia, um por ESCALA de sinal. `search_knowledge` mistura dois
+# sinais em `score` (0.35 * keyword_normalizado + 0.65 * cosseno), e a
+# normalizacao lexical divide pelo maior keyword_score do lote - o melhor hit
+# lexical vale SEMPRE exatamente 0.35, independente de ter casado um termo ou
+# vinte. Por isso um piso sobre `score` nao mede relevancia absoluta.
+#
+# Regressao real: a primeira versao deste modulo comparava `score` contra 2.0,
+# que e inalcancavel (o teto de `score` e 1.0). O resultado foi
+# `buscar_conhecimento_institucional` devolvendo ok=False para toda pergunta e
+# todo documento, o que deixava `area_atendimento`, `como_agendar` e
+# `como_solicitar_exame` permanentemente em `sem_fonte`. Nenhum teste ligava o
+# wrapper ao retorno real de `search_knowledge`, e o bug atravessou tres fases.
+# `test_whatsapp_bot_conhecimento.py` agora fecha esse caminho.
 
-# A base de conhecimento nao tem coluna de audiencia - e global e contem
-# manual/procedimento interno de staff, incluindo conteudo clinico. Sem
-# allowlist de categoria, "veio da base" viraria passe livre para conteudo
-# que o bot nao pode falar.
+# keyword_score e absoluto: 5 por termo casado no titulo, 1 por termo no
+# conteudo. 2.0 = ao menos dois casamentos no corpo, ou um no titulo.
+CONHECIMENTO_KEYWORD_SCORE_MINIMO = 2.0
+# semantic_score e cosseno. O piso interno do buscador semantico e 0.20;
+# aqui subimos um pouco porque a resposta vai para cliente.
+CONHECIMENTO_SEMANTIC_SCORE_MINIMO = 0.25
+
+# A base de conhecimento e COMPARTILHADA com o assistente interno e nao tem
+# coluna de audiencia; o default de categoria em toda a cadeia de criacao e
+# "manual", o balde onde ja mora procedimento clinico de staff. Por isso a
+# audiencia do bot e explicita por categoria, e "manual" NAO entra: alargar o
+# balde default faria manual clinico interno alimentar resposta a cliente.
+#
+# O casamento e tolerante de proposito (acento, caixa, espaco, hifen,
+# underscore e sufixo livre), porque a UI de admin e um campo de texto livre -
+# quem digita "Institucional - Tutor" quer o mesmo que "institucional_tutor".
 CATEGORIAS_INSTITUCIONAIS = frozenset({
     "institucional",
-    "institucional_tutor",
-    "institucional_clinica",
     "atendimento",
 })
+
+
+def _categoria_e_institucional(categoria: Any) -> bool:
+    normalizada = _normalizar(categoria).replace("-", " ").replace("_", " ")
+    if not normalizada:
+        return False
+    primeira = normalizada.split()[0]
+    return primeira in CATEGORIAS_INSTITUCIONAIS
+
 
 # Status de laudo/exame que o cliente pode ver. Nunca escrever
 # "Liberado no portal" na mao - `Laudo.status` mistura ciclo clinico e
@@ -354,6 +382,28 @@ def consultar_status_laudo(
     return {"ok": True, "itens": itens, "total": len(itens)}
 
 
+def _trecho_relevante(item: dict[str, Any]) -> bool:
+    """Relevancia avaliada na escala PROPRIA de cada sinal.
+
+    Aceita o item se ele qualifica por palavra-chave OU por semantica. Um
+    item achado so pela semantica tem `keyword_score == 0`, e um achado so
+    lexicalmente tem `semantic_score is None` - avaliar os dois pelo mesmo
+    numero rejeitaria metade dos acertos legitimos.
+    """
+    try:
+        keyword_score = float(item.get("keyword_score") or 0)
+    except (TypeError, ValueError):
+        keyword_score = 0.0
+    try:
+        semantic_score = float(item.get("semantic_score") or 0)
+    except (TypeError, ValueError):
+        semantic_score = 0.0
+    return (
+        keyword_score >= CONHECIMENTO_KEYWORD_SCORE_MINIMO
+        or semantic_score >= CONHECIMENTO_SEMANTIC_SCORE_MINIMO
+    )
+
+
 def buscar_conhecimento_institucional(
     ctx: WhatsAppBotToolContext, *, consulta: str
 ) -> dict[str, Any]:
@@ -363,40 +413,62 @@ def buscar_conhecimento_institucional(
     legitimo - o que a RF-018 proibe e `consultar_conhecimento_interno` de
     `assistente_ia_tools`. Mas a base tem escopo ZERO, nao tem coluna de
     audiencia e contem procedimento clinico de staff. Daí os tres filtros:
-    categoria na allowlist, `source` obrigatoria (RF-020 exige fonte
-    citavel e a coluna e nullable) e piso de score proprio.
+    categoria institucional, `source` obrigatoria (RF-020 exige fonte citavel
+    e a coluna e nullable) e piso de relevancia por escala.
+
+    Todo descarte e CONTADO e devolvido em `descartados`. Sem isso, um admin
+    que cadastra o documento com a categoria default (`manual`) ou sem fonte
+    ve o bot responder "nao sei" sem nenhuma pista do motivo - foi exatamente
+    o que aconteceu na primeira versao deste modulo.
     """
     from app.services.assistente_ia_management import search_knowledge
 
     texto = str(consulta or "").strip()
     if len(texto) < 3:
-        return {"ok": False, "error": "Consulta muito curta para a base institucional."}
+        return {
+            "ok": False,
+            "error": "Consulta muito curta para a base institucional.",
+            "motivo": "consulta_curta",
+        }
 
     try:
         resultado = search_knowledge(ctx.db, query=texto, limit=10)
     except Exception:
         logger.exception("Falha ao consultar a base institucional para o bot do WhatsApp.")
-        return {"ok": False, "error": "Base institucional indisponivel."}
+        return {
+            "ok": False,
+            "error": "Base institucional indisponivel.",
+            "motivo": "base_indisponivel",
+        }
 
     # Retorno bifurcado: no ramo de falha nao existe a chave `items`.
     if not resultado.get("ok"):
-        return {"ok": False, "error": "Nada encontrado na base institucional."}
+        return {
+            "ok": False,
+            "error": "Nada encontrado na base institucional.",
+            "motivo": "sem_resultado_na_busca",
+            "descartados": {},
+        }
 
+    descartados = {"categoria": 0, "sem_fonte": 0, "pouco_relevante": 0}
     trechos: list[dict[str, Any]] = []
     for item in resultado.get("items") or []:
         if not isinstance(item, dict):
             continue
-        if _normalizar(item.get("category")) not in CATEGORIAS_INSTITUCIONAIS:
+        if not _categoria_e_institucional(item.get("category")):
+            descartados["categoria"] += 1
             continue
         fonte = str(item.get("source") or "").strip()
         if not fonte:
+            descartados["sem_fonte"] += 1
+            continue
+        if not _trecho_relevante(item):
+            descartados["pouco_relevante"] += 1
             continue
         try:
             score = float(item.get("score") or 0)
         except (TypeError, ValueError):
             score = 0.0
-        if score < CONHECIMENTO_SCORE_MINIMO:
-            continue
         trechos.append({
             "document_id": item.get("document_id"),
             # `chunk_id` so existe no caminho semantico.
@@ -405,13 +477,32 @@ def buscar_conhecimento_institucional(
             "fonte": fonte,
             "trecho": str(item.get("excerpt") or "")[:EXCERPT_MAX_CHARS],
             "score": score,
+            "retrieval": item.get("retrieval"),
         })
         if len(trechos) >= MAX_TRECHOS_CONHECIMENTO:
             break
 
     if not trechos:
-        return {"ok": False, "error": "Nada encontrado na base institucional."}
-    return {"ok": True, "trechos": trechos, "total": len(trechos)}
+        if any(descartados.values()):
+            logger.info(
+                "Base institucional tinha candidatos mas todos foram descartados "
+                "(categoria=%s, sem_fonte=%s, pouco_relevante=%s).",
+                descartados["categoria"],
+                descartados["sem_fonte"],
+                descartados["pouco_relevante"],
+            )
+        return {
+            "ok": False,
+            "error": "Nada encontrado na base institucional.",
+            "motivo": "todos_descartados" if any(descartados.values()) else "sem_candidato",
+            "descartados": descartados,
+        }
+    return {
+        "ok": True,
+        "trechos": trechos,
+        "total": len(trechos),
+        "descartados": descartados,
+    }
 
 
 # --------------------------------------------------------------------------
