@@ -191,8 +191,8 @@ uma mensagem gerada chegue a um cliente.
   foi aberto e cancelado sem perda de texto. Depois de confirmação explícita,
   uma tentativa de Enviar foi feita: a Meta recusou a identidade canônica sem
   nono dígito com `131030`, sem aceitar mensagem externa, e o rascunho voltou
-  corretamente a `draft`. P5.6 corrige o destinatário Graph; o reteste externo
-  exige nova confirmação no momento da ação.**
+  corretamente a `draft`. P5.6 foi publicada em stage no SHA `5f6ca72b`; o
+  reteste externo exige nova confirmação no momento da ação.**
 - Risco: baixo; a tela já existe e a mudança é aditiva.
 - Rollback: esconder o painel por flag de UI mantém o backend intacto.
 

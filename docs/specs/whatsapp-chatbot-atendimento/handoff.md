@@ -4,7 +4,8 @@ Data: 2026-08-23
 Responsável: Martiniano + Codex
 Status: em implementação; Fases 1-5 concluídas e validadas em stage; primeiro
 envio assistido controlado diagnosticou divergência brasileira do nono dígito,
-com correção preparada para stage; Fase 6 pendente
+com correção publicada em stage no SHA `5f6ca72b`; reteste externo aguarda nova
+autorização; Fase 6 pendente
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -23,10 +24,11 @@ FortCordis v2.
   `/Users/martiniano/fortcordis-v2/.claude/worktrees/whatsapp-chatbot-handoff-2d02ad`
 - Branch: `claude/whatsapp-chatbot-handoff-2d02ad`
 - `origin/stage` e o runtime de stage estão no SHA
-  `0256685177380ff62b247ef0719ad43086267ae5`.
+  `5f6ca72b55170bc2820b296b3e66d299199b42d1`.
 - `origin/main` e produção permanecem no SHA
   `447ddc530fa0a3ea135eeff427fca1eed637b65d`.
-- O código da Fase 5 já foi publicado. Pode haver um commit documental local
+- O código da Fase 5 e o hotfix do nono dígito já foram publicados. Pode haver
+  um commit documental local
   posterior registrando as provas do deploy; não o promova para produção.
 - Preserve o checkout principal e alterações não relacionadas. Não promova
   para produção. O callback e a publicacao de stage ja foram verificados; antes
@@ -161,16 +163,19 @@ Publicação e smoke da Fase 5 concluídos em `2026-08-23`:
   estava sem o nono dígito e o destinatário permitido, com ele;
 - a tentativa ficou em uma única linha Node `failed`, sem `wa_message_id`; o
   rascunho Python voltou a `draft`, sem texto enviado, feedback ou atendente;
-- a correção de destinatário Graph foi implementada e testada localmente. Não
-  clique em **Reenviar** nem em **Enviar** novamente antes de confirmar que o
-  hotfix foi publicado em stage e obter nova autorização específica;
+- a correção de destinatário Graph foi publicada no SHA `5f6ca72b`. Deploy run
+  `32662352928` e Migration CI run `32662352859` terminaram em `success`; VPS,
+  serviços, health, rota protegida e transformação móvel foram validados;
+- a inbox e o banco ainda mostram exatamente uma tentativa `failed`, sem ID da
+  Meta, e a resposta `7` em `draft`, sem feedback ou texto enviado. Não clique
+  em **Reenviar** nem em **Enviar** novamente sem nova autorização específica;
 - produção permaneceu em `447ddc53`, saudável e sem alteração.
 
 ## Próxima sequência recomendada
 
 1. Mantenha stage em `suggest` e `auto` bloqueado.
-2. Publique e valide primeiro o hotfix de destinatário Graph em stage. Depois,
-   para testar **Enviar**, **Reenviar** ou **Editar e enviar**, obtenha nova
+2. O hotfix de destinatário Graph já está publicado e validado em stage. Para
+   testar **Enviar**, **Reenviar** ou **Editar e enviar**, obtenha nova
    confirmação explícita no momento da ação. A chave idempotente reutiliza a
    tentativa `failed`, mas o clique ainda é uma nova ação externa. Para
    **Descartar**, use um rascunho descartável e confirme antes porque grava

@@ -271,10 +271,25 @@ Resumo da correção da auditoria (2026-08-23):
   anexo à Graph API. Fixos brasileiros e números internacionais não mudam.
 - `npm run test:phone-number` cobre as duas formas do celular, fixo e número
   internacional; `npm run build` do serviço Node passou.
+- Publicado somente em stage no SHA
+  `5f6ca72b55170bc2820b296b3e66d299199b42d1`. `Deploy to Stage (VPS)` run
+  `32662352928` e `Migration CI` run `32662352859` terminaram em `success`;
+  quality gate, SDD guardrail, suíte completa, frontend e testes Node ficaram
+  verdes.
+- A VPS confirmou o mesmo SHA, os três serviços `active` e a transformação
+  móvel com 13 dígitos, sem alterar fixo brasileiro ou número internacional.
+  Raiz e health de stage retornaram `200`; a rota protegida retornou `401`.
+- A inbox autenticada continuou mostrando a conversa Martiniano Barros, a
+  única linha `Falhou`, o botão **Reenviar** e o rascunho original com
+  **Enviar**. O banco continuou com exatamente uma tentativa, sem
+  `wa_message_id`; a resposta `7` permaneceu `draft`, sem feedback,
+  `texto_enviado` ou atendente.
 - A repetição do envio continua protegida pela mesma chave
   `whatsapp-bot-resposta-7`: a linha `failed` será reutilizada em vez de criar
-  outra mensagem. O reteste externo só pode ocorrer após publicação em stage e
-  nova confirmação específica.
+  outra mensagem. O reteste externo só pode ocorrer após nova confirmação
+  específica.
+- Produção permaneceu em `447ddc53`, com raiz/health `200` e rota protegida
+  `401`; nenhum push ou deploy de produção foi executado.
 
 ## Smoke E2E real do chatbot em stage (2026-08-23)
 
