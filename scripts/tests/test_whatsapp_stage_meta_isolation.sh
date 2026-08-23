@@ -136,6 +136,8 @@ case "${url}" in
   */223456789012345)
     if [[ "${FAKE_GRAPH_MISMATCH:-0}" == "1" ]]; then
       printf '%s\n' '{"id":"999999999999999","code_verification_status":"VERIFIED","platform_type":"CLOUD_API"}'
+    elif [[ "${FAKE_GRAPH_UNVERIFIED:-0}" == "1" ]]; then
+      printf '%s\n' '{"id":"223456789012345","code_verification_status":"NOT_VERIFIED","platform_type":"CLOUD_API"}'
     else
       printf '%s\n' '{"id":"223456789012345","code_verification_status":"VERIFIED","platform_type":"CLOUD_API"}'
     fi
@@ -164,6 +166,38 @@ graph_output="$(
 )"
 grep -Fq "WhatsApp Meta identity check passed" <<<"${graph_output}"
 assert_not_exposed "${graph_output}"
+
+if graph_unverified_default_output="$(
+  PATH="${fake_bin}:${PATH}" \
+    FAKE_GRAPH_UNVERIFIED=1 \
+    WHATSAPP_ACCESS_TOKEN="${ACCESS_TOKEN}" \
+    PHONE_NUMBER_ID=223456789012345 \
+    META_APP_ID=323456789012345 \
+    WHATSAPP_BUSINESS_ACCOUNT_ID=423456789012345 \
+    WHATSAPP_GRAPH_API_VERSION=v26.0 \
+    bash "${REPO_ROOT}/scripts/whatsapp_meta_identity_check.sh" 2>&1
+)"; then
+  echo "Graph identity check accepted an unverified number without test mode." >&2
+  exit 1
+fi
+grep -Fq "modo de numero de teste nao autorizado" <<<"${graph_unverified_default_output}"
+assert_not_exposed "${graph_unverified_default_output}"
+
+graph_unverified_test_output="$(
+  PATH="${fake_bin}:${PATH}" \
+    FAKE_GRAPH_UNVERIFIED=1 \
+    WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER=1 \
+    WHATSAPP_ACCESS_TOKEN="${ACCESS_TOKEN}" \
+    PHONE_NUMBER_ID=223456789012345 \
+    META_APP_ID=323456789012345 \
+    WHATSAPP_BUSINESS_ACCOUNT_ID=423456789012345 \
+    WHATSAPP_GRAPH_API_VERSION=v26.0 \
+    bash "${REPO_ROOT}/scripts/whatsapp_meta_identity_check.sh"
+)"
+grep -Fq "Numero de teste Meta explicitamente autorizado para stage" \
+  <<<"${graph_unverified_test_output}"
+grep -Fq "WhatsApp Meta identity check passed" <<<"${graph_unverified_test_output}"
+assert_not_exposed "${graph_unverified_test_output}"
 
 if graph_mismatch_output="$(
   PATH="${fake_bin}:${PATH}" \

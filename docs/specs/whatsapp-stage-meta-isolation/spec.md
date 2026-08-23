@@ -26,7 +26,9 @@ Status: implementado localmente; corte Meta pendente
 - RF-007: o exemplo de ambiente nao incorpora IDs reais de producao.
 - RF-008: antes de gravar a configuracao, uma consulta somente leitura a Graph
   confirma que o token resolve o numero, que o numero pertence a WABA e que o
-  app esta assinado nessa WABA.
+  app esta assinado nessa WABA. `NOT_VERIFIED` e aceito somente para numero de
+  teste fornecido pela Meta quando o workflow de stage ativa explicitamente
+  `WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER=1`.
 
 ## Requisitos nao funcionais
 
@@ -79,7 +81,11 @@ e `WHATSAPP_BUSINESS_ACCOUNT_ID` no `.env` remoto.
 - CA-007: o corte externo permanece pendente e nao e declarado pronto sem teste
   real de entrada e saida.
 - CA-008: respostas Graph incompatíveis com qualquer um dos tres IDs interrompem
-  o pipeline sem imprimir token ou resposta sensivel.
+  o pipeline sem imprimir token ou resposta sensivel; numero `NOT_VERIFIED`
+  tambem e recusado sem a autorizacao explicita de modo de teste.
+- CA-009: o workflow de stage pode aceitar `NOT_VERIFIED` somente com
+  `WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER=1`; producao e chamadas sem a flag
+  continuam fail-closed.
 
 ## Rollback
 

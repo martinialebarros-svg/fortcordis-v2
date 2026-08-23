@@ -13,8 +13,8 @@ Data: 2026-08-23
   stage.
 - [x] P6. Adicionar teste focado, prova de relacionamento na Graph API,
   atualizar exemplo de ambiente e runbooks.
-- [ ] P7. Criar app/WABA/numero de teste de stage no painel Meta.
-- [ ] P8. Cadastrar GitHub Secrets/Variables de stage com confirmacao explicita.
+- [x] P7. Criar app/WABA/numero de teste de stage no painel Meta.
+- [x] P8. Cadastrar GitHub Secrets/Variables de stage com confirmacao explicita.
 - [ ] P9. Publicar em stage e executar preflight/health/smoke terminal.
 - [ ] P10. Configurar o callback do app de stage, executar teste controlado de
   recebimento e envio e confirmar que producao permaneceu intacta.

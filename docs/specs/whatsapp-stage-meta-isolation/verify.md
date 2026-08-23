@@ -26,6 +26,12 @@ validados; deploy, callback e E2E pendentes
 - verificacao da conta concluida no perfil reconhecido do Chrome; token emitido
   com apenas `whatsapp_business_management` e
   `whatsapp_business_messaging`.
+- primeiro deploy do SHA `786f3ed5` (run `32636366659`) passou SDD e quality
+  gate, mas falhou antes de gravar/reiniciar o runtime porque o numero fornecido
+  pela Meta e de teste e retorna `code_verification_status=NOT_VERIFIED`.
+- guardrail corrigido para aceitar esse estado somente com
+  `WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER=1` no workflow de stage; sem a flag, o
+  mesmo estado continua falhando fechado.
 
 ## Matriz
 
@@ -39,6 +45,7 @@ validados; deploy, callback e E2E pendentes
 | CA-006 | teste rejeita a antiga fonte `/var/www/fortcordis-stage/.../.env` no workflow de producao | passou |
 | CA-007 | app/WABA/numero exclusivos e token permanente validados; deploy, callback e smoke real ainda nao executados | parcial |
 | CA-008 | Graph mock aceita relacao coerente, rejeita numero divergente e teste somente leitura passou contra a identidade atualmente instalada no VPS | passou |
+| CA-009 | numero Meta `NOT_VERIFIED` falha por padrao e passa apenas com modo de teste explicito de stage | passou localmente |
 
 ## Comandos executados
 

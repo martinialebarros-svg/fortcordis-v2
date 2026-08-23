@@ -294,6 +294,7 @@ jobs:
             META_APP_ID="$WHATSAPP_META_APP_ID_STAGE" \
             WHATSAPP_BUSINESS_ACCOUNT_ID="$WHATSAPP_BUSINESS_ACCOUNT_ID_STAGE" \
             WHATSAPP_GRAPH_API_VERSION=v26.0 \
+            WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER=1 \
             bash scripts/whatsapp_meta_identity_check.sh
 
           printf '%s\n%s\n%s\n%s\n%s\n%s\n' \
@@ -358,6 +359,7 @@ jobs:
               upsert_env META_APP_ID "$whatsapp_meta_app_id"
               upsert_env WHATSAPP_BUSINESS_ACCOUNT_ID "$whatsapp_business_account_id"
               upsert_env WHATSAPP_GRAPH_API_VERSION "v26.0"
+              upsert_env WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER "1"
               chmod 600 "$env_file"
 
               unset whatsapp_access_token whatsapp_app_secret whatsapp_verify_token \
