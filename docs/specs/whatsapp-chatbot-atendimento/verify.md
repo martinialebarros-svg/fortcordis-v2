@@ -451,8 +451,19 @@ Decisões de medição que mudam a leitura do número e por isso ficam registrad
   campo não habilita nada; ligar `auto` continua exigindo autorização humana
   explícita registrada aqui.
 
-Suítes após esta entrega: **992/992** na suíte completa do backend (era 974),
-**137/137** na suíte focada do bot (era 119) e **15/15** em
+A classificação de faixa de horário é memoizada em `_ClassificadorDeFaixa`:
+`is_within_operating_window` recarrega `Configuracao` e reparseia o JSON da
+agenda a cada chamada, o que numa janela de uma semana seria uma consulta e um
+parse por resposta agregada. As regras passam a ser lidas uma vez e a janela do
+dia fica memoizada por data. A equivalência com a fonte da RF-033 é travada por
+`test_classificador_memoizado_equivale_a_funcao_original`, que compara os dois
+caminhos em 168 pontos (7 dias × 24 horas, cobrindo dia útil, sábado, domingo,
+antes de abrir, dentro e depois de fechar), e
+`test_classificador_consulta_a_agenda_uma_unica_vez` fixa a contagem de 1
+consulta para 25 respostas.
+
+Suítes após esta entrega: **994/994** na suíte completa do backend (era 974),
+**139/139** na suíte focada do bot (era 119) e **15/15** em
 `test_whatsapp_conversation_context` + `test_configuracoes_autorizacao`.
 
 ### Pendente na Fase 6

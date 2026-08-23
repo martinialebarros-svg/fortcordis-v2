@@ -164,8 +164,13 @@ class WhatsAppBotMetricsTest(unittest.TestCase):
                     self._add(db, job_id=3, decisao="handoff", match_type=None,
                               motivo="identidade_nao_resolvida")
                     db.commit()
-                    # Expediente deterministico: metade dentro, metade fora.
-                    with patch.object(metrics, "is_within_operating_window", side_effect=[True, False, True]):
+                    # Expediente deterministico: alterna dentro/fora por linha.
+                    with patch.object(
+                        metrics._ClassificadorDeFaixa,
+                        "classificar",
+                        side_effect=["expediente", "fora_expediente", "expediente"],
+                        autospec=False,
+                    ):
                         resultado = metrics.coletar_metricas_observacao(db)
                 finally:
                     db.close()
@@ -270,6 +275,71 @@ class WhatsAppBotMetricsTest(unittest.TestCase):
                 self.assertEqual(checklist["decididos_por_persona"], {"tutor": 1})
                 self.assertEqual(checklist["personas_com_amostra_suficiente"], [])
                 self.assertIn("autorizacao humana explicita", checklist["observacao"])
+            finally:
+                engine.dispose()
+
+    def test_classificador_memoizado_equivale_a_funcao_original(self) -> None:
+        """A memoizacao existe para nao consultar a agenda por linha.
+
+        O resultado precisa ser identico ao de `is_within_operating_window`,
+        que e a fonte da RF-033 - senao a faixa de horario da metrica passaria
+        a divergir do texto que o cliente recebe no handoff.
+        """
+        from app.services.whatsapp_bot_handoff_service import is_within_operating_window
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    db.add(Configuracao())
+                    db.commit()
+
+                    classificador = metrics._ClassificadorDeFaixa(db)
+                    base = datetime(2026, 8, 24, tzinfo=timezone.utc)  # segunda
+                    divergencias = []
+                    # Sete dias x 24 horas cobre dia util, sabado, domingo,
+                    # antes de abrir, dentro e depois de fechar.
+                    for dia in range(7):
+                        for hora in range(24):
+                            momento = base + timedelta(days=dia, hours=hora)
+                            esperado = (
+                                "expediente"
+                                if is_within_operating_window(db, now=momento)
+                                else "fora_expediente"
+                            )
+                            obtido = classificador.classificar(momento)
+                            if obtido != esperado:
+                                divergencias.append((momento.isoformat(), esperado, obtido))
+                finally:
+                    db.close()
+                self.assertEqual(divergencias, [], "memoizacao divergiu da fonte da RF-033")
+            finally:
+                engine.dispose()
+
+    def test_classificador_consulta_a_agenda_uma_unica_vez(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    db.add(Configuracao())
+                    agora = datetime.now(timezone.utc)
+                    for i in range(25):
+                        self._add(db, job_id=i + 1, decisao="draft", texto_gerado="x",
+                                  created_at=agora - timedelta(hours=i))
+                    db.commit()
+                    with patch.object(
+                        metrics,
+                        "_agenda_configuration_rules",
+                        wraps=metrics._agenda_configuration_rules,
+                    ) as espiao:
+                        resultado = metrics.coletar_metricas_observacao(db)
+                finally:
+                    db.close()
+
+                self.assertEqual(resultado["total_respostas"], 25)
+                self.assertEqual(espiao.call_count, 1, "regras da agenda recarregadas por linha")
             finally:
                 engine.dispose()
 

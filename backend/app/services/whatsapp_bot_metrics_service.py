@@ -32,7 +32,15 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.whatsapp_bot import WhatsAppBotResposta
-from app.services.whatsapp_bot_handoff_service import is_within_operating_window
+from app.services.assistente_ia_tools import (
+    LOCAL_TZ,
+    _agenda_configuration_rules,
+    _agenda_day_window,
+)
+from app.services.whatsapp_bot_handoff_service import (
+    _parse_hhmm,
+    is_within_operating_window,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -180,17 +188,62 @@ def _finalizar(bucket: dict[str, Any]) -> dict[str, Any]:
     return bucket
 
 
-def _faixa_horario(db: Session, resposta: WhatsAppBotResposta) -> str:
-    criado = resposta.created_at
-    if criado is None:
-        return "desconhecido"
-    if criado.tzinfo is None:
-        criado = criado.replace(tzinfo=timezone.utc)
-    try:
-        return "expediente" if is_within_operating_window(db, now=criado) else "fora_expediente"
-    except Exception:
-        logger.exception("Falha ao classificar faixa de horario da metrica do bot.")
-        return "desconhecido"
+class _ClassificadorDeFaixa:
+    """Classifica dentro/fora do expediente sem repetir consulta por linha.
+
+    `is_within_operating_window` recarrega `Configuracao` e reparseia o JSON da
+    agenda a cada chamada. Numa janela de uma semana isso seria uma consulta e
+    um parse por resposta agregada. Aqui as regras sao lidas UMA vez e a janela
+    do dia e memoizada por data - o resultado tem que ser identico ao da funcao
+    original, o que e travado por teste.
+    """
+
+    def __init__(self, db: Session) -> None:
+        self._ok = True
+        self._por_data: dict[Any, Optional[tuple[tuple[int, int], tuple[int, int]]]] = {}
+        try:
+            self._exceptions, self._weekly, self._holidays = _agenda_configuration_rules(db)
+        except Exception:
+            logger.exception("Falha ao carregar regras da agenda para a metrica do bot.")
+            self._ok = False
+
+    def _janela(self, dia) -> Optional[tuple[tuple[int, int], tuple[int, int]]]:
+        if dia in self._por_data:
+            return self._por_data[dia]
+        janela = _agenda_day_window(
+            dia,
+            exceptions=self._exceptions,
+            weekly=self._weekly,
+            holidays=self._holidays,
+        )
+        resultado = None
+        if janela.get("ativo"):
+            inicio = _parse_hhmm(janela.get("inicio"))
+            fim = _parse_hhmm(janela.get("fim"))
+            if inicio is not None and fim is not None:
+                resultado = (inicio, fim)
+        self._por_data[dia] = resultado
+        return resultado
+
+    def classificar(self, criado: Optional[datetime]) -> str:
+        if criado is None:
+            return "desconhecido"
+        if not self._ok:
+            return "desconhecido"
+        if criado.tzinfo is None:
+            criado = criado.replace(tzinfo=timezone.utc)
+        referencia = criado.astimezone(LOCAL_TZ)
+        try:
+            janela = self._janela(referencia.date())
+        except Exception:
+            logger.exception("Falha ao classificar faixa de horario da metrica do bot.")
+            return "desconhecido"
+        if janela is None:
+            return "fora_expediente"
+        (hi, mi), (hf, mf) = janela
+        inicio_dt = referencia.replace(hour=hi, minute=mi, second=0, microsecond=0)
+        fim_dt = referencia.replace(hour=hf, minute=mf, second=0, microsecond=0)
+        return "expediente" if inicio_dt <= referencia <= fim_dt else "fora_expediente"
 
 
 def _persona(resposta: WhatsAppBotResposta) -> str:
@@ -218,6 +271,7 @@ def coletar_metricas_observacao(
         .all()
     )
 
+    classificador = _ClassificadorDeFaixa(db)
     geral = _bucket_vazio()
     por_persona: dict[str, dict[str, Any]] = {}
     por_faixa: dict[str, dict[str, Any]] = {}
@@ -231,7 +285,7 @@ def coletar_metricas_observacao(
     for resposta in respostas:
         total += 1
         persona = _persona(resposta)
-        faixa = _faixa_horario(db, resposta)
+        faixa = classificador.classificar(resposta.created_at)
         combinada = f"{persona}:{faixa}"
 
         _acumular(geral, resposta)
