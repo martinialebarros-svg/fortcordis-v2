@@ -1009,6 +1009,32 @@ A assercao de seguranca tem dente.
 Backend **1036/1036** (era 1032); frontend **98/98**, `eslint` sem warning,
 `tsc --noEmit` limpo, `next build` concluido.
 
-#### Pendente
+#### Verificacao visual em stage (2026-08-24)
 
-Verificacao visual em stage, que tem 17 respostas `handoff` reais para exibir.
+Publicado em `9f6f8ca4` (Deploy run `32681036719`, Migration CI `32681036732`,
+ambos `success`).
+
+Tentei primeiro com dado real e **nao existe dado real para isso em stage**.
+As 19 respostas `handoff` (todas `identidade_nao_resolvida`, nenhum `blocked`)
+vieram de smokes sinteticos: `wa_identity` e `conversation_id` fabricados, que
+nunca existiram como conversa no inbox do Node. Varri as 100 conversas mais
+recentes das 418 do inbox, nas duas formas do nono digito, e nenhuma tem
+`ultima_recusa` nem `rascunho_pendente`.
+
+Entao verifiquei o que de fato faltava — a renderizacao — injetando a resposta
+do endpoint **apenas na aba do navegador**, sem escrever nada no servidor. Com
+`ultima_recusa = {decisao: "blocked", motivo: "diagnostico"}` a secao renderizou:
+
+| Checado | Resultado |
+| --- | --- |
+| Secao presente | sim, `.fc-wa-bot-recusa` |
+| Texto | "O BOT NAO RESPONDEU · a resposta continha diagnostico. Responda voce mesmo pelo campo abaixo. O texto que o bot chegou a montar nao e exibido nem enviavel." |
+| **Botoes na secao** | **0** — a propriedade que importa |
+| Cor / acessibilidade | fundo ambar, `aria-label="O bot nao respondeu"` |
+
+O stub saiu com o reload; confirmado que nao ficou residuo na sessao.
+
+O que **nao** foi verificado: a secao aparecendo a partir de uma recusa real
+gravada pelo worker. Isso so acontece quando houver trafego real que produza
+`blocked` ou `handoff` numa conversa existente — naturalmente coberto pela
+observacao do P6.3.
