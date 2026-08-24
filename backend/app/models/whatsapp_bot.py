@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.sql import func
 
 from app.db.database import Base
@@ -73,6 +73,33 @@ class WhatsAppBotConversaEstado(Base):
     pausado_ate = Column(DateTime(timezone=True), nullable=True)
     handoff_motivo = Column(String(50), nullable=True)
     atualizado_por_id = Column(Integer, nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class WhatsAppBotClinicaEstado(Base):
+    """RF-P01: participacao do bot por clinica parceira.
+
+    Terceiro nivel de controle, entre o global e o por conversa. Estado
+    operacional - com responsavel e historico -, por isso tabela propria em vez
+    de coluna em `Clinica`.
+
+    Sem linha para uma clinica, a resolucao depende de
+    `configuracoes.whatsapp_bot_participacao`: em `todos` herda o padrao
+    institucional; em `piloto` fica `off`.
+    """
+
+    __tablename__ = "whatsapp_bot_clinica_estado"
+
+    id = Column(Integer, primary_key=True, index=True)
+    clinica_id = Column(
+        Integer, ForeignKey("clinicas.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    )
+    modo = Column(String(20), nullable=False, default="off")
+    observacao = Column(Text, nullable=True)
+    habilitado_por_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )

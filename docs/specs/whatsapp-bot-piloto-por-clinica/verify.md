@@ -2,7 +2,7 @@
 
 Data: 2026-08-24
 Responsavel: Martiniano + Claude
-Status: draft — nada implementado
+Status: Fase 1 (schema) entregue; Fases 2-4 pendentes
 
 ## Matriz de rastreabilidade
 
@@ -14,16 +14,16 @@ Status: draft — nada implementado
 | CA-P04 | aceitacao | clinica `off` explicito -> `suppressed`/`clinica_desabilitada` mesmo com postura `todos` | pendente |
 | CA-P05 | aceitacao | modo por conversa vence o por clinica, nas duas direcoes | pendente |
 | CA-P06 | aceitacao | postura `piloto`, tutor sem opt-in -> `fora_do_piloto`; com opt-in -> gera | pendente |
-| CA-P07 | aceitacao | migracao idempotente, default `todos` | pendente |
+| CA-P07 | aceitacao | migracao idempotente, default `todos` | ok — `test_whatsapp_bot_piloto_migration.test_upgrade_cria_tabela_e_e_idempotente` (aplicada duas vezes em sequencia) + `test_participacao_nasce_todos_e_preserva_comportamento` |
 | CA-P08 | aceitacao | `PUT /configuracoes` 403 para nao admin, 422 para valor invalido | pendente |
 | CA-P09 | aceitacao | provider fake que falha se chamado, nos caminhos barrados | pendente |
 | CB-P01 | borda | `ambiguous` entre clinicas -> `handoff`/`identidade_nao_resolvida`, sem inventar participacao | pendente |
 | CB-P02 | borda | clinica inativa com linha habilitada nao volta a ser atendida | pendente |
 | CB-P03 | borda | voltar de `piloto` para `todos` preserva os `off` explicitos | pendente |
 | CB-P04 | borda | remocao da clinica remove a linha de participacao (cascade) | pendente |
-| NFR-P01 | nao funcional | inspecao: default `todos`, tabela vazia, suite existente sem alteracao de expectativa | pendente |
+| NFR-P01 | nao funcional | ok — coluna nasce `todos` (inclusive em linha que ja existia, via UPDATE explicito: default de coluna nao preenche linha antiga em todo dialeto) e a tabela nasce vazia. Suite completa 1044/1044 sem alterar nenhuma expectativa existente |
 | NFR-P02 | nao funcional | caminho barrado nao chama LLM nem tools de dado | pendente |
-| NFR-P03 | nao funcional | migracao aplicada duas vezes em sequencia | pendente |
+| NFR-P03 | nao funcional | ok — `20260824_76` aplicada duas vezes em cada teste, e `no-op` sem `configuracoes` coberto por `test_no_op_sem_configuracoes` |
 | NFR-P04 | nao funcional | motivo gravado sem nome de clinica e sem telefone | pendente |
 
 ## Testes automatizados a executar
@@ -44,6 +44,25 @@ npx tsc --noEmit && npm run build
 
 Baseline no momento em que esta spec foi escrita: backend **1040/1040**,
 frontend **98/98**.
+
+## Resumo dos resultados (Fase 1, 2026-08-24)
+
+- Migracao `20260824_76_whatsapp_bot_piloto_clinica.py`, no padrao de helpers
+  locais por arquivo das migracoes 72-75.
+- `test_whatsapp_bot_piloto_migration` (4/4): idempotencia, unicidade de
+  `clinica_id`, default `todos` em linha preexistente, e no-op sem
+  `configuracoes`.
+- Suite completa **1044/1044** (era 1040), sem alterar nenhuma expectativa
+  existente — a feature e inerte ate ser ligada.
+- **Aplicada de verdade**, nao so em teste: `setup_database.py` num sqlite novo
+  criou a tabela e a coluna (`whatsapp_bot_clinica_estado` presente,
+  `configuracoes.whatsapp_bot_participacao` presente).
+- Modelos `WhatsAppBotClinicaEstado` e a coluna em `Configuracao` adicionados.
+  Nada e lido em runtime ainda: resolucao de modo e portao sao a Fase 2.
+
+Decisao de schema registrada: FK `ON DELETE CASCADE` (CB-P04). Participacao de
+clinica que nao existe mais nao tem sentido, e restringir a exclusao faria o
+cadastro de clinicas depender de uma tabela do bot.
 
 ## Testes manuais planejados (stage)
 

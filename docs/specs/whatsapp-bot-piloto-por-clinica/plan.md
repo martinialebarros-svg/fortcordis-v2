@@ -2,7 +2,7 @@
 
 Data: 2026-08-24
 Responsavel: Martiniano + Claude
-Status: draft
+Status: Fase 1 entregue
 
 ## 1) Sequencia de fases
 
@@ -17,14 +17,16 @@ Status: draft
 
 ### Fase 1 - schema
 
-- [ ] P1.1 migracao versionada e idempotente criando
+- [x] P1.1 migracao versionada e idempotente criando
       `whatsapp_bot_clinica_estado` (`clinica_id` unico, FK cascade, `modo`,
       `habilitado_por_id`, `observacao`, timestamps) e a coluna
       `configuracoes.whatsapp_bot_participacao` com default `todos`.
-- [ ] P1.2 modelo SQLAlchemy e teste de migracao idempotente (aplicar duas
+- [x] P1.2 modelo SQLAlchemy e teste de migracao idempotente (aplicar duas
       vezes; no-op sem `configuracoes`).
 - Criterio de conclusao: migracao aplica em sqlite novo e em banco existente
-  sem alterar comportamento (CA-P07, NFR-P01).
+  sem alterar comportamento (CA-P07, NFR-P01). **Cumprido em 2026-08-24**:
+  `setup_database.py` num sqlite novo criou tabela e coluna, e a suite completa
+  passou 1044/1044 sem alterar expectativa existente.
 - Risco: baixo, aditivo.
 - Rollback: a coluna nasce `todos` e a tabela vazia — basta nao usar.
 
