@@ -1255,3 +1255,72 @@ deixaria **duas** respostas conflitantes na base, e a busca poderia devolver a
 velha.
 
 Estado final: 4 documentos visiveis, 0 ignorados.
+
+
+## Promocao para producao: o bot chegou dormente (2026-08-24)
+
+Primeira vez que o chatbot toca producao. `stage -> main` via
+`scripts/promote_stage_to_main.sh`; `origin/main` foi de `1474902d` para
+`087ccc9b`. Deploy to VPS run `32783092734` e Migration CI `32783092889`, ambos
+`success` — com `quality-gate` e `sdd-guardrail` aprovados.
+
+### O que foi verificado ANTES de promover
+
+| Risco levantado | Verificacao |
+| --- | --- |
+| Bot subir ligado | Workflow de producao nao menciona `WHATSAPP_BOT`; default de `config.py` e `False`; a migracao faz `UPDATE` explicito do toggle para `false` |
+| Promocao desfazer o hotfix do deploy | `CLAUDE.md` avisa que a promocao resolve conflito em favor de `stage` e pode desfazer hotfix sem avisar. Conferido: `stage` **nao tem** a linha ruim e **tem** o step do `test_whatsapp_stage_meta_isolation.sh`, que asserta a mesma coisa |
+| Perder CSS que so existia em producao | As tres classes `fc-wa-envio-badge*` ja existiam em `stage` |
+| Alterar o caminho de envio de producao | Resolvido antes, tornando o nono digito opt-in e desligado em producao |
+
+Dois conflitos de merge (`deploy.yml`, `globals.css`), ambos resolviveis em
+favor de `stage` sem perda — verificado arquivo a arquivo antes de rodar.
+
+### O que foi verificado DEPOIS
+
+| Item | Resultado |
+| --- | --- |
+| `WHATSAPP_META_SOURCE_ENV_FILE` em `main` | ausente — hotfix preservado |
+| `WHATSAPP_GRAPH_FORCE_BR_MOBILE_NINTH_DIGIT` no deploy de producao | ausente — envio inalterado |
+| `fc-wa-envio-badge*` em `main` | 3 classes presentes |
+| Arquivos `whatsapp_bot` em `main` | 42 |
+| `whatsapp_bot_enabled_env` | **false** |
+| `whatsapp_bot_atendimento_habilitado` | **false** |
+| `whatsapp_bot_ativo` | **false** |
+| `jobs_por_status` / `respostas_por_decisao` | `{}` / `{}` |
+| Producao HTTP | `200` / `200` / `401` |
+| Stage | inalterado |
+
+O endpoint de preview responde `200`: o codigo esta la e funcional, apenas
+inerte.
+
+### Producao virada para `piloto`
+
+A migracao cria `whatsapp_bot_participacao = 'todos'` — correto como default,
+porque preserva comportamento em quem ja usava. Mas em **producao**, onde o bot
+nunca rodou, `todos` significa que o primeiro clique no toggle exporia **todos
+os tutores e todas as clinicas de uma vez**, que e exatamente o que o piloto foi
+construido para evitar.
+
+Virado para `piloto` logo apos a promocao:
+
+| | |
+| --- | --- |
+| `whatsapp_bot_participacao` | `todos` -> **`piloto`** |
+| Clinicas ativas em producao | **161** |
+| Clinicas que participam | **0** |
+| Clinicas com marcacao | **0** |
+| Toggle institucional | continua **false** |
+
+Duas travas independentes: mesmo que alguem ligue o toggle, ninguem e atendido
+ate ser habilitado clinica por clinica.
+
+### O que falta antes de ligar
+
+1. **Corrigir o cadastro de preco em producao** — quatro divergencias e dois
+   zerados. Com `preco_servico` fora do `auto` nada sai errado ao cliente, mas
+   os rascunhos trariam valor desatualizado, e a taxa de aceite mediria a
+   qualidade de uma resposta errada.
+2. Habilitar as clinicas do piloto.
+3. So entao ligar o toggle institucional em `suggest`, e comecar o P6.3 com a
+   metrica quebrada por clinica.
