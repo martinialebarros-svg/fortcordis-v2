@@ -225,12 +225,10 @@ falhou fechado em vez de subir producao com identidade de teste.
 - **O rollback restaura apenas codigo.** O log mostra que ele nao reexecutou a
   etapa `whatsapp_stage_backend`: nao ha sincronizacao, validacao nem restart do
   servico Node no trecho posterior ao rollback.
-- **Risco latente nao confirmado**: no script, a sincronizacao (linha ~509)
-  roda ANTES da validacao (linha ~689). Entao o `.env` de producao
-  provavelmente ja foi sobrescrito com a identidade de teste e o rollback nao o
-  desfez. O servico nao chegou a reiniciar, entao segue em memoria com a
-  configuracao correta — mas o proximo restart subiria producao apontando para o
-  numero de teste. **Confirmar exige acesso a VPS; nao foi feito.**
+- **Risco latente CONFIRMADO e depois reparado** (ver secao seguinte). A
+  sincronizacao (linha ~509) roda ANTES da validacao (linha ~689), e o `.env` de
+  producao foi mesmo sobrescrito — nao so os tres IDs, mas os **seis** valores,
+  incluindo access token, app secret e verify token. O rollback nao desfez.
 - Producao responde normalmente: raiz `200`, `/whatsapp/health` `200`, rota
   protegida `401`. O health nao expoe identidade Meta, entao nao serve para
   confirmar o item acima.
@@ -288,3 +286,57 @@ Ordem correta: passo 1 (reparar o `.env` na VPS) **antes** de publicar o
 hotfix. Publicar primeiro nao quebra nada, mas o deploy seguinte falharia de
 novo no mesmo guard, agora por causa do arquivo em vez do workflow, e isso
 confundiria o diagnostico.
+
+### Contaminacao confirmada e reparada (2026-08-23)
+
+Inspecao na VPS de producao, conduzida pelo usuario com comandos que nao
+imprimem segredo. `stat` no `.env` de producao devolveu
+`2026-08-23 23:37:29`, o horario exato do deploy que falhou.
+
+Os tres IDs estavam com os valores de **stage**:
+
+| Chave | Encontrado | Esperado em producao |
+| --- | --- | --- |
+| `PHONE_NUMBER_ID` | `1161616897025933` | `1279142515283484` |
+| `META_APP_ID` | `1683447519419173` | `975334532125008` |
+| `WHATSAPP_BUSINESS_ACCOUNT_ID` | `4413513738886247` | `1369494994627980` |
+
+E os tres segredos tambem, verificado por comparacao de `sha256` entre o `.env`
+de producao e o de stage, sem exibir valor: `WHATSAPP_ACCESS_TOKEN`,
+`WHATSAPP_APP_SECRET` e `WHATSAPP_VERIFY_TOKEN` deram **identicos**. Ou seja,
+os **seis** valores foram sobrescritos, nao apenas os IDs previstos na analise
+inicial.
+
+Severidade real, maior do que a estimada: apos um restart, producao nao so
+enviaria pelo numero errado como **rejeitaria todo webhook de entrada**, porque
+`X-Hub-Signature-256` e validado com o app secret. Mensagem de cliente seria
+descartada por assinatura invalida, em silencio.
+
+#### Recuperacao
+
+O backup automatico do deploy (`backup_runtime_file`) cobre so
+`backend/fortcordis.db` e os JSONs de `backend/data` — **o `.env` nao e
+preservado**. Nao havia backup para restaurar.
+
+A recuperacao veio do proprio processo em execucao: ele foi iniciado ANTES da
+sobrescrita, e o systemd passa o `.env` como ambiente, entao os valores
+originais seguiam em `/proc/<pid>/environ`. As seis chaves foram extraidas para
+um arquivo temporario sem passar pela tela, e os tres IDs conferidos como os de
+producao.
+
+Reparo aplicado com backup do arquivo contaminado em
+`.env.bak-contaminado-20260823`, preservando dono e permissao. Conferencia
+posterior: os tres IDs voltaram aos aprovados e os tres segredos voltaram a
+**divergir** de stage. O arquivo temporario foi apagado com `shred -u`.
+
+O servico **nao foi reiniciado**: o processo ja rodava com esses valores, entao
+reiniciar so adicionaria risco. O arquivo ficou correto para o proximo start,
+que sera o deploy do hotfix.
+
+#### Licao para o script
+
+Vale acrescentar `whatsapp-stage-backend/.env` ao `backup_runtime_file`. Se a
+recuperacao por `/proc` nao estivesse disponivel — bastaria o servico ter
+reiniciado uma vez apos a sobrescrita —, o access token e o app secret de
+producao teriam de ser reemitidos no painel da Meta, e o verify token
+renegociado no callback.
