@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.services.whatsapp_bot_gates import is_whatsapp_bot_enabled
 from app.services.whatsapp_bot_guardrails import (
     _FONTE_EXIGIDA_POR_INTENT,
+    INTENTS_ATENDIDAS_POR_PERSONA,
     INTENTS_AUTO_POR_PERSONA,
 )
 from app.services.whatsapp_bot_tools import (
@@ -203,7 +204,9 @@ def coletar_prontidao(
             clinica_id=clinica_id if match_type == "clinica" else None,
         )
         itens = []
-        for intent in sorted(INTENTS_AUTO_POR_PERSONA.get(persona) or frozenset()):
+        # Sonda tudo que o bot ATENDE. Uma intent fora do `auto` continua
+        # precisando de fonte sa - so nao sai sem revisao humana.
+        for intent in sorted(INTENTS_ATENDIDAS_POR_PERSONA.get(persona) or frozenset()):
             item = _sondar_intent(ctx, persona, intent)
             if intent == "status_laudo" and not item.get("pronto"):
                 item["diagnostico"] = (

@@ -140,6 +140,22 @@ de pausa e claim, não por relógio.
 - RF-019 (allowlist de intents do modo `auto`, Fase 1): a lista é **por
   persona**, e intent fora dela **sempre** vira rascunho, mesmo com a conversa
   em `auto`.
+  - **Duas listas, não uma (2026-08-24).** `INTENTS_ATENDIDAS_POR_PERSONA` é o
+    que o bot sabe responder e o que a prontidão sonda;
+    `INTENTS_AUTO_POR_PERSONA` é o subconjunto que pode sair sozinho, derivado
+    da primeira menos `INTENTS_BLOQUEADAS_NO_AUTO`. Separar evita que tirar uma
+    intent do `auto` a apague do painel de prontidão e o admin perca a
+    visibilidade da fonte.
+  - **`preco_servico` está fora do `auto` (2026-08-24).** A tabela viva usada
+    pelo atendimento tem uma faixa de **plantão** — segunda a sexta após 18h,
+    sábado após 16h, domingos e feriados — com valores distintos do comercial.
+    O modelo de dados só tem colunas `*_comercial`, e `consultar_preco_tabela`
+    crava `"tipo_horario": "comercial"`. Fora do expediente a tool devolve o
+    preço errado, e como o guardrail ancora valor no retorno **literal** da
+    tool, o número errado passaria como conferido. Como o bot roda 24/7
+    justamente para atender fora do expediente, o erro cairia exatamente na
+    faixa em que o plantão vale. Em `suggest` nada muda: o rascunho continua
+    sendo gerado e revisado. Volta ao `auto` quando o plantão for modelado.
   - `tutor`: horário de funcionamento, endereço e área de atendimento, como
     agendar, formas de contato, "o laudo do meu pet saiu?" (só `pronto` /
     `ainda não`, sem nenhum conteúdo do laudo) e preço de serviço em tabela.

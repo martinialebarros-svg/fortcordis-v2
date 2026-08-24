@@ -172,6 +172,39 @@ class WhatsAppBotPainelTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
+    def test_preco_servico_e_sondado_mas_nao_e_auto_elegivel(self) -> None:
+        """Tirar do `auto` nao pode apagar do painel.
+
+        A prontidao sonda `INTENTS_ATENDIDAS_POR_PERSONA`; so a elegibilidade
+        vem de `INTENTS_AUTO_POR_PERSONA`. Se as duas fossem a mesma lista, o
+        admin perderia a visibilidade de que a fonte de preco esta sa.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    db.add(Configuracao(cidade="Fortaleza", endereco="Rua Teste, 100", telefone="8533334444"))
+                    db.add(Servico(nome="Ecocardiograma", ativo=True, preco_fortaleza_comercial=420))
+                    db.commit()
+                    with self._sem_rede():
+                        r = readiness.coletar_prontidao(db)
+                finally:
+                    db.close()
+
+                for persona in ("tutor", "clinica"):
+                    itens = {i["intent"]: i for i in r["personas"][persona]["itens"]}
+                    self.assertIn("preco_servico", itens, f"{persona}: sumiu do painel")
+                    self.assertTrue(itens["preco_servico"]["pronto"], f"{persona}: fonte deveria estar sa")
+                    self.assertFalse(
+                        itens["preco_servico"]["auto_elegivel"],
+                        f"{persona}: preco nao pode ser auto-elegivel enquanto plantao nao for modelado",
+                    )
+                    # As demais continuam auto-elegiveis.
+                    self.assertTrue(itens["horario_funcionamento"]["auto_elegivel"], persona)
+            finally:
+                engine.dispose()
+
     def test_prontidao_explica_categoria_errada_em_vez_de_so_dizer_nao(self) -> None:
         """O diagnostico e o ponto do painel: cadastrar as cegas foi o que
         deixou a regressao do piso passar tres fases."""

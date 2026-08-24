@@ -1038,3 +1038,91 @@ O que **nao** foi verificado: a secao aparecendo a partir de uma recusa real
 gravada pelo worker. Isso so acontece quando houver trafego real que produza
 `blocked` ou `handoff` numa conversa existente — naturalmente coberto pela
 observacao do P6.3.
+
+### `preco_servico` sai da allowlist de `auto` (2026-08-24)
+
+Decisao do usuario, tomada a partir do que o historico real do WhatsApp mostrou.
+
+#### O que motivou
+
+Exploracao dos ultimos 45 dias no WhatsApp Business da clinica (364 conversas;
+metodo: busca pelos textos que as secretarias colam, sem ler tudo). As tabelas
+de preco vivas sao tres, e mapeiam nas mesmas regioes que a tool ja conhece:
+
+| Servico | Fortaleza | RM | Domiciliar |
+| --- | --- | --- | --- |
+| Consulta | 230,00 | 230,00 | 290,00 |
+| Ecocardiograma | 180,00 | 200,00 | 290,00 |
+| Eletrocardiograma | 120,00 | 150,00 | 175,00 |
+| Pressao arterial | 40,00 | 60,00 | 60,00 |
+| Combo Eco + Eletro | 250,00 | 300,00 | — |
+| Drenagem de efusao | 280,00 | — | — |
+
+Mas existe uma **quarta dimensao que o modelo de dados nao tem**: a faixa de
+**plantao**, com precos proprios (Fortaleza: consulta 290, eco 230, eletro 170,
+PA 60; RM: consulta 260, eco 230, eletro 160), valendo de segunda a sexta apos
+18h, sabado apos 16h, e domingos e feriados das 9h as 18h.
+
+`consultar_preco_tabela` le so `preco_*_comercial` e crava
+`"tipo_horario": "comercial"`. Fora do expediente ela devolve o valor errado.
+
+#### Por que isso e pior do que parece
+
+O guardrail ancora valor no retorno **literal** da tool. Um preco desatualizado
+ou de faixa errada **nao vira bloqueio**: vira resposta aprovada e ancorada. E o
+unico caminho conhecido para o bot afirmar algo falso com todos os guardrails
+satisfeitos.
+
+E o bot roda 24/7 justamente para atender fora do expediente — exatamente a
+faixa em que o plantao vale. O erro nao seria raro; seria concentrado onde o bot
+mais atua sozinho.
+
+O usuario tambem informou que **os valores da tabela de stage estao
+desatualizados**, o que torna qualquer conferencia em stage inconclusiva para o
+rollout. A conferencia que vale e contra producao, e segue pendente por falta de
+sessao autenticada.
+
+#### O que mudou no codigo
+
+Duas listas onde havia uma:
+
+- `INTENTS_ATENDIDAS_POR_PERSONA` — o que o bot sabe responder, e o que a
+  prontidao sonda.
+- `INTENTS_AUTO_POR_PERSONA` — derivada da primeira menos
+  `INTENTS_BLOQUEADAS_NO_AUTO` (hoje so `preco_servico`).
+
+A separacao existe por causa de um efeito colateral concreto: a prontidao
+iterava a lista do `auto` para decidir o que sondar. Sem separar, tirar preco do
+`auto` o apagaria do painel e o admin perderia a visibilidade de que a fonte de
+preco esta sa — trocaria um risco por uma cegueira.
+
+Em `suggest` nada muda: o texto continua **aprovado** (o valor veio da tool, e
+seguro), so nao e mais `auto_elegivel`. Vira rascunho para revisao.
+
+#### Evidencia
+
+| Item | Evidencia |
+| --- | --- |
+| Preco fora do auto nas duas personas | `test_whatsapp_bot_guardrails.GuardrailPrecoForaDoAutoTest.test_preco_nao_e_auto_em_nenhuma_persona` |
+| Aprovado, porem nao auto | `..._test_preco_ancorado_e_aprovado_mas_vira_rascunho` (`aprovado=True`, `auto_elegivel=False`, motivo `intent_fora_allowlist`) |
+| As demais seguem auto | `..._test_as_demais_intents_seguem_auto` |
+| Continua visivel no painel | `test_whatsapp_bot_painel.test_preco_servico_e_sondado_mas_nao_e_auto_elegivel` |
+| Contrato dos evals | caso `valor-ancorado-na-tabela` atualizado para `auto_elegivel: false` |
+
+Verificado por **mutacao** nas duas direcoes que importam: devolver
+`preco_servico` ao `auto` derruba 4 testes; religar a prontidao na lista do
+`auto` derruba o teste do painel.
+
+Suite focada do bot **174/174** (era 170).
+
+#### Pendencias que isto NAO resolve
+
+1. **Conferir as tres tabelas contra `Servico` em producao.** Sem isso, nao se
+   sabe se os valores comerciais estao corretos — e eles continuam sendo
+   cotados em `suggest`.
+2. **Modelar plantao.** Enquanto nao existir, `preco_servico` fica fora do
+   `auto`. Exige coluna nova e a tool passar a considerar horario.
+3. **Servicos possivelmente ausentes do cadastro**: "Combo Eco e Eletro" e
+   "Drenagem de efusao" aparecem na tabela viva. Se nao existirem como
+   `Servico` com preco > 0, a tool os descarta do payload e o bot simplesmente
+   emudece sobre eles.

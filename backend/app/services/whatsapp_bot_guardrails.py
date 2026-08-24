@@ -50,10 +50,12 @@ MotivoBloqueio = Literal[
     "vazamento_conteudo_laudo",
 ]
 
-# RF-019: intents elegiveis ao modo `auto`, POR PERSONA. Fora daqui a
-# resposta sempre vira rascunho, mesmo com a conversa em `auto` e mesmo com
-# o dado disponivel no contexto.
-INTENTS_AUTO_POR_PERSONA: dict[str, frozenset[str]] = {
+# Intents que o bot ATENDE, por persona. Nao confundir com elegibilidade a
+# `auto`: aqui esta tudo que ele sabe responder e que a prontidao precisa
+# sondar, mesmo o que exige revisao humana. Separar as duas listas evita o
+# efeito colateral de tirar uma intent do `auto` e, sem querer, apaga-la do
+# painel de prontidao - o admin perderia a visibilidade da fonte.
+INTENTS_ATENDIDAS_POR_PERSONA: dict[str, frozenset[str]] = {
     "tutor": frozenset({
         "horario_funcionamento",
         "endereco",
@@ -72,6 +74,26 @@ INTENTS_AUTO_POR_PERSONA: dict[str, frozenset[str]] = {
         "status_laudo",
         "como_solicitar_exame",
     }),
+}
+
+# Intents que NAO podem sair sozinhas, mesmo com a conversa em `auto`.
+#
+# `preco_servico` (2026-08-24): a tabela viva das secretarias tem uma faixa de
+# PLANTAO - seg a sex apos 18h, sabado apos 16h, domingos e feriados - com
+# precos distintos, e o modelo de dados so tem colunas `*_comercial`.
+# `consultar_preco_tabela` crava `"tipo_horario": "comercial"`, entao fora do
+# expediente ela devolve o valor errado. E o guardrail ancora valor no retorno
+# LITERAL da tool: o numero errado passaria como conferido. Como o bot roda
+# 24/7 justamente para atender fora do expediente, o erro cairia exatamente na
+# faixa em que o plantao vale. Volta ao `auto` quando plantao estiver modelado.
+INTENTS_BLOQUEADAS_NO_AUTO: frozenset[str] = frozenset({"preco_servico"})
+
+# RF-019: intents elegiveis ao modo `auto`, POR PERSONA. Fora daqui a
+# resposta sempre vira rascunho, mesmo com a conversa em `auto` e mesmo com
+# o dado disponivel no contexto.
+INTENTS_AUTO_POR_PERSONA: dict[str, frozenset[str]] = {
+    persona: intents - INTENTS_BLOQUEADAS_NO_AUTO
+    for persona, intents in INTENTS_ATENDIDAS_POR_PERSONA.items()
 }
 
 # Intents que exigem fonte factual (tool ou trecho de conhecimento). As

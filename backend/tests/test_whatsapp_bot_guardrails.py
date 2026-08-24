@@ -256,3 +256,38 @@ class GuardrailTurnoTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GuardrailPrecoForaDoAutoTest(unittest.TestCase):
+    """`preco_servico` continua seguro, mas nunca sai sozinho (2026-08-24)."""
+
+    def test_preco_nao_e_auto_em_nenhuma_persona(self) -> None:
+        for persona in ("tutor", "clinica"):
+            self.assertNotIn("preco_servico", gr.INTENTS_AUTO_POR_PERSONA[persona], persona)
+            self.assertIn("preco_servico", gr.INTENTS_ATENDIDAS_POR_PERSONA[persona], persona)
+
+    def test_preco_ancorado_e_aprovado_mas_vira_rascunho(self) -> None:
+        """Aprovado e auto_elegivel sao coisas diferentes.
+
+        O texto e seguro - o valor veio da tool -, entao nao e bloqueio: e
+        rascunho para revisao humana.
+        """
+        turno = gr.TurnoDeGeracao(
+            persona="tutor",
+            tools_ok=["consultar_preco_tabela"],
+            valores_permitidos={"420.00"},
+        )
+        v = gr.avaliar_resposta(
+            texto="O ecocardiograma custa R$ 420,00.", intent="preco_servico", modo="auto", turno=turno
+        )
+        self.assertTrue(v.aprovado)
+        self.assertFalse(v.auto_elegivel)
+        self.assertEqual(v.motivo, "intent_fora_allowlist")
+
+    def test_as_demais_intents_seguem_auto(self) -> None:
+        turno = gr.TurnoDeGeracao(persona="tutor", tools_ok=["consultar_horario_funcionamento"])
+        v = gr.avaliar_resposta(
+            texto="Funcionamos de segunda a sexta.", intent="horario_funcionamento", modo="auto", turno=turno
+        )
+        self.assertTrue(v.aprovado)
+        self.assertTrue(v.auto_elegivel)
