@@ -554,20 +554,33 @@ do chatbot. **Falta conferi-las contra `Servico` em produção** — o usuário
 informou que os valores de stage estão desatualizados, e faltou sessão
 autenticada em produção.
 
-### Pendente de confirmação do usuário
+### Regra dos exames pré-anestésicos
 
-Texto sobre exigência de exames cardiológicos antes de castração em animais a
-partir de 5 anos: encontrado no histórico, mas com redação que sugere programa
-público, não política da casa. Se for da FortCordis, vira um quarto documento.
+O texto que eu havia achado (castração / animais a partir de 5 anos) foi
+**descartado pelo usuário**. A regra real é mais ampla: **eco e eletro são
+exigidos antes de qualquer procedimento com anestesia, independente da idade e
+de qual seja o procedimento**. Quarto documento redigido e aguardando aprovação.
+
+### Conferência de preço contra produção: feita
+
+15 de 21 conferem. Quatro divergências de valor, dois zerados que fazem o bot
+emudecer, e "Drenagem de efusão" inexistente como `Servico`. Detalhe no
+`verify.md`.
+
+**Correção de um registro anterior**: o plantão **já está modelado** —
+`Servico` tem `fortaleza_plantao`, `rm_plantao` e `domiciliar_plantao`
+populadas. Quem ignora as colunas é a tool (`_REGIAO_COLUNAS` só mapeia
+`*_comercial`). Voltar `preco_servico` ao `auto` é menor do que se pensava:
+mapear as colunas e escolher a faixa pelo horário.
 
 ## Próxima sequência recomendada
 
 1. ~~**Conteúdo institucional**~~ **FEITO em 2026-08-24**: três documentos
    cadastrados, prontidão em 12/2. Resta a confirmação sobre castração/5 anos.
-0. **Conferir as três tabelas de preço contra `Servico` em PRODUÇÃO**, e checar
-   se "Combo Eco e Eletro" e "Drenagem de efusão" existem com preço > 0 — se
-   não existirem, a tool os descarta e o bot emudece sobre eles. Exige sessão
-   autenticada em produção, que faltou.
+0. ~~**Conferir as tabelas de preço contra produção**~~ **FEITA em 2026-08-24**.
+   Resta **corrigir o cadastro**: quatro divergências, dois zerados e
+   "Drenagem de efusão" ausente. É decisão de negócio — qual lado está certo —,
+   não de código.
 2. **Teste real de `endereco` com o cadastro preenchido**, em `suggest`. Agora
    que o endereço de stage tem CEP, a âncora `ceps_permitidos` está viva com
    dado real. O que este teste procura é o limite declarado da correção: o

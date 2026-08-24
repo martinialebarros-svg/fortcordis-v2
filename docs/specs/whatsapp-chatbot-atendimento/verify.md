@@ -1126,3 +1126,60 @@ Suite focada do bot **174/174** (era 170).
    "Drenagem de efusao" aparecem na tabela viva. Se nao existirem como
    `Servico` com preco > 0, a tool os descarta do payload e o bot simplesmente
    emudece sobre eles.
+
+
+### Conferencia das tabelas de preco contra producao (2026-08-24)
+
+Feita com a sessao autenticada de producao, somente leitura, via
+`GET /api/v1/servicos`. 12 servicos ativos.
+
+#### Correcao de uma afirmacao anterior minha
+
+Eu havia registrado que **o modelo de dados nao representa plantao**. Estava
+errado: `Servico` tem `fortaleza_plantao`, `rm_plantao` e `domiciliar_plantao`,
+e elas estao populadas em producao. Inferi a ausencia do `_REGIAO_COLUNAS` de
+`whatsapp_bot_tools.py`, que so mapeia `*_comercial`.
+
+O problema e menor do que eu disse: **a tool ignora colunas que existem**. Nao
+e modelar plantao, e usa-lo — mapear as tres colunas restantes e escolher a
+faixa pelo horario da mensagem.
+
+#### Resultado: 15 de 21 conferem
+
+**Quatro divergencias de valor** — o cadastro discorda do que o atendimento
+manda hoje:
+
+| Servico / faixa | WhatsApp | Cadastro |
+| --- | --- | --- |
+| Eletrocardiograma / Fortaleza plantao | 170 | 150 |
+| Eletrocardiograma / RM comercial | 150 | 140 |
+| Pressao arterial / RM comercial | 60 | 40 |
+| Consulta / RM plantao | 260 | 290 |
+
+**Dois zerados** — `consultar_preco_tabela` descarta preco zero do payload,
+entao o bot **emudece** em vez de errar:
+
+- Eletrocardiograma / RM plantao (atendimento cobra 160)
+- Pressao arterial / domiciliar (atendimento cobra 60)
+
+**"Drenagem de efusao" nao existe como `Servico`**, embora apareca na tabela de
+Fortaleza a R$ 280.
+
+Tambem: `domiciliar_plantao` esta zerado nos 12 servicos, e "Retorno" esta
+inteiramente zerado.
+
+#### O que isso confirma
+
+Se `preco_servico` ainda estivesse na allowlist de `auto`, o bot cotaria 140
+onde o atendimento cobra 150 — e o guardrail **ancoraria como conferido**,
+porque o numero veio da tool. A decisao de tirar preco do `auto`, tomada horas
+antes por outro motivo (plantao), se mostrou certa por um motivo que ainda nao
+se conhecia.
+
+#### Pendente
+
+1. Corrigir as quatro divergencias e os dois zerados no cadastro — decisao de
+   negocio, nao de codigo: qual dos dois lados esta certo.
+2. Cadastrar "Drenagem de efusao" ou parar de oferece-la na tabela do WhatsApp.
+3. Mapear as colunas de plantao em `_REGIAO_COLUNAS` e escolher a faixa pelo
+   horario. So depois disso `preco_servico` pode voltar ao `auto`.
