@@ -376,6 +376,8 @@ export default function ConfiguracoesPage() {
   const [botSimulacao, setBotSimulacao] = useState<any>(null);
   const [botSimPersona, setBotSimPersona] = useState("tutor");
   const [botSimMensagem, setBotSimMensagem] = useState("");
+  const [botClinicas, setBotClinicas] = useState<any>(null);
+  const [botClinicaBusca, setBotClinicaBusca] = useState("");
   const [usuarioForm, setUsuarioForm] = useState<UsuarioForm>({
     id: null,
     nome: "",
@@ -1033,6 +1035,45 @@ export default function ConfiguracoesPage() {
       setBotProntidao(data);
     } catch {
       setBotErro("Não foi possível carregar a prontidão do bot.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const carregarBotClinicas = async () => {
+    try {
+      setBotCarregando("clinicas");
+      setBotErro(null);
+      const { data } = await api.get("/whatsapp/bot/clinicas");
+      setBotClinicas(data);
+    } catch {
+      setBotErro("Não foi possível carregar a participação das clínicas.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const alterarModoDaClinica = async (clinicaId: number, modo: string) => {
+    try {
+      setBotCarregando(`clinica-${clinicaId}`);
+      setBotErro(null);
+      await api.put(`/whatsapp/bot/clinicas/${clinicaId}`, { modo });
+      await carregarBotClinicas();
+    } catch {
+      setBotErro("Não foi possível alterar a participação desta clínica.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const alterarParticipacao = async (participacao: string) => {
+    try {
+      setBotCarregando("participacao");
+      setBotErro(null);
+      await api.put("/configuracoes", { whatsapp_bot_participacao: participacao });
+      await carregarBotClinicas();
+    } catch {
+      setBotErro("Não foi possível alterar a postura de participação. Só admin pode.");
     } finally {
       setBotCarregando(null);
     }
@@ -2717,6 +2758,79 @@ export default function ConfiguracoesPage() {
               {botErro ? (
                 <p className="mb-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{botErro}</p>
               ) : null}
+
+              {/* Participação por clínica (piloto) */}
+              <div className="mb-6">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">Quem o bot atende</h3>
+                  <button type="button" onClick={carregarBotClinicas} disabled={botCarregando === "clinicas"}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                    {botCarregando === "clinicas" ? "Carregando..." : "Listar clínicas"}
+                  </button>
+                </div>
+
+                {!botClinicas ? (
+                  <p className="text-xs text-gray-400">
+                    Clique em Listar para liberar o bot clínica por clínica.
+                  </p>
+                ) : (
+                  <>
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-gray-600">Postura:</span>
+                      {["todos", "piloto"].map((opcao) => (
+                        <button key={opcao} type="button"
+                          onClick={() => void alterarParticipacao(opcao)}
+                          disabled={botCarregando === "participacao" || botClinicas.participacao === opcao}
+                          className={`text-xs px-3 py-1.5 rounded-lg border ${botClinicas.participacao === opcao ? "border-vital-400 bg-vital-50 font-semibold text-vital-800" : "border-gray-300 hover:bg-gray-50"} disabled:opacity-60`}>
+                          {opcao === "todos" ? "Todos" : "Só o piloto"}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mb-3 text-[11px] text-gray-500">
+                      {botClinicas.participacao === "piloto"
+                        ? "No piloto, só quem foi habilitado aqui é atendido — inclusive tutor, que entra apenas por conversa. Alterar a postura exige admin."
+                        : "Em Todos, quem não tem marcação segue o modo padrão. Marcar uma clínica como Desligado vale mesmo aqui."}
+                    </p>
+
+                    <input type="text" value={botClinicaBusca}
+                      onChange={(e) => setBotClinicaBusca(e.target.value)}
+                      placeholder="Filtrar por nome da clínica"
+                      className="mb-2 w-full text-xs border border-gray-300 rounded-lg px-3 py-2" />
+
+                    <div className="max-h-64 overflow-y-auto divide-y divide-gray-100 border border-gray-200 rounded-lg">
+                      {(botClinicas.clinicas || [])
+                        .filter((c: any) => !botClinicaBusca.trim() || String(c.nome || "").toLowerCase().includes(botClinicaBusca.trim().toLowerCase()))
+                        .map((c: any) => (
+                        <div key={c.clinica_id} className="flex items-center justify-between gap-3 px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-gray-800 truncate">{c.nome}</p>
+                            <p className="text-[10px] text-gray-500">
+                              {c.participa ? "atendida pelo bot" : "fora do atendimento"}
+                              {c.modo ? ` · marcada como ${c.modo}` : " · sem marcação"}
+                            </p>
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            {["off", "suggest"].map((m) => (
+                              <button key={m} type="button"
+                                onClick={() => void alterarModoDaClinica(c.clinica_id, m)}
+                                disabled={botCarregando === `clinica-${c.clinica_id}` || c.modo === m}
+                                className={`text-[11px] px-2 py-1 rounded border ${c.modo === m ? "border-vital-400 bg-vital-50 font-semibold text-vital-800" : "border-gray-300 hover:bg-gray-50"} disabled:opacity-60`}>
+                                {m === "off" ? "Desligado" : "Sugerir"}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {(botClinicas.clinicas || []).length === 0 ? (
+                        <p className="px-3 py-3 text-xs text-gray-400">Nenhuma clínica ativa cadastrada.</p>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-[10px] text-gray-400">
+                      &quot;Automático&quot; não aparece aqui de propósito: o envio automático ainda não existe.
+                    </p>
+                  </>
+                )}
+              </div>
 
               {/* Prontidão */}
               <div className="mb-6">

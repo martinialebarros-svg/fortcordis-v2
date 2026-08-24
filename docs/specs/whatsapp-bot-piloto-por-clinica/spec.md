@@ -74,9 +74,18 @@ habilitado fica de fora, em vez de herdar o padrao institucional.
   (`whatsapp_bot_participacao`) entra na allowlist de `PUT /configuracoes`,
   **admin-only**, como os outros interruptores institucionais.
 
-- **RF-P08 (UI)**: secao no painel do bot em Configuracoes > Empresa, junto da
-  prontidao: seletor da postura e lista de clinicas ativas com modo por
-  clinica. Mostra quem habilitou e quando.
+- **RF-P08 (UI)**: secao "Quem o bot atende" no painel do bot em
+  Configuracoes > Empresa, acima da prontidao: seletor de postura
+  (`Todos` / `So o piloto`), filtro por nome e lista de clinicas ativas com
+  o modo de cada uma.
+  - Cada linha diz o **efeito** ("atendida pelo bot" / "fora do atendimento"),
+    nao so a marcacao. E o campo `participa` vindo do backend, porque sem
+    linha a mesma marcacao significa coisas opostas nas duas posturas.
+  - Os botoes por clinica oferecem apenas `Desligado` e `Sugerir`.
+    **`Automatico` fica de fora de proposito**: o envio automatico nao existe,
+    e oferecer o botao criaria a impressao de que existe.
+  - O texto de apoio muda com a postura, porque a consequencia de "sem
+    marcacao" se inverte entre `todos` e `piloto`.
 
 ## Requisitos nao funcionais
 

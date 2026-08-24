@@ -2,7 +2,7 @@
 
 Data: 2026-08-24
 Responsavel: Martiniano + Claude
-Status: Fases 1 e 2 entregues
+Status: Fases 1-3 entregues
 
 ## 1) Sequencia de fases
 
@@ -53,11 +53,13 @@ Status: Fases 1 e 2 entregues
 
 ### Fase 3 - frontend
 
-- [ ] P3.1 secao "Participacao no piloto" no painel do bot: seletor da postura
+- [x] P3.1 secao "Participacao no piloto" no painel do bot: seletor da postura
       e lista de clinicas ativas com modo, quem habilitou e quando.
-- [ ] P3.2 testes da lib de formatacao e `eslint`/`tsc`/`build` limpos.
+- [x] P3.2 testes da lib de formatacao e `eslint`/`tsc`/`build` limpos.
 - Criterio de conclusao: admin habilita e desabilita uma clinica pela tela, sem
-  console nem chamada manual de API.
+  console nem chamada manual de API. **Codigo entregue em 2026-08-24**; a
+  confirmacao na tela de stage depende de publicar e de haver clinica ativa
+  cadastrada la.
 - Risco: baixo, aditivo.
 - Rollback: esconder a secao mantem o backend intacto.
 

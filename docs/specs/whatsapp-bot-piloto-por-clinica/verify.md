@@ -2,7 +2,7 @@
 
 Data: 2026-08-24
 Responsavel: Martiniano + Claude
-Status: Fases 1 e 2 entregues; Fases 3-4 pendentes
+Status: Fases 1-3 entregues; Fase 4 (metrica por clinica) pendente
 
 ## Matriz de rastreabilidade
 
@@ -127,3 +127,31 @@ substitui quando a clinica tem modo proprio. `_process_job` tambem passa o
 
 Sem isso, os testes poderiam estar apenas descrevendo o codigo em vez de
 travar a decisao.
+
+
+## Resumo dos resultados (Fase 3, 2026-08-24)
+
+Secao "Quem o bot atende" no painel do bot, acima da prontidao: seletor de
+postura, filtro por nome e lista de clinicas ativas.
+
+Tres decisoes de tela que nao sao cosmeticas:
+
+1. **Cada linha diz o efeito, nao a marcacao.** "atendida pelo bot" / "fora do
+   atendimento" vem do campo `participa`, calculado no backend. Mostrar so
+   `modo` faria a mesma marcacao parecer a mesma coisa nas duas posturas,
+   quando significa o oposto.
+2. **`Automatico` nao aparece nos botoes por clinica.** So `Desligado` e
+   `Sugerir`. O envio automatico nao existe; oferecer o botao criaria a
+   impressao de que existe, num painel cuja funcao e justamente dizer a verdade
+   sobre o que o bot faz.
+3. **O texto de apoio muda com a postura**, porque a consequencia de "sem
+   marcacao" se inverte entre `todos` e `piloto`.
+
+Validacao: frontend **98/98**, `eslint` sem warning, `tsc --noEmit` limpo,
+`next build` concluido. Backend inalterado nesta fase (**1063/1063**).
+
+### Nao verificado ainda
+
+Uso real da tela em stage: depende de publicar e de haver clinica ativa
+cadastrada no ambiente. A prova de que o backend responde ja existe nos testes
+de endpoint da Fase 2.
