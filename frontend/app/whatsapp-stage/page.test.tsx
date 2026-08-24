@@ -1,6 +1,11 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  buildMessageResendRequest,
+  reviewedBotResponseId,
+  shouldOfferMessageResend,
+} from "@/lib/whatsapp-message-retry";
 import WhatsAppStagePage from "./page";
 
 vi.mock("../layout-dashboard", () => ({
@@ -38,6 +43,33 @@ describe("WhatsAppStagePage", () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     window.localStorage.clear();
+  });
+
+  it("preserva o fluxo idempotente ao reenviar rascunho revisado do bot", () => {
+    const botMessage = {
+      body: "Resposta revisada",
+      type: "text",
+      from_me: true,
+      status: "failed",
+      metadata: {
+        source: "bot_suggest_reviewed",
+        origem: "bot",
+        resposta_id: "7",
+        idempotency_key: "whatsapp-bot-resposta-7",
+      },
+    };
+
+    expect(reviewedBotResponseId(botMessage)).toBe("7");
+    expect(buildMessageResendRequest(botMessage, "3926")).toEqual({
+      url: "/api/v1/whatsapp/bot/respostas/7/enviar",
+      body: { texto: "Resposta revisada" },
+      botReviewed: true,
+    });
+    expect(shouldOfferMessageResend(botMessage)).toBe(true);
+    expect(shouldOfferMessageResend({
+      ...botMessage,
+      metadata: { ...botMessage.metadata, superseded_by_message_id: "2437" },
+    })).toBe(false);
   });
 
   it("atualiza silenciosamente o status da mensagem selecionada", async () => {

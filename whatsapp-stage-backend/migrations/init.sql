@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS messages (
   CONSTRAINT messages_wa_message_id_key UNIQUE (wa_message_id)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS ux_messages_bot_idempotency_key
+  ON messages ((metadata->>'idempotency_key'))
+  WHERE metadata ? 'idempotency_key';
+
 ALTER TABLE conversations
   ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ;
 

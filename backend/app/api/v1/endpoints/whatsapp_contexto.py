@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Iterable
@@ -51,13 +52,35 @@ def _candidate_numbers(*values: Any) -> Iterable[Any]:
         yield value
 
 
+_BR_MOBILE_WITH_NINTH_DIGIT = re.compile(r"^55\d{2}9\d{8}$")
+_BR_MOBILE_WITHOUT_NINTH_DIGIT = re.compile(r"^55\d{2}\d{8}$")
+
+
+def _whatsapp_number_variants(normalized_phone: str) -> set[str]:
+    """RF-015 (nono digito): `normalize_whatsapp_number` so prefixa "55" e
+
+    nao mexe no nono digito de moveis BR, enquanto `canonicalWhatsAppIdentity`
+    (Node) remove esse digito para usar como identidade da conversa. Sem
+    isso, um cadastro em `55DD9XXXXXXXX` nunca casa com a conversa que chega
+    do Node em `55DDXXXXXXXX`, e vice-versa.
+    """
+    variants = {normalized_phone}
+    if _BR_MOBILE_WITH_NINTH_DIGIT.match(normalized_phone):
+        variants.add(normalized_phone[:4] + normalized_phone[5:])
+    elif _BR_MOBILE_WITHOUT_NINTH_DIGIT.match(normalized_phone):
+        variants.add(normalized_phone[:4] + "9" + normalized_phone[4:])
+    return variants
+
+
 def _has_exact_phone(normalized_phone: str, *values: Any) -> bool:
+    target_variants = _whatsapp_number_variants(normalized_phone)
     for value in _candidate_numbers(*values):
         try:
-            if normalize_whatsapp_number(value) == normalized_phone:
-                return True
+            candidate_normalized = normalize_whatsapp_number(value)
         except HTTPException:
             continue
+        if candidate_normalized in target_variants:
+            return True
     return False
 
 

@@ -72,6 +72,26 @@ class Settings(BaseSettings):
     WHATSAPP_REMINDER_MIN_LEAD_MINUTES: int = 45
     WHATSAPP_REMINDER_MAX_ATTEMPTS: int = 3
     WHATSAPP_REMINDER_RECIPIENT_TYPE: str = "clinica"
+    WHATSAPP_BOT_ENABLED: bool = False
+    WHATSAPP_BOT_MODEL: str = "gpt-5.6-sol"
+    WHATSAPP_BOT_PROMPT_VERSION: str = "whatsapp-bot-v1"
+    WHATSAPP_BOT_DEBOUNCE_SECONDS: int = 12
+    WHATSAPP_BOT_SCHEDULER_POLL_SECONDS: int = 5
+    WHATSAPP_BOT_SCHEDULER_DISTRIBUTED_LOCK_ENABLED: bool = True
+    WHATSAPP_BOT_SCHEDULER_DISTRIBUTED_LOCK_KEY: int = 80433003
+    WHATSAPP_BOT_MAX_ATTEMPTS: int = 3
+    WHATSAPP_BOT_HANDOFF_PAUSE_HOURS: int = 12
+    WHATSAPP_BOT_MAX_REPLIES_PER_CONVERSATION_DAY: int = 20
+    WHATSAPP_BOT_MAX_TOKENS_PER_DAY: int = 100000
+    WHATSAPP_BOT_MAX_REPLY_CHARS: int = 900
+    # Fase 6 (P6.5): custo por milhao de tokens do bot. Default 0.0, como
+    # em AI_ECHO_*_COST_PER_MILLION - com 0.0 o painel reporta tokens e
+    # marca o custo como nao configurado, em vez de exibir R$ 0,00 como
+    # se fosse gratuito.
+    WHATSAPP_BOT_INPUT_COST_PER_MILLION: float = 0.0
+    WHATSAPP_BOT_OUTPUT_COST_PER_MILLION: float = 0.0
+    WHATSAPP_BOT_RECONCILE_EVERY_CYCLES: int = 60
+    WHATSAPP_BOT_RECONCILE_WINDOW_MINUTES: int = 30
     PUBLIC_APP_BASE_URL: str = ""
     AGENDA_FORMALIZACAO_INVITE_DEFAULT_HOURS: int = 72
     OPENAI_API_KEY: str = ""

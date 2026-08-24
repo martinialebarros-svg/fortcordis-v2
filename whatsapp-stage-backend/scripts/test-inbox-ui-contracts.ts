@@ -1,6 +1,9 @@
 import assert from "assert";
 import { Request, Response } from "express";
-import { isConversationStatus } from "../src/controllers/conversationsController";
+import {
+  isConversationStatus,
+  resolveTextMessageMetadata
+} from "../src/controllers/conversationsController";
 import { listApprovedTemplateCatalog } from "../src/controllers/templateCatalogController";
 
 async function run(): Promise<void> {
@@ -9,6 +12,50 @@ async function run(): Promise<void> {
   assert.strictEqual(isConversationStatus("closed"), true);
   assert.strictEqual(isConversationStatus("resolved"), false);
   assert.strictEqual(isConversationStatus(null), false);
+
+  assert.deepStrictEqual(
+    resolveTextMessageMetadata({ body: {} } as Request),
+    { source: "agent_api" },
+    "ordinary agent messages keep the legacy metadata"
+  );
+  const botRequest = {
+    body: {
+      metadata: {
+        origem: "bot",
+        source: "bot_suggest_reviewed",
+        resposta_id: "21",
+        idempotency_key: "whatsapp-bot-resposta-21"
+      }
+    },
+    authUser: { authSource: "internal_token" }
+  } as unknown as Request;
+  assert.deepStrictEqual(resolveTextMessageMetadata(botRequest), botRequest.body.metadata);
+  assert.strictEqual(
+    resolveTextMessageMetadata({ ...botRequest, authUser: { authSource: "core_api" } } as unknown as Request),
+    null,
+    "browser-authenticated callers cannot forge the bot badge"
+  );
+  assert.strictEqual(
+    resolveTextMessageMetadata({
+      ...botRequest,
+      body: { metadata: { ...botRequest.body.metadata, idempotency_key: "arbitrary" } }
+    } as unknown as Request),
+    null,
+    "bot idempotency keys are scoped to response ids"
+  );
+  assert.strictEqual(
+    resolveTextMessageMetadata({
+      ...botRequest,
+      body: {
+        metadata: {
+          ...botRequest.body.metadata,
+          idempotency_key: "whatsapp-bot-resposta-22"
+        }
+      }
+    } as unknown as Request),
+    null,
+    "the idempotency key must belong to the declared bot response"
+  );
 
   let responsePayload: unknown = null;
   const response = {

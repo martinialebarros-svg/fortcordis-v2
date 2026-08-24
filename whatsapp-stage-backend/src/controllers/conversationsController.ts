@@ -11,6 +11,7 @@ import {
   describeCustomerServiceWindow
 } from "../services/customerServiceWindow";
 import { logger } from "../utils/logger";
+import { whatsappGraphRecipient } from "../utils/phoneNumber";
 
 const whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 const phoneNumberId = process.env.PHONE_NUMBER_ID;
@@ -46,6 +47,13 @@ interface ConversationRow {
   wa_phone_number: string;
   last_inbound_at: Date | string | null;
   [key: string]: unknown;
+}
+
+interface PendingMessageReservation {
+  id: string;
+  wa_message_id: string | null;
+  status: string;
+  idempotent: boolean;
 }
 
 const CONVERSATION_STATUSES = ["open", "pending", "closed"] as const;
@@ -390,6 +398,101 @@ async function insertPendingMessage(
   return inserted.rows[0].id;
 }
 
+async function reservePendingTextMessage(
+  conversationId: string,
+  body: string,
+  type: string,
+  metadata: Record<string, unknown>
+): Promise<PendingMessageReservation> {
+  const idempotencyKey = typeof metadata.idempotency_key === "string"
+    ? metadata.idempotency_key.trim()
+    : "";
+  if (!idempotencyKey) {
+    return {
+      id: await insertPendingMessage(conversationId, body, type, metadata),
+      wa_message_id: null,
+      status: "pending",
+      idempotent: false
+    };
+  }
+
+  return withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [idempotencyKey]);
+    const existing = await client.query<{ id: string; wa_message_id: string | null; status: string }>(
+      `
+        SELECT id, wa_message_id, status
+        FROM messages
+        WHERE metadata->>'idempotency_key' = $1
+        LIMIT 1
+      `,
+      [idempotencyKey]
+    );
+    const row = existing.rows[0];
+    if (row && row.status !== "failed") {
+      return { ...row, idempotent: true };
+    }
+    if (row) {
+      const retried = await client.query<{ id: string; wa_message_id: string | null; status: string }>(
+        `
+          UPDATE messages
+          SET conversation_id = $1,
+              body = $2,
+              type = $3,
+              metadata = $4::jsonb,
+              wa_message_id = NULL,
+              status = 'pending',
+              created_at = now()
+          WHERE id = $5
+          RETURNING id, wa_message_id, status
+        `,
+        [conversationId, body, type, JSON.stringify(metadata), row.id]
+      );
+      return { ...retried.rows[0], idempotent: false };
+    }
+    const inserted = await client.query<{ id: string; wa_message_id: string | null; status: string }>(
+      `
+        INSERT INTO messages (
+          conversation_id, from_me, body, type, metadata, status, created_at
+        )
+        VALUES ($1, true, $2, $3, $4::jsonb, 'pending', now())
+        RETURNING id, wa_message_id, status
+      `,
+      [conversationId, body, type, JSON.stringify(metadata)]
+    );
+    return { ...inserted.rows[0], idempotent: false };
+  });
+}
+
+export function resolveTextMessageMetadata(req: Request): Record<string, unknown> | null {
+  const requested = req.body?.metadata;
+  if (requested === undefined || requested === null) {
+    return { source: "agent_api" };
+  }
+  const authenticatedRequest = req as Request & {
+    authUser?: { authSource?: "core_api" | "internal_token" };
+  };
+  if (authenticatedRequest.authUser?.authSource !== "internal_token") {
+    return null;
+  }
+  if (typeof requested !== "object" || Array.isArray(requested)) {
+    return null;
+  }
+  const source = requested.source;
+  const origem = requested.origem;
+  const respostaId = requested.resposta_id;
+  const idempotencyKey = requested.idempotency_key;
+  if (
+    source !== "bot_suggest_reviewed" ||
+    origem !== "bot" ||
+    typeof respostaId !== "string" || !/^\d{1,20}$/.test(respostaId) ||
+    typeof idempotencyKey !== "string" ||
+    idempotencyKey !== `whatsapp-bot-resposta-${respostaId}`
+  ) {
+    return null;
+  }
+  return { source, origem, resposta_id: respostaId, idempotency_key: idempotencyKey };
+}
+
 async function markMessageSent(
   messageId: string,
   waMessageId: string | null,
@@ -485,7 +588,7 @@ async function sendAttachmentMessage(
     graphResponse = await sendWhatsAppDocumentMessageWithRetry({
       phoneNumberId,
       accessToken,
-      to: waPhoneNumber,
+      to: whatsappGraphRecipient(waPhoneNumber),
       mediaId: media.id,
       filename,
       caption: caption || undefined
@@ -608,26 +711,44 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
     return;
   }
 
-  const localMessageId = await insertPendingMessage(conversationId, caption, type, { source: "agent_api" });
+  const messageMetadata = resolveTextMessageMetadata(req);
+  if (!messageMetadata) {
+    res.status(422).json({ error: "Invalid bot message metadata" });
+    return;
+  }
+  const reservation = await reservePendingTextMessage(
+    conversationId,
+    caption,
+    type,
+    messageMetadata
+  );
+  const localMessageId = reservation.id;
+  if (reservation.idempotent) {
+    if (["sent", "delivered", "read"].includes(reservation.status)) {
+      res.status(200).json({
+        id: localMessageId,
+        wa_message_id: reservation.wa_message_id,
+        status: "sent",
+        idempotent: true
+      });
+      return;
+    }
+    res.status(409).json({
+      error: "Message send is already in progress",
+      code: "MESSAGE_SEND_IN_PROGRESS",
+      local_message_id: localMessageId
+    });
+    return;
+  }
 
+  let graphResponse: any;
   try {
-    const graphResponse = await sendWhatsAppMessageWithRetry({
+    graphResponse = await sendWhatsAppMessageWithRetry({
       phoneNumberId,
       accessToken: whatsappAccessToken,
-      to: conversation.wa_phone_number,
+      to: whatsappGraphRecipient(conversation.wa_phone_number),
       body: caption,
       type
-    });
-
-    const waMessageId = graphResponse.messages?.[0]?.id ?? null;
-
-    await markMessageSent(localMessageId, waMessageId, { graph_response: graphResponse });
-    await touchConversation(conversationId);
-
-    res.status(201).json({
-      id: localMessageId,
-      wa_message_id: waMessageId,
-      status: "sent"
     });
   } catch (error: any) {
     logger.error("Graph API send failed", {
@@ -636,14 +757,61 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
       message: error?.message
     });
 
-    await markMessageFailed(localMessageId, error);
-    await touchConversation(conversationId);
+    try {
+      await markMessageFailed(localMessageId, error);
+      await touchConversation(conversationId);
+    } catch (persistenceError: any) {
+      logger.error("Failed to persist WhatsApp send failure", {
+        conversationId,
+        localMessageId,
+        message: persistenceError?.message
+      });
+    }
 
     res.status(502).json({
       error: "Failed to send message to WhatsApp Graph API",
       local_message_id: localMessageId
     });
+    return;
   }
+
+  const waMessageId = graphResponse.messages?.[0]?.id ?? null;
+  try {
+    await markMessageSent(localMessageId, waMessageId, { graph_response: graphResponse });
+  } catch (error: any) {
+    // A Graph API já aceitou a mensagem. Manter a reserva em `pending` é
+    // intencionalmente fail-closed: uma repetição idempotente não pode chamar
+    // a Graph novamente e duplicar a mensagem externa.
+    logger.error("WhatsApp send accepted but local confirmation failed", {
+      conversationId,
+      localMessageId,
+      message: error?.message
+    });
+    res.status(202).json({
+      id: localMessageId,
+      wa_message_id: waMessageId,
+      status: "accepted_unconfirmed",
+      idempotent: false
+    });
+    return;
+  }
+
+  try {
+    await touchConversation(conversationId);
+  } catch (error: any) {
+    logger.error("WhatsApp message sent but conversation touch failed", {
+      conversationId,
+      localMessageId,
+      message: error?.message
+    });
+  }
+
+  res.status(201).json({
+    id: localMessageId,
+    wa_message_id: waMessageId,
+    status: "sent",
+    idempotent: false
+  });
 }
 
 export async function claimConversation(req: Request, res: Response): Promise<void> {

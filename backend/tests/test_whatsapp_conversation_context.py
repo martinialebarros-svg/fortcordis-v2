@@ -135,6 +135,44 @@ class WhatsappConversationContextTest(unittest.TestCase):
         self.assertEqual(result["agendamentos"][0]["id"], appointment.id)
         self.assertEqual(result["ordens_servico"][0]["id"], service_order.id)
 
+    def test_resolve_tutor_pela_identidade_canonica_sem_nono_digito(self) -> None:
+        """CA-012 (nono digito): tutor cadastrado como (85) 99999-0001 (forma
+
+        local, com o nono digito) tambem resolve para `matched` quando a
+        consulta chega na forma canonica do Node (sem o nono digito,
+        558599990001), que e como `conversations.wa_phone_number` fica
+        armazenado no whatsapp-stage-backend.
+        """
+        with self._session_factory() as db:
+            clinic, tutor, patient, appointment, service_order = self._seed_context(db)
+            result = resolve_whatsapp_context(db, "558599990001")
+
+        self.assertEqual(result["resolution"], "matched")
+        self.assertEqual(result["match_type"], "tutor")
+        self.assertEqual(result["tutores"][0]["id"], tutor.id)
+        self.assertEqual(result["pets"][0]["id"], patient.id)
+        self.assertEqual(result["clinicas"][0]["id"], clinic.id)
+        self.assertEqual(result["agendamentos"][0]["id"], appointment.id)
+        self.assertEqual(result["ordens_servico"][0]["id"], service_order.id)
+        # normalized_phone reflete a forma consultada (Node), sem o nono digito -
+        # nao muda o contrato existente do endpoint.
+        self.assertEqual(result["normalized_phone"], "558599990001")
+
+    def test_resolve_nao_confunde_fixo_de_clinica_com_movel_sem_nono_digito(self) -> None:
+        """A busca por variantes do nono digito parte so do numero consultado
+
+        (que sempre vem de uma conversa de WhatsApp, logo e movel); um fixo
+        de clinica com o mesmo formato de 12 digitos nao ganha uma variante
+        "com nono digito" fantasma que poderia colidir com outro cadastro.
+        """
+        with self._session_factory() as db:
+            self._seed_context(db)
+            # Fixo de 12 digitos (55 + DDD + 8 digitos) que nao existe como
+            # cadastro de ninguem - nao deve casar com o tutor de teste.
+            result = resolve_whatsapp_context(db, "558533339999")
+
+        self.assertEqual(result["resolution"], "not_found")
+
     def test_duplicate_number_is_ambiguous_and_does_not_expand_context(self) -> None:
         with self._session_factory() as db:
             _clinic, tutor, _patient, _appointment, _service_order = self._seed_context(db)

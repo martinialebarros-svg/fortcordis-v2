@@ -1,0 +1,470 @@
+"""Orquestracao da geracao de resposta (Fase 4, P4.1-P4.5).
+
+Fluxo de um turno:
+  resolve identidade -> recorta contexto por persona -> provider pede tools
+  -> executa tools escopadas -> gera resposta final -> guardrail -> decide
+  (draft | blocked | suppressed)
+
+O que este modulo NAO faz nesta fase: enviar ao cliente. O envio (RF-027)
+depende de o servico Node aceitar `metadata` do chamador, o que hoje ele NAO
+faz (`sendConversationMessage` crava `{source: "agent_api"}`) - decisao
+registrada em verify.md. Alem disso o endpoint de envio nao tem idempotencia
+e o caminho de texto reclassifica para `failed` quando o banco falha DEPOIS
+de o Meta aceitar, o que combinado com o retry do worker poderia entregar a
+mesma resposta duas vezes. Por isso `decisao="sent"` nao e alcancavel aqui.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from fastapi import HTTPException
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.models.whatsapp_bot import WhatsAppBotResposta
+from app.services.whatsapp_bot_context import build_safe_context
+from app.services.whatsapp_bot_gates import resolve_modo_efetivo
+from app.services.whatsapp_bot_guardrails import (
+    GuardrailVeredito,
+    avaliar_resposta,
+    contar_respostas_do_dia,
+    turno_a_partir_dos_resultados,
+)
+from app.services.whatsapp_bot_prompt import (
+    build_input_payload,
+    build_instructions,
+    resolve_prompt_version,
+)
+from app.services.whatsapp_bot_providers import (
+    MAX_TOOL_ROUNDS,
+    WhatsAppBotProviderError,
+    get_whatsapp_bot_reply_provider,
+)
+from app.services.whatsapp_bot_tools import (
+    TOOL_SCHEMAS,
+    WhatsAppBotToolContext,
+    WhatsAppBotToolError,
+    execute_bot_tool,
+)
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ResultadoGeracao:
+    """O que o worker precisa para gravar `whatsapp_bot_respostas` (RF-026)."""
+
+    decisao: str
+    motivo: str
+    texto_gerado: Optional[str] = None
+    texto_enviado: Optional[str] = None
+    modelo: Optional[str] = None
+    prompt_version: Optional[str] = None
+    tools_usadas: Optional[str] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    latencia_ms: Optional[int] = None
+    resolution: Optional[str] = None
+    match_type: Optional[str] = None
+    clinica_id: Optional[int] = None
+
+
+def _max_tokens_per_day() -> int:
+    try:
+        parsed = int(settings.WHATSAPP_BOT_MAX_TOKENS_PER_DAY)
+    except Exception:
+        parsed = 100000
+    return parsed if parsed > 0 else 100000
+
+
+def contar_tokens_do_dia(db: Session, *, now: Optional[datetime] = None) -> int:
+    """Custo global ja registrado hoje, antes de abrir uma nova chamada paga."""
+    now = now or datetime.now(timezone.utc)
+    inicio_do_dia = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
+    total = (
+        db.query(
+            func.coalesce(func.sum(WhatsAppBotResposta.input_tokens), 0)
+            + func.coalesce(func.sum(WhatsAppBotResposta.output_tokens), 0)
+        )
+        .filter(WhatsAppBotResposta.created_at >= inicio_do_dia)
+        .scalar()
+    )
+    return int(total or 0)
+
+
+def _somar_tokens(total: Optional[int], parcela: Optional[int]) -> Optional[int]:
+    if parcela is None:
+        return total
+    return int(total or 0) + int(parcela)
+
+
+def _argumentos_da_tool(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    try:
+        parsed = json.loads(str(raw or "{}"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _resultado_ok(
+    resultados: list[tuple[str, dict[str, Any]]], nome: str
+) -> Optional[dict[str, Any]]:
+    for tool_nome, resultado in reversed(resultados):
+        if tool_nome == nome and isinstance(resultado, dict) and resultado.get("ok"):
+            return resultado
+    return None
+
+
+def _texto_deterministico_para_dado_sensivel(
+    *, intent: str, texto_modelo: str, resultados: list[tuple[str, dict[str, Any]]]
+) -> str:
+    """Preco e status saem do payload literal, nao da redacao livre do modelo."""
+    sufixo = " Se quiser falar com uma pessoa, é só pedir."
+    if intent == "preco_servico":
+        resultado = _resultado_ok(resultados, "consultar_preco_tabela")
+        itens = list((resultado or {}).get("itens") or [])[:3]
+        if itens:
+            detalhes = "; ".join(
+                f"{str(item.get('servico') or 'servico')}: R$ {str(item.get('valor') or '').replace('.', ',')}"
+                for item in itens
+            )
+            return f"Atendimento automático da FortCordis: valores de tabela - {detalhes}.{sufixo}"
+
+    if intent == "status_laudo":
+        resultado = _resultado_ok(resultados, "consultar_status_laudo")
+        itens = list((resultado or {}).get("itens") or [])[:3]
+        if itens:
+            detalhes = []
+            for item in itens:
+                pet = str(item.get("pet_nome") or "pet")
+                tipo = str(item.get("tipo_exame") or "exame")
+                status = "está pronto" if item.get("status_cliente") == "pronto" else "ainda não está pronto"
+                detalhes.append(f"{tipo} de {pet} {status}")
+            return f"Atendimento automático da FortCordis: {'; '.join(detalhes)}.{sufixo}"
+
+    return texto_modelo
+
+
+def _tools_usadas_json(
+    persona: str,
+    resultados: list[tuple[str, dict[str, Any]]],
+    *,
+    fontes_declaradas: Optional[list[str]] = None,
+) -> str:
+    turno = turno_a_partir_dos_resultados(persona, resultados)
+    return json.dumps(
+        {
+            "tools_tentadas": [nome for nome, _ in resultados],
+            "tools_ok": turno.tools_ok,
+            "fontes_declaradas": fontes_declaradas or [],
+            "tem_trecho_conhecimento": turno.tem_trecho_conhecimento,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _resolver_contexto(db: Session, wa_identity: str) -> dict[str, Any]:
+    """CB-004: numero invalido e `not_found`, nao erro de job.
+
+    `normalize_whatsapp_number` levanta HTTPException(422) e
+    `resolve_whatsapp_context` nao captura - a excecao subiria do meio do
+    worker. Retry nunca conserta um numero invalido.
+    """
+    from app.api.v1.endpoints.whatsapp_contexto import resolve_whatsapp_context
+
+    try:
+        return resolve_whatsapp_context(db, wa_identity)
+    except HTTPException:
+        return {"resolution": "not_found", "match_type": None}
+    except Exception:
+        logger.exception("Falha ao resolver contexto do WhatsApp para o bot.")
+        return {"resolution": "not_found", "match_type": None}
+
+
+def _escopo_da_persona(contexto: dict[str, Any]) -> tuple[Optional[str], Optional[int], Optional[int]]:
+    match_type = contexto.get("match_type")
+    if match_type == "tutor":
+        tutores = contexto.get("tutores") or []
+        tutor_id = tutores[0].get("id") if tutores and isinstance(tutores[0], dict) else None
+        return ("tutor", tutor_id, None) if tutor_id else (None, None, None)
+    if match_type == "clinica":
+        clinicas = contexto.get("clinicas") or []
+        clinica_id = clinicas[0].get("id") if clinicas and isinstance(clinicas[0], dict) else None
+        return ("clinica", None, clinica_id) if clinica_id else (None, None, None)
+    return (None, None, None)
+
+
+def gerar_resposta(
+    db: Session,
+    *,
+    wa_identity: str,
+    corpo_mensagem: str,
+    modo: str,
+    provider: Any = None,
+    persona_forcada: Optional[str] = None,
+    estado: Any = None,
+) -> ResultadoGeracao:
+    """Gera (ou recusa gerar) uma resposta para uma mensagem inbound.
+
+    `persona_forcada` existe apenas para a SIMULACAO do painel de
+    configuracao, onde nao ha cliente real: a identidade sintetica resolve
+    como `not_found` e o fluxo abortaria antes de exercitar as tools. Com ela,
+    a persona e assumida e o escopo de dado do cliente fica VAZIO (ids
+    sinteticos que nunca casam registro), entao as tools institucionais
+    funcionam e as de dado do cliente devolvem vazio - sem vazar nada de
+    ninguem. Nunca use isso no caminho de atendimento real: fora da
+    simulacao, persona sem identidade resolvida e handoff (RF-016).
+    """
+    contexto = _resolver_contexto(db, wa_identity)
+    resolution = str(contexto.get("resolution") or "not_found")
+    match_type, tutor_id, clinica_id = _escopo_da_persona(contexto)
+
+    if persona_forcada in ("tutor", "clinica"):
+        match_type = persona_forcada
+        tutor_id = 0 if persona_forcada == "tutor" else None
+        clinica_id = 0 if persona_forcada == "clinica" else None
+        resolution = "simulacao"
+
+    # RF-P04: participacao por clinica. Roda aqui, e nao junto dos portoes de
+    # `_process_job`, porque `clinica_id` so existe depois de resolver a
+    # identidade - e roda ANTES de tools e provider, entao barrar nao custa
+    # token nem consulta de dado.
+    #
+    # A simulacao do painel passa direto: e ferramenta de admin sobre escopo
+    # sintetico, nao atendimento a cliente real.
+    if persona_forcada is None:
+        # `estado` vem de `_process_job`, que ja o resolveu para os portoes -
+        # passar adiante evita reconsultar a mesma linha no caminho quente.
+        modo_efetivo, bloqueio_participacao = resolve_modo_efetivo(
+            db,
+            wa_identity=wa_identity,
+            match_type=match_type,
+            clinica_id=clinica_id,
+            modo_atual=modo,
+            estado=estado,
+        )
+        if bloqueio_participacao is not None:
+            return ResultadoGeracao(
+                decisao="suppressed",
+                motivo=bloqueio_participacao,
+                resolution=resolution,
+                match_type=match_type,
+                clinica_id=clinica_id,
+            )
+        modo = modo_efetivo
+
+    # RF-025: teto diario por conversa, antes de gastar token.
+    if contar_respostas_do_dia(db, wa_identity) >= int(
+        settings.WHATSAPP_BOT_MAX_REPLIES_PER_CONVERSATION_DAY or 20
+    ):
+        return ResultadoGeracao(
+            decisao="suppressed",
+            motivo="teto_diario",
+            resolution=resolution,
+            match_type=match_type,
+            clinica_id=clinica_id,
+        )
+
+    # RF-016/CA-013: sem identidade resolvida, nenhuma tool de dado roda e
+    # nenhum dado de registro entra no prompt. Nesta fase isso e handoff.
+    if match_type is None:
+        return ResultadoGeracao(
+            decisao="handoff",
+            motivo="identidade_nao_resolvida",
+            resolution=resolution,
+            match_type=None,
+            clinica_id=None,
+        )
+
+    # NFR-005: inclui drafts e bloqueios, pois ambos ja consumiram tokens.
+    # Ao atingir o teto, nao abre nova chamada paga nem envia em `auto`: cria
+    # um rascunho operacional para o atendimento humano continuar.
+    if contar_tokens_do_dia(db) >= _max_tokens_per_day():
+        return ResultadoGeracao(
+            decisao="draft",
+            motivo="teto_global_tokens",
+            texto_gerado=(
+                "Atendimento automático temporariamente direcionado para revisão da equipe."
+            ),
+            prompt_version=resolve_prompt_version(match_type),
+            resolution=resolution,
+            match_type=match_type,
+            clinica_id=clinica_id,
+        )
+
+    try:
+        tool_ctx = WhatsAppBotToolContext(
+            db=db, match_type=match_type, tutor_id=tutor_id, clinica_id=clinica_id
+        )
+    except WhatsAppBotToolError:
+        logger.exception("Escopo incoerente ao montar contexto de tools do bot.")
+        return ResultadoGeracao(
+            decisao="handoff",
+            motivo="escopo_incoerente",
+            resolution=resolution,
+            match_type=match_type,
+            clinica_id=clinica_id,
+        )
+
+    contexto_seguro = build_safe_context(
+        contexto, match_type=match_type, tutor_id=tutor_id, clinica_id=clinica_id
+    )
+    instructions = build_instructions(match_type)
+    prompt_version = resolve_prompt_version(match_type)
+    payload = build_input_payload(
+        mensagem_cliente=corpo_mensagem,
+        persona=match_type,
+        contexto_seguro=contexto_seguro,
+        resultados_de_tools=[],
+    )
+
+    provider = provider or get_whatsapp_bot_reply_provider()
+    iniciado = time.perf_counter()
+    resultados: list[tuple[str, dict[str, Any]]] = []
+    continuation_input: Optional[list[Any]] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    tool_rounds = 0
+    gerado = None
+    try:
+        while True:
+            gerado = provider.generate(
+                instructions=instructions,
+                payload=payload,
+                tools=list(TOOL_SCHEMAS),
+                safety_scope=wa_identity,
+                continuation_input=continuation_input,
+            )
+            input_tokens = _somar_tokens(input_tokens, gerado.input_tokens)
+            output_tokens = _somar_tokens(output_tokens, gerado.output_tokens)
+
+            if gerado.tool_calls:
+                if tool_rounds >= MAX_TOOL_ROUNDS:
+                    return ResultadoGeracao(
+                        decisao="draft",
+                        motivo="limite_rodadas_tools",
+                        texto_gerado=(
+                            "Atendimento automático da FortCordis: não consegui confirmar "
+                            "essa informação com segurança. A equipe pode continuar o atendimento."
+                        ),
+                        modelo=gerado.model,
+                        prompt_version=prompt_version,
+                        tools_usadas=_tools_usadas_json(match_type, resultados),
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        latencia_ms=int((time.perf_counter() - iniciado) * 1000),
+                        resolution=resolution,
+                        match_type=match_type,
+                        clinica_id=clinica_id,
+                    )
+
+                tool_outputs: list[dict[str, Any]] = []
+                for call in gerado.tool_calls:
+                    call_id = str(call.get("call_id") or "").strip()
+                    nome = str(call.get("name") or "").strip()
+                    if not call_id:
+                        raise WhatsAppBotProviderError(
+                            "Tool call sem identificador.", code="invalid_tool_call"
+                        )
+                    resultado_tool = execute_bot_tool(
+                        tool_ctx, nome, _argumentos_da_tool(call.get("arguments"))
+                    )
+                    resultados.append((nome, resultado_tool))
+                    tool_outputs.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps(resultado_tool, ensure_ascii=False, default=str),
+                        }
+                    )
+                continuation_input = [*gerado.continuation_input, *tool_outputs]
+                tool_rounds += 1
+                continue
+
+            if gerado.output is None:
+                raise WhatsAppBotProviderError(
+                    "Resposta final ausente.", code="invalid_structured_output"
+                )
+            break
+    except WhatsAppBotProviderError as exc:
+        return ResultadoGeracao(
+            decisao="handoff",
+            motivo=f"provider:{exc.code}",
+            modelo=gerado.model if gerado is not None else None,
+            prompt_version=prompt_version,
+            tools_usadas=_tools_usadas_json(match_type, resultados),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            resolution=resolution,
+            match_type=match_type,
+            clinica_id=clinica_id,
+            latencia_ms=int((time.perf_counter() - iniciado) * 1000),
+        )
+    latencia_ms = int((time.perf_counter() - iniciado) * 1000)
+    assert gerado is not None and gerado.output is not None
+
+    texto_final = _texto_deterministico_para_dado_sensivel(
+        intent=gerado.output.intent,
+        texto_modelo=gerado.output.texto,
+        resultados=resultados,
+    )
+
+    turno = turno_a_partir_dos_resultados(match_type, resultados)
+    veredito: GuardrailVeredito = avaliar_resposta(
+        texto=texto_final,
+        intent=gerado.output.intent,
+        modo=modo,
+        turno=turno,
+    )
+
+    tools_usadas = _tools_usadas_json(
+        match_type,
+        resultados,
+        fontes_declaradas=gerado.output.fontes,
+    )
+
+    base = ResultadoGeracao(
+        decisao="draft",
+        motivo="",
+        texto_gerado=texto_final,
+        modelo=gerado.model,
+        prompt_version=prompt_version,
+        tools_usadas=tools_usadas,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        latencia_ms=latencia_ms,
+        resolution=resolution,
+        match_type=match_type,
+        clinica_id=clinica_id,
+    )
+
+    if not veredito.aprovado:
+        # Bloqueio NUNCA vira silencio: vira rascunho com o motivo gravado.
+        base.decisao = "blocked"
+        base.motivo = str(veredito.motivo or "bloqueado")
+        return base
+
+    if gerado.output.precisa_humano:
+        base.decisao = "handoff"
+        base.motivo = "modelo_pediu_humano"
+        return base
+
+    if modo == "auto" and not veredito.auto_elegivel:
+        base.decisao = "draft"
+        base.motivo = str(veredito.motivo or "intent_fora_allowlist")
+        return base
+
+    # Aprovado. Em `auto` o envio entraria aqui - mas RF-027 depende de
+    # mudanca no servico Node (ver docstring do modulo), entao ate a Fase 6
+    # toda resposta aprovada e rascunho para a equipe.
+    base.decisao = "draft"
+    base.motivo = "aprovado_aguardando_envio_fase6" if modo == "auto" else "modo_suggest"
+    return base

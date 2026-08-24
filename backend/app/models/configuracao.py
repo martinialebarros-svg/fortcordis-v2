@@ -35,6 +35,11 @@ class Configuracao(Base):
     mostrar_assinatura = Column(Boolean, default=True)
     fortinho_habilitado = Column(Boolean, default=False)
     whatsapp_lembrete_automatico_habilitado = Column(Boolean, default=False)
+    whatsapp_bot_atendimento_habilitado = Column(Boolean, default=False)
+    whatsapp_bot_modo = Column(String(20), default="suggest")
+    # RF-P02: `todos` preserva o comportamento atual; `piloto` inverte o
+    # default - sem habilitacao explicita, a conversa fica `off`.
+    whatsapp_bot_participacao = Column(String(20), default="todos")
 
     # Configurações de agendamento
     horario_comercial_inicio = Column(String(5), default="08:00")

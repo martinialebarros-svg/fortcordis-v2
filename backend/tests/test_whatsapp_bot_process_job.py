@@ -1,0 +1,596 @@
+import os
+import sys
+import tempfile
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+os.chdir(BACKEND_DIR)
+sys.path.insert(0, str(BACKEND_DIR))
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
+os.environ.setdefault("SECRET_KEY", "whatsapp-bot-process-job-test-secret-key-1234567890")
+
+from app.models.alerta_interno import AlertaInterno
+from app.models.configuracao import Configuracao
+from app.models.whatsapp_bot import WhatsAppBotConversaEstado, WhatsAppBotJob, WhatsAppBotResposta
+from app.services import whatsapp_bot_gates as gates
+from app.services import whatsapp_bot_handoff_service as handoff_service
+from app.services import whatsapp_bot_worker_service as worker
+from app.services.whatsapp_bot_generation import ResultadoGeracao
+
+
+def _fake_response(payload):
+    response = Mock()
+    response.raise_for_status = Mock()
+    response.json = Mock(return_value=payload)
+    return response
+
+
+class WhatsAppBotProcessJobTest(unittest.TestCase):
+    def _build_session_factory(self, tmpdir: str):
+        db_path = Path(tmpdir) / "whatsapp-bot-process-job-test.db"
+        engine = create_engine(f"sqlite:///{db_path}")
+        for table in (
+            WhatsAppBotJob.__table__,
+            WhatsAppBotResposta.__table__,
+            WhatsAppBotConversaEstado.__table__,
+            Configuracao.__table__,
+            AlertaInterno.__table__,
+        ):
+            table.create(engine, checkfirst=True)
+        return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine
+
+    def _make_job(self, db, *, wa_identity="558588018899", conversation_id="conv-1", wa_message_id="wamid.1"):
+        job = WhatsAppBotJob(
+            wa_identity=wa_identity,
+            conversation_id=conversation_id,
+            wa_message_id=wa_message_id,
+            status="processing",
+            scheduled_for=datetime.now(timezone.utc) - timedelta(seconds=5),
+            attempts=0,
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        return job
+
+    def _enable_bot(self, db):
+        db.add(Configuracao(whatsapp_bot_atendimento_habilitado=True))
+        db.commit()
+
+    def test_bot_desabilitado_suprime_sem_chamar_node(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", False):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            job = self._make_job(db)
+                            job_id = job.id
+                            with patch.object(worker.httpx, "get") as get_mock:
+                                result = worker._process_job(db, job)
+                                db.commit()
+                            get_mock.assert_not_called()
+                        finally:
+                            db.close()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(result, "done")
+                    self.assertEqual(resposta.decisao, "suppressed")
+                    self.assertEqual(resposta.motivo, "bot_desabilitado")
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_modo_off_por_conversa_suprime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            db.add(WhatsAppBotConversaEstado(wa_identity="558588018899", modo="off"))
+                            db.commit()
+                            job = self._make_job(db)
+                            job_id = job.id
+                            with patch.object(worker.httpx, "get") as get_mock:
+                                worker._process_job(db, job)
+                                db.commit()
+                            get_mock.assert_not_called()
+                        finally:
+                            db.close()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "suppressed")
+                    self.assertEqual(resposta.motivo, "modo_off")
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_pausa_local_ainda_vigente_suprime_sem_chamar_node(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            db.add(
+                                WhatsAppBotConversaEstado(
+                                    wa_identity="558588018899",
+                                    modo="suggest",
+                                    pausado_ate=datetime.now(timezone.utc) + timedelta(hours=1),
+                                )
+                            )
+                            db.commit()
+                            job = self._make_job(db)
+                            job_id = job.id
+                            with patch.object(worker.httpx, "get") as get_mock:
+                                worker._process_job(db, job)
+                                db.commit()
+                            get_mock.assert_not_called()
+                        finally:
+                            db.close()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "suppressed")
+                    self.assertEqual(resposta.motivo, "pausado")
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def _run_with_node_mocks(self, db, job, *, conversation_row, message_row):
+        """Uma unica chamada ao Node: a ultima mensagem vem no payload da conversa.
+
+        O Node monta `last_message_*` por LATERAL com `ORDER BY created_at DESC`
+        (`conversationsController.ts:128`), entao e sempre a mensagem certa. A
+        segunda chamada que existia aqui batia em `/conversations/:id/messages`,
+        que e ASC paginado: com `page=1&limit=200` devolvia a 200a mais ANTIGA em
+        conversa com mais de 200 mensagens.
+        """
+        conversation_row = {
+            **conversation_row,
+            "last_message_body": message_row.get("body"),
+            "last_message_from_me": message_row.get("from_me"),
+            "last_message_type": message_row.get("type"),
+            "last_message_at": message_row.get("created_at") or "2026-08-23T12:00:00+00:00",
+        }
+        conversations_response = _fake_response({"data": [conversation_row]})
+        with patch.object(gates.settings, "WHATSAPP_AGENDA_SERVICE_URL", "http://127.0.0.1:3010"):
+            with patch.object(gates.settings, "WHATSAPP_AGENDA_INTERNAL_TOKEN", "segredo"):
+                with patch.object(handoff_service, "send_whatsapp_message_push_notification") as push_mock:
+                    with patch.object(handoff_service.httpx, "patch", return_value=_fake_response({})) as patch_mock:
+                        with patch.object(worker.httpx, "get", side_effect=[conversations_response]) as get_mock:
+                            result = worker._process_job(db, job)
+                            db.commit()
+        return result, get_mock, patch_mock, push_mock
+
+    def test_conversa_divergente_suprime_sem_responder(self) -> None:
+        """A busca e por telefone; o job carrega a conversa que o originou.
+
+        Se o Node devolver outra conversa para o mesmo telefone, o claim, a
+        janela e a ultima mensagem lidos sao de OUTRA conversa. Responder com
+        base nisso seria pior do que nao responder.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            job = self._make_job(db, conversation_id="conv-1")
+                            job_id = job.id
+                            result, _get, patch_mock, push_mock = self._run_with_node_mocks(
+                                db,
+                                job,
+                                conversation_row={
+                                    "id": "conv-OUTRA",
+                                    "wa_phone_number": "558588018899",
+                                    "last_agent_id": None,
+                                    "last_inbound_at": datetime.now(timezone.utc).isoformat(),
+                                },
+                                message_row={"wa_message_id": "wamid.x", "from_me": False, "type": "text", "body": "oi"},
+                            )
+                        finally:
+                            db.close()
+
+                self.assertEqual(result, "done")
+                patch_mock.assert_not_called()
+                push_mock.assert_not_called()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "suppressed")
+                    self.assertEqual(resposta.motivo, "conversa_divergente")
+                    self.assertIsNone(resposta.texto_gerado)
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_claim_detectado_no_node_pausa_e_grava_estado_local(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            job = self._make_job(db)
+                            job_id = job.id
+                            result, get_mock, patch_mock, push_mock = self._run_with_node_mocks(
+                                db,
+                                job,
+                                conversation_row={"id": "conv-1", "wa_phone_number": "558588018899", "last_agent_id": 7, "last_inbound_at": datetime.now(timezone.utc).isoformat()},
+                                message_row={"wa_message_id": "wamid.1", "from_me": False, "type": "text", "body": "oi"},
+                            )
+                        finally:
+                            db.close()
+
+                # Uma chamada, nao duas: a ultima mensagem vem junto da conversa.
+                self.assertEqual(get_mock.call_count, 1)
+                patch_mock.assert_not_called()
+                push_mock.assert_not_called()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "suppressed")
+                    self.assertEqual(resposta.motivo, "pausado")
+                    estado = verify.query(WhatsAppBotConversaEstado).filter(WhatsAppBotConversaEstado.wa_identity == "558588018899").first()
+                    self.assertIsNotNone(estado)
+                    self.assertGreater(estado.pausado_ate.replace(tzinfo=timezone.utc), datetime.now(timezone.utc))
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_resposta_humana_from_me_pausa(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            job = self._make_job(db)
+                            job_id = job.id
+                            result, get_mock, patch_mock, push_mock = self._run_with_node_mocks(
+                                db,
+                                job,
+                                conversation_row={"id": "conv-1", "wa_phone_number": "558588018899", "last_agent_id": None, "last_inbound_at": datetime.now(timezone.utc).isoformat()},
+                                message_row={"wa_message_id": "wamid.staff", "from_me": True, "type": "text", "body": "Ja te respondo"},
+                            )
+                        finally:
+                            db.close()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "suppressed")
+                    self.assertEqual(resposta.motivo, "pausado")
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_tipo_nao_suportado_vira_handoff_sem_alerta(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            job = self._make_job(db)
+                            job_id = job.id
+                            result, get_mock, patch_mock, push_mock = self._run_with_node_mocks(
+                                db,
+                                job,
+                                conversation_row={"id": "conv-1", "wa_phone_number": "558588018899", "last_agent_id": None, "last_inbound_at": datetime.now(timezone.utc).isoformat()},
+                                message_row={"wa_message_id": "wamid.1", "from_me": False, "type": "audio", "body": "[audio]"},
+                            )
+                        finally:
+                            db.close()
+
+                patch_mock.assert_not_called()
+                push_mock.assert_not_called()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "handoff")
+                    self.assertEqual(resposta.motivo, "tipo_nao_suportado")
+                    alertas = verify.query(AlertaInterno).count()
+                    self.assertEqual(alertas, 0)
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_emergencia_dispara_handoff_critico_com_alerta_patch_e_push(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            job = self._make_job(db)
+                            job_id = job.id
+                            result, get_mock, patch_mock, push_mock = self._run_with_node_mocks(
+                                db,
+                                job,
+                                conversation_row={"id": "conv-1", "wa_phone_number": "558588018899", "last_agent_id": None, "last_inbound_at": datetime.now(timezone.utc).isoformat()},
+                                message_row={"wa_message_id": "wamid.1", "from_me": False, "type": "text", "body": "meu cachorro nao esta respirando, socorro"},
+                            )
+                        finally:
+                            db.close()
+
+                patch_mock.assert_called_once()
+                push_mock.assert_called_once()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "handoff")
+                    self.assertEqual(resposta.motivo, "emergencia")
+                    self.assertIn("Ligue agora", resposta.texto_gerado)
+
+                    alerta = verify.query(AlertaInterno).first()
+                    self.assertIsNotNone(alerta)
+                    self.assertEqual(alerta.nivel, "critico")
+
+                    estado = verify.query(WhatsAppBotConversaEstado).filter(WhatsAppBotConversaEstado.wa_identity == "558588018899").first()
+                    self.assertEqual(estado.handoff_motivo, "emergencia")
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_emergencia_ignora_pausa_e_janela_fechada(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            job = self._make_job(db)
+                            job_id = job.id
+                            # last_agent_id preenchido (conversa reivindicada) e
+                            # last_inbound_at antigo (janela de 24h fechada) -
+                            # mesmo assim a emergencia tem que passar na frente.
+                            result, get_mock, patch_mock, push_mock = self._run_with_node_mocks(
+                                db,
+                                job,
+                                conversation_row={
+                                    "id": "conv-1",
+                                    "wa_phone_number": "558588018899",
+                                    "last_agent_id": 3,
+                                    "last_inbound_at": (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat(),
+                                },
+                                message_row={"wa_message_id": "wamid.1", "from_me": False, "type": "text", "body": "convulsao agora, o que eu faco"},
+                            )
+                        finally:
+                            db.close()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "handoff")
+                    self.assertEqual(resposta.motivo, "emergencia")
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_pedido_de_humano_dispara_handoff_com_alerta_patch_e_push(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            job = self._make_job(db)
+                            job_id = job.id
+                            result, get_mock, patch_mock, push_mock = self._run_with_node_mocks(
+                                db,
+                                job,
+                                conversation_row={"id": "conv-1", "wa_phone_number": "558588018899", "last_agent_id": None, "last_inbound_at": datetime.now(timezone.utc).isoformat()},
+                                message_row={"wa_message_id": "wamid.1", "from_me": False, "type": "text", "body": "quero falar com um atendente"},
+                            )
+                        finally:
+                            db.close()
+
+                patch_mock.assert_called_once()
+                push_mock.assert_called_once()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "handoff")
+                    self.assertEqual(resposta.motivo, "pedido_humano")
+                    self.assertTrue(resposta.texto_gerado)
+
+                    alerta = verify.query(AlertaInterno).first()
+                    self.assertEqual(alerta.nivel, "aviso")
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_janela_de_24h_fechada_suprime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            job = self._make_job(db)
+                            job_id = job.id
+                            result, get_mock, patch_mock, push_mock = self._run_with_node_mocks(
+                                db,
+                                job,
+                                conversation_row={
+                                    "id": "conv-1",
+                                    "wa_phone_number": "558588018899",
+                                    "last_agent_id": None,
+                                    "last_inbound_at": (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat(),
+                                },
+                                message_row={"wa_message_id": "wamid.1", "from_me": False, "type": "text", "body": "oi, ainda esta ai?"},
+                            )
+                        finally:
+                            db.close()
+
+                patch_mock.assert_not_called()
+                push_mock.assert_not_called()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "suppressed")
+                    self.assertEqual(resposta.motivo, "janela_fechada")
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_todos_portoes_abertos_com_identidade_nao_resolvida_vira_handoff(self) -> None:
+        """Fase 4: passados os portoes, o job entra na geracao.
+
+        Aqui a identidade nao resolve (a base deste teste nao tem as tabelas
+        de cadastro), e RF-016 manda nao mencionar nenhum dado de registro -
+        entao o caminho correto e handoff, sem chamar provider nenhum.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            job = self._make_job(db)
+                            job_id = job.id
+                            result, get_mock, patch_mock, push_mock = self._run_with_node_mocks(
+                                db,
+                                job,
+                                conversation_row={"id": "conv-1", "wa_phone_number": "558588018899", "last_agent_id": None, "last_inbound_at": datetime.now(timezone.utc).isoformat()},
+                                message_row={"wa_message_id": "wamid.1", "from_me": False, "type": "text", "body": "qual o horario de funcionamento?"},
+                            )
+                        finally:
+                            db.close()
+
+                patch_mock.assert_not_called()
+                push_mock.assert_not_called()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "handoff")
+                    self.assertEqual(resposta.motivo, "identidade_nao_resolvida")
+                    self.assertEqual(resposta.resolution, "not_found")
+                    self.assertIsNone(resposta.texto_gerado)
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_resultado_do_gerador_e_persistido_com_auditoria_completa(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            job = self._make_job(db)
+                            job_id = job.id
+                            gerado = ResultadoGeracao(
+                                decisao="blocked",
+                                motivo="diagnostico",
+                                texto_gerado="texto bloqueado",
+                                modelo="fake-model",
+                                prompt_version="prompt-v1",
+                                tools_usadas='{"tools_ok":["consultar_dados_institucionais"]}',
+                                input_tokens=120,
+                                output_tokens=40,
+                                latencia_ms=321,
+                                resolution="matched",
+                                match_type="tutor",
+                            )
+                            with patch.object(worker, "gerar_resposta", return_value=gerado):
+                                self._run_with_node_mocks(
+                                    db,
+                                    job,
+                                    conversation_row={
+                                        "id": "conv-1",
+                                        "wa_phone_number": "558588018899",
+                                        "last_agent_id": None,
+                                        "last_inbound_at": datetime.now(timezone.utc).isoformat(),
+                                    },
+                                    message_row={
+                                        "wa_message_id": "wamid.1",
+                                        "from_me": False,
+                                        "type": "text",
+                                        "body": "mensagem segura para o teste",
+                                    },
+                                )
+                        finally:
+                            db.close()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter_by(job_id=job_id).first()
+                    self.assertEqual(resposta.decisao, "blocked")
+                    self.assertEqual(resposta.motivo, "diagnostico")
+                    self.assertEqual(resposta.texto_gerado, "texto bloqueado")
+                    self.assertEqual(resposta.modelo, "fake-model")
+                    self.assertEqual(resposta.prompt_version, "prompt-v1")
+                    self.assertIn("consultar_dados_institucionais", resposta.tools_usadas)
+                    self.assertEqual(resposta.input_tokens, 120)
+                    self.assertEqual(resposta.output_tokens, 40)
+                    self.assertEqual(resposta.latencia_ms, 321)
+                    self.assertEqual(resposta.resolution, "matched")
+                    self.assertEqual(resposta.match_type, "tutor")
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+
+if __name__ == "__main__":
+    unittest.main()

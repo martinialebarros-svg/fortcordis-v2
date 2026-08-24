@@ -16,5 +16,6 @@ Data: 2026-08-14
 - [x] P12. Diagnosticar o primeiro callback real rejeitado pela divergencia do nono digito brasileiro.
 - [x] P13. Implementar identidade canonica restrita, teste de equivalencia e unificacao das novas conversas.
 - [x] P14. Publicar a correcao em stage e repetir uma confirmacao real antes de concluir P10.
-- [ ] P15. Subir o runtime WhatsApp exclusivo de producao na porta `3020`, validar health/smoke e somente depois mover o callback Meta.
-- [ ] P16. Confirmar em producao um callback do campo `messages` e um envio real com modelo aprovado.
+- [x] P15. Subir o runtime WhatsApp exclusivo de producao na porta `3020`, validar health/smoke e somente depois mover o callback Meta.
+- [x] P16. Confirmar em producao o callback do campo `messages` e a identidade Graph do numero aprovado.
+- [ ] P17. Concluir o corte de stage para app, WABA e numero de teste exclusivos, sem alterar o callback de producao.

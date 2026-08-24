@@ -5,6 +5,10 @@ export async function notifyPushForInboundMessage(params: {
   conversationId: string;
   contactLabel: string | null;
   bodyPreview: string;
+  waPhoneNumber?: string | null;
+  waMessageId?: string | null;
+  messageType?: string | null;
+  messageTimestamp?: string | null;
 }): Promise<void> {
   const apiBackendUrl = String(process.env.API_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
   const internalToken = String(process.env.WHATSAPP_INTERNAL_API_TOKEN || "").trim();
@@ -18,7 +22,14 @@ export async function notifyPushForInboundMessage(params: {
       {
         conversation_id: params.conversationId,
         contact_label: params.contactLabel ?? "",
-        body_preview: params.bodyPreview
+        body_preview: params.bodyPreview,
+        // Opcionais (RF-001): usados pelo bot de atendimento para enfileirar
+        // um job por mensagem recebida. Um backend Python antigo os ignora;
+        // a reconciliacao do bot cobre o caso de um Node antigo nao envia-los.
+        wa_phone_number: params.waPhoneNumber ?? undefined,
+        wa_message_id: params.waMessageId ?? undefined,
+        message_type: params.messageType ?? undefined,
+        message_timestamp: params.messageTimestamp ?? undefined
       },
       {
         headers: {
