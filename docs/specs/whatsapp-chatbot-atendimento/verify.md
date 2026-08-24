@@ -1183,3 +1183,75 @@ se conhecia.
 2. Cadastrar "Drenagem de efusao" ou parar de oferece-la na tabela do WhatsApp.
 3. Mapear as colunas de plantao em `_REGIAO_COLUNAS` e escolher a faixa pelo
    horario. So depois disso `preco_servico` pode voltar ao `auto`.
+
+
+### Conteudo institucional cadastrado e revisado (2026-08-24)
+
+Extraido do historico real do WhatsApp (45 dias, 364 conversas), sem PII e sem
+preco. Quatro documentos ativos em stage; prontidao em **12 prontos / 2
+pendentes** — so `status_laudo`, que depende de conversa real e nao fecha por
+cadastro.
+
+| Documento | Publico | Categoria |
+| --- | --- | --- |
+| Area de atendimento e modalidades | ambos | `institucional` |
+| Como agendar um atendimento | tutor | `institucional_tutor` |
+| Como a clinica parceira solicita um exame | clinica | `institucional_clinica` |
+| Exames cardiologicos antes de procedimento com anestesia | ambos | `institucional` |
+
+#### O que NAO entrou, e por que
+
+Preco, endereco, telefone e horario comercial vem de tools
+(`consultar_preco_tabela`, `consultar_dados_institucionais`,
+`consultar_horario_funcionamento`). Duplica-los na base criaria segunda fonte
+de verdade que envelhece em silencio — e o guardrail ancora valor, telefone e
+CEP no retorno **da tool**, entao o documento divergente seria rejeitado, nao
+obedecido. So o **plantao** entrou (documento 1), e apenas o *quando*, porque
+nenhuma tool representa essa faixa hoje.
+
+#### Correcao aplicada por informacao do usuario
+
+A primeira versao do documento da clinica dizia so "sao realizados apenas os
+exames que constam na solicitacao". **Verdade pela metade**: a solicitacao e
+**teto, nao obrigacao**. O cliente pode fazer so parte dos exames conosco — o
+caso descrito pelo usuario (solicitacao de eco, eletro e PA, mas so o eco aqui
+porque os outros ja foram feitos em outro lugar) e frequente. Do jeito
+anterior, o bot poderia dar a entender que os tres seriam realizados.
+
+Acrescentado tambem: a solicitacao e emitida pelo veterinario, tem **validade
+de 30 dias**, e o cliente domiciliar envia foto ou PDF dela.
+
+Descartado por decisao do usuario o texto sobre castracao em animais a partir
+de 5 anos, encontrado no historico. A regra real e mais ampla e virou o quarto
+documento: **eco e eletro sao exigidos antes de qualquer procedimento com
+anestesia, independente de idade e de qual seja o procedimento**.
+
+#### Duas decisoes de redacao
+
+1. **O texto pede foto ou PDF mas nao promete le-lo.** Diz "a equipe confere o
+   documento", nao "me envie que eu verifico". Quando a imagem chegar, por
+   RF-013 vira handoff e uma pessoa assume — o comportamento correto. Prometer
+   analise de anexo seria criar expectativa que o bot nao cumpre.
+2. **Os termos que o cliente digita ficaram no texto** ("a domicilio", "atende
+   na minha regiao", "agendar", "solicitacao de exame", "castracao",
+   "cirurgia"). A busca tem piso por palavra-chave: documento escrito em
+   linguagem interna fica correto e invisivel.
+
+O quarto documento foi **verificado contra as quatro listas de bloqueio
+clinico antes de ser escrito** (`diagnostico`, `dose_medicacao`, `prognostico`,
+`avaliacao_sintoma`). Se algum termo casasse, o documento ficaria correto e a
+intent inrespondivel — o bot bloquearia a propria resposta. E redigido como
+**exigencia** ("sao exigidos antes de"), nao como conduta ("seu pet precisa
+de"), que resvalaria em orientacao clinica.
+
+#### Como a revisao foi aplicada
+
+O projeto **nao edita documento**: arquiva e recria, coerente com
+`conteudo_sha256` e auditoria. Os dois desatualizados foram arquivados via
+`POST /assistente-ia/conhecimento/{id}/arquivar` (admin-only) e recriados.
+Confirmado antes de agir que `search_knowledge` filtra `status == "active"`
+(`assistente_ia_management.py:658`) — sem isso, cadastrar as versoes novas
+deixaria **duas** respostas conflitantes na base, e a busca poderia devolver a
+velha.
+
+Estado final: 4 documentos visiveis, 0 ignorados.
