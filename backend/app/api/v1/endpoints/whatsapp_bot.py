@@ -96,6 +96,19 @@ def _estado_payload(db: Session, wa_identity: str) -> dict:
         .order_by(WhatsAppBotResposta.id.desc())
         .first()
     )
+
+    # RF-022: bloqueio nunca vira silencio. Ate aqui a central so mostrava
+    # `draft`, entao `blocked` e `handoff` eram invisiveis: o bot recusava
+    # responder e ninguem ficava sabendo. Olhamos a ULTIMA resposta da conversa
+    # em vez de "a ultima recusa" para nao ressuscitar um bloqueio velho que ja
+    # foi superado por um rascunho ou por um envio.
+    ultima = (
+        db.query(WhatsAppBotResposta)
+        .filter(WhatsAppBotResposta.wa_identity == wa_identity)
+        .order_by(WhatsAppBotResposta.id.desc())
+        .first()
+    )
+    recusa = ultima if ultima is not None and ultima.decisao in ("blocked", "handoff") else None
     return {
         "wa_identity": wa_identity,
         "modo": modo,
@@ -110,6 +123,21 @@ def _estado_payload(db: Session, wa_identity: str) -> dict:
                 "criado_em": rascunho.created_at.isoformat() if rascunho.created_at else None,
             }
             if rascunho is not None
+            else None
+        ),
+        # Sem `texto_gerado` de proposito. Em `blocked` o texto e justamente o
+        # que o guardrail recusou - diagnostico, dose, valor sem fonte - e
+        # coloca-lo no payload o deixa a um copiar-colar de ser enviado ao
+        # cliente. O atendente precisa saber QUE o bot recusou e POR QUE, nao
+        # receber a frase proibida de volta.
+        "ultima_recusa": (
+            {
+                "resposta_id": recusa.id,
+                "decisao": recusa.decisao,
+                "motivo": recusa.motivo,
+                "criado_em": recusa.created_at.isoformat() if recusa.created_at else None,
+            }
+            if recusa is not None
             else None
         ),
     }

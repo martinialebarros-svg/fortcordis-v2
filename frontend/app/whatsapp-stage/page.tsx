@@ -6,7 +6,7 @@ import {
   AlertCircle, Building2, CalendarDays, Check, CheckCheck, ChevronRight,
   CircleDot, ClipboardList, Clock3, FileText, Filter, Inbox, Info, Link2,
   MessageSquare, MessagesSquare, Paperclip, PawPrint, Pencil, RefreshCw, Search, Send, Settings,
-  Sparkles, UserCheck, UserRound, Users, X,
+  ShieldAlert, Sparkles, UserCheck, UserRound, Users, X,
 } from "lucide-react";
 import DashboardLayout from "../layout-dashboard";
 import {
@@ -130,6 +130,14 @@ interface WhatsAppBotDraft {
   texto_gerado: string;
   criado_em: string | null;
 }
+/** Sem `texto_gerado` de proposito: em `blocked` o texto e o que o guardrail
+ *  recusou, e o backend nao o devolve. Aqui so o motivo e acionavel. */
+interface WhatsAppBotRecusa {
+  resposta_id: number;
+  decisao: "blocked" | "handoff";
+  motivo: string | null;
+  criado_em: string | null;
+}
 interface WhatsAppBotConversationState {
   wa_identity: string;
   modo: WhatsAppBotMode;
@@ -138,7 +146,31 @@ interface WhatsAppBotConversationState {
   pausado: boolean;
   handoff_motivo: string | null;
   rascunho_pendente: WhatsAppBotDraft | null;
+  ultima_recusa: WhatsAppBotRecusa | null;
 }
+
+/** Motivos que o guardrail grava, em portugues de atendente. Chave
+ *  desconhecida cai no proprio motivo bruto, que e melhor que sumir. */
+const BOT_RECUSA_MOTIVOS: Record<string, string> = {
+  diagnostico: "a resposta continha diagnóstico",
+  dose_medicacao: "a resposta continha medicação ou dose",
+  prognostico: "a resposta continha prognóstico",
+  avaliacao_sintoma: "a resposta avaliava um sintoma",
+  vazamento_conteudo_laudo: "a resposta trazia conteúdo de laudo",
+  sem_fonte: "não havia fonte para o que seria afirmado",
+  valor_fora_tabela: "havia valor fora da tabela de preços",
+  prazo_nao_confirmado: "havia prazo ou horário sem confirmação",
+  contato_fora_da_fonte: "havia telefone ou CEP fora do cadastro",
+  endereco_sem_fonte: "havia endereço sem cadastro que o sustente",
+  teto_caracteres: "a resposta passou do limite de tamanho",
+  emergencia: "possível emergência: contato telefônico imediato",
+  pedido_humano: "o cliente pediu para falar com uma pessoa",
+  identidade_nao_resolvida: "o número não foi reconhecido no cadastro",
+  tipo_nao_suportado: "a mensagem não é de texto",
+  escopo_incoerente: "o escopo da conversa está inconsistente",
+  conversa_divergente: "o serviço devolveu outra conversa para este número",
+  modelo_pediu_humano: "o próprio bot pediu ajuda humana",
+};
 
 const MESSAGE_STATUS_REFRESH_INTERVAL_MS = 5_000;
 const CUSTOMER_SERVICE_WINDOW_CLOCK_INTERVAL_MS = 30_000;
@@ -994,6 +1026,19 @@ export default function WhatsAppStagePage() {
               </div>
               {!windowState.isOpen ? <small className="fc-wa-bot-draft-warning">Janela de 24 horas fechada: revise o rascunho, mas use um modelo aprovado para responder.</small> : null}
             </section> : loadingBotState && selectedConversationId ? <div className="fc-wa-bot-draft-loading">Verificando sugestão do bot...</div> : null}
+
+            {/* RF-022: bloqueio nunca vira silencio. Sem esta secao o bot
+                recusava responder e ninguem na central ficava sabendo.
+                Deliberadamente sem Enviar/Editar: o texto recusado nem chega
+                do backend, justamente para nao ficar a um clique do cliente. */}
+            {botConversationState?.ultima_recusa ? <section className="fc-wa-bot-recusa" aria-label="O bot não respondeu">
+              <div className="fc-wa-bot-recusa-heading">
+                <span><ShieldAlert className="h-4 w-4" /> {botConversationState.ultima_recusa.decisao === "handoff" ? "O bot passou para a equipe" : "O bot não respondeu"}</span>
+                <small>{formatDateTime(botConversationState.ultima_recusa.criado_em)}</small>
+              </div>
+              <p>{BOT_RECUSA_MOTIVOS[botConversationState.ultima_recusa.motivo || ""] || botConversationState.ultima_recusa.motivo || "motivo não registrado"}.</p>
+              <small>Responda você mesmo pelo campo abaixo. O texto que o bot chegou a montar não é exibido nem enviável.</small>
+            </section> : null}
 
             <div className="fc-wa-composer"><div className="fc-wa-composer-tabs" role="tablist" aria-label="Modo de resposta">
               <button type="button" role="tab" aria-selected={composerMode === "message"} className={composerMode === "message" ? "active" : ""} onClick={() => setComposerMode("message")}><MessageSquare className="h-4 w-4" /> Mensagem</button>

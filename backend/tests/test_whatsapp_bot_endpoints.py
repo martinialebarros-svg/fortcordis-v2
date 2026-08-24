@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tempfile
@@ -194,6 +195,119 @@ class WhatsAppBotEndpointsTest(unittest.TestCase):
 
                 self.assertIsNotNone(resposta["rascunho_pendente"])
                 self.assertEqual(resposta["rascunho_pendente"]["texto_gerado"], "Ola! posso ajudar?")
+            finally:
+                engine.dispose()
+
+    def _seed_resposta(self, db, *, decisao, motivo, texto_gerado=None, wa_identity="558588018899"):
+        job = WhatsAppBotJob(
+            wa_identity=wa_identity,
+            conversation_id="conv-1",
+            wa_message_id=f"wamid.{decisao}.{motivo}",
+            status="done",
+            scheduled_for=datetime.now(timezone.utc),
+        )
+        db.add(job)
+        db.commit()
+        db.add(
+            WhatsAppBotResposta(
+                job_id=job.id,
+                wa_identity=wa_identity,
+                conversation_id="conv-1",
+                decisao=decisao,
+                motivo=motivo,
+                texto_gerado=texto_gerado,
+            )
+        )
+        db.commit()
+
+    def test_get_estado_expoe_bloqueio_com_motivo_e_sem_o_texto_recusado(self) -> None:
+        """RF-022: bloqueio nunca vira silencio.
+
+        O texto fica DE FORA de proposito: em `blocked` ele e exatamente o que o
+        guardrail recusou, e devolve-lo poria a frase proibida a um
+        copiar-colar de ir ao cliente.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    self._seed_resposta(
+                        db,
+                        decisao="blocked",
+                        motivo="diagnostico",
+                        texto_gerado="Pelo quadro parece cardiomiopatia dilatada.",
+                    )
+                    resposta = whatsapp_bot.get_conversa_estado("558588018899", db=db, current_user=self._user())
+                finally:
+                    db.close()
+
+                recusa = resposta["ultima_recusa"]
+                self.assertIsNotNone(recusa)
+                self.assertEqual(recusa["decisao"], "blocked")
+                self.assertEqual(recusa["motivo"], "diagnostico")
+                self.assertNotIn("texto_gerado", recusa)
+                self.assertNotIn("cardiomiopatia", json.dumps(resposta, default=str))
+                self.assertIsNone(resposta["rascunho_pendente"])
+            finally:
+                engine.dispose()
+
+    def test_get_estado_expoe_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    self._seed_resposta(db, decisao="handoff", motivo="emergencia")
+                    resposta = whatsapp_bot.get_conversa_estado("558588018899", db=db, current_user=self._user())
+                finally:
+                    db.close()
+
+                self.assertEqual(resposta["ultima_recusa"]["decisao"], "handoff")
+                self.assertEqual(resposta["ultima_recusa"]["motivo"], "emergencia")
+            finally:
+                engine.dispose()
+
+    def test_bloqueio_superado_por_rascunho_novo_nao_reaparece(self) -> None:
+        """Olhamos a ULTIMA resposta, nao "a ultima recusa".
+
+        Senao um bloqueio velho ficaria pendurado na tela para sempre, mesmo
+        depois de o bot ter conseguido responder na mensagem seguinte.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    self._seed_resposta(db, decisao="blocked", motivo="sem_fonte")
+                    self._seed_resposta(
+                        db, decisao="draft", motivo="modo_suggest", texto_gerado="Funcionamos das 08h as 14h."
+                    )
+                    resposta = whatsapp_bot.get_conversa_estado("558588018899", db=db, current_user=self._user())
+                finally:
+                    db.close()
+
+                self.assertIsNone(resposta["ultima_recusa"])
+                self.assertEqual(resposta["rascunho_pendente"]["texto_gerado"], "Funcionamos das 08h as 14h.")
+            finally:
+                engine.dispose()
+
+    def test_suppressed_nao_vira_aviso_na_central(self) -> None:
+        """`suppressed` e estado esperado (bot desligado, pausa, teto).
+
+        Virar aviso transformaria operacao normal em ruido permanente.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    self._seed_resposta(db, decisao="suppressed", motivo="pausado")
+                    resposta = whatsapp_bot.get_conversa_estado("558588018899", db=db, current_user=self._user())
+                finally:
+                    db.close()
+
+                self.assertIsNone(resposta["ultima_recusa"])
             finally:
                 engine.dispose()
 

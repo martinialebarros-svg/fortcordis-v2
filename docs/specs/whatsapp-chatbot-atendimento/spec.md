@@ -204,6 +204,15 @@ de pausa e claim, não por relógio.
     contato publicável, e devolve `tem_endereco`/`tem_contato` porque uma única
     tool sustenta as intents `endereco` e `formas_contato`. Cidade e estado
     sozinhos não são endereço.
+  - **Como o bloqueio aparece na central (2026-08-24).** "Bloqueio nunca vira
+    silêncio" se cumpre avisando a equipe, **não** devolvendo a frase recusada.
+    `GET /conversas/{wa_identity}/estado` expõe `ultima_recusa` com `decisao`
+    (`blocked` ou `handoff`), `motivo` e `criado_em` — e **sem
+    `texto_gerado`**. Em `blocked` o texto é justamente o que o guardrail
+    recusou (diagnóstico, dose, valor sem fonte); devolvê-lo o deixaria a um
+    copiar-colar de ir ao cliente. A central mostra o aviso sem ação de envio.
+    `suppressed` não vira aviso: é estado esperado (bot desligado, pausa,
+    teto) e viraria ruído permanente.
 - RF-023 (emergência): termos de emergência na entrada ("não está respirando",
   "desmaiou", "convulsão", "sangramento", "atropelado", "engasgado" e afins,
   em lista versionada) **não passam pelo gerador**. Resposta fixa e curta

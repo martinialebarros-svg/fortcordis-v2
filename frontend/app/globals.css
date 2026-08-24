@@ -4326,6 +4326,30 @@ body {
     @apply mb-2 flex items-center justify-between gap-3;
   }
 
+  /* Aviso de recusa: mesma anatomia do rascunho, cor de alerta e sem acoes.
+     A ausencia de botao aqui e intencional - o texto recusado nem chega do
+     backend, entao nao existe o que enviar. */
+  .fc-wa-bot-recusa {
+    @apply border-t border-amber-200 bg-amber-50/70 p-3;
+  }
+
+  .fc-wa-bot-recusa-heading {
+    @apply mb-2 flex items-center justify-between gap-3;
+  }
+
+  .fc-wa-bot-recusa-heading span {
+    @apply inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wide text-amber-800;
+  }
+
+  .fc-wa-bot-recusa-heading small,
+  .fc-wa-bot-recusa > small {
+    @apply text-[10px] font-medium text-ink-500;
+  }
+
+  .fc-wa-bot-recusa > p {
+    @apply mb-1 rounded-xl border border-amber-100 bg-white p-3 text-sm leading-5 text-ink-900;
+  }
+
   .fc-wa-bot-draft-heading span {
     @apply inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wide text-vital-700;
   }

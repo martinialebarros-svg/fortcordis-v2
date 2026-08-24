@@ -939,7 +939,76 @@ Suite focada do bot **166/166** (era 164).
 
 #### Guardas restantes
 
-Fechadas: a 10 (falso verde da prontidao) e a 4 (esta). Seguem abertas as
-outras oito: 1, 2, 3, 5, 6, 7, 8 e 9. Todas sao especificas do envio
+Fechadas: a 10 (falso verde da prontidao), a 4 (esta) e a 6 (bloqueio
+invisivel na central). Seguem abertas as outras sete: 1, 2, 3, 5, 7, 8 e 9. Todas sao especificas do envio
 automatico, exceto a 6 (`blocked` e `handoff` invisiveis na central), que ja
 limita a utilidade do `suggest` hoje.
+
+### Guarda 6 corrigida: bloqueio e handoff invisiveis na central (2026-08-24)
+
+Terceira guarda fechada, e a segunda que **ja limitava o `suggest`** — nao era
+so risco do envio automatico.
+
+#### O defeito
+
+`_estado_payload` so consultava respostas com `decisao == "draft"`. Quando o bot
+terminava em `blocked` (guardrail recusou o texto) ou `handoff` (emergencia,
+pedido de humano, identidade nao resolvida), a central nao mostrava **nada**: o
+atendente via uma conversa sem rascunho, indistinguivel de uma conversa em que o
+bot nunca rodou. A RF-022 diz que bloqueio nunca vira silencio, e virava.
+
+#### A correcao
+
+`GET /conversas/{wa_identity}/estado` passa a devolver `ultima_recusa` com
+`decisao`, `motivo` e `criado_em`. A central mostra um aviso proprio, em cor de
+alerta, **sem Enviar e sem Editar**.
+
+Duas decisoes de desenho que mudam o que a tela pode fazer:
+
+1. **O texto recusado nao vem no payload.** Em `blocked` ele e exatamente o que
+   o guardrail barrou. Devolve-lo poria a frase proibida a um copiar-colar de ir
+   ao cliente, e uma mudanca futura de UI poderia acidentalmente renderiza-la
+   com um botao de envio ao lado. O atendente precisa saber QUE o bot recusou e
+   POR QUE, nao receber a frase de volta. O teste asserta a ausencia do texto no
+   payload inteiro, nao so no campo.
+2. **Olhamos a ULTIMA resposta, nao "a ultima recusa".** Se a consulta fosse
+   pela mais recente com `decisao IN (blocked, handoff)`, um bloqueio velho
+   ficaria pendurado na tela para sempre, mesmo depois de o bot ter respondido
+   bem na mensagem seguinte.
+
+`suppressed` **nao** vira aviso: `bot_desabilitado`, `pausado` e `teto_diario`
+sao operacao normal, e virariam ruido permanente.
+
+No frontend, `BOT_RECUSA_MOTIVOS` traduz o motivo do guardrail para portugues de
+atendente ("a resposta continha diagnostico"), com fallback para o motivo bruto
+— sumir com a informacao seria pior que mostra-la crua.
+
+#### Divergencia registrada com a RF-022
+
+O texto da RF-022 diz que o bloqueio "vira rascunho com o motivo registrado".
+Aqui ele vira **aviso** com o motivo registrado, sem o texto. A intencao da
+regra — a equipe fica sabendo — esta cumprida; a letra, nao. Tratar conteudo
+clinico recusado como rascunho editavel o colocaria a um clique do cliente, que
+e o oposto do que o proprio guardrail existe para impedir. A spec foi atualizada
+para descrever o comportamento implementado.
+
+#### Evidencia
+
+| Item | Evidencia |
+| --- | --- |
+| Bloqueio aparece, com motivo | `test_whatsapp_bot_endpoints.test_get_estado_expoe_bloqueio_com_motivo_e_sem_o_texto_recusado` |
+| Texto recusado NAO vaza | mesmo teste: `assertNotIn("cardiomiopatia", json.dumps(resposta))` — asserta o payload inteiro |
+| Handoff aparece | `test_get_estado_expoe_handoff` (`emergencia`) |
+| Bloqueio velho nao ressuscita | `test_bloqueio_superado_por_rascunho_novo_nao_reaparece` |
+| `suppressed` nao vira ruido | `test_suppressed_nao_vira_aviso_na_central` |
+
+Verificado por **mutacao** nas duas direcoes: escondendo tudo (comportamento
+antigo) o teste falha; incluindo `texto_gerado` no payload o teste tambem falha.
+A assercao de seguranca tem dente.
+
+Backend **1036/1036** (era 1032); frontend **98/98**, `eslint` sem warning,
+`tsc --noEmit` limpo, `next build` concluido.
+
+#### Pendente
+
+Verificacao visual em stage, que tem 17 respostas `handoff` reais para exibir.
