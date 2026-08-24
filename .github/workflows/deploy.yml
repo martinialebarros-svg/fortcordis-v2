@@ -31,6 +31,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      # Producao nunca pode semear sua configuracao Meta a partir do .env de
+      # stage. Enquanto os dois ambientes compartilhavam identidade a copia era
+      # inofensiva; depois do isolamento ela sobrescreve producao com a
+      # identidade de teste. Em 2026-08-23 isso derrubou o deploy do SHA
+      # 683195bd e contaminou os seis valores Meta do servidor de producao.
+      - name: Guard - producao nao copia o .env Meta de stage
+        run: |
+          set -euo pipefail
+          if grep -nE '^[[:space:]]*WHATSAPP_META_SOURCE_ENV_FILE=' .github/workflows/deploy.yml; then
+            echo "" >&2
+            echo "[ERROR] O deploy de producao voltou a semear a configuracao Meta a partir de um .env externo." >&2
+            echo "[ERROR] Isso sobrescreve PHONE_NUMBER_ID, META_APP_ID, WHATSAPP_BUSINESS_ACCOUNT_ID," >&2
+            echo "[ERROR] WHATSAPP_ACCESS_TOKEN, WHATSAPP_APP_SECRET e WHATSAPP_VERIFY_TOKEN de producao." >&2
+            echo "[ERROR] Os segredos Meta de producao devem viver no proprio servidor." >&2
+            exit 1
+          fi
+          echo "OK: nenhuma fonte externa de configuracao Meta no deploy de producao."
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -276,7 +294,6 @@ jobs:
             WHATSAPP_STAGE_BACKEND_SERVICE=fortcordis-whatsapp-backend \
             WHATSAPP_STAGE_BACKEND_PORT=3020 \
             WHATSAPP_STAGE_BACKEND_URL=http://127.0.0.1:3020 \
-            WHATSAPP_META_SOURCE_ENV_FILE=/var/www/fortcordis-stage/whatsapp-stage-backend/.env \
             WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED=false \
             WHATSAPP_RUNTIME_LABEL=Production \
             ENABLE_WHATSAPP_STAGE_SMOKE=0 \
