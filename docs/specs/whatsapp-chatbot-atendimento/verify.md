@@ -1324,3 +1324,71 @@ ate ser habilitado clinica por clinica.
 2. Habilitar as clinicas do piloto.
 3. So entao ligar o toggle institucional em `suggest`, e comecar o P6.3 com a
    metrica quebrada por clinica.
+
+
+## Preco: producao e a fonte de verdade (2026-08-24)
+
+Decisao do usuario, e ela **inverte** o enquadramento que eu tinha dado a
+conferencia. Eu havia registrado quatro "divergencias a decidir, qual lado esta
+certo". Nao ha o que decidir: **producao esta correta**, e as tabelas que o
+atendimento cola no WhatsApp sao provavelmente de uma tabela antiga.
+
+| Servico / faixa | Mandam no WhatsApp | Correto (producao) |
+| --- | --- | --- |
+| Eletrocardiograma / Fortaleza plantao | 170 | **150** |
+| Eletrocardiograma / RM comercial | 150 | **140** |
+| Pressao arterial / RM comercial | 60 | **40** |
+| Consulta / RM plantao | 260 | **290** |
+
+Em tres dos quatro casos o atendimento cobra **a mais** do que a tabela. E
+achado operacional, fora do escopo desta spec — mas com consequencia direta
+aqui: quando o bot ligar, vai cotar o valor correto e passar a **divergir do que
+a equipe fala**. O cliente receberia dois precos. Vale alinhar a equipe antes de
+ligar o piloto.
+
+Os dois "zerados" tambem deixam de ser problema: se producao e a verdade, entao
+Eletrocardiograma / RM plantao e Pressao arterial / domiciliar realmente nao tem
+preco naquelas faixas, e o bot **emudecer** e o comportamento correto.
+
+### Correcao nos documentos: drenagem de efusao
+
+Eu havia listado "drenagem de efusao" como exame disponivel nos documentos 1 e
+3, tirando da tabela do WhatsApp. Ela **nao existe como `Servico`**. Aplicando o
+mesmo principio — producao e a verdade —, saiu dos dois documentos.
+
+E tambem a direcao segura: mantida, o bot anunciaria um exame que
+`consultar_preco_tabela` nao sabe cotar, e a pergunta seguinte do cliente
+("quanto custa?") cairia sem fonte. Removida, o bot apenas nao menciona.
+
+Aplicado em **producao** por arquivar-e-recriar (o projeto nao edita documento).
+Estado: 4 visiveis, 3 ignorados — os ignorados sao internos ("Protocolo seguro
+de rascunhos clinicos", "Rotina administrativa da Mente FortCordis"), e a
+allowlist de categoria os mantem invisiveis para o bot que fala com cliente.
+
+**Pendente**: aplicar a mesma remocao nos documentos de **stage**, cuja sessao
+caiu no meio da tarefa. Ate la, stage e producao divergem nesse ponto.
+
+## Conteudo institucional em producao (2026-08-24)
+
+Os quatro documentos foram cadastrados em producao depois da promocao. A
+prontidao de producao ficou em **8 prontos / 6 pendentes**:
+
+| Intent | Estado |
+| --- | --- |
+| `horario_funcionamento`, `preco_servico` | pronto |
+| `area_atendimento`, `como_agendar`, `como_solicitar_exame` | **pronto** — os documentos foram encontrados |
+| `endereco`, `formas_contato` | **pendente** — cadastro da empresa vazio |
+| `status_laudo` | depende da conversa |
+
+### A guarda 10 provou seu valor em producao
+
+`endereco` e `formas_contato` estao pendentes porque `Configuracao` de producao
+tem `nome_empresa`, `cidade` e `estado`, mas **`endereco`, `telefone`, `email` e
+`website` vazios** — exatamente o estado que stage tinha de manha.
+
+Sem a correcao da guarda 10, feita horas antes, producao estaria mostrando
+**verde** nessas duas intents com o cadastro vazio, e o bot poderia afirmar
+endereco e telefone sem ter nenhum. A correcao pegou o caso real no ambiente que
+importa, sem ter sido procurada.
+
+O bot segue **dormente** em producao: `bot_ativo: false`.
