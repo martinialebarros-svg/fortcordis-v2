@@ -414,6 +414,30 @@ promoção alheia a este trabalho (PR #71, promoção do #70 — agenda). Verifi
 zero arquivos `whatsapp_bot` em `origin/main`. O bot continua sem nunca ter ido
 para produção.
 
+### ⚠ Incidente aberto: deploy de produção falhando
+
+**O deploy de produção de `683195bd` falhou e fez rollback** (run
+`32673655040`). Produção **roda `447ddc53`**, não `683195bd` — a correção de
+agenda do #70/#71 não está no ar apesar de mergeada.
+
+Causa raiz: `.github/workflows/deploy.yml` em `main` ainda passa
+`WHATSAPP_META_SOURCE_ENV_FILE=/var/www/fortcordis-stage/whatsapp-stage-backend/.env`,
+copiando a identidade Meta de stage para produção. Como stage agora tem
+identidade **de teste** própria, o guard de produção rejeita os três IDs e
+aborta. A correção existe só em `origin/stage` e nunca foi promovida.
+
+**Isto bloqueia qualquer deploy de produção**, não só este. Diagnóstico
+completo, estado resultante e correção proposta em
+`docs/specs/whatsapp-stage-meta-isolation/verify.md`, seção "Incidente: deploy
+de producao falha por copiar o `.env` Meta de stage".
+
+Dois pontos de atenção para quem for corrigir: a migração `20260823_75` foi
+aplicada antes da falha e o código voltou (banco à frente do código); e o
+`.env` de produção provavelmente foi sobrescrito com a identidade de teste
+antes do abort, porque a sincronização roda antes da validação — o serviço não
+reiniciou, mas o próximo restart subiria apontando para o número de teste.
+Confirmar exige acesso à VPS.
+
 **Rebase no meio do caminho.** Entre as duas publicações, `origin/stage` avançou
 para `a128f665` (PR #70, exceção de deslocamento na agenda), então a segunda
 deixou de ser fast-forward. Os três commits foram rebaseados sobre a base nova

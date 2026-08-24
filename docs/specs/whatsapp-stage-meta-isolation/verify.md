@@ -174,3 +174,83 @@ tambem passaram na rodada final.
   Meta/Node concluido aqui;
 - rechecagem visual final do callback de producao; health e protecao HTTP foram
   revalidados e producao permaneceu inalterada.
+
+## Incidente: deploy de producao falha por copiar o `.env` Meta de stage (2026-08-23)
+
+Descoberto ao revalidar `origin/main` no fim da sessao do chatbot. **Nao foi
+causado pelo trabalho do bot**, mas e consequencia direta do isolamento Meta
+feito nesta spec.
+
+### Sintoma
+
+Run `32673655040` (`Deploy to VPS`, SHA `683195bd`, PR #71 promovendo o #70):
+
+```
+[ERROR] PHONE_NUMBER_ID nao corresponde ao numero Fort Cordis aprovado.
+[ERROR] META_APP_ID nao corresponde ao app FortZap aprovado.
+[ERROR] WHATSAPP_BUSINESS_ACCOUNT_ID nao corresponde a WABA Fort Cordis.
+[ERROR] Deploy failed at stage 'whatsapp_stage_backend' (exit=1).
+[23:41:35] Automatic rollback completed successfully (HEAD=447ddc5)
+```
+
+### Causa raiz
+
+A correcao que impede producao de copiar o `.env` de stage **existe so em
+`origin/stage`**. O PR #71 promoveu apenas o #70 (agenda), entao `main` ficou
+com a versao antiga:
+
+| | `origin/main` | `origin/stage` |
+| --- | --- | --- |
+| `.github/workflows/deploy.yml` | `WHATSAPP_META_SOURCE_ENV_FILE=/var/www/fortcordis-stage/whatsapp-stage-backend/.env` | `WHATSAPP_EXPECTED_PHONE_NUMBER_ID/META_APP_ID/BUSINESS_ACCOUNT_ID` explicitos |
+| `scripts/deploy_prod_vps.sh` | valores esperados **hardcoded**, nao le `WHATSAPP_EXPECTED_*` | parametrizado por `WHATSAPP_EXPECTED_*` |
+
+Encadeamento: o deploy de producao copia as chaves Meta do `.env` de stage na
+VPS; stage passou a ter identidade **de teste** propria (app `1683447519419173`,
+WABA `4413513738886247`, numero `1161616897025933`); o guard de producao compara
+contra os valores aprovados (`1279142515283484`, `975334532125008`,
+`1369494994627980`); os tres divergem e o deploy aborta.
+
+Enquanto stage e producao compartilhavam identidade, a copia era inofensiva. O
+isolamento a transformou em armadilha — e o guard fez exatamente o que devia:
+falhou fechado em vez de subir producao com identidade de teste.
+
+### Estado resultante
+
+- **Produção roda `447ddc53`**, nao `683195bd`. O ultimo deploy de producao bem
+  sucedido foi em 2026-08-22. A correcao de agenda do #70/#71 **nao esta no ar**
+  apesar de mergeada em `main`.
+- **A migracao `20260823_75` foi aplicada antes da falha** (`MIGRATIONS_OK` no
+  log) e o codigo voltou. O banco de producao esta a frente do codigo que roda;
+  como a migracao so adiciona colunas, e tolerado, mas e descasamento real.
+- **O rollback restaura apenas codigo.** O log mostra que ele nao reexecutou a
+  etapa `whatsapp_stage_backend`: nao ha sincronizacao, validacao nem restart do
+  servico Node no trecho posterior ao rollback.
+- **Risco latente nao confirmado**: no script, a sincronizacao (linha ~509)
+  roda ANTES da validacao (linha ~689). Entao o `.env` de producao
+  provavelmente ja foi sobrescrito com a identidade de teste e o rollback nao o
+  desfez. O servico nao chegou a reiniciar, entao segue em memoria com a
+  configuracao correta — mas o proximo restart subiria producao apontando para o
+  numero de teste. **Confirmar exige acesso a VPS; nao foi feito.**
+- Producao responde normalmente: raiz `200`, `/whatsapp/health` `200`, rota
+  protegida `401`. O health nao expoe identidade Meta, entao nao serve para
+  confirmar o item acima.
+
+### Correcao proposta (nao executada)
+
+1. **Primeiro, inspecionar `whatsapp-stage-backend/.env` na VPS de producao** e
+   restaurar `PHONE_NUMBER_ID`, `META_APP_ID` e `WHATSAPP_BUSINESS_ACCOUNT_ID`
+   aprovados, se tiverem sido sobrescritos. Sem isso, qualquer novo deploy
+   continua falhando no mesmo guard, agora por causa do proprio arquivo.
+2. **Hotfix em `main`** removendo a linha `WHATSAPP_META_SOURCE_ENV_FILE=...` de
+   `.github/workflows/deploy.yml`. E o menor diff correto: com a variavel vazia,
+   `deploy_prod_vps.sh` pula a sincronizacao (`if [[ -n ... ]]`) e valida o
+   `.env` que ja esta no servidor, contra os valores certos que ele ja tem
+   hardcoded. Pelo `CLAUDE.md`, isso e branch `hotfix/<slug>` mirando `main`,
+   com backport imediato para `stage`.
+3. **Rerodar o deploy de producao** e confirmar que `683195bd` sobe.
+
+Alternativa descartada por ora: promover `stage -> main` inteiro traria a versao
+parametrizada do script, mas levaria junto **todo o chatbot** para producao.
+Ainda que ele nasca desligado (`WHATSAPP_BOT_ENABLED=False` e toggle do banco
+`false`), isso contraria a decisao registrada de producao nunca ter recebido o
+bot antes dos numeros do P6.3.
