@@ -4,13 +4,20 @@ Data: 2026-08-23
 Responsável: Martiniano + Codex + Claude
 Status: Fases 1-5 concluídas e publicadas. Fase 6 parcial: evals (P6.1),
 métricas (P6.5), correção crítica da base institucional, painel de configuração
-e **P6.2 cumprido** (preview rodado em stage). A **guarda 10 está fechada**: o
-falso verde da prontidão foi medido em stage, corrigido e reconfirmado no
-ambiente. `origin/stage` em `0861b7f3`, sincronizado com esta branch — nada
-pendente de publicar. Produção em `683195bd` e **sem nunca ter recebido o bot**
-— `git ls-tree -r --name-only origin/main | grep -c whatsapp_bot` devolve `0`,
-contra 38 em `origin/stage`. `auto` permanece bloqueado, e as outras nove
-guardas seguem abertas.
+e **P6.2 cumprido** (preview rodado em stage).
+
+Das dez guardas do envio automático, **duas estão fechadas**: a 10 (falso verde
+da prontidão, medido em stage e reconfirmado após a correção) e a 4 (o bot lia a
+mensagem errada em conversa com mais de 200 mensagens — a única que já mordia em
+`suggest`). **Oito seguem abertas**: 1, 2, 3, 5, 6, 7, 8 e 9.
+
+O incidente do deploy de produção foi diagnosticado, reparado e encerrado
+(PR #72). Produção em `1474902d` e **sem nunca ter recebido o bot** —
+`git ls-tree -r --name-only origin/main | grep -c whatsapp_bot` devolve `0`,
+contra 38 em `origin/stage`.
+
+`origin/stage` em `5a899e42`, sincronizado com esta branch. `auto` permanece
+bloqueado.
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -28,15 +35,15 @@ FortCordis v2.
 - Worktree isolado atual:
   `/Users/martiniano/fortcordis-v2/.claude/worktrees/whatsapp-chatbot-handoff-2d02ad`
 - Branch: `claude/whatsapp-chatbot-handoff-2d02ad`
-- `origin/stage` e o runtime de stage estão no SHA `0861b7f3` (registro do
-  P6.2, correção da guarda 10 e confirmação em stage, publicados em 2026-08-23
-  sobre o PR #70).
+- `origin/stage` e o runtime de stage estão no SHA `5a899e42` (correção da
+  guarda 4).
 - A branch está **sincronizada** com `origin/stage`: nada pendente de publicar.
   Qualquer publicação futura exige autorização explícita.
-- `origin/main` e produção estão em `683195bd` (avançou de `447ddc53` em
-  2026-08-23 pelo PR #71, promoção do #70 — agenda, **nada do bot**). Confira
-  sempre com `git rev-parse origin/main`; este SHA envelhece a cada promoção.
-  O que não muda: nenhum arquivo `whatsapp_bot` existe em `origin/main`.
+- `origin/main` e produção estão em `1474902d` (hotfix do deploy, PR #72).
+  Confira sempre com `git rev-parse origin/main`; este SHA envelhece a cada
+  promoção. O que não muda: nenhum arquivo `whatsapp_bot` existe em
+  `origin/main` — confirme com
+  `git ls-tree -r --name-only origin/main | grep -c whatsapp_bot`, que deve dar `0`.
 - O código da Fase 5, o hotfix do nono dígito e a proteção de reenvio do bot já
   foram publicados em stage.
 - A instrumentação da Fase 6 (P6.1 evals + P6.5 métricas), o painel de
@@ -65,8 +72,8 @@ Depois confirme o estado corrente com:
 git status --short --branch
 git fetch origin stage main
 git rev-parse HEAD origin/stage origin/main
-gh run view 32673322362 --json status,conclusion,url,headSha,name
-gh run view 32673322519 --json status,conclusion,url,headSha,name
+gh run view 32679837083 --json status,conclusion,url,headSha,name
+gh run view 32679837138 --json status,conclusion,url,headSha,name
 ```
 
 E leia primeiro este arquivo, começando pela seção
@@ -405,6 +412,8 @@ documentos limpos sem PII → usuário aprova → cadastro pelo painel.
 | `6f446d29` | painel de configuração + handoff | `32670249325` | `32670249345` |
 | `992b07e6` | registro do P6.2 + correção da guarda 10 + handoff | `32672704495` | `32672704470` |
 | `0861b7f3` | confirmação em stage do fim do falso verde | `32673322362` | `32673322519` |
+| `50274745` | diagnóstico e encerramento do incidente de produção | `32679211*` | `32679211965` |
+| `5a899e42` | **guarda 4: bot lia a mensagem errada** | `32679837083` | `32679837138` |
 
 Todos `success`. `origin/stage` = `0861b7f3` (o último commit, documental, saiu
 nos runs `32673322362` e `32673322519`, ambos `success`).
@@ -505,9 +514,11 @@ stage `200`/`200`/`401`/`307`, produção `200`/`200`/`401`.
    `GET /whatsapp/bot/metricas`. Mínimo de 20 rascunhos decididos por persona.
    Stage não serve para isso, e agora há número para provar: uma semana rendeu
    1 rascunho decidido.
-5. **Envio automático** somente depois, tratando as **nove guardas restantes**
-   (a 10 está fechada), e **somente** com autorização explícita registrada no
-   `verify.md`.
+5. **Envio automático** somente depois, tratando as **oito guardas restantes**
+   (a 4 e a 10 estão fechadas), e **somente** com autorização explícita
+   registrada no `verify.md`. Entre as oito, a **6** (`blocked` e `handoff`
+   invisíveis na central) é a única que já limita a utilidade do `suggest` hoje
+   — as outras sete são específicas do envio automático.
 
 ## Limites obrigatórios da próxima sessão
 
