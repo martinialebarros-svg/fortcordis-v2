@@ -115,6 +115,21 @@ if grep -Fq "WHATSAPP_META_SOURCE_ENV_FILE=/var/www/fortcordis-stage/whatsapp-st
   exit 1
 fi
 
+# A reconstrucao do nono digito existe para o numero de TESTE da Meta, cuja
+# lista de permitidos guarda o numero com o 9. Producao entrega na forma de 12
+# digitos - medido em 2026-08-24: 96 saidas sent/delivered/read contra 1 falha.
+# Ligar a flag em producao trocaria um formato comprovado por um nao testado.
+if grep -q "WHATSAPP_GRAPH_FORCE_BR_MOBILE_NINTH_DIGIT" \
+  "${REPO_ROOT}/.github/workflows/deploy.yml"; then
+  echo "Production workflow must not force the BR mobile ninth digit." >&2
+  exit 1
+fi
+
+# E stage precisa continuar ligando: sem isso o envio volta a bater em
+# OAuthException/131030 contra o numero de teste.
+grep -Fq 'upsert_env WHATSAPP_GRAPH_FORCE_BR_MOBILE_NINTH_DIGIT "true"' \
+  "${REPO_ROOT}/.github/workflows/deploy-stage.yml"
+
 for stage_variable in \
   WHATSAPP_PHONE_NUMBER_ID_STAGE \
   WHATSAPP_META_APP_ID_STAGE \

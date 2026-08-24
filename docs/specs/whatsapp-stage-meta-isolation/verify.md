@@ -389,3 +389,63 @@ Incluir `whatsapp-stage-backend/.env` em `backup_runtime_file`. A recuperacao de
 hoje so foi possivel porque o servico nao havia reiniciado apos a sobrescrita;
 com um restart no meio, access token e app secret de producao teriam de ser
 reemitidos na Meta.
+
+
+## Nono digito no destinatario: opt-in, e desligado em producao (2026-08-24)
+
+### O que a medicao mostrou
+
+Ao preparar a promocao `stage -> main`, `whatsappGraphRecipient` apareceu como
+risco: ele reescreve o destinatario da Graph API, e producao usa o mesmo
+servico Node. Medicao contra os dados reais de producao, somente leitura:
+
+- **26 das 31 conversas** teriam o destinatario alterado (12 -> 13 digitos,
+  todas DDD 85). Nao e caso de borda, e a maioria.
+- Dessas, **28 de 30 conversas com identidade de 12 digitos ja tem envio bem
+  sucedido**: 36 `read`, 51 `delivered`, 9 `sent`, contra **1** `failed`.
+
+### A leitura errada que a medicao corrigiu
+
+Eu havia tratado o `OAuthException/131030` de stage como "formato de
+destinatario errado". **Nao e.** O `131030` e *destinatario fora da lista de
+permitidos* — restricao do numero de TESTE da Meta, que so fala com contatos
+pre-verificados. A lista de stage guarda o numero COM o nono digito, e o envio
+saiu SEM: nao casou a lista.
+
+Producao nao tem lista de permitidos. A forma de 12 digitos entrega, e as 96
+saidas bem sucedidas sao a prova.
+
+Logo, `whatsappGraphRecipient` **nao e uma correcao que producao precisa**: e
+uma adaptacao ao numero de teste de stage.
+
+### A mudanca
+
+`WHATSAPP_GRAPH_FORCE_BR_MOBILE_NINTH_DIGIT`, **default desligado**. Com a flag
+ausente, `whatsappGraphRecipient` devolve o numero inalterado — exatamente o
+comportamento de producao hoje. Stage liga por `upsert_env` no seu proprio
+workflow.
+
+O default importa: flag ausente tem que reproduzir o que ja funciona. Fosse o
+contrario, esquecer de configurar mudaria o canal vivo.
+
+| Item | Evidencia |
+| --- | --- |
+| Default desligado | `test-phone-number.ts`: sem a variavel, `558588018899` sai inalterado |
+| Valor diferente de `true` nao liga | mesmo teste com `"1"`: nao altera — so o opt-in explicito conta |
+| Ligado reconstroi | com `"true"`, `558588018899` -> `5585988018899` |
+| Fixo e internacional intactos nos dois modos | mesmo teste |
+| Producao nunca liga | `test_whatsapp_stage_meta_isolation.sh` falha se `deploy.yml` mencionar a flag |
+| Stage continua ligando | mesmo teste exige o `upsert_env` em `deploy-stage.yml` |
+
+Verificado por **mutacao**: acrescentar a flag ao workflow de producao derruba
+o teste de isolamento com "Production workflow must not force the BR mobile
+ninth digit."
+
+Validacao: `npm run build` limpo, `test:phone-number` e
+`test_whatsapp_stage_meta_isolation.sh` passando, backend **1069/1069**.
+
+### Efeito na promocao
+
+Com isto, promover `stage -> main` deixa de alterar o caminho de envio de
+producao. O bot continua subindo dormente, e o formato de destinatario que
+entrega 96 mensagens permanece.

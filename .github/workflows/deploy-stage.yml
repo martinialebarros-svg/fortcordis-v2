@@ -361,6 +361,12 @@ jobs:
               upsert_env WHATSAPP_BUSINESS_ACCOUNT_ID "$whatsapp_business_account_id"
               upsert_env WHATSAPP_GRAPH_API_VERSION "v26.0"
               upsert_env WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER "1"
+              # So em stage: o numero de TESTE da Meta guarda os destinatarios
+              # permitidos COM o nono digito, entao enviar na forma de 12
+              # digitos e recusado com OAuthException/131030. Producao nao tem
+              # lista de permitidos e entrega na forma de 12 digitos - por isso
+              # a flag e opt-in e nao pode ir para o deploy de producao.
+              upsert_env WHATSAPP_GRAPH_FORCE_BR_MOBILE_NINTH_DIGIT "true"
               chmod 600 "$env_file"
 
               unset whatsapp_access_token whatsapp_app_secret whatsapp_verify_token \

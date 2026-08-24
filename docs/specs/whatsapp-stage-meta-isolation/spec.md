@@ -107,3 +107,16 @@ e `WHATSAPP_BUSINESS_ACCOUNT_ID` no `.env` remoto.
 - depois do corte: manter producao intacta e desabilitar somente o app/numero de
   teste de stage enquanto a configuracao e corrigida;
 - nunca restaurar compartilhamento de identidade como atalho de rollback.
+
+## Destinatario da Graph API (2026-08-24)
+
+- **RF-M12**: a reconstrucao do nono digito de celular brasileiro no
+  destinatario da Graph API e **opt-in**, controlada por
+  `WHATSAPP_GRAPH_FORCE_BR_MOBILE_NINTH_DIGIT`, **default desligado**.
+  - Ligada apenas em ambiente com numero de **teste** da Meta, cuja lista de
+    permitidos guarda o numero com o nono digito.
+  - **Producao nao liga**, e um teste automatizado falha se o workflow de
+    producao mencionar a variavel. Producao entrega na forma de 12 digitos:
+    medido em 2026-08-24, 96 saidas `sent`/`delivered`/`read` contra 1 falha.
+  - Default desligado porque a ausencia de configuracao tem que reproduzir o
+    comportamento existente, nunca alterar um canal vivo por omissao.
