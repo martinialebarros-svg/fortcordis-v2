@@ -340,3 +340,52 @@ recuperacao por `/proc` nao estivesse disponivel — bastaria o servico ter
 reiniciado uma vez apos a sobrescrita —, o access token e o app secret de
 producao teriam de ser reemitidos no painel da Meta, e o verify token
 renegociado no callback.
+
+### Incidente encerrado (2026-08-24)
+
+PR [#72](https://github.com/martinialebarros-svg/fortcordis-v2/pull/72),
+mergeado em `1474902d`. Dois commits, um arquivo:
+
+1. remocao de `WHATSAPP_META_SOURCE_ENV_FILE` do `deploy.yml` de producao;
+2. guard no `quality-gate` (que o job `deploy` ja tem como `needs`) que falha o
+   deploy se a variavel reaparecer.
+
+O guard foi no mesmo PR por necessidade, nao por conveniencia: um PR separado so
+com ele reprovaria a si mesmo, porque a linha ruim ainda estava em `main`.
+
+O guard e um `grep` inline no YAML em vez de script em `scripts/tests/`. Portar
+`test_whatsapp_stage_meta_isolation.sh` exigiria trazer
+`whatsapp_meta_identity_check.sh` (inexistente em `main`) e as asserções sobre
+`deploy-stage.yml` que so valem em `stage`; alem disso arquivo novo em
+`scripts/` acionaria o gate SDD, que cobraria a pasta
+`docs/specs/whatsapp-stage-meta-isolation/` inteira em `main`. Cobertura menor
+que a suite de stage, e de proposito: aqui so esta regressao. A suite completa
+chega quando o isolamento for promovido.
+
+Ressalva de escopo: `deploy.yml` dispara so em `push` para `main`, entao o guard
+roda **depois do merge**, como parte da esteira, e barra o deploy antes de tocar
+o servidor. Nao e check de PR.
+
+#### Verificacao
+
+Deploy run `32678091109` e Migration CI `32678091116`, ambos `success`. O log
+prova que o reparo do `.env` pegou — **o servico reiniciou neste deploy** e
+subiu com a identidade certa:
+
+```
+[00:58:41] WhatsApp Production Meta configuration validated without exposing secrets.
+[00:58:59] WhatsApp Production backend health OK
+[01:02:55] Deploy finished successfully (HEAD=1474902)
+```
+
+Estado final: `origin/main` e o runtime de producao ambos em `1474902d` — a
+divergencia acabou, e a correcao de agenda do #70 finalmente esta no ar.
+Producao responde raiz `200`, `/whatsapp/health` `200`, rota protegida `401`.
+Stage inalterado em `ebdbbf75`.
+
+#### Pendencia deixada
+
+Incluir `whatsapp-stage-backend/.env` em `backup_runtime_file`. A recuperacao de
+hoje so foi possivel porque o servico nao havia reiniciado apos a sobrescrita;
+com um restart no meio, access token e app secret de producao teriam de ser
+reemitidos na Meta.
