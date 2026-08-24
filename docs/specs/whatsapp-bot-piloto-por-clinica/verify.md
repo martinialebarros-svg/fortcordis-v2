@@ -197,7 +197,34 @@ Validacao: backend **1069/1069** (era 1063); frontend **98/98**, `eslint` sem
 warning, `tsc --noEmit` limpo. As duas migracoes aplicadas de verdade num
 sqlite novo via `setup_database.py`.
 
-### Pendencia deixada em stage
+### Limpeza verificada pela tela (2026-08-24)
 
-A clinica "Animal & Cia" ficou marcada como `off` durante a verificacao, antes
-de o DELETE existir. Com o endpoint publicado, da para limpar pela tela.
+Publicado em `0690b080` (Deploy run `32773582619`, Migration CI `32773582658`,
+ambos `success`). A pendencia deixada pela verificacao anterior foi usada como
+teste do botao novo:
+
+| | Antes | Depois |
+| --- | --- | --- |
+| Linha na tela | "fora do atendimento · marcada como off" | "atendida pelo bot · sem marcacao" |
+| Botao "Sem marcacao" | presente | **sumiu** — nao ha mais o que desfazer |
+| Backend | `modo: "off"` | `modo: null`, `participa: true` |
+| Stage | 45 de 46 atendidas | **46 de 46**, zero marcacoes |
+
+Stage voltou ao estado original, e o `DELETE` ficou verificado ponta a ponta:
+tela, backend e o desaparecimento condicional do botao.
+
+### Duvida em aberto: clique em "Listar clinicas"
+
+Nesta rodada, o clique no botao **"Listar clinicas" nao funcionou** nem por
+referencia de acessibilidade nem por coordenada. Nenhuma requisicao saia,
+embora a sessao estivesse viva e `GET /whatsapp/bot/clinicas` respondesse `200`
+com as 46 clinicas quando chamado direto. So funcionou acionando o elemento
+por codigo.
+
+**Nao classificado**: os demais cliques da sessao (Verificar, seletor de
+postura, Sugerir, Sem marcacao) funcionaram por coordenada nesta mesma tela, o
+que inclina para artefato da automacao — mas isso e hipotese, nao conclusao, e
+nao esta registrado como verificado.
+
+**Como resolver**: um clique manual. Se a lista abrir normalmente, era a
+automacao; se nao abrir, e defeito da tela e vira correcao.

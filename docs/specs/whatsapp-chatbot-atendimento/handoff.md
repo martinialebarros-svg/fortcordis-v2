@@ -6,18 +6,29 @@ Status: Fases 1-5 concluídas e publicadas. Fase 6 parcial: evals (P6.1),
 métricas (P6.5), correção crítica da base institucional, painel de configuração
 e **P6.2 cumprido** (preview rodado em stage).
 
-Das dez guardas do envio automático, **duas estão fechadas**: a 10 (falso verde
-da prontidão, medido em stage e reconfirmado após a correção) e a 4 (o bot lia a
-mensagem errada em conversa com mais de 200 mensagens — a única que já mordia em
-`suggest`). **Oito seguem abertas**: 1, 2, 3, 5, 6, 7, 8 e 9.
+Das dez guardas do envio automático, **três estão fechadas** — e eram as três
+que já causavam dano, não risco futuro:
+
+- **10** — a prontidão dava verde sem dado. Medida em stage e reconfirmada.
+- **4** — o bot respondia a mensagem errada em conversa com mais de 200
+  mensagens.
+- **6** — quando o bot recusava, a central não mostrava nada.
+
+**Sete seguem abertas**: 1, 2, 3, 5, 7, 8 e 9. Todas específicas do envio
+automático; nenhuma afeta o `suggest` hoje.
 
 O incidente do deploy de produção foi diagnosticado, reparado e encerrado
 (PR #72). Produção em `1474902d` e **sem nunca ter recebido o bot** —
 `git ls-tree -r --name-only origin/main | grep -c whatsapp_bot` devolve `0`,
 contra 38 em `origin/stage`.
 
-`origin/stage` em `5a899e42`, sincronizado com esta branch. `auto` permanece
-bloqueado.
+`origin/stage` em `0690b080`, sincronizado com esta branch. `auto` permanece
+bloqueado, e `preco_servico` saiu da allowlist de `auto` ate o plantao ser
+modelado.
+
+**Feature nova nesta sessao**: `whatsapp-bot-piloto-por-clinica`, quatro fases
+entregues e publicadas. Spec propria em
+`docs/specs/whatsapp-bot-piloto-por-clinica/`.
 
 Este arquivo é a instrução de continuidade para outra sessão ou outro usuário.
 Cole o conteúdo da seção `# Instrução para continuar` como primeira mensagem.
@@ -35,8 +46,7 @@ FortCordis v2.
 - Worktree isolado atual:
   `/Users/martiniano/fortcordis-v2/.claude/worktrees/whatsapp-chatbot-handoff-2d02ad`
 - Branch: `claude/whatsapp-chatbot-handoff-2d02ad`
-- `origin/stage` e o runtime de stage estão no SHA `5a899e42` (correção da
-  guarda 4).
+- `origin/stage` e o runtime de stage estão no SHA `0690b080`.
 - A branch está **sincronizada** com `origin/stage`: nada pendente de publicar.
   Qualquer publicação futura exige autorização explícita.
 - `origin/main` e produção estão em `1474902d` (hotfix do deploy, PR #72).
@@ -72,12 +82,12 @@ Depois confirme o estado corrente com:
 git status --short --branch
 git fetch origin stage main
 git rev-parse HEAD origin/stage origin/main
-gh run view 32679837083 --json status,conclusion,url,headSha,name
-gh run view 32679837138 --json status,conclusion,url,headSha,name
+gh run view 32773582619 --json status,conclusion,url,headSha,name
+gh run view 32773582658 --json status,conclusion,url,headSha,name
 ```
 
 E leia primeiro este arquivo, começando pela seção
-"Sessão de 2026-08-23 (Fase 6 parte 3)", que tem o estado mais recente.
+"Sessão de 2026-08-24", que tem o estado mais recente.
 
 ## Estado implementado
 
@@ -414,6 +424,10 @@ documentos limpos sem PII → usuário aprova → cadastro pelo painel.
 | `0861b7f3` | confirmação em stage do fim do falso verde | `32673322362` | `32673322519` |
 | `50274745` | diagnóstico e encerramento do incidente de produção | `32679211*` | `32679211965` |
 | `5a899e42` | **guarda 4: bot lia a mensagem errada** | `32679837083` | `32679837138` |
+| `9f6f8ca4` | **guarda 6: bloqueio invisivel na central** | `32681036719` | `32681036732` |
+| `25e96f9d` | verificação visual da guarda 6 | `32682632691` | `32682632705` |
+| `7b7d2647` | **`preco_servico` fora do `auto`** | — | — |
+| `2b4def8c` · `fb719151` · `54d5fe1c` · `0690b080` | **piloto por clínica**, Fases 1 a 4 | `32773582619` | `32773582658` |
 
 Todos `success`. `origin/stage` = `0861b7f3` (o último commit, documental, saiu
 nos runs `32673322362` e `32673322519`, ambos `success`).
@@ -494,14 +508,66 @@ Backend **1019/1019** (era 1014); focada do bot **164/164** (era 159); frontend
 aprovado em cada commit. Revalidação externa antes e depois da publicação:
 stage `200`/`200`/`401`/`307`, produção `200`/`200`/`401`.
 
+## Sessão de 2026-08-24
+
+### O que foi entregue
+
+**Guarda 4 fechada** (`5a899e42`). `_fetch_last_message` pedia `page=1&limit=200`
+de um endpoint `ASC` paginado e usava `rows[-1]` — em conversa com mais de 200
+mensagens, a 200ª **mais antiga**. E `_process_job` usava a mesma função, então
+o bot classificava emergência, pedido de humano e tipo de mensagem sobre o texto
+errado. A correção **removeu** uma chamada HTTP: a última mensagem já vinha no
+payload da conversa, montada por `LATERAL ... ORDER BY created_at DESC`.
+Achado de brinde: a conversa buscada por telefone podia divergir da do job —
+agora vira `suppressed`/`conversa_divergente`.
+
+**Guarda 6 fechada** (`9f6f8ca4`). `_estado_payload` só mostrava `draft`, então
+`blocked` e `handoff` eram invisíveis. Agora há `ultima_recusa` com decisão e
+motivo — **sem o texto**, porque em `blocked` ele é justamente o que o guardrail
+recusou, e devolvê-lo o deixaria a um copiar-colar do cliente. A seção na tela
+não tem botão de envio. Divergência registrada: a RF-022 diz "vira rascunho";
+aqui vira aviso, e a spec foi atualizada para descrever o implementado.
+
+**`preco_servico` fora do `auto`** (`7b7d2647`), a partir do que o histórico do
+WhatsApp mostrou: existe uma faixa de **plantão** que o modelo de dados não
+representa, e `consultar_preco_tabela` crava `"tipo_horario": "comercial"`. Fora
+do expediente o valor sai errado — e o guardrail o ancoraria como conferido.
+Duas listas onde havia uma: `INTENTS_ATENDIDAS_POR_PERSONA` (o que a prontidão
+sonda) e `INTENTS_AUTO_POR_PERSONA` (o que pode sair sozinho).
+
+**Conteúdo institucional cadastrado**. Três documentos sem PII e sem preço,
+extraídos do histórico real. A prontidão fechou em **12 prontos / 2 pendentes**
+— só `status_laudo` continua pendente, por depender de conversa real.
+
+**Feature nova: piloto por clínica**, quatro fases. Spec própria em
+`docs/specs/whatsapp-bot-piloto-por-clinica/`.
+
+### O que aprendi sobre o conteúdo institucional
+
+Preço, endereço, telefone e horário **não entram na base**: vêm de tools, e
+duplicá-los criaria segunda fonte de verdade que envelhece em silêncio — pior,
+o guardrail ancora valor, telefone e CEP no retorno **da tool**, então o
+documento divergente seria rejeitado, não obedecido.
+
+As três tabelas de preço vivas (Fortaleza, RM, domiciliar) estão no `verify.md`
+do chatbot. **Falta conferi-las contra `Servico` em produção** — o usuário
+informou que os valores de stage estão desatualizados, e faltou sessão
+autenticada em produção.
+
+### Pendente de confirmação do usuário
+
+Texto sobre exigência de exames cardiológicos antes de castração em animais a
+partir de 5 anos: encontrado no histórico, mas com redação que sugere programa
+público, não política da casa. Se for da FortCordis, vira um quarto documento.
+
 ## Próxima sequência recomendada
 
-1. **Conteúdo institucional**: receber o export das conversas, extrair os fatos
-   generalizáveis sem PII, submeter à aprovação e cadastrar pelo painel.
-   Conferir na prontidão que as quatro intents de conhecimento ficaram verdes
-   (`area_atendimento` e `como_agendar` no tutor; `area_atendimento` e
-   `como_solicitar_exame` na clínica). É o que falta para a prontidão sair de
-   8/6 para 12/2.
+1. ~~**Conteúdo institucional**~~ **FEITO em 2026-08-24**: três documentos
+   cadastrados, prontidão em 12/2. Resta a confirmação sobre castração/5 anos.
+0. **Conferir as três tabelas de preço contra `Servico` em PRODUÇÃO**, e checar
+   se "Combo Eco e Eletro" e "Drenagem de efusão" existem com preço > 0 — se
+   não existirem, a tool os descarta e o bot emudece sobre eles. Exige sessão
+   autenticada em produção, que faltou.
 2. **Teste real de `endereco` com o cadastro preenchido**, em `suggest`. Agora
    que o endereço de stage tem CEP, a âncora `ceps_permitidos` está viva com
    dado real. O que este teste procura é o limite declarado da correção: o
@@ -514,11 +580,10 @@ stage `200`/`200`/`401`/`307`, produção `200`/`200`/`401`.
    `GET /whatsapp/bot/metricas`. Mínimo de 20 rascunhos decididos por persona.
    Stage não serve para isso, e agora há número para provar: uma semana rendeu
    1 rascunho decidido.
-5. **Envio automático** somente depois, tratando as **oito guardas restantes**
-   (a 4 e a 10 estão fechadas), e **somente** com autorização explícita
-   registrada no `verify.md`. Entre as oito, a **6** (`blocked` e `handoff`
-   invisíveis na central) é a única que já limita a utilidade do `suggest` hoje
-   — as outras sete são específicas do envio automático.
+5. **Envio automático** somente depois, tratando as **sete guardas restantes**
+   (4, 6 e 10 estão fechadas), e **somente** com autorização explícita
+   registrada no `verify.md`. As sete são todas específicas do envio
+   automático: nenhuma afeta o `suggest` hoje.
 
 ## Limites obrigatórios da próxima sessão
 
