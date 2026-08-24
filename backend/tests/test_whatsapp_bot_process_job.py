@@ -159,16 +159,76 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
                 engine.dispose()
 
     def _run_with_node_mocks(self, db, job, *, conversation_row, message_row):
+        """Uma unica chamada ao Node: a ultima mensagem vem no payload da conversa.
+
+        O Node monta `last_message_*` por LATERAL com `ORDER BY created_at DESC`
+        (`conversationsController.ts:128`), entao e sempre a mensagem certa. A
+        segunda chamada que existia aqui batia em `/conversations/:id/messages`,
+        que e ASC paginado: com `page=1&limit=200` devolvia a 200a mais ANTIGA em
+        conversa com mais de 200 mensagens.
+        """
+        conversation_row = {
+            **conversation_row,
+            "last_message_body": message_row.get("body"),
+            "last_message_from_me": message_row.get("from_me"),
+            "last_message_type": message_row.get("type"),
+            "last_message_at": message_row.get("created_at") or "2026-08-23T12:00:00+00:00",
+        }
         conversations_response = _fake_response({"data": [conversation_row]})
-        messages_response = _fake_response({"data": [message_row]})
         with patch.object(gates.settings, "WHATSAPP_AGENDA_SERVICE_URL", "http://127.0.0.1:3010"):
             with patch.object(gates.settings, "WHATSAPP_AGENDA_INTERNAL_TOKEN", "segredo"):
                 with patch.object(handoff_service, "send_whatsapp_message_push_notification") as push_mock:
                     with patch.object(handoff_service.httpx, "patch", return_value=_fake_response({})) as patch_mock:
-                        with patch.object(worker.httpx, "get", side_effect=[conversations_response, messages_response]) as get_mock:
+                        with patch.object(worker.httpx, "get", side_effect=[conversations_response]) as get_mock:
                             result = worker._process_job(db, job)
                             db.commit()
         return result, get_mock, patch_mock, push_mock
+
+    def test_conversa_divergente_suprime_sem_responder(self) -> None:
+        """A busca e por telefone; o job carrega a conversa que o originou.
+
+        Se o Node devolver outra conversa para o mesmo telefone, o claim, a
+        janela e a ultima mensagem lidos sao de OUTRA conversa. Responder com
+        base nisso seria pior do que nao responder.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        db = SessionFactory()
+                        try:
+                            self._enable_bot(db)
+                            job = self._make_job(db, conversation_id="conv-1")
+                            job_id = job.id
+                            result, _get, patch_mock, push_mock = self._run_with_node_mocks(
+                                db,
+                                job,
+                                conversation_row={
+                                    "id": "conv-OUTRA",
+                                    "wa_phone_number": "558588018899",
+                                    "last_agent_id": None,
+                                    "last_inbound_at": datetime.now(timezone.utc).isoformat(),
+                                },
+                                message_row={"wa_message_id": "wamid.x", "from_me": False, "type": "text", "body": "oi"},
+                            )
+                        finally:
+                            db.close()
+
+                self.assertEqual(result, "done")
+                patch_mock.assert_not_called()
+                push_mock.assert_not_called()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "suppressed")
+                    self.assertEqual(resposta.motivo, "conversa_divergente")
+                    self.assertIsNone(resposta.texto_gerado)
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
 
     def test_claim_detectado_no_node_pausa_e_grava_estado_local(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -190,7 +250,8 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
                         finally:
                             db.close()
 
-                self.assertEqual(get_mock.call_count, 2)
+                # Uma chamada, nao duas: a ultima mensagem vem junto da conversa.
+                self.assertEqual(get_mock.call_count, 1)
                 patch_mock.assert_not_called()
                 push_mock.assert_not_called()
 

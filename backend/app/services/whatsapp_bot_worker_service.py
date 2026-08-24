@@ -204,13 +204,17 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
     if conversation is None:
         raise RuntimeError(f"Conversa nao encontrada no servico WhatsApp para o job {job.id}.")
 
-    last_message = _fetch_last_message(
-        base_url=base_url,
-        headers=headers,
-        timeout=timeout,
-        conversation_id=job.conversation_id,
-        raise_on_error=True,
-    )
+    # A busca e por telefone e o job carrega a conversa que o originou. Se as
+    # duas divergirem, o estado lido (claim, janela, ultima mensagem) e de
+    # OUTRA conversa - responder com base nisso seria pior do que nao
+    # responder. Termina aqui, sem retry: o proximo job reavalia do zero.
+    conversa_encontrada = str(conversation.get("id") or "").strip()
+    if conversa_encontrada and conversa_encontrada != str(job.conversation_id or "").strip():
+        _record_resposta(db, job, decisao="suppressed", motivo="conversa_divergente")
+        job.status = "done"
+        return "done"
+
+    last_message = _last_message_from_conversation(conversation)
     if last_message is None:
         raise RuntimeError(f"Nenhuma mensagem encontrada no servico WhatsApp para o job {job.id}.")
 
@@ -420,15 +424,26 @@ def _fetch_last_message(
     conversation_id: str,
     raise_on_error: bool = False,
 ) -> Optional[dict[str, Any]]:
-    try:
+    def _pagina(page: int) -> dict[str, Any]:
         response = httpx.get(
             f"{base_url}/conversations/{conversation_id}/messages",
-            params={"limit": 200, "page": 1},
+            params={"limit": 1, "page": page},
             headers=headers,
             timeout=timeout,
         )
         response.raise_for_status()
-        payload = response.json()
+        return response.json()
+
+    try:
+        # O endpoint e ASC paginado e nao aceita ordem: a ultima mensagem esta
+        # na ULTIMA pagina, nao na primeira. Com `limit=1` a ultima pagina e
+        # exatamente `total`, entao sao duas requisicoes minusculas em vez de
+        # uma trazendo 200 linhas - e, ao contrario da versao anterior, esta
+        # devolve a mensagem certa.
+        payload = _pagina(1)
+        total = int((payload.get("pagination") or {}).get("total") or 0)
+        if total > 1:
+            payload = _pagina(total)
     except Exception:
         if raise_on_error:
             raise
@@ -439,6 +454,29 @@ def _fetch_last_message(
 
     rows = payload.get("data") or []
     return rows[-1] if rows else None
+
+
+def _last_message_from_conversation(conversation: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """A ultima mensagem ja vem no payload da conversa, e na ordem certa.
+
+    `GET /conversations` monta `last_message_*` por LATERAL com
+    `ORDER BY created_at DESC, id DESC LIMIT 1`
+    (`conversationsController.ts:128`). Buscar de novo em
+    `/conversations/:id/messages` gastava uma chamada HTTP e trazia a
+    mensagem ERRADA: aquele endpoint e ASC paginado, entao `page=1&limit=200`
+    devolvia a 200a mais ANTIGA em conversa com mais de 200 mensagens.
+
+    `last_message_at` e o discriminador de "existe mensagem": `body` pode
+    ser vazio de forma legitima (imagem sem legenda).
+    """
+    if conversation.get("last_message_at") is None:
+        return None
+    return {
+        "body": conversation.get("last_message_body"),
+        "from_me": conversation.get("last_message_from_me"),
+        "type": conversation.get("last_message_type"),
+        "created_at": conversation.get("last_message_at"),
+    }
 
 
 def _fetch_conversation_by_phone(

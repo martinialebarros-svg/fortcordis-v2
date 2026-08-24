@@ -86,6 +86,18 @@ de pausa e claim, não por relógio.
 - RF-013: mensagem de tipo diferente de `text` (áudio, imagem, documento,
   sticker, reação, interativo) não é respondida pelo bot: vira handoff com
   motivo registrado.
+  - **Fonte da "última mensagem" (2026-08-24).** Os portões RF-010, RF-012 e
+    RF-013, e o próprio corpo que vai ao gerador, leem a última mensagem do
+    payload da conversa (`last_message_body`/`_from_me`/`_type`/`_at`), montado
+    no Node por `LATERAL ... ORDER BY created_at DESC, id DESC LIMIT 1`.
+    **Nunca** de `GET /conversations/:id/messages`: aquele endpoint é `ASC`
+    paginado e não aceita ordem, então `page=1` devolve as mais **antigas**.
+    A reconciliação, que precisa de `wa_message_id` e por isso ainda usa o
+    endpoint de mensagens, pagina até a última página (`limit=1`, `page=total`).
+  - **Conversa divergente.** A busca é por telefone e o job carrega a conversa
+    que o originou. Se o Node devolver outra conversa para o mesmo telefone, o
+    job termina em `suppressed`/`conversa_divergente` sem responder — o estado
+    lido seria de outra conversa.
 - RF-032 (24/7): o bot não tem janela de horário própria — atende a qualquer
   hora, todo dia. A convivência com a equipe durante o expediente é resolvida
   pelos portões que já existem (pausa por mensagem humana e por claim, RF-010),

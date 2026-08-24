@@ -872,3 +872,74 @@ conversa real com exame, por desenho.
 - [ ] Aprovado para produção em modo `suggest`.
 - [ ] Aprovado para produção em modo `auto` (allowlist da RF-019).
 - [ ] Não aprovado (descrever motivo).
+
+### Guarda 4 corrigida: a "ultima mensagem" era a errada (2026-08-24)
+
+Segunda das dez guardas do handoff, e a unica delas que **ja mordia em
+`suggest`** — nao era risco do envio automatico, era defeito em producao de
+comportamento.
+
+#### O defeito
+
+`_fetch_last_message` pedia `page=1&limit=200` e usava `rows[-1]`.
+`GET /conversations/:id/messages` ordena `created_at ASC, id ASC` com
+`LIMIT/OFFSET` (`conversationsController.ts:289`) e **nao aceita parametro de
+ordem**. Logo, em conversa com mais de 200 mensagens, `rows[-1]` e a **200a mais
+antiga**, tratada como se fosse a ultima.
+
+E nao ficava restrito a reconciliacao: `_process_job` usava a mesma funcao, e
+`corpo = last_message.get("body")` e **a mensagem que o bot responde**. Numa
+conversa longa o bot classificaria emergencia (RF-023), pedido de humano
+(RF-011), pausa por `from_me` (RF-010) e tipo de mensagem (RF-013) em cima do
+texto errado, e geraria rascunho para uma mensagem antiga. Degradava em silencio
+exatamente nas conversas com mais historico.
+
+#### A correcao
+
+Duas frentes, nenhuma tocando o servico Node:
+
+1. **`_process_job` deixou de fazer a segunda chamada.** A ultima mensagem ja
+   vem no payload da conversa que ele **ja buscava**: `last_message_body`,
+   `last_message_from_me`, `last_message_type` e `last_message_at`, montados por
+   `LATERAL ... ORDER BY created_at DESC, id DESC LIMIT 1`
+   (`conversationsController.ts:128`). Ordem correta por construcao, e **uma
+   chamada HTTP a menos por job**. `last_message_at` e o discriminador de
+   "existe mensagem", porque `body` pode ser vazio de forma legitima (imagem sem
+   legenda).
+2. **`_fetch_last_message` pagina ate o fim.** A reconciliacao ainda precisa
+   dela, porque so o endpoint de mensagens traz `wa_message_id`. Como a resposta
+   inclui `pagination.total`, com `limit=1` a ultima pagina e exatamente
+   `total`: duas requisicoes minusculas em vez de uma trazendo 200 linhas — e,
+   ao contrario da anterior, devolvendo a mensagem certa.
+
+Alternativa descartada: adicionar `order=desc` ao endpoint do Node. Seria uma
+API melhor, mas mexeria num servico recem-estabilizado depois do incidente de
+producao, com contrato e testes proprios. A correcao ficou toda em Python.
+
+#### Achado adicional: conversa divergente
+
+`_process_job` busca a conversa **por telefone** e nunca conferia se era a mesma
+do job. Se o Node devolver outra conversa para o mesmo telefone, o claim, a
+janela e a ultima mensagem lidos sao de outra conversa. Agora isso termina em
+`suppressed`/`conversa_divergente`, sem responder e sem retry — o proximo job
+reavalia do zero.
+
+#### Evidencia
+
+| Item | Evidencia |
+| --- | --- |
+| Ultima pagina na reconciliacao | `test_whatsapp_bot_worker_service.test_reconciliation_pega_a_ultima_pagina_em_conversa_longa` — conversa com 350 mensagens, isca antiga na pagina 1; asserta que a ultima chamada pede `page=350` e que o job enfileirado e o da mensagem recente |
+| Uma chamada so no `_process_job` | `test_whatsapp_bot_process_job` — o harness passou a devolver **uma** resposta HTTP, e `get_mock.call_count` caiu de 2 para 1 |
+| Conversa divergente | `test_whatsapp_bot_process_job.test_conversa_divergente_suprime_sem_responder` — `suppressed`/`conversa_divergente`, sem PATCH e sem push |
+
+Os dois testes novos foram **verificados por mutacao**: com a implementacao
+antiga restaurada, ambos falham; com a nova, passam. Sem isso seriam teatro.
+
+Suite focada do bot **166/166** (era 164).
+
+#### Guardas restantes
+
+Fechadas: a 10 (falso verde da prontidao) e a 4 (esta). Seguem abertas as
+outras oito: 1, 2, 3, 5, 6, 7, 8 e 9. Todas sao especificas do envio
+automatico, exceto a 6 (`blocked` e `handoff` invisiveis na central), que ja
+limita a utilidade do `suggest` hoje.

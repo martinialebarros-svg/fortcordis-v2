@@ -288,6 +288,76 @@ class WhatsAppBotWorkerServiceTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
+    def test_reconciliation_pega_a_ultima_pagina_em_conversa_longa(self) -> None:
+        """Regressao: `/conversations/:id/messages` e ASC paginado.
+
+        A versao anterior pedia `page=1&limit=200` e usava `rows[-1]`, ou seja,
+        em conversa com mais de 200 mensagens pegava a 200a mais ANTIGA e
+        tratava como se fosse a ultima. Aqui a conversa tem 350 mensagens: a
+        certa esta na pagina 350, e a primeira pagina traz uma isca antiga.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                now_iso = datetime.now(timezone.utc).isoformat()
+
+                conversations_response = Mock()
+                conversations_response.raise_for_status = Mock()
+                conversations_response.json = Mock(return_value={
+                    "data": [
+                        {"id": "conv-1", "wa_phone_number": "558588018899", "last_inbound_at": now_iso},
+                    ]
+                })
+
+                primeira_pagina = Mock()
+                primeira_pagina.raise_for_status = Mock()
+                primeira_pagina.json = Mock(return_value={
+                    "data": [{"wa_message_id": "wamid.ANTIGA", "from_me": False, "type": "text"}],
+                    "pagination": {"page": 1, "limit": 1, "total": 350},
+                })
+
+                ultima_pagina = Mock()
+                ultima_pagina.raise_for_status = Mock()
+                ultima_pagina.json = Mock(return_value={
+                    "data": [{"wa_message_id": "wamid.RECENTE", "from_me": False, "type": "text"}],
+                    "pagination": {"page": 350, "limit": 1, "total": 350},
+                })
+
+                with patch.object(worker.settings, "WHATSAPP_AGENDA_SERVICE_URL", "http://127.0.0.1:3010"):
+                    with patch.object(worker.settings, "WHATSAPP_AGENDA_INTERNAL_TOKEN", "segredo"):
+                        with patch.object(
+                            worker.httpx,
+                            "get",
+                            side_effect=[conversations_response, primeira_pagina, ultima_pagina],
+                        ) as get_mock:
+                            db = SessionFactory()
+                            try:
+                                result = worker.run_reconciliation_sweep(db)
+                            finally:
+                                db.close()
+
+                self.assertEqual(result, {"checked": 1, "enqueued": 1})
+                # A ultima chamada tem que pedir a pagina 350, nao a 1.
+                self.assertEqual(get_mock.call_args_list[-1].kwargs["params"], {"limit": 1, "page": 350})
+
+                verify = SessionFactory()
+                try:
+                    self.assertIsNotNone(
+                        verify.query(WhatsAppBotJob)
+                        .filter(WhatsAppBotJob.wa_message_id == "wamid.RECENTE")
+                        .first()
+                    )
+                    self.assertIsNone(
+                        verify.query(WhatsAppBotJob)
+                        .filter(WhatsAppBotJob.wa_message_id == "wamid.ANTIGA")
+                        .first(),
+                        "enfileirou a mensagem antiga da primeira pagina",
+                    )
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
     def test_reconciliation_ignora_conversa_cuja_ultima_mensagem_e_from_me(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             SessionFactory, engine = self._build_session_factory(tmpdir)
