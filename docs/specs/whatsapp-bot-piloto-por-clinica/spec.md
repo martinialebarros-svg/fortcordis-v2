@@ -70,7 +70,13 @@ habilitado fica de fora, em vez de herdar o padrao institucional.
   significa coisas opostas nas duas posturas — deixar a tela inferir convidaria
   a errar justo no campo que decide exposicao.
   `PUT /whatsapp/bot/clinicas/{clinica_id}` grava modo e observacao, com
-  auditoria. Mesmos papeis dos demais endpoints do bot. A postura
+  auditoria. `DELETE /whatsapp/bot/clinicas/{clinica_id}` **remove a marcacao**
+  e devolve a clinica ao padrao — idempotente.
+  - Existe porque "sem marcacao" e `off` **nao sao o mesmo estado** em `todos`:
+    a primeira herda o institucional, a segunda exclui. Em `piloto` os dois
+    coincidem, e e justamente por isso que a diferenca passa despercebida ate
+    alguem voltar a postura. Sem o DELETE, marcar uma clinica para testar era
+    irreversivel pela interface. Mesmos papeis dos demais endpoints do bot. A postura
   (`whatsapp_bot_participacao`) entra na allowlist de `PUT /configuracoes`,
   **admin-only**, como os outros interruptores institucionais.
 
@@ -98,6 +104,18 @@ habilitado fica de fora, em vez de herdar o padrao institucional.
   ja usados nas migracoes 72-75.
 - **NFR-P04 (sem vazamento)**: o motivo gravado nao carrega nome de clinica nem
   telefone; so `clinica_id`.
+
+- **RF-P09 (metrica atribuivel)**: `whatsapp_bot_respostas` ganha `clinica_id`,
+  gravado na ORIGEM pelo worker, e `GET /whatsapp/bot/metricas` passa a expor
+  `por_clinica`.
+  - Gravar na origem, e nao resolver na leitura, por dois motivos: reexecutar a
+    identificacao de telefone por linha e caro, e o resultado poderia divergir
+    do que era verdade quando a resposta foi gerada, se o cadastro mudou no
+    meio. Metrica que muda o passado nao serve para decidir.
+  - **Sem FK** de proposito: resposta e registro historico, nao pode sumir por
+    cascade nem travar a exclusao de uma clinica.
+  - Resposta sem clinica de origem (tutor, identidade nao resolvida) nao entra
+    na quebra — fica so no agregado e em `por_persona`.
 
 ## Criterios de aceitacao
 

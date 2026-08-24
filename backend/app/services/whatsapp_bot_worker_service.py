@@ -148,6 +148,7 @@ def _record_resposta(
     latencia_ms: Optional[int] = None,
     resolution: Optional[str] = None,
     match_type: Optional[str] = None,
+    clinica_id: Optional[int] = None,
 ) -> None:
     db.add(
         WhatsAppBotResposta(
@@ -165,6 +166,7 @@ def _record_resposta(
             latencia_ms=latencia_ms,
             resolution=resolution,
             match_type=match_type,
+            clinica_id=clinica_id,
         )
     )
 
@@ -294,6 +296,7 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         latencia_ms=resultado.latencia_ms,
         resolution=resultado.resolution,
         match_type=resultado.match_type,
+        clinica_id=resultado.clinica_id,
     )
     job.status = "done"
     return "done"

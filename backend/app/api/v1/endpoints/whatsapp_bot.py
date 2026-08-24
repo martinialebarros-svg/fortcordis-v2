@@ -653,3 +653,42 @@ def atualizar_participacao_da_clinica(
         "modo": modo,
         "participacao": resolve_participacao(db),
     }
+
+
+@router.delete("/clinicas/{clinica_id}")
+def remover_participacao_da_clinica(
+    clinica_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    """Remove a marcacao e devolve a clinica ao comportamento padrao.
+
+    Existe porque "sem marcacao" e `off` NAO sao a mesma coisa em `todos`: a
+    primeira herda o padrao institucional, a segunda exclui. Sem este endpoint,
+    marcar uma clinica para testar era irreversivel pela interface - o admin
+    ficava preso entre dois estados quando o original era um terceiro.
+
+    Em `piloto` os dois se comportam igual (ambos ficam de fora), e e
+    justamente por isso que a diferenca passa despercebida ate alguem voltar a
+    postura para `todos`.
+    """
+    linha = (
+        db.query(WhatsAppBotClinicaEstado)
+        .filter(WhatsAppBotClinicaEstado.clinica_id == clinica_id)
+        .first()
+    )
+    if linha is None:
+        # Idempotente: sem marcacao ja e o estado desejado.
+        return {"clinica_id": clinica_id, "modo": None, "participacao": resolve_participacao(db)}
+
+    db.delete(linha)
+    db.commit()
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="whatsapp_chatbot",
+        entidade="whatsapp_bot_clinica_estado",
+        entidade_id=clinica_id,
+        acao="REMOVER_PARTICIPACAO",
+        descricao=f"Marcacao de participacao da clinica {clinica_id} removida.",
+    )
+    return {"clinica_id": clinica_id, "modo": None, "participacao": resolve_participacao(db)}

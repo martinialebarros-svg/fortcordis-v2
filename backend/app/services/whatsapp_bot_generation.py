@@ -72,6 +72,7 @@ class ResultadoGeracao:
     latencia_ms: Optional[int] = None
     resolution: Optional[str] = None
     match_type: Optional[str] = None
+    clinica_id: Optional[int] = None
 
 
 def _max_tokens_per_day() -> int:
@@ -256,6 +257,7 @@ def gerar_resposta(
                 motivo=bloqueio_participacao,
                 resolution=resolution,
                 match_type=match_type,
+                clinica_id=clinica_id,
             )
         modo = modo_efetivo
 
@@ -268,6 +270,7 @@ def gerar_resposta(
             motivo="teto_diario",
             resolution=resolution,
             match_type=match_type,
+            clinica_id=clinica_id,
         )
 
     # RF-016/CA-013: sem identidade resolvida, nenhuma tool de dado roda e
@@ -278,6 +281,7 @@ def gerar_resposta(
             motivo="identidade_nao_resolvida",
             resolution=resolution,
             match_type=None,
+            clinica_id=None,
         )
 
     # NFR-005: inclui drafts e bloqueios, pois ambos ja consumiram tokens.
@@ -293,6 +297,7 @@ def gerar_resposta(
             prompt_version=resolve_prompt_version(match_type),
             resolution=resolution,
             match_type=match_type,
+            clinica_id=clinica_id,
         )
 
     try:
@@ -302,7 +307,11 @@ def gerar_resposta(
     except WhatsAppBotToolError:
         logger.exception("Escopo incoerente ao montar contexto de tools do bot.")
         return ResultadoGeracao(
-            decisao="handoff", motivo="escopo_incoerente", resolution=resolution, match_type=match_type
+            decisao="handoff",
+            motivo="escopo_incoerente",
+            resolution=resolution,
+            match_type=match_type,
+            clinica_id=clinica_id,
         )
 
     contexto_seguro = build_safe_context(
@@ -354,6 +363,7 @@ def gerar_resposta(
                         latencia_ms=int((time.perf_counter() - iniciado) * 1000),
                         resolution=resolution,
                         match_type=match_type,
+                        clinica_id=clinica_id,
                     )
 
                 tool_outputs: list[dict[str, Any]] = []
@@ -395,6 +405,7 @@ def gerar_resposta(
             output_tokens=output_tokens,
             resolution=resolution,
             match_type=match_type,
+            clinica_id=clinica_id,
             latencia_ms=int((time.perf_counter() - iniciado) * 1000),
         )
     latencia_ms = int((time.perf_counter() - iniciado) * 1000)
@@ -432,6 +443,7 @@ def gerar_resposta(
         latencia_ms=latencia_ms,
         resolution=resolution,
         match_type=match_type,
+        clinica_id=clinica_id,
     )
 
     if not veredito.aprovado:

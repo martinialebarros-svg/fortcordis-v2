@@ -276,6 +276,7 @@ def coletar_metricas_observacao(
     por_persona: dict[str, dict[str, Any]] = {}
     por_faixa: dict[str, dict[str, Any]] = {}
     por_persona_faixa: dict[str, dict[str, Any]] = {}
+    por_clinica: dict[str, dict[str, Any]] = {}
     conversas_geral: set[str] = set()
     conversas_por_chave: dict[str, set[str]] = {}
     prompt_versions: dict[str, int] = {}
@@ -293,10 +294,19 @@ def coletar_metricas_observacao(
         _acumular(por_faixa.setdefault(faixa, _bucket_vazio()), resposta)
         _acumular(por_persona_faixa.setdefault(combinada, _bucket_vazio()), resposta)
 
+        # Fase 4 do piloto: sem quebra por clinica o retorno nao e atribuivel -
+        # tres clinicas boas escondem uma ruim. So respostas com clinica de
+        # origem entram; o resto ja esta no agregado e em `por_persona`.
+        if resposta.clinica_id:
+            _acumular(por_clinica.setdefault(str(resposta.clinica_id), _bucket_vazio()), resposta)
+
         identidade = str(resposta.wa_identity or "")
         if identidade:
             conversas_geral.add(identidade)
-            for chave in (persona, faixa, combinada):
+            chaves = [persona, faixa, combinada]
+            if resposta.clinica_id:
+                chaves.append(f"clinica:{resposta.clinica_id}")
+            for chave in chaves:
                 conversas_por_chave.setdefault(chave, set()).add(identidade)
 
         if resposta.prompt_version:
@@ -307,8 +317,11 @@ def coletar_metricas_observacao(
             modelos[resposta.modelo] = modelos.get(resposta.modelo, 0) + 1
 
     geral["conversas_distintas"] = len(conversas_geral)
-    for chave, bucket in list(por_persona.items()) + list(por_faixa.items()) + list(
-        por_persona_faixa.items()
+    for chave, bucket in (
+        list(por_persona.items())
+        + list(por_faixa.items())
+        + list(por_persona_faixa.items())
+        + [(f"clinica:{chave}", bucket) for chave, bucket in por_clinica.items()]
     ):
         bucket["conversas_distintas"] = len(conversas_por_chave.get(chave) or set())
 
@@ -320,6 +333,7 @@ def coletar_metricas_observacao(
         "geral": _finalizar(geral),
         "por_persona": {chave: _finalizar(bucket) for chave, bucket in por_persona.items()},
         "por_faixa_horario": {chave: _finalizar(bucket) for chave, bucket in por_faixa.items()},
+        "por_clinica": {chave: _finalizar(bucket) for chave, bucket in por_clinica.items()},
         "por_persona_e_faixa": {
             chave: _finalizar(bucket) for chave, bucket in por_persona_faixa.items()
         },

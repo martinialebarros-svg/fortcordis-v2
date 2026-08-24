@@ -54,6 +54,8 @@ class WhatsAppBotResposta(Base):
     latencia_ms = Column(Integer, nullable=True)
     resolution = Column(String(20), nullable=True)
     match_type = Column(String(20), nullable=True)
+    # Sem FK: registro historico nao pode sumir nem travar exclusao de clinica.
+    clinica_id = Column(Integer, nullable=True, index=True)
     feedback = Column(String(20), nullable=True)
     enviado_por_id = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

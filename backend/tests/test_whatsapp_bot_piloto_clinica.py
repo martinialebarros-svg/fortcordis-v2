@@ -433,3 +433,177 @@ class WhatsAppBotPilotoEndpointsTest(unittest.TestCase):
                 self.assertEqual(r["clinicas"], [])
             finally:
                 engine.dispose()
+
+
+    def test_delete_devolve_ao_padrao_e_e_idempotente(self) -> None:
+        """"Sem marcacao" e `off` sao estados DIFERENTES em `todos`.
+
+        Sem o DELETE, marcar uma clinica para testar era irreversivel pela
+        interface: o admin ficava preso entre dois estados quando o original
+        era um terceiro.
+        """
+        from app.api.v1.endpoints import whatsapp_bot as endpoints
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    db.add(Configuracao(whatsapp_bot_participacao="todos"))
+                    db.add(Clinica(id=7, nome="Parceira", ativo=True))
+                    db.commit()
+
+                    endpoints.atualizar_participacao_da_clinica(
+                        7,
+                        endpoints.WhatsAppBotClinicaEstadoUpdateRequest(modo="off"),
+                        db=db,
+                        current_user=self._user(),
+                    )
+                    r = endpoints.listar_participacao_das_clinicas(db=db, current_user=self._user())
+                    self.assertFalse(r["clinicas"][0]["participa"], "off exclui em `todos`")
+
+                    endpoints.remover_participacao_da_clinica(7, db=db, current_user=self._user())
+                    r = endpoints.listar_participacao_das_clinicas(db=db, current_user=self._user())
+                    self.assertIsNone(r["clinicas"][0]["modo"])
+                    self.assertTrue(
+                        r["clinicas"][0]["participa"],
+                        "sem marcacao tem que voltar a herdar o padrao institucional",
+                    )
+                    self.assertEqual(db.query(WhatsAppBotClinicaEstado).count(), 0)
+
+                    # idempotente: remover de novo nao pode explodir
+                    endpoints.remover_participacao_da_clinica(7, db=db, current_user=self._user())
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_sem_marcacao_e_off_so_coincidem_no_piloto(self) -> None:
+        """A diferenca some em `piloto` - e e por isso que passa despercebida."""
+        from app.api.v1.endpoints import whatsapp_bot as endpoints
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    db.add(Configuracao(whatsapp_bot_participacao="piloto"))
+                    db.add(Clinica(id=7, nome="Parceira", ativo=True))
+                    db.commit()
+
+                    sem_marcacao = endpoints.listar_participacao_das_clinicas(
+                        db=db, current_user=self._user()
+                    )["clinicas"][0]["participa"]
+                    endpoints.atualizar_participacao_da_clinica(
+                        7,
+                        endpoints.WhatsAppBotClinicaEstadoUpdateRequest(modo="off"),
+                        db=db,
+                        current_user=self._user(),
+                    )
+                    com_off = endpoints.listar_participacao_das_clinicas(
+                        db=db, current_user=self._user()
+                    )["clinicas"][0]["participa"]
+                finally:
+                    db.close()
+                self.assertEqual(sem_marcacao, com_off, "em piloto os dois ficam de fora")
+                self.assertFalse(com_off)
+            finally:
+                engine.dispose()
+
+
+class WhatsAppBotMetricaPorClinicaTest(unittest.TestCase):
+    """Fase 4: sem quebra por clinica o retorno do piloto nao e atribuivel."""
+
+    def _factory(self, tmpdir: str):
+        from app.models.whatsapp_bot import WhatsAppBotJob, WhatsAppBotResposta
+
+        db_path = Path(tmpdir) / "metrica-clinica.db"
+        engine = create_engine(f"sqlite:///{db_path}")
+        for table in (
+            Configuracao.__table__,
+            Clinica.__table__,
+            WhatsAppBotJob.__table__,
+            WhatsAppBotResposta.__table__,
+        ):
+            table.create(engine, checkfirst=True)
+        return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine
+
+    def _resposta(self, db, *, clinica_id, decisao, feedback=None, identidade="5585900000001"):
+        from datetime import datetime, timezone
+
+        from app.models.whatsapp_bot import WhatsAppBotJob, WhatsAppBotResposta
+
+        job = WhatsAppBotJob(
+            wa_identity=identidade,
+            conversation_id="c1",
+            wa_message_id=f"wamid.{identidade}.{decisao}.{clinica_id}",
+            status="done",
+            scheduled_for=datetime.now(timezone.utc),
+        )
+        db.add(job)
+        db.commit()
+        db.add(
+            WhatsAppBotResposta(
+                job_id=job.id,
+                wa_identity=identidade,
+                conversation_id="c1",
+                decisao=decisao,
+                motivo="teste",
+                match_type="clinica",
+                clinica_id=clinica_id,
+                feedback=feedback,
+            )
+        )
+        db.commit()
+
+    def test_metrica_separa_clinica_boa_de_clinica_ruim(self) -> None:
+        """O agregado esconde justamente o que o piloto precisa enxergar."""
+        from app.services.whatsapp_bot_metrics_service import coletar_metricas_observacao
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    db.add(Configuracao())
+                    db.commit()
+                    # clinica 1 aceita, clinica 2 descarta
+                    self._resposta(db, clinica_id=1, decisao="sent", feedback="positivo", identidade="5585900000001")
+                    self._resposta(db, clinica_id=1, decisao="sent", feedback="positivo", identidade="5585900000002")
+                    self._resposta(db, clinica_id=2, decisao="draft", feedback="negativo", identidade="5585900000003")
+                    m = coletar_metricas_observacao(db, dias=7)
+                finally:
+                    db.close()
+
+                por_clinica = m["por_clinica"]
+                self.assertIn("1", por_clinica)
+                self.assertIn("2", por_clinica)
+                self.assertEqual(por_clinica["1"]["aceitos"], 2)
+                self.assertEqual(por_clinica["1"]["descartados"], 0)
+                self.assertEqual(por_clinica["2"]["aceitos"], 0)
+                self.assertEqual(por_clinica["2"]["descartados"], 1)
+                # conversas distintas contadas por clinica, nao herdadas do geral
+                self.assertEqual(por_clinica["1"]["conversas_distintas"], 2)
+                self.assertEqual(por_clinica["2"]["conversas_distintas"], 1)
+            finally:
+                engine.dispose()
+
+    def test_resposta_sem_clinica_nao_polui_a_quebra(self) -> None:
+        """Tutor e identidade nao resolvida ficam so no agregado."""
+        from app.services.whatsapp_bot_metrics_service import coletar_metricas_observacao
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    db.add(Configuracao())
+                    db.commit()
+                    self._resposta(db, clinica_id=None, decisao="handoff")
+                    m = coletar_metricas_observacao(db, dias=7)
+                finally:
+                    db.close()
+                self.assertEqual(m["por_clinica"], {})
+                self.assertEqual(m["total_respostas"], 1)
+            finally:
+                engine.dispose()

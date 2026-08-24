@@ -2,7 +2,7 @@
 
 Data: 2026-08-24
 Responsavel: Martiniano + Claude
-Status: Fases 1-3 entregues; Fase 4 (metrica por clinica) pendente
+Status: Fases 1-4 entregues
 
 ## Matriz de rastreabilidade
 
@@ -155,3 +155,49 @@ Validacao: frontend **98/98**, `eslint` sem warning, `tsc --noEmit` limpo,
 Uso real da tela em stage: depende de publicar e de haver clinica ativa
 cadastrada no ambiente. A prova de que o backend responde ja existe nos testes
 de endpoint da Fase 2.
+
+
+## Correcao da Fase 3 e Fase 4 (2026-08-24)
+
+### A lacuna que a verificacao em stage revelou
+
+A tela foi verificada com dado real em stage: 46 clinicas ativas, postura
+virada para `piloto` (as 46 passaram de "atendida" para "fora do atendimento"
+sem nenhuma marcacao mudar), uma clinica habilitada, e a tela concordando com
+o backend.
+
+Ao **limpar o teste**, o defeito apareceu: nao havia como remover uma marcacao.
+So `off` e `suggest`. Em `piloto` isso nao importa - `off` e "sem marcacao" se
+comportam igual -, mas em `todos` sao opostos: sem marcacao inclui, `off`
+exclui. Resultado pratico: a limpeza deixou uma clinica de stage excluida, e um
+admin cairia na mesma armadilha - marca para testar e nunca volta ao original.
+
+Fechado com `DELETE /whatsapp/bot/clinicas/{id}` (idempotente) e um terceiro
+botao **"Sem marcacao"**, que so aparece quando ha o que desfazer.
+
+| Item | Evidencia |
+| --- | --- |
+| DELETE devolve ao padrao | `test_delete_devolve_ao_padrao_e_e_idempotente`: com `off` em `todos` a clinica fica fora; apos o DELETE volta a `participa=true` e a linha some do banco |
+| Idempotencia | mesmo teste: remover duas vezes nao levanta |
+| A diferenca so some em `piloto` | `test_sem_marcacao_e_off_so_coincidem_no_piloto` — trava o motivo pelo qual o defeito passou despercebido |
+
+### Fase 4: metrica por clinica
+
+`whatsapp_bot_respostas.clinica_id` (migracao `20260824_77`), gravado na origem
+pelo worker, e `por_clinica` no endpoint de metricas.
+
+| Item | Evidencia |
+| --- | --- |
+| Separa clinica boa de ruim | `test_metrica_separa_clinica_boa_de_clinica_ruim`: clinica 1 com 2 aceitos e 0 descartes, clinica 2 com 0 e 1 — o agregado sozinho esconderia isso |
+| Conversas distintas por clinica | mesmo teste: 2 e 1, contadas por clinica e nao herdadas do geral |
+| Resposta sem clinica nao polui | `test_resposta_sem_clinica_nao_polui_a_quebra`: tutor e identidade nao resolvida ficam so no agregado |
+| Migracao | `test_adiciona_coluna_e_indice_e_e_idempotente` e `test_no_op_sem_a_tabela_de_respostas` |
+
+Validacao: backend **1069/1069** (era 1063); frontend **98/98**, `eslint` sem
+warning, `tsc --noEmit` limpo. As duas migracoes aplicadas de verdade num
+sqlite novo via `setup_database.py`.
+
+### Pendencia deixada em stage
+
+A clinica "Animal & Cia" ficou marcada como `off` durante a verificacao, antes
+de o DELETE existir. Com o endpoint publicado, da para limpar pela tela.

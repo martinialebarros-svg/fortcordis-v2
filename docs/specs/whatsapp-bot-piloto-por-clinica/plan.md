@@ -2,7 +2,7 @@
 
 Data: 2026-08-24
 Responsavel: Martiniano + Claude
-Status: Fases 1-3 entregues
+Status: Fases 1-4 entregues
 
 ## 1) Sequencia de fases
 
@@ -65,7 +65,7 @@ Status: Fases 1-3 entregues
 
 ### Fase 4 - observabilidade
 
-- [ ] P4.1 `GET /whatsapp/bot/metricas` quebrado tambem por clinica, para o
+- [x] P4.1 `GET /whatsapp/bot/metricas` quebrado tambem por clinica, para o
       retorno do piloto ser atribuivel.
 - Criterio de conclusao: da para dizer que a clinica X aceita 80% dos rascunhos
   e a Y descarta metade.

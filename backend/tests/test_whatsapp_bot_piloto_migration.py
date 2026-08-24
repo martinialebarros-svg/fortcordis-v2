@@ -24,6 +24,15 @@ if SPEC is None or SPEC.loader is None:
 MIGRATION = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MIGRATION)
 
+MIGRATION_77_PATH = (
+    BACKEND_DIR / "migrations" / "versions" / "20260824_77_whatsapp_bot_resposta_clinica.py"
+)
+SPEC_77 = importlib.util.spec_from_file_location("migration_20260824_77", MIGRATION_77_PATH)
+if SPEC_77 is None or SPEC_77.loader is None:
+    raise RuntimeError(f"Nao foi possivel carregar migracao: {MIGRATION_77_PATH}")
+MIGRATION_77 = importlib.util.module_from_spec(SPEC_77)
+SPEC_77.loader.exec_module(MIGRATION_77)
+
 
 class WhatsAppBotPilotoMigrationTest(unittest.TestCase):
     """P1.2: schema do piloto por clinica (CA-P07, NFR-P01, NFR-P03)."""
@@ -123,6 +132,48 @@ class WhatsAppBotPilotoMigrationTest(unittest.TestCase):
         finally:
             engine.dispose()
             tmpdir.cleanup()
+
+
+class WhatsAppBotRespostaClinicaMigrationTest(unittest.TestCase):
+    """Fase 4: coluna que torna a metrica do piloto atribuivel."""
+
+    def _engine_com_respostas(self, tmpdir: str):
+        db_path = Path(tmpdir) / "resposta-clinica.db"
+        engine = create_engine(f"sqlite:///{db_path}")
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE whatsapp_bot_respostas ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, wa_identity TEXT, decisao TEXT)"
+                )
+            )
+        return engine
+
+    def test_adiciona_coluna_e_indice_e_e_idempotente(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = self._engine_com_respostas(tmpdir)
+            try:
+                with engine.begin() as conn:
+                    MIGRATION_77.upgrade(conn, "sqlite")
+                    MIGRATION_77.upgrade(conn, "sqlite")
+                inspector = inspect(engine)
+                colunas = {c["name"] for c in inspector.get_columns("whatsapp_bot_respostas")}
+                self.assertIn("clinica_id", colunas)
+                indices = {i["name"] for i in inspector.get_indexes("whatsapp_bot_respostas")}
+                self.assertIn("ix_whatsapp_bot_respostas_clinica_id", indices)
+            finally:
+                engine.dispose()
+
+    def test_no_op_sem_a_tabela_de_respostas(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "vazio.db"
+            engine = create_engine(f"sqlite:///{db_path}")
+            try:
+                with engine.begin() as conn:
+                    MIGRATION_77.upgrade(conn, "sqlite")
+                self.assertNotIn("whatsapp_bot_respostas", inspect(engine).get_table_names())
+            finally:
+                engine.dispose()
 
 
 if __name__ == "__main__":

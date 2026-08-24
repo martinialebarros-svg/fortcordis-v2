@@ -1066,6 +1066,19 @@ export default function ConfiguracoesPage() {
     }
   };
 
+  const removerMarcacaoDaClinica = async (clinicaId: number) => {
+    try {
+      setBotCarregando(`clinica-${clinicaId}`);
+      setBotErro(null);
+      await api.delete(`/whatsapp/bot/clinicas/${clinicaId}`);
+      await carregarBotClinicas();
+    } catch {
+      setBotErro("Não foi possível remover a marcação desta clínica.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
   const alterarParticipacao = async (participacao: string) => {
     try {
       setBotCarregando("participacao");
@@ -2818,6 +2831,18 @@ export default function ConfiguracoesPage() {
                                 {m === "off" ? "Desligado" : "Sugerir"}
                               </button>
                             ))}
+                            {/* So aparece quando ha o que desfazer. "Sem marcacao"
+                                nao e um terceiro modo: e a ausencia dos dois, e em
+                                `todos` ela INCLUI a clinica, ao contrario de Desligado. */}
+                            {c.modo ? (
+                              <button type="button"
+                                onClick={() => void removerMarcacaoDaClinica(c.clinica_id)}
+                                disabled={botCarregando === `clinica-${c.clinica_id}`}
+                                title="Volta ao padrão: em Todos a clínica é atendida; no piloto, fica de fora"
+                                className="text-[11px] px-2 py-1 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-60">
+                                Sem marcação
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                       ))}
