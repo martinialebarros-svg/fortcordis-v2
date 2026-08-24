@@ -605,17 +605,24 @@ mapear as colunas e escolher a faixa pelo horário.
 
 O bot já está lá e dormente. Falta, nesta ordem:
 
-1. **Corrigir o cadastro de preço** (quatro divergências e dois zerados, no
-   `verify.md`). Com `preco_servico` fora do `auto` nada sai errado ao cliente,
-   mas os rascunhos trariam valor desatualizado — e a taxa de aceite mediria a
-   qualidade de uma resposta errada.
-2. **Cadastrar o conteúdo institucional em produção.** Os quatro documentos
-   estão em stage; produção tem a base vazia, então hoje as intents de
-   conhecimento cairiam em `blocked/sem_fonte`.
-3. **Habilitar as clínicas do piloto** em Configurações > Empresa.
+1. ~~Corrigir o cadastro de preço~~ **Não é preciso**: por decisão do usuário,
+   **produção é a fonte de verdade** e está correta. As tabelas que o
+   atendimento cola no WhatsApp é que são de uma tabela antiga.
+   **Mas alinhe a equipe antes de ligar**: em três dos quatro casos o
+   atendimento cobra a mais do que a tabela, e o bot vai cotar o valor correto —
+   o cliente receberia dois preços na mesma conversa.
+2. ~~Cadastrar o conteúdo institucional em produção~~ **FEITO**: quatro
+   documentos ativos, e o cadastro da empresa preenchido. Prontidão de produção
+   em **12/2**, só `status_laudo` pendente.
+3. **Habilitar as clínicas do piloto** em Configurações > Empresa. Produção tem
+   161 clínicas ativas e **0 participando**.
 4. **Ligar o toggle institucional em `suggest`** — e só então o bot atende, e
    apenas quem foi habilitado.
 5. Coletar o P6.3 por `GET /whatsapp/bot/metricas`, com a quebra por clínica.
+
+**Pendência menor**: os documentos de **stage** ainda mencionam "drenagem de
+efusão", removida em produção. A sessão de stage caiu antes de eu aplicar lá.
+Não afeta cliente — stage só fala com destinatários pré-verificados.
 
 ## Limites obrigatórios da próxima sessão
 

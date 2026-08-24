@@ -1366,7 +1366,9 @@ de rascunhos clinicos", "Rotina administrativa da Mente FortCordis"), e a
 allowlist de categoria os mantem invisiveis para o bot que fala com cliente.
 
 **Pendente**: aplicar a mesma remocao nos documentos de **stage**, cuja sessao
-caiu no meio da tarefa. Ate la, stage e producao divergem nesse ponto.
+caiu no meio da tarefa e nao voltou. Ate la, stage e producao divergem nesse
+ponto — stage ainda anuncia drenagem de efusao. Nao afeta cliente: stage so fala
+com destinatarios pre-verificados do numero de teste da Meta.
 
 ## Conteudo institucional em producao (2026-08-24)
 
@@ -1392,3 +1394,19 @@ endereco e telefone sem ter nenhum. A correcao pegou o caso real no ambiente que
 importa, sem ter sido procurada.
 
 O bot segue **dormente** em producao: `bot_ativo: false`.
+
+### Fechamento: producao em 12/2
+
+O usuario preencheu `endereco`, `telefone`, `email` e `website` em
+Configuracoes > Empresa de producao. A prontidao fechou:
+
+| | Antes | Depois |
+| --- | --- | --- |
+| Resumo | 8 prontos / 6 pendentes | **12 prontos / 2 pendentes** |
+| `endereco`, `formas_contato` | pendentes, cadastro vazio | **prontos, por dado real** |
+| `status_laudo` | pendente | pendente — depende de conversa, por desenho |
+
+Producao tem agora a mesma prontidao de stage, com o bot ainda **dormente** e a
+participacao em `piloto`.
+
+Drenagem de efusao confirmada fora dos documentos por decisao do usuario.
