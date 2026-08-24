@@ -241,6 +241,18 @@ falhou fechado em vez de subir producao com identidade de teste.
    restaurar `PHONE_NUMBER_ID`, `META_APP_ID` e `WHATSAPP_BUSINESS_ACCOUNT_ID`
    aprovados, se tiverem sido sobrescritos. Sem isso, qualquer novo deploy
    continua falhando no mesmo guard, agora por causa do proprio arquivo.
+   - **O deploy nao conserta isso sozinho.**
+     `set_env_key_if_blank_or_placeholder` retorna cedo quando o valor atual e
+     nao vazio e nao e placeholder; os IDs de teste sao valores reais, entao
+     ficam onde estao. Da mesma forma,
+     `replace_env_key_if_exact_match` so troca placeholders literais como
+     `stage_phone_number_id`.
+   - **Conferir tambem `WHATSAPP_ACCESS_TOKEN` e `WHATSAPP_APP_SECRET`**, nao
+     so os tres IDs. Eles vinham do mesmo sync, e os defaults do script sao
+     apenas `stage_access_token_not_configured` /
+     `stage_app_secret_not_configured`. Depois do isolamento, o segredo Meta de
+     producao precisa viver no proprio servidor — e o que a ultima linha do
+     guard ja manda fazer ("Configure os segredos Meta diretamente no servidor").
 2. **Hotfix em `main`** removendo a linha `WHATSAPP_META_SOURCE_ENV_FILE=...` de
    `.github/workflows/deploy.yml`. E o menor diff correto: com a variavel vazia,
    `deploy_prod_vps.sh` pula a sincronizacao (`if [[ -n ... ]]`) e valida o
@@ -254,3 +266,25 @@ parametrizada do script, mas levaria junto **todo o chatbot** para producao.
 Ainda que ele nasca desligado (`WHATSAPP_BOT_ENABLED=False` e toggle do banco
 `false`), isso contraria a decisao registrada de producao nunca ter recebido o
 bot antes dos numeros do P6.3.
+
+### Hotfix preparado (nao publicado)
+
+Branch `hotfix/prod-meta-env-source`, baseada em `origin/main` (`683195bd`),
+commit `98826a68`. Um arquivo, uma linha removida:
+`WHATSAPP_META_SOURCE_ENV_FILE=...` sai de `.github/workflows/deploy.yml`.
+
+Verificado antes de commitar: YAML valido com os tres jobs intactos
+(`quality-gate`, `sdd-guardrail`, `deploy`); nenhuma outra referencia a
+variavel no workflow; com ela ausente o script pula a sincronizacao inteira; e
+`default_phone_number_id` no script de `main` ja e `1279142515283484`, o numero
+aprovado de producao. Gate SDD dispensado (`.github/` nao esta em
+`CODE_PREFIXES`).
+
+Backport para `stage` **nao e necessario**: `stage` ja tem uma versao melhor
+deste arquivo, com `WHATSAPP_EXPECTED_*`. A regra de backport do `CLAUDE.md`
+existe para o caso oposto — hotfix que `stage` ainda nao tem.
+
+Ordem correta: passo 1 (reparar o `.env` na VPS) **antes** de publicar o
+hotfix. Publicar primeiro nao quebra nada, mas o deploy seguinte falharia de
+novo no mesmo guard, agora por causa do arquivo em vez do workflow, e isso
+confundiria o diagnostico.
