@@ -276,7 +276,6 @@ jobs:
             WHATSAPP_STAGE_BACKEND_SERVICE=fortcordis-whatsapp-backend \
             WHATSAPP_STAGE_BACKEND_PORT=3020 \
             WHATSAPP_STAGE_BACKEND_URL=http://127.0.0.1:3020 \
-            WHATSAPP_META_SOURCE_ENV_FILE=/var/www/fortcordis-stage/whatsapp-stage-backend/.env \
             WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED=false \
             WHATSAPP_RUNTIME_LABEL=Production \
             ENABLE_WHATSAPP_STAGE_SMOKE=0 \
