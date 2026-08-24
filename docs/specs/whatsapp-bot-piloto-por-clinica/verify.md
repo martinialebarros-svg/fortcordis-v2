@@ -2,27 +2,27 @@
 
 Data: 2026-08-24
 Responsavel: Martiniano + Claude
-Status: Fase 1 (schema) entregue; Fases 2-4 pendentes
+Status: Fases 1 e 2 entregues; Fases 3-4 pendentes
 
 ## Matriz de rastreabilidade
 
 | ID | Tipo | Evidencia planejada | Status |
 | --- | --- | --- | --- |
-| CA-P01 | aceitacao | postura `todos`, clinica sem linha -> modo institucional, identico a hoje | pendente |
-| CA-P02 | aceitacao | postura `piloto`, clinica sem linha -> `suppressed`/`fora_do_piloto`, provider nao chamado | pendente |
-| CA-P03 | aceitacao | postura `piloto`, clinica `suggest` -> rascunho normal | pendente |
-| CA-P04 | aceitacao | clinica `off` explicito -> `suppressed`/`clinica_desabilitada` mesmo com postura `todos` | pendente |
-| CA-P05 | aceitacao | modo por conversa vence o por clinica, nas duas direcoes | pendente |
-| CA-P06 | aceitacao | postura `piloto`, tutor sem opt-in -> `fora_do_piloto`; com opt-in -> gera | pendente |
+| CA-P01 | aceitacao | ok — `test_whatsapp_bot_piloto_clinica.test_todos_sem_linha_de_clinica_nao_bloqueia`; e a suite inteira passou sem alterar expectativa alguma |
+| CA-P02 | aceitacao | ok — `test_piloto_sem_linha_de_clinica_bloqueia` + `test_bloqueio_nao_chama_provider` (provider com `side_effect=AssertionError`) |
+| CA-P03 | aceitacao | ok — `test_piloto_com_clinica_habilitada_gera` |
+| CA-P04 | aceitacao | ok — `test_clinica_off_explicito_bloqueia_mesmo_em_todos` |
+| CA-P05 | aceitacao | ok — `test_conversa_vence_clinica_off` e `test_conversa_off_vence_clinica_habilitada` |
+| CA-P06 | aceitacao | ok — `test_piloto_tutor_sem_opt_in_bloqueia` e `test_piloto_tutor_com_opt_in_gera` |
 | CA-P07 | aceitacao | migracao idempotente, default `todos` | ok — `test_whatsapp_bot_piloto_migration.test_upgrade_cria_tabela_e_e_idempotente` (aplicada duas vezes em sequencia) + `test_participacao_nasce_todos_e_preserva_comportamento` |
-| CA-P08 | aceitacao | `PUT /configuracoes` 403 para nao admin, 422 para valor invalido | pendente |
-| CA-P09 | aceitacao | provider fake que falha se chamado, nos caminhos barrados | pendente |
-| CB-P01 | borda | `ambiguous` entre clinicas -> `handoff`/`identidade_nao_resolvida`, sem inventar participacao | pendente |
-| CB-P02 | borda | clinica inativa com linha habilitada nao volta a ser atendida | pendente |
-| CB-P03 | borda | voltar de `piloto` para `todos` preserva os `off` explicitos | pendente |
+| CA-P08 | aceitacao | ok — `test_configuracoes_autorizacao`: `test_nao_admin_nao_pode_alterar_participacao_do_bot` (403), `test_participacao_invalida_e_rejeitada_422` (422), `test_admin_pode_ligar_o_piloto` |
+| CA-P09 | aceitacao | ok — `test_bloqueio_nao_chama_provider`: `provider.generate` levanta se chamado, e o resultado e `suppressed`/`fora_do_piloto` com `texto_gerado` nulo |
+| CB-P01 | borda | ok — `test_identidade_nao_resolvida_em_piloto_bloqueia_sem_inventar_clinica`: mesmo com clinica habilitada no banco, sem `match_type` nao ha participacao |
+| CB-P02 | borda | ok — `test_clinica_inativa_nao_aparece_na_listagem` (parcial: cobre a listagem; o escopo das tools ja filtra clinica ativa) |
+| CB-P03 | borda | ok — `test_voltar_para_todos_preserva_off_explicito` |
 | CB-P04 | borda | remocao da clinica remove a linha de participacao (cascade) | pendente |
 | NFR-P01 | nao funcional | ok — coluna nasce `todos` (inclusive em linha que ja existia, via UPDATE explicito: default de coluna nao preenche linha antiga em todo dialeto) e a tabela nasce vazia. Suite completa 1044/1044 sem alterar nenhuma expectativa existente |
-| NFR-P02 | nao funcional | caminho barrado nao chama LLM nem tools de dado | pendente |
+| NFR-P02 | nao funcional | ok — o portao roda logo apos `_escopo_da_persona` e antes de tools e provider; `test_bloqueio_nao_chama_provider` trava |
 | NFR-P03 | nao funcional | ok — `20260824_76` aplicada duas vezes em cada teste, e `no-op` sem `configuracoes` coberto por `test_no_op_sem_configuracoes` |
 | NFR-P04 | nao funcional | motivo gravado sem nome de clinica e sem telefone | pendente |
 
@@ -96,3 +96,34 @@ cadastro de clinicas depender de uma tabela do bot.
 - [ ] Aprovado para producao com postura `todos` (feature dormente).
 - [ ] Aprovado para producao com postura `piloto`.
 - [ ] Nao aprovado (descrever motivo).
+
+
+## Resumo dos resultados (Fase 2, 2026-08-24)
+
+- `resolve_participacao` e `resolve_modo_efetivo` em `whatsapp_bot_gates`;
+  portao em `gerar_resposta` logo apos `_escopo_da_persona`; endpoints
+  `GET /whatsapp/bot/clinicas` e `PUT /whatsapp/bot/clinicas/{id}`;
+  `whatsapp_bot_participacao` na allowlist de `PUT /configuracoes`, admin-only.
+- **23 testes novos** (16 no arquivo do piloto, 3 de autorizacao, e os demais
+  ajustes de fixture). Suite completa **1063/1063** (era 1040).
+- **Criterio da fase cumprido**: com a postura em `todos`, nenhuma expectativa
+  existente mudou. A feature e invisivel ate ser ligada.
+
+### Correcao de desenho durante a implementacao
+
+A primeira versao de `resolve_modo_efetivo` **recalculava** o modo a partir do
+institucional, sobrescrevendo o que o chamador ja tinha resolvido. Dois testes
+existentes quebraram e expuseram o erro: o parametro `modo` virava mentira, e
+duas leituras da mesma coisa podiam discordar.
+
+Corrigido para receber `modo_atual` e **nunca** recalcular — a funcao so
+substitui quando a clinica tem modo proprio. `_process_job` tambem passa o
+`estado` que ja resolveu, evitando reconsultar a mesma linha no caminho quente.
+
+### Verificacao por mutacao
+
+- Desligar o bloqueio do piloto (`if False`) derruba 4 testes.
+- Inverter a precedencia, fazendo a clinica vencer a conversa, derruba 3.
+
+Sem isso, os testes poderiam estar apenas descrevendo o codigo em vez de
+travar a decisao.

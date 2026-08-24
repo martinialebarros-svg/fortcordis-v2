@@ -14,7 +14,13 @@ from app.core.security import require_any_papel, require_papel
 from app.db.database import get_db
 from app.models.configuracao import Configuracao
 from app.models.user import User
-from app.models.whatsapp_bot import WhatsAppBotConversaEstado, WhatsAppBotJob, WhatsAppBotResposta
+from app.models.clinica import Clinica
+from app.models.whatsapp_bot import (
+    WhatsAppBotClinicaEstado,
+    WhatsAppBotConversaEstado,
+    WhatsAppBotJob,
+    WhatsAppBotResposta,
+)
 from app.services.whatsapp_bot_gates import (
     MODOS_VALIDOS,
     is_locally_paused,
@@ -22,6 +28,7 @@ from app.services.whatsapp_bot_gates import (
     pause_conversation,
     resolve_conversation_mode,
     resolve_conversation_state,
+    resolve_participacao,
 )
 from app.services.whatsapp_bot_readiness_service import coletar_prontidao
 from app.services.whatsapp_bot_metrics_service import (
@@ -545,3 +552,104 @@ def simular_resposta_do_bot(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+class WhatsAppBotClinicaEstadoUpdateRequest(BaseModel):
+    modo: str = Field(description="off | suggest | auto")
+    observacao: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.get("/clinicas")
+def listar_participacao_das_clinicas(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    """RF-P07: clinicas ativas com o estado de participacao no bot.
+
+    Devolve tambem a postura vigente, porque o mesmo `modo` significa coisas
+    diferentes em `todos` e em `piloto`: sem linha, a clinica herda o padrao
+    institucional na primeira e fica de fora na segunda.
+    """
+    del current_user
+    participacao = resolve_participacao(db)
+    estados = {
+        linha.clinica_id: linha
+        for linha in db.query(WhatsAppBotClinicaEstado).all()
+    }
+    clinicas = (
+        db.query(Clinica)
+        .filter(Clinica.ativo.is_(True))
+        .order_by(Clinica.nome.asc())
+        .all()
+    )
+    itens = []
+    for clinica in clinicas:
+        linha = estados.get(clinica.id)
+        itens.append(
+            {
+                "clinica_id": clinica.id,
+                "nome": clinica.nome,
+                "modo": linha.modo if linha is not None else None,
+                "observacao": linha.observacao if linha is not None else None,
+                "habilitado_por_id": linha.habilitado_por_id if linha is not None else None,
+                "atualizado_em": (
+                    linha.updated_at.isoformat() if linha is not None and linha.updated_at else None
+                ),
+                # Sem linha o comportamento depende da postura - por isso o
+                # campo e derivado aqui, e nao inferido na tela.
+                "participa": (
+                    linha.modo != "off" if linha is not None else participacao == "todos"
+                ),
+            }
+        )
+    return {"participacao": participacao, "total": len(itens), "clinicas": itens}
+
+
+@router.put("/clinicas/{clinica_id}")
+def atualizar_participacao_da_clinica(
+    clinica_id: int,
+    payload: WhatsAppBotClinicaEstadoUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    """RF-P07: habilita ou desabilita o bot para uma clinica parceira.
+
+    Nao exige admin, pelo mesmo motivo do modo por conversa: e controle
+    operacional do dia a dia. Quem e admin-only e a POSTURA
+    (`whatsapp_bot_participacao`), que decide o alcance global.
+    """
+    modo = str(payload.modo or "").strip().lower()
+    if modo not in MODOS_VALIDOS:
+        raise HTTPException(status_code=422, detail="modo deve ser 'off', 'suggest' ou 'auto'.")
+
+    clinica = db.query(Clinica).filter(Clinica.id == clinica_id).first()
+    if clinica is None:
+        raise HTTPException(status_code=404, detail="Clinica nao encontrada.")
+
+    linha = (
+        db.query(WhatsAppBotClinicaEstado)
+        .filter(WhatsAppBotClinicaEstado.clinica_id == clinica_id)
+        .first()
+    )
+    if linha is None:
+        linha = WhatsAppBotClinicaEstado(clinica_id=clinica_id)
+        db.add(linha)
+    linha.modo = modo
+    linha.observacao = (payload.observacao or None)
+    linha.habilitado_por_id = current_user.id
+    db.commit()
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="whatsapp_chatbot",
+        entidade="whatsapp_bot_clinica_estado",
+        entidade_id=clinica_id,
+        acao="ATUALIZAR_PARTICIPACAO",
+        descricao=f"Participacao do bot da clinica {clinica_id} definida como '{modo}'.",
+        detalhes={"modo": modo},
+    )
+    return {
+        "clinica_id": clinica_id,
+        "modo": modo,
+        "participacao": resolve_participacao(db),
+    }

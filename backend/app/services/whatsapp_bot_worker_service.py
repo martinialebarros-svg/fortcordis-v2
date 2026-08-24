@@ -278,7 +278,7 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
     # Todos os portoes abertos: agora gera (Fase 4). O gerador aplica os
     # guardrails de saida e nunca envia - o resultado e draft/blocked/handoff.
     resultado = gerar_resposta(
-        db, wa_identity=job.wa_identity, corpo_mensagem=corpo, modo=modo
+        db, wa_identity=job.wa_identity, corpo_mensagem=corpo, modo=modo, estado=estado
     )
     _record_resposta(
         db,

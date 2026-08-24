@@ -38,6 +38,15 @@ habilitado fica de fora, em vez de herdar o padrao institucional.
   conversa aberta, e precisa poder desligar o bot na hora mesmo numa clinica
   habilitada.
 
+  **A resolucao nunca recalcula o nivel 3 (2026-08-24).** `resolve_modo_efetivo`
+  recebe o `modo_atual` que o chamador ja resolveu (conversa, com fallback
+  institucional) e so o substitui quando a clinica tem modo proprio. A primeira
+  implementacao relia o institucional e sobrescrevia o parametro; dois testes
+  existentes quebraram e expuseram o defeito, que era duplo: o parametro `modo`
+  virava mentira, e duas leituras da mesma coisa podiam discordar. Pelo mesmo
+  motivo, `_process_job` passa adiante o `estado` que ja consultou, em vez de
+  deixar a geracao reconsultar a mesma linha no caminho quente.
+
 - **RF-P04 (onde o portao roda)**: a checagem por clinica acontece em
   `gerar_resposta`, logo apos `_escopo_da_persona` resolver `clinica_id`
   (`whatsapp_bot_generation.py:225`), e **antes de qualquer gasto de token**
@@ -56,8 +65,12 @@ habilitado fica de fora, em vez de herdar o padrao institucional.
   `intent.md`, com o custo de prazo aceito: menos volume para o P6.3.
 
 - **RF-P07 (API)**: `GET /whatsapp/bot/clinicas` lista clinicas ativas com o
-  estado de participacao; `PUT /whatsapp/bot/clinicas/{clinica_id}` grava modo
-  e observacao. Mesmos papeis dos demais endpoints do bot. A postura
+  estado de participacao **e a postura vigente**, mais um campo derivado
+  `participa`. O campo e calculado no backend porque, sem linha, o mesmo estado
+  significa coisas opostas nas duas posturas — deixar a tela inferir convidaria
+  a errar justo no campo que decide exposicao.
+  `PUT /whatsapp/bot/clinicas/{clinica_id}` grava modo e observacao, com
+  auditoria. Mesmos papeis dos demais endpoints do bot. A postura
   (`whatsapp_bot_participacao`) entra na allowlist de `PUT /configuracoes`,
   **admin-only**, como os outros interruptores institucionais.
 

@@ -11,7 +11,7 @@ from typing import Any, Optional
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.models.configuracao import Configuracao
-from app.models.whatsapp_bot import WhatsAppBotConversaEstado
+from app.models.whatsapp_bot import WhatsAppBotClinicaEstado, WhatsAppBotConversaEstado
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ PEDIDO_HUMANO_TERMOS_PATH = DATA_DIR / "whatsapp_bot_pedido_humano_termos.json"
 EMERGENCIA_TERMOS_PATH = DATA_DIR / "whatsapp_bot_emergencia_termos.json"
 
 MODOS_VALIDOS = {"off", "suggest", "auto"}
+PARTICIPACOES_VALIDAS = {"todos", "piloto"}
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -78,6 +79,80 @@ def _institutional_default_mode(db) -> str:
     config = db.query(Configuracao).first()
     modo = str(getattr(config, "whatsapp_bot_modo", None) or "suggest").strip().lower()
     return modo if modo in MODOS_VALIDOS else "suggest"
+
+
+def resolve_participacao(db) -> str:
+    """RF-P02: `todos` preserva o comportamento atual; `piloto` inverte o default.
+
+    Falha para `todos` quando a leitura nao produz valor conhecido - o valor
+    seguro aqui e o que NAO muda comportamento; `piloto` e uma decisao
+    deliberada, nunca um acidente de leitura.
+    """
+    config = db.query(Configuracao).first()
+    valor = str(getattr(config, "whatsapp_bot_participacao", None) or "todos").strip().lower()
+    return valor if valor in PARTICIPACOES_VALIDAS else "todos"
+
+
+def _modo_da_clinica(db, clinica_id: Optional[int]) -> Optional[str]:
+    if not clinica_id:
+        return None
+    linha = (
+        db.query(WhatsAppBotClinicaEstado)
+        .filter(WhatsAppBotClinicaEstado.clinica_id == clinica_id)
+        .first()
+    )
+    if linha is None:
+        return None
+    modo = str(linha.modo or "").strip().lower()
+    return modo if modo in MODOS_VALIDOS else None
+
+
+def resolve_modo_efetivo(
+    db,
+    *,
+    wa_identity: str,
+    match_type: Optional[str],
+    clinica_id: Optional[int],
+    modo_atual: str,
+    estado: Optional[WhatsAppBotConversaEstado] = None,
+) -> tuple[str, Optional[str]]:
+    """RF-P03: precedencia conversa > clinica > institucional.
+
+    Devolve `(modo, motivo_de_bloqueio)`. O motivo so vem preenchido quando a
+    conversa e barrada pela participacao, e distingue POR QUE:
+    `clinica_desabilitada` e "foi tirado", `fora_do_piloto` e "ainda nao
+    entrou".
+
+    `modo_atual` e o que o chamador ja resolveu (conversa, com fallback
+    institucional). Esta funcao **nunca** o recalcula: so o substitui quando a
+    clinica tem modo proprio. Recalcular seria duplicar a leitura e abrir a
+    porta para as duas discordarem.
+
+    A conversa vence a clinica de proposito: e o controle do atendente na
+    conversa aberta, e precisa desligar o bot na hora mesmo numa clinica
+    habilitada (CA-P05).
+
+    Nao pode ser dobrado dentro de `resolve_conversation_mode`: aquele roda nos
+    portoes de `_process_job`, ANTES de a identidade existir.
+    """
+    if estado is None:
+        estado = resolve_conversation_state(db, wa_identity)
+    if estado is not None and str(estado.modo or "").strip().lower() in MODOS_VALIDOS:
+        return modo_atual, None
+
+    if match_type == "clinica":
+        modo_clinica = _modo_da_clinica(db, clinica_id)
+        if modo_clinica == "off":
+            return "off", "clinica_desabilitada"
+        if modo_clinica is not None:
+            return modo_clinica, None
+
+    # CA-P02/CA-P06: em piloto, ausencia de habilitacao explicita e `off` -
+    # inclusive para tutor, que nao tem agrupamento equivalente.
+    if resolve_participacao(db) == "piloto":
+        return "off", "fora_do_piloto"
+
+    return modo_atual, None
 
 
 def resolve_conversation_mode(

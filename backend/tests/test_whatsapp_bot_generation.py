@@ -26,7 +26,11 @@ from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
 from app.models.tutor import Tutor
-from app.models.whatsapp_bot import WhatsAppBotResposta
+from app.models.whatsapp_bot import (
+    WhatsAppBotClinicaEstado,
+    WhatsAppBotConversaEstado,
+    WhatsAppBotResposta,
+)
 from app.schemas.whatsapp_bot import WhatsAppBotReplyOutput
 from app.services import whatsapp_bot_generation as generation
 from app.services.whatsapp_bot_providers import GeneratedReply, WhatsAppBotProviderError
@@ -81,6 +85,8 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
         engine = create_engine(f"sqlite:///{db_path}")
         for table in (
             Configuracao.__table__,
+            WhatsAppBotConversaEstado.__table__,
+            WhatsAppBotClinicaEstado.__table__,
             Servico.__table__,
             Clinica.__table__,
             Tutor.__table__,

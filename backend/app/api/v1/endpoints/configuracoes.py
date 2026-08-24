@@ -104,6 +104,7 @@ def obter_configuracoes(
                 getattr(config, "whatsapp_bot_atendimento_habilitado", False)
             ),
             "whatsapp_bot_modo": getattr(config, "whatsapp_bot_modo", None) or "suggest",
+            "whatsapp_bot_participacao": getattr(config, "whatsapp_bot_participacao", None) or "todos",
             "horario_comercial_inicio": config.horario_comercial_inicio,
             "horario_comercial_fim": config.horario_comercial_fim,
             "dias_trabalho": config.dias_trabalho,
@@ -135,6 +136,7 @@ def atualizar_configuracoes(
         "mostrar_logomarca", "mostrar_assinatura", "fortinho_habilitado",
         "whatsapp_lembrete_automatico_habilitado",
         "whatsapp_bot_atendimento_habilitado", "whatsapp_bot_modo",
+        "whatsapp_bot_participacao",
         "horario_comercial_inicio", "horario_comercial_fim", "dias_trabalho",
         "agenda_semanal", "agenda_feriados", "agenda_excecoes", "agenda_rota_regras",
     ]
@@ -175,6 +177,23 @@ def atualizar_configuracoes(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Apenas administradores podem alterar o modo padrao do atendimento automatico de WhatsApp.",
+            )
+    if "whatsapp_bot_participacao" in dados:
+        # RF-P02: `piloto` restringe o atendimento a quem foi habilitado. E
+        # decisao de alcance, entao segue a mesma regra dos demais
+        # interruptores institucionais: admin-only.
+        participacao_nova = str(dados.get("whatsapp_bot_participacao") or "").strip().lower()
+        if participacao_nova not in {"todos", "piloto"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="whatsapp_bot_participacao deve ser 'todos' ou 'piloto'.",
+            )
+        dados["whatsapp_bot_participacao"] = participacao_nova
+        atual = str(getattr(config, "whatsapp_bot_participacao", None) or "todos")
+        if not current_user.tem_papel("admin") and participacao_nova != atual:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Apenas administradores podem alterar a participacao do atendimento automatico.",
             )
     if "agenda_excecoes" in dados and not current_user.tem_papel("admin"):
         excecoes_atuais = carregar_agenda_excecoes(getattr(config, "agenda_excecoes", None))

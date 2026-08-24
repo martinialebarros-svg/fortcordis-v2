@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.whatsapp_bot import WhatsAppBotResposta
 from app.services.whatsapp_bot_context import build_safe_context
+from app.services.whatsapp_bot_gates import resolve_modo_efetivo
 from app.services.whatsapp_bot_guardrails import (
     GuardrailVeredito,
     avaliar_resposta,
@@ -208,6 +209,7 @@ def gerar_resposta(
     modo: str,
     provider: Any = None,
     persona_forcada: Optional[str] = None,
+    estado: Any = None,
 ) -> ResultadoGeracao:
     """Gera (ou recusa gerar) uma resposta para uma mensagem inbound.
 
@@ -229,6 +231,33 @@ def gerar_resposta(
         tutor_id = 0 if persona_forcada == "tutor" else None
         clinica_id = 0 if persona_forcada == "clinica" else None
         resolution = "simulacao"
+
+    # RF-P04: participacao por clinica. Roda aqui, e nao junto dos portoes de
+    # `_process_job`, porque `clinica_id` so existe depois de resolver a
+    # identidade - e roda ANTES de tools e provider, entao barrar nao custa
+    # token nem consulta de dado.
+    #
+    # A simulacao do painel passa direto: e ferramenta de admin sobre escopo
+    # sintetico, nao atendimento a cliente real.
+    if persona_forcada is None:
+        # `estado` vem de `_process_job`, que ja o resolveu para os portoes -
+        # passar adiante evita reconsultar a mesma linha no caminho quente.
+        modo_efetivo, bloqueio_participacao = resolve_modo_efetivo(
+            db,
+            wa_identity=wa_identity,
+            match_type=match_type,
+            clinica_id=clinica_id,
+            modo_atual=modo,
+            estado=estado,
+        )
+        if bloqueio_participacao is not None:
+            return ResultadoGeracao(
+                decisao="suppressed",
+                motivo=bloqueio_participacao,
+                resolution=resolution,
+                match_type=match_type,
+            )
+        modo = modo_efetivo
 
     # RF-025: teto diario por conversa, antes de gastar token.
     if contar_respostas_do_dia(db, wa_identity) >= int(

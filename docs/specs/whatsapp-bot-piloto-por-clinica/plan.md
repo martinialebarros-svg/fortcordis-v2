@@ -2,7 +2,7 @@
 
 Data: 2026-08-24
 Responsavel: Martiniano + Claude
-Status: Fase 1 entregue
+Status: Fases 1 e 2 entregues
 
 ## 1) Sequencia de fases
 
@@ -32,20 +32,21 @@ Status: Fase 1 entregue
 
 ### Fase 2 - backend
 
-- [ ] P2.1 `resolve_conversation_mode` ganha o nivel de clinica e a postura,
+- [x] P2.1 `resolve_conversation_mode` ganha o nivel de clinica e a postura,
       preservando a precedencia da RF-P03. Assinatura passa a aceitar
       `clinica_id` opcional; sem ele, comportamento atual.
-- [ ] P2.2 portao em `gerar_resposta` logo apos `_escopo_da_persona`, antes de
+- [x] P2.2 portao em `gerar_resposta` logo apos `_escopo_da_persona`, antes de
       tools e provider, gravando `fora_do_piloto` ou `clinica_desabilitada`
       (RF-P04, RF-P05).
-- [ ] P2.3 `GET /whatsapp/bot/clinicas` e
+- [x] P2.3 `GET /whatsapp/bot/clinicas` e
       `PUT /whatsapp/bot/clinicas/{clinica_id}`.
-- [ ] P2.4 `whatsapp_bot_participacao` na allowlist de `PUT /configuracoes`,
+- [x] P2.4 `whatsapp_bot_participacao` na allowlist de `PUT /configuracoes`,
       admin-only, com validacao de valor.
-- [ ] P2.5 testes: CA-P01 a CA-P06, CA-P08 e CA-P09, com provider fake que
+- [x] P2.5 testes: CA-P01 a CA-P06, CA-P08 e CA-P09, com provider fake que
       **falha se chamado** nos caminhos barrados.
 - Criterio de conclusao: com a postura em `todos` a suite inteira passa sem
   alteracao de expectativa — a feature e invisivel ate ser ligada.
+  **Cumprido em 2026-08-24**: 1063/1063, nenhuma expectativa existente alterada.
 - Risco: medio. Mexe na resolucao de modo, que todo job atravessa.
 - Rollback: `whatsapp_bot_participacao=todos` restaura o comportamento atual
   sem deploy.

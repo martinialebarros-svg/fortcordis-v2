@@ -129,6 +129,45 @@ class ConfiguracoesAutorizacaoTest(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 422)
 
+    def test_nao_admin_nao_pode_alterar_participacao_do_bot(self) -> None:
+        """RF-P02: postura decide ALCANCE, entao segue a regra dos toggles.
+
+        Modo por conversa e por clinica sao controle operacional e nao exigem
+        admin; a postura, nao - ela sozinha coloca ou tira todo mundo.
+        """
+        with self._session_factory() as db:
+            with self.assertRaises(HTTPException) as ctx:
+                configuracoes.atualizar_configuracoes(
+                    dados={"whatsapp_bot_participacao": "piloto"},
+                    db=db,
+                    current_user=self._build_user(False),
+                )
+
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertIn("participacao", str(ctx.exception.detail).lower())
+
+    def test_participacao_invalida_e_rejeitada_422(self) -> None:
+        with self._session_factory() as db:
+            with self.assertRaises(HTTPException) as ctx:
+                configuracoes.atualizar_configuracoes(
+                    dados={"whatsapp_bot_participacao": "quase-piloto"},
+                    db=db,
+                    current_user=self._build_user(True),
+                )
+
+        self.assertEqual(ctx.exception.status_code, 422)
+
+    def test_admin_pode_ligar_o_piloto(self) -> None:
+        with self._session_factory() as db:
+            configuracoes.atualizar_configuracoes(
+                dados={"whatsapp_bot_participacao": "piloto"},
+                db=db,
+                current_user=self._build_user(True),
+            )
+            resposta = configuracoes.obter_configuracoes(db=db, current_user=self._build_user(True))
+
+        self.assertEqual(resposta["whatsapp_bot_participacao"], "piloto")
+
     def test_admin_pode_habilitar_whatsapp_bot_e_mudar_modo(self) -> None:
         with self._session_factory() as db:
             configuracoes.atualizar_configuracoes(
