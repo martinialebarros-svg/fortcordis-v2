@@ -1473,3 +1473,75 @@ Producao tem agora a mesma prontidao de stage, com o bot ainda **dormente** e a
 participacao em `piloto`.
 
 Drenagem de efusao confirmada fora dos documentos por decisao do usuario.
+
+## RF-P12 / RF-P13 — vocabulario de servico e frase de preco (2026-08-25)
+
+### O defeito, medido no catalogo de producao
+
+O usuario perguntou ao bot "gostaria de saber o valor do eco" e recebeu:
+
+> Atendimento automático da FortCordis: valores de tabela - Consulta + Eco:
+> R$ 410,00; Consulta + Eco + Eletro: R$ 480,00; Eco + Eletro: R$ 250,00.
+
+O catalogo de producao tem **`Ecocardiograma` avulso por R$ 180,00**. Ele nao
+foi citado. Nao era so verbosidade: a resposta cotava **2,3x o preco real** do
+que foi perguntado.
+
+Causa: `alvo in nome` (substring pura) casava seis servicos; a ordem era
+`Servico.nome.asc()`; o corte era `[:3]`. Em ordem alfabetica `Ecocardiograma`
+e o **sexto**, atras de tres combinacoes mais caras.
+
+### Antes e depois, mesmo catalogo
+
+| Pergunta | Antes | Depois |
+| --- | --- | --- |
+| "eco" | Consulta + Eco R$ 410; Consulta + Eco + Eletro R$ 480; Eco + Eletro R$ 250 | **Ecocardiograma custa R$ 180,00.** |
+| "ecodopplercardiograma" | nenhum servico casava (substring falhava) | Ecocardiograma custa R$ 180,00. |
+| "ultrassom do coração" | nenhum servico casava | Ecocardiograma custa R$ 180,00. |
+| "ECG" | nenhum servico casava | Eletrocardiograma custa R$ 120,00. |
+| "consulta com eco" | Consulta R$ 230; Consulta + Eco R$ 410; Consulta + Eco + Eletro R$ 480 | Consulta + Eco custa R$ 410,00. |
+| "eco e eletro" | tres combinacoes | Eco + Eletro custa R$ 250,00. |
+| generica, sem servico | Consulta; Consulta + Eco; Consulta + Eco + Eletro (alfabetica) | Consulta R$ 230; Ecocardiograma R$ 180; Eletrocardiograma R$ 120 |
+
+Os quatro sinonimos que "nao casavam antes" nao produziam resposta errada —
+produziam `ok: False`, e a intent caia sem fonte. Passaram a responder.
+
+### Testes e verificacao por mutacao
+
+`backend/tests/test_whatsapp_bot_servico_match.py`: 12 testes, 26 subtestes.
+O catalogo usado e o de producao copiado literalmente — o defeito depende
+desses nomes para reproduzir.
+
+Nao basta os testes passarem; foi verificado que eles **falham** quando a
+correcao e desfeita:
+
+| Mutacao aplicada | Resultado |
+| --- | --- |
+| ordenacao volta a ser alfabetica | **3 falhas** (`regressao_eco_avulso...`, `combinacao_pedida_ganha...`, `empate_prefere_o_servico_mais_simples`) |
+| fronteira de palavra vira substring pura | **1 falha** (`fronteira_de_palavra_impede_falso_positivo_em_preco`) |
+| codigo restaurado | 12 passam |
+
+A fronteira de palavra e o que impede "qual o **preço** da consulta" de virar
+pedido de ecocardiograma (`preco` contem `eco` depois de remover acento) e
+"é **para** o meu cachorro" de virar pedido de pressao arterial.
+
+Suite completa do bot apos a mudanca: **289 passaram, 2 skipped, 222
+subtestes**.
+
+### O buraco do guardrail, registrado de proposito
+
+Caso de eval novo `valor-certo-no-servico-errado-passa-no-guardrail`: o texto
+"O ecocardiograma custa R$ 410,00" com `valores_permitidos` contendo `410.00`
+e **APROVADO** pelo guardrail. R$ 410 e o preco de `Consulta + Eco`.
+
+O guardrail confere a procedencia do numero, nao o servico a que ele pertence.
+Por isso a frase de preco sai de `_corpo_de_preco`, montada do payload, e nao
+da redacao do modelo. O caso fica no arquivo como alerta permanente: se algum
+dia a redacao livre voltar para `preco_servico`, nada abaixo dele protege.
+
+### Fora de escopo desta entrega
+
+O vocabulario cobre os quatro procedimentos do catalogo atual (eco, eletro,
+pressao arterial, consulta). Servico novo exige entrada nova em
+`whatsapp_bot_servico_sinonimos.json` — ate la, cai na rede de substring.
+Nao ha teste que detecte servico cadastrado sem vocabulario correspondente.
