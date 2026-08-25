@@ -528,6 +528,124 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
+    def test_cortesia_suprime_antes_de_gerar(self) -> None:
+        """RF-P11: "Bom dia, obrigada." nao pode consumir LLM.
+
+        Caso real do piloto em producao (2026-08-25): a Vet Plus agradeceu, o
+        gerador rodou e o guardrail barrou por `sem_fonte`, gastando 1210
+        tokens de entrada e 9,3s para entregar nada - e ainda contando como
+        bloqueio na metrica que decide o `auto`.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        with patch.object(worker, "gerar_resposta") as gerar_mock:
+                            db = SessionFactory()
+                            try:
+                                self._enable_bot(db)
+                                job = self._make_job(db)
+                                job_id = job.id
+                                self._run_with_node_mocks(
+                                    db,
+                                    job,
+                                    conversation_row={"id": "conv-1", "wa_phone_number": "558588018899", "last_agent_id": None, "last_inbound_at": datetime.now(timezone.utc).isoformat()},
+                                    message_row={"wa_message_id": "wamid.1", "from_me": False, "type": "text", "body": "Bom dia, obrigada."},
+                                )
+                            finally:
+                                db.close()
+
+                # NFR-P02: barrar nao custa token.
+                gerar_mock.assert_not_called()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "suppressed")
+                    self.assertEqual(resposta.motivo, "sem_pergunta")
+                    self.assertIsNone(resposta.texto_gerado)
+                    self.assertIsNone(resposta.input_tokens)
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_cortesia_com_pergunta_junto_continua_gerando(self) -> None:
+        """O portao nao pode engolir pergunta de verdade.
+
+        "obrigada" esta na mensagem, mas ha pergunta - e casamento por
+        substring, aqui, seria um bot mudo.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        with patch.object(worker, "gerar_resposta") as gerar_mock:
+                            gerar_mock.return_value = ResultadoGeracao(
+                                decisao="handoff", motivo="identidade_nao_resolvida"
+                            )
+                            db = SessionFactory()
+                            try:
+                                self._enable_bot(db)
+                                job = self._make_job(db)
+                                job_id = job.id
+                                self._run_with_node_mocks(
+                                    db,
+                                    job,
+                                    conversation_row={"id": "conv-1", "wa_phone_number": "558588018899", "last_agent_id": None, "last_inbound_at": datetime.now(timezone.utc).isoformat()},
+                                    message_row={"wa_message_id": "wamid.1", "from_me": False, "type": "text", "body": "Bom dia, obrigada. Voces fazem ecocardiograma?"},
+                                )
+                            finally:
+                                db.close()
+
+                gerar_mock.assert_called_once()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertNotEqual(resposta.motivo, "sem_pergunta")
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
+    def test_emergencia_vence_cortesia(self) -> None:
+        """Ordem dos portoes: emergencia roda antes e nao pode ser mascarada."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                with patch.object(gates.settings, "WHATSAPP_BOT_ENABLED", True):
+                    with patch.object(gates, "SessionLocal", SessionFactory):
+                        # No worker o simbolo e importado direto no namespace
+                        # do modulo; patchar em `gates` nao teria efeito nenhum
+                        # e o teste passaria sem testar nada.
+                        with patch.object(worker, "detecta_cortesia", return_value=True):
+                            db = SessionFactory()
+                            try:
+                                self._enable_bot(db)
+                                job = self._make_job(db)
+                                job_id = job.id
+                                self._run_with_node_mocks(
+                                    db,
+                                    job,
+                                    conversation_row={"id": "conv-1", "wa_phone_number": "558588018899", "last_agent_id": None, "last_inbound_at": datetime.now(timezone.utc).isoformat()},
+                                    message_row={"wa_message_id": "wamid.1", "from_me": False, "type": "text", "body": "socorro, meu cachorro esta convulsionando"},
+                                )
+                            finally:
+                                db.close()
+
+                verify = SessionFactory()
+                try:
+                    resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
+                    self.assertEqual(resposta.decisao, "handoff")
+                    self.assertEqual(resposta.motivo, "emergencia")
+                finally:
+                    verify.close()
+            finally:
+                engine.dispose()
+
     def test_resultado_do_gerador_e_persistido_com_auditoria_completa(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             SessionFactory, engine = self._build_session_factory(tmpdir)

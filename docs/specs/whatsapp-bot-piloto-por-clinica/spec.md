@@ -66,6 +66,34 @@ habilitado fica de fora, em vez de herdar o padrao institucional.
   omite atributo `None` no INSERT e deixa o default Python gravar `'suggest'`
   assim mesmo.
 
+- **RF-P11 (cortesia nao pede resposta) - 2026-08-25**: mensagem formada
+  apenas por saudacao, agradecimento, confirmacao ou despedida e barrada
+  ANTES da geracao, gravando `suppressed` com motivo `sem_pergunta`.
+
+  Nasceu do primeiro caso real do piloto em producao: a clinica `Vet Plus`
+  escreveu "Bom dia, obrigada." e o bot gastou 1210 tokens de entrada, 147 de
+  saida e 9,3s para produzir um texto que o proprio guardrail barrou por
+  `sem_fonte`. Alem do custo, isso poluia a taxa de bloqueio - que existe para
+  medir problema de QUALIDADE e e insumo da decisao de `auto`. Agradecimento
+  contado como bloqueio faz a metrica somar duas coisas diferentes.
+
+  **O detector exige que a mensagem INTEIRA seja cortesia**, ao contrario de
+  `detecta_emergencia` e `detecta_pedido_humano`, que casam por substring.
+  Substring aqui engoliria "obrigada, voces fazem eco?" - que contem
+  "obrigada" e e uma pergunta de verdade. O casamento consome o trecho
+  encontrado e so devolve `True` quando nao sobra nada.
+
+  **Posicao**: imediatamente antes de `gerar_resposta`, depois de emergencia,
+  pedido de humano, pausa e janela. E o unico ponto onde o portao economiza
+  algo, e manter os anteriores na frente garante que nenhum deles seja
+  mascarado por uma saudacao no comeco da mensagem.
+
+  **Erra para o lado seguro nas duas direcoes**, e isso e o que autoriza uma
+  heuristica simples: falso positivo apenas deixa de oferecer rascunho, e a
+  mensagem continua visivel na central para uma pessoa; falso negativo devolve
+  ao comportamento anterior. Fonte de termos ilegivel resulta em lista vazia,
+  ou seja, nada e cortesia - erra para gerar, nunca para calar.
+
 - **RF-P04 (onde o portao roda)**: a checagem por clinica acontece em
   `gerar_resposta`, logo apos `_escopo_da_persona` resolver `clinica_id`
   (`whatsapp_bot_generation.py:225`), e **antes de qualquer gasto de token**
@@ -154,6 +182,11 @@ habilitado fica de fora, em vez de herdar o padrao institucional.
   de `whatsapp_bot_participacao` e `todos`.
 - **CA-P08**: `PUT /configuracoes` recusa `whatsapp_bot_participacao` para
   papel nao admin (403) e valor invalido (422).
+- **CA-P11 (2026-08-25)**: "Bom dia, obrigada." resulta em `suppressed` com
+  motivo `sem_pergunta` e **nenhuma chamada ao gerador**; "Bom dia, obrigada.
+  Voces fazem ecocardiograma?" continua chegando a geracao; e mensagem de
+  emergencia continua virando handoff mesmo que o detector de cortesia diga
+  que sim.
 - **CA-P10 (2026-08-25)**: em `piloto`, conversa fora do piloto que passa por
   pausa, emergencia ou pedido de humano continua resultando em `suppressed`
   com motivo `fora_do_piloto` na mensagem seguinte - a linha criada pelo
