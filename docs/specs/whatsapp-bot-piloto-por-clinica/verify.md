@@ -555,6 +555,108 @@ grava mais uma linha `'suggest'` incidental - e a migracao ja tera rodado, entao
 essas linhas novas nao seriam zeradas por ela. Seria preciso um segundo
 saneamento manual.
 
+## Piloto vivo em producao e promocao do RF-P11 - 2026-08-25
+
+### O piloto saiu da inercia
+
+`WHATSAPP_BOT_ENABLED` foi acrescentada ao `.env` de producao por Martiniano na
+VPS (a linha nao existia; por isso o default `False` valia) e o
+`fortcordis-backend` foi reiniciado. Conferido com a propria funcao do portao,
+nao com reimplementacao:
+
+| Campo | Valor |
+| --- | --- |
+| `settings.WHATSAPP_BOT_ENABLED` | `True` |
+| toggle do banco | `True` |
+| `is_whatsapp_bot_enabled()` | **`True`** |
+| modo padrao | `suggest` (`auto` bloqueado) |
+
+`grep -c '^WHATSAPP_BOT_ENABLED=' ` devolveu `1` - sem duplicata, que era o
+risco de o `sed` e o `tee -a` se somarem.
+
+### Primeira leva real
+
+28 jobs (24 `done`, 4 `superseded` - debounce funcionando, zero `error`) e 24
+respostas. Descontando as 14 `bot_desabilitado` anteriores a ativacao, sobram 10
+pos-ativacao: 4 `fora_do_piloto`, 3 `pausado`, 2 `blocked/sem_fonte` e
+**1 `sent/modo_suggest`**.
+
+A `sent` e o marco: em `suggest` so e alcancavel por clique humano em Enviar.
+Resposta `#20`, persona `clinica`, 7.068 ms - **a primeira resposta assistida do
+piloto chegou ao cliente**.
+
+A conversa `151` conta a historia inteira: `#18 fora_do_piloto` ->
+`#19 blocked/sem_fonte` -> `#20 sent` -> `#22/#23/#24 pausado`. A transicao de
+`fora_do_piloto` para processada mostra a marcacao da clinica pegando efeito no
+meio do fluxo.
+
+**Prova incidental da migracao 78 em producao**: a linha de pausa gravada pelo
+envio assistido tem `modo=None`. Antes da migracao ela nasceria com `'suggest'`
+incidental e furaria o portao do piloto - o defeito 2 esta confirmado corrigido
+no ambiente real, nao so em teste.
+
+### Observacao registrada, sem correcao
+
+O envio assistido pausa a conversa por 12h. Medido: envio as 12:05, e o cliente
+escreveu as 12:27, 12:31 e 12:33 - tres vezes em 28 minutos, todas
+`suppressed/pausado`, e `suppressed` nao aparece na central. E o comportamento
+desenhado (um atendente assumiu), mas se a pessoa responde uma vez e sai, o
+cliente fica numa janela morta longa. **Nao foi alterado**: exige decisao de
+produto.
+
+### Promocao stage -> main
+
+`origin/main` avancou `114b01c1..4b3177f7` por `scripts/promote_stage_to_main.sh`.
+
+| Run | Nome | Resultado |
+| --- | --- | --- |
+| `32859464147` | Deploy to VPS | `success` |
+| `32859464261` | Migration CI | `success` |
+
+**Risco encontrado e afastado antes de promover.** `origin/main` **nao** era
+ancestral de `origin/stage`: producao tinha 6 commits proprios, incluindo
+`1474902d hotfix(deploy): para de copiar o .env Meta de stage no deploy de
+producao (#72)`. O script promove com `-X theirs` (prefere stage em conflito) -
+exatamente o cenario que o `CLAUDE.md` alerta. Se aquele hotfix existisse apenas
+em `main`, a promocao o teria revertido, o deploy voltaria a copiar o `.env` de
+stage e isso **apagaria o `WHATSAPP_BOT_ENABLED=true` recem-configurado** alem de
+recontaminar a identidade Meta.
+
+Verificacao feita antes de promover:
+
+- `git diff --quiet origin/stage origin/main -- .github/workflows/deploy.yml` ->
+  identico, o backport ja tinha sido feito;
+- nenhum arquivo dos demais commits so-de-main difere entre os dois lados;
+- `git diff --name-status origin/main origin/stage` -> **1 adicionado, 6
+  modificados, zero deletado**.
+
+Revalidacao externa de producao antes e depois, identica: raiz `200`,
+`/whatsapp/health` `200`, `/bot/preview` e `/whatsapp/conversations` `401`.
+
+### O detector de cortesia em producao
+
+Depois do deploy, medido na VPS com a funcao real:
+
+| Entrada | Resultado | Esperado |
+| --- | --- | --- |
+| `is_whatsapp_bot_enabled()` | `True` | a env sobreviveu ao deploy |
+| `Bom dia, obrigada.` | `True` | o caso real da Vet Plus |
+| `Obrigado!` | `True` | cortesia simples |
+| `ok?` | `False` | oposto de `ok`, so pela interrogacao |
+| `?` | `False` | pedido de resposta mais explicito que existe |
+| `qual o valor do eco?` | `False` | pergunta legitima |
+
+Os tres `False` sao os falsos positivos que os agentes adversariais pegaram na
+primeira versao. Confirmados corrigidos **em producao**.
+
+### Pendencia aberta
+
+Reconferir a resolucao dos numeros das clinicas do piloto. A duplicata
+`PET CAFE` foi apagada e hoje existe uma unica `Somavet` (`id=114`, ativa), mas
+isso **nao prova** que resolve: `resolve_whatsapp_context` conta clinicas **e
+tutores**, entao um tutor com o mesmo numero mantem o `ambiguous`. A Somavet nao
+apareceu no trafego, entao nao da para inferir pelo comportamento.
+
 ## RF-P11 - detector de cortesia - 2026-08-25
 
 Nasceu do primeiro caso real do piloto: `Vet Plus` escreveu "Bom dia, obrigada."
