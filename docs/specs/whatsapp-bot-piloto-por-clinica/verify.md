@@ -523,6 +523,24 @@ Mutacao no ramo Postgres, os dois mortos por
 nenhuma deste repo, nao so esta. Isso e maior que este PR e nao foi tratado
 aqui.
 
+**Executado localmente em 2026-08-25.** Os dois testes do ramo PostgreSQL, que
+ate entao pulavam em todo lugar por falta de `POSTGRES_TEST_URL`, foram rodados
+de fato contra PostgreSQL 16 local, em banco efemero criado e descartado para
+isto:
+
+```bash
+POSTGRES_TEST_URL="postgresql://<usuario>@127.0.0.1:5432/<banco_efemero>" \
+  venv/bin/python -m unittest tests.test_whatsapp_bot_conversa_modo_nulo_migration -v
+```
+
+Resultado: **6/6 ok**, incluindo
+`WhatsAppBotConversaModoNuloPostgresTest.test_alter_converte_e_derruba_o_default`
+e `..._segundo_run_nao_apaga_override_deliberado`. Isso importa porque producao
+roda PostgreSQL e a migracao 78 **ja rodou la** (esta em `origin/main`) sem que
+esse ramo tivesse sido verificado em lugar nenhum - um teste que nunca executa
+nao e protecao. A lacuna estrutural do Migration CI continua aberta: a execucao
+foi manual e nao ha nada no CI que a repita.
+
 ### Estado das tres pendencias
 
 | Pendencia | Estado |
@@ -536,3 +554,94 @@ producao. Com o bot ligado antes, cada emergencia, pedido de humano ou pausa
 grava mais uma linha `'suggest'` incidental - e a migracao ja tera rodado, entao
 essas linhas novas nao seriam zeradas por ela. Seria preciso um segundo
 saneamento manual.
+
+## RF-P11 - detector de cortesia - 2026-08-25
+
+Nasceu do primeiro caso real do piloto: `Vet Plus` escreveu "Bom dia, obrigada."
+e o bot gastou 1210 tokens de entrada, 147 de saida e 9,3s para produzir texto
+que o proprio guardrail barrou por `sem_fonte`.
+
+### A primeira versao estava errada, e o ataque provou
+
+Escrevi o detector exigindo que a mensagem INTEIRA fosse cortesia e conclui que
+isso dispensava checar interrogacao - "se sobrar palavra de conteudo, nao e
+cortesia". **Raciocinio falso**: a pergunta pode ser feita inteirinha com
+palavras da propria lista.
+
+Tres agentes adversariais atacaram com portugues real de clinica veterinaria e
+produziram **79 falsos positivos**, confirmados por execucao:
+
+| Mensagem | Por que e grave |
+| --- | --- |
+| `?` / `???` | o pedido de resposta mais explicito que existe |
+| `🆘` | emoji de socorro classificado como "nao pede resposta" |
+| `ok?` | indistinguivel de `ok` - mensagens opostas |
+| `ja viu?` | secretaria perguntando se o laudo foi visto |
+| `ta ai?` | "voce esta ai?" - literalmente "me responde" |
+| `so isso?` | pergunta sobre o que falta enviar |
+| `e o senhor?` | devolve a pergunta e espera resposta |
+
+A causa raiz nao era so a falta do `?`: era a lista `preenchimento` conter
+palavras que CARREGAM pergunta (`ja`, `viu`, `so`, `isso`, `ai`, `vc`, `e`,
+`da`, `pra`). Combinadas, dissolviam frases inteiras.
+
+### As tres regras que sairam disso
+
+1. **Interrogacao desqualifica, sempre.** A normalizacao apaga pontuacao, entao
+   sem esta regra `ok` e `ok?` chegam identicos ao casamento. Custa falsos
+   negativos ("tudo bem?"), e isso e barato.
+2. **Sem uma letra sequer, nao arrisca.** Emoji e pontuacao sozinhos sao
+   ambiguos: `👍` encerra, `🆘` e socorro. Nao da para distinguir por
+   vocabulario. Vai para o caminho normal, que tem detector de emergencia
+   antes. Inverte a decisao da primeira versao.
+3. **`preenchimento` so aceita palavra inerte** - vocativo, intensificador ou
+   complemento fechado. Esta escrito no proprio arquivo de termos, porque e a
+   regra que alguem vai quebrar sem querer ao acrescentar um termo.
+
+Um quarto detalhe: o colapso de letra repetida (`bom diaa` -> `bom dia`) e
+aplicado aos DOIS lados, mensagem e vocabulario, o que troca dezenas de
+variantes de alongamento por uma regra.
+
+### Resultado
+
+| | Primeira versao | Versao final |
+| --- | --- | --- |
+| Falsos positivos (dos 79 do ataque) | 79 | **1** |
+| Falsos negativos (dos 81 do ataque) | 81 | 4 |
+| Mensagens reais preservadas | 12/12 | 12/12 |
+
+O falso positivo remanescente e `"oi tudo bem entao ta"`. O agente argumentou
+que seria audio transcrito truncado; **discordo e mantive como cortesia** - a
+mensagem nao tem pergunta alguma, e o custo de errar aqui e nao oferecer
+rascunho.
+
+Dos 4 falsos negativos, dois contem `?` e sao consequencia deliberada da regra
+1; um contem "so isso", removido de proposito.
+
+**Os 78 falsos positivos corrigidos viraram regressao permanente** em
+`WhatsAppBotCortesiaTest.NAO_CORTESIA`.
+
+### Verificacao
+
+Suite completa: **1087 passed**, 227 subtests. Mutacao:
+
+| Mutante | Teste que pegou |
+| --- | --- |
+| casamento por substring | 17 testes de uma vez |
+| portao antes da emergencia | `test_emergencia_vence_cortesia` |
+| portao removido | `test_cortesia_suprime_antes_de_gerar` |
+| sem a regra da interrogacao | `test_nao_engole_mensagem_de_verdade` (35 falhas) |
+| "sem letra" volta a ser cortesia | `test_sem_letra_nenhuma_nao_arrisca` |
+| sem o colapso de repeticao | `test_reconhece_cortesia` |
+
+**Um teste meu nao testava nada.** `test_emergencia_vence_cortesia` patcheava
+`gates.detecta_cortesia`, mas o worker importa o simbolo direto no namespace
+dele - o patch nao tinha efeito, e o mutante da ordem foi pego por outro teste,
+por acaso. Corrigido para patchear `worker.detecta_cortesia`.
+
+### Estado do piloto em producao no momento deste registro
+
+`WHATSAPP_BOT_ENABLED=true` ligada por Martiniano; `whatsapp_bot_ativo: true`.
+19 clinicas em `suggest`, nenhuma em `auto`. Placar: 1 `blocked`/`sem_fonte`
+(a Vet Plus, o caso que originou isto), 1 `suppressed`/`fora_do_piloto`,
+**zero rascunhos e zero envios**.

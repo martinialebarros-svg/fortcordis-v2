@@ -163,3 +163,195 @@ class WhatsAppBotGatesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhatsAppBotCortesiaTest(unittest.TestCase):
+    """RF-P11: mensagem que nao pede resposta.
+
+    A tabela que importa e NAO_CORTESIA: falso positivo cala o bot diante de
+    uma pergunta de verdade. Ela e quase toda o resultado de um ataque
+    adversarial (2026-08-25) que produziu 79 falsos positivos contra a primeira
+    versao do detector - todos regressao permanente daqui em diante.
+    """
+
+    CORTESIA = [
+        "Bom dia, obrigada.",
+        "obrigada!",
+        "Ok",
+        "ok, obrigado",
+        "Bom dia",
+        "boa tarde",
+        "blz",
+        "perfeito, obrigada",
+        "entendi, obrigado",
+        "oi",
+        "combinado",
+        "ata",
+        "de nada",
+        "obrigada, boa semana",
+        "Certo, obrigado. Abraco",
+        "vlw",
+        "boa, obrigado",
+        "bom diaa",
+        "obrigadaa",
+        "oieee",
+        "kkkk",
+        "Obrigada Dra!",
+        "Perfeito doutora, muito obrigada!",
+        "Obrigada pela atencao",
+        "que Deus abencoe",
+        "Entao ta bom, obrigada!",
+        "as ordens",
+        "Show de bola",
+        "Tenha um bom dia",
+        "obrigada desde ja",
+        "no aguardo",
+        "pode deixar",
+        "oi tudo bem entao ta",
+    ]
+
+    # Erro grave: o bot ficaria mudo. Quase todos vieram do ataque adversarial.
+    NAO_CORTESIA = [
+        "?",
+        "??",
+        "??!!",
+        "???",
+        "Ah é?",
+        "Beleza pra vcs?",
+        "Boa tarde, o laudo saiu?",
+        "Boa, e aí?",
+        "Bom dia\nOk pra vcs?\nObrigada",
+        "Bom dia, e aí?",
+        "Bom dia, segue a solicitacao",
+        "Bom dia, voces fazem eco?",
+        "Bom dia. Quanto custa o ecocardiograma?",
+        "Certo então?",
+        "Certo?",
+        "Combinado?",
+        "E aí?",
+        "E então?",
+        "Entendi, e aí?",
+        "Fechado?",
+        "Hum?",
+        "Isso mesmo?",
+        "Já?",
+        "Oi, e aí?",
+        "Ok pra vc?",
+        "Ok pra vcs?",
+        "Ok?",
+        "Pfv?",
+        "Pode ser pra vcs? / Ta bom pra amanhã? (NAO falharam - contraexemplo)",
+        "Por favor?",
+        "Sem problemas?",
+        "Show, e aí?",
+        "Sim?",
+        "Só isso?",
+        "Ta bom então?",
+        "Ta bom pra senhora?",
+        "Ta bom pra vocês?",
+        "Ta certo?",
+        "Ta ok?",
+        "Tranquilo?",
+        "Tudo bem pra vcs?",
+        "Tudo certo então?",
+        "Tudo certo?",
+        "Uhum?",
+        "aguardo?",
+        "blz, ok?",
+        "bom dia?",
+        "bom dia\\ntudo bem?\\nvcs?",
+        "certo?",
+        "da certo?",
+        "da pra?",
+        "de boa?",
+        "e ai?",
+        "e o aguardo",
+        "e o senhor?",
+        "e pra vc?",
+        "e vcs?",
+        "gente, ja?",
+        "gente?",
+        "hum, ta certo?",
+        "isso ai?",
+        "ja viu?",
+        "ja?",
+        "mesmo?",
+        "meu cachorro esta passando mal",
+        "ne?",
+        "o sr?",
+        "obrigada mas preciso remarcar",
+        "obrigada!! vc ta ai?",
+        "obrigada, qual o valor?",
+        "obrigada\\nso isso?",
+        "oi, preciso agendar",
+        "ok, e o eletro sai hoje?",
+        "ok?",
+        "onde voces ficam",
+        "perfeito, pode agendar para quinta",
+        "por favor?",
+        "quero falar com atendente",
+        "sim?",
+        "so isso?",
+        "so pra vcs?",
+        "ta ai?",
+        "ta bom pra vcs?",
+        "ta?",
+        "tudo certo?",
+        "vc ta ai?",
+        "É?",
+        "é isso?",
+        "ó só",
+        "🆘",
+    ]
+
+    def test_reconhece_cortesia(self) -> None:
+        for texto in self.CORTESIA:
+            with self.subTest(texto=texto):
+                self.assertTrue(gates.detecta_cortesia(texto), f"deveria ser cortesia: {texto!r}")
+
+    def test_nao_engole_mensagem_de_verdade(self) -> None:
+        for texto in self.NAO_CORTESIA:
+            with self.subTest(texto=texto):
+                self.assertFalse(gates.detecta_cortesia(texto), f"engoliu mensagem real: {texto!r}")
+
+    def test_interrogacao_sempre_desqualifica(self) -> None:
+        """Regra 1, isolada.
+
+        A normalizacao apaga pontuacao, entao sem esta regra "ok" e "ok?"
+        chegam identicos ao casamento - mensagens opostas. E a pergunta pode
+        ser feita INTEIRA com palavras de cortesia ("ta ai?", "ja viu?"), caso
+        em que o teste de "sobrou algo?" nao acusa nada.
+        """
+        for texto in ("ok?", "certo?", "bom dia?", "tudo bem?", "obrigada?", "ta ai?"):
+            with self.subTest(texto=texto):
+                self.assertFalse(gates.detecta_cortesia(texto))
+
+    def test_sem_letra_nenhuma_nao_arrisca(self) -> None:
+        """Regra 2. Emoji e pontuacao sozinhos sao ambiguos demais.
+
+        Custa uma geracao em "\U0001f44d" para nao classificar "\U0001f198" como
+        "nao pede resposta". Numa cardiologia veterinaria o custo dos dois
+        erros nao e o mesmo.
+        """
+        for texto in ("?", "???", "!!!", "...", "\U0001f44d", "\U0001f198"):
+            with self.subTest(texto=texto):
+                self.assertFalse(gates.detecta_cortesia(texto))
+
+    def test_alongamento_nao_precisa_de_variante_na_lista(self) -> None:
+        for texto in ("bom diaaaa", "obrigadaaa", "okk", "vlww", "blza"):
+            with self.subTest(texto=texto):
+                self.assertTrue(gates.detecta_cortesia(texto))
+
+    def test_vazio_nao_e_cortesia(self) -> None:
+        for texto in ("", "   ", None):
+            with self.subTest(texto=texto):
+                self.assertFalse(gates.detecta_cortesia(texto))
+
+    def test_fonte_ilegivel_erra_para_gerar_e_nao_derruba_o_worker(self) -> None:
+        gates.carregar_termos_cortesia.cache_clear()
+        try:
+            with patch.object(gates, "CORTESIA_TERMOS_PATH", Path("/inexistente/cortesia.json")):
+                self.assertEqual(gates.carregar_termos_cortesia(), ())
+                self.assertFalse(gates.detecta_cortesia("obrigada"))
+        finally:
+            gates.carregar_termos_cortesia.cache_clear()

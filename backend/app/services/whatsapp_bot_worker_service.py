@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.db.database import SessionLocal
 from app.models.whatsapp_bot import WhatsAppBotJob, WhatsAppBotResposta
 from app.services.whatsapp_bot_gates import (
+    detecta_cortesia,
     detecta_emergencia,
     detecta_pedido_humano,
     is_customer_service_window_open,
@@ -274,6 +275,17 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
 
     if not is_customer_service_window_open(_parse_conversation_timestamp(conversation.get("last_inbound_at"))):
         _record_resposta(db, job, decisao="suppressed", motivo="janela_fechada")
+        job.status = "done"
+        return "done"
+
+    # RF-P11: cortesia nao pede resposta. Fica imediatamente antes da geracao
+    # de proposito - e o unico ponto onde este portao economiza algo, e os
+    # portoes anteriores (emergencia, pedido de humano, janela) continuam
+    # vencendo. Um "obrigada" nao pode consumir LLM para depois ser barrado por
+    # `sem_fonte`: alem do custo, isso poluiria a taxa de bloqueio, que existe
+    # para medir problema de qualidade e e insumo da decisao de `auto`.
+    if detecta_cortesia(corpo):
+        _record_resposta(db, job, decisao="suppressed", motivo="sem_pergunta")
         job.status = "done"
         return "done"
 

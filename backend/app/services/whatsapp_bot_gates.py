@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import logging
 import unicodedata
 from datetime import datetime, timedelta, timezone
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 PEDIDO_HUMANO_TERMOS_PATH = DATA_DIR / "whatsapp_bot_pedido_humano_termos.json"
 EMERGENCIA_TERMOS_PATH = DATA_DIR / "whatsapp_bot_emergencia_termos.json"
+CORTESIA_TERMOS_PATH = DATA_DIR / "whatsapp_bot_cortesia_termos.json"
 
 MODOS_VALIDOS = {"off", "suggest", "auto"}
 PARTICIPACOES_VALIDAS = {"todos", "piloto"}
@@ -299,3 +301,87 @@ def detecta_emergencia(texto: str) -> bool:
     if not normalized:
         return False
     return any(termo in normalized for termo in carregar_termos_emergencia() if termo)
+
+
+def _colapsa_repeticao(texto: str) -> str:
+    """"bom diaa" -> "bom dia", "obrigadaa" -> "obrigada", "kkkk" -> "k".
+
+    Aplicado dos DOIS lados - mensagem e vocabulario -, entao colapsar letra
+    dobrada legitima ("abraco" nao tem, mas "arretado" tem) nao cria
+    divergencia: os dois lados viram a mesma coisa. Isso troca dezenas de
+    variantes de alongamento por uma regra.
+    """
+    return re.sub(r"(.)\1+", r"\1", texto)
+
+
+@lru_cache(maxsize=None)
+def carregar_termos_cortesia() -> tuple[str, ...]:
+    """Termos de cortesia, do mais longo para o mais curto.
+
+    A ordem importa: o casamento e guloso e consome o trecho encontrado, entao
+    "muito obrigada" precisa ser tentado antes de "obrigada".
+    """
+    try:
+        payload = json.loads(CORTESIA_TERMOS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Falha ao carregar termos de cortesia: %s", CORTESIA_TERMOS_PATH)
+        return ()
+    termos: list[str] = []
+    for chave, valores in (payload or {}).items():
+        if chave.startswith("_") or not isinstance(valores, list):
+            continue
+        for valor in valores:
+            normalizado = _colapsa_repeticao(_normalize_texto(valor))
+            if normalizado:
+                termos.append(normalizado)
+    return tuple(sorted(set(termos), key=len, reverse=True))
+
+
+def detecta_cortesia(texto: str) -> bool:
+    """RF-P11: mensagem que nao pede resposta - so saudacao, agradecimento,
+
+    confirmacao ou despedida.
+
+    Ao contrario de `detecta_emergencia` e `detecta_pedido_humano`, que casam
+    por SUBSTRING, aqui a mensagem INTEIRA precisa ser cortesia. Substring
+    engoliria "obrigada, voces fazem eco?".
+
+    Erra para o lado seguro nas duas direcoes. Falso positivo apenas deixa de
+    oferecer rascunho, e a mensagem continua visivel na central para uma
+    pessoa; falso negativo devolve ao comportamento anterior, que e gerar e ser
+    barrado por `sem_fonte`.
+    """
+    bruto = str(texto or "").strip()
+    if not bruto:
+        return False
+
+    # REGRA 1 - interrogacao desqualifica, sempre.
+    #
+    # Um ataque adversarial produziu 79 falsos positivos e quase todos passavam
+    # por aqui: "ok?", "ta ai?", "ja viu?", "so isso?", "e o senhor?". A
+    # normalizacao apaga pontuacao, entao "ok" e "ok?" chegavam identicos ao
+    # casamento - mensagens opostas, indistinguiveis. Pior: a pergunta pode ser
+    # feita INTEIRA com palavras de cortesia, entao o teste de "sobrou algo?"
+    # nao a detecta. Custa alguns falsos negativos ("tudo bem?") e isso e barato.
+    if "?" in bruto:
+        return False
+
+    restante = _colapsa_repeticao(_normalize_texto(bruto))
+
+    # REGRA 2 - sem uma letra sequer, nao arrisca.
+    #
+    # Emoji e pontuacao sozinhos sao ambiguos: "👍" encerra, "🆘" e socorro,
+    # "..." e impaciencia. Nao da para distinguir por vocabulario, e numa
+    # cardiologia veterinaria o custo dos dois erros e assimetrico. Vai para o
+    # caminho normal, que tem detector de emergencia antes.
+    if not restante:
+        return False
+
+    for termo in carregar_termos_cortesia():
+        if not termo:
+            continue
+        while f" {termo} " in f" {restante} ":
+            restante = " ".join(f" {restante} ".replace(f" {termo} ", " ", 1).split())
+            if not restante:
+                return True
+    return not restante
