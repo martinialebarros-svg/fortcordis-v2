@@ -649,13 +649,36 @@ Depois do deploy, medido na VPS com a funcao real:
 Os tres `False` sao os falsos positivos que os agentes adversariais pegaram na
 primeira versao. Confirmados corrigidos **em producao**.
 
-### Pendencia aberta
+### Defeito 1 fechado - todos os numeros resolvem - 2026-08-25
 
-Reconferir a resolucao dos numeros das clinicas do piloto. A duplicata
-`PET CAFE` foi apagada e hoje existe uma unica `Somavet` (`id=114`, ativa), mas
-isso **nao prova** que resolve: `resolve_whatsapp_context` conta clinicas **e
-tutores**, entao um tutor com o mesmo numero mantem o `ambiguous`. A Somavet nao
-apareceu no trafego, entao nao da para inferir pelo comportamento.
+Medido em producao, rodando `resolve_whatsapp_context` no primeiro numero de
+cada clinica com linha em `whatsapp_bot_clinica_estado`:
+
+**`PARTICIPANTES EFETIVOS: 20 de 20`** - todas `matched/clinica`, nenhuma
+`ambiguous`, nenhuma sem numero, nenhuma clinica apagada com estado orfao.
+
+`Somavet` (`id=114`, `...1090`) resolve como `matched/clinica`. Apagar a
+duplicata `PET CAFE` bastou: nao havia colisao adicional com tutor, que era a
+hipotese que sobrava (a ambiguidade conta clinicas **e** tutores). **O defeito 1
+esta fechado** e o piloto nao tem participante fantasma.
+
+O teste cobre o primeiro numero de cada clinica (`whatsapps[0]`, com fallback
+para `telefone`). Clinica com varios WhatsApps que escreva de outro numero nao
+foi coberta por esta medicao.
+
+### Divergencia a confirmar: 10 em `suggest`, nao 19
+
+A mesma medicao mostrou **20 linhas de estado**, distribuidas em **10 `suggest`
+e 10 `off`** - enquanto o registro anterior desta spec afirmava "19 clinicas em
+`suggest`". Sao duas diferencas: uma clinica a mais que o registrado, e metade
+do piloto desligada.
+
+**Nao foi investigado nem alterado.** Pode ser reducao deliberada do piloto apos
+a primeira leva, e nesse caso o registro anterior e que esta velho. Uma pista a
+favor disso: `Fort Cordis Cardiovet` (`id=41`, `...4320`) esta em `suggest` e e
+a conversa `151` que recebeu o envio assistido - testar no proprio numero antes
+de abrir para terceiros e o esperado. Fica pendente de confirmacao de
+Martiniano; ate la, o numero valido de participantes ativos e **10**, nao 19.
 
 ## RF-P11 - detector de cortesia - 2026-08-25
 
