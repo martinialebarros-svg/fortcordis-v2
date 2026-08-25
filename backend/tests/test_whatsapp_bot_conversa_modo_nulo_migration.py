@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, text
@@ -147,6 +148,112 @@ class WhatsAppBotConversaModoNuloMigrationTest(unittest.TestCase):
         finally:
             engine.dispose()
             tmpdir.cleanup()
+
+
+# O Migration CI roda com DATABASE_URL sqlite (migrations-ci.yml:37), entao o
+# ramo PostgreSQL nao e exercitado la. Este teste fecha esse buraco quando ha um
+# Postgres a mao, e pula quando nao ha - em vez de deixar o ramo sem cobertura
+# nenhuma e o check verde dando falso conforto.
+#
+#   POSTGRES_TEST_URL=postgresql+psycopg2://postgres@127.0.0.1:5432/postgres pytest ...
+POSTGRES_TEST_URL = os.environ.get("POSTGRES_TEST_URL", "").strip()
+
+
+@unittest.skipUnless(POSTGRES_TEST_URL, "POSTGRES_TEST_URL nao definida")
+class WhatsAppBotConversaModoNuloPostgresTest(unittest.TestCase):
+    """Mesma conversao, no dialeto que producao usa de verdade.
+
+    O SQLite passa por rebuild da tabela; o Postgres por ALTER. Sao caminhos
+    diferentes do mesmo arquivo, e so este cobre o `DROP DEFAULT` - sem ele um
+    INSERT que apenas OMITA a coluna ressuscita 'suggest'.
+
+    Cada teste roda num schema proprio, fixado no engine por `search_path`, de
+    modo que a migracao nao precise saber que esta isolada.
+    """
+
+    def setUp(self) -> None:
+        self.schema = f"modo_nulo_{uuid.uuid4().hex[:12]}"
+        admin = create_engine(POSTGRES_TEST_URL)
+        with admin.begin() as conn:
+            conn.execute(text(f"CREATE SCHEMA {self.schema}"))
+        admin.dispose()
+        self.engine = create_engine(
+            POSTGRES_TEST_URL,
+            connect_args={"options": f"-csearch_path={self.schema}"},
+        )
+
+    def tearDown(self) -> None:
+        self.engine.dispose()
+        admin = create_engine(POSTGRES_TEST_URL)
+        with admin.begin() as conn:
+            conn.execute(text(f"DROP SCHEMA IF EXISTS {self.schema} CASCADE"))
+        admin.dispose()
+
+    def _coluna_modo(self):
+        with self.engine.begin() as conn:
+            return conn.execute(
+                text(
+                    "SELECT is_nullable, column_default FROM information_schema.columns "
+                    "WHERE table_schema = :s AND table_name = :t AND column_name = 'modo'"
+                ),
+                {"s": self.schema, "t": TABELA},
+            ).one()
+
+    def test_alter_converte_e_derruba_o_default(self) -> None:
+        with self.engine.begin() as conn:
+            MIGRACAO_75.upgrade(conn, "postgresql")
+        is_nullable, default = self._coluna_modo()
+        self.assertEqual(is_nullable, "NO", "a 75 deve criar NOT NULL")
+        self.assertIsNotNone(default, "a 75 deve criar com DEFAULT")
+
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    f"INSERT INTO {TABELA} (wa_identity, modo, handoff_motivo) "
+                    "VALUES ('5585900000001', 'suggest', 'emergencia')"
+                )
+            )
+            conn.execute(
+                text(f"INSERT INTO {TABELA} (wa_identity, modo) VALUES ('5585900000002', 'off')")
+            )
+
+        with self.engine.begin() as conn:
+            MIGRACAO_78.upgrade(conn, "postgresql")
+
+        is_nullable, default = self._coluna_modo()
+        self.assertEqual(is_nullable, "YES", "DROP NOT NULL nao pegou")
+        self.assertIsNone(default, "DROP DEFAULT nao pegou")
+
+        with self.engine.begin() as conn:
+            linhas = dict(conn.execute(text(f"SELECT wa_identity, modo FROM {TABELA}")).all())
+            preservado = conn.execute(
+                text(f"SELECT handoff_motivo FROM {TABELA} WHERE wa_identity = '5585900000001'")
+            ).scalar()
+        self.assertIsNone(linhas["5585900000001"])
+        self.assertEqual(linhas["5585900000002"], "off")
+        self.assertEqual(preservado, "emergencia")
+
+        # Com o DEFAULT de pe, este INSERT gravaria 'suggest' e o furo
+        # continuaria aberto por outro caminho.
+        with self.engine.begin() as conn:
+            conn.execute(text(f"INSERT INTO {TABELA} (wa_identity) VALUES ('5585900000003')"))
+            omitido = conn.execute(
+                text(f"SELECT modo FROM {TABELA} WHERE wa_identity = '5585900000003'")
+            ).scalar()
+        self.assertIsNone(omitido)
+
+    def test_segundo_run_nao_apaga_override_deliberado(self) -> None:
+        with self.engine.begin() as conn:
+            MIGRACAO_75.upgrade(conn, "postgresql")
+            MIGRACAO_78.upgrade(conn, "postgresql")
+            conn.execute(
+                text(f"INSERT INTO {TABELA} (wa_identity, modo) VALUES ('5585900000004', 'suggest')")
+            )
+            MIGRACAO_78.upgrade(conn, "postgresql")
+            gravado = conn.execute(
+                text(f"SELECT modo FROM {TABELA} WHERE wa_identity = '5585900000004'")
+            ).scalar()
+        self.assertEqual(gravado, "suggest")
 
 
 if __name__ == "__main__":

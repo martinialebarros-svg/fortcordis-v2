@@ -479,13 +479,49 @@ mundos: `test_pausa_nao_desliga_clinica_habilitada` (clinica do piloto continua
 atendida depois de um handoff) e `test_opt_in_deliberado_sobrevive_a_pausa_posterior`
 (modo escolhido por gente continua vencendo).
 
-### O que NAO foi verificado
+### Ramo PostgreSQL: verificado, depois de uma afirmacao errada
 
-**O ramo PostgreSQL da migracao nao foi executado.** Nao ha Postgres neste
-ambiente; os quatro testes cobrem so o caminho SQLite. O SQL do ramo Postgres
-e padrao e tem precedente no repo (`20260222_06`, `20260816_68`), mas isso e
-argumento, nao execucao. A verificacao real acontece no Migration CI ao subir
-para stage - conferir o run antes de promover.
+Este registro dizia primeiro que o ramo Postgres nao fora executado e que o
+Migration CI cobriria a lacuna ao subir para stage. **A segunda metade era
+falsa**: `.github/workflows/migrations-ci.yml:37` roda com
+`DATABASE_URL: sqlite:///./fortcordis-ci.db`. O check verde nao dizia nada
+sobre o dialeto de producao.
+
+A lacuna foi entao fechada de verdade: instancia PostgreSQL 16 descartavel,
+migracao `75` (que cria `NOT NULL DEFAULT 'suggest'`) seguida da `78`.
+
+| Verificacao | Resultado |
+| --- | --- |
+| `is_nullable` apos a 75 | `NO` |
+| `is_nullable` apos a 78 | `YES` |
+| `column_default` apos a 78 | `NULL` |
+| `'suggest'` incidental | virou `NULL` |
+| `off` e `auto` | preservados |
+| `handoff_motivo` | preservado |
+| INSERT omitindo a coluna | grava `NULL`, nao `'suggest'` |
+| Segundo run | nao apaga override deliberado |
+
+Virou teste permanente, nao verificacao de uma vez so:
+`WhatsAppBotConversaModoNuloPostgresTest`, que roda quando `POSTGRES_TEST_URL`
+esta definida e **pula** quando nao esta - o CI atual pula. Cada teste usa
+schema proprio, fixado no engine por `search_path`.
+
+```
+POSTGRES_TEST_URL=postgresql+psycopg2://postgres@127.0.0.1:5432/postgres pytest \
+  tests/test_whatsapp_bot_conversa_modo_nulo_migration.py
+```
+
+Mutacao no ramo Postgres, os dois mortos por
+`test_alter_converte_e_derruba_o_default`:
+
+| Mutante | Sintoma |
+| --- | --- |
+| sem `DROP DEFAULT` | `column_default` sobrevive; INSERT que omite a coluna ressuscita `'suggest'` |
+| sem o `UPDATE` de backfill | linha incidental continua `'suggest'` |
+
+**Fica em aberto**: o Migration CI nao exercita PostgreSQL para migracao
+nenhuma deste repo, nao so esta. Isso e maior que este PR e nao foi tratado
+aqui.
 
 ### Estado das tres pendencias
 
