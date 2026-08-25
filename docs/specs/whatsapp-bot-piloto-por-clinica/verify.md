@@ -296,3 +296,130 @@ O piloto gera rascunho; nao envia. Antes de qualquer discussao sobre `auto`
 continuam pendentes os sete guardrails restantes (1, 2, 3, 5, 7, 8, 9) e o
 alinhamento de tabela de precos: em 3 dos 4 casos conferidos o atendente cotou
 valor MAIOR que a tabela de producao, e o bot vai cotar o valor correto.
+
+## Dois defeitos encontrados ao acompanhar a primeira leva - 2026-08-25
+
+Verificacao pedida: acompanhar os primeiros rascunhos do piloto. **Nao houve
+primeira leva** - zero rascunhos. Sete respostas na janela, todas
+`suppressed`/`bot_desabilitado`. Investigar isso expos dois defeitos.
+
+### Contexto: o piloto esta inerte por uma variavel de ambiente
+
+`GET /api/v1/whatsapp/bot/preview` em producao:
+
+| Campo | Valor |
+| --- | --- |
+| `whatsapp_bot_enabled_env` | **`false`** |
+| `whatsapp_bot_atendimento_habilitado_banco` | `true` |
+| `whatsapp_bot_ativo` | **`false`** |
+
+O portao e `env AND banco` (`whatsapp_bot_gates.py:48-62`). O registro anterior
+desta spec afirmou "bot ligado" lendo so a metade do banco - **estava
+incompleto**. `WHATSAPP_BOT_ENABLED` nao e escrita por
+`.github/workflows/deploy.yml` nem por `scripts/deploy_prod_vps.sh`; o default
+e `False` (`backend/app/core/config.py:75`) e a unica fonte e
+`/var/www/fortcordis-v2/backend/.env`, que e gitignored. Em stage esta `true`
+por edicao manual - e a unica diferenca entre os dois ambientes.
+
+Job suprimido recebe `status="done"`
+(`whatsapp_bot_worker_service.py:182-184`): **nao fica pendente**. Mensagens de
+`Vet Plus` e `Vetzil Mondubim` chegadas apos a marcacao das 19 clinicas foram
+consumidas e descartadas. Ligar a env depois nao as recupera.
+
+O resto da cadeia foi verificado funcionando: `POST /simular` em producao
+devolveu `decisao: draft`, `motivo: modo_suggest`, citando o documento
+institucional cadastrado e a validade de 30 dias. Prontidao 12 de 14 - os 2
+pendentes sao `status_laudo`, que por construcao so se verifica em conversa
+real.
+
+### Defeito 1 - Somavet nao seria atendida apesar de estar no piloto
+
+Medicao ao vivo: os 19 numeros das clinicas do piloto passados por
+`GET /api/v1/whatsapp-contexto`.
+
+| Resolucao | Clinicas |
+| --- | --- |
+| `clinica` | 18 |
+| `ambiguous` | **1 (Somavet)** |
+
+Causa: **o mesmo numero esta cadastrado em duas clinicas ativas** - `PET CAFE`
+e `Somavet`. Em `resolve_whatsapp_context`, mais de um casamento direto produz
+`resolution: ambiguous` e `match_type: null`. Com `match_type` nulo,
+`resolve_modo_efetivo` pula o ramo da clinica
+(`whatsapp_bot_gates.py:143`) e cai em `return "off", "fora_do_piloto"`
+(`:153`) - a clinica marcada como `suggest` e suprimida assim mesmo.
+
+Nao e defeito de normalizacao de telefone: a normalizacao trata corretamente o
+cadastro de 11 digitos sem `55` e o nono digito. E **dado de cadastro**, e a
+correcao e no cadastro, nao no codigo: decidir de quem e o numero.
+
+Registrado como pendencia: enquanto nao for resolvido, o piloto tem 18
+participantes efetivos, nao 19.
+
+### Defeito 2 - o portao do piloto vaza por estado de conversa
+
+`resolve_modo_efetivo` tem um curto-circuito **antes** de qualquer avaliacao de
+clinica ou piloto (`whatsapp_bot_gates.py:140`):
+
+```python
+if estado is not None and str(estado.modo or "").strip().lower() in MODOS_VALIDOS:
+    return modo_atual, None
+```
+
+A simples existencia de uma linha em `whatsapp_bot_conversa_estado` com modo
+valido isenta a conversa do portao de participacao. Isso e deliberado como
+mecanismo de opt-in por conversa - mas **tres caminhos do worker criam essa
+linha sozinhos, com `modo="suggest"` hardcoded e sem acao humana**:
+
+| Caminho | Chamada | Cria estado em |
+| --- | --- | --- |
+| Emergencia | `worker:228` -> `trigger_active_handoff` -> `handoff_service:154` | `gates:217` |
+| Pausa por claim/`from_me` | `worker:250` -> `pause_conversation` | `gates:203` |
+| Pedido de humano | `worker:262` -> `trigger_active_handoff` -> `handoff_service:154` | `gates:217` |
+
+Os tres rodam **antes** do portao de participacao. Consequencia: depois de um
+unico evento desses, um numero fora do piloto fica permanentemente isento -
+`fora_do_piloto` nunca mais e avaliado para aquela conversa.
+
+Agravante nos dois caminhos de handoff: `set_handoff_motivo` **nao preenche
+`pausado_ate`** (so `pause_conversation` preenche, `gates:205`), e
+`handoff_motivo` nao e usado como portao em lugar nenhum do worker nem da
+geracao (verificado por busca direta). Ou seja, ja na proxima mensagem de
+entrada do mesmo numero a conversa atravessa todos os portoes e chega ao
+gerador. No caminho de pausa o efeito e o mesmo, apenas diferido ate
+`WHATSAPP_BOT_HANDOFF_PAUSE_HOURS` expirar (12h por default).
+
+**Alcance do dano:** em `suggest` isso custa token e roda as tools sobre os
+dados de quem esta fora do piloto. **Nao envia nada**: `decisao = "sent"` e
+escrito em um unico lugar em todo o backend, o endpoint de envio manual
+(`whatsapp_bot.py:302`), atras de `require_any_papel`. O `sent: 1` observado em
+stage e a resposta 7, aprovada por humano - nao envio automatico.
+
+Contradiz o NFR-P02 ("barrar nao custa token") para qualquer conversa que tenha
+passado por um desses tres eventos.
+
+### Procedencia destes achados
+
+Honestidade sobre o metodo: a verificacao adversarial rodou pela metade -
+**8 dos 16 agentes falharam** por limite de sessao, incluindo os **tres**
+designados a checar o casamento de clinica.
+
+- O **defeito 2** veio de um verificador que **derrubou** a analise original da
+  cadeia de portoes. Foi reconferido a mao antes de ser registrado aqui:
+  `gates:140`, `gates:203`, `gates:217`, `worker:228/250/262`,
+  `handoff_service:154`, e a ausencia de `handoff_motivo` como portao.
+- O **defeito 1** ficou sem verificacao por agente e foi apurado por
+  **medicao ao vivo** nos 19 numeros. A medicao foi mais util que a leitura de
+  codigo: a causa real (duas clinicas com o mesmo numero) nao era a hipotese
+  levantada na leitura (colisao com tutor).
+
+### Pendencias que isto abre
+
+1. Resolver o numero duplicado entre `PET CAFE` e `Somavet` no cadastro.
+2. Decidir o que fazer com o vazamento do portao: hoje o piloto nao e um
+   conjunto fechado depois que uma conversa dispara emergencia, pedido de
+   humano ou pausa.
+3. Ligar `WHATSAPP_BOT_ENABLED=true` em `/var/www/fortcordis-v2/backend/.env` e
+   reiniciar `fortcordis-backend` - `settings` e singleton com `@lru_cache`
+   avaliado no import (`config.py:178-183`), entao sem restart nao rele.
+   **Nao executado**: e configuracao de producao e exige autorizacao explicita.
