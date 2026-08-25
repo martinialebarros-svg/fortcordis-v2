@@ -228,3 +228,311 @@ nao esta registrado como verificado.
 
 **Como resolver**: um clique manual. Se a lista abrir normalmente, era a
 automacao; se nao abrir, e defeito da tela e vira correcao.
+
+## Ativacao do piloto em producao - 2026-08-24
+
+Autorizado por Martiniano ("habilita as clinicas do piloto"). Estado gravado e
+conferido por `GET /api/v1/whatsapp/bot/clinicas` e `GET /api/v1/configuracoes`:
+
+| Campo | Valor |
+| --- | --- |
+| `whatsapp_bot_atendimento_habilitado` | `true` |
+| `whatsapp_bot_modo` | `suggest` |
+| `whatsapp_bot_participacao` | `piloto` |
+| Clinicas marcadas | **19**, todas `suggest` |
+| Clinicas cadastradas | 161 |
+
+Nenhuma clinica ficou em `auto`: o envio automatico continua inexistente, e
+toda resposta gerada e rascunho para revisao humana.
+
+### Criterio da selecao
+
+Entraram as clinicas que **ja conversam pelo numero da Cloud API** - as unicas
+que produzem amostra. Medicao sobre as 32 conversas de producao:
+
+| | conversas |
+| --- | --- |
+| de clinica cadastrada | 26 |
+| dessas, com mensagem de entrada | **20** |
+| so notificacao enviada, sem resposta | 6 |
+| tutor ou numero nao cadastrado | 6 |
+
+Das 20 com entrada, 19 entraram no piloto. A vigesima e `41 Fort Cordis
+Cardiovet`, o registro da propria empresa: foi marcada por engano e revertida
+com "Sem marcacao" na mesma sessao. Trafego interno nao e amostra de parceiro.
+
+Ficaram de fora as 6 que so receberam notificacao (`62`, `22`, `1`, `20`, `53`
+e a segunda conversa de `28`): sem mensagem de entrada, nao ha o que o bot
+responda. Entram quando responderem.
+
+### Correcao de uma medicao anterior
+
+A leitura anterior desta sessao concluiu "zero conversas de clinica" e
+recomendou habilitar tutores em vez de clinicas. **Estava errada, e a
+recomendacao foi descartada.** A causa era do script de medicao, nao dos dados:
+`clinicas.whatsapps` guarda 11 digitos (DDD + numero, sem `55`), e a
+comparacao era feita contra o `55...` das conversas. Nenhuma chave podia casar.
+
+Fica o registro do metodo: normalizar os dois lados para DDD + 8 digitos finais
+antes de comparar - descartando `55` e o nono digito -, nunca comparar as
+formas cruas.
+
+### Duvida do clique em "Listar clinicas": resolvida
+
+Nesta sessao o botao foi acionado das duas formas na mesma tela de producao:
+
+| Forma | Resultado |
+| --- | --- |
+| Clique por referencia de acessibilidade | nada acontece, lista nao abre |
+| Clique por coordenada | lista abre normalmente, 161 clinicas |
+
+E artefato da automacao, nao defeito da tela. A hipotese registrada na rodada
+anterior fica confirmada, e o clique manual sugerido la deixa de ser
+necessario.
+
+### O que a ativacao ainda NAO libera
+
+O piloto gera rascunho; nao envia. Antes de qualquer discussao sobre `auto`
+continuam pendentes os sete guardrails restantes (1, 2, 3, 5, 7, 8, 9) e o
+alinhamento de tabela de precos: em 3 dos 4 casos conferidos o atendente cotou
+valor MAIOR que a tabela de producao, e o bot vai cotar o valor correto.
+
+## Dois defeitos encontrados ao acompanhar a primeira leva - 2026-08-25
+
+Verificacao pedida: acompanhar os primeiros rascunhos do piloto. **Nao houve
+primeira leva** - zero rascunhos. Sete respostas na janela, todas
+`suppressed`/`bot_desabilitado`. Investigar isso expos dois defeitos.
+
+### Contexto: o piloto esta inerte por uma variavel de ambiente
+
+`GET /api/v1/whatsapp/bot/preview` em producao:
+
+| Campo | Valor |
+| --- | --- |
+| `whatsapp_bot_enabled_env` | **`false`** |
+| `whatsapp_bot_atendimento_habilitado_banco` | `true` |
+| `whatsapp_bot_ativo` | **`false`** |
+
+O portao e `env AND banco` (`whatsapp_bot_gates.py:48-62`). O registro anterior
+desta spec afirmou "bot ligado" lendo so a metade do banco - **estava
+incompleto**. `WHATSAPP_BOT_ENABLED` nao e escrita por
+`.github/workflows/deploy.yml` nem por `scripts/deploy_prod_vps.sh`; o default
+e `False` (`backend/app/core/config.py:75`) e a unica fonte e
+`/var/www/fortcordis-v2/backend/.env`, que e gitignored. Em stage esta `true`
+por edicao manual - e a unica diferenca entre os dois ambientes.
+
+Job suprimido recebe `status="done"`
+(`whatsapp_bot_worker_service.py:182-184`): **nao fica pendente**. Mensagens de
+`Vet Plus` e `Vetzil Mondubim` chegadas apos a marcacao das 19 clinicas foram
+consumidas e descartadas. Ligar a env depois nao as recupera.
+
+O resto da cadeia foi verificado funcionando: `POST /simular` em producao
+devolveu `decisao: draft`, `motivo: modo_suggest`, citando o documento
+institucional cadastrado e a validade de 30 dias. Prontidao 12 de 14 - os 2
+pendentes sao `status_laudo`, que por construcao so se verifica em conversa
+real.
+
+### Defeito 1 - Somavet nao seria atendida apesar de estar no piloto
+
+Medicao ao vivo: os 19 numeros das clinicas do piloto passados por
+`GET /api/v1/whatsapp-contexto`.
+
+| Resolucao | Clinicas |
+| --- | --- |
+| `clinica` | 18 |
+| `ambiguous` | **1 (Somavet)** |
+
+Causa: **o mesmo numero esta cadastrado em duas clinicas ativas** - `PET CAFE`
+e `Somavet`. Em `resolve_whatsapp_context`, mais de um casamento direto produz
+`resolution: ambiguous` e `match_type: null`. Com `match_type` nulo,
+`resolve_modo_efetivo` pula o ramo da clinica
+(`whatsapp_bot_gates.py:143`) e cai em `return "off", "fora_do_piloto"`
+(`:153`) - a clinica marcada como `suggest` e suprimida assim mesmo.
+
+Nao e defeito de normalizacao de telefone: a normalizacao trata corretamente o
+cadastro de 11 digitos sem `55` e o nono digito. E **dado de cadastro**, e a
+correcao e no cadastro, nao no codigo: decidir de quem e o numero.
+
+Registrado como pendencia: enquanto nao for resolvido, o piloto tem 18
+participantes efetivos, nao 19.
+
+### Defeito 2 - o portao do piloto vaza por estado de conversa
+
+`resolve_modo_efetivo` tem um curto-circuito **antes** de qualquer avaliacao de
+clinica ou piloto (`whatsapp_bot_gates.py:140`):
+
+```python
+if estado is not None and str(estado.modo or "").strip().lower() in MODOS_VALIDOS:
+    return modo_atual, None
+```
+
+A simples existencia de uma linha em `whatsapp_bot_conversa_estado` com modo
+valido isenta a conversa do portao de participacao. Isso e deliberado como
+mecanismo de opt-in por conversa - mas **tres caminhos do worker criam essa
+linha sozinhos, com `modo="suggest"` hardcoded e sem acao humana**:
+
+| Caminho | Chamada | Cria estado em |
+| --- | --- | --- |
+| Emergencia | `worker:228` -> `trigger_active_handoff` -> `handoff_service:154` | `gates:217` |
+| Pausa por claim/`from_me` | `worker:250` -> `pause_conversation` | `gates:203` |
+| Pedido de humano | `worker:262` -> `trigger_active_handoff` -> `handoff_service:154` | `gates:217` |
+
+Os tres rodam **antes** do portao de participacao. Consequencia: depois de um
+unico evento desses, um numero fora do piloto fica permanentemente isento -
+`fora_do_piloto` nunca mais e avaliado para aquela conversa.
+
+Agravante nos dois caminhos de handoff: `set_handoff_motivo` **nao preenche
+`pausado_ate`** (so `pause_conversation` preenche, `gates:205`), e
+`handoff_motivo` nao e usado como portao em lugar nenhum do worker nem da
+geracao (verificado por busca direta). Ou seja, ja na proxima mensagem de
+entrada do mesmo numero a conversa atravessa todos os portoes e chega ao
+gerador. No caminho de pausa o efeito e o mesmo, apenas diferido ate
+`WHATSAPP_BOT_HANDOFF_PAUSE_HOURS` expirar (12h por default).
+
+**Alcance do dano:** em `suggest` isso custa token e roda as tools sobre os
+dados de quem esta fora do piloto. **Nao envia nada**: `decisao = "sent"` e
+escrito em um unico lugar em todo o backend, o endpoint de envio manual
+(`whatsapp_bot.py:302`), atras de `require_any_papel`. O `sent: 1` observado em
+stage e a resposta 7, aprovada por humano - nao envio automatico.
+
+Contradiz o NFR-P02 ("barrar nao custa token") para qualquer conversa que tenha
+passado por um desses tres eventos.
+
+### Procedencia destes achados
+
+Honestidade sobre o metodo: a verificacao adversarial rodou pela metade -
+**8 dos 16 agentes falharam** por limite de sessao, incluindo os **tres**
+designados a checar o casamento de clinica.
+
+- O **defeito 2** veio de um verificador que **derrubou** a analise original da
+  cadeia de portoes. Foi reconferido a mao antes de ser registrado aqui:
+  `gates:140`, `gates:203`, `gates:217`, `worker:228/250/262`,
+  `handoff_service:154`, e a ausencia de `handoff_motivo` como portao.
+- O **defeito 1** ficou sem verificacao por agente e foi apurado por
+  **medicao ao vivo** nos 19 numeros. A medicao foi mais util que a leitura de
+  codigo: a causa real (duas clinicas com o mesmo numero) nao era a hipotese
+  levantada na leitura (colisao com tutor).
+
+### Pendencias que isto abre
+
+1. Resolver o numero duplicado entre `PET CAFE` e `Somavet` no cadastro.
+2. Decidir o que fazer com o vazamento do portao: hoje o piloto nao e um
+   conjunto fechado depois que uma conversa dispara emergencia, pedido de
+   humano ou pausa.
+3. Ligar `WHATSAPP_BOT_ENABLED=true` em `/var/www/fortcordis-v2/backend/.env` e
+   reiniciar `fortcordis-backend` - `settings` e singleton com `@lru_cache`
+   avaliado no import (`config.py:178-183`), entao sem restart nao rele.
+   **Nao executado**: e configuracao de producao e exige autorizacao explicita.
+
+## Correcao do defeito 2 - vazamento do portao do piloto - 2026-08-25
+
+Implementa RF-P10, CA-P10 e CB-P05. Autorizado por Martiniano ("pode resolver
+as outras duas pendencias").
+
+### O que mudou
+
+| Arquivo | Mudanca |
+| --- | --- |
+| `models/whatsapp_bot.py:77` | `modo` vira `nullable=True` e **perde o `default`** |
+| `services/whatsapp_bot_gates.py:206` | `pause_conversation` cria com `modo=None` |
+| `services/whatsapp_bot_gates.py:223` | `set_handoff_motivo` cria com `modo=None` |
+| `migrations/versions/20260825_78_...py` | coluna anulavel + zera `'suggest'` |
+
+Nenhum ponto de LEITURA precisou mudar. As duas guardas de `gates.py` (140 e
+167) ja usavam `str(estado.modo or "")`, e `modo_origem` no endpoint usa
+truthiness - a semantica nova cai certa sem tocar em nada disso.
+
+**O default tinha de cair junto com o NOT NULL.** Medido: com
+`default="suggest"` no model, passar `modo=None` explicito no construtor
+**ainda grava `'suggest'`** - o SQLAlchemy omite atributo `None` no INSERT e o
+default Python dispara. Trocar so os dois construtores nao teria efeito nenhum.
+
+### Migracao
+
+SQLite exige rebuild (`CREATE __new` / `INSERT..SELECT` / `DROP` / `RENAME`),
+porque a coluna nasceu com `NOT NULL` explicito em `20260820_75`. O
+`INSERT..SELECT` ja faz a conversao `'suggest' -> NULL` junto com a copia.
+No Postgres sao `DROP NOT NULL` + `DROP DEFAULT` + `UPDATE`.
+
+A guarda sai cedo quando a coluna ja e anulavel. Isso serve a dois casos: banco
+novo (nasce do model, `create_all` roda antes das migracoes) e segundo run -
+sem a guarda, rodar de novo apagaria override deliberado gravado **depois** da
+conversao.
+
+### Verificacao
+
+Suite completa: **1077 passed**. Quatro testes novos em
+`test_whatsapp_bot_piloto_clinica.py` e quatro em
+`test_whatsapp_bot_conversa_modo_nulo_migration.py`.
+
+Teste de mutacao - cada mutante morto por um teste diferente:
+
+| Mutante | Teste que pegou | Sintoma |
+| --- | --- | --- |
+| `modo="suggest"` de volta nos dois construtores | `test_pausa_grava_modo_nulo_e_nao_fura_o_piloto` e `test_handoff_grava_modo_nulo_e_nao_fura_o_piloto` | `AssertionError: 'suggest' is not None` |
+| `INSERT..SELECT` sem o `CASE` | `test_converte_coluna_e_zera_suggest_incidental` | linha incidental sobrevive |
+| guarda de idempotencia trocada por `UPDATE` sempre | `test_segundo_run_nao_apaga_override_deliberado` | apaga escolha posterior |
+| `handoff_motivo` fora da copia do rebuild | `test_converte_coluna_e_zera_suggest_incidental` | dado perdido em silencio |
+
+Dois testes existem so como guarda contra corrigir demais, e passam nos dois
+mundos: `test_pausa_nao_desliga_clinica_habilitada` (clinica do piloto continua
+atendida depois de um handoff) e `test_opt_in_deliberado_sobrevive_a_pausa_posterior`
+(modo escolhido por gente continua vencendo).
+
+### Ramo PostgreSQL: verificado, depois de uma afirmacao errada
+
+Este registro dizia primeiro que o ramo Postgres nao fora executado e que o
+Migration CI cobriria a lacuna ao subir para stage. **A segunda metade era
+falsa**: `.github/workflows/migrations-ci.yml:37` roda com
+`DATABASE_URL: sqlite:///./fortcordis-ci.db`. O check verde nao dizia nada
+sobre o dialeto de producao.
+
+A lacuna foi entao fechada de verdade: instancia PostgreSQL 16 descartavel,
+migracao `75` (que cria `NOT NULL DEFAULT 'suggest'`) seguida da `78`.
+
+| Verificacao | Resultado |
+| --- | --- |
+| `is_nullable` apos a 75 | `NO` |
+| `is_nullable` apos a 78 | `YES` |
+| `column_default` apos a 78 | `NULL` |
+| `'suggest'` incidental | virou `NULL` |
+| `off` e `auto` | preservados |
+| `handoff_motivo` | preservado |
+| INSERT omitindo a coluna | grava `NULL`, nao `'suggest'` |
+| Segundo run | nao apaga override deliberado |
+
+Virou teste permanente, nao verificacao de uma vez so:
+`WhatsAppBotConversaModoNuloPostgresTest`, que roda quando `POSTGRES_TEST_URL`
+esta definida e **pula** quando nao esta - o CI atual pula. Cada teste usa
+schema proprio, fixado no engine por `search_path`.
+
+```
+POSTGRES_TEST_URL=postgresql+psycopg2://postgres@127.0.0.1:5432/postgres pytest \
+  tests/test_whatsapp_bot_conversa_modo_nulo_migration.py
+```
+
+Mutacao no ramo Postgres, os dois mortos por
+`test_alter_converte_e_derruba_o_default`:
+
+| Mutante | Sintoma |
+| --- | --- |
+| sem `DROP DEFAULT` | `column_default` sobrevive; INSERT que omite a coluna ressuscita `'suggest'` |
+| sem o `UPDATE` de backfill | linha incidental continua `'suggest'` |
+
+**Fica em aberto**: o Migration CI nao exercita PostgreSQL para migracao
+nenhuma deste repo, nao so esta. Isso e maior que este PR e nao foi tratado
+aqui.
+
+### Estado das tres pendencias
+
+| Pendencia | Estado |
+| --- | --- |
+| 1. Numero duplicado `PET CAFE` / `Somavet` | **Resolvida por Martiniano** - clinica PET CAFE apagada por nao existir mais. Reconferir a resolucao dos 19 numeros quando a sessao do painel voltar; a ultima tentativa caiu em 401. |
+| 2. Vazamento do portao | **Resolvida aqui.** Falta subir para stage e promover. |
+| 3. `WHATSAPP_BOT_ENABLED=true` em producao | **Nao executada** - sem acesso SSH a partir deste ambiente (`Permission denied (publickey,password)`). Precisa de Martiniano na VPS. |
+
+**Ordem recomendada:** ligar a env **depois** que esta correcao chegar a
+producao. Com o bot ligado antes, cada emergencia, pedido de humano ou pausa
+grava mais uma linha `'suggest'` incidental - e a migracao ja tera rodado, entao
+essas linhas novas nao seriam zeradas por ela. Seria preciso um segundo
+saneamento manual.

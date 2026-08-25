@@ -200,7 +200,10 @@ def pause_conversation(
     now = now or _utc_now()
     estado = resolve_conversation_state(db, wa_identity)
     if estado is None:
-        estado = WhatsAppBotConversaEstado(wa_identity=wa_identity, modo="suggest")
+        # modo=None EXPLICITO: a linha existe para a escrituracao abaixo,
+        # nao para virar override. Omitir o kwarg deixaria o DEFAULT do
+        # servidor reintroduzir "suggest" e furar o portao do piloto.
+        estado = WhatsAppBotConversaEstado(wa_identity=wa_identity, modo=None)
         db.add(estado)
     estado.pausado_ate = now + timedelta(hours=_pause_hours())
     estado.atualizado_por_id = atualizado_por_id
@@ -214,7 +217,10 @@ def set_handoff_motivo(
     now = now or _utc_now()
     estado = resolve_conversation_state(db, wa_identity)
     if estado is None:
-        estado = WhatsAppBotConversaEstado(wa_identity=wa_identity, modo="suggest")
+        # modo=None EXPLICITO: a linha existe para a escrituracao abaixo,
+        # nao para virar override. Omitir o kwarg deixaria o DEFAULT do
+        # servidor reintroduzir "suggest" e furar o portao do piloto.
+        estado = WhatsAppBotConversaEstado(wa_identity=wa_identity, modo=None)
         db.add(estado)
     estado.handoff_motivo = motivo
     estado.atualizado_por_id = atualizado_por_id
