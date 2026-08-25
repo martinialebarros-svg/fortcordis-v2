@@ -545,9 +545,13 @@ foi manual e nao ha nada no CI que a repita.
 
 | Pendencia | Estado |
 | --- | --- |
-| 1. Numero duplicado `PET CAFE` / `Somavet` | **Resolvida por Martiniano** - clinica PET CAFE apagada por nao existir mais. Reconferir a resolucao dos 19 numeros quando a sessao do painel voltar; a ultima tentativa caiu em 401. |
-| 2. Vazamento do portao | **Resolvida aqui.** Falta subir para stage e promover. |
-| 3. `WHATSAPP_BOT_ENABLED=true` em producao | **Nao executada** - sem acesso SSH a partir deste ambiente (`Permission denied (publickey,password)`). Precisa de Martiniano na VPS. |
+| 1. Numero duplicado `PET CAFE` / `Somavet` | **FECHADA em 2026-08-25.** `PET CAFE` apagada por Martiniano, e a reconferencia foi feita: `resolve_whatsapp_context` rodado em cada clinica com linha de participacao devolveu **20 de 20 `matched/clinica`**, Somavet (`id=114`) inclusa. Nao havia colisao adicional com tutor, que era a hipotese restante. |
+| 2. Vazamento do portao | **FECHADA.** Em stage e em producao (`68f92073` esta em `origin/main`), e comprovada em runtime: a linha de pausa gravada pelo envio assistido veio com `modo=None`, que antes da migracao 78 nasceria `'suggest'` e furaria o portao. |
+| 3. `WHATSAPP_BOT_ENABLED=true` em producao | **FECHADA em 2026-08-25.** Acrescentada ao `.env` por Martiniano na VPS (a linha nao existia; por isso o default `False` valia) e backend reiniciado. Conferido pela propria funcao do portao: `is_whatsapp_bot_enabled()` -> `True`, com `grep -c` devolvendo `1` (sem duplicata). Sobreviveu ao deploy de producao seguinte. |
+
+As tres pendencias que abriram esta secao estao fechadas. A ordem recomendada
+abaixo foi cumprida: a correcao do portao chegou a producao antes de a env ser
+ligada.
 
 **Ordem recomendada:** ligar a env **depois** que esta correcao chegar a
 producao. Com o bot ligado antes, cada emergencia, pedido de humano ou pausa
@@ -666,19 +670,30 @@ O teste cobre o primeiro numero de cada clinica (`whatsapps[0]`, com fallback
 para `telefone`). Clinica com varios WhatsApps que escreva de outro numero nao
 foi coberta por esta medicao.
 
-### Divergencia a confirmar: 10 em `suggest`, nao 19
+### O piloto tem 10 participantes ativos, por decisao - 2026-08-25
 
-A mesma medicao mostrou **20 linhas de estado**, distribuidas em **10 `suggest`
-e 10 `off`** - enquanto o registro anterior desta spec afirmava "19 clinicas em
-`suggest`". Sao duas diferencas: uma clinica a mais que o registrado, e metade
-do piloto desligada.
+A medicao mostrou **20 linhas de estado**, em **10 `suggest` e 10 `off`** -
+enquanto o registro anterior afirmava "19 clinicas em `suggest`".
 
-**Nao foi investigado nem alterado.** Pode ser reducao deliberada do piloto apos
-a primeira leva, e nesse caso o registro anterior e que esta velho. Uma pista a
-favor disso: `Fort Cordis Cardiovet` (`id=41`, `...4320`) esta em `suggest` e e
-a conversa `151` que recebeu o envio assistido - testar no proprio numero antes
-de abrir para terceiros e o esperado. Fica pendente de confirmacao de
-Martiniano; ate la, o numero valido de participantes ativos e **10**, nao 19.
+**Confirmado por Martiniano**: ele desabilitou parte das clinicas de proposito,
+e criou uma clinica ficticia para poder testar sem envolver terceiros. Nao ha
+defeito aqui; o registro anterior e que ficou velho.
+
+Numeros corretos a partir desta data:
+
+| | |
+| --- | --- |
+| Clinicas com linha de participacao | 20 |
+| Participando (`suggest`) | **10** |
+| Desabilitadas (`off`) | 10 |
+| Resolvem `matched/clinica` | 20 de 20 |
+
+`Fort Cordis Cardiovet` (`id=41`, `...4320`) e a clinica de teste, e e a
+conversa `151` que recebeu o primeiro envio assistido - o que explica por que
+todo o trafego pos-ativacao analisado veio dela.
+
+Sempre que este documento citar o tamanho do piloto, o numero e **10 ativas de
+20 marcadas**, nao 19.
 
 ## RF-P11 - detector de cortesia - 2026-08-25
 
