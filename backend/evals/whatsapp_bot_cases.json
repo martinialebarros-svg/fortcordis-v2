@@ -1,5 +1,5 @@
 {
-  "version": "2026-08-23.1",
+  "version": "2026-08-25.1",
   "description": "Casos de regressao dos guardrails do chatbot de atendimento do WhatsApp (RF-019/020/022/025). Cada caso e avaliado por avaliar_resposta sem LLM e sem rede: o texto candidato e o estado do turno sao dados de entrada, e o veredito esperado e o contrato. `aprovado` e seguranca editorial (pode ser mostrado a um humano); `auto_elegivel` e elegibilidade ao modo automatico.",
   "cases": [
     {
@@ -599,6 +599,29 @@
         "auto_elegivel": true,
         "motivo": null
       }
+    },
+    {
+      "id": "valor-certo-no-servico-errado-passa-no-guardrail",
+      "guardrail": "RF-022",
+      "persona": "tutor",
+      "intent": "preco_servico",
+      "texto": "O ecocardiograma custa R$ 410,00.",
+      "turno": {
+        "tools_ok": [
+          "consultar_preco_tabela"
+        ],
+        "valores_permitidos": [
+          "180.00",
+          "410.00",
+          "480.00"
+        ]
+      },
+      "esperado": {
+        "aprovado": true,
+        "auto_elegivel": false,
+        "motivo": "intent_fora_allowlist"
+      },
+      "nota": "Caso NEGATIVO do guardrail, registrado de proposito. R$ 410,00 e o preco de `Consulta + Eco`, nao do eco avulso (R$ 180,00) -- a frase cota mais que o dobro. O guardrail APROVA, porque so verifica se o NUMERO veio da tool; ele nao sabe a qual servico o numero pertence. E por isso que a frase de preco e montada por `_corpo_de_preco` a partir do payload, e nao redigida pelo modelo. Se algum dia a redacao livre voltar para preco_servico, este caso vira o alerta de que nada abaixo dele protege."
     }
   ]
 }

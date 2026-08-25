@@ -197,6 +197,41 @@ de pausa e claim, não por relógio.
     pista do motivo.
 - RF-021: o prompt é versionado em `WHATSAPP_BOT_PROMPT_VERSION` e a versão fica
   gravada em cada resposta, no mesmo espírito de `PROMPT_VERSION` do ai-echo.
+- RF-P12 (vocabulário de serviço, 2026-08-25): o cliente e o catálogo não usam
+  as mesmas palavras. Um tutor pergunta por "eco", "ecodopplercardiograma" ou
+  "ultrassom do coração"; a tabela cadastra `Ecocardiograma`, e vende
+  combinações (`Consulta + Eco`, `Eco + Eletro + PA`). A seleção passa a
+  traduzir os dois lados para o **mesmo conjunto de procedimentos canônicos**
+  (`backend/data/whatsapp_bot_servico_sinonimos.json`) e casar conjunto com
+  conjunto: sinônimo e combinação deixam de ser duas heurísticas.
+  - **Defeito que originou a regra.** A seleção era `alvo in nome` — substring
+    pura — ordenada por `Servico.nome.asc()` e cortada em três. "Quanto custa
+    o eco" devolvia `Consulta + Eco` (R$ 410), `Consulta + Eco + Eletro`
+    (R$ 480) e `Eco + Eletro` (R$ 250), **omitindo `Ecocardiograma`
+    (R$ 180)**, que é o sexto em ordem alfabética. O cliente recebia cotação
+    de mais que o dobro do preço real, com aparência de resposta correta.
+    Ordenar por nome está proibido aqui; o desempate é pelo serviço com menos
+    procedimentos, para quem pede "consulta com eco" não ver primeiro o pacote
+    que ainda inclui eletro.
+  - **Fronteira de palavra é requisito, não detalhe.** Sem acento, `preço` vira
+    `preco` e contém `eco`; `para` e `pacote` contêm `pa`. Casamento por
+    substring transformaria "qual o preço da consulta" num pedido de
+    ecocardiograma. Termos são casados com fronteira em ambos os lados.
+  - **Termo fora do vocabulário** (exame novo, nome próprio) cai na busca por
+    substring como rede; **pergunta genérica de preço** lista serviços simples
+    antes de combinações, para a resposta começar pelo piso da tabela.
+  - **A resposta responde o que foi perguntado.** Havendo correspondência
+    exata, ela responde sozinha: combinações existem, mas só entram se a
+    pessoa pedir. Foi o despejo de opções não pedidas que gerou confusão no
+    piloto.
+- RF-P13 (por que a frase de preço não é redigida pelo modelo, 2026-08-25): o
+  guardrail de `valor_fora_tabela` confere se o **número** citado veio da tool;
+  ele **não** verifica a qual serviço o número pertence. "O ecocardiograma
+  custa R$ 410,00" é aprovado quando 410 está entre os valores retornados —
+  ainda que 410 seja o preço de `Consulta + Eco`. O par serviço↔valor fica
+  colado por construção em `_corpo_de_preco`, e não por instrução de prompt.
+  O caso de eval `valor-certo-no-servico-errado-passa-no-guardrail` registra
+  essa aprovação de propósito: é o alerta de que nada abaixo dela protege.
 
 ### Guardrails de saída
 
