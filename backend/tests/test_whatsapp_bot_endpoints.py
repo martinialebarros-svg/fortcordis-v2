@@ -292,10 +292,11 @@ class WhatsAppBotEndpointsTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
-    def test_suppressed_nao_vira_aviso_na_central(self) -> None:
-        """`suppressed` e estado esperado (bot desligado, pausa, teto).
+    def test_suppressed_nao_entra_em_ultima_recusa(self) -> None:
+        """`suppressed` nunca e "recusa": a chave dele e `ultimo_silencio`.
 
-        Virar aviso transformaria operacao normal em ruido permanente.
+        Separar as duas mantem `ultima_recusa` com a semantica estreita de
+        "o guardrail barrou" e evita que a uniao fechada do frontend quebre.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             SessionFactory, engine = self._build_session_factory(tmpdir)
@@ -308,6 +309,100 @@ class WhatsAppBotEndpointsTest(unittest.TestCase):
                     db.close()
 
                 self.assertIsNone(resposta["ultima_recusa"])
+            finally:
+                engine.dispose()
+
+    def test_supressao_acionavel_vira_aviso_de_silencio(self) -> None:
+        """O caso medido em producao em 2026-08-25.
+
+        Um envio assistido pausou a conversa e as mensagens seguintes do
+        cliente viraram `suppressed/pausado`. Nada aparecia na central, e o
+        dono concluiu que o bot estava quebrado - estava correto, so mudo.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    self._seed_resposta(db, decisao="suppressed", motivo="pausado")
+                    resposta = whatsapp_bot.get_conversa_estado("558588018899", db=db, current_user=self._user())
+                finally:
+                    db.close()
+
+                silencio = resposta["ultimo_silencio"]
+                self.assertIsNotNone(silencio)
+                self.assertEqual(silencio["motivo"], "pausado")
+                self.assertIn("criado_em", silencio)
+                # Linha suprimida nunca grava texto; nao devolvemos o campo.
+                self.assertNotIn("texto_gerado", silencio)
+                self.assertNotIn("decisao", silencio)
+            finally:
+                engine.dispose()
+
+    def test_supressao_de_rotina_nao_vira_aviso(self) -> None:
+        """Alertar sobre operacao normal treina o atendente a ignorar a area.
+
+        `bot_desabilitado` apareceria em TODA conversa com o kill switch
+        desligado; `modo_off` e redundante com `modo`, que ja esta no payload;
+        `sem_pergunta` e a cortesia da RF-P11, e alertar inverteria a regra.
+        """
+        for motivo in ("bot_desabilitado", "modo_off", "sem_pergunta", "fora_do_piloto"):
+            with self.subTest(motivo=motivo):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    SessionFactory, engine = self._build_session_factory(tmpdir)
+                    try:
+                        db = SessionFactory()
+                        try:
+                            self._seed_resposta(db, decisao="suppressed", motivo=motivo)
+                            resposta = whatsapp_bot.get_conversa_estado(
+                                "558588018899", db=db, current_user=self._user()
+                            )
+                        finally:
+                            db.close()
+                        self.assertIsNone(resposta["ultimo_silencio"], motivo)
+                        self.assertIsNone(resposta["ultima_recusa"], motivo)
+                    finally:
+                        engine.dispose()
+
+    def test_silencio_posterior_nao_apaga_a_tela_toda(self) -> None:
+        """Regressao: a regra e "a ULTIMA linha", entao uma supressao depois de
+        um bloqueio zerava `ultima_recusa` e a central ficava em branco.
+
+        Agora a transicao troca um aviso pelo outro, em vez de virar vazio.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    self._seed_resposta(db, decisao="blocked", motivo="diagnostico")
+                    self._seed_resposta(db, decisao="suppressed", motivo="pausado")
+                    resposta = whatsapp_bot.get_conversa_estado("558588018899", db=db, current_user=self._user())
+                finally:
+                    db.close()
+
+                self.assertIsNone(resposta["ultima_recusa"])
+                self.assertIsNotNone(resposta["ultimo_silencio"])
+                self.assertEqual(resposta["ultimo_silencio"]["motivo"], "pausado")
+            finally:
+                engine.dispose()
+
+    def test_rascunho_novo_supera_o_aviso_de_silencio(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                db = SessionFactory()
+                try:
+                    self._seed_resposta(db, decisao="suppressed", motivo="pausado")
+                    self._seed_resposta(
+                        db, decisao="draft", motivo="modo_suggest", texto_gerado="Posso ajudar?"
+                    )
+                    resposta = whatsapp_bot.get_conversa_estado("558588018899", db=db, current_user=self._user())
+                finally:
+                    db.close()
+
+                self.assertIsNone(resposta["ultimo_silencio"])
+                self.assertIsNotNone(resposta["rascunho_pendente"])
             finally:
                 engine.dispose()
 

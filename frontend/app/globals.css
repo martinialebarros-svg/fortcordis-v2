@@ -4562,6 +4562,18 @@ body {
     @apply flex items-start gap-2 rounded-lg border border-dashed border-ink-200 bg-ink-50 p-3 text-xs text-ink-500;
   }
 
+  /* Aviso de silencio do bot: tier deliberadamente mais fraco que
+     .fc-wa-bot-recusa. Tracejado cinza e sem borda de secao porque e
+     informacao, nao tarefa - nao pode competir visualmente com um rascunho
+     acionavel nem parecer que exige clique. */
+  .fc-wa-bot-silencio {
+    @apply flex items-start gap-2 rounded-lg border border-dashed border-ink-200 bg-ink-50 px-3 py-2 text-xs leading-5 text-ink-500;
+  }
+
+  .fc-wa-bot-silencio svg {
+    @apply mt-0.5 shrink-0 text-ink-400;
+  }
+
   .fc-wa-domain-state strong,
   .fc-wa-domain-ambiguous strong {
     @apply block font-black text-ink-700;

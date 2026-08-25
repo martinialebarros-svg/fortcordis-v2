@@ -138,6 +138,11 @@ interface WhatsAppBotRecusa {
   motivo: string | null;
   criado_em: string | null;
 }
+interface WhatsAppBotSilencio {
+  resposta_id: number;
+  motivo: string | null;
+  criado_em: string | null;
+}
 interface WhatsAppBotConversationState {
   wa_identity: string;
   modo: WhatsAppBotMode;
@@ -147,6 +152,7 @@ interface WhatsAppBotConversationState {
   handoff_motivo: string | null;
   rascunho_pendente: WhatsAppBotDraft | null;
   ultima_recusa: WhatsAppBotRecusa | null;
+  ultimo_silencio: WhatsAppBotSilencio | null;
 }
 
 /** Motivos que o guardrail grava, em portugues de atendente. Chave
@@ -170,6 +176,16 @@ const BOT_RECUSA_MOTIVOS: Record<string, string> = {
   escopo_incoerente: "o escopo da conversa está inconsistente",
   conversa_divergente: "o serviço devolveu outra conversa para este número",
   modelo_pediu_humano: "o próprio bot pediu ajuda humana",
+};
+
+/** Motivos de SILENCIO: o bot viu a mensagem e nao respondeu, sem que isso
+ *  seja recusa do guardrail. Só entram aqui os acionaveis - o backend ja
+ *  filtra o ruido (`bot_desabilitado`, `modo_off`, cortesia). */
+const BOT_SILENCIO_MOTIVOS: Record<string, string> = {
+  pausado: "a conversa está pausada porque um atendente respondeu",
+  janela_fechada: "a janela de 24 horas do WhatsApp está fechada",
+  teto_diario: "o limite diário de respostas desta conversa foi atingido",
+  conversa_divergente: "a mensagem não confere com a conversa registrada",
 };
 
 const MESSAGE_STATUS_REFRESH_INTERVAL_MS = 5_000;
@@ -666,7 +682,11 @@ export default function WhatsAppStagePage() {
       return;
     }
     setBotConversationState(result.data);
-    setInfoMessage(pausar ? "Bot pausado por 12 horas nesta conversa." : "Pausa do bot removida.");
+    setInfoMessage(
+      pausar
+        ? `Bot pausado nesta conversa${result.data.pausado_ate ? ` até ${formatDateTime(result.data.pausado_ate)}` : ""}.`
+        : "Pausa do bot removida.",
+    );
   };
 
   const handleDiscardBotDraft = async (): Promise<void> => {
@@ -1040,6 +1060,16 @@ export default function WhatsAppStagePage() {
               <small>Responda você mesmo pelo campo abaixo. O texto que o bot chegou a montar não é exibido nem enviável.</small>
             </section> : null}
 
+            {/* Silencio: o bot viu e nao respondeu por operacao normal. Medido
+                em producao em 2026-08-25 - um envio assistido pausou a conversa
+                e as mensagens seguintes sumiram sem deixar rastro na tela, o
+                que pareceu bot quebrado. Tier mais fraco que a recusa e sem
+                nenhum botao: e informacao, nao tarefa. */}
+            {botConversationState?.ultimo_silencio ? <div className="fc-wa-bot-silencio" role="status" aria-live="polite">
+              <Info className="h-3.5 w-3.5" />
+              <span>O bot viu esta mensagem e não respondeu: {BOT_SILENCIO_MOTIVOS[botConversationState.ultimo_silencio.motivo || ""] || botConversationState.ultimo_silencio.motivo || "motivo não registrado"}{botConversationState.ultimo_silencio.motivo === "pausado" && botConversationState.pausado_ate ? `, até ${formatDateTime(botConversationState.pausado_ate)}` : ""}.</span>
+            </div> : null}
+
             <div className="fc-wa-composer"><div className="fc-wa-composer-tabs" role="tablist" aria-label="Modo de resposta">
               <button type="button" role="tab" aria-selected={composerMode === "message"} className={composerMode === "message" ? "active" : ""} onClick={() => setComposerMode("message")}><MessageSquare className="h-4 w-4" /> Mensagem</button>
               <button type="button" role="tab" aria-selected={composerMode === "template"} className={composerMode === "template" ? "active" : ""} onClick={() => setComposerMode("template")}><Sparkles className="h-4 w-4" /> Modelos configurados</button></div>
@@ -1088,7 +1118,7 @@ export default function WhatsAppStagePage() {
                   <p className="fc-wa-bot-state-note">Origem: {botConversationState.modo_origem === "institucional" ? "padrão institucional" : "definido nesta conversa"}.</p>
                   <button type="button" className={botConversationState.pausado ? "fc-wa-secondary" : "fc-wa-ghost-danger"}
                     onClick={() => void handleBotPause(!botConversationState.pausado)} disabled={savingBotAction}>
-                    {botConversationState.pausado ? "Retomar bot" : "Pausar bot por 12h"}
+                    {botConversationState.pausado ? "Retomar bot" : "Pausar bot"}
                   </button>
                   {botConversationState.pausado_ate ? <p className="fc-wa-bot-state-note">Pausado até {formatDateTime(botConversationState.pausado_ate)}.</p> : null}
                 </> : <p className="fc-wa-bot-state-note">Estado do bot indisponível.</p>}

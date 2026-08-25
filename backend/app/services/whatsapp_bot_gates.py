@@ -179,6 +179,19 @@ def _pause_hours() -> int:
     return parsed if parsed > 0 else 12
 
 
+def _assisted_send_pause_hours() -> int:
+    """Pausa do envio assistido - curta de proposito.
+
+    Separada de `_pause_hours` porque as semanticas sao diferentes: handoff
+    significa "a equipe assumiu"; envio assistido significa apenas "um
+    atendente respondeu esta mensagem". Medido em producao: uma resposta
+    assistida silenciava o bot por 12h e as mensagens seguintes do cliente
+    viravam `suppressed/pausado` sem sinal nenhum na central.
+    """
+    parsed = _safe_int(settings.WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS, 2)
+    return parsed if parsed > 0 else 2
+
+
 def is_locally_paused(
     estado: Optional[WhatsAppBotConversaEstado], *, now: Optional[datetime] = None
 ) -> bool:
@@ -190,7 +203,12 @@ def is_locally_paused(
 
 
 def pause_conversation(
-    db, wa_identity: str, *, atualizado_por_id: Optional[int] = None, now: Optional[datetime] = None
+    db,
+    wa_identity: str,
+    *,
+    atualizado_por_id: Optional[int] = None,
+    now: Optional[datetime] = None,
+    horas: Optional[int] = None,
 ) -> WhatsAppBotConversaEstado:
     """RF-010: mensagem humana (from_me=true) ou claim de atendente pausa o
 
@@ -198,6 +216,11 @@ def pause_conversation(
     bot não pausa por este detector. O envio assistido de um rascunho aprovado
     pausa explicitamente a conversa no endpoint de revisão, com o atendente
     responsável registrado.
+
+    `horas` permite ao chamador impor uma duracao propria. Existe para o envio
+    assistido, cuja semantica ("um atendente respondeu esta mensagem") e mais
+    fraca que a de handoff ("a equipe assumiu"). Default `None` preserva o
+    comportamento dos demais chamadores sem que eles precisem mudar.
     """
     now = now or _utc_now()
     estado = resolve_conversation_state(db, wa_identity)
@@ -207,7 +230,9 @@ def pause_conversation(
         # servidor reintroduzir "suggest" e furar o portao do piloto.
         estado = WhatsAppBotConversaEstado(wa_identity=wa_identity, modo=None)
         db.add(estado)
-    estado.pausado_ate = now + timedelta(hours=_pause_hours())
+    estado.pausado_ate = now + timedelta(
+        hours=horas if horas is not None and horas > 0 else _pause_hours()
+    )
     estado.atualizado_por_id = atualizado_por_id
     estado.updated_at = now
     return estado

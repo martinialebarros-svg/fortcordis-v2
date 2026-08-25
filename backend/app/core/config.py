@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     WHATSAPP_BOT_SCHEDULER_DISTRIBUTED_LOCK_KEY: int = 80433003
     WHATSAPP_BOT_MAX_ATTEMPTS: int = 3
     WHATSAPP_BOT_HANDOFF_PAUSE_HOURS: int = 12
+    # Pausa do ENVIO ASSISTIDO, deliberadamente separada da de handoff. As
+    # duas semanticas sao diferentes: handoff de emergencia significa "a
+    # equipe vai ligar, o bot sai da frente"; envio assistido significa
+    # apenas "um atendente respondeu esta mensagem". Usar 12h para o
+    # segundo deixa o cliente sem bot por meio dia depois de UMA resposta.
+    WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS: int = 2
     WHATSAPP_BOT_MAX_REPLIES_PER_CONVERSATION_DAY: int = 20
     WHATSAPP_BOT_MAX_TOKENS_PER_DAY: int = 100000
     WHATSAPP_BOT_MAX_REPLY_CHARS: int = 900

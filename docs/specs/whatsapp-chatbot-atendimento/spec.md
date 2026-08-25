@@ -280,7 +280,16 @@ de pausa e claim, não por relógio.
   conversa. O selo depende do metadata validado no serviço interno, e não de
   um campo arbitrário enviado pelo navegador.
 - RF-030: a central permite, por conversa, alternar `auto` / `suggest` / `off` e
-  "pausar bot por 12h".
+  pausar o bot. A pausa manual usa `WHATSAPP_BOT_HANDOFF_PAUSE_HOURS`; o rótulo
+  do botão e o aviso deixaram de citar "12h" fixo, porque a duração passou a
+  variar por caminho.
+- RF-034 (silêncio visível): o payload de estado por conversa expõe
+  `ultimo_silencio` ao lado de `ultima_recusa`, derivado da **mesma** última
+  linha de resposta. Só motivos acionáveis entram
+  (`pausado`, `janela_fechada`, `teto_diario`, `conversa_divergente`);
+  `bot_desabilitado`, `modo_off`, `sem_pergunta` e os de participação ficam de
+  fora para não virar ruído permanente. Sem `texto_gerado` (linha suprimida
+  nunca grava texto) e sem `decisao` (é sempre `suppressed`).
 - RF-031: card "Atendimento automático (WhatsApp)" em Configurações -> Empresa,
   no mesmo padrão do card do lembrete automático, com o toggle institucional e o
   modo padrão, graváveis só por admin.
@@ -400,6 +409,10 @@ Novas em `app/core/config.py` + `.env.example`, todas com default seguro:
 `WHATSAPP_BOT_SCHEDULER_DISTRIBUTED_LOCK_ENABLED=True`,
 `WHATSAPP_BOT_SCHEDULER_DISTRIBUTED_LOCK_KEY=80433003`,
 `WHATSAPP_BOT_MAX_ATTEMPTS=3`, `WHATSAPP_BOT_HANDOFF_PAUSE_HOURS=12`,
+`WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS=2` (pausa do envio assistido,
+deliberadamente separada de `WHATSAPP_BOT_HANDOFF_PAUSE_HOURS=12`: handoff
+significa "a equipe assumiu", envio assistido significa apenas "um atendente
+respondeu esta mensagem"),
 `WHATSAPP_BOT_MAX_REPLIES_PER_CONVERSATION_DAY=20`,
 `WHATSAPP_BOT_MAX_TOKENS_PER_DAY=100000`,
 `WHATSAPP_BOT_MAX_REPLY_CHARS=900`,

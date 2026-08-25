@@ -830,6 +830,69 @@ conversa real com exame, por desenho.
   stage.~~ **Feito pelo usuário em 2026-08-23**; a prontidão fechou em 8
   prontos / 6 pendentes, todos os verdes com dado real.
 
+## Silêncio visível e pausa do envio assistido - 2026-08-25
+
+Nasceu de um caso real: o dono clicou Enviar num rascunho, isso pausou a
+conversa por 12h, e as **quatro** mensagens seguintes dele viraram
+`suppressed/pausado`. Nada apareceu na central e ele concluiu que o bot estava
+quebrado. O bot estava correto - o silêncio é que era invisível.
+
+### O achado que mudou o desenho
+
+`suppressed` não era apenas invisível: por a regra de `ultima_recusa` ser "a
+ÚLTIMA linha da conversa", uma supressão posterior **apagava** o aviso de
+`blocked`/`handoff` anterior, deixando a central em branco. Derivar o silêncio
+da mesma linha `ultima` conserta os dois problemas de uma vez - e sem query
+nova, porque a linha já está carregada.
+
+### Visibilidade (RF-034)
+
+`_estado_payload` ganhou `ultimo_silencio`, com allowlist `_SUPRESSOES_VISIVEIS`
+= `pausado`, `janela_fechada`, `teto_diario`, `conversa_divergente`. Deixados de
+fora de propósito: `bot_desabilitado` (apareceria em toda conversa com o kill
+switch desligado), `modo_off` (redundante com `modo`, no mesmo payload),
+`sem_pergunta` (cortesia da RF-P11 - alertar inverteria a regra) e os de
+participação (`fora_do_piloto`, `clinica_desabilitada`, que são configuração e
+não linha do tempo). Alertar sobre operação normal treinaria o atendente a
+ignorar a área, que é o mesmo problema invertido.
+
+Na central, um terceiro tier visual (`fc-wa-bot-silencio`), tracejado e sem
+botão nenhum: é informação, não tarefa. Para `pausado` o texto cita a hora
+usando o `pausado_ate` que já vinha no payload.
+
+### Pausa do envio assistido
+
+`WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS=2`, e `pause_conversation` ganhou um
+kwarg `horas` opcional - default `None` preserva os demais chamadores sem
+tocá-los. Só `enviar_rascunho` passa a duração curta.
+
+**Risco investigado e descartado**: suspeitou-se que o detector `from_me` do
+worker re-estenderia a pausa para 12h logo depois, tornando a mudança
+cosmética. Não acontece no fluxo normal - `last_agent_id` só é escrito por
+`claimConversation` (o envio **não** reivindica a conversa), e o `from_me` da
+última mensagem só é verdadeiro se o atendente respondeu dentro da janela de
+debounce, que é o CB-009 e aí 12h é a semântica certa.
+
+### Cobertura
+
+Backend: 5 testes novos em `test_whatsapp_bot_endpoints.py` (supressão acionável
+vira aviso; ruído não vira; `suppressed` nunca entra em `ultima_recusa`;
+silêncio posterior não apaga a tela; rascunho novo supera o aviso) e 5 em
+`test_whatsapp_bot_gates.py` (horas explícitas vencem o default; sem `horas` o
+comportamento antigo é preservado; horas inválidas caem no default; helper
+defensivo; e um que falha se os dois defaults se igualarem, porque aí a
+separação teria perdido o sentido).
+
+Frontend: 2 testes em `page.test.tsx`, com o roteador de fetch que mocka a rota
+de estado do bot. **Verificados por mutação**: desligar a renderização do aviso
+derruba o teste, e restaurar o revive - a cobertura não é vazia.
+
+Os dois literais de "12h" do frontend saíram: o toast passa a citar o
+`pausado_ate` devolvido pelo PATCH, e o botão diz apenas "Pausar bot".
+
+Suítes: backend **1098/1098**; frontend **100/100** em 15 arquivos; `eslint`,
+`tsc --noEmit` e `next build` limpos.
+
 ## Regressão e riscos residuais
 
 - A correção do nono dígito (RF-015) altera um endpoint já consumido pela
