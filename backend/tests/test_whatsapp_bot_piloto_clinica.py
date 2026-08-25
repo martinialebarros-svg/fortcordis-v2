@@ -207,6 +207,114 @@ class WhatsAppBotPilotoClinicaTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
+    # --- CB-P04: escrituracao do worker nao pode virar opt-in -------------
+
+    def test_pausa_grava_modo_nulo_e_nao_fura_o_piloto(self) -> None:
+        """A linha da pausa nao pode valer como override.
+
+        Sem `modo=None` no construtor E sem remover o default do model, o
+        SQLAlchemy grava "suggest" sozinho: ele pula atributo None no INSERT
+        e deixa o default Python disparar. A conversa fora do piloto passaria
+        a ser atendida na mensagem seguinte.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._cenario(db, participacao="piloto")
+                    gates.pause_conversation(db, "558588018899")
+                    db.commit()
+                    gravado = (
+                        db.query(WhatsAppBotConversaEstado)
+                        .filter(WhatsAppBotConversaEstado.wa_identity == "558588018899")
+                        .one()
+                    )
+                    self.assertIsNone(gravado.modo)
+                    self.assertIsNotNone(gravado.pausado_ate)
+                    modo, bloqueio = self._resolver(db, match_type="tutor", clinica_id=None)
+                finally:
+                    db.close()
+                self.assertEqual(modo, "off")
+                self.assertEqual(bloqueio, "fora_do_piloto")
+            finally:
+                engine.dispose()
+
+    def test_handoff_grava_modo_nulo_e_nao_fura_o_piloto(self) -> None:
+        """Emergencia e pedido de humano passam por aqui.
+
+        Pior que a pausa: `set_handoff_motivo` nao preenche `pausado_ate`, e
+        `handoff_motivo` nao e portao em lugar nenhum - entao a proxima
+        mensagem do mesmo numero ja chegaria ao gerador.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._cenario(db, participacao="piloto")
+                    gates.set_handoff_motivo(db, "558588018899", "emergencia")
+                    db.commit()
+                    gravado = (
+                        db.query(WhatsAppBotConversaEstado)
+                        .filter(WhatsAppBotConversaEstado.wa_identity == "558588018899")
+                        .one()
+                    )
+                    self.assertIsNone(gravado.modo)
+                    self.assertEqual(gravado.handoff_motivo, "emergencia")
+                    modo, bloqueio = self._resolver(db, match_type="tutor", clinica_id=None)
+                finally:
+                    db.close()
+                self.assertEqual(modo, "off")
+                self.assertEqual(bloqueio, "fora_do_piloto")
+            finally:
+                engine.dispose()
+
+    def test_pausa_nao_desliga_clinica_habilitada(self) -> None:
+        """A correcao nao pode passar do ponto: quem esta no piloto continua."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._cenario(db, participacao="piloto")
+                    db.add(WhatsAppBotClinicaEstado(clinica_id=7, modo="suggest"))
+                    gates.set_handoff_motivo(db, "558588018899", "pedido_humano")
+                    db.commit()
+                    modo, bloqueio = self._resolver(db, match_type="clinica", clinica_id=7)
+                finally:
+                    db.close()
+                self.assertEqual(modo, "suggest")
+                self.assertIsNone(bloqueio)
+            finally:
+                engine.dispose()
+
+    def test_opt_in_deliberado_sobrevive_a_pausa_posterior(self) -> None:
+        """Modo escolhido por gente continua vencendo o portao do piloto."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._cenario(db, participacao="piloto")
+                    db.add(WhatsAppBotConversaEstado(wa_identity="558588018899", modo="suggest"))
+                    db.commit()
+                    gates.pause_conversation(db, "558588018899")
+                    db.commit()
+                    gravado = (
+                        db.query(WhatsAppBotConversaEstado)
+                        .filter(WhatsAppBotConversaEstado.wa_identity == "558588018899")
+                        .one()
+                    )
+                    self.assertEqual(gravado.modo, "suggest")
+                    modo, bloqueio = self._resolver(db, match_type="tutor", clinica_id=None)
+                finally:
+                    db.close()
+                self.assertEqual(modo, "suggest")
+                self.assertIsNone(bloqueio)
+            finally:
+                engine.dispose()
+
     # --- CB-P01: identidade ambigua ---------------------------------------
 
     def test_identidade_nao_resolvida_em_piloto_bloqueia_sem_inventar_clinica(self) -> None:

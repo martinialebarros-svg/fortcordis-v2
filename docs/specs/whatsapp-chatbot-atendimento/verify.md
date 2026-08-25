@@ -1255,3 +1255,158 @@ deixaria **duas** respostas conflitantes na base, e a busca poderia devolver a
 velha.
 
 Estado final: 4 documentos visiveis, 0 ignorados.
+
+
+## Promocao para producao: o bot chegou dormente (2026-08-24)
+
+Primeira vez que o chatbot toca producao. `stage -> main` via
+`scripts/promote_stage_to_main.sh`; `origin/main` foi de `1474902d` para
+`087ccc9b`. Deploy to VPS run `32783092734` e Migration CI `32783092889`, ambos
+`success` — com `quality-gate` e `sdd-guardrail` aprovados.
+
+### O que foi verificado ANTES de promover
+
+| Risco levantado | Verificacao |
+| --- | --- |
+| Bot subir ligado | Workflow de producao nao menciona `WHATSAPP_BOT`; default de `config.py` e `False`; a migracao faz `UPDATE` explicito do toggle para `false` |
+| Promocao desfazer o hotfix do deploy | `CLAUDE.md` avisa que a promocao resolve conflito em favor de `stage` e pode desfazer hotfix sem avisar. Conferido: `stage` **nao tem** a linha ruim e **tem** o step do `test_whatsapp_stage_meta_isolation.sh`, que asserta a mesma coisa |
+| Perder CSS que so existia em producao | As tres classes `fc-wa-envio-badge*` ja existiam em `stage` |
+| Alterar o caminho de envio de producao | Resolvido antes, tornando o nono digito opt-in e desligado em producao |
+
+Dois conflitos de merge (`deploy.yml`, `globals.css`), ambos resolviveis em
+favor de `stage` sem perda — verificado arquivo a arquivo antes de rodar.
+
+### O que foi verificado DEPOIS
+
+| Item | Resultado |
+| --- | --- |
+| `WHATSAPP_META_SOURCE_ENV_FILE` em `main` | ausente — hotfix preservado |
+| `WHATSAPP_GRAPH_FORCE_BR_MOBILE_NINTH_DIGIT` no deploy de producao | ausente — envio inalterado |
+| `fc-wa-envio-badge*` em `main` | 3 classes presentes |
+| Arquivos `whatsapp_bot` em `main` | 42 |
+| `whatsapp_bot_enabled_env` | **false** |
+| `whatsapp_bot_atendimento_habilitado` | **false** |
+| `whatsapp_bot_ativo` | **false** |
+| `jobs_por_status` / `respostas_por_decisao` | `{}` / `{}` |
+| Producao HTTP | `200` / `200` / `401` |
+| Stage | inalterado |
+
+O endpoint de preview responde `200`: o codigo esta la e funcional, apenas
+inerte.
+
+### Producao virada para `piloto`
+
+A migracao cria `whatsapp_bot_participacao = 'todos'` — correto como default,
+porque preserva comportamento em quem ja usava. Mas em **producao**, onde o bot
+nunca rodou, `todos` significa que o primeiro clique no toggle exporia **todos
+os tutores e todas as clinicas de uma vez**, que e exatamente o que o piloto foi
+construido para evitar.
+
+Virado para `piloto` logo apos a promocao:
+
+| | |
+| --- | --- |
+| `whatsapp_bot_participacao` | `todos` -> **`piloto`** |
+| Clinicas ativas em producao | **161** |
+| Clinicas que participam | **0** |
+| Clinicas com marcacao | **0** |
+| Toggle institucional | continua **false** |
+
+Duas travas independentes: mesmo que alguem ligue o toggle, ninguem e atendido
+ate ser habilitado clinica por clinica.
+
+### O que falta antes de ligar
+
+1. **Corrigir o cadastro de preco em producao** — quatro divergencias e dois
+   zerados. Com `preco_servico` fora do `auto` nada sai errado ao cliente, mas
+   os rascunhos trariam valor desatualizado, e a taxa de aceite mediria a
+   qualidade de uma resposta errada.
+2. Habilitar as clinicas do piloto.
+3. So entao ligar o toggle institucional em `suggest`, e comecar o P6.3 com a
+   metrica quebrada por clinica.
+
+
+## Preco: producao e a fonte de verdade (2026-08-24)
+
+Decisao do usuario, e ela **inverte** o enquadramento que eu tinha dado a
+conferencia. Eu havia registrado quatro "divergencias a decidir, qual lado esta
+certo". Nao ha o que decidir: **producao esta correta**, e as tabelas que o
+atendimento cola no WhatsApp sao provavelmente de uma tabela antiga.
+
+| Servico / faixa | Mandam no WhatsApp | Correto (producao) |
+| --- | --- | --- |
+| Eletrocardiograma / Fortaleza plantao | 170 | **150** |
+| Eletrocardiograma / RM comercial | 150 | **140** |
+| Pressao arterial / RM comercial | 60 | **40** |
+| Consulta / RM plantao | 260 | **290** |
+
+Em tres dos quatro casos o atendimento cobra **a mais** do que a tabela. E
+achado operacional, fora do escopo desta spec — mas com consequencia direta
+aqui: quando o bot ligar, vai cotar o valor correto e passar a **divergir do que
+a equipe fala**. O cliente receberia dois precos. Vale alinhar a equipe antes de
+ligar o piloto.
+
+Os dois "zerados" tambem deixam de ser problema: se producao e a verdade, entao
+Eletrocardiograma / RM plantao e Pressao arterial / domiciliar realmente nao tem
+preco naquelas faixas, e o bot **emudecer** e o comportamento correto.
+
+### Correcao nos documentos: drenagem de efusao
+
+Eu havia listado "drenagem de efusao" como exame disponivel nos documentos 1 e
+3, tirando da tabela do WhatsApp. Ela **nao existe como `Servico`**. Aplicando o
+mesmo principio — producao e a verdade —, saiu dos dois documentos.
+
+E tambem a direcao segura: mantida, o bot anunciaria um exame que
+`consultar_preco_tabela` nao sabe cotar, e a pergunta seguinte do cliente
+("quanto custa?") cairia sem fonte. Removida, o bot apenas nao menciona.
+
+Aplicado em **producao** por arquivar-e-recriar (o projeto nao edita documento).
+Estado: 4 visiveis, 3 ignorados — os ignorados sao internos ("Protocolo seguro
+de rascunhos clinicos", "Rotina administrativa da Mente FortCordis"), e a
+allowlist de categoria os mantem invisiveis para o bot que fala com cliente.
+
+**Pendente**: aplicar a mesma remocao nos documentos de **stage**, cuja sessao
+caiu no meio da tarefa e nao voltou. Ate la, stage e producao divergem nesse
+ponto — stage ainda anuncia drenagem de efusao. Nao afeta cliente: stage so fala
+com destinatarios pre-verificados do numero de teste da Meta.
+
+## Conteudo institucional em producao (2026-08-24)
+
+Os quatro documentos foram cadastrados em producao depois da promocao. A
+prontidao de producao ficou em **8 prontos / 6 pendentes**:
+
+| Intent | Estado |
+| --- | --- |
+| `horario_funcionamento`, `preco_servico` | pronto |
+| `area_atendimento`, `como_agendar`, `como_solicitar_exame` | **pronto** — os documentos foram encontrados |
+| `endereco`, `formas_contato` | **pendente** — cadastro da empresa vazio |
+| `status_laudo` | depende da conversa |
+
+### A guarda 10 provou seu valor em producao
+
+`endereco` e `formas_contato` estao pendentes porque `Configuracao` de producao
+tem `nome_empresa`, `cidade` e `estado`, mas **`endereco`, `telefone`, `email` e
+`website` vazios** — exatamente o estado que stage tinha de manha.
+
+Sem a correcao da guarda 10, feita horas antes, producao estaria mostrando
+**verde** nessas duas intents com o cadastro vazio, e o bot poderia afirmar
+endereco e telefone sem ter nenhum. A correcao pegou o caso real no ambiente que
+importa, sem ter sido procurada.
+
+O bot segue **dormente** em producao: `bot_ativo: false`.
+
+### Fechamento: producao em 12/2
+
+O usuario preencheu `endereco`, `telefone`, `email` e `website` em
+Configuracoes > Empresa de producao. A prontidao fechou:
+
+| | Antes | Depois |
+| --- | --- | --- |
+| Resumo | 8 prontos / 6 pendentes | **12 prontos / 2 pendentes** |
+| `endereco`, `formas_contato` | pendentes, cadastro vazio | **prontos, por dado real** |
+| `status_laudo` | pendente | pendente — depende de conversa, por desenho |
+
+Producao tem agora a mesma prontidao de stage, com o bot ainda **dormente** e a
+participacao em `piloto`.
+
+Drenagem de efusao confirmada fora dos documentos por decisao do usuario.

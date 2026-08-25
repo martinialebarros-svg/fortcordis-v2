@@ -17,10 +17,11 @@ que já causavam dano, não risco futuro:
 **Sete seguem abertas**: 1, 2, 3, 5, 7, 8 e 9. Todas específicas do envio
 automático; nenhuma afeta o `suggest` hoje.
 
-O incidente do deploy de produção foi diagnosticado, reparado e encerrado
-(PR #72). Produção em `1474902d` e **sem nunca ter recebido o bot** —
-`git ls-tree -r --name-only origin/main | grep -c whatsapp_bot` devolve `0`,
-contra 38 em `origin/stage`.
+**O bot chegou em produção em 2026-08-24, dormente.** `origin/main` em
+`087ccc9b`, 42 arquivos `whatsapp_bot`. Os dois interruptores desligados
+(`whatsapp_bot_enabled_env=false`, toggle do banco `false`), zero jobs e zero
+respostas. E `whatsapp_bot_participacao` virado para **`piloto`**: 161 clínicas
+ativas, **0 participando**. Duas travas independentes.
 
 `origin/stage` em `0690b080`, sincronizado com esta branch. `auto` permanece
 bloqueado, e `preco_servico` saiu da allowlist de `auto` ate o plantao ser
@@ -49,11 +50,13 @@ FortCordis v2.
 - `origin/stage` e o runtime de stage estão no SHA `0690b080`.
 - A branch está **sincronizada** com `origin/stage`: nada pendente de publicar.
   Qualquer publicação futura exige autorização explícita.
-- `origin/main` e produção estão em `1474902d` (hotfix do deploy, PR #72).
-  Confira sempre com `git rev-parse origin/main`; este SHA envelhece a cada
-  promoção. O que não muda: nenhum arquivo `whatsapp_bot` existe em
-  `origin/main` — confirme com
-  `git ls-tree -r --name-only origin/main | grep -c whatsapp_bot`, que deve dar `0`.
+- `origin/main` e produção estão em `087ccc9b` (promoção do bot, 2026-08-24).
+  Confira sempre com `git rev-parse origin/main`.
+- **O bot está em produção, mas DORMENTE.** Antes de ligar qualquer coisa,
+  confirme o estado com `GET /api/v1/whatsapp/bot/preview` em produção:
+  `whatsapp_bot_ativo` deve ser `false`. A participação está em `piloto`, então
+  mesmo ligando o toggle ninguém é atendido até ser habilitado clínica a
+  clínica.
 - O código da Fase 5, o hotfix do nono dígito e a proteção de reenvio do bot já
   foram publicados em stage.
 - A instrumentação da Fase 6 (P6.1 evals + P6.5 métricas), o painel de
@@ -597,6 +600,29 @@ mapear as colunas e escolher a faixa pelo horário.
    (4, 6 e 10 estão fechadas), e **somente** com autorização explícita
    registrada no `verify.md`. As sete são todas específicas do envio
    automático: nenhuma afeta o `suggest` hoje.
+
+### Sequência para ligar o piloto em produção
+
+O bot já está lá e dormente. Falta, nesta ordem:
+
+1. ~~Corrigir o cadastro de preço~~ **Não é preciso**: por decisão do usuário,
+   **produção é a fonte de verdade** e está correta. As tabelas que o
+   atendimento cola no WhatsApp é que são de uma tabela antiga.
+   **Mas alinhe a equipe antes de ligar**: em três dos quatro casos o
+   atendimento cobra a mais do que a tabela, e o bot vai cotar o valor correto —
+   o cliente receberia dois preços na mesma conversa.
+2. ~~Cadastrar o conteúdo institucional em produção~~ **FEITO**: quatro
+   documentos ativos, e o cadastro da empresa preenchido. Prontidão de produção
+   em **12/2**, só `status_laudo` pendente.
+3. **Habilitar as clínicas do piloto** em Configurações > Empresa. Produção tem
+   161 clínicas ativas e **0 participando**.
+4. **Ligar o toggle institucional em `suggest`** — e só então o bot atende, e
+   apenas quem foi habilitado.
+5. Coletar o P6.3 por `GET /whatsapp/bot/metricas`, com a quebra por clínica.
+
+**Pendência menor**: os documentos de **stage** ainda mencionam "drenagem de
+efusão", removida em produção. A sessão de stage caiu antes de eu aplicar lá.
+Não afeta cliente — stage só fala com destinatários pré-verificados.
 
 ## Limites obrigatórios da próxima sessão
 
