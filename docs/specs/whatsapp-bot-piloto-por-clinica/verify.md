@@ -228,3 +228,71 @@ nao esta registrado como verificado.
 
 **Como resolver**: um clique manual. Se a lista abrir normalmente, era a
 automacao; se nao abrir, e defeito da tela e vira correcao.
+
+## Ativacao do piloto em producao - 2026-08-24
+
+Autorizado por Martiniano ("habilita as clinicas do piloto"). Estado gravado e
+conferido por `GET /api/v1/whatsapp/bot/clinicas` e `GET /api/v1/configuracoes`:
+
+| Campo | Valor |
+| --- | --- |
+| `whatsapp_bot_atendimento_habilitado` | `true` |
+| `whatsapp_bot_modo` | `suggest` |
+| `whatsapp_bot_participacao` | `piloto` |
+| Clinicas marcadas | **19**, todas `suggest` |
+| Clinicas cadastradas | 161 |
+
+Nenhuma clinica ficou em `auto`: o envio automatico continua inexistente, e
+toda resposta gerada e rascunho para revisao humana.
+
+### Criterio da selecao
+
+Entraram as clinicas que **ja conversam pelo numero da Cloud API** - as unicas
+que produzem amostra. Medicao sobre as 32 conversas de producao:
+
+| | conversas |
+| --- | --- |
+| de clinica cadastrada | 26 |
+| dessas, com mensagem de entrada | **20** |
+| so notificacao enviada, sem resposta | 6 |
+| tutor ou numero nao cadastrado | 6 |
+
+Das 20 com entrada, 19 entraram no piloto. A vigesima e `41 Fort Cordis
+Cardiovet`, o registro da propria empresa: foi marcada por engano e revertida
+com "Sem marcacao" na mesma sessao. Trafego interno nao e amostra de parceiro.
+
+Ficaram de fora as 6 que so receberam notificacao (`62`, `22`, `1`, `20`, `53`
+e a segunda conversa de `28`): sem mensagem de entrada, nao ha o que o bot
+responda. Entram quando responderem.
+
+### Correcao de uma medicao anterior
+
+A leitura anterior desta sessao concluiu "zero conversas de clinica" e
+recomendou habilitar tutores em vez de clinicas. **Estava errada, e a
+recomendacao foi descartada.** A causa era do script de medicao, nao dos dados:
+`clinicas.whatsapps` guarda 11 digitos (DDD + numero, sem `55`), e a
+comparacao era feita contra o `55...` das conversas. Nenhuma chave podia casar.
+
+Fica o registro do metodo: normalizar os dois lados para DDD + 8 digitos finais
+antes de comparar - descartando `55` e o nono digito -, nunca comparar as
+formas cruas.
+
+### Duvida do clique em "Listar clinicas": resolvida
+
+Nesta sessao o botao foi acionado das duas formas na mesma tela de producao:
+
+| Forma | Resultado |
+| --- | --- |
+| Clique por referencia de acessibilidade | nada acontece, lista nao abre |
+| Clique por coordenada | lista abre normalmente, 161 clinicas |
+
+E artefato da automacao, nao defeito da tela. A hipotese registrada na rodada
+anterior fica confirmada, e o clique manual sugerido la deixa de ser
+necessario.
+
+### O que a ativacao ainda NAO libera
+
+O piloto gera rascunho; nao envia. Antes de qualquer discussao sobre `auto`
+continuam pendentes os sete guardrails restantes (1, 2, 3, 5, 7, 8, 9) e o
+alinhamento de tabela de precos: em 3 dos 4 casos conferidos o atendente cotou
+valor MAIOR que a tabela de producao, e o bot vai cotar o valor correto.
