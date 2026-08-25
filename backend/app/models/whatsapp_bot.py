@@ -64,14 +64,19 @@ class WhatsAppBotResposta(Base):
 class WhatsAppBotConversaEstado(Base):
     """Estado do bot por conversa, chaveado pela identidade canonica do telefone.
 
-    Sem linha para uma `wa_identity`, a conversa herda
-    `configuracoes.whatsapp_bot_modo` (ver `Configuracao`).
+    Sem linha para uma `wa_identity` **ou com `modo` nulo**, a conversa herda
+    `configuracoes.whatsapp_bot_modo` (ver `Configuracao`) e continua sujeita
+    ao portao de participacao. A linha existe tambem so para anotar pausa e
+    handoff, e nesses casos `modo` fica nulo de proposito.
     """
 
     __tablename__ = "whatsapp_bot_conversa_estado"
 
     wa_identity = Column(String(30), primary_key=True)
-    modo = Column(String(20), nullable=False, default="suggest")
+    # Anulavel de proposito: NULL e "sem override por conversa". A linha
+    # tambem existe so para anotar pausa/handoff, e nesse caso gravar um modo
+    # criaria um opt-in que ninguem pediu - furando o portao do piloto.
+    modo = Column(String(20), nullable=True)
     pausado_ate = Column(DateTime(timezone=True), nullable=True)
     handoff_motivo = Column(String(50), nullable=True)
     atualizado_por_id = Column(Integer, nullable=True)

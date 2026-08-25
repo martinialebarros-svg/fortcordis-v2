@@ -423,3 +423,80 @@ designados a checar o casamento de clinica.
    reiniciar `fortcordis-backend` - `settings` e singleton com `@lru_cache`
    avaliado no import (`config.py:178-183`), entao sem restart nao rele.
    **Nao executado**: e configuracao de producao e exige autorizacao explicita.
+
+## Correcao do defeito 2 - vazamento do portao do piloto - 2026-08-25
+
+Implementa RF-P10, CA-P10 e CB-P05. Autorizado por Martiniano ("pode resolver
+as outras duas pendencias").
+
+### O que mudou
+
+| Arquivo | Mudanca |
+| --- | --- |
+| `models/whatsapp_bot.py:77` | `modo` vira `nullable=True` e **perde o `default`** |
+| `services/whatsapp_bot_gates.py:206` | `pause_conversation` cria com `modo=None` |
+| `services/whatsapp_bot_gates.py:223` | `set_handoff_motivo` cria com `modo=None` |
+| `migrations/versions/20260825_78_...py` | coluna anulavel + zera `'suggest'` |
+
+Nenhum ponto de LEITURA precisou mudar. As duas guardas de `gates.py` (140 e
+167) ja usavam `str(estado.modo or "")`, e `modo_origem` no endpoint usa
+truthiness - a semantica nova cai certa sem tocar em nada disso.
+
+**O default tinha de cair junto com o NOT NULL.** Medido: com
+`default="suggest"` no model, passar `modo=None` explicito no construtor
+**ainda grava `'suggest'`** - o SQLAlchemy omite atributo `None` no INSERT e o
+default Python dispara. Trocar so os dois construtores nao teria efeito nenhum.
+
+### Migracao
+
+SQLite exige rebuild (`CREATE __new` / `INSERT..SELECT` / `DROP` / `RENAME`),
+porque a coluna nasceu com `NOT NULL` explicito em `20260820_75`. O
+`INSERT..SELECT` ja faz a conversao `'suggest' -> NULL` junto com a copia.
+No Postgres sao `DROP NOT NULL` + `DROP DEFAULT` + `UPDATE`.
+
+A guarda sai cedo quando a coluna ja e anulavel. Isso serve a dois casos: banco
+novo (nasce do model, `create_all` roda antes das migracoes) e segundo run -
+sem a guarda, rodar de novo apagaria override deliberado gravado **depois** da
+conversao.
+
+### Verificacao
+
+Suite completa: **1077 passed**. Quatro testes novos em
+`test_whatsapp_bot_piloto_clinica.py` e quatro em
+`test_whatsapp_bot_conversa_modo_nulo_migration.py`.
+
+Teste de mutacao - cada mutante morto por um teste diferente:
+
+| Mutante | Teste que pegou | Sintoma |
+| --- | --- | --- |
+| `modo="suggest"` de volta nos dois construtores | `test_pausa_grava_modo_nulo_e_nao_fura_o_piloto` e `test_handoff_grava_modo_nulo_e_nao_fura_o_piloto` | `AssertionError: 'suggest' is not None` |
+| `INSERT..SELECT` sem o `CASE` | `test_converte_coluna_e_zera_suggest_incidental` | linha incidental sobrevive |
+| guarda de idempotencia trocada por `UPDATE` sempre | `test_segundo_run_nao_apaga_override_deliberado` | apaga escolha posterior |
+| `handoff_motivo` fora da copia do rebuild | `test_converte_coluna_e_zera_suggest_incidental` | dado perdido em silencio |
+
+Dois testes existem so como guarda contra corrigir demais, e passam nos dois
+mundos: `test_pausa_nao_desliga_clinica_habilitada` (clinica do piloto continua
+atendida depois de um handoff) e `test_opt_in_deliberado_sobrevive_a_pausa_posterior`
+(modo escolhido por gente continua vencendo).
+
+### O que NAO foi verificado
+
+**O ramo PostgreSQL da migracao nao foi executado.** Nao ha Postgres neste
+ambiente; os quatro testes cobrem so o caminho SQLite. O SQL do ramo Postgres
+e padrao e tem precedente no repo (`20260222_06`, `20260816_68`), mas isso e
+argumento, nao execucao. A verificacao real acontece no Migration CI ao subir
+para stage - conferir o run antes de promover.
+
+### Estado das tres pendencias
+
+| Pendencia | Estado |
+| --- | --- |
+| 1. Numero duplicado `PET CAFE` / `Somavet` | **Resolvida por Martiniano** - clinica PET CAFE apagada por nao existir mais. Reconferir a resolucao dos 19 numeros quando a sessao do painel voltar; a ultima tentativa caiu em 401. |
+| 2. Vazamento do portao | **Resolvida aqui.** Falta subir para stage e promover. |
+| 3. `WHATSAPP_BOT_ENABLED=true` em producao | **Nao executada** - sem acesso SSH a partir deste ambiente (`Permission denied (publickey,password)`). Precisa de Martiniano na VPS. |
+
+**Ordem recomendada:** ligar a env **depois** que esta correcao chegar a
+producao. Com o bot ligado antes, cada emergencia, pedido de humano ou pausa
+grava mais uma linha `'suggest'` incidental - e a migracao ja tera rodado, entao
+essas linhas novas nao seriam zeradas por ela. Seria preciso um segundo
+saneamento manual.

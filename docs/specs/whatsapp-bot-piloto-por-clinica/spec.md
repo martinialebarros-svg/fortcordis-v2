@@ -28,7 +28,7 @@ habilitado fica de fora, em vez de herdar o padrao institucional.
     padrao institucional. Vale para clinica e para tutor.
 
 - **RF-P03 (ordem de precedencia)**: do mais especifico para o mais geral.
-  1. `whatsapp_bot_conversa_estado.modo`, quando existir;
+  1. `whatsapp_bot_conversa_estado.modo`, quando **nao for nulo**;
   2. `whatsapp_bot_clinica_estado.modo`, quando a identidade resolver para
      clinica e houver linha;
   3. `configuracoes.whatsapp_bot_modo`, **exceto** em `piloto`, onde a ausencia
@@ -46,6 +46,25 @@ habilitado fica de fora, em vez de herdar o padrao institucional.
   virava mentira, e duas leituras da mesma coisa podiam discordar. Pelo mesmo
   motivo, `_process_job` passa adiante o `estado` que ja consultou, em vez de
   deixar a geracao reconsultar a mesma linha no caminho quente.
+
+- **RF-P10 (linha de estado nao e opt-in) - 2026-08-25**: em
+  `whatsapp_bot_conversa_estado`, `modo` e **anulavel**, e `NULL` significa
+  "sem override por conversa". A tabela guarda duas coisas na mesma linha: a
+  escolha de modo (decisao de gente) e a escrituracao de pausa e handoff
+  (efeito colateral do worker). Enquanto a coluna foi `NOT NULL DEFAULT
+  'suggest'`, anotar uma pausa criava tambem um override que ninguem pediu.
+
+  Isso furava o nivel 3 do RF-P03: `pause_conversation` e `set_handoff_motivo`
+  gravavam `'suggest'` sozinhos, e o curto-circuito do nivel 1 passava a valer
+  para sempre. Bastava **uma** emergencia, um pedido de humano ou uma pausa
+  para a conversa ficar isenta do piloto. Nos dois caminhos de handoff nao ha
+  `pausado_ate`, e `handoff_motivo` nao e portao em lugar nenhum, entao a
+  proxima mensagem do mesmo numero ja chegava ao gerador.
+
+  Os dois construtores passam `modo=None` **explicito**, e o model perde o
+  `default`. Sem remover o default a mudanca nao teria efeito: o SQLAlchemy
+  omite atributo `None` no INSERT e deixa o default Python gravar `'suggest'`
+  assim mesmo.
 
 - **RF-P04 (onde o portao roda)**: a checagem por clinica acontece em
   `gerar_resposta`, logo apos `_escopo_da_persona` resolver `clinica_id`
@@ -135,6 +154,10 @@ habilitado fica de fora, em vez de herdar o padrao institucional.
   de `whatsapp_bot_participacao` e `todos`.
 - **CA-P08**: `PUT /configuracoes` recusa `whatsapp_bot_participacao` para
   papel nao admin (403) e valor invalido (422).
+- **CA-P10 (2026-08-25)**: em `piloto`, conversa fora do piloto que passa por
+  pausa, emergencia ou pedido de humano continua resultando em `suppressed`
+  com motivo `fora_do_piloto` na mensagem seguinte - a linha criada pelo
+  worker grava `modo` nulo e nao vale como opt-in.
 - **CA-P09**: nenhuma chamada ao provider nos caminhos barrados, verificada por
   mock que falha se chamado.
 
@@ -151,3 +174,13 @@ habilitado fica de fora, em vez de herdar o padrao institucional.
 - **CB-P04**: clinica removida do cadastro. A FK precisa decidir entre cascade
   e restrict; a spec adota **cascade**, porque estado de participacao de
   clinica inexistente nao tem sentido.
+
+- **CB-P05 (2026-08-25)**: linhas ja gravadas com `'suggest'` incidental. Nao
+  existe discriminador confiavel entre o escolhido e o acidental -
+  `atualizado_por_id` nao separa, porque o worker pausa sem usuario mas a
+  central pausa **com** usuario e tambem criava a linha. A migracao zera todo
+  `'suggest'` para `NULL`, aceitando apagar override deliberado: o valor
+  apagado coincide com o default institucional, entao a conversa segue em
+  `suggest` por heranca; o que muda e que ela volta a respeitar o piloto. Erra
+  para o lado de atender menos, como o resto dos portoes. `off` e `auto` sao
+  preservados.
