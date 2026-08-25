@@ -523,6 +523,24 @@ Mutacao no ramo Postgres, os dois mortos por
 nenhuma deste repo, nao so esta. Isso e maior que este PR e nao foi tratado
 aqui.
 
+**Executado localmente em 2026-08-25.** Os dois testes do ramo PostgreSQL, que
+ate entao pulavam em todo lugar por falta de `POSTGRES_TEST_URL`, foram rodados
+de fato contra PostgreSQL 16 local, em banco efemero criado e descartado para
+isto:
+
+```bash
+POSTGRES_TEST_URL="postgresql://<usuario>@127.0.0.1:5432/<banco_efemero>" \
+  venv/bin/python -m unittest tests.test_whatsapp_bot_conversa_modo_nulo_migration -v
+```
+
+Resultado: **6/6 ok**, incluindo
+`WhatsAppBotConversaModoNuloPostgresTest.test_alter_converte_e_derruba_o_default`
+e `..._segundo_run_nao_apaga_override_deliberado`. Isso importa porque producao
+roda PostgreSQL e a migracao 78 **ja rodou la** (esta em `origin/main`) sem que
+esse ramo tivesse sido verificado em lugar nenhum - um teste que nunca executa
+nao e protecao. A lacuna estrutural do Migration CI continua aberta: a execucao
+foi manual e nao ha nada no CI que a repita.
+
 ### Estado das tres pendencias
 
 | Pendencia | Estado |
