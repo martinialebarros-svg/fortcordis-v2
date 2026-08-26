@@ -8,6 +8,8 @@ Responsavel pela coordenacao inicial: Codex / equipe FortCordis
 
 Branch inicial: `codex/performance-phase-1`
 
+PR colaborativo da Fase 1: [#77 - plano colaborativo e resiliencia do Financeiro](https://github.com/martinialebarros-svg/fortcordis-v2/pull/77)
+
 ## 1. Objetivo
 
 Eliminar telas que permanecem carregando indefinidamente e reduzir o tempo percebido nas rotas autenticadas, sem alterar regras clinicas, financeiras ou de autorizacao. Este documento e o ponto de coordenacao para contribuidores: cada tarefa deve gerar uma entrega pequena, testavel e rastreavel por PR.
