@@ -194,5 +194,37 @@ class FraseTest(unittest.TestCase):
         self.assertEqual(_corpo_de_preco({"ok": True, "itens": []}), "")
 
 
+class EtiquetaRegiaoTest(unittest.TestCase):
+    """A base da cotacao fica visivel quando vem do cadastro (persona clinica).
+
+    Sem a etiqueta, uma clinica com `tabela_preco_id` errado passaria
+    despercebida: a frase traria so o numero, e quem revisa o rascunho nao
+    teria como notar que a tabela e outra.
+    """
+
+    def _res(self, **extra):
+        base = {
+            "ok": True,
+            "itens": [{"servico": "Ecocardiograma", "valor": "200.00", "aderencia": 3}],
+            "pedido": ["ecocardiograma"],
+        }
+        base.update(extra)
+        return base
+
+    def test_clinica_de_rm_ve_a_tabela_na_frase(self) -> None:
+        frase = _corpo_de_preco(self._res(regiao="rm", regiao_do_cadastro=True))
+        self.assertEqual(frase, "Ecocardiograma custa R$ 200,00 (tabela Região Metropolitana).")
+
+    def test_clinica_de_fortaleza_tambem_ve(self) -> None:
+        """Etiquetar so RM nao pegaria a clinica de RM cadastrada como Fortaleza."""
+        frase = _corpo_de_preco(self._res(regiao="fortaleza", regiao_do_cadastro=True))
+        self.assertIn("(tabela Clínicas Fortaleza)", frase)
+
+    def test_tutor_nao_recebe_etiqueta(self) -> None:
+        frase = _corpo_de_preco(self._res(regiao="fortaleza", regiao_do_cadastro=False))
+        self.assertEqual(frase, "Ecocardiograma custa R$ 200,00.")
+        self.assertNotIn("tabela", frase)
+
+
 if __name__ == "__main__":
     unittest.main()

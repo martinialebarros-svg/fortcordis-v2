@@ -1545,3 +1545,180 @@ O vocabulario cobre os quatro procedimentos do catalogo atual (eco, eletro,
 pressao arterial, consulta). Servico novo exige entrada nova em
 `whatsapp_bot_servico_sinonimos.json` — ate la, cai na rede de substring.
 Nao ha teste que detecte servico cadastrado sem vocabulario correspondente.
+
+## RF-P14 — regiao de preco vem do cadastro (2026-08-25)
+
+### O defeito
+
+Martiniano perguntou se o bot distingue clinica de Fortaleza de clinica de
+regiao metropolitana. Nao distinguia.
+
+`regiao` era parametro preenchido pelo **modelo**, com descricao
+`"fortaleza | rm | domiciliar"`. O prompt da persona clinica
+(`_PERSONA_CLINICA`) nao informa cidade nem regiao — o modelo nao tinha dado
+nenhum para decidir, e `_normalizar(regiao) or "fortaleza"` transformava o
+silencio dele em Fortaleza.
+
+### Tamanho do erro, medido em producao
+
+| Servico | Fortaleza | RM | Diferenca |
+| --- | ---: | ---: | ---: |
+| Ecocardiograma | 180,00 | 200,00 | +20,00 |
+| Eletrocardiograma | 120,00 | 140,00 | +20,00 |
+| Eco + Eletro | 250,00 | 300,00 | **+50,00** |
+| Eco + Eletro + PA | 290,00 | 340,00 | **+50,00** |
+| Consulta + Eletro | 300,00 | **0,00** | SEM RM |
+
+Todo preco RM e igual ou maior. O bot cotava **abaixo** da tabela correta —
+erro a favor do cliente e contra a FortCordis, e divergente da fatura.
+
+**Exposicao:** 1 das 10 clinicas ativas no piloto. `Pet Sanus Caucaia`,
+`tabela_preco_id = 2`. As outras 9 estao na tabela 1, onde o default acertava
+por coincidencia.
+
+### A regra ja existia
+
+`_preco_tabela_padrao` (`precos_service`) resolve por `Clinica.tabela_preco_id`:
+`1` Fortaleza, `2` RM, `3` Domiciliar, qualquer outro → `PrecoServico`
+customizado. E o que a fatura usa. O bot ignorava.
+
+Nao foi criado criterio novo. Inferir por `Clinica.cidade` (string livre) teria
+sido pior: o bot cotaria por um criterio e o financeiro faturaria por outro.
+
+### Comportamento depois, contra o catalogo de producao
+
+| Pergunta | Vet Plus (tabela 1) | Pet Sanus Caucaia (tabela 2) | Aracati (tabela 4) |
+| --- | --- | --- | --- |
+| "eco" | Ecocardiograma custa R$ 180,00 (tabela Clinicas Fortaleza). | Ecocardiograma custa R$ 200,00 (tabela Regiao Metropolitana). | sem resposta: `tabela_personalizada` |
+| "consulta com eletro" | R$ 300,00 (tabela Clinicas Fortaleza). | sem resposta: `sem_preco_na_regiao` | sem resposta: `tabela_personalizada` |
+| "eco e eletro" | R$ 250,00 | R$ 300,00 | sem resposta |
+| tabela geral | Consulta 230; Eco 180; Eletro 120 | Consulta 230; Eco 200; Eletro 140 | sem resposta |
+
+### Decisoes que valem registrar
+
+**Tabela personalizada nao e cotada.** Tabela fora de `{1,2,3}` e preco
+negociado, fora da allowlist da RF-019. Falha fechado. Escolher a coluna 1/2/3
+e dimensao publica da tabela; o negociado continua inalcancavel. As duas coisas
+sao separaveis — so a segunda motivava `consultar_preco_tabela` a ignorar a
+clinica.
+
+**Servico sem preco na regiao falha fechado quando e o servico pedido.**
+Descobriu-se por teste que a checagem generica `if not itens` vinha ANTES do
+diagnostico especifico e o mascarava; a ordem foi invertida.
+
+**A etiqueta cobre Fortaleza tambem.** Etiquetar so RM nao pegaria o erro
+inverso — clinica de RM cadastrada como Fortaleza. Com a etiqueta em toda
+resposta de persona clinica, quem revisa o rascunho ve a base da cotacao.
+
+**Escopo sintetico nao quebra a sonda.** `clinica_id=0` (prontidao e simulacao)
+nao casa cadastro. A primeira versao tratava isso como falha dura e derrubou
+`test_preco_servico_e_sondado_mas_nao_e_auto_elegivel` — artefato de
+diagnostico virando falha de produto. Passou a cair na tabela padrao **sem
+etiqueta**, espelhando `tabela_preco_id or 1` da fatura.
+
+### Testes
+
+6 testes novos em `test_whatsapp_bot_tools.py` + 3 em
+`test_whatsapp_bot_servico_match.py`. Suite do WhatsApp: **298 passaram, 2
+skipped, 226 subtestes**.
+
+Verificacao por mutacao da guarda de deriva: trocar `2: "rm"` por
+`2: "domiciliar"` no mapa do bot ⇒ **3 falhas**, incluindo
+`test_mapa_de_tabela_do_bot_nao_diverge_da_fatura`, que compara o mapa
+duplicado contra `_preco_tabela_padrao` real.
+
+A fixture de `test_whatsapp_bot_painel.py` nao criava `Clinica.__table__` —
+lacuna real do teste, corrigida.
+
+### Pendencias que dependem de decisao de negocio
+
+1. **`Consulta + Eletro` sem preco RM**: cadastro faltando ou combo nao
+   oferecido em RM? Hoje o bot faz handoff nos dois casos, que e seguro mas
+   nao explica. Perguntado a Martiniano, sem resposta ate o fim desta sessao.
+2. **Tutor**: nao tem `tabela_preco_id`; segue em Fortaleza por default, como
+   antes. Se existir tutor de RM, a cotacao dele esta errada pelo mesmo motivo
+   que a da clinica estava. Tambem perguntado, sem resposta.
+
+## RF-P15 — tutor nunca recebe a tabela praticada com clinica (2026-08-26)
+
+### De onde veio
+
+Martiniano descreveu o fluxo real da secretaria: tutor pergunta valor, ela
+pergunta se e **domiciliar ou em clinica**. Se for em clinica, **nao passa
+tabela** — orienta o tutor a procurar a clinica de preferencia dele, que define
+preco e agenda.
+
+O bot fazia o oposto. Persona tutor caia em `regiao="fortaleza"`, que e a
+tabela `1` — `Clinicas Fortaleza`, preco **B2B** que a clinica parceira
+remarca. O bot cotaria R$ 180,00 (atacado) ao consumidor final, subcotando a
+propria clinica contra ela mesma.
+
+### Nao estava vazando — era mina, nao incendio
+
+```python
+# CA-P02/CA-P06: em piloto, ausencia de habilitacao explicita e `off` -
+# inclusive para tutor, que nao tem agrupamento equivalente.
+if resolve_participacao(db) == "piloto":
+    return "off", "fora_do_piloto"
+```
+
+Producao esta em `participacao = piloto`, entao **nenhuma conversa de tutor
+chegou ao gerador**. O defeito viraria real no dia da mudanca para `todos` —
+que e o passo natural seguinte do rollout.
+
+### O que mudou
+
+| Persona | Antes | Depois |
+| --- | --- | --- |
+| tutor, sem regiao | cotava tabela 1 (B2B) | recusa `preco_de_clinica_nao_e_para_tutor` |
+| tutor, `fortaleza` / `rm` | cotava | recusa |
+| tutor, `domiciliar` | cotava | cota (tabela 3, da FortCordis) |
+| clinica | tabela do cadastro (RF-P14) | inalterado |
+
+O valor B2B nao aparece nem na mensagem de erro — coberto por assercao
+explicita no teste.
+
+### O teste que virou demonstracao
+
+`test_tool_de_preco_roda_e_texto_final_vem_do_payload_literal` era um teste de
+tutor perguntando preco de eco e recebendo R$ 420,00. Passou a afirmar
+`decisao == "blocked"`, `motivo == "sem_fonte"` e ausencia de `420` no texto —
+a regra nova, medida ponta a ponta.
+
+Ao reescrever, encontrei um detalhe do desenho que vale registrar: em
+`blocked`, `texto_gerado` guarda **o texto recusado** (aqui o "R$ 999,00"
+inventado pelo modelo). E por isso que `ultima_recusa` nao expoe
+`texto_gerado`. A assercao errada era minha, nao o codigo.
+
+### Prontidao
+
+A sonda de `preco_servico` na persona tutor passou a usar `domiciliar`. Sondar
+`fortaleza` daria verde por uma fonte que a persona nao pode usar — falso verde
+da mesma familia do de 2026-08-23.
+
+Duas fixtures (`test_whatsapp_bot_painel.py`) so cadastravam preco de
+Fortaleza e ficaram vermelhas, corretamente; ganharam
+`preco_domiciliar_comercial`.
+
+### Suite
+
+**1121 passaram, 2 skipped** (eram 1119).
+
+### O bot e stateless — limite, nao bug
+
+`gerar_resposta` recebe `corpo_mensagem`, sem historico. O dialogo em dois
+passos da secretaria nao e implementavel hoje: no segundo turno o bot nao sabe
+qual servico foi perguntado. Pergunta de preco de tutor sem mencao a domiciliar
+termina em handoff — seguro, mas nao resolve.
+
+### Fora de escopo, com dependencia declarada
+
+1. **O texto que o tutor deveria receber.** Depende de a tabela domiciliar
+   estar cadastrada; nao verificado ate o fim desta sessao.
+2. **Sugerir clinica parceira pelo bairro.** Viavel — `Clinica` tem
+   `latitude`, `longitude`, `bairro`, e existem `geocoding_service` e
+   `logistica_service`. E feature propria, com spec propria.
+3. **Intake de agendamento domiciliar** (requisicao de exame, endereco
+   completo, dados do pet e do tutor): coleta multi-turno de PII com cadastro
+   no sistema. Nao e trabalho de bot stateless em `suggest`; deve seguir como
+   handoff.

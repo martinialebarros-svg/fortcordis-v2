@@ -124,6 +124,13 @@ def _resultado_ok(
     return None
 
 
+_ETIQUETA_REGIAO = {
+    "fortaleza": " (tabela Clínicas Fortaleza)",
+    "rm": " (tabela Região Metropolitana)",
+    "domiciliar": " (tabela Atendimento Domiciliar)",
+}
+
+
 def _moeda(valor: Any) -> str:
     return "R$ " + str(valor or "").replace(".", ",")
 
@@ -148,6 +155,15 @@ def _corpo_de_preco(resultado: Optional[dict[str, Any]]) -> str:
     if not itens:
         return ""
 
+    # A base da cotacao fica VISIVEL sempre que vier do cadastro (persona
+    # clinica). Nao e enfeite: uma clinica com `tabela_preco_id` errado passaria
+    # despercebida se a frase so trouxesse o numero. Com a etiqueta, quem revisa
+    # o rascunho ve a divergencia antes de enviar. Persona tutor nao recebe
+    # etiqueta -- ali nao ha cadastro que possa estar errado.
+    etiqueta = ""
+    if (resultado or {}).get("regiao_do_cadastro"):
+        etiqueta = _ETIQUETA_REGIAO.get(str((resultado or {}).get("regiao") or ""), "")
+
     exatos = [item for item in itens if item.get("aderencia") == AFINIDADE_EXATA]
     if exatos:
         # Responde exatamente o que foi perguntado. Combinacoes existem, mas
@@ -158,7 +174,7 @@ def _corpo_de_preco(resultado: Optional[dict[str, Any]]) -> str:
             f"{str(item.get('servico') or 'servico')} custa {_moeda(item.get('valor'))}"
             for item in escolhidos
         )
-        return f"{detalhes}."
+        return f"{detalhes}{etiqueta}."
 
     pedido = list((resultado or {}).get("pedido") or [])
     escolhidos = itens[:2] if pedido else itens[:3]
@@ -168,8 +184,8 @@ def _corpo_de_preco(resultado: Optional[dict[str, Any]]) -> str:
     )
     if pedido:
         # Nao ha o servico avulso: as opcoes reais sao combinacoes.
-        return f"esse exame entra nestas opções de tabela - {detalhes}."
-    return f"valores de tabela - {detalhes}."
+        return f"esse exame entra nestas opções de tabela - {detalhes}{etiqueta}."
+    return f"valores de tabela - {detalhes}{etiqueta}."
 
 
 def _texto_deterministico_para_dado_sensivel(

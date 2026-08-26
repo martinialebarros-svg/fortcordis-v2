@@ -85,7 +85,8 @@ COMO_RESOLVER: dict[str, str] = {
     ),
     "consultar_preco_tabela": (
         "Cadastre servicos ativos com preco comercial maior que zero na regiao "
-        "atendida."
+        "atendida. Para tutor, a regiao sondada e `domiciliar` (tabela 3): a "
+        "tabela praticada com clinicas nao e informada ao consumidor final."
     ),
     "consultar_status_laudo": (
         "Depende de exame cadastrado no escopo da conversa; nao ha o que "
@@ -147,6 +148,14 @@ def _sondar_intent(
     argumentos: dict[str, Any] = {}
     if nome_tool == "buscar_conhecimento_institucional":
         argumentos["consulta"] = PERGUNTA_SONDA.get(intent) or intent
+    if nome_tool == "consultar_preco_tabela" and persona == "tutor":
+        # Tutor so pode ser cotado em `domiciliar`: as tabelas 1 e 2 sao
+        # preco praticado com clinica parceira e nao vao para o consumidor
+        # final. Sondar `fortaleza` daria verde por uma fonte que a persona
+        # nao tem direito de usar - falso verde da mesma familia do de
+        # 2026-08-23. Se a tabela domiciliar estiver vazia, o painel fica
+        # vermelho, e esta certo: o bot nao consegue responder preco a tutor.
+        argumentos["regiao"] = "domiciliar"
 
     try:
         resultado = execute_bot_tool(ctx, nome_tool, argumentos)

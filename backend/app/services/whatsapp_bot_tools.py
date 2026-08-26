@@ -36,6 +36,7 @@ from app.core.portal_release import (
     PORTAL_RELEASED_LAUDO_STATUSES,
 )
 from app.models.atendimento_clinico import AtendimentoClinico
+from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
@@ -302,6 +303,49 @@ _REGIAO_COLUNAS = {
 }
 
 
+# `TabelaPreco.id` -> coluna de preco. Espelha `_preco_tabela_padrao` do
+# `precos_service`, que e o que a FATURA usa. Duplicar o mapa e deliberado:
+# importar `calcular_preco_servico` traria junto o preco negociado da clinica,
+# que esta fora da allowlist da RF-019. O que nao pode e divergir -- se o
+# financeiro mudar os ids, este mapa tem de mudar junto. Coberto por teste.
+_TABELA_PRECO_REGIAO = {1: "fortaleza", 2: "rm", 3: "domiciliar"}
+
+
+def _regiao_da_clinica(ctx: "WhatsAppBotToolContext") -> tuple[Optional[str], Optional[str]]:
+    """Regiao autoritativa da conversa, ou o motivo de nao haver uma.
+
+    Ate 2026-08-25 a regiao vinha de um parametro que o MODELO preenchia, sem
+    nenhum dado no prompt para decidir -- e o silencio dele virava "fortaleza".
+    Uma clinica de regiao metropolitana recebia preco de Fortaleza, R$ 20 a
+    R$ 50 abaixo da tabela dela, com aparencia de resposta correta.
+
+    Tabela fora de {1,2,3} e customizada (`PrecoServico`), ou seja, negociada.
+    Devolve `None` de proposito: o bot nao cota preco negociado, nem por
+    acidente. Melhor handoff que numero errado.
+    """
+    if ctx.match_type != "clinica" or ctx.clinica_id is None:
+        return None, None
+    clinica = ctx.db.query(Clinica).filter(Clinica.id == ctx.clinica_id).first()
+    if clinica is None:
+        # Escopo sintetico da sonda de prontidao e da simulacao usa
+        # `clinica_id=0`, que nunca casa registro. Quebrar a consulta por isso
+        # transformaria artefato de diagnostico em falha de produto; a fatura
+        # tambem trata ausencia como tabela padrao (`tabela_preco_id or 1`).
+        # Sem cadastro nao ha etiqueta: a frase nao afirma uma tabela que nao
+        # foi lida.
+        if ctx.clinica_id:
+            logger.warning(
+                "Clinica %s do escopo da conversa nao foi encontrada ao resolver "
+                "a tabela de preco; usando tabela padrao.", ctx.clinica_id
+            )
+        return None, None
+    tabela_id = getattr(clinica, "tabela_preco_id", None) or 1
+    regiao = _TABELA_PRECO_REGIAO.get(int(tabela_id))
+    if regiao is None:
+        return None, "tabela_personalizada"
+    return regiao, None
+
+
 def consultar_preco_tabela(
     ctx: WhatsAppBotToolContext,
     *,
@@ -321,7 +365,35 @@ def consultar_preco_tabela(
     esta fora da allowlist. Vazamento de preco negociado fica impossivel por
     construcao, nao por instrucao de prompt.
     """
-    chave = _normalizar(regiao) or "fortaleza"
+    regiao_clinica, impedimento = _regiao_da_clinica(ctx)
+    if impedimento == "tabela_personalizada":
+        # Preco negociado esta fora da allowlist (RF-019). Falha fechado.
+        return {
+            "ok": False,
+            "error": "Esta clinica usa tabela de preco personalizada; valor precisa vir da equipe.",
+            "motivo": "tabela_personalizada",
+        }
+
+    # Persona clinica: a regiao vem do cadastro, NAO do parametro do modelo -
+    # ele nao tem dado no prompt para decidir.
+    chave = regiao_clinica or _normalizar(regiao) or "fortaleza"
+
+    if ctx.match_type == "tutor" and chave != "domiciliar":
+        # REGRA DE NEGOCIO (2026-08-26, Martiniano): tutor NUNCA recebe a
+        # tabela praticada com clinicas parceiras. As tabelas 1 e 2 sao
+        # `Clinicas Fortaleza` e `Regiao Metropolitana` -- preco B2B, que a
+        # clinica remarca. Passa-lo ao consumidor final subcotaria a clinica
+        # parceira contra ela mesma. Atendimento em clinica: o tutor procura a
+        # clinica de preferencia dele. So `domiciliar` (tabela 3) e da
+        # FortCordis para o tutor.
+        return {
+            "ok": False,
+            "error": (
+                "Valor para tutor so pode ser informado em atendimento domiciliar; "
+                "atendimento em clinica e tratado pela clinica de preferencia do cliente."
+            ),
+            "motivo": "preco_de_clinica_nao_e_para_tutor",
+        }
     coluna = _REGIAO_COLUNAS.get(chave)
     if coluna is None:
         return {"ok": False, "error": "Regiao invalida para consulta de preco."}
@@ -358,6 +430,8 @@ def consultar_preco_tabela(
         graus = {}
 
     itens: list[dict[str, Any]] = []
+    omitidos: list[str] = []
+    exato_sem_preco = False
     for servico in candidatos[:MAX_SERVICOS_NO_PAYLOAD]:
         bruto = getattr(servico, coluna, None)
         try:
@@ -368,6 +442,12 @@ def consultar_preco_tabela(
         # "R$ 0,00" e um resultado alcancavel. Servico sem preco configurado
         # nao entra no payload - sem valor nao ha o que afirmar.
         if valor <= 0:
+            # Nesta regiao o servico nao tem preco (ex.: `Consulta + Eletro`
+            # sem coluna RM). Some do payload, mas fica registrado: omitir em
+            # silencio devolveria lista incompleta com cara de completa.
+            omitidos.append(str(servico.nome or ""))
+            if graus.get(id(servico)) == AFINIDADE_EXATA:
+                exato_sem_preco = True
             continue
         grau = graus.get(id(servico), 0)
         if grau == AFINIDADE_EXATA:
@@ -381,6 +461,15 @@ def consultar_preco_tabela(
             "aderencia": grau,
         })
 
+    if exato_sem_preco:
+        # O servico PEDIDO nao tem preco nesta regiao. Responder com os
+        # vizinhos seria trocar a pergunta por outra sem avisar.
+        return {
+            "ok": False,
+            "error": "Servico pedido nao tem preco cadastrado para esta regiao.",
+            "motivo": "sem_preco_na_regiao",
+            "regiao": chave,
+        }
     if not itens:
         return {"ok": False, "error": "Nenhum servico com preco de tabela configurado para essa consulta."}
     return {
@@ -389,6 +478,9 @@ def consultar_preco_tabela(
         "total": len(itens),
         "pedido": sorted(pedido),
         "exatos": exatos,
+        "regiao": chave,
+        "regiao_do_cadastro": regiao_clinica is not None,
+        "omitidos_sem_preco": omitidos,
     }
 
 

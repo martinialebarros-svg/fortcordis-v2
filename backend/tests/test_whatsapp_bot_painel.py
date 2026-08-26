@@ -23,6 +23,7 @@ os.environ.setdefault("SECRET_KEY", "whatsapp-bot-painel-test-secret-key-1234567
 from app.api.v1.endpoints import whatsapp_bot
 from app.models.assistente_ia import AssistenteIAConhecimentoDocumento
 from app.models.atendimento_clinico import AtendimentoClinico
+from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
@@ -47,6 +48,7 @@ class WhatsAppBotPainelTest(unittest.TestCase):
         engine = create_engine(f"sqlite:///{db_path}")
         for table in (
             Configuracao.__table__, Servico.__table__, Paciente.__table__,
+            Clinica.__table__,
             Laudo.__table__, Exame.__table__, AtendimentoClinico.__table__,
             AssistenteIAConhecimentoDocumento.__table__, WhatsAppBotResposta.__table__,
         ):
@@ -105,7 +107,8 @@ class WhatsAppBotPainelTest(unittest.TestCase):
                         cidade="Fortaleza", endereco="Rua Teste, 100",
                         telefone="8533334444", email="contato@fortcordis.com",
                     ))
-                    db.add(Servico(nome="Ecocardiograma", ativo=True, preco_fortaleza_comercial=420))
+                    db.add(Servico(nome="Ecocardiograma", ativo=True, preco_fortaleza_comercial=420,
+                                    preco_domiciliar_comercial=520))
                     db.commit()
                     self._doc(db)
                     with self._sem_rede():
@@ -185,7 +188,8 @@ class WhatsAppBotPainelTest(unittest.TestCase):
                 db = Factory()
                 try:
                     db.add(Configuracao(cidade="Fortaleza", endereco="Rua Teste, 100", telefone="8533334444"))
-                    db.add(Servico(nome="Ecocardiograma", ativo=True, preco_fortaleza_comercial=420))
+                    db.add(Servico(nome="Ecocardiograma", ativo=True, preco_fortaleza_comercial=420,
+                                    preco_domiciliar_comercial=520))
                     db.commit()
                     with self._sem_rede():
                         r = readiness.coletar_prontidao(db)
