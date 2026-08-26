@@ -232,6 +232,71 @@ de pausa e claim, não por relógio.
   colado por construção em `_corpo_de_preco`, e não por instrução de prompt.
   O caso de eval `valor-certo-no-servico-errado-passa-no-guardrail` registra
   essa aprovação de propósito: é o alerta de que nada abaixo dela protege.
+- RF-P14 (região de preço vem do cadastro, 2026-08-25): a tabela de preço da
+  conversa é resolvida por `Clinica.tabela_preco_id`, **o mesmo critério que a
+  fatura usa** (`_preco_tabela_padrao`, em `precos_service`): `1` → Fortaleza,
+  `2` → Região Metropolitana, `3` → Domiciliar.
+  - **Defeito que originou a regra.** `regiao` era parâmetro preenchido pelo
+    **modelo**, e o prompt da persona clínica não informa cidade nem região —
+    ele não tinha dado nenhum para decidir, e o silêncio caía em
+    `or "fortaleza"`. A clínica Pet Sanus Caucaia (tabela 2) recebia preço de
+    Fortaleza: **R$ 20 a R$ 50 abaixo** da tabela dela, sempre a favor do
+    cliente e contra a FortCordis. Na persona clínica o parâmetro do modelo
+    passa a ser **ignorado**. Na persona tutor ele continua valendo — ali
+    "domiciliar" é leitura da mensagem, não atributo de cadastro.
+  - **Tabela fora de `{1,2,3}` não é cotada.** Tabela personalizada é preço
+    negociado (`PrecoServico`), fora da allowlist da RF-019. A tool falha
+    fechado com `motivo: "tabela_personalizada"` e o turno vira handoff.
+    Escolher a coluna 1/2/3 é dimensão pública; o negociado continua
+    inalcançável — as duas coisas são separáveis, e só a segunda era o motivo
+    de `consultar_preco_tabela` ignorar a clínica.
+  - **Serviço sem preço na região não some em silêncio.** `Consulta + Eletro`
+    não tem coluna RM em produção. Como `valor <= 0` é descartado, ele
+    desapareceria de uma lista que parece completa. Se o serviço **pedido** for
+    o omitido, a tool falha fechado (`motivo: "sem_preco_na_regiao"`);
+    responder com os vizinhos trocaria a pergunta por outra sem avisar.
+  - **A base da cotação fica visível.** Toda resposta de preço em persona
+    clínica traz a etiqueta da tabela — inclusive Fortaleza. Etiquetar só RM
+    não pegaria o erro inverso: clínica de RM cadastrada como Fortaleza. Com a
+    etiqueta, quem revisa o rascunho vê a divergência antes de enviar.
+  - **O mapa de tabelas é duplicado de propósito**, porque importar
+    `calcular_preco_servico` traria junto o preço negociado. A duplicação é
+    amarrada por teste contra `_preco_tabela_padrao`: se o financeiro mudar os
+    ids, a suíte quebra em vez de o bot divergir da fatura em silêncio.
+  - **Escopo sintético** (`clinica_id=0`, usado pela sonda de prontidão e pela
+    simulação) não encontra cadastro: cai na tabela padrão **sem etiqueta**, e
+    registra `warning` se o id for não-nulo. A frase nunca afirma uma tabela
+    que não foi lida.
+- RF-P15 (tutor nunca recebe a tabela praticada com clínica, 2026-08-26): as
+  tabelas `1` (Clínicas Fortaleza) e `2` (Região Metropolitana) são **preço
+  B2B**, que a clínica parceira remarca ao atender o tutor. Informá-lo ao
+  consumidor final subcotaria a própria clínica contra ela mesma e quebraria a
+  relação de parceria. Regra do negócio, ditada por Martiniano: o tutor que
+  quer atendimento **em clínica** é orientado a procurar a clínica de
+  preferência dele, que define preço e agenda.
+  - Na persona tutor, `consultar_preco_tabela` só responde com
+    `regiao="domiciliar"` (tabela `3`, da própria FortCordis). Qualquer outra
+    região — inclusive o default histórico `fortaleza` — falha fechado com
+    `motivo: "preco_de_clinica_nao_e_para_tutor"`, e o valor não aparece nem no
+    texto do erro.
+  - **A sonda de prontidão de `preco_servico` na persona tutor passa a usar
+    `domiciliar`.** Sondar `fortaleza` daria verde por uma fonte que a persona
+    não tem direito de usar — falso verde da mesma família do de 2026-08-23.
+    Se a tabela domiciliar estiver vazia, o painel fica vermelho, e está certo:
+    o bot não consegue responder preço a tutor.
+  - **Não estava vazando.** Em `participacao = piloto`, `resolve_modo_efetivo`
+    devolve `off`/`fora_do_piloto` para conversa de tutor, que não tem
+    agrupamento equivalente ao da clínica. O defeito era latente: viraria real
+    no dia em que a participação mudasse para `todos`.
+
+### Limite conhecido: o bot é stateless
+
+`gerar_resposta` recebe `corpo_mensagem` — uma mensagem, sem histórico. O
+diálogo em dois passos que a secretária faz ("é domiciliar ou em clínica?" →
+tutor responde → cotação) **não é implementável hoje**: no segundo turno o bot
+não sabe qual serviço foi perguntado. Enquanto isso não mudar, pergunta de
+preço de tutor sem menção a domiciliar termina em handoff, que é seguro mas não
+resolve. Registrado para não ser redescoberto como bug.
 
 ### Guardrails de saída
 
