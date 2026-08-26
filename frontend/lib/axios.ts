@@ -2,6 +2,21 @@ import axios from 'axios';
 import { extractApiErrorMessage } from './api-error';
 
 const SAFE_METHODS = new Set(['get', 'head', 'options', 'trace']);
+const BINARY_RESPONSE_TYPES = new Set(['arraybuffer', 'blob', 'stream']);
+
+export const DEFAULT_SAFE_REQUEST_TIMEOUT_MS = 15_000;
+
+export function shouldApplyDefaultSafeRequestTimeout(config: {
+  method?: string;
+  responseType?: string;
+  timeout?: number;
+}): boolean {
+  const method = String(config.method || 'get').toLowerCase();
+  const responseType = String(config.responseType || 'json').toLowerCase();
+  const hasExplicitTimeout = typeof config.timeout === 'number' && config.timeout > 0;
+
+  return SAFE_METHODS.has(method) && !BINARY_RESPONSE_TYPES.has(responseType) && !hasExplicitTimeout;
+}
 
 function getCookie(name: string): string | null {
   if (typeof document === 'undefined') {
@@ -31,6 +46,10 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const method = String(config.method || 'get').toLowerCase();
+    if (shouldApplyDefaultSafeRequestTimeout(config)) {
+      config.timeout = DEFAULT_SAFE_REQUEST_TIMEOUT_MS;
+    }
+
     if (!SAFE_METHODS.has(method)) {
       const csrfToken = getCookie('fortcordis_csrf');
       if (csrfToken) {
