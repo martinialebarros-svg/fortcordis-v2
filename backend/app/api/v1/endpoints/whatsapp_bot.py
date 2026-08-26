@@ -478,9 +478,17 @@ class WhatsAppBotConhecimentoCreateRequest(BaseModel):
     indexar_semanticamente: bool = False
 
 
+class WhatsAppBotSimulacaoMensagem(BaseModel):
+    de: str = Field(description="cliente | nos")
+    texto: str = Field(min_length=1, max_length=1000)
+
+
 class WhatsAppBotSimulacaoRequest(BaseModel):
     mensagem: str = Field(min_length=3, max_length=1000)
     persona: str = Field(default="tutor", description="tutor | clinica")
+    # Mensagens anteriores fingidas, para testar a memoria de conversa sem
+    # precisar de uma conversa real. Teto igual ao do worker.
+    historico: list[WhatsAppBotSimulacaoMensagem] = Field(default_factory=list, max_length=12)
 
 
 @router.get("/prontidao")
@@ -587,7 +595,17 @@ def simular_resposta_do_bot(
 
     try:
         return simular_resposta(
-            db, mensagem=payload.mensagem, persona=persona, solicitado_por_id=current_user.id
+            db,
+            mensagem=payload.mensagem,
+            persona=persona,
+            # `montar_historico` fala o dialeto do servico de WhatsApp
+            # (`body`/`from_me`); a conversao acontece aqui para o painel nao
+            # ter de conhecer aquele formato.
+            historico=[
+                {"body": item.texto, "from_me": item.de == "nos"}
+                for item in payload.historico
+            ],
+            solicitado_por_id=current_user.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
