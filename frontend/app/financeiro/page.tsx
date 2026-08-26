@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { appendUniqueLoadFailure, loadFinanceiroSection } from "@/lib/financeiro-loading";
 import TransacaoModal from "./TransacaoModal";
 import { calendarDateInput, formatCalendarDate, operationalTodayDateInput } from "@/lib/calendar-date";
 import {
@@ -348,7 +349,9 @@ export default function FinanceiroPage() {
     creditos_gerados: 0,
   });
   const [periodo, setPeriodo] = useState("mes");
-  const [loading, setLoading] = useState(true);
+  const [loadingTransacoes, setLoadingTransacoes] = useState(true);
+  const [loadingOrdens, setLoadingOrdens] = useState(true);
+  const [falhasCarregamento, setFalhasCarregamento] = useState<string[]>([]);
   const [modalAberto, setModalAberto] = useState(false);
   const [transacaoEditando, setTransacaoEditando] = useState<any>(null);
   const [filtroTipo, setFiltroTipo] = useState<string>("todos");
@@ -411,6 +414,7 @@ export default function FinanceiroPage() {
   const [enviandoWhatsAppOficialOsId, setEnviandoWhatsAppOficialOsId] = useState<number | null>(null);
   const [enviandoWhatsAppOficialGrupoKey, setEnviandoWhatsAppOficialGrupoKey] = useState<string | null>(null);
   const highlightedRowRef = useRef<HTMLDivElement | null>(null);
+  const carregarDadosControllerRef = useRef<AbortController | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -428,6 +432,9 @@ export default function FinanceiroPage() {
       return;
     }
     carregarDados();
+    return () => {
+      carregarDadosControllerRef.current?.abort();
+    };
   }, [
     router,
     periodo,
@@ -521,9 +528,38 @@ export default function FinanceiroPage() {
   };
 
   const carregarDados = async () => {
+    carregarDadosControllerRef.current?.abort();
+    const controller = new AbortController();
+    carregarDadosControllerRef.current = controller;
+
+    setLoadingTransacoes(true);
+    setLoadingOrdens(true);
+    setCarregandoFormasPagamento(true);
+    setFalhasCarregamento([]);
+
+    const registrarCarga = async <T,>(
+      section: string,
+      request: Promise<T>,
+      onSuccess: (value: T) => void,
+      onSettled?: () => void
+    ) => {
+      const result = await loadFinanceiroSection({
+        section,
+        request,
+        signal: controller.signal,
+        onSuccess,
+        onSettled,
+      });
+
+      if (result.status === "failed" && carregarDadosControllerRef.current === controller) {
+        console.error(`Erro ao carregar ${section}:`, result.error);
+        setFalhasCarregamento((current) => appendUniqueLoadFailure(current, section));
+      }
+
+      return result;
+    };
+
     try {
-      setLoading(true);
-      setCarregandoFormasPagamento(true);
       const queryTransacoes = montarQueryString({
         limit: 500,
         tipo: filtroTipo !== "todos" ? filtroTipo : undefined,
@@ -544,49 +580,97 @@ export default function FinanceiroPage() {
         data_fim: filtroDataFim || undefined,
       });
 
-      const [respTransacoes, respResumo, respOS, respClinicas, respServicos, respFormas, respBandeiras] = await Promise.all([
-        api.get(`/financeiro/transacoes${queryTransacoes}`),
-        api.get(`/financeiro/resumo?periodo=${periodo}`),
-        api.get(`/ordens-servico${queryOS}`),
-        api.get("/clinicas?limit=1000"),
-        api.get("/servicos?limit=1000"),
-        api.get("/financeiro/formas-pagamento", {
-          params: { apenas_ativas: true, limit: 300 },
-        }),
-        api.get("/financeiro/bandeiras-cartao", {
-          params: { ativo: true, limit: 300 },
-        }),
+      const signal = controller.signal;
+      const cargaTransacoes = registrarCarga(
+        "Transacoes",
+        api
+          .get<{ items?: Transacao[] }>(`/financeiro/transacoes${queryTransacoes}`, { signal })
+          .then((response) => response.data),
+        (data) => setTransacoes(data.items || []),
+        () => setLoadingTransacoes(false)
+      );
+      const cargaResumo = registrarCarga(
+        "Resumo financeiro",
+        api.get<Resumo>(`/financeiro/resumo?periodo=${periodo}`, { signal }).then((response) => response.data),
+        setResumo
+      );
+      const cargaOrdens = registrarCarga(
+        "Ordens de servico",
+        api.get<{ items?: OrdemServico[] }>(`/ordens-servico${queryOS}`, { signal }).then((response) => response.data),
+        (data) => setOrdensServico(data.items || []),
+        () => setLoadingOrdens(false)
+      );
+      const cargaClinicas = registrarCarga(
+        "Clinicas",
+        api.get<{ items?: ClinicaOption[] }>("/clinicas?limit=1000", { signal }).then((response) => response.data),
+        (data) => setClinicas(data.items || [])
+      );
+      const cargaServicos = registrarCarga(
+        "Servicos",
+        api.get<{ items?: ServicoOption[] }>("/servicos?limit=1000", { signal }).then((response) => response.data),
+        (data) => setServicos(data.items || [])
+      );
+      const cargaFormas = registrarCarga(
+        "Formas de pagamento",
+        api
+          .get<{ items?: any[] }>("/financeiro/formas-pagamento", {
+            params: { apenas_ativas: true, limit: 300 },
+            signal,
+          })
+          .then((response) => response.data),
+        (data) => {
+          const formasApi = Array.isArray(data.items) ? data.items : [];
+          if (formasApi.length === 0) {
+            setFormasPagamentoDisponiveis(FORMA_PAGAMENTO_FALLBACK);
+            return;
+          }
+
+          const normalizadas: FormaPagamentoConfig[] = formasApi.map((item: any) => ({
+            id: Number(item.id),
+            codigo: normalizarCodigoFormaPagamento(item.codigo),
+            nome: String(item.nome || item.codigo || "Forma de pagamento"),
+            tipo: item.tipo,
+            adquirente: item.adquirente ?? null,
+            bandeira_id: item.bandeira_id ?? null,
+            bandeira_nome: item.bandeira_nome ?? null,
+            taxa_percentual: Number(item.taxa_percentual || 0),
+            taxa_fixa: Number(item.taxa_fixa || 0),
+            ativo: Boolean(item.ativo ?? true),
+          }));
+          setFormasPagamentoDisponiveis(normalizadas);
+        }
+      );
+      const cargaBandeiras = registrarCarga(
+        "Bandeiras de cartao",
+        api
+          .get<{ items?: BandeiraCartaoOption[] }>("/financeiro/bandeiras-cartao", {
+            params: { ativo: true, limit: 300 },
+            signal,
+          })
+          .then((response) => response.data),
+        (data) => setBandeirasCartao(data.items || [])
+      );
+      const cargaMeiosPagamento = Promise.all([cargaFormas, cargaBandeiras]).finally(() => {
+        if (!controller.signal.aborted && carregarDadosControllerRef.current === controller) {
+          setCarregandoFormasPagamento(false);
+        }
+      });
+
+      await Promise.all([
+        cargaTransacoes,
+        cargaResumo,
+        cargaOrdens,
+        cargaClinicas,
+        cargaServicos,
+        cargaMeiosPagamento,
       ]);
-      setTransacoes(respTransacoes.data.items || []);
-      setOrdensServico(respOS.data.items || []);
-      setResumo(respResumo.data);
-      setClinicas(respClinicas.data.items || []);
-      setServicos(respServicos.data.items || []);
-      setBandeirasCartao(respBandeiras.data.items || []);
-      const formasApi = Array.isArray(respFormas.data?.items) ? respFormas.data.items : [];
-      if (formasApi.length > 0) {
-        const normalizadas: FormaPagamentoConfig[] = formasApi.map((item: any) => ({
-          id: Number(item.id),
-          codigo: normalizarCodigoFormaPagamento(item.codigo),
-          nome: String(item.nome || item.codigo || "Forma de pagamento"),
-          tipo: item.tipo,
-          adquirente: item.adquirente ?? null,
-          bandeira_id: item.bandeira_id ?? null,
-          bandeira_nome: item.bandeira_nome ?? null,
-          taxa_percentual: Number(item.taxa_percentual || 0),
-          taxa_fixa: Number(item.taxa_fixa || 0),
-          ativo: Boolean(item.ativo ?? true),
-        }));
-        setFormasPagamentoDisponiveis(normalizadas);
-      } else {
-        setFormasPagamentoDisponiveis(FORMA_PAGAMENTO_FALLBACK);
-      }
-    } catch (error) {
-      console.error("Erro ao carregar:", error);
-      setFormasPagamentoDisponiveis(FORMA_PAGAMENTO_FALLBACK);
     } finally {
-      setLoading(false);
-      setCarregandoFormasPagamento(false);
+      if (!controller.signal.aborted && carregarDadosControllerRef.current === controller) {
+        setLoadingTransacoes(false);
+        setLoadingOrdens(false);
+        setCarregandoFormasPagamento(false);
+        carregarDadosControllerRef.current = null;
+      }
     }
   };
 
@@ -2119,6 +2203,26 @@ export default function FinanceiroPage() {
           </div>
         </header>
 
+        {falhasCarregamento.length > 0 && (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-semibold">Algumas informacoes nao carregaram.</p>
+                <p className="mt-1">
+                  Secoes indisponiveis: {falhasCarregamento.join(", ")}. Os demais dados podem continuar sendo usados.
+                </p>
+              </div>
+              <button type="button" onClick={() => void carregarDados()} className="fc-finance-secondary shrink-0">
+                Tentar novamente
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Periodo */}
         <div className="fc-finance-periods" aria-label="Período do resumo">
           {['dia', 'semana', 'mes', 'ano'].map((p) => (
@@ -2522,7 +2626,7 @@ export default function FinanceiroPage() {
               </h2>
             </div>
             
-            {loading ? (
+            {loadingTransacoes ? (
               <div className="p-8 text-center text-gray-500">Carregando...</div>
             ) : transacoesFiltradas.length === 0 ? (
               <div className="p-12 text-center">
@@ -2683,7 +2787,7 @@ export default function FinanceiroPage() {
               />
             </div>
 
-            {loading ? (
+            {loadingOrdens ? (
               <div className="p-8 text-center text-gray-500">Carregando...</div>
             ) : gruposCobrancaDestinatario.length === 0 ? (
               <div className="p-12 text-center">
@@ -3016,7 +3120,7 @@ export default function FinanceiroPage() {
               </div>
             </div>
 
-            {loading ? (
+            {loadingOrdens ? (
               <div className="p-8 text-center text-gray-500">Carregando...</div>
             ) : osFiltradas.length === 0 ? (
               <div className="p-12 text-center">
