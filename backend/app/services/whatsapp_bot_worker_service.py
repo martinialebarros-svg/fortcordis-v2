@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.models.whatsapp_bot import WhatsAppBotJob, WhatsAppBotResposta
+from app.services.whatsapp_bot_prompt import MAX_HISTORICO_MENSAGENS
 from app.services.whatsapp_bot_gates import (
     detecta_cortesia,
     detecta_emergencia,
@@ -291,8 +292,23 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
 
     # Todos os portoes abertos: agora gera (Fase 4). O gerador aplica os
     # guardrails de saida e nunca envia - o resultado e draft/blocked/handoff.
+    # A ultima mensagem do historico e exatamente a que estamos respondendo:
+    # `[:-1]` evita duplica-la no prompt como se fossem dois turnos.
+    historico = _fetch_historico(
+        base_url=base_url,
+        headers=headers,
+        timeout=timeout,
+        conversation_id=job.conversation_id,
+        quantidade=_historico_mensagens() + 1,
+    )[:-1]
+
     resultado = gerar_resposta(
-        db, wa_identity=job.wa_identity, corpo_mensagem=corpo, modo=modo, estado=estado
+        db,
+        wa_identity=job.wa_identity,
+        corpo_mensagem=corpo,
+        modo=modo,
+        estado=estado,
+        historico=historico,
     )
     _record_resposta(
         db,
@@ -492,6 +508,65 @@ def _last_message_from_conversation(conversation: dict[str, Any]) -> Optional[di
         "type": conversation.get("last_message_type"),
         "created_at": conversation.get("last_message_at"),
     }
+
+
+
+
+def _historico_mensagens() -> int:
+    """Quantas mensagens anteriores vao ao prompt. `0` desliga a memoria.
+
+    Configuravel para poder ser desligada sem deploy se o custo por turno ou
+    a qualidade da resposta piorarem no piloto.
+    """
+    parsed = _safe_int(settings.WHATSAPP_BOT_HISTORICO_MENSAGENS, 8)
+    return max(0, min(parsed, MAX_HISTORICO_MENSAGENS))
+
+
+def _fetch_historico(
+    *, base_url: str, headers: dict[str, str], timeout: int, conversation_id: str, quantidade: int
+) -> list[dict[str, Any]]:
+    """Ultimas `quantidade` mensagens da conversa, em ordem cronologica.
+
+    Mesma armadilha de `_fetch_last_message`: o endpoint e ASC paginado e nao
+    aceita ordem, entao as mensagens recentes estao na ULTIMA pagina, nao na
+    primeira. Com `limit=N` a ultima pagina costuma vir INCOMPLETA (total=25,
+    limit=10 -> pagina 3 tem 5 itens), entao buscar so ela devolveria menos
+    contexto do que o pedido; nesse caso a anterior tambem e lida e as duas
+    sao concatenadas. No maximo tres requisicoes.
+
+    Falha de rede aqui NAO derruba o turno: historico e apoio, nao fonte. Sem
+    ele o bot responde como respondia antes desta feature.
+    """
+    if quantidade <= 0:
+        return []
+
+    def _pagina(page: int) -> dict[str, Any]:
+        response = httpx.get(
+            f"{base_url}/conversations/{conversation_id}/messages",
+            params={"limit": quantidade, "page": page},
+            headers=headers,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    try:
+        primeira = _pagina(1)
+        total = int((primeira.get("pagination") or {}).get("total") or 0)
+        if total <= quantidade:
+            linhas = list(primeira.get("data") or [])
+        else:
+            ultima = -(-total // quantidade)  # teto da divisao
+            linhas = list(_pagina(ultima).get("data") or [])
+            if len(linhas) < quantidade and ultima > 1:
+                linhas = list(_pagina(ultima - 1).get("data") or []) + linhas
+    except Exception:
+        logger.exception(
+            "Falha ao buscar historico da conversa %s; o turno segue sem ele.", conversation_id
+        )
+        return []
+
+    return linhas[-quantidade:]
 
 
 def _fetch_conversation_by_phone(

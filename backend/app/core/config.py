@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     # apenas "um atendente respondeu esta mensagem". Usar 12h para o
     # segundo deixa o cliente sem bot por meio dia depois de UMA resposta.
     WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS: int = 2
+    # Memoria de conversa: quantas mensagens anteriores vao ao prompt.
+    # `0` desliga sem deploy. Teto real em `whatsapp_bot_prompt`.
+    WHATSAPP_BOT_HISTORICO_MENSAGENS: int = 8
     WHATSAPP_BOT_MAX_REPLIES_PER_CONVERSATION_DAY: int = 20
     WHATSAPP_BOT_MAX_TOKENS_PER_DAY: int = 100000
     WHATSAPP_BOT_MAX_REPLY_CHARS: int = 900
