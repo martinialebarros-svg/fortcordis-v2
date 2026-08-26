@@ -779,3 +779,91 @@ como exige o SDD guardrail. Registre somente evidência realmente executada.
 - Não faça teste real em `auto` antes da fase de observação em `suggest`.
 - Não registre corpo completo da mensagem, telefone completo, token interno ou
   chave OpenAI.
+
+---
+
+# Sessão de 2026-08-25 (noite): piloto vivo e correção de preço em produção
+
+## SHAs e workflows
+
+| | |
+| --- | --- |
+| `origin/stage` | `881abff4` (merge do PR #75) |
+| `origin/main` | `4ac0d078` (`chore(release): promote stage -> main`, PR #76) |
+| Deploy stage | run `32910001086` — success, `quality-gate` 1110 testes OK |
+| Deploy produção | run `32916325737` — success, `quality-gate` 1110 testes OK (3 skipped) |
+
+`main` e `stage` com **conteúdo idêntico** neste ponto.
+
+## O piloto saiu do papel
+
+A memória de sessões anteriores dizia que o bot estava inerte por
+`WHATSAPP_BOT_ENABLED=false`. **Não é mais verdade.** Martiniano ligou a env na
+VPS e reiniciou `fortcordis-backend`; o portão `env AND banco` está **ATIVO**
+em produção, com `modo: suggest` e `participacao: piloto`.
+
+Das 20 clínicas marcadas, **10 estão ativas** — as outras 10 ele desabilitou de
+propósito. Todas as 20 resolvem `matched/clinica`. A divergência histórica
+"19 vs 20" era a clínica fictícia que ele criou para testar.
+
+## Defeito de preço encontrado e corrigido (RF-P12/P13)
+
+Pergunta real: *"gostaria de saber o valor do eco"*. O bot respondia com três
+combinações a partir de R$ 250 e **omitia `Ecocardiograma` (R$ 180)**. Cotava
+2,3x o preço real do serviço perguntado.
+
+Causa: seleção por substring (`alvo in nome`), ordenada por `Servico.nome.asc()`
+e cortada em `[:3]`. Em ordem alfabética `Ecocardiograma` é o **sexto**.
+
+Correção: pedido e catálogo viram o mesmo **conjunto de procedimentos
+canônicos** (`backend/data/whatsapp_bot_servico_sinonimos.json`), casados
+conjunto com conjunto. Sinônimo e combinação passam a ser a mesma regra.
+Verificado em produção contra o catálogo real, nos 7 casos.
+
+**Duas invariantes que a próxima sessão não pode quebrar:**
+
+1. **Nunca ordenar candidatos de preço por nome.** Foi exatamente isso que
+   escondeu o eco avulso. O desempate é pelo serviço com menos procedimentos.
+2. **Nunca delegar a frase de preço ao modelo.** O guardrail de
+   `valor_fora_tabela` confere a procedência do **número**, não o serviço a que
+   ele pertence — "o ecocardiograma custa R$ 410,00" é **APROVADO**. O caso de
+   eval `valor-certo-no-servico-errado-passa-no-guardrail` registra isso de
+   propósito.
+
+## Pendências, em ordem de valor
+
+1. **P6.3 — uma semana de métricas em `suggest`.** Só agora começou a valer:
+   o piloto está vivo desde 25/08. **Tem de ser em produção**; stage usa número
+   de teste da Meta que só fala com destinatários pré-verificados.
+2. **Conteúdo institucional.** Fluxo acordado: Martiniano exporta as conversas
+   das secretárias, eu filtro só o que for generalizável, **sem PII**, e
+   submeto para aprovação antes de cadastrar. Não iniciado.
+3. **`sem_pergunta` invisível na central.** O detector de cortesia suprime
+   saudações sem chamar o LLM — correto por desenho, mas `sem_pergunta` não
+   está em `_SUPRESSOES_VISIVEIS`, então o silêncio não aparece. Já custou
+   tempo de depuração a Martiniano duas vezes. Decisão de produto pendente:
+   mostrar em stage e esconder em produção, ou mostrar nos dois.
+4. **Vocabulário não cobre serviço novo.** Cadastrar "Holter" hoje faz a
+   consulta cair na rede de substring, e **nenhum teste avisa**. Falta uma
+   verificação que cruze `Servico` ativo com o JSON de sinônimos.
+5. **Sete guardas de auto-envio** (1, 2, 3, 5, 7, 8, 9) seguem pendentes.
+
+## Antes de suspeitar do código
+
+Quando Martiniano disser "o bot não respondeu", conferir nesta ordem:
+
+1. **Pausa da conversa** (`pausado_ate`). Enviar rascunho pausa a conversa —
+   agora por **2h**, não mais 12h.
+2. **Detector de cortesia** (RF-P11). "bom dia", "ok?" são suprimidos sem
+   chamar o LLM, por desenho, e **sem aparecer na central**.
+
+## Limites que continuam valendo
+
+- Bot em `suggest`. **Não habilitar `auto`** sem uma semana de métricas reais
+  **e** autorização específica — nunca por inferência.
+- Não promover para produção sem autorização explícita **no momento da ação**;
+  aprovação anterior não vale para a próxima.
+- Não clicar Enviar, Reenviar ou Descartar sem confirmação explícita.
+- Não alterar callback, verify token, assinaturas, credenciais ou configuração
+  da Meta sem confirmação explícita. Nunca exibir tokens ou segredos.
+- Toda alteração de código atualiza `spec.md` e `verify.md` no mesmo ciclo.
