@@ -104,7 +104,8 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
 
     def _seed_tutor(self, db, *, whatsapp="5585999990001"):
         db.add(Configuracao(cidade="Fortaleza", endereco="Rua Teste, 100", telefone="8533334444"))
-        db.add(Servico(nome="Ecocardiograma", ativo=True, preco_fortaleza_comercial=420))
+        db.add(Servico(nome="Ecocardiograma", ativo=True, preco_fortaleza_comercial=420,
+                       preco_domiciliar_comercial=560))
         tutor = Tutor(nome="Maria", whatsapp=whatsapp, ativo=1)
         db.add(tutor)
         db.commit()
@@ -411,14 +412,49 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
                 finally:
                     db.close()
 
+                # RF-P15: o modelo pediu `regiao="fortaleza"` (tabela praticada
+                # com clinica parceira). A tool recusa, a intent fica sem fonte
+                # e o turno nao vira rascunho. O valor B2B nao pode aparecer.
+                self.assertEqual(resultado.decisao, "blocked")
+                self.assertEqual(resultado.motivo, "sem_fonte")
+                # `texto_gerado` em `blocked` E o texto recusado (aqui, o
+                # R$ 999,00 inventado pelo modelo) - por isso a API nao o
+                # expoe. O que nao pode e a tabela B2B ter chegado ate ele.
+                self.assertNotIn("420", resultado.texto_gerado or "")
+                # A tool RODOU, mas recusou: nao virou fonte que sustente a intent.
+                self.assertIn("consultar_preco_tabela", resultado.tools_usadas or "")
+            finally:
+                engine.dispose()
+
+    def test_preco_a_tutor_sai_pela_tabela_domiciliar(self) -> None:
+        """O caminho que o tutor PODE receber: tabela 3, da propria FortCordis."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed_tutor(db)
+                    provider = fake_provider(
+                        texto="O valor e R$ 999,00.",
+                        intent="preco_servico",
+                        tool_arguments={"servico_nome": "Ecocardiograma", "regiao": "domiciliar"},
+                    )
+                    resultado = generation.gerar_resposta(
+                        db,
+                        wa_identity="5585999990001",
+                        corpo_mensagem="quanto custa o eco em casa?",
+                        modo="suggest",
+                        provider=provider,
+                    )
+                finally:
+                    db.close()
+
                 self.assertEqual(resultado.decisao, "draft")
-                self.assertIn("R$ 420,00", resultado.texto_gerado)
+                self.assertIn("R$ 560,00", resultado.texto_gerado)
+                self.assertNotIn("420", resultado.texto_gerado)
                 self.assertNotIn("999", resultado.texto_gerado)
-                self.assertIn("consultar_preco_tabela", resultado.tools_usadas)
-                self.assertEqual(provider.generate.call_count, 2)
                 segunda_entrada = provider.generate.call_args_list[1].kwargs["continuation_input"]
-                self.assertEqual(segunda_entrada[-1]["type"], "function_call_output")
-                self.assertIn('"valor": "420.00"', segunda_entrada[-1]["output"])
+                self.assertIn('"valor": "560.00"', segunda_entrada[-1]["output"])
             finally:
                 engine.dispose()
 

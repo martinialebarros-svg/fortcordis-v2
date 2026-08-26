@@ -242,14 +242,18 @@ class WhatsAppBotToolsDbTest(unittest.TestCase):
                             ativo=True,
                             preco_fortaleza_comercial=420,
                             preco_rm_comercial=480,
+                            preco_domiciliar_comercial=560,
                         )
                     )
                     db.commit()
                     ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=1)
-                    res = tools.consultar_preco_tabela(ctx, servico_nome="eco")
+                    # Tutor so e cotado em domiciliar; ver RF-P15.
+                    res = tools.consultar_preco_tabela(
+                        ctx, servico_nome="eco", regiao="domiciliar"
+                    )
                     self.assertTrue(res["ok"])
-                    self.assertEqual(res["itens"][0]["valor"], "420.00")
-                    self.assertEqual(res["itens"][0]["fonte"], "tabela:preco_fortaleza_comercial")
+                    self.assertEqual(res["itens"][0]["valor"], "560.00")
+                    self.assertEqual(res["itens"][0]["fonte"], "tabela:preco_domiciliar_comercial")
                 finally:
                     db.close()
             finally:
@@ -393,8 +397,13 @@ class WhatsAppBotToolsDbTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
-    def test_tutor_nao_recebe_regiao_do_cadastro(self) -> None:
-        """Tutor nao tem `tabela_preco_id`; comportamento atual preservado."""
+    def test_tutor_nunca_recebe_tabela_praticada_com_clinica(self) -> None:
+        """RF-P15: tabelas 1 e 2 sao preco B2B, que a clinica parceira remarca.
+
+        Passa-lo ao consumidor final subcotaria a propria clinica contra ela
+        mesma. Regra do negocio: atendimento em clinica e tratado pela clinica
+        de preferencia do cliente, nao pela FortCordis.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             Factory, engine = self._factory(tmpdir)
             try:
@@ -402,8 +411,38 @@ class WhatsAppBotToolsDbTest(unittest.TestCase):
                 try:
                     self._seed_catalogo_regiao(db)
                     ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=1)
-                    res = tools.consultar_preco_tabela(ctx, servico_nome="eco")
-                    self.assertEqual(res["regiao"], "fortaleza")
+                    for regiao in (None, "fortaleza", "rm"):
+                        with self.subTest(regiao=regiao):
+                            res = tools.consultar_preco_tabela(
+                                ctx, servico_nome="eco", **({} if regiao is None else {"regiao": regiao})
+                            )
+                            self.assertFalse(res["ok"])
+                            self.assertEqual(res["motivo"], "preco_de_clinica_nao_e_para_tutor")
+                            self.assertNotIn("itens", res)
+                            # O valor de clinica nao pode vazar nem no texto do erro.
+                            self.assertNotIn("180", str(res))
+                            self.assertNotIn("200", str(res))
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_tutor_e_cotado_em_domiciliar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    db.add(Servico(nome="Ecocardiograma", ativo=True,
+                                   preco_fortaleza_comercial=180,
+                                   preco_domiciliar_comercial=350))
+                    db.commit()
+                    ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=1)
+                    res = tools.consultar_preco_tabela(
+                        ctx, servico_nome="eco", regiao="domiciliar"
+                    )
+                    self.assertTrue(res["ok"])
+                    self.assertEqual(res["itens"][0]["valor"], "350.00")
                     self.assertFalse(res["regiao_do_cadastro"])
                 finally:
                     db.close()

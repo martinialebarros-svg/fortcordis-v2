@@ -1638,3 +1638,87 @@ lacuna real do teste, corrigida.
 2. **Tutor**: nao tem `tabela_preco_id`; segue em Fortaleza por default, como
    antes. Se existir tutor de RM, a cotacao dele esta errada pelo mesmo motivo
    que a da clinica estava. Tambem perguntado, sem resposta.
+
+## RF-P15 — tutor nunca recebe a tabela praticada com clinica (2026-08-26)
+
+### De onde veio
+
+Martiniano descreveu o fluxo real da secretaria: tutor pergunta valor, ela
+pergunta se e **domiciliar ou em clinica**. Se for em clinica, **nao passa
+tabela** — orienta o tutor a procurar a clinica de preferencia dele, que define
+preco e agenda.
+
+O bot fazia o oposto. Persona tutor caia em `regiao="fortaleza"`, que e a
+tabela `1` — `Clinicas Fortaleza`, preco **B2B** que a clinica parceira
+remarca. O bot cotaria R$ 180,00 (atacado) ao consumidor final, subcotando a
+propria clinica contra ela mesma.
+
+### Nao estava vazando — era mina, nao incendio
+
+```python
+# CA-P02/CA-P06: em piloto, ausencia de habilitacao explicita e `off` -
+# inclusive para tutor, que nao tem agrupamento equivalente.
+if resolve_participacao(db) == "piloto":
+    return "off", "fora_do_piloto"
+```
+
+Producao esta em `participacao = piloto`, entao **nenhuma conversa de tutor
+chegou ao gerador**. O defeito viraria real no dia da mudanca para `todos` —
+que e o passo natural seguinte do rollout.
+
+### O que mudou
+
+| Persona | Antes | Depois |
+| --- | --- | --- |
+| tutor, sem regiao | cotava tabela 1 (B2B) | recusa `preco_de_clinica_nao_e_para_tutor` |
+| tutor, `fortaleza` / `rm` | cotava | recusa |
+| tutor, `domiciliar` | cotava | cota (tabela 3, da FortCordis) |
+| clinica | tabela do cadastro (RF-P14) | inalterado |
+
+O valor B2B nao aparece nem na mensagem de erro — coberto por assercao
+explicita no teste.
+
+### O teste que virou demonstracao
+
+`test_tool_de_preco_roda_e_texto_final_vem_do_payload_literal` era um teste de
+tutor perguntando preco de eco e recebendo R$ 420,00. Passou a afirmar
+`decisao == "blocked"`, `motivo == "sem_fonte"` e ausencia de `420` no texto —
+a regra nova, medida ponta a ponta.
+
+Ao reescrever, encontrei um detalhe do desenho que vale registrar: em
+`blocked`, `texto_gerado` guarda **o texto recusado** (aqui o "R$ 999,00"
+inventado pelo modelo). E por isso que `ultima_recusa` nao expoe
+`texto_gerado`. A assercao errada era minha, nao o codigo.
+
+### Prontidao
+
+A sonda de `preco_servico` na persona tutor passou a usar `domiciliar`. Sondar
+`fortaleza` daria verde por uma fonte que a persona nao pode usar — falso verde
+da mesma familia do de 2026-08-23.
+
+Duas fixtures (`test_whatsapp_bot_painel.py`) so cadastravam preco de
+Fortaleza e ficaram vermelhas, corretamente; ganharam
+`preco_domiciliar_comercial`.
+
+### Suite
+
+**1121 passaram, 2 skipped** (eram 1119).
+
+### O bot e stateless — limite, nao bug
+
+`gerar_resposta` recebe `corpo_mensagem`, sem historico. O dialogo em dois
+passos da secretaria nao e implementavel hoje: no segundo turno o bot nao sabe
+qual servico foi perguntado. Pergunta de preco de tutor sem mencao a domiciliar
+termina em handoff — seguro, mas nao resolve.
+
+### Fora de escopo, com dependencia declarada
+
+1. **O texto que o tutor deveria receber.** Depende de a tabela domiciliar
+   estar cadastrada; nao verificado ate o fim desta sessao.
+2. **Sugerir clinica parceira pelo bairro.** Viavel — `Clinica` tem
+   `latitude`, `longitude`, `bairro`, e existem `geocoding_service` e
+   `logistica_service`. E feature propria, com spec propria.
+3. **Intake de agendamento domiciliar** (requisicao de exame, endereco
+   completo, dados do pet e do tutor): coleta multi-turno de PII com cadastro
+   no sistema. Nao e trabalho de bot stateless em `suggest`; deve seguir como
+   handoff.

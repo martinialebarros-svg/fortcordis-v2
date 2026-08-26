@@ -267,6 +267,36 @@ de pausa e claim, não por relógio.
     simulação) não encontra cadastro: cai na tabela padrão **sem etiqueta**, e
     registra `warning` se o id for não-nulo. A frase nunca afirma uma tabela
     que não foi lida.
+- RF-P15 (tutor nunca recebe a tabela praticada com clínica, 2026-08-26): as
+  tabelas `1` (Clínicas Fortaleza) e `2` (Região Metropolitana) são **preço
+  B2B**, que a clínica parceira remarca ao atender o tutor. Informá-lo ao
+  consumidor final subcotaria a própria clínica contra ela mesma e quebraria a
+  relação de parceria. Regra do negócio, ditada por Martiniano: o tutor que
+  quer atendimento **em clínica** é orientado a procurar a clínica de
+  preferência dele, que define preço e agenda.
+  - Na persona tutor, `consultar_preco_tabela` só responde com
+    `regiao="domiciliar"` (tabela `3`, da própria FortCordis). Qualquer outra
+    região — inclusive o default histórico `fortaleza` — falha fechado com
+    `motivo: "preco_de_clinica_nao_e_para_tutor"`, e o valor não aparece nem no
+    texto do erro.
+  - **A sonda de prontidão de `preco_servico` na persona tutor passa a usar
+    `domiciliar`.** Sondar `fortaleza` daria verde por uma fonte que a persona
+    não tem direito de usar — falso verde da mesma família do de 2026-08-23.
+    Se a tabela domiciliar estiver vazia, o painel fica vermelho, e está certo:
+    o bot não consegue responder preço a tutor.
+  - **Não estava vazando.** Em `participacao = piloto`, `resolve_modo_efetivo`
+    devolve `off`/`fora_do_piloto` para conversa de tutor, que não tem
+    agrupamento equivalente ao da clínica. O defeito era latente: viraria real
+    no dia em que a participação mudasse para `todos`.
+
+### Limite conhecido: o bot é stateless
+
+`gerar_resposta` recebe `corpo_mensagem` — uma mensagem, sem histórico. O
+diálogo em dois passos que a secretária faz ("é domiciliar ou em clínica?" →
+tutor responde → cotação) **não é implementável hoje**: no segundo turno o bot
+não sabe qual serviço foi perguntado. Enquanto isso não mudar, pergunta de
+preço de tutor sem menção a domiciliar termina em handoff, que é seguro mas não
+resolve. Registrado para não ser redescoberto como bug.
 
 ### Guardrails de saída
 

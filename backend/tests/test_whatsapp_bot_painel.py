@@ -107,7 +107,8 @@ class WhatsAppBotPainelTest(unittest.TestCase):
                         cidade="Fortaleza", endereco="Rua Teste, 100",
                         telefone="8533334444", email="contato@fortcordis.com",
                     ))
-                    db.add(Servico(nome="Ecocardiograma", ativo=True, preco_fortaleza_comercial=420))
+                    db.add(Servico(nome="Ecocardiograma", ativo=True, preco_fortaleza_comercial=420,
+                                    preco_domiciliar_comercial=520))
                     db.commit()
                     self._doc(db)
                     with self._sem_rede():
@@ -187,7 +188,8 @@ class WhatsAppBotPainelTest(unittest.TestCase):
                 db = Factory()
                 try:
                     db.add(Configuracao(cidade="Fortaleza", endereco="Rua Teste, 100", telefone="8533334444"))
-                    db.add(Servico(nome="Ecocardiograma", ativo=True, preco_fortaleza_comercial=420))
+                    db.add(Servico(nome="Ecocardiograma", ativo=True, preco_fortaleza_comercial=420,
+                                    preco_domiciliar_comercial=520))
                     db.commit()
                     with self._sem_rede():
                         r = readiness.coletar_prontidao(db)

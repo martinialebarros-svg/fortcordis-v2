@@ -375,9 +375,25 @@ def consultar_preco_tabela(
         }
 
     # Persona clinica: a regiao vem do cadastro, NAO do parametro do modelo -
-    # ele nao tem dado no prompt para decidir. Persona tutor mantem o
-    # parametro, porque ali "domiciliar" e leitura da mensagem, nao atributo.
+    # ele nao tem dado no prompt para decidir.
     chave = regiao_clinica or _normalizar(regiao) or "fortaleza"
+
+    if ctx.match_type == "tutor" and chave != "domiciliar":
+        # REGRA DE NEGOCIO (2026-08-26, Martiniano): tutor NUNCA recebe a
+        # tabela praticada com clinicas parceiras. As tabelas 1 e 2 sao
+        # `Clinicas Fortaleza` e `Regiao Metropolitana` -- preco B2B, que a
+        # clinica remarca. Passa-lo ao consumidor final subcotaria a clinica
+        # parceira contra ela mesma. Atendimento em clinica: o tutor procura a
+        # clinica de preferencia dele. So `domiciliar` (tabela 3) e da
+        # FortCordis para o tutor.
+        return {
+            "ok": False,
+            "error": (
+                "Valor para tutor so pode ser informado em atendimento domiciliar; "
+                "atendimento em clinica e tratado pela clinica de preferencia do cliente."
+            ),
+            "motivo": "preco_de_clinica_nao_e_para_tutor",
+        }
     coluna = _REGIAO_COLUNAS.get(chave)
     if coluna is None:
         return {"ok": False, "error": "Regiao invalida para consulta de preco."}
