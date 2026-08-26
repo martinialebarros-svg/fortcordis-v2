@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.whatsapp_bot import WhatsAppBotResposta
 from app.services.whatsapp_bot_context import build_safe_context
+from app.services.whatsapp_bot_servico_match import AFINIDADE_EXATA
 from app.services.whatsapp_bot_gates import resolve_modo_efetivo
 from app.services.whatsapp_bot_guardrails import (
     GuardrailVeredito,
@@ -123,6 +124,54 @@ def _resultado_ok(
     return None
 
 
+def _moeda(valor: Any) -> str:
+    return "R$ " + str(valor or "").replace(".", ",")
+
+
+def _corpo_de_preco(resultado: Optional[dict[str, Any]]) -> str:
+    """Frase de preco montada a partir do payload, com o servico PEDIDO na frente.
+
+    A versao anterior despejava `itens[:3]` numa lista unica. Como a tool
+    ordenava por nome, "quanto custa o eco" respondia com tres combinacoes e
+    omitia o `Ecocardiograma` avulso -- cotando mais caro que a tabela. Aqui
+    a resposta segue o grau de aderencia calculado pela tool: havendo
+    correspondencia exata, ela responde sozinha; so na ausencia dela e que a
+    frase vira lista de opcoes.
+
+    O par servico<->valor continua colado por construcao. O guardrail so
+    confere se o NUMERO citado veio da tool; ele nao verifica a qual servico
+    o numero pertence. Deixar o modelo redigir esta frase reabriria a
+    possibilidade de anunciar R$ 410,00 ("Consulta + Eco") como preco do eco
+    avulso -- erro de preco aprovado pelo guardrail.
+    """
+    itens = list((resultado or {}).get("itens") or [])
+    if not itens:
+        return ""
+
+    exatos = [item for item in itens if item.get("aderencia") == AFINIDADE_EXATA]
+    if exatos:
+        # Responde exatamente o que foi perguntado. Combinacoes existem, mas
+        # entram so se a pessoa pedir - foi o excesso de opcoes nao pedidas
+        # que gerou confusao no piloto.
+        escolhidos = exatos[:2]
+        detalhes = " e ".join(
+            f"{str(item.get('servico') or 'servico')} custa {_moeda(item.get('valor'))}"
+            for item in escolhidos
+        )
+        return f"{detalhes}."
+
+    pedido = list((resultado or {}).get("pedido") or [])
+    escolhidos = itens[:2] if pedido else itens[:3]
+    detalhes = "; ".join(
+        f"{str(item.get('servico') or 'servico')}: {_moeda(item.get('valor'))}"
+        for item in escolhidos
+    )
+    if pedido:
+        # Nao ha o servico avulso: as opcoes reais sao combinacoes.
+        return f"esse exame entra nestas opções de tabela - {detalhes}."
+    return f"valores de tabela - {detalhes}."
+
+
 def _texto_deterministico_para_dado_sensivel(
     *, intent: str, texto_modelo: str, resultados: list[tuple[str, dict[str, Any]]]
 ) -> str:
@@ -130,13 +179,9 @@ def _texto_deterministico_para_dado_sensivel(
     sufixo = " Se quiser falar com uma pessoa, é só pedir."
     if intent == "preco_servico":
         resultado = _resultado_ok(resultados, "consultar_preco_tabela")
-        itens = list((resultado or {}).get("itens") or [])[:3]
-        if itens:
-            detalhes = "; ".join(
-                f"{str(item.get('servico') or 'servico')}: R$ {str(item.get('valor') or '').replace('.', ',')}"
-                for item in itens
-            )
-            return f"Atendimento automático da FortCordis: valores de tabela - {detalhes}.{sufixo}"
+        corpo = _corpo_de_preco(resultado)
+        if corpo:
+            return f"Atendimento automático da FortCordis: {corpo}{sufixo}"
 
     if intent == "status_laudo":
         resultado = _resultado_ok(resultados, "consultar_status_laudo")

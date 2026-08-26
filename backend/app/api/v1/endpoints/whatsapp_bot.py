@@ -23,6 +23,7 @@ from app.models.whatsapp_bot import (
 )
 from app.services.whatsapp_bot_gates import (
     MODOS_VALIDOS,
+    _assisted_send_pause_hours,
     is_locally_paused,
     is_whatsapp_bot_enabled,
     pause_conversation,
@@ -40,6 +41,14 @@ from app.services.auditoria_service import registrar_auditoria
 router = APIRouter()
 
 _WHATSAPP_BOT_PAPEIS = ("admin", "recepcao", "veterinario", "cardiologista")
+
+# Supressoes que o atendente PRECISA ver. `suppressed` inteiro viraria ruido
+# permanente - `bot_desabilitado` apareceria em toda conversa com o kill switch
+# desligado, `modo_off` e redundante com `modo` no mesmo payload, e
+# `sem_pergunta` (cortesia, RF-P11) alertar inverteria a intencao da regra.
+# Estes quatro sao acionaveis: explicam um silencio que, sem explicacao, parece
+# bot quebrado - foi exatamente o que aconteceu em producao em 2026-08-25.
+_SUPRESSOES_VISIVEIS = ("pausado", "janela_fechada", "teto_diario", "conversa_divergente")
 
 
 class WhatsAppBotConversaEstadoUpdateRequest(BaseModel):
@@ -116,6 +125,17 @@ def _estado_payload(db: Session, wa_identity: str) -> dict:
         .first()
     )
     recusa = ultima if ultima is not None and ultima.decisao in ("blocked", "handoff") else None
+    # `suppressed` nao era so invisivel: por a regra ser "a ULTIMA linha", uma
+    # supressao posterior APAGAVA o aviso de blocked/handoff anterior, deixando
+    # a central em branco. Derivar o silencio da mesma linha conserta os dois
+    # problemas de uma vez, e sem query nova - `ultima` ja esta carregada.
+    silencio = (
+        ultima
+        if ultima is not None
+        and ultima.decisao == "suppressed"
+        and str(ultima.motivo or "") in _SUPRESSOES_VISIVEIS
+        else None
+    )
     return {
         "wa_identity": wa_identity,
         "modo": modo,
@@ -145,6 +165,18 @@ def _estado_payload(db: Session, wa_identity: str) -> dict:
                 "criado_em": recusa.created_at.isoformat() if recusa.created_at else None,
             }
             if recusa is not None
+            else None
+        ),
+        # Irma de `ultima_recusa`, para o silencio deixar de ser ausencia de
+        # dado. Sem `decisao` (e sempre "suppressed") e sem `texto_gerado`
+        # (linha suprimida nunca grava texto).
+        "ultimo_silencio": (
+            {
+                "resposta_id": silencio.id,
+                "motivo": silencio.motivo,
+                "criado_em": silencio.created_at.isoformat() if silencio.created_at else None,
+            }
+            if silencio is not None
             else None
         ),
     }
@@ -303,7 +335,14 @@ def enviar_rascunho(
     resposta.texto_enviado = texto
     resposta.feedback = "positivo"
     resposta.enviado_por_id = current_user.id
-    pause_conversation(db, resposta.wa_identity, atualizado_por_id=current_user.id)
+    # Pausa CURTA: um atendente respondeu esta mensagem, nao assumiu a
+    # conversa. A de 12h e semantica de handoff.
+    pause_conversation(
+        db,
+        resposta.wa_identity,
+        atualizado_por_id=current_user.id,
+        horas=_assisted_send_pause_hours(),
+    )
     db.commit()
     db.refresh(resposta)
     registrar_auditoria(

@@ -161,6 +161,102 @@ class WhatsAppBotGatesTest(unittest.TestCase):
         self.assertFalse(gates.detecta_emergencia(""))
 
 
+
+class WhatsAppBotPausaAssistidaTest(unittest.TestCase):
+    """A pausa do envio assistido e separada da de handoff (2026-08-25).
+
+    Medido em producao: uma resposta assistida silenciava o bot por 12h, e as
+    mensagens seguintes do cliente viravam `suppressed/pausado`. As duas
+    semanticas sao diferentes - handoff e "a equipe assumiu", envio assistido e
+    "um atendente respondeu esta mensagem".
+    """
+
+    def _factory(self, tmpdir: str):
+        db_path = Path(tmpdir) / "pausa-assistida.db"
+        engine = create_engine(f"sqlite:///{db_path}")
+        Configuracao.__table__.create(engine, checkfirst=True)
+        WhatsAppBotConversaEstado.__table__.create(engine, checkfirst=True)
+        return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine
+
+    def test_horas_explicitas_vencem_o_default_de_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    now = datetime.now(timezone.utc)
+                    with patch.object(gates.settings, "WHATSAPP_BOT_HANDOFF_PAUSE_HOURS", 12):
+                        gates.pause_conversation(db, "558599990001", now=now, horas=2)
+                    db.commit()
+                    estado = gates.resolve_conversation_state(db, "558599990001")
+                    pausado = estado.pausado_ate.replace(tzinfo=timezone.utc)
+                    self.assertAlmostEqual(
+                        pausado.timestamp(), (now + timedelta(hours=2)).timestamp(), delta=2
+                    )
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_sem_horas_preserva_o_comportamento_de_handoff(self) -> None:
+        """Os demais chamadores nao passam `horas` e nao podem mudar."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    now = datetime.now(timezone.utc)
+                    with patch.object(gates.settings, "WHATSAPP_BOT_HANDOFF_PAUSE_HOURS", 12):
+                        gates.pause_conversation(db, "558599990002", now=now)
+                    db.commit()
+                    estado = gates.resolve_conversation_state(db, "558599990002")
+                    pausado = estado.pausado_ate.replace(tzinfo=timezone.utc)
+                    self.assertAlmostEqual(
+                        pausado.timestamp(), (now + timedelta(hours=12)).timestamp(), delta=2
+                    )
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_horas_invalidas_caem_no_default(self) -> None:
+        for invalido in (0, -5):
+            with self.subTest(horas=invalido):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    Factory, engine = self._factory(tmpdir)
+                    try:
+                        db = Factory()
+                        try:
+                            now = datetime.now(timezone.utc)
+                            with patch.object(gates.settings, "WHATSAPP_BOT_HANDOFF_PAUSE_HOURS", 12):
+                                gates.pause_conversation(db, "558599990003", now=now, horas=invalido)
+                            db.commit()
+                            estado = gates.resolve_conversation_state(db, "558599990003")
+                            pausado = estado.pausado_ate.replace(tzinfo=timezone.utc)
+                            self.assertAlmostEqual(
+                                pausado.timestamp(), (now + timedelta(hours=12)).timestamp(), delta=2
+                            )
+                        finally:
+                            db.close()
+                    finally:
+                        engine.dispose()
+
+    def test_helper_da_pausa_assistida_e_curto_e_defensivo(self) -> None:
+        with patch.object(gates.settings, "WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS", 3):
+            self.assertEqual(gates._assisted_send_pause_hours(), 3)
+        for invalido in (0, -1, "nao-numero", None):
+            with self.subTest(valor=invalido):
+                with patch.object(gates.settings, "WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS", invalido):
+                    self.assertEqual(gates._assisted_send_pause_hours(), 2)
+
+    def test_pausa_assistida_e_menor_que_a_de_handoff_por_default(self) -> None:
+        """Se um dia os defaults se igualarem, a separacao perdeu o sentido."""
+        self.assertLess(
+            gates._assisted_send_pause_hours(), gates._pause_hours(),
+            "a pausa do envio assistido precisa ser mais curta que a de handoff",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
 

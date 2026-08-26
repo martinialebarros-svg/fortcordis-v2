@@ -545,15 +545,155 @@ foi manual e nao ha nada no CI que a repita.
 
 | Pendencia | Estado |
 | --- | --- |
-| 1. Numero duplicado `PET CAFE` / `Somavet` | **Resolvida por Martiniano** - clinica PET CAFE apagada por nao existir mais. Reconferir a resolucao dos 19 numeros quando a sessao do painel voltar; a ultima tentativa caiu em 401. |
-| 2. Vazamento do portao | **Resolvida aqui.** Falta subir para stage e promover. |
-| 3. `WHATSAPP_BOT_ENABLED=true` em producao | **Nao executada** - sem acesso SSH a partir deste ambiente (`Permission denied (publickey,password)`). Precisa de Martiniano na VPS. |
+| 1. Numero duplicado `PET CAFE` / `Somavet` | **FECHADA em 2026-08-25.** `PET CAFE` apagada por Martiniano, e a reconferencia foi feita: `resolve_whatsapp_context` rodado em cada clinica com linha de participacao devolveu **20 de 20 `matched/clinica`**, Somavet (`id=114`) inclusa. Nao havia colisao adicional com tutor, que era a hipotese restante. |
+| 2. Vazamento do portao | **FECHADA.** Em stage e em producao (`68f92073` esta em `origin/main`), e comprovada em runtime: a linha de pausa gravada pelo envio assistido veio com `modo=None`, que antes da migracao 78 nasceria `'suggest'` e furaria o portao. |
+| 3. `WHATSAPP_BOT_ENABLED=true` em producao | **FECHADA em 2026-08-25.** Acrescentada ao `.env` por Martiniano na VPS (a linha nao existia; por isso o default `False` valia) e backend reiniciado. Conferido pela propria funcao do portao: `is_whatsapp_bot_enabled()` -> `True`, com `grep -c` devolvendo `1` (sem duplicata). Sobreviveu ao deploy de producao seguinte. |
+
+As tres pendencias que abriram esta secao estao fechadas. A ordem recomendada
+abaixo foi cumprida: a correcao do portao chegou a producao antes de a env ser
+ligada.
 
 **Ordem recomendada:** ligar a env **depois** que esta correcao chegar a
 producao. Com o bot ligado antes, cada emergencia, pedido de humano ou pausa
 grava mais uma linha `'suggest'` incidental - e a migracao ja tera rodado, entao
 essas linhas novas nao seriam zeradas por ela. Seria preciso um segundo
 saneamento manual.
+
+## Piloto vivo em producao e promocao do RF-P11 - 2026-08-25
+
+### O piloto saiu da inercia
+
+`WHATSAPP_BOT_ENABLED` foi acrescentada ao `.env` de producao por Martiniano na
+VPS (a linha nao existia; por isso o default `False` valia) e o
+`fortcordis-backend` foi reiniciado. Conferido com a propria funcao do portao,
+nao com reimplementacao:
+
+| Campo | Valor |
+| --- | --- |
+| `settings.WHATSAPP_BOT_ENABLED` | `True` |
+| toggle do banco | `True` |
+| `is_whatsapp_bot_enabled()` | **`True`** |
+| modo padrao | `suggest` (`auto` bloqueado) |
+
+`grep -c '^WHATSAPP_BOT_ENABLED=' ` devolveu `1` - sem duplicata, que era o
+risco de o `sed` e o `tee -a` se somarem.
+
+### Primeira leva real
+
+28 jobs (24 `done`, 4 `superseded` - debounce funcionando, zero `error`) e 24
+respostas. Descontando as 14 `bot_desabilitado` anteriores a ativacao, sobram 10
+pos-ativacao: 4 `fora_do_piloto`, 3 `pausado`, 2 `blocked/sem_fonte` e
+**1 `sent/modo_suggest`**.
+
+A `sent` e o marco: em `suggest` so e alcancavel por clique humano em Enviar.
+Resposta `#20`, persona `clinica`, 7.068 ms - **a primeira resposta assistida do
+piloto chegou ao cliente**.
+
+A conversa `151` conta a historia inteira: `#18 fora_do_piloto` ->
+`#19 blocked/sem_fonte` -> `#20 sent` -> `#22/#23/#24 pausado`. A transicao de
+`fora_do_piloto` para processada mostra a marcacao da clinica pegando efeito no
+meio do fluxo.
+
+**Prova incidental da migracao 78 em producao**: a linha de pausa gravada pelo
+envio assistido tem `modo=None`. Antes da migracao ela nasceria com `'suggest'`
+incidental e furaria o portao do piloto - o defeito 2 esta confirmado corrigido
+no ambiente real, nao so em teste.
+
+### Observacao registrada, sem correcao
+
+O envio assistido pausa a conversa por 12h. Medido: envio as 12:05, e o cliente
+escreveu as 12:27, 12:31 e 12:33 - tres vezes em 28 minutos, todas
+`suppressed/pausado`, e `suppressed` nao aparece na central. E o comportamento
+desenhado (um atendente assumiu), mas se a pessoa responde uma vez e sai, o
+cliente fica numa janela morta longa. **Nao foi alterado**: exige decisao de
+produto.
+
+### Promocao stage -> main
+
+`origin/main` avancou `114b01c1..4b3177f7` por `scripts/promote_stage_to_main.sh`.
+
+| Run | Nome | Resultado |
+| --- | --- | --- |
+| `32859464147` | Deploy to VPS | `success` |
+| `32859464261` | Migration CI | `success` |
+
+**Risco encontrado e afastado antes de promover.** `origin/main` **nao** era
+ancestral de `origin/stage`: producao tinha 6 commits proprios, incluindo
+`1474902d hotfix(deploy): para de copiar o .env Meta de stage no deploy de
+producao (#72)`. O script promove com `-X theirs` (prefere stage em conflito) -
+exatamente o cenario que o `CLAUDE.md` alerta. Se aquele hotfix existisse apenas
+em `main`, a promocao o teria revertido, o deploy voltaria a copiar o `.env` de
+stage e isso **apagaria o `WHATSAPP_BOT_ENABLED=true` recem-configurado** alem de
+recontaminar a identidade Meta.
+
+Verificacao feita antes de promover:
+
+- `git diff --quiet origin/stage origin/main -- .github/workflows/deploy.yml` ->
+  identico, o backport ja tinha sido feito;
+- nenhum arquivo dos demais commits so-de-main difere entre os dois lados;
+- `git diff --name-status origin/main origin/stage` -> **1 adicionado, 6
+  modificados, zero deletado**.
+
+Revalidacao externa de producao antes e depois, identica: raiz `200`,
+`/whatsapp/health` `200`, `/bot/preview` e `/whatsapp/conversations` `401`.
+
+### O detector de cortesia em producao
+
+Depois do deploy, medido na VPS com a funcao real:
+
+| Entrada | Resultado | Esperado |
+| --- | --- | --- |
+| `is_whatsapp_bot_enabled()` | `True` | a env sobreviveu ao deploy |
+| `Bom dia, obrigada.` | `True` | o caso real da Vet Plus |
+| `Obrigado!` | `True` | cortesia simples |
+| `ok?` | `False` | oposto de `ok`, so pela interrogacao |
+| `?` | `False` | pedido de resposta mais explicito que existe |
+| `qual o valor do eco?` | `False` | pergunta legitima |
+
+Os tres `False` sao os falsos positivos que os agentes adversariais pegaram na
+primeira versao. Confirmados corrigidos **em producao**.
+
+### Defeito 1 fechado - todos os numeros resolvem - 2026-08-25
+
+Medido em producao, rodando `resolve_whatsapp_context` no primeiro numero de
+cada clinica com linha em `whatsapp_bot_clinica_estado`:
+
+**`PARTICIPANTES EFETIVOS: 20 de 20`** - todas `matched/clinica`, nenhuma
+`ambiguous`, nenhuma sem numero, nenhuma clinica apagada com estado orfao.
+
+`Somavet` (`id=114`, `...1090`) resolve como `matched/clinica`. Apagar a
+duplicata `PET CAFE` bastou: nao havia colisao adicional com tutor, que era a
+hipotese que sobrava (a ambiguidade conta clinicas **e** tutores). **O defeito 1
+esta fechado** e o piloto nao tem participante fantasma.
+
+O teste cobre o primeiro numero de cada clinica (`whatsapps[0]`, com fallback
+para `telefone`). Clinica com varios WhatsApps que escreva de outro numero nao
+foi coberta por esta medicao.
+
+### O piloto tem 10 participantes ativos, por decisao - 2026-08-25
+
+A medicao mostrou **20 linhas de estado**, em **10 `suggest` e 10 `off`** -
+enquanto o registro anterior afirmava "19 clinicas em `suggest`".
+
+**Confirmado por Martiniano**: ele desabilitou parte das clinicas de proposito,
+e criou uma clinica ficticia para poder testar sem envolver terceiros. Nao ha
+defeito aqui; o registro anterior e que ficou velho.
+
+Numeros corretos a partir desta data:
+
+| | |
+| --- | --- |
+| Clinicas com linha de participacao | 20 |
+| Participando (`suggest`) | **10** |
+| Desabilitadas (`off`) | 10 |
+| Resolvem `matched/clinica` | 20 de 20 |
+
+`Fort Cordis Cardiovet` (`id=41`, `...4320`) e a clinica de teste, e e a
+conversa `151` que recebeu o primeiro envio assistido - o que explica por que
+todo o trafego pos-ativacao analisado veio dela.
+
+Sempre que este documento citar o tamanho do piloto, o numero e **10 ativas de
+20 marcadas**, nao 19.
 
 ## RF-P11 - detector de cortesia - 2026-08-25
 

@@ -72,6 +72,91 @@ describe("WhatsAppStagePage", () => {
     })).toBe(false);
   });
 
+  const routerComEstadoDoBot = (estadoDoBot: Record<string, unknown> | null) =>
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/whatsapp/conversations?")) {
+        return jsonResponse({
+          data: [{
+            id: "3926", wa_phone_number: "558500000000", wa_psid: "558500000000",
+            status: "open", subject: "Cliente de teste", last_agent_id: null,
+            last_activity_at: "2026-08-14T02:26:00.000Z",
+            created_at: "2026-08-14T02:26:00.000Z", updated_at: "2026-08-14T02:26:00.000Z",
+            last_message_body: "Oi", last_message_at: "2026-08-14T02:26:00.000Z",
+            customer_service_window: {
+              last_inbound_at: "2026-08-14T02:26:00.000Z",
+              expires_at: "2026-08-15T02:26:00.000Z", is_open: true,
+            },
+          }],
+          pagination: { page: 1, limit: 20, total: 1 },
+        });
+      }
+      if (url === "/whatsapp/agents") return jsonResponse({ data: [] });
+      if (url.startsWith("/whatsapp/conversations/3926/messages?")) {
+        return jsonResponse({
+          data: [{
+            id: "1", conversation_id: "3926", wa_message_id: "wamid.test",
+            from_me: false, body: "Oi", type: "text", status: "received",
+            created_at: "2026-08-14T02:26:00.000Z",
+          }],
+          pagination: { page: 1, limit: 50, total: 1 },
+          customer_service_window: {
+            last_inbound_at: "2026-08-14T02:26:00.000Z",
+            expires_at: "2026-08-15T02:26:00.000Z", is_open: true,
+          },
+        });
+      }
+      if (url.includes("/whatsapp/bot/conversas/")) {
+        return jsonResponse(estadoDoBot ?? {
+          wa_identity: "558500000000", modo: "suggest", modo_origem: "institucional",
+          pausado: false, pausado_ate: null, handoff_motivo: null,
+          rascunho_pendente: null, ultima_recusa: null, ultimo_silencio: null,
+        });
+      }
+      if (url.startsWith("/api/v1/whatsapp-contexto?")) return notFoundDomainContextResponse();
+      if (url.includes("/seen")) return jsonResponse({ data: { id: "0", last_seen_at: "2026-08-14T00:00:00.000Z" } });
+      throw new Error(`URL inesperada no teste: ${url}`);
+    });
+
+  const abrirConversa = async () => {
+    render(<WhatsAppStagePage />);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    // O nome aparece em mais de um lugar (lista e cabecalho); a lista e a
+    // primeira ocorrencia e e a clicavel.
+    const [item] = screen.queryAllByText("Cliente de teste");
+    expect(item).toBeTruthy();
+    await act(async () => { fireEvent.click(item); });
+    for (let i = 0; i < 6; i += 1) {
+      await act(async () => { await Promise.resolve(); });
+    }
+  };
+
+  it("mostra na central quando o bot viu e nao respondeu por pausa", async () => {
+    // Medido em producao em 2026-08-25: um envio assistido pausou a conversa e
+    // as mensagens seguintes do cliente sumiram sem rastro na tela.
+    vi.stubGlobal("fetch", routerComEstadoDoBot({
+      wa_identity: "558500000000", modo: "suggest", modo_origem: "institucional",
+      pausado: true, pausado_ate: "2026-08-15T02:26:00.000Z", handoff_motivo: null,
+      rascunho_pendente: null, ultima_recusa: null,
+      ultimo_silencio: { resposta_id: 25, motivo: "pausado", criado_em: "2026-08-14T18:26:00.000Z" },
+    }));
+
+    await abrirConversa();
+
+    const aviso = screen.getByText(/O bot viu esta mensagem e não respondeu/i);
+    expect(aviso.textContent).toMatch(/pausada porque um atendente respondeu/i);
+    // E informacao, nao tarefa: nada de acao dentro do aviso.
+    const caixa = aviso.closest(".fc-wa-bot-silencio");
+    expect(caixa).not.toBeNull();
+    expect(caixa?.querySelector("button")).toBeNull();
+  });
+
+  it("nao renderiza aviso de silencio quando nao ha silencio", async () => {
+    vi.stubGlobal("fetch", routerComEstadoDoBot(null));
+    await abrirConversa();
+    expect(screen.queryByText(/O bot viu esta mensagem e não respondeu/i)).toBeNull();
+  });
+
   it("atualiza silenciosamente o status da mensagem selecionada", async () => {
     let messagesRequestCount = 0;
 

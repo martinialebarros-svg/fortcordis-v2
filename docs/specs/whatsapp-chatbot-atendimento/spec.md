@@ -197,6 +197,41 @@ de pausa e claim, não por relógio.
     pista do motivo.
 - RF-021: o prompt é versionado em `WHATSAPP_BOT_PROMPT_VERSION` e a versão fica
   gravada em cada resposta, no mesmo espírito de `PROMPT_VERSION` do ai-echo.
+- RF-P12 (vocabulário de serviço, 2026-08-25): o cliente e o catálogo não usam
+  as mesmas palavras. Um tutor pergunta por "eco", "ecodopplercardiograma" ou
+  "ultrassom do coração"; a tabela cadastra `Ecocardiograma`, e vende
+  combinações (`Consulta + Eco`, `Eco + Eletro + PA`). A seleção passa a
+  traduzir os dois lados para o **mesmo conjunto de procedimentos canônicos**
+  (`backend/data/whatsapp_bot_servico_sinonimos.json`) e casar conjunto com
+  conjunto: sinônimo e combinação deixam de ser duas heurísticas.
+  - **Defeito que originou a regra.** A seleção era `alvo in nome` — substring
+    pura — ordenada por `Servico.nome.asc()` e cortada em três. "Quanto custa
+    o eco" devolvia `Consulta + Eco` (R$ 410), `Consulta + Eco + Eletro`
+    (R$ 480) e `Eco + Eletro` (R$ 250), **omitindo `Ecocardiograma`
+    (R$ 180)**, que é o sexto em ordem alfabética. O cliente recebia cotação
+    de mais que o dobro do preço real, com aparência de resposta correta.
+    Ordenar por nome está proibido aqui; o desempate é pelo serviço com menos
+    procedimentos, para quem pede "consulta com eco" não ver primeiro o pacote
+    que ainda inclui eletro.
+  - **Fronteira de palavra é requisito, não detalhe.** Sem acento, `preço` vira
+    `preco` e contém `eco`; `para` e `pacote` contêm `pa`. Casamento por
+    substring transformaria "qual o preço da consulta" num pedido de
+    ecocardiograma. Termos são casados com fronteira em ambos os lados.
+  - **Termo fora do vocabulário** (exame novo, nome próprio) cai na busca por
+    substring como rede; **pergunta genérica de preço** lista serviços simples
+    antes de combinações, para a resposta começar pelo piso da tabela.
+  - **A resposta responde o que foi perguntado.** Havendo correspondência
+    exata, ela responde sozinha: combinações existem, mas só entram se a
+    pessoa pedir. Foi o despejo de opções não pedidas que gerou confusão no
+    piloto.
+- RF-P13 (por que a frase de preço não é redigida pelo modelo, 2026-08-25): o
+  guardrail de `valor_fora_tabela` confere se o **número** citado veio da tool;
+  ele **não** verifica a qual serviço o número pertence. "O ecocardiograma
+  custa R$ 410,00" é aprovado quando 410 está entre os valores retornados —
+  ainda que 410 seja o preço de `Consulta + Eco`. O par serviço↔valor fica
+  colado por construção em `_corpo_de_preco`, e não por instrução de prompt.
+  O caso de eval `valor-certo-no-servico-errado-passa-no-guardrail` registra
+  essa aprovação de propósito: é o alerta de que nada abaixo dela protege.
 
 ### Guardrails de saída
 
@@ -280,7 +315,16 @@ de pausa e claim, não por relógio.
   conversa. O selo depende do metadata validado no serviço interno, e não de
   um campo arbitrário enviado pelo navegador.
 - RF-030: a central permite, por conversa, alternar `auto` / `suggest` / `off` e
-  "pausar bot por 12h".
+  pausar o bot. A pausa manual usa `WHATSAPP_BOT_HANDOFF_PAUSE_HOURS`; o rótulo
+  do botão e o aviso deixaram de citar "12h" fixo, porque a duração passou a
+  variar por caminho.
+- RF-034 (silêncio visível): o payload de estado por conversa expõe
+  `ultimo_silencio` ao lado de `ultima_recusa`, derivado da **mesma** última
+  linha de resposta. Só motivos acionáveis entram
+  (`pausado`, `janela_fechada`, `teto_diario`, `conversa_divergente`);
+  `bot_desabilitado`, `modo_off`, `sem_pergunta` e os de participação ficam de
+  fora para não virar ruído permanente. Sem `texto_gerado` (linha suprimida
+  nunca grava texto) e sem `decisao` (é sempre `suppressed`).
 - RF-031: card "Atendimento automático (WhatsApp)" em Configurações -> Empresa,
   no mesmo padrão do card do lembrete automático, com o toggle institucional e o
   modo padrão, graváveis só por admin.
@@ -400,6 +444,10 @@ Novas em `app/core/config.py` + `.env.example`, todas com default seguro:
 `WHATSAPP_BOT_SCHEDULER_DISTRIBUTED_LOCK_ENABLED=True`,
 `WHATSAPP_BOT_SCHEDULER_DISTRIBUTED_LOCK_KEY=80433003`,
 `WHATSAPP_BOT_MAX_ATTEMPTS=3`, `WHATSAPP_BOT_HANDOFF_PAUSE_HOURS=12`,
+`WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS=2` (pausa do envio assistido,
+deliberadamente separada de `WHATSAPP_BOT_HANDOFF_PAUSE_HOURS=12`: handoff
+significa "a equipe assumiu", envio assistido significa apenas "um atendente
+respondeu esta mensagem"),
 `WHATSAPP_BOT_MAX_REPLIES_PER_CONVERSATION_DAY=20`,
 `WHATSAPP_BOT_MAX_TOKENS_PER_DAY=100000`,
 `WHATSAPP_BOT_MAX_REPLY_CHARS=900`,

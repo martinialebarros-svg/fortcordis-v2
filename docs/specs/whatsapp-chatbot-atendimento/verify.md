@@ -830,6 +830,69 @@ conversa real com exame, por desenho.
   stage.~~ **Feito pelo usuário em 2026-08-23**; a prontidão fechou em 8
   prontos / 6 pendentes, todos os verdes com dado real.
 
+## Silêncio visível e pausa do envio assistido - 2026-08-25
+
+Nasceu de um caso real: o dono clicou Enviar num rascunho, isso pausou a
+conversa por 12h, e as **quatro** mensagens seguintes dele viraram
+`suppressed/pausado`. Nada apareceu na central e ele concluiu que o bot estava
+quebrado. O bot estava correto - o silêncio é que era invisível.
+
+### O achado que mudou o desenho
+
+`suppressed` não era apenas invisível: por a regra de `ultima_recusa` ser "a
+ÚLTIMA linha da conversa", uma supressão posterior **apagava** o aviso de
+`blocked`/`handoff` anterior, deixando a central em branco. Derivar o silêncio
+da mesma linha `ultima` conserta os dois problemas de uma vez - e sem query
+nova, porque a linha já está carregada.
+
+### Visibilidade (RF-034)
+
+`_estado_payload` ganhou `ultimo_silencio`, com allowlist `_SUPRESSOES_VISIVEIS`
+= `pausado`, `janela_fechada`, `teto_diario`, `conversa_divergente`. Deixados de
+fora de propósito: `bot_desabilitado` (apareceria em toda conversa com o kill
+switch desligado), `modo_off` (redundante com `modo`, no mesmo payload),
+`sem_pergunta` (cortesia da RF-P11 - alertar inverteria a regra) e os de
+participação (`fora_do_piloto`, `clinica_desabilitada`, que são configuração e
+não linha do tempo). Alertar sobre operação normal treinaria o atendente a
+ignorar a área, que é o mesmo problema invertido.
+
+Na central, um terceiro tier visual (`fc-wa-bot-silencio`), tracejado e sem
+botão nenhum: é informação, não tarefa. Para `pausado` o texto cita a hora
+usando o `pausado_ate` que já vinha no payload.
+
+### Pausa do envio assistido
+
+`WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS=2`, e `pause_conversation` ganhou um
+kwarg `horas` opcional - default `None` preserva os demais chamadores sem
+tocá-los. Só `enviar_rascunho` passa a duração curta.
+
+**Risco investigado e descartado**: suspeitou-se que o detector `from_me` do
+worker re-estenderia a pausa para 12h logo depois, tornando a mudança
+cosmética. Não acontece no fluxo normal - `last_agent_id` só é escrito por
+`claimConversation` (o envio **não** reivindica a conversa), e o `from_me` da
+última mensagem só é verdadeiro se o atendente respondeu dentro da janela de
+debounce, que é o CB-009 e aí 12h é a semântica certa.
+
+### Cobertura
+
+Backend: 5 testes novos em `test_whatsapp_bot_endpoints.py` (supressão acionável
+vira aviso; ruído não vira; `suppressed` nunca entra em `ultima_recusa`;
+silêncio posterior não apaga a tela; rascunho novo supera o aviso) e 5 em
+`test_whatsapp_bot_gates.py` (horas explícitas vencem o default; sem `horas` o
+comportamento antigo é preservado; horas inválidas caem no default; helper
+defensivo; e um que falha se os dois defaults se igualarem, porque aí a
+separação teria perdido o sentido).
+
+Frontend: 2 testes em `page.test.tsx`, com o roteador de fetch que mocka a rota
+de estado do bot. **Verificados por mutação**: desligar a renderização do aviso
+derruba o teste, e restaurar o revive - a cobertura não é vazia.
+
+Os dois literais de "12h" do frontend saíram: o toast passa a citar o
+`pausado_ate` devolvido pelo PATCH, e o botão diz apenas "Pausar bot".
+
+Suítes: backend **1098/1098**; frontend **100/100** em 15 arquivos; `eslint`,
+`tsc --noEmit` e `next build` limpos.
+
 ## Regressão e riscos residuais
 
 - A correção do nono dígito (RF-015) altera um endpoint já consumido pela
@@ -1410,3 +1473,75 @@ Producao tem agora a mesma prontidao de stage, com o bot ainda **dormente** e a
 participacao em `piloto`.
 
 Drenagem de efusao confirmada fora dos documentos por decisao do usuario.
+
+## RF-P12 / RF-P13 — vocabulario de servico e frase de preco (2026-08-25)
+
+### O defeito, medido no catalogo de producao
+
+O usuario perguntou ao bot "gostaria de saber o valor do eco" e recebeu:
+
+> Atendimento automático da FortCordis: valores de tabela - Consulta + Eco:
+> R$ 410,00; Consulta + Eco + Eletro: R$ 480,00; Eco + Eletro: R$ 250,00.
+
+O catalogo de producao tem **`Ecocardiograma` avulso por R$ 180,00**. Ele nao
+foi citado. Nao era so verbosidade: a resposta cotava **2,3x o preco real** do
+que foi perguntado.
+
+Causa: `alvo in nome` (substring pura) casava seis servicos; a ordem era
+`Servico.nome.asc()`; o corte era `[:3]`. Em ordem alfabetica `Ecocardiograma`
+e o **sexto**, atras de tres combinacoes mais caras.
+
+### Antes e depois, mesmo catalogo
+
+| Pergunta | Antes | Depois |
+| --- | --- | --- |
+| "eco" | Consulta + Eco R$ 410; Consulta + Eco + Eletro R$ 480; Eco + Eletro R$ 250 | **Ecocardiograma custa R$ 180,00.** |
+| "ecodopplercardiograma" | nenhum servico casava (substring falhava) | Ecocardiograma custa R$ 180,00. |
+| "ultrassom do coração" | nenhum servico casava | Ecocardiograma custa R$ 180,00. |
+| "ECG" | nenhum servico casava | Eletrocardiograma custa R$ 120,00. |
+| "consulta com eco" | Consulta R$ 230; Consulta + Eco R$ 410; Consulta + Eco + Eletro R$ 480 | Consulta + Eco custa R$ 410,00. |
+| "eco e eletro" | tres combinacoes | Eco + Eletro custa R$ 250,00. |
+| generica, sem servico | Consulta; Consulta + Eco; Consulta + Eco + Eletro (alfabetica) | Consulta R$ 230; Ecocardiograma R$ 180; Eletrocardiograma R$ 120 |
+
+Os quatro sinonimos que "nao casavam antes" nao produziam resposta errada —
+produziam `ok: False`, e a intent caia sem fonte. Passaram a responder.
+
+### Testes e verificacao por mutacao
+
+`backend/tests/test_whatsapp_bot_servico_match.py`: 12 testes, 26 subtestes.
+O catalogo usado e o de producao copiado literalmente — o defeito depende
+desses nomes para reproduzir.
+
+Nao basta os testes passarem; foi verificado que eles **falham** quando a
+correcao e desfeita:
+
+| Mutacao aplicada | Resultado |
+| --- | --- |
+| ordenacao volta a ser alfabetica | **3 falhas** (`regressao_eco_avulso...`, `combinacao_pedida_ganha...`, `empate_prefere_o_servico_mais_simples`) |
+| fronteira de palavra vira substring pura | **1 falha** (`fronteira_de_palavra_impede_falso_positivo_em_preco`) |
+| codigo restaurado | 12 passam |
+
+A fronteira de palavra e o que impede "qual o **preço** da consulta" de virar
+pedido de ecocardiograma (`preco` contem `eco` depois de remover acento) e
+"é **para** o meu cachorro" de virar pedido de pressao arterial.
+
+Suite completa do bot apos a mudanca: **289 passaram, 2 skipped, 222
+subtestes**.
+
+### O buraco do guardrail, registrado de proposito
+
+Caso de eval novo `valor-certo-no-servico-errado-passa-no-guardrail`: o texto
+"O ecocardiograma custa R$ 410,00" com `valores_permitidos` contendo `410.00`
+e **APROVADO** pelo guardrail. R$ 410 e o preco de `Consulta + Eco`.
+
+O guardrail confere a procedencia do numero, nao o servico a que ele pertence.
+Por isso a frase de preco sai de `_corpo_de_preco`, montada do payload, e nao
+da redacao do modelo. O caso fica no arquivo como alerta permanente: se algum
+dia a redacao livre voltar para `preco_servico`, nada abaixo dele protege.
+
+### Fora de escopo desta entrega
+
+O vocabulario cobre os quatro procedimentos do catalogo atual (eco, eletro,
+pressao arterial, consulta). Servico novo exige entrada nova em
+`whatsapp_bot_servico_sinonimos.json` — ate la, cai na rede de substring.
+Nao ha teste que detecte servico cadastrado sem vocabulario correspondente.

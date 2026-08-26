@@ -44,6 +44,12 @@ from app.models.servico import Servico
 # Reuso legitimo: helpers PUROS de agenda, que recebem so db/date e nao
 # carregam autoridade de staff nem entram em TOOL_DEFINITIONS. Precedente ja
 # na branch: whatsapp_bot_handoff_service.py faz o mesmo import.
+from app.services.whatsapp_bot_servico_match import (
+    AFINIDADE_EXATA,
+    ordenar_candidatos,
+    procedimentos_do_pedido,
+    procedimentos_do_servico,
+)
 from app.services.assistente_ia_tools import (
     LOCAL_TZ,
     _agenda_configuration_rules,
@@ -320,12 +326,36 @@ def consultar_preco_tabela(
     if coluna is None:
         return {"ok": False, "error": "Regiao invalida para consulta de preco."}
 
-    query = ctx.db.query(Servico).filter(_legacy_active(Servico.ativo))
-    if servico_nome:
+    ativos = ctx.db.query(Servico).filter(_legacy_active(Servico.ativo)).all()
+    pedido = procedimentos_do_pedido(servico_nome)
+    exatos = 0
+
+    if pedido:
+        # Casamento por conjunto de procedimentos. Substring pura ordenada por
+        # nome escondia `Ecocardiograma` (R$ 180) atras de tres combos mais
+        # caros quando a pergunta era "quanto custa o eco" -- ver
+        # `whatsapp_bot_servico_match`.
+        ranqueados = ordenar_candidatos(ativos, pedido=pedido)
+        candidatos = [servico for servico, _grau, _comp in ranqueados]
+        graus = {id(servico): grau for servico, grau, _comp in ranqueados}
+    elif servico_nome:
+        # Termo fora do vocabulario (servico novo, nome proprio de exame).
+        # Substring continua valendo como rede: melhor devolver algo
+        # verificavel do que abrir mao da pergunta.
         alvo = _normalizar(servico_nome)
-        candidatos = [s for s in query.order_by(Servico.nome.asc()).all() if alvo in _normalizar(s.nome)]
+        candidatos = sorted(
+            (s for s in ativos if alvo and alvo in _normalizar(s.nome)),
+            key=lambda s: _normalizar(s.nome),
+        )
+        graus = {}
     else:
-        candidatos = query.order_by(Servico.nome.asc()).limit(MAX_SERVICOS_NO_PAYLOAD).all()
+        # Pergunta generica de preco: servico simples antes de combinacao,
+        # para a resposta comecar pelo piso da tabela e nao pelo alfabeto.
+        candidatos = sorted(
+            ativos,
+            key=lambda s: (len(procedimentos_do_servico(s.nome)) or 99, _normalizar(s.nome)),
+        )
+        graus = {}
 
     itens: list[dict[str, Any]] = []
     for servico in candidatos[:MAX_SERVICOS_NO_PAYLOAD]:
@@ -339,17 +369,27 @@ def consultar_preco_tabela(
         # nao entra no payload - sem valor nao ha o que afirmar.
         if valor <= 0:
             continue
+        grau = graus.get(id(servico), 0)
+        if grau == AFINIDADE_EXATA:
+            exatos += 1
         itens.append({
             "servico": servico.nome,
             "valor": f"{valor:.2f}",
             "regiao": chave,
             "tipo_horario": "comercial",
             "fonte": f"tabela:{coluna}",
+            "aderencia": grau,
         })
 
     if not itens:
         return {"ok": False, "error": "Nenhum servico com preco de tabela configurado para essa consulta."}
-    return {"ok": True, "itens": itens, "total": len(itens)}
+    return {
+        "ok": True,
+        "itens": itens,
+        "total": len(itens),
+        "pedido": sorted(pedido),
+        "exatos": exatos,
+    }
 
 
 def _status_cliente(exame_status: Any, laudo_status: Any) -> str:
