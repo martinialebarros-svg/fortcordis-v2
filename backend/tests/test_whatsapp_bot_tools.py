@@ -283,6 +283,171 @@ class WhatsAppBotToolsDbTest(unittest.TestCase):
         self.assertNotIn("clinica_id", assinatura.parameters)
         self.assertNotIn("clinica_nome", assinatura.parameters)
 
+    # --- preco por regiao (RF-P14) ---------------------------------------
+
+    def _seed_catalogo_regiao(self, db):
+        db.add(Servico(nome="Ecocardiograma", ativo=True,
+                       preco_fortaleza_comercial=180, preco_rm_comercial=200))
+        db.add(Servico(nome="Consulta + Eletro", ativo=True,
+                       preco_fortaleza_comercial=300, preco_rm_comercial=0))
+        db.commit()
+
+    def test_regiao_vem_do_cadastro_da_clinica_nao_do_modelo(self) -> None:
+        """Defeito medido em producao (2026-08-25).
+
+        `regiao` era parametro preenchido pelo MODELO, que nao tem nenhum dado
+        no prompt para decidir; o silencio dele virava "fortaleza". A clinica
+        Pet Sanus Caucaia (tabela 2) recebia preco de Fortaleza, R$ 20 a R$ 50
+        abaixo da tabela dela.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed_catalogo_regiao(db)
+                    clinica = Clinica(nome="Pet Sanus Caucaia", tabela_preco_id=2)
+                    db.add(clinica)
+                    db.commit()
+                    ctx = tools.WhatsAppBotToolContext(
+                        db=db, match_type="clinica", clinica_id=clinica.id
+                    )
+                    # O modelo manda "fortaleza" -- e tem de ser ignorado.
+                    res = tools.consultar_preco_tabela(ctx, servico_nome="eco", regiao="fortaleza")
+                    self.assertTrue(res["ok"])
+                    self.assertEqual(res["regiao"], "rm")
+                    self.assertEqual(res["itens"][0]["valor"], "200.00")
+                    self.assertEqual(res["itens"][0]["fonte"], "tabela:preco_rm_comercial")
+                    self.assertTrue(res["regiao_do_cadastro"])
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_clinica_sem_tabela_definida_cai_em_fortaleza(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed_catalogo_regiao(db)
+                    clinica = Clinica(nome="Sem tabela", tabela_preco_id=None)
+                    db.add(clinica)
+                    db.commit()
+                    ctx = tools.WhatsAppBotToolContext(
+                        db=db, match_type="clinica", clinica_id=clinica.id
+                    )
+                    res = tools.consultar_preco_tabela(ctx, servico_nome="eco")
+                    self.assertEqual(res["regiao"], "fortaleza")
+                    self.assertEqual(res["itens"][0]["valor"], "180.00")
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_tabela_personalizada_nao_cota_preco(self) -> None:
+        """Tabela fora de {1,2,3} e negociada: fora da allowlist da RF-019."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed_catalogo_regiao(db)
+                    clinica = Clinica(nome="Aracati", tabela_preco_id=4)
+                    db.add(clinica)
+                    db.commit()
+                    ctx = tools.WhatsAppBotToolContext(
+                        db=db, match_type="clinica", clinica_id=clinica.id
+                    )
+                    res = tools.consultar_preco_tabela(ctx, servico_nome="eco")
+                    self.assertFalse(res["ok"])
+                    self.assertEqual(res["motivo"], "tabela_personalizada")
+                    self.assertNotIn("itens", res)
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_servico_sem_preco_na_regiao_falha_fechado(self) -> None:
+        """`Consulta + Eletro` nao tem preco RM em producao.
+
+        Responder com os vizinhos trocaria a pergunta por outra sem avisar.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed_catalogo_regiao(db)
+                    clinica = Clinica(nome="RM", tabela_preco_id=2)
+                    db.add(clinica)
+                    db.commit()
+                    ctx = tools.WhatsAppBotToolContext(
+                        db=db, match_type="clinica", clinica_id=clinica.id
+                    )
+                    res = tools.consultar_preco_tabela(ctx, servico_nome="consulta com eletro")
+                    self.assertFalse(res["ok"])
+                    self.assertEqual(res["motivo"], "sem_preco_na_regiao")
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_tutor_nao_recebe_regiao_do_cadastro(self) -> None:
+        """Tutor nao tem `tabela_preco_id`; comportamento atual preservado."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed_catalogo_regiao(db)
+                    ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=1)
+                    res = tools.consultar_preco_tabela(ctx, servico_nome="eco")
+                    self.assertEqual(res["regiao"], "fortaleza")
+                    self.assertFalse(res["regiao_do_cadastro"])
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_mapa_de_tabela_do_bot_nao_diverge_da_fatura(self) -> None:
+        """Guarda de deriva: o mapa foi DUPLICADO de `precos_service`.
+
+        Importar `calcular_preco_servico` traria junto o preco negociado, que
+        esta fora da allowlist -- por isso a duplicacao. O que nao pode e o bot
+        cotar por um criterio e a fatura por outro. Este teste amarra os dois.
+        """
+        from app.services.precos_service import _preco_tabela_padrao
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    servico = Servico(
+                        nome="Sonda", ativo=True,
+                        preco_fortaleza_comercial=111,
+                        preco_rm_comercial=222,
+                        preco_domiciliar_comercial=333,
+                    )
+                    db.add(servico)
+                    db.commit()
+                    for tabela_id, regiao in tools._TABELA_PRECO_REGIAO.items():
+                        with self.subTest(tabela_id=tabela_id):
+                            coluna = tools._REGIAO_COLUNAS[regiao]
+                            esperado = getattr(servico, coluna)
+                            da_fatura = _preco_tabela_padrao(
+                                db, Clinica(tabela_preco_id=tabela_id), servico, "comercial"
+                            )
+                            self.assertEqual(
+                                float(da_fatura), float(esperado),
+                                f"tabela {tabela_id}: bot usa {coluna}, fatura discorda",
+                            )
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
     # --- status de laudo -------------------------------------------------
 
     def _seed_laudo(self, db, *, tutor_nome, pet_nome, laudo_status, exame_status, clinica_id=None):

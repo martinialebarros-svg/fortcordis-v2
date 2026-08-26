@@ -23,6 +23,7 @@ os.environ.setdefault("SECRET_KEY", "whatsapp-bot-painel-test-secret-key-1234567
 from app.api.v1.endpoints import whatsapp_bot
 from app.models.assistente_ia import AssistenteIAConhecimentoDocumento
 from app.models.atendimento_clinico import AtendimentoClinico
+from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
@@ -47,6 +48,7 @@ class WhatsAppBotPainelTest(unittest.TestCase):
         engine = create_engine(f"sqlite:///{db_path}")
         for table in (
             Configuracao.__table__, Servico.__table__, Paciente.__table__,
+            Clinica.__table__,
             Laudo.__table__, Exame.__table__, AtendimentoClinico.__table__,
             AssistenteIAConhecimentoDocumento.__table__, WhatsAppBotResposta.__table__,
         ):

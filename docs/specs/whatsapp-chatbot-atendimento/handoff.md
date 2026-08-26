@@ -846,7 +846,15 @@ Verificado em produção contra o catálogo real, nos 7 casos.
 4. **Vocabulário não cobre serviço novo.** Cadastrar "Holter" hoje faz a
    consulta cair na rede de substring, e **nenhum teste avisa**. Falta uma
    verificação que cruze `Servico` ativo com o JSON de sinônimos.
-5. **Sete guardas de auto-envio** (1, 2, 3, 5, 7, 8, 9) seguem pendentes.
+5. **RF-P14 deixou duas perguntas de negócio em aberto**, feitas a Martiniano
+   sem resposta até o fim da sessão:
+   - `Consulta + Eletro` não tem preço RM (0,00). É cadastro faltando ou o
+     combo não é oferecido em RM? Hoje o bot faz handoff nos dois casos —
+     seguro, mas não explica ao cliente.
+   - Tutor não tem `tabela_preco_id` e segue em Fortaleza por default. Se
+     existir tutor de RM, a cotação dele está errada pelo mesmo motivo que a
+     da clínica estava.
+6. **Sete guardas de auto-envio** (1, 2, 3, 5, 7, 8, 9) seguem pendentes.
 
 ## Antes de suspeitar do código
 
