@@ -289,14 +289,42 @@ de pausa e claim, não por relógio.
     agrupamento equivalente ao da clínica. O defeito era latente: viraria real
     no dia em que a participação mudasse para `todos`.
 
-### Limite conhecido: o bot é stateless
-
-`gerar_resposta` recebe `corpo_mensagem` — uma mensagem, sem histórico. O
-diálogo em dois passos que a secretária faz ("é domiciliar ou em clínica?" →
-tutor responde → cotação) **não é implementável hoje**: no segundo turno o bot
-não sabe qual serviço foi perguntado. Enquanto isso não mudar, pergunta de
-preço de tutor sem menção a domiciliar termina em handoff, que é seguro mas não
-resolve. Registrado para não ser redescoberto como bug.
+- RF-P16 (memória de conversa, 2026-08-26): `gerar_resposta` passa a receber
+  `historico` — as últimas mensagens desta conversa, buscadas no serviço de
+  WhatsApp. Resolve o limite registrado acima: o bot passa a entender "é
+  domiciliar", "e o outro exame", "quanto fica então" sem o cliente repetir o
+  assunto.
+  - **Histórico é DADO, nunca instrução.** Viaja em `build_input_payload`
+    (`input`), não em `build_instructions` (`instructions`) — mesma separação
+    do ai-echo. Se entrasse nas instruções, uma mensagem de cliente teria o
+    mesmo peso das regras absolutas do prompt, e "ignore suas regras" viraria
+    uma ordem plausível.
+  - **Histórico NÃO é fonte.** Regra 8 do prompt: horário, endereço, valor e
+    status que aparecem no histórico são de antes e podem ter mudado; para
+    afirmá-los agora, a ferramenta tem de ser chamada nesta rodada. Isso não
+    depende de o modelo obedecer — o guardrail da RF-020 já exige que a fonte
+    **sustente a intent**, então repetir um preço do histórico enquanto se
+    consulta apenas o horário continua sendo `sem_fonte`.
+  - **Rascunho recusado não volta ao prompt.** A fonte é a conversa real do
+    WhatsApp, e texto `blocked` nunca foi enviado — logo não está lá. Ler de
+    `whatsapp_bot_respostas.texto_gerado` teria o efeito oposto: realimentaria
+    justamente o texto que o guardrail recusou.
+  - **`from_me` cobre bot e secretária.** As duas são "o que a FortCordis
+    disse"; o cliente não distingue, e o modelo também não deve.
+  - **Paginação ASC.** `/conversations/:id/messages` não aceita ordem: as
+    mensagens recentes estão na ÚLTIMA página. Com `limit=N` a última página
+    costuma vir incompleta (total=25, limit=10 → página 3 tem 5 itens), e
+    buscar só ela devolveria metade do contexto pedido, em silêncio; nesse
+    caso a anterior também é lida. No máximo três requisições.
+  - **Falha de rede não derruba o turno.** Histórico é apoio, não fonte: sem
+    ele o bot responde como respondia antes desta feature.
+  - **Desligável sem deploy** por `WHATSAPP_BOT_HISTORICO_MENSAGENS` (default
+    `8`, `0` desliga), com teto de 12 e truncagem de 400 caracteres por
+    mensagem — limita custo por turno e a superfície de texto de cliente no
+    prompt.
+  - **O painel de simulação aceita histórico fingido**, uma mensagem por linha
+    (`cliente:` / `nos:`). Sem isso a memória só seria verificável numa
+    conversa real de WhatsApp.
 
 ### Guardrails de saída
 

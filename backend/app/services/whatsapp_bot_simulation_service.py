@@ -38,6 +38,7 @@ def simular_resposta(
     *,
     mensagem: str,
     persona: str,
+    historico: Optional[list[dict[str, Any]]] = None,
     solicitado_por_id: Optional[int] = None,
 ) -> dict[str, Any]:
     """Executa o pipeline de geracao em modo somente-leitura."""
@@ -53,12 +54,16 @@ def simular_resposta(
         corpo_mensagem=texto,
         modo="suggest",
         persona_forcada=persona,
+        # Sem isso a memoria de conversa seria intestavel pelo painel: so
+        # daria para verifica-la numa conversa real de WhatsApp.
+        historico=historico,
     )
 
     return {
         "simulacao": True,
         "persona": persona,
         "mensagem": texto,
+        "historico_usado": len(historico or []),
         "decisao": resultado.decisao,
         "motivo": resultado.motivo,
         "texto_gerado": resultado.texto_gerado,

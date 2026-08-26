@@ -17,6 +17,7 @@ import {
   validarConteudoBot,
 } from "@/lib/whatsapp-bot-painel";
 import { requestPushSync, syncPushNotificationsNow } from "@/lib/usePushNotifications";
+import { parseHistorico } from "@/lib/whatsapp-bot-historico";
 import {
   AgendaExcecaoConfig,
   AgendaFeriadoConfig,
@@ -374,6 +375,7 @@ export default function ConfiguracoesPage() {
   const [botForm, setBotForm] = useState({ titulo: "", conteudo: "", fonte: "", publico: "ambos", indexar_semanticamente: false });
   const [botFormErros, setBotFormErros] = useState<string[]>([]);
   const [botSimulacao, setBotSimulacao] = useState<any>(null);
+  const [botSimHistorico, setBotSimHistorico] = useState("");
   const [botSimPersona, setBotSimPersona] = useState("tutor");
   const [botSimMensagem, setBotSimMensagem] = useState("");
   const [botClinicas, setBotClinicas] = useState<any>(null);
@@ -1145,6 +1147,7 @@ export default function ConfiguracoesPage() {
       const { data } = await api.post("/whatsapp/bot/simular", {
         mensagem: botSimMensagem,
         persona: botSimPersona,
+        historico: parseHistorico(botSimHistorico),
       });
       setBotSimulacao(data);
     } catch {
@@ -3052,6 +3055,14 @@ export default function ConfiguracoesPage() {
                     placeholder="Digite a pergunta de um cliente"
                     className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
                 </div>
+                <textarea value={botSimHistorico} onChange={(e) => setBotSimHistorico(e.target.value)}
+                  rows={3}
+                  placeholder={"Conversa anterior (opcional), uma mensagem por linha:\ncliente: quanto custa o eco?\nnos: Ecocardiograma custa R$ 180,00."}
+                  className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono" />
+                <p className="mt-1 text-[11px] text-gray-400">
+                  Sem prefixo, a linha conta como mensagem do cliente. Serve para testar se o bot
+                  entende &quot;e domiciliar?&quot; ou &quot;quanto fica entao?&quot; sem repetir o assunto.
+                </p>
                 <button type="button" onClick={simularBot}
                   disabled={botCarregando === "simular" || botSimMensagem.trim().length < 3}
                   className="mt-2 text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">

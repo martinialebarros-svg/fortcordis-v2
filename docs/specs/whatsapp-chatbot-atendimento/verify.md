@@ -1722,3 +1722,83 @@ termina em handoff — seguro, mas nao resolve.
    completo, dados do pet e do tutor): coleta multi-turno de PII com cadastro
    no sistema. Nao e trabalho de bot stateless em `suggest`; deve seguir como
    handoff.
+
+## RF-P16 — memoria de conversa (2026-08-26)
+
+### O que destrava
+
+O bot era stateless: `gerar_resposta` recebia uma mensagem, sem historico. O
+dialogo em dois passos da secretaria ("e domiciliar ou em clinica?" -> tutor
+responde -> cotacao) nao funcionava, porque no segundo turno o bot nao sabia
+qual servico fora perguntado. Passa a funcionar.
+
+### O risco desta feature nao e tecnico, e semantico
+
+Com mensagens antigas no contexto, o modelo passa a ter numeros plausiveis
+disponiveis sem que nenhuma ferramenta tenha rodado nesta rodada. Se ele
+repetir um preco do historico, a resposta PARECE fundamentada e nao esta -- e o
+valor pode ter mudado.
+
+Ao escrever o teste desse risco, descobri que a protecao tem **duas camadas**,
+e que meu primeiro teste so exercitava a fraca:
+
+```python
+fontes_exigidas = _FONTE_EXIGIDA_POR_INTENT.get(intent)
+if fontes_exigidas:
+    fonte_presente = bool(fontes_exigidas.intersection(turno.tools_ok))  # camada 1
+else:
+    fonte_presente = turno.tem_fonte                                      # camada 2
+```
+
+O primeiro teste tinha o modelo respondendo sem chamar ferramenta nenhuma —
+bloqueado pela camada 2, generica. A camada que realmente protege a memoria e a
+1: o turno TEM fonte (consultou o horario), mas ela nao sustenta a intent de
+preco. Foi preciso um segundo teste, com o modelo chamando
+`consultar_horario_funcionamento` e afirmando o preco visto no historico, para
+exercitar a camada certa.
+
+### Verificacao por mutacao
+
+| Mutacao aplicada | Testes mortos |
+| --- | --- |
+| `preco_servico` deixa de exigir fonte especifica | `fonte_de_outro_assunto_nao_autoriza_preco_do_historico` |
+| paginacao volta a buscar a PRIMEIRA pagina | `pega_a_ultima_pagina_nao_a_primeira`, `ultima_pagina_incompleta_puxa_a_anterior` |
+| historico deixa de entrar no payload | `historico_viaja_como_dado_e_nunca_nas_instrucoes`, `historico_chega_ao_payload_enviado_ao_provider` |
+
+Cada mutacao foi confirmada no arquivo por `assert` antes de rodar a suite. Na
+primeira tentativa usei `sed` com `{}` sem escape: `sed -i ''` retorna 0 mesmo
+sem casar nada, e o resultado "o teste nao morreu" era **inconclusivo**, nao
+negativo. Foi o que revelou a lacuna das duas camadas.
+
+### Paginacao: a armadilha ja documentada
+
+`/conversations/:id/messages` e ASC paginado e nao aceita ordem. `_fetch_last_message`
+ja tratava isso para UMA mensagem (`limit=1` -> ultima pagina e `total`). Com
+`limit=N` surge um caso que aquele nao tinha: a ultima pagina vem incompleta.
+Com total=25 e limit=10, a pagina 3 tem 5 itens — buscar so ela devolveria
+metade do contexto pedido sem nenhum sinal. A anterior tambem e lida e as duas
+sao concatenadas.
+
+### Suites
+
+- Backend: **1137 passaram, 2 skipped** (eram 1121). 16 testes novos em
+  `test_whatsapp_bot_memoria.py`.
+- Frontend: **115 passaram**, 7 novos em `whatsapp-bot-historico.test.ts`.
+  Lint limpo.
+
+### Incidente de processo, registrado
+
+Durante a verificacao rodei `git checkout -- app/services/` para desfazer uma
+mutacao. O comando reverteu **todo** o trabalho nao commitado dos tres arquivos
+da feature, nao so a mutacao. Havia backup de dois; `whatsapp_bot_prompt.py`
+teve de ser reescrito.
+
+Licao aplicada no resto da sessao: mutacao se desfaz por copia de arquivo
+(`cp` de um backup explicito), nunca por `git checkout` em diretorio com
+trabalho nao commitado.
+
+### Fora de escopo
+
+O historico nao alimenta os detectores de emergencia, cortesia e pedido de
+humano — todos seguem lendo so a mensagem atual. E o comportamento correto
+hoje: "bom dia" continua sendo saudacao mesmo depois de uma conversa longa.

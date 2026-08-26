@@ -40,6 +40,7 @@ from app.services.whatsapp_bot_guardrails import (
 from app.services.whatsapp_bot_prompt import (
     build_input_payload,
     build_instructions,
+    montar_historico,
     resolve_prompt_version,
 )
 from app.services.whatsapp_bot_providers import (
@@ -272,6 +273,7 @@ def gerar_resposta(
     provider: Any = None,
     persona_forcada: Optional[str] = None,
     estado: Any = None,
+    historico: Optional[list[dict[str, Any]]] = None,
 ) -> ResultadoGeracao:
     """Gera (ou recusa gerar) uma resposta para uma mensagem inbound.
 
@@ -385,6 +387,7 @@ def gerar_resposta(
         persona=match_type,
         contexto_seguro=contexto_seguro,
         resultados_de_tools=[],
+        historico=montar_historico(historico),
     )
 
     provider = provider or get_whatsapp_bot_reply_provider()
