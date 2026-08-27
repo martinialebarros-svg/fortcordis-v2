@@ -271,7 +271,13 @@ class WhatsAppBotToolsDbTest(unittest.TestCase):
                 try:
                     db.add(Servico(nome="Servico sem preco", ativo=True))
                     db.commit()
-                    ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=1)
+                    # Persona clinica: na de tutor a regiao muda o caminho (RF-P15).
+                    clinica = Clinica(nome="Teste", tabela_preco_id=1)
+                    db.add(clinica)
+                    db.commit()
+                    ctx = tools.WhatsAppBotToolContext(
+                        db=db, match_type="clinica", clinica_id=clinica.id
+                    )
                     res = tools.consultar_preco_tabela(ctx)
                     self.assertFalse(res["ok"])
                 finally:
@@ -416,12 +422,18 @@ class WhatsAppBotToolsDbTest(unittest.TestCase):
                             res = tools.consultar_preco_tabela(
                                 ctx, servico_nome="eco", **({} if regiao is None else {"regiao": regiao})
                             )
-                            self.assertFalse(res["ok"])
-                            self.assertEqual(res["motivo"], "preco_de_clinica_nao_e_para_tutor")
-                            self.assertNotIn("itens", res)
-                            # O valor de clinica nao pode vazar nem no texto do erro.
+                            # `ok: True` para a intent ter fonte e o turno poder
+                            # RESPONDER. Com `ok: False` virava `blocked`, e
+                            # `blocked` nao envia nada -- o tutor recebia
+                            # silencio (medido em stage, 26/08).
+                            self.assertTrue(res["ok"])
+                            self.assertEqual(res["orientacao"], "escolher_tipo_atendimento")
+                            self.assertEqual(res["itens"], [])
+                            # O que nao pode mudar: nenhum valor de tabela
+                            # praticada com clinica no payload inteiro.
                             self.assertNotIn("180", str(res))
                             self.assertNotIn("200", str(res))
+                            self.assertNotIn("valor", str(res).lower())
                 finally:
                     db.close()
             finally:

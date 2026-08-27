@@ -1802,3 +1802,125 @@ trabalho nao commitado.
 O historico nao alimenta os detectores de emergencia, cortesia e pedido de
 humano — todos seguem lendo so a mensagem atual. E o comportamento correto
 hoje: "bom dia" continua sendo saudacao mesmo depois de uma conversa longa.
+
+## RF-P17 — o tutor recebe resposta, nao silencio (2026-08-26)
+
+### Medido no painel de stage, com chamada de IA real
+
+Persona tutor, `quanto custa o ecocardiograma?`:
+
+> **blocked** / `sem_fonte`
+> "O valor do ecocardiograma para tutor so pode ser informado quando o
+> atendimento e domiciliar; em clinica, o valor e tratado pela clinica de sua
+> preferencia."
+
+A protecao da RF-P15 funcionou -- R$ 180 nao aparece. Mas `blocked` **nao envia
+nada**: aquele texto e justamente o recusado. O tutor recebia silencio.
+
+Era o beco que a propria RF-P15 registrou como pendencia. Confirmado ao vivo.
+
+### A correcao
+
+`ok: False` -> `ok: True` com `orientacao: "escolher_tipo_atendimento"` e
+`itens: []`. A pergunta e resposta legitima, entao precisa de fonte para sair.
+
+O que **nao** mudou: nenhum valor de tabela 1 ou 2 no payload. O teste afirma
+sobre o payload inteiro (`str(res)`), nao so sobre `itens`.
+
+### O fluxo completo, agora possivel
+
+| Turno | Cliente | Bot |
+| --- | --- | --- |
+| 1 | "quanto custa o eco?" | "o valor depende do tipo de atendimento..." |
+| 2 | "domiciliar" | "Ecocardiograma custa R$ 350,00." (tabela 3) |
+
+O turno 2 **so funciona por causa da RF-P16**: o historico carrega qual exame
+foi perguntado. Sem memoria, o bot nao teria a que se referir -- e foi
+exatamente por isso que a RF-P15 terminou em beco.
+
+### Tabela domiciliar confirmada em producao
+
+Martiniano verificou o catalogo: 12 servicos, 11 com preco. Coluna
+`DOMICILIAR` populada (Consulta R$ 290, Consulta + Eco R$ 580, Eco + Eletro
+R$ 450, Eco + Eletro + PA R$ 525, Consulta + Eco + Eletro R$ 650,
+Consulta + Eletro R$ 430).
+
+**Pendencia da RF-P14 fechada de quebra:** `Consulta + Eletro` agora tem
+`preco_rm_comercial = R$ 350,00`; estava zerado quando a RF-P14 foi escrita. A
+guarda `sem_preco_na_regiao` continua valendo para lacunas futuras.
+
+### Fora de escopo, declarado no codigo
+
+A frase **nao** promete indicar clinica parceira pelo bairro. A capacidade nao
+existe; prometer o que o bot nao faz e pior que nao oferecer. Fica como feature
+propria -- `Clinica` ja tem `latitude`, `longitude` e `bairro`, e existem
+`geocoding_service` e `logistica_service`.
+
+### Verificacao por mutacao
+
+| Mutacao | Testes mortos |
+| --- | --- |
+| tutor volta a poder ser cotado em `fortaleza` | **5** |
+| `orientacao` deixa de virar frase deterministica | **2** |
+
+Suite: **322 passaram, 2 skipped**.
+
+## RF-P18 — o valor citado e qualificado como comercial (2026-08-26)
+
+### Por que
+
+`consultar_preco_tabela` le apenas `preco_*_comercial`. A tabela tem faixa de
+plantao (`preco_*_plantao`) que o bot **nunca** consulta -- e essa e a razao
+registrada de `preco_servico` estar fora do modo `auto` desde 24/08.
+
+Ate aqui, o bot citava o valor comercial sem dizer que era comercial. Cliente
+perguntando num domingo a noite receberia esse numero como se fosse o dele.
+
+### O cadastro obrigou o desenho
+
+Print de producao em 26/08 (icone de lua = plantao):
+
+| Servico | Plantao cadastrado |
+| --- | --- |
+| Consulta | R$ 290 |
+| Eco + Eletro | R$ 400 |
+| Consulta + Eco | vazio |
+| Consulta + Eco + Eletro | vazio |
+| Consulta + Eletro | vazio |
+| Eco + Eletro + PA | vazio |
+
+Avisar **so** nos servicos com plantao preenchido daria a entender que os
+outros quatro nao tem plantao -- quando a celula e que esta vazia. Silencio
+seletivo afirmaria algo que o cadastro nao sustenta. Por isso o aviso vai em
+toda resposta que cita valor.
+
+### Como ficou
+
+```
+Ecocardiograma custa R$ 180,00. Esse é o valor de horário comercial.
+Para plantão, confirme com a secretaria.
+
+valores de tabela - Consulta: R$ 230,00; Ecocardiograma: R$ 180,00;
+Eletrocardiograma: R$ 120,00. Esses são os valores de horário comercial.
+Para plantão, confirme com a secretaria.
+```
+
+Concordancia acompanha a quantidade. A orientacao da RF-P17 nao recebe o aviso
+-- nao cita valor.
+
+### Um teste que estava medindo a coisa errada
+
+`test_frase_nao_lista_combinacoes_nao_pedidas` afirmava `assertNotIn(";")` para
+dizer "nao listou varios servicos". O aviso novo trouxe um `;` legitimo e o
+teste quebrou sem que nada de errado tivesse acontecido.
+
+A assercao passou a contar `R$`: e isso que "um preco so" quer dizer. O `;` era
+proxy fragil. (O texto do aviso tambem virou duas frases curtas, que leem
+melhor no WhatsApp.)
+
+### Verificacao por mutacao
+
+Aviso removido do renderizador => **4 falhas**, incluindo
+`test_avisa_mesmo_em_servico_sem_plantao_cadastrado`.
+
+Suite: **1147 passaram, 2 skipped**.

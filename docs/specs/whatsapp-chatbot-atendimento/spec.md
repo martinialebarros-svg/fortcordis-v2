@@ -288,6 +288,40 @@ de pausa e claim, não por relógio.
     devolve `off`/`fora_do_piloto` para conversa de tutor, que não tem
     agrupamento equivalente ao da clínica. O defeito era latente: viraria real
     no dia em que a participação mudasse para `todos`.
+- RF-P17 (o tutor recebe resposta, não silêncio, 2026-08-26): a RF-P15 impedia
+  o vazamento da tabela B2B devolvendo `ok: False`. Medido em stage no mesmo
+  dia: a intent ficava sem fonte, o turno virava `blocked`, e **`blocked` não
+  envia nada** — o tutor perguntava preço e recebia silêncio. Proteção correta,
+  desfecho inútil.
+  - `consultar_preco_tabela` passa a devolver `ok: True` com
+    `orientacao: "escolher_tipo_atendimento"` e `itens: []`. A pergunta
+    "domiciliar ou em clínica?" é resposta legítima e precisa de fonte válida
+    para sair. Não há vazamento: nenhum valor das tabelas 1 ou 2 entra no
+    retorno — coberto por asserção sobre o payload inteiro.
+  - O texto é renderizado deterministicamente, como todo dado sensível de
+    preço: *"o valor depende do tipo de atendimento. Se for atendimento
+    domiciliar, me diga que eu passo o valor. Se for na clínica, quem define o
+    valor e a agenda é a clínica parceira da sua preferência."*
+  - **A frase não promete indicar clínica por bairro.** A capacidade não
+    existe ainda; prometer o que o bot não faz é pior que não oferecer.
+  - **Depende da RF-P16.** O segundo turno ("domiciliar") só resolve porque o
+    histórico carrega qual exame foi perguntado. Sem memória, essa conversa não
+    fecharia — e era exatamente o beco registrado na RF-P15.
+- RF-P18 (o valor citado é qualificado como comercial, 2026-08-26): a tabela
+  tem faixa de **plantão** (`preco_*_plantao`) que `consultar_preco_tabela`
+  **nunca** lê — a RF-019 restringe a leitura às colunas `_comercial`. Sem
+  qualificar, um cliente perguntando preço num domingo à noite receberia o
+  valor comercial como se fosse o dele.
+  - Toda resposta que cita valor termina com *"Esse é o valor de horário
+    comercial. Para plantão, confirme com a secretaria."* (concordância no
+    plural quando há mais de um valor).
+  - **O aviso vai em todas, não só nos serviços com plantão cadastrado.** Em
+    26/08 apenas `Consulta` e `Eco + Eletro` tinham a coluna preenchida;
+    avisar só neles daria a entender que os outros quatro não têm plantão,
+    quando a célula é que está vazia. Silêncio seletivo afirmaria algo que o
+    cadastro não sustenta.
+  - A orientação da RF-P17 ("domiciliar ou em clínica?") **não** recebe o
+    aviso: não cita valor nenhum.
 
 - RF-P16 (memória de conversa, 2026-08-26): `gerar_resposta` passa a receber
   `historico` — as últimas mensagens desta conversa, buscadas no serviço de
