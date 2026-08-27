@@ -307,6 +307,21 @@ de pausa e claim, não por relógio.
   - **Depende da RF-P16.** O segundo turno ("domiciliar") só resolve porque o
     histórico carrega qual exame foi perguntado. Sem memória, essa conversa não
     fecharia — e era exatamente o beco registrado na RF-P15.
+- RF-P18 (o valor citado é qualificado como comercial, 2026-08-26): a tabela
+  tem faixa de **plantão** (`preco_*_plantao`) que `consultar_preco_tabela`
+  **nunca** lê — a RF-019 restringe a leitura às colunas `_comercial`. Sem
+  qualificar, um cliente perguntando preço num domingo à noite receberia o
+  valor comercial como se fosse o dele.
+  - Toda resposta que cita valor termina com *"Esse é o valor de horário
+    comercial. Para plantão, confirme com a secretaria."* (concordância no
+    plural quando há mais de um valor).
+  - **O aviso vai em todas, não só nos serviços com plantão cadastrado.** Em
+    26/08 apenas `Consulta` e `Eco + Eletro` tinham a coluna preenchida;
+    avisar só neles daria a entender que os outros quatro não têm plantão,
+    quando a célula é que está vazia. Silêncio seletivo afirmaria algo que o
+    cadastro não sustenta.
+  - A orientação da RF-P17 ("domiciliar ou em clínica?") **não** recebe o
+    aviso: não cita valor nenhum.
 
 - RF-P16 (memória de conversa, 2026-08-26): `gerar_resposta` passa a receber
   `historico` — as últimas mensagens desta conversa, buscadas no serviço de

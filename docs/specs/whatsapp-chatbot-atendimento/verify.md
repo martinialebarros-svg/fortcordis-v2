@@ -1864,3 +1864,63 @@ propria -- `Clinica` ja tem `latitude`, `longitude` e `bairro`, e existem
 | `orientacao` deixa de virar frase deterministica | **2** |
 
 Suite: **322 passaram, 2 skipped**.
+
+## RF-P18 — o valor citado e qualificado como comercial (2026-08-26)
+
+### Por que
+
+`consultar_preco_tabela` le apenas `preco_*_comercial`. A tabela tem faixa de
+plantao (`preco_*_plantao`) que o bot **nunca** consulta -- e essa e a razao
+registrada de `preco_servico` estar fora do modo `auto` desde 24/08.
+
+Ate aqui, o bot citava o valor comercial sem dizer que era comercial. Cliente
+perguntando num domingo a noite receberia esse numero como se fosse o dele.
+
+### O cadastro obrigou o desenho
+
+Print de producao em 26/08 (icone de lua = plantao):
+
+| Servico | Plantao cadastrado |
+| --- | --- |
+| Consulta | R$ 290 |
+| Eco + Eletro | R$ 400 |
+| Consulta + Eco | vazio |
+| Consulta + Eco + Eletro | vazio |
+| Consulta + Eletro | vazio |
+| Eco + Eletro + PA | vazio |
+
+Avisar **so** nos servicos com plantao preenchido daria a entender que os
+outros quatro nao tem plantao -- quando a celula e que esta vazia. Silencio
+seletivo afirmaria algo que o cadastro nao sustenta. Por isso o aviso vai em
+toda resposta que cita valor.
+
+### Como ficou
+
+```
+Ecocardiograma custa R$ 180,00. Esse é o valor de horário comercial.
+Para plantão, confirme com a secretaria.
+
+valores de tabela - Consulta: R$ 230,00; Ecocardiograma: R$ 180,00;
+Eletrocardiograma: R$ 120,00. Esses são os valores de horário comercial.
+Para plantão, confirme com a secretaria.
+```
+
+Concordancia acompanha a quantidade. A orientacao da RF-P17 nao recebe o aviso
+-- nao cita valor.
+
+### Um teste que estava medindo a coisa errada
+
+`test_frase_nao_lista_combinacoes_nao_pedidas` afirmava `assertNotIn(";")` para
+dizer "nao listou varios servicos". O aviso novo trouxe um `;` legitimo e o
+teste quebrou sem que nada de errado tivesse acontecido.
+
+A assercao passou a contar `R$`: e isso que "um preco so" quer dizer. O `;` era
+proxy fragil. (O texto do aviso tambem virou duas frases curtas, que leem
+melhor no WhatsApp.)
+
+### Verificacao por mutacao
+
+Aviso removido do renderizador => **4 falhas**, incluindo
+`test_avisa_mesmo_em_servico_sem_plantao_cadastrado`.
+
+Suite: **1147 passaram, 2 skipped**.

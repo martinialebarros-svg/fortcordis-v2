@@ -125,6 +125,11 @@ def _resultado_ok(
     return None
 
 
+def _aviso_plantao(quantidade: int) -> str:
+    """Concordancia importa: a frase generica lista tres valores."""
+    sujeito = "Esse é o valor" if quantidade == 1 else "Esses são os valores"
+    return f" {sujeito} de horário comercial. Para plantão, confirme com a secretaria."
+
 _ETIQUETA_REGIAO = {
     "fortaleza": " (tabela Clínicas Fortaleza)",
     "rm": " (tabela Região Metropolitana)",
@@ -151,6 +156,14 @@ def _corpo_de_preco(resultado: Optional[dict[str, Any]]) -> str:
     o numero pertence. Deixar o modelo redigir esta frase reabriria a
     possibilidade de anunciar R$ 410,00 ("Consulta + Eco") como preco do eco
     avulso -- erro de preco aprovado pelo guardrail.
+
+    O aviso de plantao acompanha TODA resposta com valor, e nao so os servicos
+    que tem `preco_*_plantao` preenchido. Em 26/08 apenas `Consulta` e
+    `Eco + Eletro` tinham a coluna cadastrada; avisar so neles daria a
+    entender que os outros quatro nao tem plantao, quando na verdade a celula
+    esta vazia. O bot le apenas as colunas `_comercial` (RF-019), entao
+    qualificar o valor citado e o unico jeito honesto de nao prometer preco de
+    plantao que ele nunca consultou.
     """
     if (resultado or {}).get("orientacao") == "escolher_tipo_atendimento":
         # Fluxo que a secretaria ja pratica: pergunta o tipo de atendimento
@@ -189,7 +202,7 @@ def _corpo_de_preco(resultado: Optional[dict[str, Any]]) -> str:
             f"{str(item.get('servico') or 'servico')} custa {_moeda(item.get('valor'))}"
             for item in escolhidos
         )
-        return f"{detalhes}{etiqueta}."
+        return f"{detalhes}{etiqueta}.{_aviso_plantao(len(escolhidos))}"
 
     pedido = list((resultado or {}).get("pedido") or [])
     escolhidos = itens[:2] if pedido else itens[:3]
@@ -199,8 +212,8 @@ def _corpo_de_preco(resultado: Optional[dict[str, Any]]) -> str:
     )
     if pedido:
         # Nao ha o servico avulso: as opcoes reais sao combinacoes.
-        return f"esse exame entra nestas opções de tabela - {detalhes}{etiqueta}."
-    return f"valores de tabela - {detalhes}{etiqueta}."
+        return f"esse exame entra nestas opções de tabela - {detalhes}{etiqueta}.{_aviso_plantao(len(escolhidos))}"
+    return f"valores de tabela - {detalhes}{etiqueta}.{_aviso_plantao(len(escolhidos))}"
 
 
 def _texto_deterministico_para_dado_sensivel(
