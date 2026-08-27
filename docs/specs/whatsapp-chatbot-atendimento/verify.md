@@ -1924,3 +1924,74 @@ Aviso removido do renderizador => **4 falhas**, incluindo
 `test_avisa_mesmo_em_servico_sem_plantao_cadastrado`.
 
 Suite: **1147 passaram, 2 skipped**.
+
+## RF-P19 — indicar clinica parceira perto do tutor (2026-08-26)
+
+### De onde veio
+
+A RF-P17 fez o tutor deixar de receber silencio, mas a resposta terminava em
+"procure a clinica de sua preferencia" -- sem dizer qual. Correto e inutil.
+
+### Desenho
+
+| Situacao | `criterio` | Resposta |
+| --- | --- | --- |
+| bairro informado, ha parceira | `bairro` | nome, bairro, endereco, telefone |
+| sem bairro, tutor tem coordenadas | `distancia` | as 2 mais proximas, por haversine |
+| bairro informado, sem parceira | `sem_clinica_no_bairro` | "nao temos parceira em X ainda" |
+| sem bairro e sem coordenadas | `precisa_bairro` | "me diga em que bairro voce fica" |
+
+**Sem chamada externa.** Geocodificar o bairro exigiria `GOOGLE_MAPS_API_KEY` e
+HTTP dentro do worker -- latencia, custo e uma dependencia externa num caminho
+que precisa falhar fechado. `Tutor` e `Clinica` ja tem `latitude`/`longitude`, e
+`_haversine_km` ja existe em `logistica_service` (importado, nao reescrito:
+duas implementacoes de distancia divergiriam em silencio).
+
+**Estrategias nao encadeiam.** Bairro sem parceira NAO cai na lista por
+distancia. Coberto por teste: o tutor tem coordenadas, a estrategia 2 existe, e
+ainda assim nao entra.
+
+### O risco central nao e o cliente, e a persona
+
+Uma clinica parceira perguntando onde ficam as outras receberia o mapa da rede
+de um concorrente. A defesa e `TOOLS_POR_PERSONA` -- a tool nao existe na
+persona clinica --, nao instrucao de prompt.
+
+### A lacuna que a mutacao encontrou
+
+Primeira rodada de mutacao:
+
+| Mutacao | Testes mortos |
+| --- | --- |
+| tool liberada para a persona clinica | 2 |
+| bairro sem parceira cai na lista por distancia | 1 |
+| **guardrail deixa de ancorar endereco/telefone** | **0** |
+
+Zero. Ou seja: nao havia teste cobrindo a integracao com a RF-022. Sem aquela
+ancoragem, uma resposta citando endereco cairia em `endereco_sem_fonte` e o
+telefone em `contato_fora_da_fonte` -- a feature ficaria **muda em producao** e
+nenhum teste avisaria.
+
+`GuardrailDaClinicaProximaTest` cobriu isso, com contraprova: o mesmo texto sem
+a tool e barrado, e telefone que a tool NAO devolveu continua barrado
+(`contato_fora_da_fonte`). Refeita a mutacao: **1 teste morto**.
+
+### Portugues que o teste nao pegava
+
+Tres defeitos so visiveis lendo a saida:
+
+- "no Aldeota" -> "no bairro Aldeota". O genero varia (o Centro, a Aldeota) e
+  nao ha como acerta-lo a partir do nome.
+- "tratados direto com ela" depois de DUAS clinicas -> fecho neutro.
+- "Uma pessoa da equipe..." seguido do sufixo da RF-024 dizia "pessoa" duas
+  vezes em duas frases. O encaminhamento ja vem do sufixo.
+
+### Suite
+
+**1166 passaram, 2 skipped** (eram 1150). 16 testes novos.
+
+### Fora de escopo
+
+Bairro que o cliente escreve diferente do cadastro ("Pq. Araxa" vs "Parque
+Araxa") so casa por substring. Sem normalizacao de apelido de bairro nem
+geocodificacao, a cobertura depende de o cadastro usar o nome corrente.

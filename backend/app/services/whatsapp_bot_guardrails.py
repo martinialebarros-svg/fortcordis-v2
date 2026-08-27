@@ -59,6 +59,7 @@ INTENTS_ATENDIDAS_POR_PERSONA: dict[str, frozenset[str]] = {
     "tutor": frozenset({
         "horario_funcionamento",
         "endereco",
+        "clinica_proxima",
         "area_atendimento",
         "formas_contato",
         "preco_servico",
@@ -147,6 +148,7 @@ _FONTE_EXIGIDA_POR_INTENT: dict[str, frozenset[str]] = {
     "area_atendimento": frozenset({"buscar_conhecimento_institucional"}),
     "como_agendar": frozenset({"buscar_conhecimento_institucional"}),
     "como_solicitar_exame": frozenset({"buscar_conhecimento_institucional"}),
+    "clinica_proxima": frozenset({"buscar_clinica_parceira"}),
 }
 
 
@@ -441,6 +443,20 @@ def turno_a_partir_dos_resultados(
         if nome == "buscar_conhecimento_institucional":
             if resultado.get("trechos"):
                 turno.tem_trecho_conhecimento = True
+
+        if nome == "buscar_clinica_parceira":
+            # O endereco e o telefone da clinica sugerida sao dado de
+            # cadastro, como os institucionais. Sem alimentar o turno aqui, a
+            # RF-022 barraria a propria resposta que a tool autorizou -- e o
+            # bot ficaria mudo justamente na intent nova.
+            for item in resultado.get("itens") or []:
+                if item.get("endereco"):
+                    turno.tem_endereco_na_fonte = True
+                telefone = _so_digitos(item.get("telefone"))
+                if len(telefone) >= 8:
+                    turno.telefones_permitidos.add(telefone)
+                for cep in _RE_CEP.findall(str(item.get("endereco") or "")):
+                    turno.ceps_permitidos.add(_so_digitos(cep))
 
         if nome == "consultar_dados_institucionais":
             turno.tem_endereco_na_fonte = bool(resultado.get("tem_endereco"))

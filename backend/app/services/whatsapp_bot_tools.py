@@ -37,6 +37,7 @@ from app.core.portal_release import (
 )
 from app.models.atendimento_clinico import AtendimentoClinico
 from app.models.clinica import Clinica
+from app.models.tutor import Tutor
 from app.models.configuracao import Configuracao
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
@@ -45,6 +46,7 @@ from app.models.servico import Servico
 # Reuso legitimo: helpers PUROS de agenda, que recebem so db/date e nao
 # carregam autoridade de staff nem entram em TOOL_DEFINITIONS. Precedente ja
 # na branch: whatsapp_bot_handoff_service.py faz o mesmo import.
+from app.services.logistica_service import _haversine_km
 from app.services.whatsapp_bot_servico_match import (
     AFINIDADE_EXATA,
     ordenar_candidatos,
@@ -698,6 +700,130 @@ def buscar_conhecimento_institucional(
 # Allowlist por persona e dispatcher
 # --------------------------------------------------------------------------
 
+MAX_CLINICAS_SUGERIDAS = 3
+
+
+def _distancia_km(lat1: Any, lon1: Any, lat2: Any, lon2: Any) -> Optional[float]:
+    """Haversine, reusando a formula ja validada em `logistica_service`.
+
+    Importada em vez de reescrita: duas implementacoes de distancia no mesmo
+    repositorio divergiriam em silencio.
+    """
+    try:
+        return _haversine_km(float(lat1), float(lon1), float(lat2), float(lon2))
+    except (TypeError, ValueError):
+        return None
+
+
+def buscar_clinica_parceira(
+    ctx: WhatsAppBotToolContext, *, bairro: Optional[str] = None
+) -> dict[str, Any]:
+    """Clinicas parceiras perto do tutor, por bairro informado ou por cadastro.
+
+    Existe porque a RF-P17 orienta o tutor a procurar "a clinica de sua
+    preferencia" sem dizer QUAL -- resposta correta e inutil. Aqui ela vira
+    acionavel.
+
+    Exclusiva da persona tutor, por construcao (`TOOLS_POR_PERSONA`). Uma
+    clinica parceira perguntando onde ficam as OUTRAS clinicas parceiras
+    receberia o mapa da rede de um concorrente; a allowlist por persona
+    impede isso sem depender de instrucao de prompt.
+
+    Duas estrategias, nesta ordem:
+
+    1. **Bairro informado**: casamento por nome normalizado. E o que o cliente
+       pediu literalmente, entao ganha de qualquer calculo.
+    2. **Sem bairro**: se o tutor tem coordenadas no cadastro, ordena por
+       distancia real. Sem elas, devolve `precisa_bairro` -- que NAO e erro:
+       e a pergunta que falta, e o turno responde perguntando.
+
+    Nunca cai de uma estrategia para a outra em silencio: bairro sem clinica
+    devolve `sem_clinica_no_bairro`, nao a lista da estrategia 2. Sugerir uma
+    clinica de outro canto da cidade a quem perguntou por um bairro
+    especifico seria trocar a pergunta.
+    """
+    if ctx.match_type != "tutor":
+        return {"ok": False, "error": "Sugestao de clinica parceira e exclusiva de tutor."}
+
+    ativas = [
+        c
+        for c in ctx.db.query(Clinica).filter(_legacy_active(Clinica.ativo)).all()
+        if str(getattr(c, "nome", "") or "").strip()
+    ]
+    if not ativas:
+        return {"ok": False, "error": "Nenhuma clinica parceira ativa cadastrada."}
+
+    alvo = _normalizar(bairro)
+    if alvo:
+        no_bairro = [c for c in ativas if alvo and alvo == _normalizar(getattr(c, "bairro", None))]
+        if not no_bairro:
+            # Casamento parcial so DEPOIS do exato: "Centro" nao pode puxar
+            # "Centro de Fortaleza" na frente de um "Centro" literal.
+            no_bairro = [
+                c for c in ativas if alvo and alvo in _normalizar(getattr(c, "bairro", None))
+            ]
+        if no_bairro:
+            return {
+                "ok": True,
+                "criterio": "bairro",
+                "bairro_consultado": str(bairro or "").strip(),
+                "itens": [_clinica_publicavel(c) for c in no_bairro[:MAX_CLINICAS_SUGERIDAS]],
+            }
+        return {
+            "ok": True,
+            "criterio": "sem_clinica_no_bairro",
+            "bairro_consultado": str(bairro or "").strip(),
+            "itens": [],
+        }
+
+    tutor = ctx.db.query(Tutor).filter(Tutor.id == ctx.tutor_id).first()
+    lat = getattr(tutor, "latitude", None) if tutor is not None else None
+    lon = getattr(tutor, "longitude", None) if tutor is not None else None
+    if lat is None or lon is None:
+        return {"ok": True, "criterio": "precisa_bairro", "itens": []}
+
+    com_distancia = []
+    for clinica in ativas:
+        km = _distancia_km(lat, lon, getattr(clinica, "latitude", None),
+                           getattr(clinica, "longitude", None))
+        if km is not None:
+            com_distancia.append((km, clinica))
+    if not com_distancia:
+        # Cadastro sem coordenada nenhuma: perguntar o bairro e melhor que
+        # devolver uma lista sem criterio.
+        return {"ok": True, "criterio": "precisa_bairro", "itens": []}
+
+    com_distancia.sort(key=lambda par: (par[0], _normalizar(par[1].nome)))
+    return {
+        "ok": True,
+        "criterio": "distancia",
+        "itens": [
+            {**_clinica_publicavel(c), "distancia_km": f"{km:.1f}"}
+            for km, c in com_distancia[:MAX_CLINICAS_SUGERIDAS]
+        ],
+    }
+
+
+def _clinica_publicavel(clinica: Any) -> dict[str, Any]:
+    """Allowlist de campo, como no resto do bot.
+
+    So o que um tutor precisa para chegar la. `observacoes`, `cnpj`,
+    `tabela_preco_id`, `preco_personalizado_*` e afins ficam de fora por
+    construcao, nao por instrucao de prompt.
+    """
+    telefone = _so_digitos_contato(getattr(clinica, "telefone", None))
+    return {
+        "nome": str(getattr(clinica, "nome", "") or "").strip(),
+        "bairro": str(getattr(clinica, "bairro", "") or "").strip() or None,
+        "endereco": str(getattr(clinica, "endereco", "") or "").strip() or None,
+        "telefone": telefone or None,
+    }
+
+
+def _so_digitos_contato(value: Any) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
 _TOOLS_COMUNS: dict[str, Callable[..., dict[str, Any]]] = {
     "consultar_horario_funcionamento": consultar_horario_funcionamento,
     "consultar_dados_institucionais": consultar_dados_institucionais,
@@ -710,7 +836,9 @@ _TOOLS_COMUNS: dict[str, Callable[..., dict[str, Any]]] = {
 # classificacao poder ser testada sem chamar o modelo e para uma tool nova
 # nao entrar por descuido numa persona.
 TOOLS_POR_PERSONA: dict[str, dict[str, Callable[..., dict[str, Any]]]] = {
-    "tutor": dict(_TOOLS_COMUNS),
+    # `buscar_clinica_parceira` so na persona tutor: dar a uma clinica
+    # parceira o endereco das outras seria entregar a rede a um concorrente.
+    "tutor": {**_TOOLS_COMUNS, "buscar_clinica_parceira": buscar_clinica_parceira},
     "clinica": dict(_TOOLS_COMUNS),
 }
 
@@ -718,6 +846,23 @@ TOOLS_POR_PERSONA: dict[str, dict[str, Callable[..., dict[str, Any]]]] = {
 # do contexto Python. Formato flat da API Responses, com todo campo
 # opcional listado em `required` e tipo uniao - `strict: True` exige isso.
 TOOL_SCHEMAS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "name": "buscar_clinica_parceira",
+        "description": (
+            "Clinicas parceiras perto do tutor. Passe `bairro` quando o cliente disser "
+            "onde mora; deixe null para usar o endereco do cadastro dele."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "bairro": {"type": ["string", "null"], "description": "Bairro dito pelo cliente."}
+            },
+            "required": ["bairro"],
+            "additionalProperties": False,
+        },
+    },
     {
         "type": "function",
         "name": "consultar_horario_funcionamento",

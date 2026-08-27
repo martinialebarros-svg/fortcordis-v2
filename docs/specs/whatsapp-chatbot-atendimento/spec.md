@@ -322,6 +322,35 @@ de pausa e claim, não por relógio.
     cadastro não sustenta.
   - A orientação da RF-P17 ("domiciliar ou em clínica?") **não** recebe o
     aviso: não cita valor nenhum.
+- RF-P19 (indicar clínica parceira perto do tutor, 2026-08-26): a RF-P17
+  orientava o tutor a procurar "a clínica de sua preferência" **sem dizer
+  qual** — resposta correta e inútil. Nova intent `clinica_proxima`, servida
+  pela tool `buscar_clinica_parceira`.
+  - **Exclusiva da persona tutor, por allowlist.** Uma clínica parceira
+    perguntando onde ficam as **outras** receberia o mapa da rede de um
+    concorrente. A defesa é `TOOLS_POR_PERSONA`, não instrução de prompt.
+  - **Duas estratégias, nunca encadeadas em silêncio.** Bairro informado →
+    casamento por nome normalizado (exato antes de parcial, para "Centro" não
+    puxar "Centro de Fortaleza" na frente de um "Centro" literal). Sem bairro →
+    distância real por `_haversine_km`, entre as coordenadas do `Tutor` e as da
+    `Clinica`. Bairro **sem** parceira devolve `sem_clinica_no_bairro`, e
+    **não** a lista por distância: sugerir clínica do outro lado da cidade a
+    quem perguntou por um bairro específico seria trocar a pergunta.
+  - **Sem chamada externa.** Geocodificar o bairro exigiria chave do Google e
+    HTTP no caminho do worker; as coordenadas já estão nos dois cadastros.
+    `precisa_bairro` não é erro — é a pergunta que falta, e o turno responde
+    perguntando (mesma lição da RF-P17: recusar não pode virar silêncio).
+  - **Allowlist de campo**: só `nome`, `bairro`, `endereco`, `telefone`.
+    `cnpj`, `tabela_preco_id`, `preco_personalizado_*` e `observacoes` ficam
+    fora por construção.
+  - **O guardrail precisa ser alimentado, ou barra a própria resposta.**
+    `turno_a_partir_dos_resultados` passa a ler `buscar_clinica_parceira` para
+    `tem_endereco_na_fonte`, `telefones_permitidos` e `ceps_permitidos`. Sem
+    isso, citar o endereço da parceira cairia em `endereco_sem_fonte` e o
+    telefone em `contato_fora_da_fonte` — a RF-022 recusaria exatamente o que a
+    tool autorizou.
+  - Com a capacidade existindo, a frase da RF-P17 passa a **oferecer** a
+    indicação por bairro. Antes ela omitia de propósito.
 
 - RF-P16 (memória de conversa, 2026-08-26): `gerar_resposta` passa a receber
   `historico` — as últimas mensagens desta conversa, buscadas no serviço de
