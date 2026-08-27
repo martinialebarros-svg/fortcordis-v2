@@ -84,7 +84,7 @@ class GuardrailBloqueioClinicoTest(unittest.TestCase):
             texto="Conforme nosso manual, seu pet tem endocardiose de valva mitral.",
             intent="horario_funcionamento",
             modo="auto",
-            turno=_turno(tem_trecho_conhecimento=True),
+            turno=_turno(tools_ok=["buscar_conhecimento_institucional"]),
         )
         self.assertFalse(veredito.aprovado)
         self.assertEqual(veredito.motivo, "diagnostico")
@@ -109,7 +109,7 @@ class GuardrailFonteEAncoragemTest(unittest.TestCase):
             texto="Funcionamos de segunda a sexta.",
             intent="horario_funcionamento",
             modo="auto",
-            turno=_turno(tools_ok=[], tem_trecho_conhecimento=False),
+            turno=_turno(tools_ok=[]),
         )
         self.assertFalse(veredito.aprovado)
         self.assertEqual(veredito.motivo, "sem_fonte")

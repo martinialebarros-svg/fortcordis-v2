@@ -2115,14 +2115,29 @@ def tem_fonte(self) -> bool:
 devolveu `ok` -- ponto em que `tools_ok` ja a contem. **O `or` e inalcancavel:
 a flag nunca muda decisao alguma.**
 
-Nao foi escrito teste artificial para "cobrir" o ramo. O arquivo de teste
-registra por que a mutacao sobrevive ali, para o proximo leitor nao papelar a
-lacuna com cobertura falsa. Se a flag precisar de significado, o caminho e
-mudar `tem_fonte` -- decisao de produto, fora do escopo desta correcao de
-processo.
+Nao foi escrito teste artificial para "cobrir" o ramo -- seria cobertura falsa
+de logica que nao decide nada.
 
-**Nao removi a flag.** E codigo morto num guardrail; apagar e limpeza
-desejavel, mas e mudanca em codigo de seguranca que nao foi pedida.
+**A flag foi removida** (autorizado por Martiniano em 27/08). O alcance era
+maior do que "tres linhas": alem do campo em `TurnoDeGeracao`, do `or` em
+`tem_fonte` e do bloco de ancoragem, ela aparecia no payload de auditoria
+persistido em `whatsapp_bot_respostas.tools_usadas`, em tres casos de eval, no
+carregador dos evals e em dois testes de guardrail.
+
+Antes de apagar, duas verificacoes:
+
+- **Redundante tambem como diagnostico?** Sim. O unico `return {"ok": True}` de
+  `buscar_conhecimento_institucional` ja inclui `trechos` -- entao `ok: True`
+  implica trecho, e o campo no JSON de auditoria nao acrescentava nada que
+  `tools_ok` ja nao dissesse.
+- **Os tres casos de eval dependiam dela?** Nao. Os tres ja declaravam
+  `tools_ok: ["buscar_conhecimento_institucional"]`.
+
+`tem_fonte` passa a ser `bool(self.tools_ok)`. A simplificacao esta protegida:
+trocar por `return True` mata 1 teste.
+
+Tabela de mutacao refeita depois da limpeza, sem regressao: preco 1, horario 1,
+institucionais 1, clinica parceira 2, tool nova sem caso 1.
 
 ### Suite
 

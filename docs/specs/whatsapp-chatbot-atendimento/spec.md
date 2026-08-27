@@ -214,13 +214,17 @@ de pausa e claim, não por relógio.
   - **A guarda de completude é a parte que protege o erro futuro**: toda tool
     em `TOOLS_POR_PERSONA` precisa aparecer num caso, senão o teste falha com a
     explicação do porquê. Tool nova não entra em silêncio.
-  - **Ramo legitimamente inalcançável, documentado no arquivo.** A ancoragem de
-    `buscar_conhecimento_institucional` só liga `tem_trecho_conhecimento`, lida
-    em `tem_fonte` como `bool(tools_ok) or tem_trecho_conhecimento`. Como
-    `tools_ok` recebe toda tool com `ok: True`, e a flag só é ligada quando
-    essa mesma tool devolveu `ok`, o `or` nunca decide nada. Removê-la não
-    quebra teste — e isso está certo. O arquivo registra que **não** se deve
-    inventar cobertura para esse ramo.
+  - **A mutação que sobreviveu revelou código morto, e ele foi removido.**
+    A ancoragem de `buscar_conhecimento_institucional` só ligava
+    `tem_trecho_conhecimento`, lida em `tem_fonte` como
+    `bool(tools_ok) or tem_trecho_conhecimento`. Como `tools_ok` recebe toda
+    tool com `ok: True`, e a flag só era ligada quando essa mesma tool
+    devolveu `ok`, o `or` nunca decidia nada. `tem_fonte` passa a ser
+    `bool(self.tools_ok)`, e a flag saiu de `TurnoDeGeracao`, do payload de
+    auditoria em `tools_usadas`, de três casos de eval e do carregador dos
+    evals. Nenhum comportamento muda — a tool continua sustentando as intents
+    que a exigem, e a redundância era total também como diagnóstico: o único
+    `return {"ok": True}` dela já inclui `trechos`.
 - RF-P12 (vocabulário de serviço, 2026-08-25): o cliente e o catálogo não usam
   as mesmas palavras. Um tutor pergunta por "eco", "ecodopplercardiograma" ou
   "ultrassom do coração"; a tabela cadastra `Ecocardiograma`, e vende

@@ -9,7 +9,7 @@ antigo (`telefone`) e nao o novo (`whatsapp`).
 O padrao e sempre o mesmo: `turno_a_partir_dos_resultados` traduz o payload da
 tool nos conjuntos que a RF-022 consulta (`valores_permitidos`,
 `horarios_permitidos`, `telefones_permitidos`, `ceps_permitidos`,
-`tem_endereco_na_fonte`, `tem_trecho_conhecimento`). Se essa traducao faltar ou
+`tem_endereco_na_fonte`). Se essa traducao faltar ou
 ficar desatualizada, o guardrail recusa a propria resposta que a tool
 sustentou -- e nenhum teste de tool ou de renderizacao percebe, porque cada um
 olha so o seu lado.
@@ -162,22 +162,17 @@ class FonteSustentaRespostaTest(unittest.TestCase):
         )
 
     def test_conhecimento_institucional(self) -> None:
-        """ATENCAO ao rodar mutacao neste arquivo.
+        """Esta tool nao alimenta nenhum conjunto de ancoragem -- por desenho.
 
-        Remover `if nome == "buscar_conhecimento_institucional"` de
-        `turno_a_partir_dos_resultados` NAO quebra nada -- e isso esta certo,
-        nao e lacuna. Aquele ramo so liga `tem_trecho_conhecimento`, lida em:
+        Ela sustenta a intent (`_FONTE_EXIGIDA_POR_INTENT`), mas nao autoriza
+        valor, horario, telefone nem endereco. Ate 27/08 havia um ramo que
+        ligava `tem_trecho_conhecimento`; a mutacao mostrou que remove-lo nao
+        quebrava nada, e a investigacao revelou por que: `tem_fonte` era
+        `bool(tools_ok) or tem_trecho_conhecimento`, e `tools_ok` recebe toda
+        tool com `ok: True` -- entao o `or` nunca decidia. A flag foi removida.
 
-            def tem_fonte(self): return bool(self.tools_ok) or self.tem_trecho_conhecimento
-
-        `tools_ok.append(nome)` roda para toda tool com `ok: True`, e a flag so
-        e ligada quando ESTA tool devolveu `ok` -- ponto em que `tools_ok` ja a
-        contem. O `or` e inalcancavel: a flag nao muda decisao alguma.
-
-        NAO escreva um teste artificial para "cobrir" esse ramo. Se ele
-        precisar de significado, o caminho e mudar `tem_fonte`, nao inventar
-        cobertura. O caso abaixo cobre o que de fato importa: a intent
-        `area_atendimento` exige esta tool como fonte, e a resposta passa.
+        O que este caso protege continua valendo: a intent `area_atendimento`
+        exige esta tool como fonte, e a resposta que a cita passa.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             db, engine, tutor = self._db(tmpdir)

@@ -125,7 +125,6 @@ class TurnoDeGeracao:
 
     persona: str
     tools_ok: list[str] = field(default_factory=list)
-    tem_trecho_conhecimento: bool = False
     valores_permitidos: set[str] = field(default_factory=set)
     horarios_permitidos: set[str] = field(default_factory=set)
     datas_permitidas: set[str] = field(default_factory=set)
@@ -136,7 +135,7 @@ class TurnoDeGeracao:
 
     @property
     def tem_fonte(self) -> bool:
-        return bool(self.tools_ok) or self.tem_trecho_conhecimento
+        return bool(self.tools_ok)
 
 
 _FONTE_EXIGIDA_POR_INTENT: dict[str, frozenset[str]] = {
@@ -439,10 +438,6 @@ def turno_a_partir_dos_resultados(
                     turno.horarios_permitidos.add(str(valor))
             if resultado.get("data"):
                 turno.datas_permitidas.add(str(resultado["data"]))
-
-        if nome == "buscar_conhecimento_institucional":
-            if resultado.get("trechos"):
-                turno.tem_trecho_conhecimento = True
 
         if nome == "buscar_clinica_parceira":
             # O endereco e o telefone da clinica sugerida sao dado de
