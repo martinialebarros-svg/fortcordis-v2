@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 # enviada a modelo nenhum: serve de consulta para a tool de conhecimento e de
 # rótulo legível no painel.
 PERGUNTA_SONDA: dict[str, str] = {
+    "clinica_proxima": "qual clinica parceira fica perto de mim?",
     "horario_funcionamento": "qual o horario de funcionamento?",
     "endereco": "qual o endereco de voces?",
     "formas_contato": "como falo com voces?",
@@ -46,6 +47,7 @@ PERGUNTA_SONDA: dict[str, str] = {
 }
 
 ROTULO_INTENT: dict[str, str] = {
+    "clinica_proxima": "Indicar clinica parceira perto do cliente",
     "horario_funcionamento": "Horario de funcionamento",
     "endereco": "Endereco",
     "formas_contato": "Formas de contato",
@@ -91,6 +93,10 @@ COMO_RESOLVER: dict[str, str] = {
     "consultar_status_laudo": (
         "Depende de exame cadastrado no escopo da conversa; nao ha o que "
         "configurar previamente."
+    ),
+    "buscar_clinica_parceira": (
+        "Cadastre clinicas parceiras ativas com bairro e endereco preenchidos "
+        "em Clinicas."
     ),
     "buscar_conhecimento_institucional": (
         "Cadastre um documento na base com categoria comecando por "
