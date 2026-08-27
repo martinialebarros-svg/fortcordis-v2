@@ -49,6 +49,7 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
     examesExpandidos,
     examesVisiveis,
     excluirAnexo,
+    excluirCatalogoExameCustomizado,
     excluirPainelExame,
     expandirTodosExames,
     EXAME_FILTRO_OPCOES,
@@ -82,6 +83,7 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
     resolvePreviewKind,
     resumoExamesFluxo,
     salvando,
+    salvarCatalogoExameCustomizado,
     salvarPainelExame,
     selecionado,
     setExamDropActive,
@@ -384,6 +386,7 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
             catalogoExames={catalogoExames}
             customPaineis={customPaineis}
             editarPainelExame={editarPainelExame}
+            excluirCatalogoExameCustomizado={excluirCatalogoExameCustomizado}
             excluirPainelExame={excluirPainelExame}
             painelEmEdicao={painelEmEdicao}
             painelFormCategoria={painelFormCategoria}
@@ -392,6 +395,7 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
             painelFormNome={painelFormNome}
             painelFormSearch={painelFormSearch}
             painelModalMode={painelModalMode}
+            salvarCatalogoExameCustomizado={salvarCatalogoExameCustomizado}
             salvarPainelExame={salvarPainelExame}
             setPainelEmEdicao={setPainelEmEdicao}
             setPainelFormCategoria={setPainelFormCategoria}
