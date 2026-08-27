@@ -46,6 +46,7 @@ from app.models.servico import Servico
 # Reuso legitimo: helpers PUROS de agenda, que recebem so db/date e nao
 # carregam autoridade de staff nem entram em TOOL_DEFINITIONS. Precedente ja
 # na branch: whatsapp_bot_handoff_service.py faz o mesmo import.
+from app.services.assistente_ia_clinics360 import _whatsapps
 from app.services.logistica_service import _haversine_km
 from app.services.whatsapp_bot_servico_match import (
     AFINIDADE_EXATA,
@@ -850,6 +851,12 @@ def _clinica_publicavel(clinica: Any) -> dict[str, Any]:
     `tabela_preco_id`, `preco_personalizado_*` e afins ficam de fora por
     construcao, nao por instrucao de prompt.
     """
+    # WhatsApp antes de telefone: e o canal por onde a clinica de fato se
+    # comunica (Martiniano, 27/08). `whatsapps` e coluna JSON com lista, as
+    # vezes serializada como string -- `_whatsapps` do clinics360 ja trata as
+    # duas formas, e reusar evita uma terceira implementacao divergente.
+    lista = _whatsapps(getattr(clinica, "whatsapps", None))
+    whatsapp = _so_digitos_contato(lista[0]) if lista else ""
     telefone = _so_digitos_contato(getattr(clinica, "telefone", None))
     return {
         "nome": str(getattr(clinica, "nome", "") or "").strip(),
@@ -857,6 +864,7 @@ def _clinica_publicavel(clinica: Any) -> dict[str, Any]:
         # Sem a cidade, "Centro" e ambiguo entre 5 municipios no cadastro real.
         "cidade": str(getattr(clinica, "cidade", "") or "").strip() or None,
         "endereco": str(getattr(clinica, "endereco", "") or "").strip() or None,
+        "whatsapp": whatsapp or None,
         "telefone": telefone or None,
     }
 

@@ -207,6 +207,61 @@ class ClinicaProximaTest(unittest.TestCase):
 
     # --- allowlist de campo ------------------------------------------------
 
+    def test_whatsapp_vem_antes_do_telefone(self) -> None:
+        """E o canal por onde a clinica de fato se comunica (27/08).
+
+        `whatsapps` e coluna JSON: aceita lista e string serializada.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            Factory, engine = self._factory(tmp)
+            try:
+                db = Factory()
+                try:
+                    db.add(Clinica(nome="Com WPP", bairro="Aldeota", cidade="Fortaleza",
+                                   endereco="R, 1", telefone="8533331111",
+                                   whatsapps=["85999998888"], ativo=1))
+                    db.add(Clinica(nome="So Telefone", bairro="Meireles", cidade="Fortaleza",
+                                   endereco="R, 2", telefone="8533332222",
+                                   whatsapps=[], ativo=1))
+                    db.commit()
+                    tutor = self._tutor(db)
+                    ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=tutor.id)
+
+                    com = tools.buscar_clinica_parceira(ctx, bairro="Aldeota")["itens"][0]
+                    self.assertEqual(com["whatsapp"], "85999998888")
+                    self.assertIn("WhatsApp (85) 99999-8888",
+                                  _corpo_de_clinica_proxima({"ok": True, "criterio": "bairro",
+                                                             "itens": [com]}))
+
+                    so_tel = tools.buscar_clinica_parceira(ctx, bairro="Meireles")["itens"][0]
+                    self.assertIsNone(so_tel["whatsapp"])
+                    frase = _corpo_de_clinica_proxima({"ok": True, "criterio": "bairro",
+                                                       "itens": [so_tel]})
+                    self.assertIn("telefone (85) 3333-2222", frase)
+                    self.assertNotIn("WhatsApp", frase)
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_whatsapps_serializado_como_string_tambem_funciona(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            Factory, engine = self._factory(tmp)
+            try:
+                db = Factory()
+                try:
+                    db.add(Clinica(nome="String", bairro="Centro", cidade="Fortaleza",
+                                   endereco="R, 3", whatsapps='["85988887777"]', ativo=1))
+                    db.commit()
+                    tutor = self._tutor(db)
+                    ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=tutor.id)
+                    item = tools.buscar_clinica_parceira(ctx, bairro="Centro")["itens"][0]
+                    self.assertEqual(item["whatsapp"], "85988887777")
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
     def test_bairro_homonimo_em_outra_cidade_e_desempatado_por_distancia(self) -> None:
         """Defeito real do cadastro (26/08): "Centro" tem 10 clinicas em 5
         cidades. Um tutor de Caucaia dizendo "Centro" nao pode receber a de
@@ -271,7 +326,7 @@ class ClinicaProximaTest(unittest.TestCase):
                     res = tools.buscar_clinica_parceira(ctx, bairro="Aldeota")
                     self.assertEqual(
                         set(res["itens"][0].keys()),
-                        {"nome", "bairro", "cidade", "endereco", "telefone"},
+                        {"nome", "bairro", "cidade", "endereco", "whatsapp", "telefone"},
                     )
                     texto = str(res).lower()
                     for proibido in ("cnpj", "12345678", "999", "negociacao", "tabela_preco"):
@@ -332,8 +387,9 @@ class GuardrailDaClinicaProximaTest(unittest.TestCase):
 
     RESULTADO = ("buscar_clinica_parceira", {
         "ok": True, "criterio": "bairro",
-        "itens": [{"nome": "Vet Aldeota", "bairro": "Aldeota",
-                   "endereco": "Rua Antonio, 100", "telefone": "8533331111"}],
+        "itens": [{"nome": "Vet Aldeota", "bairro": "Aldeota", "cidade": "Fortaleza",
+                   "endereco": "Rua Antonio, 100",
+                   "whatsapp": "85999998888", "telefone": "8533331111"}],
     })
 
     def _avaliar(self, texto, resultados):
@@ -342,11 +398,23 @@ class GuardrailDaClinicaProximaTest(unittest.TestCase):
             turno=turno_a_partir_dos_resultados("tutor", resultados),
         )
 
-    def test_endereco_e_telefone_da_parceira_sao_aprovados(self) -> None:
+    def test_endereco_e_whatsapp_da_parceira_sao_aprovados(self) -> None:
+        """O WhatsApp e o numero que a resposta cita de fato (27/08).
+
+        Ancorar so `telefone` deixaria a RF-022 barrar a propria resposta que
+        a tool autorizou -- e a mutacao mostrou que nenhum teste pegava isso.
+        """
         texto = (
             "Atendimento automático da FortCordis: a clínica parceira mais perto de você "
-            "é Vet Aldeota, no Aldeota (Rua Antonio, 100), telefone (85) 3333-1111. "
-            "Se quiser falar com uma pessoa, é só pedir."
+            "é Vet Aldeota, no bairro Aldeota, em Fortaleza (Rua Antonio, 100), "
+            "WhatsApp (85) 99999-8888. Se quiser falar com uma pessoa, é só pedir."
+        )
+        veredito = self._avaliar(texto, [self.RESULTADO])
+        self.assertTrue(veredito.aprovado, veredito.motivo)
+
+    def test_telefone_fixo_da_parceira_tambem_e_aprovado(self) -> None:
+        texto = (
+            "A clínica parceira é Vet Aldeota, Rua Antonio, 100, telefone (85) 3333-1111."
         )
         veredito = self._avaliar(texto, [self.RESULTADO])
         self.assertTrue(veredito.aprovado, veredito.motivo)

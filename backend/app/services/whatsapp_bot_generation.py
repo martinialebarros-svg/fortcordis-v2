@@ -266,9 +266,15 @@ def _corpo_de_clinica_proxima(resultado: Optional[dict[str, Any]]) -> str:
         endereco = item.get("endereco")
         if endereco:
             trecho += f" ({endereco})"
-        telefone = _telefone_legivel(item.get("telefone"))
-        if telefone:
-            trecho += f", telefone {telefone}"
+        # WhatsApp primeiro: e por onde a clinica se comunica. Telefone entra
+        # so quando nao ha WhatsApp cadastrado.
+        whatsapp = _telefone_legivel(item.get("whatsapp"))
+        if whatsapp:
+            trecho += f", WhatsApp {whatsapp}"
+        else:
+            telefone = _telefone_legivel(item.get("telefone"))
+            if telefone:
+                trecho += f", telefone {telefone}"
         partes.append(trecho)
 
     # "mais perto" e afirmacao: so pode ser dita quando houve calculo de

@@ -340,9 +340,16 @@ de pausa e claim, não por relógio.
     HTTP no caminho do worker; as coordenadas já estão nos dois cadastros.
     `precisa_bairro` não é erro — é a pergunta que falta, e o turno responde
     perguntando (mesma lição da RF-P17: recusar não pode virar silêncio).
-  - **Allowlist de campo**: só `nome`, `bairro`, `endereco`, `telefone`.
-    `cnpj`, `tabela_preco_id`, `preco_personalizado_*` e `observacoes` ficam
-    fora por construção.
+  - **Allowlist de campo**: só `nome`, `bairro`, `cidade`, `endereco`,
+    `whatsapp`, `telefone`. `cnpj`, `tabela_preco_id`,
+    `preco_personalizado_*` e `observacoes` ficam fora por construção.
+  - **WhatsApp antes de telefone.** `Clinica.whatsapps` é o canal ativo: a
+    clínica o usa tanto com a FortCordis quanto **com os próprios clientes**
+    (confirmado por Martiniano, 27/08). Por isso passá-lo a um tutor é o uso
+    esperado, não vazamento de contato interno. Telefone fixo entra só na
+    ausência dele. O campo é JSON (lista, às vezes serializada como string) e
+    é normalizado por `_whatsapps`, reusado de `assistente_ia_clinics360` em
+    vez de reimplementado.
   - **O guardrail precisa ser alimentado, ou barra a própria resposta.**
     `turno_a_partir_dos_resultados` passa a ler `buscar_clinica_parceira` para
     `tem_endereco_na_fonte`, `telefones_permitidos` e `ceps_permitidos`. Sem

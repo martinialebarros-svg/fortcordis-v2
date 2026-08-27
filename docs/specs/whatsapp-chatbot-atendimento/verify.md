@@ -2036,3 +2036,32 @@ Mutacao do desempate => 1 teste morto. Suite: **1168 passaram, 2 skipped**.
 **44 clinicas (27%) nao tem telefone.** A resposta omite o campo e segue
 valida -- nome, bairro, cidade e endereco bastam para o cliente chegar --, mas
 a indicacao fica menos util. Nao e defeito de codigo; e cadastro a preencher.
+
+### Correcao de campo: WhatsApp antes de telefone (27/08)
+
+A primeira versao lia `Clinica.telefone`. Martiniano corrigiu: **o numero que
+importa e o `whatsapps`** -- e o canal por onde a clinica se comunica, tanto
+com a FortCordis quanto **com os proprios clientes**.
+
+Essa segunda metade resolve a duvida que eu tinha levantado: parecia contato
+B2B, e dar um canal interno a consumidor final seria incomodo para o parceiro.
+Nao e o caso -- e o numero publico de atendimento da clinica.
+
+Resposta passa a citar `WhatsApp (85) 99999-8888`; telefone fixo so quando nao
+ha WhatsApp cadastrado. `whatsapps` e coluna JSON e aceita lista ou string
+serializada; a normalizacao reusa `_whatsapps` de `assistente_ia_clinics360`.
+
+**A mesma lacuna de antes reapareceu.** Depois de ancorar o WhatsApp no
+guardrail, a mutacao (`ancorar so telefone`) matou **zero** testes: o payload
+do teste de guardrail ainda usava `telefone`. Sem cobertura, uma resposta
+citando WhatsApp seria barrada por `contato_fora_da_fonte` em producao com a
+suite verde. Corrigido; refeita a mutacao, **1 teste morre**.
+
+Suite: **1171 passaram, 2 skipped**.
+
+### Medicao da lacuna de cadastro: pendente
+
+A contagem de 44 sem contato era do campo `telefone`, nao do `whatsapps` -- ou
+seja, **nao mede o que importa**. A remedicao ficou bloqueada: a sessao do
+navegador expirou (401) e o login do usuario estava em outro navegador. Comando
+de VPS entregue para ele rodar; numero real ainda desconhecido.

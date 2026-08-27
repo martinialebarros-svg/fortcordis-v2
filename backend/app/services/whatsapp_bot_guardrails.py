@@ -452,9 +452,10 @@ def turno_a_partir_dos_resultados(
             for item in resultado.get("itens") or []:
                 if item.get("endereco"):
                     turno.tem_endereco_na_fonte = True
-                telefone = _so_digitos(item.get("telefone"))
-                if len(telefone) >= 8:
-                    turno.telefones_permitidos.add(telefone)
+                for bruto in (item.get("whatsapp"), item.get("telefone")):
+                    numero = _so_digitos(bruto)
+                    if len(numero) >= 8:
+                        turno.telefones_permitidos.add(numero)
                 for cep in _RE_CEP.findall(str(item.get("endereco") or "")):
                     turno.ceps_permitidos.add(_so_digitos(cep))
 
