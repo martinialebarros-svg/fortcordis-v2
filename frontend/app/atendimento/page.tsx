@@ -8,9 +8,16 @@ import api from "@/lib/axios";
 import { extractApiErrorMessage, extractApiErrorMessageSync } from "@/lib/api-error";
 import {
   buildExamMergeKey,
+  getExamStateKey,
+  isClearedPersistedExamEligibleForRemoval,
   mergeAutoSavedFormState,
-  reconcileExamRemovalsDuringSave,
+  reconcileExamsDuringSave,
 } from "@/lib/atendimento-form-merge";
+import {
+  ordenarCatalogoExames,
+  removeCatalogoExame,
+  upsertCatalogoExame,
+} from "@/lib/catalogo-exames";
 import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
 import {
   ATENDIMENTOS_LIST_LIMIT,
@@ -361,6 +368,19 @@ type CatalogoExame = {
   observacoes_padrao: string;
   sinonimos: string[];
   ativo: number;
+  customizado?: boolean;
+};
+
+type CatalogoExameCustomPayload = {
+  nome: string;
+  categoria: string;
+  subcategoria: string;
+  especie_alvo: string;
+  prioridade_padrao: string;
+  valor_padrao: number;
+  preparo: string;
+  observacoes_padrao: string;
+  sinonimos: string[];
 };
 
 type PainelExameItem = {
@@ -800,11 +820,10 @@ const gerarExameLocalId = (): string => {
   return `exame-local-${Date.now()}-${exameLocalIdCounter}`;
 };
 
-/** Chave estavel para os mapas de estado por exame (examesExpandidos/examUploadDrafts/examDropActive):
- * `exame.id` quando ja persistido, senao o `_localId` gerado no client - nunca o indice no array,
- * que desloca quando um exame do meio da lista e removido/inserido. */
-const getExameStateKey = (exame: Pick<ExameSolicitacao, "id" | "_localId">): string =>
-  exame.id != null ? String(exame.id) : exame._localId || "sem-id";
+/** Chave estavel para os mapas de estado e para o React: `_localId` nao muda
+ * quando o primeiro autosave devolve o id do banco, evitando remontar o input
+ * e interromper foco/cursor durante a digitacao. */
+const getExameStateKey = getExamStateKey;
 
 const emptyExam = (): ExameSolicitacao => ({
   catalogo_exame_id: null,
@@ -1331,12 +1350,17 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
     motivo_retorno: form.motivo_retorno,
     observacoes: form.observacoes,
     exames: form.exames
-      // Exame marcado para exclusao vai como `_destroy`. Exame sem nome fica de
-      // fora: omitir e um no-op no backend, entao um campo em branco durante a
-      // digitacao nao apaga nem invalida o save.
-      .filter((item) => item._destroy || (item.tipo_exame || "").trim())
+      // Exame marcado para exclusao vai como `_destroy`. Uma solicitacao manual
+      // persistida que o usuario limpou por completo tambem vira exclusao
+      // explicita; cards novos vazios continuam fora do payload.
+      .filter(
+        (item) =>
+          item._destroy ||
+          isClearedPersistedExamEligibleForRemoval(item) ||
+          (item.tipo_exame || "").trim()
+      )
       .map((item) => {
-        if (item._destroy) {
+        if (item._destroy || isClearedPersistedExamEligibleForRemoval(item)) {
           return { id: item.id, _destroy: true };
         }
         return {
@@ -2100,7 +2124,7 @@ export default function AtendimentoPage() {
       if (rc.status === "fulfilled") setClinicas(rc.value.data?.items || []);
       if (rm.status === "fulfilled") setMedicamentos(rm.value.data?.items || []);
       if (re.status === "fulfilled") {
-        setCatalogoExames(re.value.data?.exames || []);
+        setCatalogoExames(ordenarCatalogoExames(re.value.data?.exames || []));
         setPaineisExames(re.value.data?.paineis || []);
       }
       if (rf.status === "fulfilled") setClinicalPhrases(rf.value.data?.frases || []);
@@ -3796,6 +3820,92 @@ export default function AtendimentoPage() {
     }
   };
 
+  const atualizarExameCatalogoNosPaineis = (
+    paineis: PainelExame[],
+    exame: CatalogoExame
+  ): PainelExame[] =>
+    paineis.map((painel) => ({
+      ...painel,
+      itens: painel.itens.map((item) =>
+        item.catalogo_exame_id === exame.id
+          ? {
+              ...item,
+              codigo: exame.codigo,
+              nome: exame.nome,
+              categoria: exame.categoria,
+              subcategoria: exame.subcategoria,
+              prioridade_padrao: exame.prioridade_padrao,
+              valor_padrao: exame.valor_padrao,
+              preparo: exame.preparo,
+              observacoes_padrao: exame.observacoes_padrao,
+            }
+          : item
+      ),
+    }));
+
+  const salvarCatalogoExameCustomizado = async (
+    payload: CatalogoExameCustomPayload,
+    exameId?: number
+  ): Promise<{ ok: true; item: CatalogoExame } | { ok: false; error: string }> => {
+    try {
+      const response = exameId
+        ? await api.put<CatalogoExame>(`/atendimentos/exames/catalogo/${exameId}`, payload)
+        : await api.post<CatalogoExame>("/atendimentos/exames/catalogo", payload);
+      const item = response.data;
+      setCatalogoExames((current) => upsertCatalogoExame(current, item));
+      setPaineisExames((current) => atualizarExameCatalogoNosPaineis(current, item));
+      setCustomPaineis((current) => atualizarExameCatalogoNosPaineis(current, item));
+      setSucesso(
+        exameId
+          ? `Exame "${item.nome}" atualizado no catalogo.`
+          : `Exame "${item.nome}" adicionado ao catalogo.`
+      );
+      setErro("");
+      return { ok: true, item };
+    } catch (error: any) {
+      return {
+        ok: false,
+        error: await extractApiErrorMessage(error, "Nao foi possivel salvar o exame no catalogo."),
+      };
+    }
+  };
+
+  const excluirCatalogoExameCustomizado = async (
+    exame: CatalogoExame
+  ): Promise<{ ok: boolean; error?: string }> => {
+    if (
+      !(await confirmarAcao({
+        titulo: "Remover exame do catalogo?",
+        descricao: `Remover "${exame.nome}" do catalogo e dos paineis que o utilizam? Solicitacoes clinicas ja registradas serao preservadas.`,
+        variante: "destructive",
+        confirmLabel: "Remover",
+      }))
+    ) {
+      return { ok: false };
+    }
+
+    try {
+      await api.delete(`/atendimentos/exames/catalogo/${exame.id}`);
+      setCatalogoExames((current) => removeCatalogoExame(current, exame.id));
+      const removerDosPaineis = (paineis: PainelExame[]) =>
+        paineis.map((painel) => ({
+          ...painel,
+          itens: painel.itens.filter((item) => item.catalogo_exame_id !== exame.id),
+        }));
+      setPaineisExames(removerDosPaineis);
+      setCustomPaineis(removerDosPaineis);
+      setPainelFormItens((current) => current.filter((id) => id !== exame.id));
+      setSucesso(`Exame "${exame.nome}" removido do catalogo.`);
+      setErro("");
+      return { ok: true };
+    } catch (error: any) {
+      return {
+        ok: false,
+        error: await extractApiErrorMessage(error, "Nao foi possivel remover o exame do catalogo."),
+      };
+    }
+  };
+
   const salvarPainelExame = async (formMode: "create" | "edit" = "create") => {
     const nome = painelFormNome.trim();
     if (!nome) {
@@ -4201,7 +4311,7 @@ export default function AtendimentoPage() {
     idsExclusaoEnviados: ReadonlySet<number>
   ) => {
     setForm((current) => {
-      const examesReconciliados = reconcileExamRemovalsDuringSave(
+      const examesReconciliados = reconcileExamsDuringSave(
         current.exames,
         examesEnviados,
         hydrated.exames,
@@ -7394,6 +7504,7 @@ export default function AtendimentoPage() {
                     examesExpandidos={examesExpandidos}
                     examesVisiveis={examesVisiveis}
                     excluirAnexo={excluirAnexo}
+                    excluirCatalogoExameCustomizado={excluirCatalogoExameCustomizado}
                     excluirPainelExame={excluirPainelExame}
                     expandirTodosExames={expandirTodosExames}
                     EXAME_FILTRO_OPCOES={EXAME_FILTRO_OPCOES}
@@ -7428,6 +7539,7 @@ export default function AtendimentoPage() {
                     resumoExamesFluxo={resumoExamesFluxo}
                     salvando={salvando}
                     salvarPainelExame={salvarPainelExame}
+                    salvarCatalogoExameCustomizado={salvarCatalogoExameCustomizado}
                     selecionado={selecionado}
                     setExamDropActive={setExamDropActive}
                     setExamUploadDraftFile={setExamUploadDraftFile}

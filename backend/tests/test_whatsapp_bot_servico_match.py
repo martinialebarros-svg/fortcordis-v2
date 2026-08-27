@@ -173,14 +173,21 @@ class FraseTest(unittest.TestCase):
             ("eco e eletro", "Eco + Eletro custa R$ 250,00."),
         ]:
             with self.subTest(pergunta=pergunta):
-                self.assertEqual(_corpo_de_preco(_payload(pergunta)), esperado)
+                # `startswith`: o aviso de plantao (RF-P18) vem depois e e
+                # verificado no seu proprio teste.
+                self.assertTrue(
+                    _corpo_de_preco(_payload(pergunta)).startswith(esperado),
+                    _corpo_de_preco(_payload(pergunta)),
+                )
 
     def test_frase_nao_lista_combinacoes_nao_pedidas(self) -> None:
         """O excesso de opcoes foi o que gerou confusao no piloto."""
         frase = _corpo_de_preco(_payload("eco"))
         self.assertNotIn("480", frase)
         self.assertNotIn("410", frase)
-        self.assertNotIn(";", frase)
+        # A intencao e "um preco so". Contar "R$" diz isso melhor que a
+        # ausencia de ";", que passou a aparecer por outro motivo.
+        self.assertEqual(frase.count("R$"), 1, frase)
 
     def test_pergunta_generica_comeca_pelos_servicos_simples(self) -> None:
         frase = _corpo_de_preco(_payload(None))
@@ -213,7 +220,10 @@ class EtiquetaRegiaoTest(unittest.TestCase):
 
     def test_clinica_de_rm_ve_a_tabela_na_frase(self) -> None:
         frase = _corpo_de_preco(self._res(regiao="rm", regiao_do_cadastro=True))
-        self.assertEqual(frase, "Ecocardiograma custa R$ 200,00 (tabela Região Metropolitana).")
+        self.assertTrue(
+            frase.startswith("Ecocardiograma custa R$ 200,00 (tabela Região Metropolitana)."),
+            frase,
+        )
 
     def test_clinica_de_fortaleza_tambem_ve(self) -> None:
         """Etiquetar so RM nao pegaria a clinica de RM cadastrada como Fortaleza."""
@@ -222,8 +232,43 @@ class EtiquetaRegiaoTest(unittest.TestCase):
 
     def test_tutor_nao_recebe_etiqueta(self) -> None:
         frase = _corpo_de_preco(self._res(regiao="fortaleza", regiao_do_cadastro=False))
-        self.assertEqual(frase, "Ecocardiograma custa R$ 200,00.")
-        self.assertNotIn("tabela", frase)
+        self.assertTrue(frase.startswith("Ecocardiograma custa R$ 200,00."), frase)
+        self.assertNotIn("(tabela", frase)
+
+
+class AvisoDePlantaoTest(unittest.TestCase):
+    """RF-P18: o bot le apenas as colunas `_comercial`, nunca as de plantao.
+
+    Sem qualificar o valor, um cliente perguntando preco num domingo a noite
+    receberia o valor de horario comercial como se fosse o dele.
+    """
+
+    def test_toda_resposta_com_valor_qualifica_o_horario(self) -> None:
+        for pergunta in ("eco", "consulta com eco", None):
+            with self.subTest(pergunta=pergunta):
+                frase = _corpo_de_preco(_payload(pergunta))
+                self.assertIn("horário comercial", frase)
+                self.assertIn("plantão", frase)
+                self.assertIn("secretaria", frase)
+
+    def test_avisa_mesmo_em_servico_sem_plantao_cadastrado(self) -> None:
+        """Em 26/08 so `Consulta` e `Eco + Eletro` tinham plantao preenchido.
+
+        Avisar so neles daria a entender que os outros nao tem plantao,
+        quando a celula e que esta vazia.
+        """
+        self.assertIn("plantão", _corpo_de_preco(_payload("ecocardiograma")))
+
+    def test_concordancia_acompanha_a_quantidade_de_valores(self) -> None:
+        self.assertIn("Esse é o valor", _corpo_de_preco(_payload("eco")))
+        self.assertIn("Esses são os valores", _corpo_de_preco(_payload(None)))
+
+    def test_resposta_sem_valor_nao_recebe_o_aviso(self) -> None:
+        """A orientacao "domiciliar ou em clinica?" nao cita valor nenhum."""
+        frase = _corpo_de_preco({"ok": True, "orientacao": "escolher_tipo_atendimento",
+                                 "itens": []})
+        self.assertNotIn("plantão", frase)
+        self.assertNotIn("R$", frase)
 
 
 if __name__ == "__main__":

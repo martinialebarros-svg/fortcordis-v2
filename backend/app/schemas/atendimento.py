@@ -213,6 +213,18 @@ class ClinicalPhrasePayload(BaseModel):
     ativo: Optional[int] = 1
 
 
+class CatalogoExameCustomPayload(BaseModel):
+    nome: str = Field(..., min_length=2, max_length=120)
+    categoria: str = Field(..., min_length=2, max_length=120)
+    subcategoria: Optional[str] = Field(default="", max_length=120)
+    especie_alvo: Optional[str] = Field(default="", max_length=120)
+    prioridade_padrao: str = Field(default="Rotina", max_length=50)
+    valor_padrao: float = Field(default=0, ge=0)
+    preparo: Optional[str] = ""
+    observacoes_padrao: Optional[str] = ""
+    sinonimos: List[str] = Field(default_factory=list, max_length=30)
+
+
 class PainelExameItemPayload(BaseModel):
     catalogo_exame_id: int = Field(..., ge=1)
     ordem: Optional[int] = 0

@@ -9,6 +9,7 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.models.catalogo_exame import CatalogoExame, PainelExame, PainelExameItem
+from app.services.atendimento.catalogo_exame_custom_service import catalogo_exame_e_customizado
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 CATALOGO_EXAMES_FILE = DATA_DIR / "catalogo_exames.json"
@@ -63,6 +64,7 @@ def catalogo_exame_to_dict(item: CatalogoExame) -> Dict[str, Any]:
         "sinonimos": _parse_sinonimos(item.sinonimos_json),
         "clinic_id": item.clinic_id,
         "ativo": item.ativo,
+        "customizado": catalogo_exame_e_customizado(item),
     }
 
 
