@@ -152,6 +152,20 @@ def _corpo_de_preco(resultado: Optional[dict[str, Any]]) -> str:
     possibilidade de anunciar R$ 410,00 ("Consulta + Eco") como preco do eco
     avulso -- erro de preco aprovado pelo guardrail.
     """
+    if (resultado or {}).get("orientacao") == "escolher_tipo_atendimento":
+        # Fluxo que a secretaria ja pratica: pergunta o tipo de atendimento
+        # antes de cotar. Com a memoria de conversa (RF-P16) o segundo turno
+        # funciona -- o bot lembra qual exame foi perguntado.
+        #
+        # A frase NAO promete indicar clinica por bairro: essa capacidade
+        # ainda nao existe, e prometer o que o bot nao faz e pior que nao
+        # oferecer.
+        return (
+            "o valor depende do tipo de atendimento. Se for atendimento domiciliar, "
+            "me diga que eu passo o valor. Se for na clínica, quem define o valor e a "
+            "agenda é a clínica parceira da sua preferência."
+        )
+
     itens = list((resultado or {}).get("itens") or [])
     if not itens:
         return ""

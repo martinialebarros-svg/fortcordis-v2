@@ -386,13 +386,20 @@ def consultar_preco_tabela(
         # parceira contra ela mesma. Atendimento em clinica: o tutor procura a
         # clinica de preferencia dele. So `domiciliar` (tabela 3) e da
         # FortCordis para o tutor.
+        #
+        # `ok: True` de proposito, apesar de nao haver valor no payload.
+        # Devolver `ok: False` deixava a intent sem fonte e o turno virava
+        # `blocked` -- e `blocked` nao envia NADA ao cliente. Medido em stage
+        # em 26/08: o tutor perguntava preco e recebia silencio. A pergunta
+        # "domiciliar ou em clinica?" e uma resposta legitima, entao precisa
+        # de fonte valida para sair. Nao ha vazamento: nenhum valor de tabela
+        # 1 ou 2 entra no retorno.
         return {
-            "ok": False,
-            "error": (
-                "Valor para tutor so pode ser informado em atendimento domiciliar; "
-                "atendimento em clinica e tratado pela clinica de preferencia do cliente."
-            ),
-            "motivo": "preco_de_clinica_nao_e_para_tutor",
+            "ok": True,
+            "orientacao": "escolher_tipo_atendimento",
+            "itens": [],
+            "domiciliar_disponivel": True,
+            "servico_perguntado": str(servico_nome or "").strip() or None,
         }
     coluna = _REGIAO_COLUNAS.get(chave)
     if coluna is None:

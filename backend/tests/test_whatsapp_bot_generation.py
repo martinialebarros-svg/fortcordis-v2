@@ -412,16 +412,15 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
                 finally:
                     db.close()
 
-                # RF-P15: o modelo pediu `regiao="fortaleza"` (tabela praticada
-                # com clinica parceira). A tool recusa, a intent fica sem fonte
-                # e o turno nao vira rascunho. O valor B2B nao pode aparecer.
-                self.assertEqual(resultado.decisao, "blocked")
-                self.assertEqual(resultado.motivo, "sem_fonte")
-                # `texto_gerado` em `blocked` E o texto recusado (aqui, o
-                # R$ 999,00 inventado pelo modelo) - por isso a API nao o
-                # expoe. O que nao pode e a tabela B2B ter chegado ate ele.
-                self.assertNotIn("420", resultado.texto_gerado or "")
-                # A tool RODOU, mas recusou: nao virou fonte que sustente a intent.
+                # RF-P15/P17: o modelo pediu `regiao="fortaleza"` (tabela
+                # praticada com clinica parceira). O tutor nao recebe esse
+                # valor -- mas TAMBEM nao pode receber silencio. O turno vira
+                # rascunho com a pergunta que a secretaria faria.
+                self.assertEqual(resultado.decisao, "draft")
+                self.assertIn("depende do tipo de atendimento", resultado.texto_gerado)
+                self.assertIn("clínica parceira", resultado.texto_gerado)
+                self.assertNotIn("420", resultado.texto_gerado)
+                self.assertNotIn("999", resultado.texto_gerado)
                 self.assertIn("consultar_preco_tabela", resultado.tools_usadas or "")
             finally:
                 engine.dispose()

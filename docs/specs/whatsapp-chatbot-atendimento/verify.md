@@ -1802,3 +1802,65 @@ trabalho nao commitado.
 O historico nao alimenta os detectores de emergencia, cortesia e pedido de
 humano — todos seguem lendo so a mensagem atual. E o comportamento correto
 hoje: "bom dia" continua sendo saudacao mesmo depois de uma conversa longa.
+
+## RF-P17 — o tutor recebe resposta, nao silencio (2026-08-26)
+
+### Medido no painel de stage, com chamada de IA real
+
+Persona tutor, `quanto custa o ecocardiograma?`:
+
+> **blocked** / `sem_fonte`
+> "O valor do ecocardiograma para tutor so pode ser informado quando o
+> atendimento e domiciliar; em clinica, o valor e tratado pela clinica de sua
+> preferencia."
+
+A protecao da RF-P15 funcionou -- R$ 180 nao aparece. Mas `blocked` **nao envia
+nada**: aquele texto e justamente o recusado. O tutor recebia silencio.
+
+Era o beco que a propria RF-P15 registrou como pendencia. Confirmado ao vivo.
+
+### A correcao
+
+`ok: False` -> `ok: True` com `orientacao: "escolher_tipo_atendimento"` e
+`itens: []`. A pergunta e resposta legitima, entao precisa de fonte para sair.
+
+O que **nao** mudou: nenhum valor de tabela 1 ou 2 no payload. O teste afirma
+sobre o payload inteiro (`str(res)`), nao so sobre `itens`.
+
+### O fluxo completo, agora possivel
+
+| Turno | Cliente | Bot |
+| --- | --- | --- |
+| 1 | "quanto custa o eco?" | "o valor depende do tipo de atendimento..." |
+| 2 | "domiciliar" | "Ecocardiograma custa R$ 350,00." (tabela 3) |
+
+O turno 2 **so funciona por causa da RF-P16**: o historico carrega qual exame
+foi perguntado. Sem memoria, o bot nao teria a que se referir -- e foi
+exatamente por isso que a RF-P15 terminou em beco.
+
+### Tabela domiciliar confirmada em producao
+
+Martiniano verificou o catalogo: 12 servicos, 11 com preco. Coluna
+`DOMICILIAR` populada (Consulta R$ 290, Consulta + Eco R$ 580, Eco + Eletro
+R$ 450, Eco + Eletro + PA R$ 525, Consulta + Eco + Eletro R$ 650,
+Consulta + Eletro R$ 430).
+
+**Pendencia da RF-P14 fechada de quebra:** `Consulta + Eletro` agora tem
+`preco_rm_comercial = R$ 350,00`; estava zerado quando a RF-P14 foi escrita. A
+guarda `sem_preco_na_regiao` continua valendo para lacunas futuras.
+
+### Fora de escopo, declarado no codigo
+
+A frase **nao** promete indicar clinica parceira pelo bairro. A capacidade nao
+existe; prometer o que o bot nao faz e pior que nao oferecer. Fica como feature
+propria -- `Clinica` ja tem `latitude`, `longitude` e `bairro`, e existem
+`geocoding_service` e `logistica_service`.
+
+### Verificacao por mutacao
+
+| Mutacao | Testes mortos |
+| --- | --- |
+| tutor volta a poder ser cotado em `fortaleza` | **5** |
+| `orientacao` deixa de virar frase deterministica | **2** |
+
+Suite: **322 passaram, 2 skipped**.

@@ -381,5 +381,86 @@ class PaginacaoTest(unittest.TestCase):
             )
 
 
+class FluxoDoTutorEmDoisTurnosTest(GuardrailComHistoricoTest):
+    """RF-P17: o dialogo que a secretaria faz, agora possivel com a memoria.
+
+    Turno 1: "quanto custa o eco?" -> "e domiciliar ou em clinica?"
+    Turno 2: "domiciliar"          -> valor da tabela 3
+
+    O turno 2 so funciona porque o historico carrega QUAL exame foi
+    perguntado. Sem a RF-P16 o bot nao teria a que se referir.
+    """
+
+    def _provider(self, texto, tool_args):
+        turno = GeneratedReply(
+            output=None, model="fake", input_tokens=60, output_tokens=5,
+            tool_calls=[{"call_id": "c1", "name": "consultar_preco_tabela",
+                         "arguments": tool_args}],
+            continuation_input=[{"type": "function_call", "call_id": "c1",
+                                 "name": "consultar_preco_tabela"}],
+        )
+        reply = GeneratedReply(
+            output=WhatsAppBotReplyOutput(texto=texto, intent="preco_servico",
+                                          fontes=[], precisa_humano=False),
+            model="fake", input_tokens=60, output_tokens=20,
+        )
+        return SimpleNamespace(generate=Mock(side_effect=[turno, reply]))
+
+    def test_turno_1_pergunta_o_tipo_sem_vazar_preco_de_clinica(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed(db)
+                    r = generation.gerar_resposta(
+                        db, wa_identity="5585999990001",
+                        corpo_mensagem="quanto custa o eco?", modo="suggest",
+                        provider=self._provider(
+                            "texto do modelo",
+                            {"servico_nome": "eco", "regiao": "fortaleza"},
+                        ),
+                    )
+                finally:
+                    db.close()
+                # Responde -- nao fica em silencio.
+                self.assertEqual(r.decisao, "draft")
+                self.assertIn("depende do tipo de atendimento", r.texto_gerado)
+                # O preco de clinica (180) nao aparece de forma alguma.
+                self.assertNotIn("180", r.texto_gerado)
+                self.assertNotIn("R$", r.texto_gerado)
+            finally:
+                engine.dispose()
+
+    def test_turno_2_com_memoria_cota_a_tabela_domiciliar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Factory, engine = self._factory(tmpdir)
+            try:
+                db = Factory()
+                try:
+                    self._seed(db)
+                    r = generation.gerar_resposta(
+                        db, wa_identity="5585999990001",
+                        corpo_mensagem="domiciliar", modo="suggest",
+                        provider=self._provider(
+                            "texto do modelo",
+                            {"servico_nome": "eco", "regiao": "domiciliar"},
+                        ),
+                        historico=[
+                            {"body": "quanto custa o eco?", "from_me": False},
+                            {"body": "o valor depende do tipo de atendimento...",
+                             "from_me": True},
+                        ],
+                    )
+                finally:
+                    db.close()
+                self.assertEqual(r.decisao, "draft")
+                # 350 = preco_domiciliar_comercial no seed; 180 = Fortaleza.
+                self.assertIn("R$ 350,00", r.texto_gerado)
+                self.assertNotIn("180", r.texto_gerado)
+            finally:
+                engine.dispose()
+
+
 if __name__ == "__main__":
     unittest.main()
