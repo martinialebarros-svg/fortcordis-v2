@@ -2065,3 +2065,80 @@ A contagem de 44 sem contato era do campo `telefone`, nao do `whatsapps` -- ou
 seja, **nao mede o que importa**. A remedicao ficou bloqueada: a sessao do
 navegador expirou (401) e o login do usuario estava em outro navegador. Comando
 de VPS entregue para ele rodar; numero real ainda desconhecido.
+
+## RF-P20 — fechando a classe de lacuna que apareceu duas vezes (2026-08-27)
+
+### O padrao
+
+Duas vezes na RF-P19 a integracao com a RF-022 passou verde sem cobertura:
+
+| Ocasiao | Como escapou |
+| --- | --- |
+| 1a | Nao havia teste nenhum da juncao tool <-> guardrail |
+| 2a | O teste existia, mas o payload usava `telefone` enquanto a ancoragem tinha ganhado `whatsapp` |
+
+Nos dois casos o efeito em producao seria identico: **o bot mudo na intent
+nova, com a suite inteira verde**. Testes de tool olham so o payload; testes de
+renderizacao olham so o texto. Ninguem olhava a juncao.
+
+### A correcao
+
+`test_whatsapp_bot_fonte_sustenta_resposta.py`: para cada tool, roda a tool DE
+VERDADE contra banco semeado, monta o turno pelo payload literal e exige que
+uma resposta citando aquele dado seja **aprovada** pelo guardrail.
+
+A parte que protege o erro FUTURO e a guarda de completude: toda tool em
+`TOOLS_POR_PERSONA` precisa de um caso, senao o teste falha explicando por que.
+
+### Verificacao: cada ancoragem foi desfeita, uma a uma
+
+| Ancoragem removida | Testes mortos |
+| --- | --- |
+| `consultar_preco_tabela` | 1 |
+| `consultar_horario_funcionamento` | 1 |
+| `consultar_dados_institucionais` | 1 |
+| `buscar_clinica_parceira` | 2 |
+| `buscar_conhecimento_institucional` | **0 -- e esta certo, ver abaixo** |
+| tool nova em `TOOLS_POR_PERSONA` sem caso | 1 (guarda de completude) |
+
+### Achado: `tem_trecho_conhecimento` e codigo morto
+
+A unica mutacao que nao pegou revelou um defeito real, nao uma lacuna de teste:
+
+```python
+def tem_fonte(self) -> bool:
+    return bool(self.tools_ok) or self.tem_trecho_conhecimento
+```
+
+`tools_ok.append(nome)` roda para TODA tool com `ok: True`. E
+`tem_trecho_conhecimento` so e ligada quando `buscar_conhecimento_institucional`
+devolveu `ok` -- ponto em que `tools_ok` ja a contem. **O `or` e inalcancavel:
+a flag nunca muda decisao alguma.**
+
+Nao foi escrito teste artificial para "cobrir" o ramo -- seria cobertura falsa
+de logica que nao decide nada.
+
+**A flag foi removida** (autorizado por Martiniano em 27/08). O alcance era
+maior do que "tres linhas": alem do campo em `TurnoDeGeracao`, do `or` em
+`tem_fonte` e do bloco de ancoragem, ela aparecia no payload de auditoria
+persistido em `whatsapp_bot_respostas.tools_usadas`, em tres casos de eval, no
+carregador dos evals e em dois testes de guardrail.
+
+Antes de apagar, duas verificacoes:
+
+- **Redundante tambem como diagnostico?** Sim. O unico `return {"ok": True}` de
+  `buscar_conhecimento_institucional` ja inclui `trechos` -- entao `ok: True`
+  implica trecho, e o campo no JSON de auditoria nao acrescentava nada que
+  `tools_ok` ja nao dissesse.
+- **Os tres casos de eval dependiam dela?** Nao. Os tres ja declaravam
+  `tools_ok: ["buscar_conhecimento_institucional"]`.
+
+`tem_fonte` passa a ser `bool(self.tools_ok)`. A simplificacao esta protegida:
+trocar por `return True` mata 1 teste.
+
+Tabela de mutacao refeita depois da limpeza, sem regressao: preco 1, horario 1,
+institucionais 1, clinica parceira 2, tool nova sem caso 1.
+
+### Suite
+
+**1179 passaram, 2 skipped** (eram 1171). 8 casos novos.

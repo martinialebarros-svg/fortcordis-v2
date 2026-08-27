@@ -342,7 +342,6 @@ def _tools_usadas_json(
             "tools_tentadas": [nome for nome, _ in resultados],
             "tools_ok": turno.tools_ok,
             "fontes_declaradas": fontes_declaradas or [],
-            "tem_trecho_conhecimento": turno.tem_trecho_conhecimento,
         },
         ensure_ascii=False,
     )

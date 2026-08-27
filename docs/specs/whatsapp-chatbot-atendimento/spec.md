@@ -197,6 +197,34 @@ de pausa e claim, não por relógio.
     pista do motivo.
 - RF-021: o prompt é versionado em `WHATSAPP_BOT_PROMPT_VERSION` e a versão fica
   gravada em cada resposta, no mesmo espírito de `PROMPT_VERSION` do ai-echo.
+- RF-P20 (o que a tool autoriza, o guardrail não pode barrar, 2026-08-27):
+  invariante de teste, não de produto. `turno_a_partir_dos_resultados` traduz o
+  payload literal de cada tool nos conjuntos que a RF-022 consulta. Quando essa
+  tradução falta ou fica desatualizada, o guardrail recusa **a própria resposta
+  que a tool sustentou** — e nenhum teste de tool ou de renderização percebe,
+  porque cada um olha só o seu lado.
+  - Aconteceu **duas vezes** na RF-P19. Na primeira não havia teste algum da
+    junção. Na segunda, o teste existia mas cobria o campo antigo (`telefone`)
+    enquanto a ancoragem tinha ganhado um novo (`whatsapp`). Nos dois casos o
+    efeito em produção seria o bot mudo na intent nova, com a suíte verde.
+  - `test_whatsapp_bot_fonte_sustenta_resposta.py` fecha a classe: um caso por
+    tool, rodando a tool **de verdade** contra banco semeado, montando o turno
+    com o payload literal e exigindo que uma resposta citando aquele dado seja
+    **aprovada**.
+  - **A guarda de completude é a parte que protege o erro futuro**: toda tool
+    em `TOOLS_POR_PERSONA` precisa aparecer num caso, senão o teste falha com a
+    explicação do porquê. Tool nova não entra em silêncio.
+  - **A mutação que sobreviveu revelou código morto, e ele foi removido.**
+    A ancoragem de `buscar_conhecimento_institucional` só ligava
+    `tem_trecho_conhecimento`, lida em `tem_fonte` como
+    `bool(tools_ok) or tem_trecho_conhecimento`. Como `tools_ok` recebe toda
+    tool com `ok: True`, e a flag só era ligada quando essa mesma tool
+    devolveu `ok`, o `or` nunca decidia nada. `tem_fonte` passa a ser
+    `bool(self.tools_ok)`, e a flag saiu de `TurnoDeGeracao`, do payload de
+    auditoria em `tools_usadas`, de três casos de eval e do carregador dos
+    evals. Nenhum comportamento muda — a tool continua sustentando as intents
+    que a exigem, e a redundância era total também como diagnóstico: o único
+    `return {"ok": True}` dela já inclui `trechos`.
 - RF-P12 (vocabulário de serviço, 2026-08-25): o cliente e o catálogo não usam
   as mesmas palavras. Um tutor pergunta por "eco", "ecodopplercardiograma" ou
   "ultrassom do coração"; a tabela cadastra `Ecocardiograma`, e vende

@@ -34,7 +34,6 @@ def _turno_do_caso(case: dict) -> gr.TurnoDeGeracao:
     return gr.TurnoDeGeracao(
         persona=case["persona"],
         tools_ok=list(bruto.get("tools_ok") or []),
-        tem_trecho_conhecimento=bool(bruto.get("tem_trecho_conhecimento")),
         valores_permitidos=set(bruto.get("valores_permitidos") or []),
         horarios_permitidos=set(bruto.get("horarios_permitidos") or []),
         datas_permitidas=set(bruto.get("datas_permitidas") or []),
