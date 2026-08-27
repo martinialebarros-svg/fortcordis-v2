@@ -258,6 +258,11 @@ def _corpo_de_clinica_proxima(resultado: Optional[dict[str, Any]]) -> str:
             # "no bairro X" e nao "no X": o genero varia (o Centro, a Aldeota)
             # e nao ha como acerta-lo a partir do nome.
             trecho += f", no bairro {bairro}"
+        cidade = item.get("cidade")
+        if cidade:
+            # Sem a cidade, "Centro" e ambiguo entre 5 municipios no cadastro
+            # real -- e o cliente nao teria como perceber.
+            trecho += f", em {cidade}"
         endereco = item.get("endereco")
         if endereco:
             trecho += f" ({endereco})"
@@ -266,11 +271,22 @@ def _corpo_de_clinica_proxima(resultado: Optional[dict[str, Any]]) -> str:
             trecho += f", telefone {telefone}"
         partes.append(trecho)
 
-    abertura = (
-        "a clínica parceira mais perto de você é"
-        if len(partes) == 1
-        else "as parceiras mais perto de você são"
-    )
+    # "mais perto" e afirmacao: so pode ser dita quando houve calculo de
+    # distancia. Sem coordenadas o bot lista o que encontrou no bairro, sem
+    # ordenar nada e sem prometer proximidade.
+    mediu = bool((resultado or {}).get("ordenado_por_distancia"))
+    if mediu:
+        abertura = (
+            "a clínica parceira mais perto de você é"
+            if len(partes) == 1
+            else "as parceiras mais perto de você são"
+        )
+    else:
+        abertura = (
+            "a clínica parceira que temos por aí é"
+            if len(partes) == 1
+            else "as parceiras que temos por aí são"
+        )
     # Fecho neutro: "com ela" nao concordaria na variante com duas clinicas.
     return (
         f"{abertura} {'; e '.join(partes)}. "

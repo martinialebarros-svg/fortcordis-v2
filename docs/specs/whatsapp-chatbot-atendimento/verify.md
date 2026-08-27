@@ -1995,3 +1995,44 @@ Tres defeitos so visiveis lendo a saida:
 Bairro que o cliente escreve diferente do cadastro ("Pq. Araxa" vs "Parque
 Araxa") so casa por substring. Sem normalizacao de apelido de bairro nem
 geocodificacao, a cobertura depende de o cadastro usar o nome corrente.
+
+### Conferencia do cadastro de producao (26/08) e um defeito que ela revelou
+
+Consultado `/api/v1/clinicas` em producao, pela sessao do navegador:
+
+| Campo | Preenchido |
+| --- | --- |
+| total ativas | 162 |
+| bairro | 159 (98%) |
+| coordenadas | 157 (97%) |
+| endereco | 159 (98%) |
+| **telefone** | **118 (73%)** |
+
+Cobertura boa. 88 bairros distintos, 54 deles com uma unica clinica -- o corte
+em 2 sugestoes esta adequado.
+
+**O defeito:** o cadastro cobre **8 cidades** (Fortaleza, Caucaia, Maracanau,
+Maranguape, Eusebio, Aracati, Itaitinga, Pacatuba), e nome de bairro nao e
+unico entre elas. `Centro` tem **10 clinicas em 5 cidades**. A versao inicial
+devolvia as primeiras da lista: um tutor de Caucaia dizendo "Centro" receberia
+a `Amo Pet` de Maranguape, a ~40 km, anunciada como "a mais perto de voce".
+
+Duas correcoes:
+
+1. **Desempate por distancia** dentro do casamento por bairro, quando o tutor
+   tem coordenadas. Ordenacao parcial e recusada (`None`, nao "ordem
+   preservada"): ordenar umas e deixar outras no fim por acaso seria pior.
+2. **Cidade no payload e na frase.** Sem ela o cliente nao teria como perceber
+   a ambiguidade.
+
+E uma terceira, de honestidade: **"mais perto" so e dito quando houve
+calculo**. Sem coordenadas a frase vira "a clinica parceira que temos por ai",
+sem prometer proximidade que ninguem mediu.
+
+Mutacao do desempate => 1 teste morto. Suite: **1168 passaram, 2 skipped**.
+
+### Lacuna de cadastro, para decisao de negocio
+
+**44 clinicas (27%) nao tem telefone.** A resposta omite o campo e segue
+valida -- nome, bairro, cidade e endereco bastam para o cliente chegar --, mas
+a indicacao fica menos util. Nao e defeito de codigo; e cadastro a preencher.

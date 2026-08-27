@@ -715,6 +715,33 @@ def _distancia_km(lat1: Any, lon1: Any, lat2: Any, lon2: Any) -> Optional[float]
         return None
 
 
+def _ordenar_por_distancia_do_tutor(
+    ctx: "WhatsAppBotToolContext", clinicas: list[Any]
+) -> Optional[list[Any]]:
+    """Ordena por distancia real, ou `None` se nao der para calcular.
+
+    `None` e diferente de "ordem preservada": o chamador precisa saber que
+    NAO houve calculo, para a frase nao afirmar "a mais perto de voce" sem
+    ter medido nada.
+    """
+    tutor = ctx.db.query(Tutor).filter(Tutor.id == ctx.tutor_id).first()
+    lat = getattr(tutor, "latitude", None) if tutor is not None else None
+    lon = getattr(tutor, "longitude", None) if tutor is not None else None
+    if lat is None or lon is None:
+        return None
+    com_km = []
+    for clinica in clinicas:
+        km = _distancia_km(lat, lon, getattr(clinica, "latitude", None),
+                           getattr(clinica, "longitude", None))
+        if km is not None:
+            com_km.append((km, clinica))
+    if len(com_km) != len(clinicas):
+        # Parcial ordenaria umas e deixaria outras no fim por acaso.
+        return None
+    com_km.sort(key=lambda par: (par[0], _normalizar(par[1].nome)))
+    return [clinica for _km, clinica in com_km]
+
+
 def buscar_clinica_parceira(
     ctx: WhatsAppBotToolContext, *, bairro: Optional[str] = None
 ) -> dict[str, Any]:
@@ -763,11 +790,22 @@ def buscar_clinica_parceira(
                 c for c in ativas if alvo and alvo in _normalizar(getattr(c, "bairro", None))
             ]
         if no_bairro:
+            # Nome de bairro NAO e unico entre cidades. Em producao (26/08)
+            # "Centro" tem 10 clinicas em 5 cidades -- Maranguape, Eusebio,
+            # Fortaleza, Aracati e Caucaia. Devolver as primeiras da lista
+            # mandaria um tutor de Caucaia para Maranguape, a ~40 km, anunciada
+            # como "a mais perto de voce". Havendo coordenadas do tutor, o
+            # empate de nome e desfeito por distancia real.
+            ordenado = _ordenar_por_distancia_do_tutor(ctx, no_bairro)
             return {
                 "ok": True,
                 "criterio": "bairro",
                 "bairro_consultado": str(bairro or "").strip(),
-                "itens": [_clinica_publicavel(c) for c in no_bairro[:MAX_CLINICAS_SUGERIDAS]],
+                "ordenado_por_distancia": ordenado is not None,
+                "itens": [
+                    _clinica_publicavel(c)
+                    for c in (ordenado or no_bairro)[:MAX_CLINICAS_SUGERIDAS]
+                ],
             }
         return {
             "ok": True,
@@ -797,6 +835,7 @@ def buscar_clinica_parceira(
     return {
         "ok": True,
         "criterio": "distancia",
+        "ordenado_por_distancia": True,
         "itens": [
             {**_clinica_publicavel(c), "distancia_km": f"{km:.1f}"}
             for km, c in com_distancia[:MAX_CLINICAS_SUGERIDAS]
@@ -815,6 +854,8 @@ def _clinica_publicavel(clinica: Any) -> dict[str, Any]:
     return {
         "nome": str(getattr(clinica, "nome", "") or "").strip(),
         "bairro": str(getattr(clinica, "bairro", "") or "").strip() or None,
+        # Sem a cidade, "Centro" e ambiguo entre 5 municipios no cadastro real.
+        "cidade": str(getattr(clinica, "cidade", "") or "").strip() or None,
         "endereco": str(getattr(clinica, "endereco", "") or "").strip() or None,
         "telefone": telefone or None,
     }

@@ -45,7 +45,7 @@ class ClinicaProximaTest(unittest.TestCase):
         return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine
 
     def _seed(self, db):
-        db.add(Clinica(nome="Vet Aldeota", bairro="Aldeota", endereco="Rua A, 100",
+        db.add(Clinica(nome="Vet Aldeota", bairro="Aldeota", cidade="Fortaleza", endereco="Rua A, 100",
                        telefone="8533331111", latitude=ALDEOTA[0], longitude=ALDEOTA[1], ativo=1))
         db.add(Clinica(nome="Vet Messejana", bairro="Messejana", endereco="Rua B, 200",
                        telefone="8533332222", latitude=MESSEJANA[0], longitude=MESSEJANA[1], ativo=1))
@@ -207,6 +207,54 @@ class ClinicaProximaTest(unittest.TestCase):
 
     # --- allowlist de campo ------------------------------------------------
 
+    def test_bairro_homonimo_em_outra_cidade_e_desempatado_por_distancia(self) -> None:
+        """Defeito real do cadastro (26/08): "Centro" tem 10 clinicas em 5
+        cidades. Um tutor de Caucaia dizendo "Centro" nao pode receber a de
+        Maranguape, a ~40 km, anunciada como "a mais perto de voce".
+        """
+        CAUCAIA = (-3.7360, -38.6530)
+        MARANGUAPE = (-3.8900, -38.6850)
+        with tempfile.TemporaryDirectory() as tmp:
+            Factory, engine = self._factory(tmp)
+            try:
+                db = Factory()
+                try:
+                    db.add(Clinica(nome="Amo Pet", bairro="Centro", cidade="Maranguape",
+                                   endereco="R. M, 1", telefone="8533331111",
+                                   latitude=MARANGUAPE[0], longitude=MARANGUAPE[1], ativo=1))
+                    db.add(Clinica(nome="Super Pet", bairro="Centro", cidade="Caucaia",
+                                   endereco="R. C, 1", telefone="8533332222",
+                                   latitude=CAUCAIA[0], longitude=CAUCAIA[1], ativo=1))
+                    db.commit()
+                    tutor = self._tutor(db, latitude=CAUCAIA[0], longitude=CAUCAIA[1])
+                    ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=tutor.id)
+                    res = tools.buscar_clinica_parceira(ctx, bairro="Centro")
+                    self.assertTrue(res["ordenado_por_distancia"])
+                    self.assertEqual(res["itens"][0]["nome"], "Super Pet")
+                    self.assertEqual(res["itens"][0]["cidade"], "Caucaia")
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
+    def test_sem_coordenadas_do_tutor_nao_afirma_proximidade(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            Factory, engine = self._factory(tmp)
+            try:
+                db = Factory()
+                try:
+                    self._seed(db)
+                    tutor = self._tutor(db)  # sem lat/long
+                    ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=tutor.id)
+                    res = tools.buscar_clinica_parceira(ctx, bairro="Aldeota")
+                    self.assertFalse(res["ordenado_por_distancia"])
+                    frase = _corpo_de_clinica_proxima(res)
+                    self.assertNotIn("mais perto", frase)
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
     def test_payload_nao_carrega_dado_comercial_da_clinica(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             Factory, engine = self._factory(tmp)
@@ -222,7 +270,8 @@ class ClinicaProximaTest(unittest.TestCase):
                     ctx = tools.WhatsAppBotToolContext(db=db, match_type="tutor", tutor_id=tutor.id)
                     res = tools.buscar_clinica_parceira(ctx, bairro="Aldeota")
                     self.assertEqual(
-                        set(res["itens"][0].keys()), {"nome", "bairro", "endereco", "telefone"}
+                        set(res["itens"][0].keys()),
+                        {"nome", "bairro", "cidade", "endereco", "telefone"},
                     )
                     texto = str(res).lower()
                     for proibido in ("cnpj", "12345678", "999", "negociacao", "tabela_preco"):
@@ -237,10 +286,12 @@ class FraseTest(unittest.TestCase):
     def test_uma_clinica(self) -> None:
         frase = _corpo_de_clinica_proxima({
             "ok": True, "criterio": "bairro",
-            "itens": [{"nome": "Vet Aldeota", "bairro": "Aldeota",
+            "ordenado_por_distancia": True,
+            "itens": [{"nome": "Vet Aldeota", "bairro": "Aldeota", "cidade": "Fortaleza",
                        "endereco": "Rua A, 100", "telefone": "8533331111"}],
         })
         self.assertIn("Vet Aldeota", frase)
+        self.assertIn("em Fortaleza", frase)
         self.assertIn("(85) 3333-1111", frase)
         self.assertIn("Rua A, 100", frase)
 
