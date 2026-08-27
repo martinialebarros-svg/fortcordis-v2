@@ -21,6 +21,7 @@ from app.schemas.atendimento import (
     AtendimentoCreatePayload,
     AtendimentoFinalizarPayload,
     AtendimentoUpdatePayload,
+    CatalogoExameCustomPayload,
     ClinicalPhrasePayload,
     DiagnosticoPayload,
     DocumentoAtendimentoCreatePayload,
@@ -64,7 +65,7 @@ from app.models.atendimento_clinico import (
     PrescricaoItemAjuste,
     UploadDedupeMetrica,
 )
-from app.models.catalogo_exame import CatalogoExame, PainelExame
+from app.models.catalogo_exame import CatalogoExame, PainelExame, PainelExameItem
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao, ConfiguracaoUsuario
 from app.models.laudo import Exame, Laudo
@@ -101,7 +102,11 @@ from app.services.atendimento.document_context_service import (
     montar_contexto_template_documento as montar_contexto_template_documento_service,
     renderizar_template_documento as renderizar_template_documento_service,
 )
-from app.services.exam_catalog_service import montar_contexto_catalogo_exames
+from app.services.exam_catalog_service import catalogo_exame_to_dict, montar_contexto_catalogo_exames
+from app.services.atendimento.catalogo_exame_custom_service import (
+    gerar_codigo_unico_catalogo_exame,
+    obter_catalogo_exame_customizado,
+)
 from app.services.atendimento.painel_service import (
     CUSTOM_PAINEL_EXAME_PREFIX,
     gerar_codigo_unico_painel_exame,
@@ -2445,6 +2450,117 @@ def listar_catalogo_exames_atendimento(
         categoria=categoria,
         ativos=ativos,
     )
+
+
+def _normalizar_sinonimos_catalogo_exame(values: List[str], nome: str) -> List[str]:
+    normalized: List[str] = []
+    seen = {nome.casefold()}
+    for value in values:
+        item = str(value or "").strip()
+        key = item.casefold()
+        if not item or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(item)
+    return normalized
+
+
+def _validar_nome_catalogo_exame_disponivel(
+    db: Session,
+    nome: str,
+    *,
+    ignore_id: Optional[int] = None,
+) -> None:
+    query = db.query(CatalogoExame).filter(
+        CatalogoExame.ativo == 1,
+        func.lower(CatalogoExame.nome) == nome.lower(),
+    )
+    if ignore_id is not None:
+        query = query.filter(CatalogoExame.id != ignore_id)
+    if query.first() is not None:
+        raise HTTPException(status_code=409, detail="Ja existe um exame ativo com esse nome no catalogo.")
+
+
+def _aplicar_payload_catalogo_exame_customizado(
+    exame: CatalogoExame,
+    payload: CatalogoExameCustomPayload,
+) -> None:
+    nome = (payload.nome or "").strip()
+    categoria = (payload.categoria or "").strip()
+    if len(nome) < 2:
+        raise HTTPException(status_code=422, detail="Informe o nome do exame com pelo menos 2 caracteres.")
+    if len(categoria) < 2:
+        raise HTTPException(status_code=422, detail="Informe a categoria do exame com pelo menos 2 caracteres.")
+
+    exame.nome = nome
+    exame.categoria = categoria
+    exame.subcategoria = (payload.subcategoria or "").strip() or None
+    exame.especie_alvo = (payload.especie_alvo or "").strip() or None
+    exame.prioridade_padrao = (payload.prioridade_padrao or "Rotina").strip() or "Rotina"
+    exame.valor_padrao = float(payload.valor_padrao or 0)
+    exame.preparo = (payload.preparo or "").strip() or None
+    exame.observacoes_padrao = (payload.observacoes_padrao or "").strip() or None
+    exame.sinonimos_json = json.dumps(
+        _normalizar_sinonimos_catalogo_exame(payload.sinonimos, nome),
+        ensure_ascii=False,
+    )
+    exame.ativo = 1
+    exame.updated_at = datetime.now()
+
+
+@router.post("/exames/catalogo", status_code=status.HTTP_201_CREATED)
+def criar_catalogo_exame_customizado_atendimento(
+    payload: CatalogoExameCustomPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    nome = (payload.nome or "").strip()
+    _validar_nome_catalogo_exame_disponivel(db, nome)
+    exame = CatalogoExame(
+        codigo=gerar_codigo_unico_catalogo_exame(db, nome),
+        created_at=datetime.now(),
+    )
+    _aplicar_payload_catalogo_exame_customizado(exame, payload)
+    db.add(exame)
+    db.commit()
+    db.refresh(exame)
+    return catalogo_exame_to_dict(exame)
+
+
+@router.put("/exames/catalogo/{exame_id}")
+def atualizar_catalogo_exame_customizado_atendimento(
+    exame_id: int,
+    payload: CatalogoExameCustomPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    exame = obter_catalogo_exame_customizado(db, exame_id)
+    nome = (payload.nome or "").strip()
+    _validar_nome_catalogo_exame_disponivel(db, nome, ignore_id=exame.id)
+    exame.codigo = gerar_codigo_unico_catalogo_exame(db, nome, ignore_id=exame.id)
+    _aplicar_payload_catalogo_exame_customizado(exame, payload)
+    db.commit()
+    db.refresh(exame)
+    return catalogo_exame_to_dict(exame)
+
+
+@router.delete("/exames/catalogo/{exame_id}")
+def excluir_catalogo_exame_customizado_atendimento(
+    exame_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    exame = obter_catalogo_exame_customizado(db, exame_id)
+    db.query(PainelExameItem).filter(
+        PainelExameItem.catalogo_exame_id == exame.id
+    ).delete(synchronize_session=False)
+    exame.ativo = 0
+    exame.updated_at = datetime.now()
+    db.commit()
+    return {"message": "Exame customizado removido do catalogo.", "id": exame.id}
 
 
 @router.get("/paineis")
