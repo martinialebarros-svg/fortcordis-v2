@@ -1924,3 +1924,221 @@ Aviso removido do renderizador => **4 falhas**, incluindo
 `test_avisa_mesmo_em_servico_sem_plantao_cadastrado`.
 
 Suite: **1147 passaram, 2 skipped**.
+
+## RF-P19 — indicar clinica parceira perto do tutor (2026-08-26)
+
+### De onde veio
+
+A RF-P17 fez o tutor deixar de receber silencio, mas a resposta terminava em
+"procure a clinica de sua preferencia" -- sem dizer qual. Correto e inutil.
+
+### Desenho
+
+| Situacao | `criterio` | Resposta |
+| --- | --- | --- |
+| bairro informado, ha parceira | `bairro` | nome, bairro, endereco, telefone |
+| sem bairro, tutor tem coordenadas | `distancia` | as 2 mais proximas, por haversine |
+| bairro informado, sem parceira | `sem_clinica_no_bairro` | "nao temos parceira em X ainda" |
+| sem bairro e sem coordenadas | `precisa_bairro` | "me diga em que bairro voce fica" |
+
+**Sem chamada externa.** Geocodificar o bairro exigiria `GOOGLE_MAPS_API_KEY` e
+HTTP dentro do worker -- latencia, custo e uma dependencia externa num caminho
+que precisa falhar fechado. `Tutor` e `Clinica` ja tem `latitude`/`longitude`, e
+`_haversine_km` ja existe em `logistica_service` (importado, nao reescrito:
+duas implementacoes de distancia divergiriam em silencio).
+
+**Estrategias nao encadeiam.** Bairro sem parceira NAO cai na lista por
+distancia. Coberto por teste: o tutor tem coordenadas, a estrategia 2 existe, e
+ainda assim nao entra.
+
+### O risco central nao e o cliente, e a persona
+
+Uma clinica parceira perguntando onde ficam as outras receberia o mapa da rede
+de um concorrente. A defesa e `TOOLS_POR_PERSONA` -- a tool nao existe na
+persona clinica --, nao instrucao de prompt.
+
+### A lacuna que a mutacao encontrou
+
+Primeira rodada de mutacao:
+
+| Mutacao | Testes mortos |
+| --- | --- |
+| tool liberada para a persona clinica | 2 |
+| bairro sem parceira cai na lista por distancia | 1 |
+| **guardrail deixa de ancorar endereco/telefone** | **0** |
+
+Zero. Ou seja: nao havia teste cobrindo a integracao com a RF-022. Sem aquela
+ancoragem, uma resposta citando endereco cairia em `endereco_sem_fonte` e o
+telefone em `contato_fora_da_fonte` -- a feature ficaria **muda em producao** e
+nenhum teste avisaria.
+
+`GuardrailDaClinicaProximaTest` cobriu isso, com contraprova: o mesmo texto sem
+a tool e barrado, e telefone que a tool NAO devolveu continua barrado
+(`contato_fora_da_fonte`). Refeita a mutacao: **1 teste morto**.
+
+### Portugues que o teste nao pegava
+
+Tres defeitos so visiveis lendo a saida:
+
+- "no Aldeota" -> "no bairro Aldeota". O genero varia (o Centro, a Aldeota) e
+  nao ha como acerta-lo a partir do nome.
+- "tratados direto com ela" depois de DUAS clinicas -> fecho neutro.
+- "Uma pessoa da equipe..." seguido do sufixo da RF-024 dizia "pessoa" duas
+  vezes em duas frases. O encaminhamento ja vem do sufixo.
+
+### Suite
+
+**1166 passaram, 2 skipped** (eram 1150). 16 testes novos.
+
+### Fora de escopo
+
+Bairro que o cliente escreve diferente do cadastro ("Pq. Araxa" vs "Parque
+Araxa") so casa por substring. Sem normalizacao de apelido de bairro nem
+geocodificacao, a cobertura depende de o cadastro usar o nome corrente.
+
+### Conferencia do cadastro de producao (26/08) e um defeito que ela revelou
+
+Consultado `/api/v1/clinicas` em producao, pela sessao do navegador:
+
+| Campo | Preenchido |
+| --- | --- |
+| total ativas | 162 |
+| bairro | 159 (98%) |
+| coordenadas | 157 (97%) |
+| endereco | 159 (98%) |
+| **telefone** | **118 (73%)** |
+
+Cobertura boa. 88 bairros distintos, 54 deles com uma unica clinica -- o corte
+em 2 sugestoes esta adequado.
+
+**O defeito:** o cadastro cobre **8 cidades** (Fortaleza, Caucaia, Maracanau,
+Maranguape, Eusebio, Aracati, Itaitinga, Pacatuba), e nome de bairro nao e
+unico entre elas. `Centro` tem **10 clinicas em 5 cidades**. A versao inicial
+devolvia as primeiras da lista: um tutor de Caucaia dizendo "Centro" receberia
+a `Amo Pet` de Maranguape, a ~40 km, anunciada como "a mais perto de voce".
+
+Duas correcoes:
+
+1. **Desempate por distancia** dentro do casamento por bairro, quando o tutor
+   tem coordenadas. Ordenacao parcial e recusada (`None`, nao "ordem
+   preservada"): ordenar umas e deixar outras no fim por acaso seria pior.
+2. **Cidade no payload e na frase.** Sem ela o cliente nao teria como perceber
+   a ambiguidade.
+
+E uma terceira, de honestidade: **"mais perto" so e dito quando houve
+calculo**. Sem coordenadas a frase vira "a clinica parceira que temos por ai",
+sem prometer proximidade que ninguem mediu.
+
+Mutacao do desempate => 1 teste morto. Suite: **1168 passaram, 2 skipped**.
+
+### Lacuna de cadastro, para decisao de negocio
+
+**44 clinicas (27%) nao tem telefone.** A resposta omite o campo e segue
+valida -- nome, bairro, cidade e endereco bastam para o cliente chegar --, mas
+a indicacao fica menos util. Nao e defeito de codigo; e cadastro a preencher.
+
+### Correcao de campo: WhatsApp antes de telefone (27/08)
+
+A primeira versao lia `Clinica.telefone`. Martiniano corrigiu: **o numero que
+importa e o `whatsapps`** -- e o canal por onde a clinica se comunica, tanto
+com a FortCordis quanto **com os proprios clientes**.
+
+Essa segunda metade resolve a duvida que eu tinha levantado: parecia contato
+B2B, e dar um canal interno a consumidor final seria incomodo para o parceiro.
+Nao e o caso -- e o numero publico de atendimento da clinica.
+
+Resposta passa a citar `WhatsApp (85) 99999-8888`; telefone fixo so quando nao
+ha WhatsApp cadastrado. `whatsapps` e coluna JSON e aceita lista ou string
+serializada; a normalizacao reusa `_whatsapps` de `assistente_ia_clinics360`.
+
+**A mesma lacuna de antes reapareceu.** Depois de ancorar o WhatsApp no
+guardrail, a mutacao (`ancorar so telefone`) matou **zero** testes: o payload
+do teste de guardrail ainda usava `telefone`. Sem cobertura, uma resposta
+citando WhatsApp seria barrada por `contato_fora_da_fonte` em producao com a
+suite verde. Corrigido; refeita a mutacao, **1 teste morre**.
+
+Suite: **1171 passaram, 2 skipped**.
+
+### Medicao da lacuna de cadastro: pendente
+
+A contagem de 44 sem contato era do campo `telefone`, nao do `whatsapps` -- ou
+seja, **nao mede o que importa**. A remedicao ficou bloqueada: a sessao do
+navegador expirou (401) e o login do usuario estava em outro navegador. Comando
+de VPS entregue para ele rodar; numero real ainda desconhecido.
+
+## RF-P20 — fechando a classe de lacuna que apareceu duas vezes (2026-08-27)
+
+### O padrao
+
+Duas vezes na RF-P19 a integracao com a RF-022 passou verde sem cobertura:
+
+| Ocasiao | Como escapou |
+| --- | --- |
+| 1a | Nao havia teste nenhum da juncao tool <-> guardrail |
+| 2a | O teste existia, mas o payload usava `telefone` enquanto a ancoragem tinha ganhado `whatsapp` |
+
+Nos dois casos o efeito em producao seria identico: **o bot mudo na intent
+nova, com a suite inteira verde**. Testes de tool olham so o payload; testes de
+renderizacao olham so o texto. Ninguem olhava a juncao.
+
+### A correcao
+
+`test_whatsapp_bot_fonte_sustenta_resposta.py`: para cada tool, roda a tool DE
+VERDADE contra banco semeado, monta o turno pelo payload literal e exige que
+uma resposta citando aquele dado seja **aprovada** pelo guardrail.
+
+A parte que protege o erro FUTURO e a guarda de completude: toda tool em
+`TOOLS_POR_PERSONA` precisa de um caso, senao o teste falha explicando por que.
+
+### Verificacao: cada ancoragem foi desfeita, uma a uma
+
+| Ancoragem removida | Testes mortos |
+| --- | --- |
+| `consultar_preco_tabela` | 1 |
+| `consultar_horario_funcionamento` | 1 |
+| `consultar_dados_institucionais` | 1 |
+| `buscar_clinica_parceira` | 2 |
+| `buscar_conhecimento_institucional` | **0 -- e esta certo, ver abaixo** |
+| tool nova em `TOOLS_POR_PERSONA` sem caso | 1 (guarda de completude) |
+
+### Achado: `tem_trecho_conhecimento` e codigo morto
+
+A unica mutacao que nao pegou revelou um defeito real, nao uma lacuna de teste:
+
+```python
+def tem_fonte(self) -> bool:
+    return bool(self.tools_ok) or self.tem_trecho_conhecimento
+```
+
+`tools_ok.append(nome)` roda para TODA tool com `ok: True`. E
+`tem_trecho_conhecimento` so e ligada quando `buscar_conhecimento_institucional`
+devolveu `ok` -- ponto em que `tools_ok` ja a contem. **O `or` e inalcancavel:
+a flag nunca muda decisao alguma.**
+
+Nao foi escrito teste artificial para "cobrir" o ramo -- seria cobertura falsa
+de logica que nao decide nada.
+
+**A flag foi removida** (autorizado por Martiniano em 27/08). O alcance era
+maior do que "tres linhas": alem do campo em `TurnoDeGeracao`, do `or` em
+`tem_fonte` e do bloco de ancoragem, ela aparecia no payload de auditoria
+persistido em `whatsapp_bot_respostas.tools_usadas`, em tres casos de eval, no
+carregador dos evals e em dois testes de guardrail.
+
+Antes de apagar, duas verificacoes:
+
+- **Redundante tambem como diagnostico?** Sim. O unico `return {"ok": True}` de
+  `buscar_conhecimento_institucional` ja inclui `trechos` -- entao `ok: True`
+  implica trecho, e o campo no JSON de auditoria nao acrescentava nada que
+  `tools_ok` ja nao dissesse.
+- **Os tres casos de eval dependiam dela?** Nao. Os tres ja declaravam
+  `tools_ok: ["buscar_conhecimento_institucional"]`.
+
+`tem_fonte` passa a ser `bool(self.tools_ok)`. A simplificacao esta protegida:
+trocar por `return True` mata 1 teste.
+
+Tabela de mutacao refeita depois da limpeza, sem regressao: preco 1, horario 1,
+institucionais 1, clinica parceira 2, tool nova sem caso 1.
+
+### Suite
+
+**1179 passaram, 2 skipped** (eram 1171). 8 casos novos.

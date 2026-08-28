@@ -59,6 +59,7 @@ INTENTS_ATENDIDAS_POR_PERSONA: dict[str, frozenset[str]] = {
     "tutor": frozenset({
         "horario_funcionamento",
         "endereco",
+        "clinica_proxima",
         "area_atendimento",
         "formas_contato",
         "preco_servico",
@@ -124,7 +125,6 @@ class TurnoDeGeracao:
 
     persona: str
     tools_ok: list[str] = field(default_factory=list)
-    tem_trecho_conhecimento: bool = False
     valores_permitidos: set[str] = field(default_factory=set)
     horarios_permitidos: set[str] = field(default_factory=set)
     datas_permitidas: set[str] = field(default_factory=set)
@@ -135,7 +135,7 @@ class TurnoDeGeracao:
 
     @property
     def tem_fonte(self) -> bool:
-        return bool(self.tools_ok) or self.tem_trecho_conhecimento
+        return bool(self.tools_ok)
 
 
 _FONTE_EXIGIDA_POR_INTENT: dict[str, frozenset[str]] = {
@@ -147,6 +147,7 @@ _FONTE_EXIGIDA_POR_INTENT: dict[str, frozenset[str]] = {
     "area_atendimento": frozenset({"buscar_conhecimento_institucional"}),
     "como_agendar": frozenset({"buscar_conhecimento_institucional"}),
     "como_solicitar_exame": frozenset({"buscar_conhecimento_institucional"}),
+    "clinica_proxima": frozenset({"buscar_clinica_parceira"}),
 }
 
 
@@ -438,9 +439,20 @@ def turno_a_partir_dos_resultados(
             if resultado.get("data"):
                 turno.datas_permitidas.add(str(resultado["data"]))
 
-        if nome == "buscar_conhecimento_institucional":
-            if resultado.get("trechos"):
-                turno.tem_trecho_conhecimento = True
+        if nome == "buscar_clinica_parceira":
+            # O endereco e o telefone da clinica sugerida sao dado de
+            # cadastro, como os institucionais. Sem alimentar o turno aqui, a
+            # RF-022 barraria a propria resposta que a tool autorizou -- e o
+            # bot ficaria mudo justamente na intent nova.
+            for item in resultado.get("itens") or []:
+                if item.get("endereco"):
+                    turno.tem_endereco_na_fonte = True
+                for bruto in (item.get("whatsapp"), item.get("telefone")):
+                    numero = _so_digitos(bruto)
+                    if len(numero) >= 8:
+                        turno.telefones_permitidos.add(numero)
+                for cep in _RE_CEP.findall(str(item.get("endereco") or "")):
+                    turno.ceps_permitidos.add(_so_digitos(cep))
 
         if nome == "consultar_dados_institucionais":
             turno.tem_endereco_na_fonte = bool(resultado.get("tem_endereco"))

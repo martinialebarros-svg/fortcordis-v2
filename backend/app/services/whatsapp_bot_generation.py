@@ -170,13 +170,14 @@ def _corpo_de_preco(resultado: Optional[dict[str, Any]]) -> str:
         # antes de cotar. Com a memoria de conversa (RF-P16) o segundo turno
         # funciona -- o bot lembra qual exame foi perguntado.
         #
-        # A frase NAO promete indicar clinica por bairro: essa capacidade
-        # ainda nao existe, e prometer o que o bot nao faz e pior que nao
-        # oferecer.
+        # A oferta de indicar clinica por bairro so entrou aqui DEPOIS de a
+        # capacidade existir (RF-P19). Antes disso a frase a omitia de
+        # proposito: prometer o que o bot nao faz e pior que nao oferecer.
         return (
             "o valor depende do tipo de atendimento. Se for atendimento domiciliar, "
             "me diga que eu passo o valor. Se for na clínica, quem define o valor e a "
-            "agenda é a clínica parceira da sua preferência."
+            "agenda é a clínica parceira — me diga seu bairro que eu indico uma perto "
+            "de você."
         )
 
     itens = list((resultado or {}).get("itens") or [])
@@ -216,6 +217,88 @@ def _corpo_de_preco(resultado: Optional[dict[str, Any]]) -> str:
     return f"valores de tabela - {detalhes}{etiqueta}.{_aviso_plantao(len(escolhidos))}"
 
 
+def _telefone_legivel(digitos: Any) -> str:
+    """(85) 99999-9999. O guardrail compara pela cauda de digitos, entao a
+    formatacao nao afeta a ancoragem."""
+    d = "".join(ch for ch in str(digitos or "") if ch.isdigit())
+    if len(d) == 11:
+        return f"({d[:2]}) {d[2:7]}-{d[7:]}"
+    if len(d) == 10:
+        return f"({d[:2]}) {d[2:6]}-{d[6:]}"
+    return d
+
+
+def _corpo_de_clinica_proxima(resultado: Optional[dict[str, Any]]) -> str:
+    """Sugestao de clinica parceira, montada do payload literal.
+
+    Nome, endereco e telefone de TERCEIRO sao dado sensivel pela mesma razao
+    que preco: o guardrail confere se o telefone veio de uma fonte, nao se
+    pertence aquela clinica. Deixar o modelo redigir permitiria colar o
+    telefone da clinica A no nome da clinica B e passar na RF-022.
+    """
+    criterio = str((resultado or {}).get("criterio") or "")
+    if criterio == "precisa_bairro":
+        return "me diga em que bairro você fica que eu indico a clínica parceira mais perto."
+    if criterio == "sem_clinica_no_bairro":
+        bairro = str((resultado or {}).get("bairro_consultado") or "").strip()
+        onde = f" em {bairro}" if bairro else " nesse bairro"
+        # Sem "pessoa da equipe" aqui: o sufixo da RF-024 ja diz isso logo
+        # em seguida, e repetir soa a script.
+        return f"não temos clínica parceira{onde} ainda."
+
+    itens = list((resultado or {}).get("itens") or [])[:2]
+    if not itens:
+        return ""
+
+    partes = []
+    for item in itens:
+        trecho = str(item.get("nome") or "clínica")
+        bairro = item.get("bairro")
+        if bairro:
+            # "no bairro X" e nao "no X": o genero varia (o Centro, a Aldeota)
+            # e nao ha como acerta-lo a partir do nome.
+            trecho += f", no bairro {bairro}"
+        cidade = item.get("cidade")
+        if cidade:
+            # Sem a cidade, "Centro" e ambiguo entre 5 municipios no cadastro
+            # real -- e o cliente nao teria como perceber.
+            trecho += f", em {cidade}"
+        endereco = item.get("endereco")
+        if endereco:
+            trecho += f" ({endereco})"
+        # WhatsApp primeiro: e por onde a clinica se comunica. Telefone entra
+        # so quando nao ha WhatsApp cadastrado.
+        whatsapp = _telefone_legivel(item.get("whatsapp"))
+        if whatsapp:
+            trecho += f", WhatsApp {whatsapp}"
+        else:
+            telefone = _telefone_legivel(item.get("telefone"))
+            if telefone:
+                trecho += f", telefone {telefone}"
+        partes.append(trecho)
+
+    # "mais perto" e afirmacao: so pode ser dita quando houve calculo de
+    # distancia. Sem coordenadas o bot lista o que encontrou no bairro, sem
+    # ordenar nada e sem prometer proximidade.
+    mediu = bool((resultado or {}).get("ordenado_por_distancia"))
+    if mediu:
+        abertura = (
+            "a clínica parceira mais perto de você é"
+            if len(partes) == 1
+            else "as parceiras mais perto de você são"
+        )
+    else:
+        abertura = (
+            "a clínica parceira que temos por aí é"
+            if len(partes) == 1
+            else "as parceiras que temos por aí são"
+        )
+    # Fecho neutro: "com ela" nao concordaria na variante com duas clinicas.
+    return (
+        f"{abertura} {'; e '.join(partes)}. "
+        "O agendamento e o valor são tratados direto com a clínica."
+    )
+
 def _texto_deterministico_para_dado_sensivel(
     *, intent: str, texto_modelo: str, resultados: list[tuple[str, dict[str, Any]]]
 ) -> str:
@@ -224,6 +307,11 @@ def _texto_deterministico_para_dado_sensivel(
     if intent == "preco_servico":
         resultado = _resultado_ok(resultados, "consultar_preco_tabela")
         corpo = _corpo_de_preco(resultado)
+        if corpo:
+            return f"Atendimento automático da FortCordis: {corpo}{sufixo}"
+
+    if intent == "clinica_proxima":
+        corpo = _corpo_de_clinica_proxima(_resultado_ok(resultados, "buscar_clinica_parceira"))
         if corpo:
             return f"Atendimento automático da FortCordis: {corpo}{sufixo}"
 
@@ -254,7 +342,6 @@ def _tools_usadas_json(
             "tools_tentadas": [nome for nome, _ in resultados],
             "tools_ok": turno.tools_ok,
             "fontes_declaradas": fontes_declaradas or [],
-            "tem_trecho_conhecimento": turno.tem_trecho_conhecimento,
         },
         ensure_ascii=False,
     )

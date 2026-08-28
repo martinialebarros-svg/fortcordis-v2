@@ -1,5 +1,5 @@
 {
-  "version": "2026-08-25.1",
+  "version": "2026-08-27.1",
   "description": "Casos de regressao dos guardrails do chatbot de atendimento do WhatsApp (RF-019/020/022/025). Cada caso e avaliado por avaliar_resposta sem LLM e sem rede: o texto candidato e o estado do turno sao dados de entrada, e o veredito esperado e o contrato. `aprovado` e seguranca editorial (pode ser mostrado a um humano); `auto_elegivel` e elegibilidade ao modo automatico.",
   "cases": [
     {
@@ -130,8 +130,7 @@
       "turno": {
         "tools_ok": [
           "buscar_conhecimento_institucional"
-        ],
-        "tem_trecho_conhecimento": true
+        ]
       },
       "esperado": {
         "aprovado": false,
@@ -368,8 +367,7 @@
       "turno": {
         "tools_ok": [
           "buscar_conhecimento_institucional"
-        ],
-        "tem_trecho_conhecimento": true
+        ]
       },
       "esperado": {
         "aprovado": true,
@@ -386,8 +384,7 @@
       "turno": {
         "tools_ok": [
           "buscar_conhecimento_institucional"
-        ],
-        "tem_trecho_conhecimento": true
+        ]
       },
       "esperado": {
         "aprovado": true,

@@ -197,6 +197,34 @@ de pausa e claim, não por relógio.
     pista do motivo.
 - RF-021: o prompt é versionado em `WHATSAPP_BOT_PROMPT_VERSION` e a versão fica
   gravada em cada resposta, no mesmo espírito de `PROMPT_VERSION` do ai-echo.
+- RF-P20 (o que a tool autoriza, o guardrail não pode barrar, 2026-08-27):
+  invariante de teste, não de produto. `turno_a_partir_dos_resultados` traduz o
+  payload literal de cada tool nos conjuntos que a RF-022 consulta. Quando essa
+  tradução falta ou fica desatualizada, o guardrail recusa **a própria resposta
+  que a tool sustentou** — e nenhum teste de tool ou de renderização percebe,
+  porque cada um olha só o seu lado.
+  - Aconteceu **duas vezes** na RF-P19. Na primeira não havia teste algum da
+    junção. Na segunda, o teste existia mas cobria o campo antigo (`telefone`)
+    enquanto a ancoragem tinha ganhado um novo (`whatsapp`). Nos dois casos o
+    efeito em produção seria o bot mudo na intent nova, com a suíte verde.
+  - `test_whatsapp_bot_fonte_sustenta_resposta.py` fecha a classe: um caso por
+    tool, rodando a tool **de verdade** contra banco semeado, montando o turno
+    com o payload literal e exigindo que uma resposta citando aquele dado seja
+    **aprovada**.
+  - **A guarda de completude é a parte que protege o erro futuro**: toda tool
+    em `TOOLS_POR_PERSONA` precisa aparecer num caso, senão o teste falha com a
+    explicação do porquê. Tool nova não entra em silêncio.
+  - **A mutação que sobreviveu revelou código morto, e ele foi removido.**
+    A ancoragem de `buscar_conhecimento_institucional` só ligava
+    `tem_trecho_conhecimento`, lida em `tem_fonte` como
+    `bool(tools_ok) or tem_trecho_conhecimento`. Como `tools_ok` recebe toda
+    tool com `ok: True`, e a flag só era ligada quando essa mesma tool
+    devolveu `ok`, o `or` nunca decidia nada. `tem_fonte` passa a ser
+    `bool(self.tools_ok)`, e a flag saiu de `TurnoDeGeracao`, do payload de
+    auditoria em `tools_usadas`, de três casos de eval e do carregador dos
+    evals. Nenhum comportamento muda — a tool continua sustentando as intents
+    que a exigem, e a redundância era total também como diagnóstico: o único
+    `return {"ok": True}` dela já inclui `trechos`.
 - RF-P12 (vocabulário de serviço, 2026-08-25): o cliente e o catálogo não usam
   as mesmas palavras. Um tutor pergunta por "eco", "ecodopplercardiograma" ou
   "ultrassom do coração"; a tabela cadastra `Ecocardiograma`, e vende
@@ -322,6 +350,42 @@ de pausa e claim, não por relógio.
     cadastro não sustenta.
   - A orientação da RF-P17 ("domiciliar ou em clínica?") **não** recebe o
     aviso: não cita valor nenhum.
+- RF-P19 (indicar clínica parceira perto do tutor, 2026-08-26): a RF-P17
+  orientava o tutor a procurar "a clínica de sua preferência" **sem dizer
+  qual** — resposta correta e inútil. Nova intent `clinica_proxima`, servida
+  pela tool `buscar_clinica_parceira`.
+  - **Exclusiva da persona tutor, por allowlist.** Uma clínica parceira
+    perguntando onde ficam as **outras** receberia o mapa da rede de um
+    concorrente. A defesa é `TOOLS_POR_PERSONA`, não instrução de prompt.
+  - **Duas estratégias, nunca encadeadas em silêncio.** Bairro informado →
+    casamento por nome normalizado (exato antes de parcial, para "Centro" não
+    puxar "Centro de Fortaleza" na frente de um "Centro" literal). Sem bairro →
+    distância real por `_haversine_km`, entre as coordenadas do `Tutor` e as da
+    `Clinica`. Bairro **sem** parceira devolve `sem_clinica_no_bairro`, e
+    **não** a lista por distância: sugerir clínica do outro lado da cidade a
+    quem perguntou por um bairro específico seria trocar a pergunta.
+  - **Sem chamada externa.** Geocodificar o bairro exigiria chave do Google e
+    HTTP no caminho do worker; as coordenadas já estão nos dois cadastros.
+    `precisa_bairro` não é erro — é a pergunta que falta, e o turno responde
+    perguntando (mesma lição da RF-P17: recusar não pode virar silêncio).
+  - **Allowlist de campo**: só `nome`, `bairro`, `cidade`, `endereco`,
+    `whatsapp`, `telefone`. `cnpj`, `tabela_preco_id`,
+    `preco_personalizado_*` e `observacoes` ficam fora por construção.
+  - **WhatsApp antes de telefone.** `Clinica.whatsapps` é o canal ativo: a
+    clínica o usa tanto com a FortCordis quanto **com os próprios clientes**
+    (confirmado por Martiniano, 27/08). Por isso passá-lo a um tutor é o uso
+    esperado, não vazamento de contato interno. Telefone fixo entra só na
+    ausência dele. O campo é JSON (lista, às vezes serializada como string) e
+    é normalizado por `_whatsapps`, reusado de `assistente_ia_clinics360` em
+    vez de reimplementado.
+  - **O guardrail precisa ser alimentado, ou barra a própria resposta.**
+    `turno_a_partir_dos_resultados` passa a ler `buscar_clinica_parceira` para
+    `tem_endereco_na_fonte`, `telefones_permitidos` e `ceps_permitidos`. Sem
+    isso, citar o endereço da parceira cairia em `endereco_sem_fonte` e o
+    telefone em `contato_fora_da_fonte` — a RF-022 recusaria exatamente o que a
+    tool autorizou.
+  - Com a capacidade existindo, a frase da RF-P17 passa a **oferecer** a
+    indicação por bairro. Antes ela omitia de propósito.
 
 - RF-P16 (memória de conversa, 2026-08-26): `gerar_resposta` passa a receber
   `historico` — as últimas mensagens desta conversa, buscadas no serviço de
