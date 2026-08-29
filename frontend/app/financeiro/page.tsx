@@ -3786,15 +3786,15 @@ export default function FinanceiroPage() {
       {/* Modal de Receber OS */}
 	      {modalReceberOS && (
 	        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 p-4">
-	          <div className="bg-white rounded-lg w-full max-w-md">
-            <div className="p-6 border-b">
+	          <div className="bg-white rounded-lg w-full max-w-md max-h-[90dvh] flex flex-col overflow-hidden">
+	            <div className="shrink-0 p-6 border-b">
               <h3 className="text-lg font-semibold text-gray-900">Receber Ordem de Servico</h3>
               <p className="text-sm text-gray-500 mt-1">
                 OS {modalReceberOS.numero_os} - {modalReceberOS.paciente}
               </p>
             </div>
             
-            <div className="p-6 space-y-4">
+	            <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
 	              <div className="bg-gray-50 p-4 rounded-lg">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Valor:</span>
@@ -4006,7 +4006,7 @@ export default function FinanceiroPage() {
 	              </div>
 	            </div>
 	            
-	            <div className="p-6 border-t flex justify-end gap-3">
+	            <div className="shrink-0 p-6 border-t flex justify-end gap-3">
               <button
                 onClick={() => {
                   setModalReceberOS(null);
