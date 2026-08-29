@@ -42,18 +42,26 @@ celular.
 - Estados de UI: dropdown de alertas aberto (`aberto === true` em
   `AlertasInternosBell`).
 - Regras de exibicao/erro: `.fc-mobile-header` passa a ter
-  `position: relative` e `z-index: 70` (mesmo valor ja usado pelo wrapper do
-  sino, `containerClassName="relative z-[70] ..."` em
-  `frontend/app/layout-dashboard.tsx:401`), garantindo que todo o stacking
+  `position: relative` e `z-index: 20`, garantindo que todo o stacking
   context do header (e o dropdown que estoura para fora dele) fique acima de
-  conteudo com `z-index: auto` como `.fc-reports-header`.
+  conteudo com `z-index: auto` como `.fc-reports-header`. O valor 20 foi
+  escolhido (em vez do `z-[70]` usado inicialmente) para ficar abaixo de
+  todo overlay de modal em tela cheia do app (`fixed inset-0`), cujo menor
+  valor observado e `z-30` (ex.: `frontend/components/portal/PortalClinicaWorkspace.tsx:1568`),
+  evitando que o header/dropdown cubra modais abertos no mobile (financeiro,
+  agenda, portal da clinica, etc. usam `z-30/40/50/60`). O wrapper interno do
+  sino continua com `relative z-[70]`
+  (`frontend/app/layout-dashboard.tsx:401`) — esse valor so importa dentro do
+  proprio stacking context do header no mobile (nao escapa para o root) e
+  segue necessario em `lg+`, onde o header vira `display: contents` e o sino
+  passa a competir diretamente com a sidebar (`z-[60]`) no nivel raiz.
 
 ## 5) Compatibilidade e rollout
 
 - Backward compatibility: total; mudanca aditiva de CSS.
 - Feature flag (se houver): nao se aplica.
 - Estrategia de rollback: reverter o commit/CSS (`git revert`), restaurando
-  `.fc-mobile-header` sem `relative`/`z-[70]`.
+  `.fc-mobile-header` sem `relative`/`z-20`.
 
 ## 6) Criterios de aceitacao (CA)
 
@@ -62,6 +70,12 @@ celular.
   e clicavel, sem o banner sobrepondo o conteudo.
 - CA-002: Em telas `lg+`, o header mobile continua com `display: contents`
   e o sino continua fixo no canto superior direito, sem regressao visual.
+- CA-003: No mobile, ao abrir qualquer modal em tela cheia do app (ex.:
+  financeiro `frontend/app/financeiro/page.tsx`, submodais de agendamento
+  `frontend/app/agenda/NovoAgendamentoModal.tsx`, portal da clinica
+  `frontend/components/portal/PortalClinicaWorkspace.tsx`), o modal continua
+  cobrindo o header mobile (e o dropdown de alertas, se estiver aberto), como
+  antes desta mudanca.
 
 ## 7) Casos de borda
 
