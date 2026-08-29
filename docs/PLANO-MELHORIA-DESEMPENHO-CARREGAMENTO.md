@@ -10,6 +10,8 @@ Branch inicial: `codex/performance-phase-1`
 
 PR colaborativo da Fase 1: [#77 - plano colaborativo e resiliencia do Financeiro](https://github.com/martinialebarros-svg/fortcordis-v2/pull/77)
 
+Branch da entrega PERF-07: `codex/performance-phase-2-perf07`
+
 ## 1. Objetivo
 
 Eliminar telas que permanecem carregando indefinidamente e reduzir o tempo percebido nas rotas autenticadas, sem alterar regras clinicas, financeiras ou de autorizacao. Este documento e o ponto de coordenacao para contribuidores: cada tarefa deve gerar uma entrega pequena, testavel e rastreavel por PR.
@@ -47,18 +49,18 @@ Objetivo: impedir espera infinita e recuperar o Financeiro, rota mais critica da
 
 | ID | Tarefa | Estado | Criterio de conclusao |
 | --- | --- | --- | --- |
-| PERF-01 | Aplicar timeout padrao somente a leituras JSON idempotentes | concluido na branch | GET/HEAD JSON sem override encerram em ate 15 s; blobs e mutacoes preservam comportamento |
-| PERF-02 | Cancelar carga anterior do Financeiro ao trocar filtros ou desmontar a tela | concluido na branch | resposta obsoleta nao atualiza o estado |
-| PERF-03 | Separar estados de carga de transacoes e ordens | concluido na branch | uma secao bem-sucedida aparece mesmo se outra falhar |
-| PERF-04 | Exibir aviso com secoes indisponiveis e acao `Tentar novamente` | concluido na branch | falha deixa de parecer lista vazia ou spinner infinito |
-| PERF-05 | Cobrir politica de timeout e orquestracao de secoes com testes | concluido localmente | testes, lint, build e SDD guardrail verdes |
+| PERF-01 | Aplicar timeout padrao somente a leituras JSON idempotentes | concluido em producao | GET/HEAD JSON sem override encerram em ate 15 s; blobs e mutacoes preservam comportamento |
+| PERF-02 | Cancelar carga anterior do Financeiro ao trocar filtros ou desmontar a tela | concluido em producao | resposta obsoleta nao atualiza o estado |
+| PERF-03 | Separar estados de carga de transacoes e ordens | concluido em producao | uma secao bem-sucedida aparece mesmo se outra falhar |
+| PERF-04 | Exibir aviso com secoes indisponiveis e acao `Tentar novamente` | concluido em producao | falha deixa de parecer lista vazia ou spinner infinito |
+| PERF-05 | Cobrir politica de timeout e orquestracao de secoes com testes | concluido em producao | testes, lint, build e SDD guardrail verdes |
 
 ### Fase 2 - reduzir trabalho no frontend
 
 | ID | Tarefa | Estado | Criterio de conclusao |
 | --- | --- | --- | --- |
 | PERF-06 | Criar layout persistente da area autenticada | pendente | auth, branding, push e alertas nao remontam em cada rota |
-| PERF-07 | Financeiro carregar apenas dados da aba ativa | pendente | aba de transacoes nao baixa OS/clinicas/servicos na entrada |
+| PERF-07 | Financeiro carregar apenas dados da aba ativa | concluido na branch | aba de transacoes nao baixa OS/clinicas/servicos na entrada |
 | PERF-08 | Agenda substituir listas de 1000/2000 itens por lotes/IDs visiveis | pendente | carga inicial nao baixa catalogos completos sem uso imediato |
 | PERF-09 | Atendimento paginar pacientes, medicamentos e frases | pendente | dados secundarios sao carregados sob demanda |
 | PERF-10 | Adotar cache com validade para catalogos estaveis | pendente | navegacao nao repete catalogos ainda validos |
@@ -104,7 +106,7 @@ As metas devem ser recalibradas depois que a telemetria persistente estiver disp
 
 ## 7. Dependencias e bloqueios conhecidos
 
-- Em 2026-08-26, `origin/stage` estava ancestral e tres commits atras de `origin/main`. Essa divergencia deve ser reconciliada antes de promover qualquer entrega desta trilha.
+- Em 2026-08-29, `origin/main` e `origin/stage` possuem historicos divergentes. PRs para `stage` podem seguir, mas qualquer promocao desta trilha exige reconciliacao e nova prova de ancestralidade.
 - As medicoes detalhadas de endpoint ainda dependem de telemetria autenticada/persistente; o navegador integrado forneceu tempos de estabilizacao da tela, mas nao exportou o waterfall de rede.
 - Alteracoes de Nginx, processos e banco exigem validacao em stage antes de producao.
 
