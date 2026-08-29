@@ -24,14 +24,18 @@ npm run lint
 
 Resumo dos resultados:
 - Backend: nao alterado, nao executado.
-- Frontend: `npm run lint` falhou por um problema de configuracao
-  pre-existente e nao relacionado a esta mudanca (`ESLint couldn't find an
-  eslint.config.(js|mjs|cjs) file` — o repo usa ESLint 10 mas nao tem
-  `eslint.config.js`; provavelmente falta migrar de `.eslintrc.*`). `npm run
-  build`/`npm run test` nao puderam ser executados porque `node_modules` nao
-  esta instalado neste ambiente (sem acesso para rodar `npm install`).
-  Nenhum desses problemas foi introduzido por este diff (que altera apenas
-  uma regra CSS existente).
+- Frontend: **nao executado** neste ambiente — `node_modules` nao estava
+  instalado (sem acesso para rodar `npm install`), e o `npm run lint` chamou
+  um binario global de ESLint 10 do ambiente (`ESLint couldn't find an
+  eslint.config.(js|mjs|cjs) file`) em vez do `eslint@^8.57.0` fixado em
+  `frontend/package.json`/lockfile, que e compativel com o `.eslintrc`
+  existente. Correcao de registro: uma revisao automatizada (Codex,
+  comentario no PR #88) confirmou que `npm run lint` roda com sucesso com as
+  dependencias do repositorio instaladas — a falha observada aqui e do
+  ambiente de execucao, nao da configuracao do repositorio. `npm run
+  build`/`npm run test` tambem nao puderam ser executados pelo mesmo motivo
+  (`node_modules` ausente). Nenhum desses problemas foi introduzido por este
+  diff (que altera apenas uma regra CSS existente).
 
 ## 3) Testes manuais
 
