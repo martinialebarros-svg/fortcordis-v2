@@ -45,10 +45,10 @@ Status: concluido
 - [x] T4.2 Rodar lint focado nos arquivos alterados.
 - [x] T4.3 Criar teste de componente (`AtendimentoDocumentosSection.test.tsx`) cobrindo selecao multipla, chips, envio em lote e remocao de item.
 - [x] T4.4 Rodar suite `vitest` completa do frontend.
-- [ ] T4.5 Checklist manual em stage (upload real de 2+ PDFs em um atendimento).
-- Criterio de conclusao: CA-001..CA-005 em `ok` (exceto validacao manual em stage, que fica pendente para o ciclo de deploy).
-- Risco: ambiente local sem acesso de login impediu teste manual end-to-end (ver `verify.md`).
-- Rollback: segurar promocao ate validar em stage.
+- [x] T4.5 Checklist manual em stage (upload real de 2 PDFs em um atendimento de teste).
+- Criterio de conclusao: CA-001..CA-005 em `ok` (ver `verify.md`).
+- Risco: ambiente local sem acesso de login impediu teste manual end-to-end local; mitigado validando direto em stage apos o deploy do PR #91.
+- Rollback: nao necessario, validacao concluida com sucesso.
 
 ## 3) Plano de testes
 
