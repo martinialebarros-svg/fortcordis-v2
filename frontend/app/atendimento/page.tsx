@@ -1466,7 +1466,7 @@ export default function AtendimentoPage() {
   const [historicoPaciente, setHistoricoPaciente] = useState<HistoricoPaciente | null>(null);
   const [evolucaoForm, setEvolucaoForm] = useState({ descricao: "", sinais_vitais: "" });
   const [anexoForm, setAnexoForm] = useState({ tipo: "imagem", descricao: "", url: "" });
-  const [anexoArquivo, setAnexoArquivo] = useState<File | null>(null);
+  const [anexoArquivos, setAnexoArquivos] = useState<File[]>([]);
   const [documentoTemplateSelecionado, setDocumentoTemplateSelecionado] = useState("");
   const [documentoClinicoForm, setDocumentoClinicoForm] = useState<DocumentoAtendimentoForm>(emptyDocumentoAtendimentoForm());
   const [documentoTemplateForm, setDocumentoTemplateForm] = useState<DocumentoTemplateForm>(emptyDocumentoTemplateForm());
@@ -2896,7 +2896,7 @@ export default function AtendimentoPage() {
       setTriagemExpandida(false);
       setDocumentoTemplateSelecionado("");
       setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
-      setAnexoArquivo(null);
+      setAnexoArquivos([]);
       clearExamUploadDrafts();
       // O snapshot "persistido" continua sendo o do servidor (nao o
       // recuperado), para que o efeito de autosave detecte a diferenca e
@@ -2951,7 +2951,7 @@ export default function AtendimentoPage() {
     setTriagemExpandida(false);
     setDocumentoTemplateSelecionado("");
     setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
-    setAnexoArquivo(null);
+    setAnexoArquivos([]);
     clearExamUploadDrafts();
     setHistoricoPaciente(null);
     aplicarCadastroComplementar();
@@ -3065,7 +3065,7 @@ export default function AtendimentoPage() {
     );
     setDocumentoTemplateSelecionado("");
     setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
-    setAnexoArquivo(null);
+    setAnexoArquivos([]);
     clearExamUploadDrafts();
     setAutosaveState("idle");
     setAutosaveAt("");
@@ -4840,7 +4840,7 @@ export default function AtendimentoPage() {
 
   const uploadAnexoArquivo = async (
     file: File,
-    options?: { exameId?: number | null; tipo?: string; descricao?: string; uploadKey?: string }
+    options?: { exameId?: number | null; tipo?: string; descricao?: string; uploadKey?: string; skipReset?: boolean }
   ): Promise<boolean> => {
     if (!selecionado) {
       setErro("Salve o atendimento antes de enviar arquivos.");
@@ -4902,8 +4902,8 @@ export default function AtendimentoPage() {
       } else {
         setSucesso(options?.exameId ? "Arquivo vinculado ao exame com sucesso." : "Arquivo anexado com sucesso.");
       }
-      if (!options?.exameId) {
-        setAnexoArquivo(null);
+      if (!options?.exameId && !options?.skipReset) {
+        setAnexoArquivos([]);
         setAnexoForm((current) => ({ ...current, descricao: "", url: "" }));
       }
       setErro("");
@@ -4932,6 +4932,39 @@ export default function AtendimentoPage() {
         delete uploadAbortControllersRef.current[uploadKey];
       }
       activeUploadSignaturesRef.current.delete(uploadSignature);
+    }
+  };
+
+  const uploadArquivosAnexoGeral = async (files: File[]) => {
+    const arquivosValidos = files.filter(Boolean);
+    if (arquivosValidos.length === 0) return;
+
+    let enviados = 0;
+    for (const file of arquivosValidos) {
+      const uploadConcluido = await uploadAnexoArquivo(file, {
+        tipo: anexoForm.tipo,
+        descricao: anexoForm.descricao,
+        skipReset: true,
+      });
+      if (!uploadConcluido) {
+        break;
+      }
+      enviados += 1;
+    }
+    setAnexoArquivos([]);
+    setAnexoForm((current) => ({ ...current, descricao: "", url: "" }));
+
+    // uploadAnexoArquivo ja mostrou o motivo especifico do arquivo que
+    // interrompeu o lote (tamanho, extensao, rede, cancelamento) - sem isto, o
+    // vet ve so essa mensagem pontual e presume que apenas aquele arquivo
+    // ficou de fora, quando na verdade o lote parou ali e os demais nunca
+    // chegaram a ser tentados.
+    const naoTentados = arquivosValidos.length - enviados - 1;
+    if (naoTentados > 0) {
+      setErro(
+        (atual) =>
+          `${atual} (${naoTentados} de ${arquivosValidos.length} arquivo(s) do lote nao chegaram a ser enviados.)`
+      );
     }
   };
 
@@ -7457,7 +7490,7 @@ export default function AtendimentoPage() {
                     ATENDIMENTO_ATTACHMENT_ACCEPT={ATENDIMENTO_ATTACHMENT_ACCEPT}
                     adicionarLinkAnexo={adicionarLinkAnexo}
                     anexosGerais={anexosGerais}
-                    anexoArquivo={anexoArquivo}
+                    anexoArquivos={anexoArquivos}
                     anexoForm={anexoForm}
                     abrirAnexo={abrirAnexo}
                     cancelarUploadAnexo={cancelarUploadAnexo}
@@ -7479,7 +7512,7 @@ export default function AtendimentoPage() {
                     openingAttachmentId={openingAttachmentId}
                     progressoUploadGeral={progressoUploadGeral}
                     selecionado={selecionado}
-                    setAnexoArquivo={setAnexoArquivo}
+                    setAnexoArquivos={setAnexoArquivos}
                     setAnexoForm={setAnexoForm}
                     setDocumentoClinicoForm={setDocumentoClinicoForm}
                     setDocumentoTemplateForm={setDocumentoTemplateForm}
@@ -7495,7 +7528,7 @@ export default function AtendimentoPage() {
                     salvarDocumentoTemplate={salvarDocumentoTemplate}
                     selecionarDocumentoClinico={selecionarDocumentoClinico}
                     toggleDocumentoTemplate={toggleDocumentoTemplate}
-                    uploadAnexoArquivo={uploadAnexoArquivo}
+                    uploadArquivosAnexoGeral={uploadArquivosAnexoGeral}
                     uploadGeralEmAndamento={uploadGeralEmAndamento}
                     abrirAtendimento={abrirAtendimento}
                     api={api}
