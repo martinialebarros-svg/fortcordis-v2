@@ -6,6 +6,8 @@ Responsavel: Codex / equipe FortCordis
 
 Status: ready_for_review
 
+PR de revisao: [#89](https://github.com/martinialebarros-svg/fortcordis-v2/pull/89)
+
 ## 1) Matriz de rastreabilidade
 
 | ID | Evidencia esperada | Status |

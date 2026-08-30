@@ -12,6 +12,8 @@ PR colaborativo da Fase 1: [#77 - plano colaborativo e resiliencia do Financeiro
 
 Branch da entrega PERF-07: `codex/performance-phase-2-perf07`
 
+PR colaborativo do PERF-07: [#89 - carregar dados por aba ativa](https://github.com/martinialebarros-svg/fortcordis-v2/pull/89)
+
 ## 1. Objetivo
 
 Eliminar telas que permanecem carregando indefinidamente e reduzir o tempo percebido nas rotas autenticadas, sem alterar regras clinicas, financeiras ou de autorizacao. Este documento e o ponto de coordenacao para contribuidores: cada tarefa deve gerar uma entrega pequena, testavel e rastreavel por PR.
