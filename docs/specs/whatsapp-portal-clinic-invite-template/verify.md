@@ -40,15 +40,23 @@ npx vitest run
 
 ## Risco residual
 
-- **Aprovação da Meta pendente**: os 3 modelos novos (`convite_portal_clinica`,
-  `acesso_portal_clinica`, `senha_temporaria_portal_clinica`) ainda não foram aprovados no Business
-  Manager - `metaId` permanece `PENDING_META_APPROVAL` em `approvedTemplates.ts`. Até lá, o convite
-  continua funcionando normalmente, só que sempre cai em `delivery_status = "manual_copy"` (mesmo
-  comportamento de fallback que existia antes desta mudança). Usuário optou por submeter os 3
-  modelos manualmente pelo WhatsApp Manager (conteúdo entregue pronto para colar) em vez de
-  compartilhar um access token nesta sessão. Assim que a Meta aprovar, falta apenas atualizar os 3
-  `metaId` em `approvedTemplates.ts` - nenhuma outra mudança de código é necessária para o envio
-  passar a funcionar de ponta a ponta.
+- **Aprovação da Meta pendente**: os 3 modelos foram submetidos ao WhatsApp Manager em 30/08/2026
+  (categoria Utilidade) e seguem em análise - `metaId` permanece `PENDING_META_APPROVAL` em
+  `approvedTemplates.ts`. Até lá, o convite continua funcionando normalmente, só que sempre cai em
+  `delivery_status = "manual_copy"` (mesmo comportamento de fallback que existia antes desta
+  mudança). Assim que a Meta aprovar, falta apenas atualizar os 3 `metaId` em
+  `approvedTemplates.ts` - nenhuma outra mudança de código é necessária para o envio passar a
+  funcionar de ponta a ponta.
+- **Nome e texto ajustados na submissão real**: a checagem automática da Meta ("A categoria não
+  corresponde") sinalizou os 3 textos originalmente planejados como mais próximos de Autenticação
+  (linguagem de "ativar acesso/senha/conta" perto de um link é lida como entrega de credencial/OTP).
+  O texto dos 3 modelos foi reescrito para linguagem de atualização de cadastro, e isso passou na
+  checagem para os 3. O modelo `convite_portal_clinica` teve a primeira submissão (texto original)
+  efetivamente rejeitada antes da reescrita; como a Meta bloqueia reuso de nome de modelo
+  rejeitado/excluído por até 30 dias, ele foi resubmetido como `convite_portal_clinica_v2` - esse é
+  o `name` real em `approvedTemplates.ts` agora, não `convite_portal_clinica`. Os outros dois
+  (`acesso_portal_clinica`, `senha_temporaria_portal_clinica`) mantiveram o nome original, só o
+  `body` mudou. `test-approved-templates.ts` foi atualizado para o novo nome.
 - Não foi possível exercitar `test-inbox-ui-contracts.ts` (o script real, não a verificação isolada)
   neste ambiente por depender de um Postgres em `127.0.0.1:5432` indisponível aqui - risco mitigado
   pela verificação isolada de CA-002 acima, que exercita a mesma função exportada.

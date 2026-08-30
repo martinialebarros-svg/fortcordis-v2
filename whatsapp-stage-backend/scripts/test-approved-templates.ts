@@ -22,7 +22,7 @@ async function run(): Promise<void> {
     receiptPdfBulk: ["recibo_pagamento_pdf_multiplas_os", "940165775772306", 3, 1],
     pendingPaymentReminder: ["lembrete_pagamento_pendente_detalhado", "1265598002271332", 7, 2],
     pendingPaymentReminderBulk: ["lembrete_pagamento_pendente_multiplas_os", "1574210064240409", 4, 2],
-    portalClinicInviteActivation: ["convite_portal_clinica", "PENDING_META_APPROVAL", 3, 0],
+    portalClinicInviteActivation: ["convite_portal_clinica_v2", "PENDING_META_APPROVAL", 3, 0],
     portalClinicInviteLoginAccess: ["acesso_portal_clinica", "PENDING_META_APPROVAL", 3, 0],
     portalClinicInviteTemporaryPassword: ["senha_temporaria_portal_clinica", "PENDING_META_APPROVAL", 4, 0]
   } as const;
