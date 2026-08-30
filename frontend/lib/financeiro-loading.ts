@@ -1,5 +1,13 @@
 export type FinanceiroSectionLoadStatus = "success" | "failed" | "cancelled";
 
+export type FinanceiroActiveTab = "transacoes" | "cobrancas" | "ordens";
+
+export interface FinanceiroLoadingPlan {
+  transacoes: boolean;
+  ordens: boolean;
+  catalogosOrdens: boolean;
+}
+
 export interface FinanceiroSectionLoadResult {
   section: string;
   status: FinanceiroSectionLoadStatus;
@@ -12,6 +20,16 @@ interface LoadFinanceiroSectionOptions<T> {
   signal: AbortSignal;
   onSuccess: (value: T) => void;
   onSettled?: () => void;
+}
+
+export function getFinanceiroLoadingPlan(activeTab: FinanceiroActiveTab): FinanceiroLoadingPlan {
+  const shouldLoadOrders = activeTab === "cobrancas" || activeTab === "ordens";
+
+  return {
+    transacoes: activeTab === "transacoes",
+    ordens: shouldLoadOrders,
+    catalogosOrdens: shouldLoadOrders,
+  };
 }
 
 export async function loadFinanceiroSection<T>({
