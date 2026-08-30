@@ -1,5 +1,30 @@
 import { describe, expect, it, vi } from "vitest";
-import { appendUniqueLoadFailure, loadFinanceiroSection } from "./financeiro-loading";
+import {
+  appendUniqueLoadFailure,
+  getFinanceiroLoadingPlan,
+  loadFinanceiroSection,
+} from "./financeiro-loading";
+
+describe("getFinanceiroLoadingPlan", () => {
+  it("carrega somente transacoes na aba inicial", () => {
+    expect(getFinanceiroLoadingPlan("transacoes")).toEqual({
+      transacoes: true,
+      ordens: false,
+      catalogosOrdens: false,
+    });
+  });
+
+  it.each(["cobrancas", "ordens"] as const)(
+    "carrega ordens e catalogos sob demanda na aba %s",
+    (activeTab) => {
+      expect(getFinanceiroLoadingPlan(activeTab)).toEqual({
+        transacoes: false,
+        ordens: true,
+        catalogosOrdens: true,
+      });
+    }
+  );
+});
 
 describe("loadFinanceiroSection", () => {
   it("publica o resultado de uma secao bem-sucedida", async () => {

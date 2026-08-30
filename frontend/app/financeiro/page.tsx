@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { appendUniqueLoadFailure, loadFinanceiroSection } from "@/lib/financeiro-loading";
+import {
+  appendUniqueLoadFailure,
+  getFinanceiroLoadingPlan,
+  loadFinanceiroSection,
+  type FinanceiroActiveTab,
+} from "@/lib/financeiro-loading";
 import TransacaoModal from "./TransacaoModal";
 import { calendarDateInput, formatCalendarDate, operationalTodayDateInput } from "@/lib/calendar-date";
 import {
@@ -350,7 +355,9 @@ export default function FinanceiroPage() {
   });
   const [periodo, setPeriodo] = useState("mes");
   const [loadingTransacoes, setLoadingTransacoes] = useState(true);
-  const [loadingOrdens, setLoadingOrdens] = useState(true);
+  const [loadingOrdens, setLoadingOrdens] = useState(false);
+  const [transacoesCarregadas, setTransacoesCarregadas] = useState(false);
+  const [ordensCarregadas, setOrdensCarregadas] = useState(false);
   const [falhasCarregamento, setFalhasCarregamento] = useState<string[]>([]);
   const [modalAberto, setModalAberto] = useState(false);
   const [transacaoEditando, setTransacaoEditando] = useState<any>(null);
@@ -366,7 +373,8 @@ export default function FinanceiroPage() {
   const [filtroDataInicio, setFiltroDataInicio] = useState("");
   const [filtroDataFim, setFiltroDataFim] = useState("");
   const [busca, setBusca] = useState("");
-  const [abaAtiva, setAbaAtiva] = useState<"transacoes" | "cobrancas" | "ordens">("transacoes");
+  const [abaAtiva, setAbaAtiva] = useState<FinanceiroActiveTab>("transacoes");
+  const [rotaFinanceiroResolvida, setRotaFinanceiroResolvida] = useState(false);
   const [modalReceberOS, setModalReceberOS] = useState<OrdemServico | null>(null);
   const [modalReceberLoteOSIds, setModalReceberLoteOSIds] = useState<number[] | null>(null);
   const [modalEditarOS, setModalEditarOS] = useState<OrdemServico | null>(null);
@@ -426,6 +434,7 @@ export default function FinanceiroPage() {
   }, [previewRecibo]);
 
   useEffect(() => {
+    if (!rotaFinanceiroResolvida) return;
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/");
@@ -437,6 +446,8 @@ export default function FinanceiroPage() {
     };
   }, [
     router,
+    rotaFinanceiroResolvida,
+    abaAtiva,
     periodo,
     filtroTipo,
     filtroCategoria,
@@ -456,7 +467,7 @@ export default function FinanceiroPage() {
     const searchParams = new URLSearchParams(window.location.search);
     const abaParam = String(searchParams.get("aba") || "").toLowerCase();
     if (abaParam === "transacoes" || abaParam === "cobrancas" || abaParam === "ordens") {
-      setAbaAtiva(abaParam as "transacoes" | "cobrancas" | "ordens");
+      setAbaAtiva(abaParam as FinanceiroActiveTab);
     }
 
     const osIdParam = Number(searchParams.get("os_id") || "");
@@ -473,6 +484,7 @@ export default function FinanceiroPage() {
       setOsHighlightId(osIdParam);
       setOsHighlightUntil(Date.now() + 25000);
     }
+    setRotaFinanceiroResolvida(true);
   }, []);
 
   useEffect(() => {
@@ -531,9 +543,10 @@ export default function FinanceiroPage() {
     carregarDadosControllerRef.current?.abort();
     const controller = new AbortController();
     carregarDadosControllerRef.current = controller;
+    const loadingPlan = getFinanceiroLoadingPlan(abaAtiva);
 
-    setLoadingTransacoes(true);
-    setLoadingOrdens(true);
+    setLoadingTransacoes(loadingPlan.transacoes);
+    setLoadingOrdens(loadingPlan.ordens);
     setCarregandoFormasPagamento(true);
     setFalhasCarregamento([]);
 
@@ -581,35 +594,51 @@ export default function FinanceiroPage() {
       });
 
       const signal = controller.signal;
-      const cargaTransacoes = registrarCarga(
-        "Transacoes",
-        api
-          .get<{ items?: Transacao[] }>(`/financeiro/transacoes${queryTransacoes}`, { signal })
-          .then((response) => response.data),
-        (data) => setTransacoes(data.items || []),
-        () => setLoadingTransacoes(false)
-      );
+      const cargaTransacoes = loadingPlan.transacoes
+        ? registrarCarga(
+            "Transacoes",
+            api
+              .get<{ items?: Transacao[] }>(`/financeiro/transacoes${queryTransacoes}`, { signal })
+              .then((response) => response.data),
+            (data) => {
+              setTransacoes(data.items || []);
+              setTransacoesCarregadas(true);
+            },
+            () => setLoadingTransacoes(false)
+          )
+        : Promise.resolve();
       const cargaResumo = registrarCarga(
         "Resumo financeiro",
         api.get<Resumo>(`/financeiro/resumo?periodo=${periodo}`, { signal }).then((response) => response.data),
         setResumo
       );
-      const cargaOrdens = registrarCarga(
-        "Ordens de servico",
-        api.get<{ items?: OrdemServico[] }>(`/ordens-servico${queryOS}`, { signal }).then((response) => response.data),
-        (data) => setOrdensServico(data.items || []),
-        () => setLoadingOrdens(false)
-      );
-      const cargaClinicas = registrarCarga(
-        "Clinicas",
-        api.get<{ items?: ClinicaOption[] }>("/clinicas?limit=1000", { signal }).then((response) => response.data),
-        (data) => setClinicas(data.items || [])
-      );
-      const cargaServicos = registrarCarga(
-        "Servicos",
-        api.get<{ items?: ServicoOption[] }>("/servicos?limit=1000", { signal }).then((response) => response.data),
-        (data) => setServicos(data.items || [])
-      );
+      const cargaOrdens = loadingPlan.ordens
+        ? registrarCarga(
+            "Ordens de servico",
+            api
+              .get<{ items?: OrdemServico[] }>(`/ordens-servico${queryOS}`, { signal })
+              .then((response) => response.data),
+            (data) => {
+              setOrdensServico(data.items || []);
+              setOrdensCarregadas(true);
+            },
+            () => setLoadingOrdens(false)
+          )
+        : Promise.resolve();
+      const cargaClinicas = loadingPlan.catalogosOrdens
+        ? registrarCarga(
+            "Clinicas",
+            api.get<{ items?: ClinicaOption[] }>("/clinicas?limit=1000", { signal }).then((response) => response.data),
+            (data) => setClinicas(data.items || [])
+          )
+        : Promise.resolve();
+      const cargaServicos = loadingPlan.catalogosOrdens
+        ? registrarCarga(
+            "Servicos",
+            api.get<{ items?: ServicoOption[] }>("/servicos?limit=1000", { signal }).then((response) => response.data),
+            (data) => setServicos(data.items || [])
+          )
+        : Promise.resolve();
       const cargaFormas = registrarCarga(
         "Formas de pagamento",
         api
@@ -2175,8 +2204,6 @@ export default function FinanceiroPage() {
 
   // Calcular resumo de OS
   const osPendentes = ordensServico.filter(os => os.status === 'Pendente');
-  const osPagas = ordensServico.filter(os => os.status === 'Pago');
-  const valorTotalOS = osPagas.reduce((acc, os) => acc + os.valor_final, 0);
   const valorPendenteOS = osPendentes.reduce((acc, os) => acc + os.valor_final, 0);
 
   return (
@@ -2290,14 +2317,18 @@ export default function FinanceiroPage() {
 	            <div className="flex items-center justify-between">
 	              <div>
 	                <p className="text-sm text-gray-500">OS Pendentes</p>
-	                <p className="text-2xl font-bold text-yellow-600">{formatarValor(valorPendenteOS)}</p>
+	                <p className="text-2xl font-bold text-yellow-600">
+	                  {ordensCarregadas ? formatarValor(valorPendenteOS) : "—"}
+	                </p>
               </div>
               <div className="w-12 h-12 bg-yellow-50 rounded-lg flex items-center justify-center">
                 <FileText className="w-6 h-6 text-yellow-600" />
               </div>
             </div>
 	            <p className="text-xs text-gray-500 mt-2">
-	              {osPendentes.length} ordem(ns) pendente(s)
+	              {ordensCarregadas
+	                ? `${osPendentes.length} ordem(ns) pendente(s)`
+	                : "Disponivel ao abrir Cobrancas ou Ordens"}
 	            </p>
 	          </div>
 
@@ -2420,7 +2451,7 @@ export default function FinanceiroPage() {
             <Receipt className="w-4 h-4" />
             Transacoes
             <span className="fc-finance-tab-count">
-              {transacoes.length}
+              {transacoesCarregadas ? transacoes.length : "—"}
             </span>
           </button>
           <button
@@ -2432,7 +2463,7 @@ export default function FinanceiroPage() {
             <MessageCircle className="w-4 h-4" />
             Cobrancas
             <span className="fc-finance-tab-count fc-finance-tab-count-amber">
-              {gruposCobrancaDestinatario.length} destinatario(s)
+              {ordensCarregadas ? `${gruposCobrancaDestinatario.length} destinatario(s)` : "—"}
             </span>
           </button>
           <button
@@ -2444,7 +2475,7 @@ export default function FinanceiroPage() {
             <FileText className="w-4 h-4" />
             Ordens de Servico
             <span className="fc-finance-tab-count fc-finance-tab-count-amber">
-              {osFiltradas.length}
+              {ordensCarregadas ? osFiltradas.length : "—"}
             </span>
           </button>
         </div>
