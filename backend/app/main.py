@@ -39,6 +39,7 @@ from app.api.v1.endpoints import (
     tabelas_preco,
     tutores,
     whatsapp_agenda,
+    whatsapp_bot,
     whatsapp_contexto,
     xml_import,
 )
@@ -69,6 +70,10 @@ from app.services.push_scheduler_service import (
 from app.services.whatsapp_reminder_scheduler_service import (
     shutdown_whatsapp_reminder_scheduler_worker,
     start_whatsapp_reminder_scheduler_worker,
+)
+from app.services.whatsapp_bot_worker_service import (
+    shutdown_whatsapp_bot_worker,
+    start_whatsapp_bot_worker,
 )
 from app.services.assistente_ia_autonomy import (
     shutdown_assistant_scheduler_worker,
@@ -423,6 +428,11 @@ app.include_router(
     prefix="/api/v1/whatsapp-contexto",
     tags=["whatsapp_contexto"],
 )
+app.include_router(
+    whatsapp_bot.router,
+    prefix="/api/v1/whatsapp/bot",
+    tags=["whatsapp_bot"],
+)
 app.include_router(pacientes.router, prefix="/api/v1/pacientes", tags=["pacientes"])
 app.include_router(clinicas.router, prefix="/api/v1/clinicas", tags=["clinicas"])
 app.include_router(servicos.router, prefix="/api/v1/servicos", tags=["servicos"])
@@ -471,6 +481,7 @@ def startup_schema_compatibility() -> None:
     start_upload_dedupe_cleanup_worker()
     start_push_scheduler_worker()
     start_whatsapp_reminder_scheduler_worker()
+    start_whatsapp_bot_worker()
     start_assistant_scheduler_worker()
     start_ai_echo_cleanup_worker()
 
@@ -483,6 +494,7 @@ def shutdown_background_workers() -> None:
     shutdown_upload_dedupe_cleanup_worker()
     shutdown_push_scheduler_worker()
     shutdown_whatsapp_reminder_scheduler_worker()
+    shutdown_whatsapp_bot_worker()
     shutdown_assistant_scheduler_worker()
     shutdown_ai_echo_cleanup_worker()
 

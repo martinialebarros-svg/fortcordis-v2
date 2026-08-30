@@ -5,7 +5,19 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { formatCalendarDate } from "@/lib/calendar-date";
+import {
+  PUBLICOS_CONHECIMENTO,
+  formatarCusto,
+  formatarInteiro,
+  formatarLatencia,
+  formatarTaxa,
+  linhasDoChecklist,
+  ordenarPorPendencia,
+  resumirProntidao,
+  validarConteudoBot,
+} from "@/lib/whatsapp-bot-painel";
 import { requestPushSync, syncPushNotificationsNow } from "@/lib/usePushNotifications";
+import { parseHistorico } from "@/lib/whatsapp-bot-historico";
 import {
   AgendaExcecaoConfig,
   AgendaFeriadoConfig,
@@ -53,6 +65,8 @@ interface ConfiguracoesSistema {
   mostrar_assinatura: boolean;
   fortinho_habilitado: boolean;
   whatsapp_lembrete_automatico_habilitado: boolean;
+  whatsapp_bot_atendimento_habilitado: boolean;
+  whatsapp_bot_modo: "off" | "suggest" | "auto";
   agenda_semanal: AgendaSemanalConfig;
   agenda_feriados: AgendaFeriadoConfig[];
   agenda_excecoes: AgendaExcecaoConfig[];
@@ -285,6 +299,8 @@ export default function ConfiguracoesPage() {
     mostrar_assinatura: true,
     fortinho_habilitado: false,
     whatsapp_lembrete_automatico_habilitado: false,
+    whatsapp_bot_atendimento_habilitado: false,
+    whatsapp_bot_modo: "suggest",
     agenda_semanal: normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL),
     agenda_feriados: [],
     agenda_excecoes: [],
@@ -350,6 +366,20 @@ export default function ConfiguracoesPage() {
   const [novaExcecaoInicio, setNovaExcecaoInicio] = useState("08:00");
   const [novaExcecaoFim, setNovaExcecaoFim] = useState("18:00");
   const [novaExcecaoMotivo, setNovaExcecaoMotivo] = useState("");
+  // Painel do bot de atendimento (Fase 6)
+  const [botProntidao, setBotProntidao] = useState<any>(null);
+  const [botMetricas, setBotMetricas] = useState<any>(null);
+  const [botConteudo, setBotConteudo] = useState<any>(null);
+  const [botCarregando, setBotCarregando] = useState<string | null>(null);
+  const [botErro, setBotErro] = useState<string | null>(null);
+  const [botForm, setBotForm] = useState({ titulo: "", conteudo: "", fonte: "", publico: "ambos", indexar_semanticamente: false });
+  const [botFormErros, setBotFormErros] = useState<string[]>([]);
+  const [botSimulacao, setBotSimulacao] = useState<any>(null);
+  const [botSimHistorico, setBotSimHistorico] = useState("");
+  const [botSimPersona, setBotSimPersona] = useState("tutor");
+  const [botSimMensagem, setBotSimMensagem] = useState("");
+  const [botClinicas, setBotClinicas] = useState<any>(null);
+  const [botClinicaBusca, setBotClinicaBusca] = useState("");
   const [usuarioForm, setUsuarioForm] = useState<UsuarioForm>({
     id: null,
     nome: "",
@@ -999,6 +1029,134 @@ export default function ConfiguracoesPage() {
     }
   };
 
+  const carregarBotProntidao = async () => {
+    try {
+      setBotCarregando("prontidao");
+      setBotErro(null);
+      const { data } = await api.get("/whatsapp/bot/prontidao");
+      setBotProntidao(data);
+    } catch {
+      setBotErro("Não foi possível carregar a prontidão do bot.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const carregarBotClinicas = async () => {
+    try {
+      setBotCarregando("clinicas");
+      setBotErro(null);
+      const { data } = await api.get("/whatsapp/bot/clinicas");
+      setBotClinicas(data);
+    } catch {
+      setBotErro("Não foi possível carregar a participação das clínicas.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const alterarModoDaClinica = async (clinicaId: number, modo: string) => {
+    try {
+      setBotCarregando(`clinica-${clinicaId}`);
+      setBotErro(null);
+      await api.put(`/whatsapp/bot/clinicas/${clinicaId}`, { modo });
+      await carregarBotClinicas();
+    } catch {
+      setBotErro("Não foi possível alterar a participação desta clínica.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const removerMarcacaoDaClinica = async (clinicaId: number) => {
+    try {
+      setBotCarregando(`clinica-${clinicaId}`);
+      setBotErro(null);
+      await api.delete(`/whatsapp/bot/clinicas/${clinicaId}`);
+      await carregarBotClinicas();
+    } catch {
+      setBotErro("Não foi possível remover a marcação desta clínica.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const alterarParticipacao = async (participacao: string) => {
+    try {
+      setBotCarregando("participacao");
+      setBotErro(null);
+      await api.put("/configuracoes", { whatsapp_bot_participacao: participacao });
+      await carregarBotClinicas();
+    } catch {
+      setBotErro("Não foi possível alterar a postura de participação. Só admin pode.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const carregarBotMetricas = async () => {
+    try {
+      setBotCarregando("metricas");
+      setBotErro(null);
+      const { data } = await api.get("/whatsapp/bot/metricas", { params: { dias: 7 } });
+      setBotMetricas(data);
+    } catch {
+      setBotErro("Não foi possível carregar as métricas do bot.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const carregarBotConteudo = async () => {
+    try {
+      setBotCarregando("conteudo");
+      setBotErro(null);
+      const { data } = await api.get("/whatsapp/bot/conhecimento");
+      setBotConteudo(data);
+    } catch {
+      setBotErro("Não foi possível carregar o conteúdo do bot.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const salvarBotConteudo = async () => {
+    const validacao = validarConteudoBot(botForm);
+    setBotFormErros(validacao.erros);
+    if (!validacao.valido) return;
+    try {
+      setBotCarregando("salvar-conteudo");
+      setBotErro(null);
+      await api.post("/whatsapp/bot/conhecimento", botForm);
+      setBotForm({ titulo: "", conteudo: "", fonte: "", publico: "ambos", indexar_semanticamente: false });
+      await carregarBotConteudo();
+      await carregarBotProntidao();
+    } catch {
+      setBotErro("Não foi possível salvar o conteúdo. Conteúdo idêntico a outro já cadastrado é recusado.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const simularBot = async () => {
+    if (botSimMensagem.trim().length < 3) return;
+    try {
+      setBotCarregando("simular");
+      setBotErro(null);
+      setBotSimulacao(null);
+      const { data } = await api.post("/whatsapp/bot/simular", {
+        mensagem: botSimMensagem,
+        persona: botSimPersona,
+        historico: parseHistorico(botSimHistorico),
+      });
+      setBotSimulacao(data);
+    } catch {
+      setBotErro("Não foi possível simular. A simulação faz chamada real de IA e pode ter falhado no provedor.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
   const salvarConfigEmpresa = async () => {
     try {
       setSalvando(true);
@@ -1012,6 +1170,8 @@ export default function ConfiguracoesPage() {
       if (!isAdmin) {
         delete payload.fortinho_habilitado;
         delete payload.whatsapp_lembrete_automatico_habilitado;
+        delete payload.whatsapp_bot_atendimento_habilitado;
+        delete payload.whatsapp_bot_modo;
       }
       await api.put("/configuracoes", payload);
       setConfigEmpresa((prev) => ({
@@ -2552,6 +2712,378 @@ export default function ConfiguracoesPage() {
                     )}
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Atendimento automatico WhatsApp */}
+            <div className="fc-settings-card">
+              <h2 className="text-lg font-semibold mb-2">Atendimento automático (WhatsApp)</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Controla o copiloto da Central de WhatsApp. Em modo sugerir, as respostas ficam
+                como rascunho e só chegam ao contato depois da revisão de um atendente.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="whatsapp_bot_atendimento_habilitado"
+                  checked={configEmpresa.whatsapp_bot_atendimento_habilitado}
+                  disabled={!isAdmin}
+                  onChange={(e) => setConfigEmpresa({ ...configEmpresa, whatsapp_bot_atendimento_habilitado: e.target.checked })}
+                  className="w-4 h-4 text-teal-600 disabled:opacity-50"
+                />
+                <label htmlFor="whatsapp_bot_atendimento_habilitado" className="text-sm text-gray-700">
+                  Ativar copiloto de atendimento
+                </label>
+              </div>
+              <label className="mt-4 block text-sm text-gray-700">
+                <span className="mb-1 block font-medium">Modo padrão</span>
+                <select
+                  value={configEmpresa.whatsapp_bot_modo}
+                  disabled={!isAdmin}
+                  onChange={(e) => setConfigEmpresa({ ...configEmpresa, whatsapp_bot_modo: e.target.value as "off" | "suggest" | "auto" })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white disabled:opacity-50"
+                >
+                  <option value="off">Desligado</option>
+                  <option value="suggest">Sugerir rascunho para revisão</option>
+                  <option value="auto" disabled>Automático (aguarda rollout)</option>
+                </select>
+              </label>
+              <p className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                O modo automático permanece bloqueado até a fase de observação em stage. Use “Sugerir” durante a validação.
+              </p>
+              {!isAdmin ? (
+                <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                  Somente administradores podem alterar o controle institucional.
+                </p>
+              ) : (
+                <button type="button" onClick={salvarConfigEmpresa} disabled={salvando}
+                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50">
+                  <Save className="w-4 h-4" /> {salvando ? "Salvando..." : "Salvar atendimento automático"}
+                </button>
+              )}
+            </div>
+
+            {/* Painel do bot de atendimento (Fase 6) */}
+            <div className="fc-settings-card">
+              <h2 className="text-lg font-semibold mb-1">Painel do atendimento automático</h2>
+              <p className="text-xs text-gray-500 mb-4">
+                Prontidão, conteúdo, observação e teste. Tudo aqui é leitura ou cadastro:
+                nada envia mensagem a cliente.
+              </p>
+
+              {botErro ? (
+                <p className="mb-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{botErro}</p>
+              ) : null}
+
+              {/* Participação por clínica (piloto) */}
+              <div className="mb-6">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">Quem o bot atende</h3>
+                  <button type="button" onClick={carregarBotClinicas} disabled={botCarregando === "clinicas"}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                    {botCarregando === "clinicas" ? "Carregando..." : "Listar clínicas"}
+                  </button>
+                </div>
+
+                {!botClinicas ? (
+                  <p className="text-xs text-gray-400">
+                    Clique em Listar para liberar o bot clínica por clínica.
+                  </p>
+                ) : (
+                  <>
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-gray-600">Postura:</span>
+                      {["todos", "piloto"].map((opcao) => (
+                        <button key={opcao} type="button"
+                          onClick={() => void alterarParticipacao(opcao)}
+                          disabled={botCarregando === "participacao" || botClinicas.participacao === opcao}
+                          className={`text-xs px-3 py-1.5 rounded-lg border ${botClinicas.participacao === opcao ? "border-vital-400 bg-vital-50 font-semibold text-vital-800" : "border-gray-300 hover:bg-gray-50"} disabled:opacity-60`}>
+                          {opcao === "todos" ? "Todos" : "Só o piloto"}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mb-3 text-[11px] text-gray-500">
+                      {botClinicas.participacao === "piloto"
+                        ? "No piloto, só quem foi habilitado aqui é atendido — inclusive tutor, que entra apenas por conversa. Alterar a postura exige admin."
+                        : "Em Todos, quem não tem marcação segue o modo padrão. Marcar uma clínica como Desligado vale mesmo aqui."}
+                    </p>
+
+                    <input type="text" value={botClinicaBusca}
+                      onChange={(e) => setBotClinicaBusca(e.target.value)}
+                      placeholder="Filtrar por nome da clínica"
+                      className="mb-2 w-full text-xs border border-gray-300 rounded-lg px-3 py-2" />
+
+                    <div className="max-h-64 overflow-y-auto divide-y divide-gray-100 border border-gray-200 rounded-lg">
+                      {(botClinicas.clinicas || [])
+                        .filter((c: any) => !botClinicaBusca.trim() || String(c.nome || "").toLowerCase().includes(botClinicaBusca.trim().toLowerCase()))
+                        .map((c: any) => (
+                        <div key={c.clinica_id} className="flex items-center justify-between gap-3 px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-gray-800 truncate">{c.nome}</p>
+                            <p className="text-[10px] text-gray-500">
+                              {c.participa ? "atendida pelo bot" : "fora do atendimento"}
+                              {c.modo ? ` · marcada como ${c.modo}` : " · sem marcação"}
+                            </p>
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            {["off", "suggest"].map((m) => (
+                              <button key={m} type="button"
+                                onClick={() => void alterarModoDaClinica(c.clinica_id, m)}
+                                disabled={botCarregando === `clinica-${c.clinica_id}` || c.modo === m}
+                                className={`text-[11px] px-2 py-1 rounded border ${c.modo === m ? "border-vital-400 bg-vital-50 font-semibold text-vital-800" : "border-gray-300 hover:bg-gray-50"} disabled:opacity-60`}>
+                                {m === "off" ? "Desligado" : "Sugerir"}
+                              </button>
+                            ))}
+                            {/* So aparece quando ha o que desfazer. "Sem marcacao"
+                                nao e um terceiro modo: e a ausencia dos dois, e em
+                                `todos` ela INCLUI a clinica, ao contrario de Desligado. */}
+                            {c.modo ? (
+                              <button type="button"
+                                onClick={() => void removerMarcacaoDaClinica(c.clinica_id)}
+                                disabled={botCarregando === `clinica-${c.clinica_id}`}
+                                title="Volta ao padrão: em Todos a clínica é atendida; no piloto, fica de fora"
+                                className="text-[11px] px-2 py-1 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-60">
+                                Sem marcação
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                      {(botClinicas.clinicas || []).length === 0 ? (
+                        <p className="px-3 py-3 text-xs text-gray-400">Nenhuma clínica ativa cadastrada.</p>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-[10px] text-gray-400">
+                      &quot;Automático&quot; não aparece aqui de propósito: o envio automático ainda não existe.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              {/* Prontidão */}
+              <div className="mb-6">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">O bot consegue responder?</h3>
+                  <button type="button" onClick={carregarBotProntidao} disabled={botCarregando === "prontidao"}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                    {botCarregando === "prontidao" ? "Verificando..." : "Verificar"}
+                  </button>
+                </div>
+                {!botProntidao ? (
+                  <p className="text-xs text-gray-400">Clique em Verificar. A checagem não usa IA e não custa nada.</p>
+                ) : (
+                  <>
+                    {(() => {
+                      const r = resumirProntidao(botProntidao.personas);
+                      return (
+                        <p className="text-xs text-gray-600 mb-3">
+                          {r.prontos} de {r.total} prontos
+                          {r.acionaveis > 0 ? ` · ${r.acionaveis} dependem de configuração sua` : " · nada pendente de configuração"}
+                        </p>
+                      );
+                    })()}
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {(["tutor", "clinica"] as const).map((persona) => (
+                        <div key={persona}>
+                          <p className="text-xs font-semibold text-gray-700 mb-1 capitalize">
+                            {persona === "tutor" ? "Tutor" : "Clínica parceira"}
+                          </p>
+                          <ul className="space-y-1">
+                            {ordenarPorPendencia(botProntidao.personas?.[persona]?.itens ?? []).map((item) => (
+                              <li key={item.intent} className="text-xs">
+                                <span className={item.pronto ? "text-emerald-700" : item.depende_da_conversa ? "text-gray-500" : "text-amber-700"}>
+                                  {item.pronto ? "✓" : item.depende_da_conversa ? "•" : "!"} {item.rotulo}
+                                </span>
+                                {item.diagnostico ? (
+                                  <span className="block text-gray-500 pl-4">{item.diagnostico}</span>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-[11px] text-gray-400">{botProntidao.resumo?.observacao}</p>
+                  </>
+                )}
+              </div>
+
+              {/* Conteúdo */}
+              <div className="mb-6 border-t border-gray-100 pt-4">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">Conteúdo que o bot usa</h3>
+                  <button type="button" onClick={carregarBotConteudo} disabled={botCarregando === "conteudo"}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                    {botCarregando === "conteudo" ? "Carregando..." : "Listar"}
+                  </button>
+                </div>
+                {botConteudo ? (
+                  <p className="text-xs text-gray-600 mb-3">
+                    {botConteudo.total_visiveis} visível(is) para o bot
+                    {botConteudo.total_ignorados > 0
+                      ? ` · ${botConteudo.total_ignorados} na base que o bot ignora (categoria fora da audiência dele)`
+                      : ""}
+                  </p>
+                ) : null}
+                {isAdmin ? (
+                  <div className="space-y-2">
+                    <input value={botForm.titulo} onChange={(e) => setBotForm({ ...botForm, titulo: e.target.value })}
+                      placeholder="Título (ex.: Como agendar na FortCordis)"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <select value={botForm.publico} onChange={(e) => setBotForm({ ...botForm, publico: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                        {PUBLICOS_CONHECIMENTO.map((p) => (
+                          <option key={p.valor} value={p.valor}>{p.rotulo}</option>
+                        ))}
+                      </select>
+                      <input value={botForm.fonte} onChange={(e) => setBotForm({ ...botForm, fonte: e.target.value })}
+                        placeholder="Fonte (obrigatória)"
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                    </div>
+                    <textarea value={botForm.conteudo} onChange={(e) => setBotForm({ ...botForm, conteudo: e.target.value })}
+                      rows={5} placeholder="O que o bot deve saber. Escreva como você responderia ao cliente."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                    <label className="flex items-start gap-2 text-xs text-gray-600">
+                      <input type="checkbox" checked={botForm.indexar_semanticamente}
+                        onChange={(e) => setBotForm({ ...botForm, indexar_semanticamente: e.target.checked })}
+                        className="mt-0.5" />
+                      <span>Ativar busca semântica (o texto vai à OpenAI só para gerar vetores)</span>
+                    </label>
+                    {botFormErros.length > 0 ? (
+                      <ul className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                        {botFormErros.map((erro) => <li key={erro}>• {erro}</li>)}
+                      </ul>
+                    ) : null}
+                    <button type="button" onClick={salvarBotConteudo} disabled={botCarregando === "salvar-conteudo"}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm">
+                      <Save className="w-4 h-4" /> {botCarregando === "salvar-conteudo" ? "Salvando..." : "Adicionar conteúdo"}
+                    </button>
+                    <p className="text-[11px] text-gray-400">
+                      A categoria é definida pelo público escolhido, e a fonte é obrigatória — as duas coisas
+                      que antes tornavam um documento invisível para o bot sem avisar.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                    Somente administradores podem cadastrar conteúdo do bot.
+                  </p>
+                )}
+              </div>
+
+              {/* Observação */}
+              <div className="mb-6 border-t border-gray-100 pt-4">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">Observação (últimos 7 dias)</h3>
+                  <button type="button" onClick={carregarBotMetricas} disabled={botCarregando === "metricas"}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                    {botCarregando === "metricas" ? "Carregando..." : "Carregar"}
+                  </button>
+                </div>
+                {!botMetricas ? (
+                  <p className="text-xs text-gray-400">Sem dados carregados.</p>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-gray-500 text-left">
+                            <th className="py-1 pr-3">Recorte</th>
+                            <th className="py-1 pr-3">Aceite</th>
+                            <th className="py-1 pr-3">Sem edição</th>
+                            <th className="py-1 pr-3">Descarte</th>
+                            <th className="py-1 pr-3">Bloqueio</th>
+                            <th className="py-1 pr-3">p95</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[
+                            ["Geral", botMetricas.geral],
+                            ...Object.entries(botMetricas.por_persona ?? {}),
+                            ...Object.entries(botMetricas.por_faixa_horario ?? {}),
+                          ].map(([rotulo, b]: any) => (
+                            <tr key={rotulo} className="border-t border-gray-100">
+                              <td className="py-1 pr-3 capitalize">{String(rotulo).replace(/_/g, " ")}</td>
+                              <td className="py-1 pr-3">{formatarTaxa(b?.taxa_aceite)}</td>
+                              <td className="py-1 pr-3">{formatarTaxa(b?.taxa_aceite_sem_edicao)}</td>
+                              <td className="py-1 pr-3">{formatarTaxa(b?.taxa_descarte)}</td>
+                              <td className="py-1 pr-3">{formatarTaxa(b?.taxa_bloqueio)}</td>
+                              <td className="py-1 pr-3">{formatarLatencia(b?.latencia_p95_ms)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-600">
+                      Custo: {formatarCusto(botMetricas.geral?.custo_total, botMetricas.geral?.custo_configurado)}
+                      {" · "}rascunhos decididos: {formatarInteiro(botMetricas.geral?.decididos)}
+                    </p>
+                    {Object.keys(botMetricas.geral?.bloqueios_por_motivo ?? {}).length > 0 ? (
+                      <p className="mt-1 text-xs text-gray-600">
+                        Bloqueios: {Object.entries(botMetricas.geral.bloqueios_por_motivo)
+                          .map(([m, n]) => `${m} ${n}`).join(" · ")}
+                      </p>
+                    ) : null}
+                    <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-3">
+                      <p className="text-xs font-semibold text-gray-700 mb-1">Amostra para decidir o modo automático</p>
+                      <ul className="space-y-0.5">
+                        {linhasDoChecklist(botMetricas.pronto_para_decidir_auto).map((linha) => (
+                          <li key={linha.rotulo} className="text-xs text-gray-600">
+                            {linha.atendido ? "✓" : "○"} {linha.rotulo}
+                            {linha.detalhe ? <span className="text-gray-400"> — {linha.detalhe}</span> : null}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-2 text-[11px] text-gray-500">
+                        {botMetricas.pronto_para_decidir_auto?.observacao}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Teste */}
+              <div className="border-t border-gray-100 pt-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">Testar sem enviar</h3>
+                <div className="grid gap-2 sm:grid-cols-[160px_minmax(0,1fr)]">
+                  <select value={botSimPersona} onChange={(e) => setBotSimPersona(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="tutor">Como tutor</option>
+                    <option value="clinica">Como clínica</option>
+                  </select>
+                  <input value={botSimMensagem} onChange={(e) => setBotSimMensagem(e.target.value)}
+                    placeholder="Digite a pergunta de um cliente"
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                </div>
+                <textarea value={botSimHistorico} onChange={(e) => setBotSimHistorico(e.target.value)}
+                  rows={3}
+                  placeholder={"Conversa anterior (opcional), uma mensagem por linha:\ncliente: quanto custa o eco?\nnos: Ecocardiograma custa R$ 180,00."}
+                  className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono" />
+                <p className="mt-1 text-[11px] text-gray-400">
+                  Sem prefixo, a linha conta como mensagem do cliente. Serve para testar se o bot
+                  entende &quot;e domiciliar?&quot; ou &quot;quanto fica entao?&quot; sem repetir o assunto.
+                </p>
+                <button type="button" onClick={simularBot}
+                  disabled={botCarregando === "simular" || botSimMensagem.trim().length < 3}
+                  className="mt-2 text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                  {botCarregando === "simular" ? "Simulando..." : "Ver o que o bot responderia"}
+                </button>
+                <p className="mt-1 text-[11px] text-gray-400">
+                  Faz chamada real de IA, então consome tokens. Nada é enviado ao cliente e nada entra nas métricas.
+                </p>
+                {botSimulacao ? (
+                  <div className="mt-3 rounded border border-gray-200 p-3 text-xs space-y-1">
+                    <p><span className="text-gray-500">decisão:</span> {botSimulacao.decisao} · <span className="text-gray-500">motivo:</span> {botSimulacao.motivo || "—"}</p>
+                    {botSimulacao.texto_gerado ? (
+                      <p className="whitespace-pre-wrap text-gray-800 bg-gray-50 rounded p-2">{botSimulacao.texto_gerado}</p>
+                    ) : (
+                      <p className="text-gray-500">Nenhum texto gerado — veja o motivo acima.</p>
+                    )}
+                    <p className="text-gray-400">
+                      {formatarInteiro(botSimulacao.input_tokens)} tokens entrada · {formatarInteiro(botSimulacao.output_tokens)} saída · {formatarLatencia(botSimulacao.latencia_ms)}
+                    </p>
+                  </div>
+                ) : null}
               </div>
             </div>
 

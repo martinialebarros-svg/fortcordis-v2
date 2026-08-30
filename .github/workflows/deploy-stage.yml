@@ -31,6 +31,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      - name: Test WhatsApp stage Meta isolation
+        run: bash scripts/tests/test_whatsapp_stage_meta_isolation.sh
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -244,11 +247,14 @@ jobs:
             echo "Stage echo voice assistant configuration updated."
           EOF
 
-      - name: Configure WhatsApp Cloud API secrets on Stage VPS
+      - name: Configure isolated WhatsApp Cloud API identity on Stage VPS
         env:
           WHATSAPP_ACCESS_TOKEN_STAGE: ${{ secrets.WHATSAPP_ACCESS_TOKEN_STAGE }}
           WHATSAPP_APP_SECRET_STAGE: ${{ secrets.WHATSAPP_APP_SECRET_STAGE }}
           WHATSAPP_VERIFY_TOKEN_STAGE: ${{ secrets.WHATSAPP_VERIFY_TOKEN_STAGE }}
+          WHATSAPP_PHONE_NUMBER_ID_STAGE: ${{ vars.WHATSAPP_PHONE_NUMBER_ID_STAGE }}
+          WHATSAPP_META_APP_ID_STAGE: ${{ vars.WHATSAPP_META_APP_ID_STAGE }}
+          WHATSAPP_BUSINESS_ACCOUNT_ID_STAGE: ${{ vars.WHATSAPP_BUSINESS_ACCOUNT_ID_STAGE }}
         run: |
           set -euo pipefail
 
@@ -265,10 +271,40 @@ jobs:
             exit 1
           fi
 
-          printf '%s\n%s\n%s\n' \
+          for identity_var in \
+            WHATSAPP_PHONE_NUMBER_ID_STAGE \
+            WHATSAPP_META_APP_ID_STAGE \
+            WHATSAPP_BUSINESS_ACCOUNT_ID_STAGE; do
+            identity_value="${!identity_var:-}"
+            if [[ ! "$identity_value" =~ ^[0-9]{10,32}$ ]]; then
+              echo "${identity_var} GitHub variable is missing or invalid."
+              exit 1
+            fi
+          done
+
+          if [[ "$WHATSAPP_PHONE_NUMBER_ID_STAGE" == "1279142515283484" || \
+                "$WHATSAPP_META_APP_ID_STAGE" == "975334532125008" || \
+                "$WHATSAPP_BUSINESS_ACCOUNT_ID_STAGE" == "1369494994627980" ]]; then
+            echo "Stage WhatsApp identity must be isolated from production."
+            exit 1
+          fi
+
+          WHATSAPP_ACCESS_TOKEN="$WHATSAPP_ACCESS_TOKEN_STAGE" \
+            PHONE_NUMBER_ID="$WHATSAPP_PHONE_NUMBER_ID_STAGE" \
+            META_APP_ID="$WHATSAPP_META_APP_ID_STAGE" \
+            WHATSAPP_BUSINESS_ACCOUNT_ID="$WHATSAPP_BUSINESS_ACCOUNT_ID_STAGE" \
+            WHATSAPP_GRAPH_API_VERSION=v26.0 \
+            WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER=1 \
+            WHATSAPP_REQUIRE_SUBSCRIBED_APP=0 \
+            bash scripts/whatsapp_meta_identity_check.sh
+
+          printf '%s\n%s\n%s\n%s\n%s\n%s\n' \
             "$WHATSAPP_ACCESS_TOKEN_STAGE" \
             "$WHATSAPP_APP_SECRET_STAGE" \
-            "$WHATSAPP_VERIFY_TOKEN_STAGE" | \
+            "$WHATSAPP_VERIFY_TOKEN_STAGE" \
+            "$WHATSAPP_PHONE_NUMBER_ID_STAGE" \
+            "$WHATSAPP_META_APP_ID_STAGE" \
+            "$WHATSAPP_BUSINESS_ACCOUNT_ID_STAGE" | \
             ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
               set -euo pipefail
               umask 077
@@ -276,9 +312,14 @@ jobs:
               IFS= read -r whatsapp_access_token
               IFS= read -r whatsapp_app_secret
               IFS= read -r whatsapp_verify_token
+              IFS= read -r whatsapp_phone_number_id
+              IFS= read -r whatsapp_meta_app_id
+              IFS= read -r whatsapp_business_account_id
 
-              if [ -z "$whatsapp_access_token" ] || [ -z "$whatsapp_app_secret" ] || [ -z "$whatsapp_verify_token" ]; then
-                echo "Received an empty WhatsApp secret."
+              if [ -z "$whatsapp_access_token" ] || [ -z "$whatsapp_app_secret" ] || \
+                 [ -z "$whatsapp_verify_token" ] || [ -z "$whatsapp_phone_number_id" ] || \
+                 [ -z "$whatsapp_meta_app_id" ] || [ -z "$whatsapp_business_account_id" ]; then
+                echo "Received incomplete WhatsApp stage configuration."
                 exit 1
               fi
 
@@ -315,11 +356,22 @@ jobs:
               upsert_env WHATSAPP_ACCESS_TOKEN "$whatsapp_access_token"
               upsert_env WHATSAPP_APP_SECRET "$whatsapp_app_secret"
               upsert_env WHATSAPP_VERIFY_TOKEN "$whatsapp_verify_token"
+              upsert_env PHONE_NUMBER_ID "$whatsapp_phone_number_id"
+              upsert_env META_APP_ID "$whatsapp_meta_app_id"
+              upsert_env WHATSAPP_BUSINESS_ACCOUNT_ID "$whatsapp_business_account_id"
               upsert_env WHATSAPP_GRAPH_API_VERSION "v26.0"
+              upsert_env WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER "1"
+              # So em stage: o numero de TESTE da Meta guarda os destinatarios
+              # permitidos COM o nono digito, entao enviar na forma de 12
+              # digitos e recusado com OAuthException/131030. Producao nao tem
+              # lista de permitidos e entrega na forma de 12 digitos - por isso
+              # a flag e opt-in e nao pode ir para o deploy de producao.
+              upsert_env WHATSAPP_GRAPH_FORCE_BR_MOBILE_NINTH_DIGIT "true"
               chmod 600 "$env_file"
 
-              unset whatsapp_access_token whatsapp_app_secret whatsapp_verify_token
-              echo "Stage WhatsApp Cloud API secrets configured."
+              unset whatsapp_access_token whatsapp_app_secret whatsapp_verify_token \
+                whatsapp_phone_number_id whatsapp_meta_app_id whatsapp_business_account_id
+              echo "Stage WhatsApp Cloud API identity configured without exposing values."
             '
 
       - name: Remove obsolete env keys on Stage VPS
@@ -347,8 +399,22 @@ jobs:
             fi
 
             cd "$APP_DIR"
+            echo "Loading the stage deploy scripts from origin/${BRANCH}..."
+            git fetch origin "$BRANCH"
+            deploy_scripts_dir="$(mktemp -d)"
+            cleanup_deploy_scripts() {
+              rm -rf -- "$deploy_scripts_dir"
+            }
+            trap cleanup_deploy_scripts EXIT
+            git archive --format=tar "origin/${BRANCH}" -- \
+              scripts/deploy_stage_vps.sh \
+              scripts/deploy_prod_vps.sh | tar -xf - -C "$deploy_scripts_dir"
+
             echo "Running standardized stage deploy script..."
-            SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' APP_DIR="$APP_DIR" BRANCH="$BRANCH" bash scripts/deploy_stage_vps.sh
+            SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' \
+              APP_DIR="$APP_DIR" \
+              BRANCH="$BRANCH" \
+              bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"
           EOF
 
       - name: Run one-shot AI echo canary on Stage

@@ -17,6 +17,7 @@ Status: in-progress
 | CA-007 | aceitacao | endpoints de cadastro usam `_require_admin` para mutacoes | ok |
 | CA-008 | aceitacao | `PATCH /ordens-servico/{id}/receber` aceita `desconto` e recalcula cobertura no backend; modais da agenda exibem campo de desconto | ok |
 | CA-009 | aceitacao | tela financeiro permite editar `taxa_percentual` e `taxa_fixa` por forma de pagamento via `PUT /financeiro/formas-pagamento/{id}` | ok |
+| CA-010 | aceitacao | modal individual do Financeiro usa viewport limitada, formulario com rolagem propria e rodape fixo para manter `Confirmar Recebimento` acessivel com 2+ pagamentos | ok |
 | NFR-001 | nao funcional | cancelamento em lote no desfazer recebimento | ok |
 | NFR-002 | nao funcional | guardrail admin em `financeiro.py` para cadastro | ok |
 | NFR-003 | nao funcional | retorno de recebimento com totais bruto/taxa/liquido/excedente | ok |
@@ -65,6 +66,7 @@ Observacao:
 - Cenario F: validar comportamento identico no modal da Agenda Lista e FullCalendar.
 - Cenario G: no modal de recebimento da agenda, aplicar desconto e confirmar que o total a cobrir passa a ser o valor liquido da OS.
 - Cenario H: no Financeiro > cadastro de meios, editar taxa percentual/fixa e validar reflexo na "taxa estimada" em novo recebimento.
+- Cenario I: no Financeiro, abrir o recebimento individual de uma OS, adicionar 2+ formas de pagamento e confirmar que o formulario rola sem ocultar `Cancelar` e `Confirmar Recebimento`.
 
 ## 4) Riscos residuais
 

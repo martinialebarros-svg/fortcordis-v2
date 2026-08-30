@@ -1470,7 +1470,10 @@ export default function AgendaPage() {
 
     setAtualizandoStatus(id);
     try {
-      const enviarAtualizacaoStatus = (confirmarReservaExpirada = false) => {
+      const enviarAtualizacaoStatus = (
+        confirmarReservaExpirada = false,
+        confirmarConflitoDeslocamento = false
+      ) => {
         const params = new URLSearchParams();
         params.append("status", novoStatus);
         if (tipoHorarioParam) {
@@ -1479,46 +1482,80 @@ export default function AgendaPage() {
         if (confirmarReservaExpirada) {
           params.append("confirmar_slot_reserva_expirada", "true");
         }
+        if (confirmarConflitoDeslocamento) {
+          params.append("confirmar_conflito_deslocamento", "true");
+        }
         return api.patch(`/agenda/${id}/status?${params.toString()}`);
       };
 
       let response;
-      try {
-        response = await enviarAtualizacaoStatus(false);
-      } catch (errorInicial: any) {
-        const detail = errorInicial?.response?.data?.detail;
-        if (
-          errorInicial?.response?.status !== 409 ||
-          ![
-            "CONFIRMACAO_SLOT_RESERVA_EXPIRADA",
-            "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA",
-          ].includes(detail?.codigo)
-        ) {
-          throw errorInicial;
+      let confirmouReservaExpirada = false;
+      let confirmouConflitoDeslocamento = false;
+      // Uma reativação tardia pode bater em duas confirmações em sequência
+      // (reserva expirada e conflito de rota), por isso o retry em laço.
+      for (let tentativa = 0; tentativa < 3 && !response; tentativa += 1) {
+        try {
+          response = await enviarAtualizacaoStatus(
+            confirmouReservaExpirada,
+            confirmouConflitoDeslocamento
+          );
+        } catch (errorTentativa: any) {
+          const detail = errorTentativa?.response?.data?.detail;
+          const codigo =
+            errorTentativa?.response?.status === 409 ? detail?.codigo : undefined;
+          if (
+            !confirmouReservaExpirada &&
+            [
+              "CONFIRMACAO_SLOT_RESERVA_EXPIRADA",
+              "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA",
+            ].includes(codigo)
+          ) {
+            const confirmou = await fortinho.confirm({
+              title:
+                codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+                  ? "Confirmação recebida após o prazo"
+                  : "ATENÇÃO: este horário teve uma reserva expirada",
+              message:
+                codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+                  ? "Confirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará se o horário ainda está livre antes de mudar o status para Agendado."
+                  : "Antes de reativar este horário, volte às mensagens do WhatsApp e confira se a clínica enviou os dados do tutor ou do pet após o prazo. Só continue se não houver resposta.",
+              mood: "alert",
+              gesture: "open-arms",
+              confirmLabel:
+                codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+                  ? "Cliente confirmou; agendar"
+                  : "Revisei as mensagens e quero continuar",
+              cancelLabel:
+                codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+                  ? "Cancelar"
+                  : "Voltar e verificar WhatsApp",
+            });
+            if (!confirmou) return;
+            confirmouReservaExpirada = true;
+            continue;
+          }
+          if (codigo === "CONFLITO_DESLOCAMENTO" && !confirmouConflitoDeslocamento) {
+            // Só admin pode abrir exceção de rota; para os demais o erro segue
+            // o fluxo normal de exibição.
+            if (!isAdmin) throw errorTentativa;
+            const confirmou = await fortinho.confirm({
+              title: "Conflito de deslocamento na rota",
+              message: `${
+                typeof detail?.mensagem === "string" ? detail.mensagem : ""
+              } Como administrador, você pode abrir uma exceção para este agendamento. Ela fica registrada e vale enquanto horário, clínica e serviço não mudarem.`,
+              mood: "alert",
+              gesture: "open-arms",
+              confirmLabel: "Abrir exceção e continuar",
+              cancelLabel: "Voltar e ajustar o horário",
+            });
+            if (!confirmou) return;
+            confirmouConflitoDeslocamento = true;
+            continue;
+          }
+          throw errorTentativa;
         }
-        const confirmou = await fortinho.confirm({
-          title:
-            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
-              ? "Confirmação recebida após o prazo"
-              : "ATENÇÃO: este horário teve uma reserva expirada",
-          message:
-            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
-              ? "Confirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará se o horário ainda está livre antes de mudar o status para Agendado."
-              : "Antes de reativar este horário, volte às mensagens do WhatsApp e confira se a clínica enviou os dados do tutor ou do pet após o prazo. Só continue se não houver resposta.",
-          mood: "alert",
-          gesture: "open-arms",
-          confirmLabel:
-            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
-              ? "Cliente confirmou; agendar"
-              : "Revisei as mensagens e quero continuar",
-          cancelLabel:
-            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
-              ? "Cancelar"
-              : "Voltar e verificar WhatsApp",
-        });
-        if (!confirmou) return;
-        response = await enviarAtualizacaoStatus(true);
       }
+      if (!response) return;
       await carregarAgendamentos();
       
       // Se gerou OS, mostra o modal
@@ -1584,35 +1621,66 @@ export default function AgendaPage() {
 
     setReabilitandoReservaId(alvo.id);
     try {
-      const enviarReabilitacao = (confirmarSlotReservaExpirada = false) =>
+      const enviarReabilitacao = (
+        confirmarSlotReservaExpirada = false,
+        confirmarConflitoDeslocamento = false
+      ) =>
         api.post(`/agenda/${alvo.id}/reabilitar-reserva`, {
           prazo_confirmacao_horas: horas,
           confirmar_slot_reserva_expirada: confirmarSlotReservaExpirada,
+          confirmar_conflito_deslocamento: confirmarConflitoDeslocamento,
         });
 
       let response;
-      try {
-        response = await enviarReabilitacao(false);
-      } catch (errorInicial: any) {
-        const detail = errorInicial?.response?.data?.detail;
-        if (
-          errorInicial?.response?.status !== 409 ||
-          detail?.codigo !== "CONFIRMACAO_SLOT_RESERVA_EXPIRADA"
-        ) {
-          throw errorInicial;
+      let confirmouSlotReservaExpirada = false;
+      let confirmouConflitoDeslocamento = false;
+      for (let tentativa = 0; tentativa < 3 && !response; tentativa += 1) {
+        try {
+          response = await enviarReabilitacao(
+            confirmouSlotReservaExpirada,
+            confirmouConflitoDeslocamento
+          );
+        } catch (errorTentativa: any) {
+          const detail = errorTentativa?.response?.data?.detail;
+          const codigo =
+            errorTentativa?.response?.status === 409 ? detail?.codigo : undefined;
+          if (
+            codigo === "CONFIRMACAO_SLOT_RESERVA_EXPIRADA" &&
+            !confirmouSlotReservaExpirada
+          ) {
+            const confirmou = await fortinho.confirm({
+              title: "ATENÇÃO: outra reserva expirada neste horário",
+              message:
+                "Outra clínica também teve uma reserva expirada neste slot. Confira as mensagens do WhatsApp antes de devolver o horário para esta clínica.",
+              mood: "alert",
+              gesture: "open-arms",
+              confirmLabel: "Revisei as mensagens e quero continuar",
+              cancelLabel: "Voltar e verificar WhatsApp",
+            });
+            if (!confirmou) return;
+            confirmouSlotReservaExpirada = true;
+            continue;
+          }
+          if (codigo === "CONFLITO_DESLOCAMENTO" && !confirmouConflitoDeslocamento) {
+            if (!isAdmin) throw errorTentativa;
+            const confirmou = await fortinho.confirm({
+              title: "Conflito de deslocamento na rota",
+              message: `${
+                typeof detail?.mensagem === "string" ? detail.mensagem : ""
+              } Como administrador, você pode abrir uma exceção para este agendamento. Ela fica registrada e vale enquanto horário, clínica e serviço não mudarem.`,
+              mood: "alert",
+              gesture: "open-arms",
+              confirmLabel: "Abrir exceção e reabilitar",
+              cancelLabel: "Voltar e ajustar o horário",
+            });
+            if (!confirmou) return;
+            confirmouConflitoDeslocamento = true;
+            continue;
+          }
+          throw errorTentativa;
         }
-        const confirmou = await fortinho.confirm({
-          title: "ATENÇÃO: outra reserva expirada neste horário",
-          message:
-            "Outra clínica também teve uma reserva expirada neste slot. Confira as mensagens do WhatsApp antes de devolver o horário para esta clínica.",
-          mood: "alert",
-          gesture: "open-arms",
-          confirmLabel: "Revisei as mensagens e quero continuar",
-          cancelLabel: "Voltar e verificar WhatsApp",
-        });
-        if (!confirmou) return;
-        response = await enviarReabilitacao(true);
       }
+      if (!response) return;
 
       setModalReabilitarReserva(null);
       setErro("");

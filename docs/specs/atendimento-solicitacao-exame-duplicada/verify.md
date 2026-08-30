@@ -1,6 +1,6 @@
 # Verify - atendimento-solicitacao-exame-duplicada
 
-Data: 2026-08-19
+Data: 2026-08-19 (revisado em 2026-08-26)
 Status: validado localmente, aguardando publicacao
 
 ## Matriz de verificacao
@@ -11,6 +11,9 @@ Status: validado localmente, aguardando publicacao
 | CA-002 | Guarda sincrona de catalogo no frontend impede segundo clique antes da proxima renderizacao | inspecao de codigo: ok |
 | CA-003 | Teste backend de `id` inexistente confirma contagem zero | ok |
 | CA-004 | Vitest direcionado, unittest direcionado, typecheck, lint direcionado e build | ok |
+| CA-005 | Teste `reconcileExamsDuringSave` reproduz `Rela` -> texto completo durante o round-trip e exige uma unica linha com o `id` criado | ok |
+| CA-006 | Teste `getExamStateKey` exige a mesma chave antes e depois da incorporacao do `id` | ok |
+| CA-007 | Testes cobrem texto apagado durante o save, remocao do card apos exclusao confirmada, digitacao retomada durante a exclusao e preservacao quando ha resultado ou catalogo | ok |
 
 ## Revisao de compatibilidade
 
@@ -23,7 +26,10 @@ cd backend && venv/bin/python -m unittest tests.test_atendimento_exame_integrida
 # 21 testes, OK
 
 cd frontend && npx vitest run lib/atendimento-form-merge.test.ts
-# 6 testes, OK
+# 13 testes, OK (revalidado em 2026-08-26)
+
+cd frontend && npm test
+# 122 testes Vitest + 9 testes Node, OK (revalidado em 2026-08-26)
 
 cd frontend && npx tsc --noEmit
 # OK
@@ -32,5 +38,5 @@ cd frontend && npx eslint app/atendimento/page.tsx lib/atendimento-form-merge.ts
 # OK
 
 cd frontend && npm run build
-# Compiled successfully; 43 paginas estaticas geradas
+# Compiled successfully; 43 paginas estaticas geradas (revalidado em 2026-08-26)
 ```

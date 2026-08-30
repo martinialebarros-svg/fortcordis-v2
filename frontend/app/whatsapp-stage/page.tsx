@@ -6,13 +6,17 @@ import {
   AlertCircle, Building2, CalendarDays, Check, CheckCheck, ChevronRight,
   CircleDot, ClipboardList, Clock3, FileText, Filter, Inbox, Info, Link2,
   MessageSquare, MessagesSquare, Paperclip, PawPrint, Pencil, RefreshCw, Search, Send, Settings,
-  Sparkles, UserCheck, UserRound, Users, X,
+  ShieldAlert, Sparkles, UserCheck, UserRound, Users, X,
 } from "lucide-react";
 import DashboardLayout from "../layout-dashboard";
 import {
   CustomerServiceWindow,
   evaluateCustomerServiceWindow,
 } from "@/lib/whatsapp-customer-service-window";
+import {
+  buildMessageResendRequest,
+  shouldOfferMessageResend,
+} from "@/lib/whatsapp-message-retry";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
 type AssignedFilter = "all" | "assigned" | "unassigned";
@@ -120,6 +124,69 @@ interface ConversationDomainContext {
   ordens_servico: DomainServiceOrder[];
 }
 interface LoadMessagesOptions { isCurrent?: () => boolean; silent?: boolean }
+type WhatsAppBotMode = "off" | "suggest" | "auto";
+interface WhatsAppBotDraft {
+  resposta_id: number;
+  texto_gerado: string;
+  criado_em: string | null;
+}
+/** Sem `texto_gerado` de proposito: em `blocked` o texto e o que o guardrail
+ *  recusou, e o backend nao o devolve. Aqui so o motivo e acionavel. */
+interface WhatsAppBotRecusa {
+  resposta_id: number;
+  decisao: "blocked" | "handoff";
+  motivo: string | null;
+  criado_em: string | null;
+}
+interface WhatsAppBotSilencio {
+  resposta_id: number;
+  motivo: string | null;
+  criado_em: string | null;
+}
+interface WhatsAppBotConversationState {
+  wa_identity: string;
+  modo: WhatsAppBotMode;
+  modo_origem: "conversa" | "institucional";
+  pausado_ate: string | null;
+  pausado: boolean;
+  handoff_motivo: string | null;
+  rascunho_pendente: WhatsAppBotDraft | null;
+  ultima_recusa: WhatsAppBotRecusa | null;
+  ultimo_silencio: WhatsAppBotSilencio | null;
+}
+
+/** Motivos que o guardrail grava, em portugues de atendente. Chave
+ *  desconhecida cai no proprio motivo bruto, que e melhor que sumir. */
+const BOT_RECUSA_MOTIVOS: Record<string, string> = {
+  diagnostico: "a resposta continha diagnóstico",
+  dose_medicacao: "a resposta continha medicação ou dose",
+  prognostico: "a resposta continha prognóstico",
+  avaliacao_sintoma: "a resposta avaliava um sintoma",
+  vazamento_conteudo_laudo: "a resposta trazia conteúdo de laudo",
+  sem_fonte: "não havia fonte para o que seria afirmado",
+  valor_fora_tabela: "havia valor fora da tabela de preços",
+  prazo_nao_confirmado: "havia prazo ou horário sem confirmação",
+  contato_fora_da_fonte: "havia telefone ou CEP fora do cadastro",
+  endereco_sem_fonte: "havia endereço sem cadastro que o sustente",
+  teto_caracteres: "a resposta passou do limite de tamanho",
+  emergencia: "possível emergência: contato telefônico imediato",
+  pedido_humano: "o cliente pediu para falar com uma pessoa",
+  identidade_nao_resolvida: "o número não foi reconhecido no cadastro",
+  tipo_nao_suportado: "a mensagem não é de texto",
+  escopo_incoerente: "o escopo da conversa está inconsistente",
+  conversa_divergente: "o serviço devolveu outra conversa para este número",
+  modelo_pediu_humano: "o próprio bot pediu ajuda humana",
+};
+
+/** Motivos de SILENCIO: o bot viu a mensagem e nao respondeu, sem que isso
+ *  seja recusa do guardrail. Só entram aqui os acionaveis - o backend ja
+ *  filtra o ruido (`bot_desabilitado`, `modo_off`, cortesia). */
+const BOT_SILENCIO_MOTIVOS: Record<string, string> = {
+  pausado: "a conversa está pausada porque um atendente respondeu",
+  janela_fechada: "a janela de 24 horas do WhatsApp está fechada",
+  teto_diario: "o limite diário de respostas desta conversa foi atingido",
+  conversa_divergente: "a mensagem não confere com a conversa registrada",
+};
 
 const MESSAGE_STATUS_REFRESH_INTERVAL_MS = 5_000;
 const CUSTOMER_SERVICE_WINDOW_CLOCK_INTERVAL_MS = 30_000;
@@ -162,18 +229,27 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<ApiResul
 }
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "text/csv",
-  "text/plain",
-]);
 const ATTACHMENT_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt";
+const ATTACHMENT_CAPTION_MAX_LENGTH = 1024;
+const ATTACHMENT_EXTENSION_MIME_TYPES: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".csv": "text/csv",
+  ".txt": "text/plain",
+};
+const GENERIC_ATTACHMENT_MIME_TYPES = new Set(["", "application/octet-stream", "application/binary"]);
+
+function isAllowedAttachment(file: File): boolean {
+  const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+  const expectedMimeType = ATTACHMENT_EXTENSION_MIME_TYPES[extension];
+  if (!expectedMimeType) return false;
+  return file.type === expectedMimeType || GENERIC_ATTACHMENT_MIME_TYPES.has(file.type);
+}
 
 async function requestWithAttachment<T>(url: string, file: File, body: string): Promise<ApiResult<T>> {
   const formData = new FormData();
@@ -246,6 +322,11 @@ function messageStatusIcon(status: string) {
   if (status === "sent" || status === "received") return <Check className="h-3.5 w-3.5" />;
   if (status === "failed") return <AlertCircle className="h-3.5 w-3.5" />;
   return <Clock3 className="h-3.5 w-3.5" />;
+}
+function isBotAssistedMessage(message: Message): boolean {
+  if (!message.metadata || typeof message.metadata !== "object" || Array.isArray(message.metadata)) return false;
+  const metadata = message.metadata as Record<string, unknown>;
+  return metadata.origem === "bot" || metadata.source === "bot_suggest_reviewed";
 }
 function templateCategoryLabel(category: TemplateCatalogItem["category"]): string {
   return category === "agenda" ? "Agenda" : category === "laudos" ? "Laudos" : "Financeiro";
@@ -385,6 +466,8 @@ export default function WhatsAppStagePage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [templates, setTemplates] = useState<TemplateCatalogItem[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const selectedConversationIdRef = useRef<string | null>(null);
+  useEffect(() => { selectedConversationIdRef.current = selectedConversationId; }, [selectedConversationId]);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [loadingAgents, setLoadingAgents] = useState(false);
@@ -393,6 +476,11 @@ export default function WhatsAppStagePage() {
   const [loadingDomainContext, setLoadingDomainContext] = useState(false);
   const [domainContext, setDomainContext] = useState<ConversationDomainContext | null>(null);
   const [domainContextError, setDomainContextError] = useState<string | null>(null);
+  const [botConversationState, setBotConversationState] = useState<WhatsAppBotConversationState | null>(null);
+  const [loadingBotState, setLoadingBotState] = useState(false);
+  const [savingBotAction, setSavingBotAction] = useState(false);
+  const [editingBotDraft, setEditingBotDraft] = useState(false);
+  const [editedBotDraft, setEditedBotDraft] = useState("");
   const [savingStatus, setSavingStatus] = useState(false);
   const [integrationState, setIntegrationState] = useState<"checking" | "available" | "unavailable">("checking");
   const [statusFilter, setStatusFilter] = useState<"" | ConversationStatus>("");
@@ -526,6 +614,128 @@ export default function WhatsAppStagePage() {
     }
   };
 
+  const loadBotConversationState = async (
+    waIdentity: string,
+    isCurrent: () => boolean,
+    silent = false,
+  ): Promise<void> => {
+    if (!silent) setLoadingBotState(true);
+    try {
+      const result = await requestJson<WhatsAppBotConversationState>(
+        `/api/v1/whatsapp/bot/conversas/${encodeURIComponent(waIdentity)}/estado`,
+      );
+      if (!result.ok || !result.data) {
+        throw new Error(result.errorText || `Falha ao carregar o estado do bot (HTTP ${result.status})`);
+      }
+      if (isCurrent()) {
+        setBotConversationState(result.data);
+        const nextDraft = result.data.rascunho_pendente;
+        setEditedBotDraft((current) => editingBotDraft ? current : nextDraft?.texto_gerado || "");
+        if (!nextDraft) setEditingBotDraft(false);
+      }
+    } catch (error) {
+      if (isCurrent() && !silent) {
+        setBotConversationState(null);
+        setErrorMessage(error instanceof Error ? error.message : "Estado do bot indisponível");
+      }
+    } finally {
+      if (isCurrent() && !silent) setLoadingBotState(false);
+    }
+  };
+
+  const refreshSelectedBotState = async (): Promise<void> => {
+    const selected = selectedConversation;
+    if (!selected) return;
+    const selectedId = selected.id;
+    await loadBotConversationState(
+      selected.wa_phone_number,
+      () => selectedConversationIdRef.current === selectedId,
+    );
+  };
+
+  const handleBotModeChange = async (modo: WhatsAppBotMode): Promise<void> => {
+    if (!selectedConversation) return;
+    setSavingBotAction(true); setErrorMessage(null);
+    const result = await requestJson<WhatsAppBotConversationState>(
+      `/api/v1/whatsapp/bot/conversas/${encodeURIComponent(selectedConversation.wa_phone_number)}/estado`,
+      { method: "PATCH", body: JSON.stringify({ modo }) },
+    );
+    setSavingBotAction(false);
+    if (!result.ok || !result.data) {
+      setErrorMessage(result.errorText || `Falha ao alterar o modo do bot (HTTP ${result.status})`);
+      return;
+    }
+    setBotConversationState(result.data);
+    setInfoMessage(`Modo do bot alterado para ${modo === "suggest" ? "copiloto" : modo === "off" ? "desligado" : "automático"}.`);
+  };
+
+  const handleBotPause = async (pausar: boolean): Promise<void> => {
+    if (!selectedConversation) return;
+    setSavingBotAction(true); setErrorMessage(null);
+    const result = await requestJson<WhatsAppBotConversationState>(
+      `/api/v1/whatsapp/bot/conversas/${encodeURIComponent(selectedConversation.wa_phone_number)}/estado`,
+      { method: "PATCH", body: JSON.stringify({ pausar }) },
+    );
+    setSavingBotAction(false);
+    if (!result.ok || !result.data) {
+      setErrorMessage(result.errorText || `Falha ao ${pausar ? "pausar" : "retomar"} o bot.`);
+      return;
+    }
+    setBotConversationState(result.data);
+    setInfoMessage(
+      pausar
+        ? `Bot pausado nesta conversa${result.data.pausado_ate ? ` até ${formatDateTime(result.data.pausado_ate)}` : ""}.`
+        : "Pausa do bot removida.",
+    );
+  };
+
+  const handleDiscardBotDraft = async (): Promise<void> => {
+    const draft = botConversationState?.rascunho_pendente;
+    if (!draft || !window.confirm("Descartar este rascunho sem enviar mensagem ao contato?")) return;
+    setSavingBotAction(true); setErrorMessage(null);
+    const result = await requestJson<{ status: string }>(
+      `/api/v1/whatsapp/bot/respostas/${draft.resposta_id}/descartar`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+    setSavingBotAction(false);
+    if (!result.ok) {
+      setErrorMessage(result.errorText || `Falha ao descartar o rascunho (HTTP ${result.status})`);
+      return;
+    }
+    setInfoMessage("Rascunho descartado sem envio.");
+    setEditingBotDraft(false); setEditedBotDraft("");
+    await refreshSelectedBotState();
+  };
+
+  const handleSendBotDraft = async (edited: boolean): Promise<void> => {
+    const draft = botConversationState?.rascunho_pendente;
+    if (!draft || !selectedConversationId) return;
+    if (!windowState.isOpen) {
+      setErrorMessage("A janela de 24 horas está fechada; o rascunho não pode ser enviado como texto livre.");
+      return;
+    }
+    const texto = edited ? editedBotDraft.trim() : draft.texto_gerado.trim();
+    if (!texto) { setErrorMessage("O rascunho não pode ficar vazio."); return; }
+    setSavingBotAction(true); setErrorMessage(null);
+    const requestConversationId = selectedConversationId;
+    const result = await requestJson<{ status: string; idempotent: boolean }>(
+      `/api/v1/whatsapp/bot/respostas/${draft.resposta_id}/enviar`,
+      { method: "POST", body: JSON.stringify(edited ? { texto } : {}) },
+    );
+    setSavingBotAction(false);
+    if (!result.ok) {
+      setErrorMessage(result.errorText || `Falha ao enviar o rascunho (HTTP ${result.status})`);
+      return;
+    }
+    setInfoMessage(result.data?.idempotent ? "Rascunho já havia sido enviado." : "Rascunho revisado e enviado.");
+    setEditingBotDraft(false); setEditedBotDraft("");
+    await Promise.all([
+      loadMessages(requestConversationId, 1, { isCurrent: () => selectedConversationIdRef.current === requestConversationId }),
+      loadConversations(conversationsPagination.page || 1),
+      refreshSelectedBotState(),
+    ]);
+  };
+
   const handleFilterSubmit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); await loadConversations(1); };
   const handleCreateAgent = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault(); setErrorMessage(null);
@@ -597,7 +807,7 @@ export default function WhatsAppStagePage() {
   const handleAttachmentChange = (event: ChangeEvent<HTMLInputElement>): void => {
     const file = event.target.files?.[0] || null;
     if (!file) return;
-    if (!ALLOWED_ATTACHMENT_MIME_TYPES.has(file.type)) {
+    if (!isAllowedAttachment(file)) {
       setErrorMessage("Tipo de arquivo não suportado. Envie PDF, Word, Excel, PowerPoint, CSV ou texto.");
       clearAttachment();
       return;
@@ -618,30 +828,39 @@ export default function WhatsAppStagePage() {
         : "Aguarde uma mensagem da clínica antes de responder com texto livre."); return;
     }
     if (!sendMessageBody.trim() && !attachmentFile) { setErrorMessage("Digite uma mensagem ou anexe um arquivo antes de enviar."); return; }
+    if (attachmentFile && sendMessageBody.length > ATTACHMENT_CAPTION_MAX_LENGTH) {
+      setErrorMessage(`A legenda do anexo excede ${ATTACHMENT_CAPTION_MAX_LENGTH} caracteres.`); return;
+    }
+    const requestConversationId = selectedConversationId;
     const result = attachmentFile
       ? await requestWithAttachment<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
-          `/whatsapp/conversations/${selectedConversationId}/messages`, attachmentFile, sendMessageBody)
+          `/whatsapp/conversations/${requestConversationId}/messages`, attachmentFile, sendMessageBody)
       : await requestJson<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
-          `/whatsapp/conversations/${selectedConversationId}/messages`, {
+          `/whatsapp/conversations/${requestConversationId}/messages`, {
             method: "POST", body: JSON.stringify({ body: sendMessageBody.trim(), type: "text" }),
           });
     if (!result.ok) {
       if (result.status === 409 && result.data?.code === "CUSTOMER_SERVICE_WINDOW_CLOSED") {
         if (result.data.customer_service_window) setCustomerServiceWindows((current) => ({
-          ...current, [selectedConversationId]: result.data!.customer_service_window!,
+          ...current, [requestConversationId]: result.data!.customer_service_window!,
         }));
         setErrorMessage("A janela de 24 horas foi encerrada. Use um modelo aprovado.");
       } else setErrorMessage(result.errorText || `Falha ao enviar ${attachmentFile ? "o anexo" : "mensagem"} (HTTP ${result.status})`);
-    } else { setInfoMessage(attachmentFile ? "Anexo enviado." : "Mensagem enviada."); setSendMessageBody(""); clearAttachment(); }
-    await loadMessages(selectedConversationId, 1); await loadConversations(conversationsPagination.page || 1);
+    } else {
+      setInfoMessage(attachmentFile ? "Anexo enviado." : "Mensagem enviada.");
+      if (selectedConversationIdRef.current === requestConversationId) { setSendMessageBody(""); clearAttachment(); }
+    }
+    await loadMessages(requestConversationId, 1, { isCurrent: () => selectedConversationIdRef.current === requestConversationId });
+    await loadConversations(conversationsPagination.page || 1);
   };
 
   const handleResendMessage = async (message: Message): Promise<void> => {
     if (!selectedConversationId || !message.body || message.type !== "text") return;
     setResendingMessageId(message.id);
+    const retryRequest = buildMessageResendRequest(message, selectedConversationId);
     const result = await requestJson<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
-      `/whatsapp/conversations/${selectedConversationId}/messages`, {
-        method: "POST", body: JSON.stringify({ body: message.body, type: message.type }),
+      retryRequest.url, {
+        method: "POST", body: JSON.stringify(retryRequest.body),
       });
     if (!result.ok) {
       if (result.status === 409 && result.data?.code === "CUSTOMER_SERVICE_WINDOW_CLOSED") {
@@ -650,9 +869,10 @@ export default function WhatsAppStagePage() {
         }));
         setErrorMessage("A janela de 24 horas foi encerrada. Use um modelo aprovado.");
       } else setErrorMessage(result.errorText || `Falha ao reenviar mensagem (HTTP ${result.status})`);
-    } else setInfoMessage("Mensagem reenviada.");
+    } else setInfoMessage(retryRequest.botReviewed ? "Rascunho revisado e reenviado." : "Mensagem reenviada.");
     setResendingMessageId(null);
     await loadMessages(selectedConversationId, 1); await loadConversations(conversationsPagination.page || 1);
+    if (retryRequest.botReviewed) await refreshSelectedBotState();
   };
 
   const handleTemplateSelection = (templateKey: string): void => {
@@ -696,11 +916,17 @@ export default function WhatsAppStagePage() {
   useEffect(() => {
     if (!selectedConversation) {
       setDomainContext(null); setDomainContextError(null); setLoadingDomainContext(false);
+      setBotConversationState(null); setLoadingBotState(false); setEditingBotDraft(false); setEditedBotDraft("");
       return;
     }
     let active = true;
     void loadDomainContext(selectedConversation.wa_phone_number, () => active);
-    return () => { active = false; };
+    void loadBotConversationState(selectedConversation.wa_phone_number, () => active);
+    const intervalId = window.setInterval(
+      () => void loadBotConversationState(selectedConversation.wa_phone_number, () => active, true),
+      MESSAGE_STATUS_REFRESH_INTERVAL_MS,
+    );
+    return () => { active = false; window.clearInterval(intervalId); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedConversation?.id, selectedConversation?.wa_phone_number]);
   useEffect(() => {
@@ -790,15 +1016,59 @@ export default function WhatsAppStagePage() {
               <div className="space-y-3">{messages.map((message, index) => {
                 const previous = messages[index - 1]; const showDay = !previous || new Date(previous.created_at).toDateString() !== new Date(message.created_at).toDateString();
                 return <Fragment key={message.id}>{showDay ? <div className="fc-wa-day-separator"><span>{formatMessageDay(message.created_at)}</span></div> : null}
-                  <article className={`fc-wa-bubble ${message.from_me ? "fc-wa-bubble-agent" : "fc-wa-bubble-client"}`}><p>{message.body || `[${message.type}]`}</p>
+                  <article className={`fc-wa-bubble ${message.from_me ? "fc-wa-bubble-agent" : "fc-wa-bubble-client"}`}>
+                    {isBotAssistedMessage(message) ? <span className="fc-wa-bot-badge"><Sparkles className="h-3 w-3" /> Rascunho do bot aprovado</span> : null}
+                    <p>{message.body || `[${message.type}]`}</p>
                     {selectedConversationId ? <WhatsAppMediaViewer conversationId={selectedConversationId} message={message} /> : null}
                     <footer><time>{formatMessageTime(message.created_at)}</time><span className={`fc-wa-delivery fc-wa-delivery-${message.status}`}>{messageStatusIcon(message.status)} {messageStatusLabel(message.status)}</span>
-                      {message.from_me && message.status === "failed" && message.type === "text" ? <button type="button" className="fc-wa-resend-button"
+                      {shouldOfferMessageResend(message) ? <button type="button" className="fc-wa-resend-button"
                         onClick={() => void handleResendMessage(message)} disabled={resendingMessageId === message.id}>
                         <RefreshCw className={`h-3.5 w-3.5 ${resendingMessageId === message.id ? "animate-spin" : ""}`} /> Reenviar
                       </button> : null}</footer>
                     <details><summary>Detalhes técnicos</summary><span>Tipo: {message.type}</span>{message.wa_message_id ? <span>ID Meta: {message.wa_message_id}</span> : null}</details></article></Fragment>;
               })}</div>}</div>
+
+            {botConversationState?.rascunho_pendente ? <section className="fc-wa-bot-draft" aria-label="Rascunho sugerido pelo bot">
+              <div className="fc-wa-bot-draft-heading"><span><Sparkles className="h-4 w-4" /> Sugestão do bot</span>
+                <small>{formatDateTime(botConversationState.rascunho_pendente.criado_em)}</small></div>
+              {editingBotDraft ? <textarea value={editedBotDraft} onChange={(event) => setEditedBotDraft(event.target.value)} rows={4}
+                aria-label="Editar rascunho do bot" disabled={savingBotAction} /> :
+                <p>{botConversationState.rascunho_pendente.texto_gerado}</p>}
+              <div className="fc-wa-bot-draft-actions">
+                {editingBotDraft ? <>
+                  <button type="button" className="fc-wa-secondary" onClick={() => { setEditingBotDraft(false); setEditedBotDraft(botConversationState.rascunho_pendente?.texto_gerado || ""); }} disabled={savingBotAction}>Cancelar edição</button>
+                  <button type="button" className="fc-wa-send" onClick={() => void handleSendBotDraft(true)} disabled={savingBotAction || !editedBotDraft.trim() || !windowState.isOpen}><Send className="h-4 w-4" /> Enviar edição</button>
+                </> : <>
+                  <button type="button" className="fc-wa-send" onClick={() => void handleSendBotDraft(false)} disabled={savingBotAction || !windowState.isOpen}><Send className="h-4 w-4" /> Enviar</button>
+                  <button type="button" className="fc-wa-secondary" onClick={() => { setEditedBotDraft(botConversationState.rascunho_pendente?.texto_gerado || ""); setEditingBotDraft(true); }} disabled={savingBotAction}><Pencil className="h-4 w-4" /> Editar e enviar</button>
+                </>}
+                <button type="button" className="fc-wa-ghost-danger" onClick={() => void handleDiscardBotDraft()} disabled={savingBotAction}>Descartar</button>
+              </div>
+              {!windowState.isOpen ? <small className="fc-wa-bot-draft-warning">Janela de 24 horas fechada: revise o rascunho, mas use um modelo aprovado para responder.</small> : null}
+            </section> : loadingBotState && selectedConversationId ? <div className="fc-wa-bot-draft-loading">Verificando sugestão do bot...</div> : null}
+
+            {/* RF-022: bloqueio nunca vira silencio. Sem esta secao o bot
+                recusava responder e ninguem na central ficava sabendo.
+                Deliberadamente sem Enviar/Editar: o texto recusado nem chega
+                do backend, justamente para nao ficar a um clique do cliente. */}
+            {botConversationState?.ultima_recusa ? <section className="fc-wa-bot-recusa" aria-label="O bot não respondeu">
+              <div className="fc-wa-bot-recusa-heading">
+                <span><ShieldAlert className="h-4 w-4" /> {botConversationState.ultima_recusa.decisao === "handoff" ? "O bot passou para a equipe" : "O bot não respondeu"}</span>
+                <small>{formatDateTime(botConversationState.ultima_recusa.criado_em)}</small>
+              </div>
+              <p>{BOT_RECUSA_MOTIVOS[botConversationState.ultima_recusa.motivo || ""] || botConversationState.ultima_recusa.motivo || "motivo não registrado"}.</p>
+              <small>Responda você mesmo pelo campo abaixo. O texto que o bot chegou a montar não é exibido nem enviável.</small>
+            </section> : null}
+
+            {/* Silencio: o bot viu e nao respondeu por operacao normal. Medido
+                em producao em 2026-08-25 - um envio assistido pausou a conversa
+                e as mensagens seguintes sumiram sem deixar rastro na tela, o
+                que pareceu bot quebrado. Tier mais fraco que a recusa e sem
+                nenhum botao: e informacao, nao tarefa. */}
+            {botConversationState?.ultimo_silencio ? <div className="fc-wa-bot-silencio" role="status" aria-live="polite">
+              <Info className="h-3.5 w-3.5" />
+              <span>O bot viu esta mensagem e não respondeu: {BOT_SILENCIO_MOTIVOS[botConversationState.ultimo_silencio.motivo || ""] || botConversationState.ultimo_silencio.motivo || "motivo não registrado"}{botConversationState.ultimo_silencio.motivo === "pausado" && botConversationState.pausado_ate ? `, até ${formatDateTime(botConversationState.pausado_ate)}` : ""}.</span>
+            </div> : null}
 
             <div className="fc-wa-composer"><div className="fc-wa-composer-tabs" role="tablist" aria-label="Modo de resposta">
               <button type="button" role="tab" aria-selected={composerMode === "message"} className={composerMode === "message" ? "active" : ""} onClick={() => setComposerMode("message")}><MessageSquare className="h-4 w-4" /> Mensagem</button>
@@ -839,6 +1109,20 @@ export default function WhatsAppStagePage() {
               <section className="fc-wa-context-section"><div className="fc-wa-context-section-title"><CircleDot className="h-4 w-4" /><h3>Classificação</h3></div>
                 <label className="fc-wa-field"><span>Status da conversa</span><select value={selectedConversation.status} onChange={(event) => void handleStatusChange(event.target.value as ConversationStatus)} disabled={savingStatus}>
                   <option value="open">Em atendimento</option><option value="pending">Aguardando cliente</option><option value="closed">Resolvida</option></select></label></section>
+              <section className="fc-wa-context-section"><div className="fc-wa-context-section-title"><Sparkles className="h-4 w-4" /><h3>Copiloto do WhatsApp</h3></div>
+                {loadingBotState ? <p className="fc-wa-bot-state-note">Carregando estado...</p> : botConversationState ? <>
+                  <label className="fc-wa-field"><span>Modo nesta conversa</span><select value={botConversationState.modo}
+                    onChange={(event) => void handleBotModeChange(event.target.value as WhatsAppBotMode)} disabled={savingBotAction}>
+                    <option value="off">Desligado</option><option value="suggest">Copiloto (sugerir)</option><option value="auto" disabled>Automático (aguarda rollout)</option>
+                  </select></label>
+                  <p className="fc-wa-bot-state-note">Origem: {botConversationState.modo_origem === "institucional" ? "padrão institucional" : "definido nesta conversa"}.</p>
+                  <button type="button" className={botConversationState.pausado ? "fc-wa-secondary" : "fc-wa-ghost-danger"}
+                    onClick={() => void handleBotPause(!botConversationState.pausado)} disabled={savingBotAction}>
+                    {botConversationState.pausado ? "Retomar bot" : "Pausar bot"}
+                  </button>
+                  {botConversationState.pausado_ate ? <p className="fc-wa-bot-state-note">Pausado até {formatDateTime(botConversationState.pausado_ate)}.</p> : null}
+                </> : <p className="fc-wa-bot-state-note">Estado do bot indisponível.</p>}
+              </section>
               <section className="fc-wa-context-section"><div className="fc-wa-context-section-title"><UserCheck className="h-4 w-4" /><h3>Responsável</h3></div>
                 <p className="fc-wa-current-agent">{selectedAgent?.name || selectedConversation.assigned_agent_name || "Nenhum atendente atribuído"}
                   {(selectedAgent?.email || selectedConversation.assigned_agent_email) ? <small>{selectedAgent?.email || selectedConversation.assigned_agent_email}</small> : null}</p>

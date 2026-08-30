@@ -325,7 +325,11 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
       void notifyPushForInboundMessage({
         conversationId: conversation.id,
         contactLabel: contact?.profile?.name ?? identity,
-        bodyPreview: extractMessageBody(message)
+        bodyPreview: extractMessageBody(message),
+        waPhoneNumber: identity,
+        waMessageId: message.id ?? null,
+        messageType: message.type ?? "text",
+        messageTimestamp: inboundMessageObservedAt(message.timestamp).toISOString()
       });
     }
   }

@@ -34,6 +34,10 @@ RUN_SMOKE=1 bash scripts/whatsapp_stage_preflight.sh
 - `WHATSAPP_VERIFY_TOKEN`
 - `WHATSAPP_APP_SECRET`
 - `WHATSAPP_INTERNAL_API_TOKEN`
+- `META_APP_ID`
+- `WHATSAPP_BUSINESS_ACCOUNT_ID`
+- identidade de stage distinta do numero, app e WABA de producao
+- relacionamento real na Graph API: token -> numero -> WABA -> app assinado
 - Modo seguro:
 - `WHATSAPP_API_AUTH_ENABLED=true`
 - `WEBHOOK_ALLOW_UNSIGNED=false`
@@ -62,6 +66,15 @@ SKIP_SERVICE_CHECKS=1 bash scripts/whatsapp_stage_preflight.sh
 
 # Pula checagens HTTP
 SKIP_HTTP_CHECKS=1 bash scripts/whatsapp_stage_preflight.sh
+
+# Apenas para fixtures locais; nao usar como evidencia de stage funcional
+SKIP_META_GRAPH_CHECKS=1 bash scripts/whatsapp_stage_preflight.sh
+
+# Confere tambem a identidade esperada cadastrada no pipeline
+EXPECTED_PHONE_NUMBER_ID=<id-stage> \
+EXPECTED_META_APP_ID=<id-stage> \
+EXPECTED_BUSINESS_ACCOUNT_ID=<id-stage> \
+bash scripts/whatsapp_stage_preflight.sh
 ```
 
 ## Resultado esperado
@@ -70,9 +83,15 @@ SKIP_HTTP_CHECKS=1 bash scripts/whatsapp_stage_preflight.sh
 
 Se houver falha:
 
-1. Corrigir env em `/var/www/fortcordis-stage/whatsapp-stage-backend/.env`.
-2. Reiniciar service `fortcordis-stage-whatsapp-backend`.
+1. Corrigir os GitHub Secrets/Variables de stage; nao copiar valores de
+   producao nem editar o callback de producao.
+2. Reexecutar o workflow para atualizar o `.env` protegido de forma atomica.
 3. Reexecutar `RUN_SMOKE=1 bash scripts/whatsapp_stage_preflight.sh`.
+
+O pipeline usa os Secrets `WHATSAPP_ACCESS_TOKEN_STAGE`,
+`WHATSAPP_APP_SECRET_STAGE`, `WHATSAPP_VERIFY_TOKEN_STAGE` e as Variables
+`WHATSAPP_PHONE_NUMBER_ID_STAGE`, `WHATSAPP_META_APP_ID_STAGE`,
+`WHATSAPP_BUSINESS_ACCOUNT_ID_STAGE`.
 
 Para tratamento de incidente em producao/stage (API, auth, webhook, backlog), consultar:
 

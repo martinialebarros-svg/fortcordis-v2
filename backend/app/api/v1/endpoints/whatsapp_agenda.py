@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -23,6 +24,7 @@ from app.services.whatsapp_agenda_service import (
     send_agenda_utility_template,
     send_reservation_template,
 )
+from app.services.whatsapp_bot_queue_service import enqueue_job_for_inbound_message
 from app.services.whatsapp_reminder_scheduler_service import (
     is_reminder_scheduler_enabled_in_db,
     list_clinicas_prontidao_whatsapp_lembrete,
@@ -37,6 +39,7 @@ from app.services.agenda_formalizacao_service import (
     processar_submissao,
 )
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -72,6 +75,14 @@ class WhatsAppInboundMessageNotificationRequest(BaseModel):
     conversation_id: str = Field(..., min_length=1, max_length=64)
     contact_label: str = Field(default="", max_length=160)
     body_preview: str = Field(default="", max_length=500)
+    # Opcionais (RF-001): os dois servicos tem deploys independentes, entao um
+    # Node antigo (sem esses campos) ou um Python antigo (que os ignora)
+    # precisam continuar funcionando - a reconciliacao (RF-006) cobre o caso
+    # de o gatilho nao trazer esses dados.
+    wa_phone_number: Optional[str] = Field(default=None, max_length=32)
+    wa_message_id: Optional[str] = Field(default=None, max_length=160)
+    message_type: Optional[str] = Field(default=None, max_length=32)
+    message_timestamp: Optional[datetime] = None
 
 
 def _require_internal_token(
@@ -320,10 +331,33 @@ def notify_whatsapp_inbound_message(
     cada mensagem nova recebida no WhatsApp. Chamado pelo whatsapp-stage-backend
     a cada mensagem inbound persistida - nunca deve bloquear o webhook, por
     isso so retorna as contagens de envio, sem side effect alem do push.
+
+    Tambem enfileira um job do bot de atendimento (RF-002), isolado em seu
+    proprio try/except: falha ao enfileirar nunca pode alterar a resposta do
+    push nem propagar erro para o Node, que usa timeout de 5s e engole
+    excecoes.
     """
-    return send_whatsapp_message_push_notification(
+    result = send_whatsapp_message_push_notification(
         db,
         conversation_id=payload.conversation_id,
         contact_label=payload.contact_label,
         body_preview=payload.body_preview,
     )
+
+    bot_job_enqueued = False
+    try:
+        if payload.wa_phone_number and payload.wa_message_id:
+            bot_job_enqueued = enqueue_job_for_inbound_message(
+                db,
+                wa_identity=payload.wa_phone_number,
+                conversation_id=payload.conversation_id,
+                wa_message_id=payload.wa_message_id,
+            )
+    except Exception:
+        logger.exception(
+            "Falha ao enfileirar job do bot de atendimento WhatsApp para conversation_id=%s",
+            payload.conversation_id,
+        )
+
+    result["bot_job_enqueued"] = bot_job_enqueued
+    return result

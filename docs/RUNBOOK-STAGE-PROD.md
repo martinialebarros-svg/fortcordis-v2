@@ -8,6 +8,95 @@ Este runbook descreve o processo seguro para promover codigo de `stage` para `pr
 - Diretório prod: `/var/www/fortcordis-v2`
 - Stage (se na mesma VPS): `/var/www/fortcordis-stage`
 
+## Fluxo de entrega (stage-first)
+
+Regra: **nenhuma feature entra direto em produção**. `main` so recebe o que ja
+rodou em stage.
+
+1. Feature/fix sai de `stage` e abre PR com base `stage`.
+2. Merge em `stage` -> deploy automatico de stage (`.github/workflows/deploy-stage.yml`).
+3. Teste em stage (ver secao de smoke/preflight abaixo).
+4. Promocao para produção, por um dos dois caminhos:
+   - PR de release `stage -> main` (titulo `chore(release): promover <resumo>`), ou
+   - `bash scripts/promote_stage_to_main.sh` (worktree isolado, merge `--no-ff`).
+5. Merge/push em `main` -> deploy automatico de produção (`.github/workflows/deploy.yml`).
+
+Guard automatico: `.github/workflows/branch-flow-guard.yml` marca com falha
+qualquer PR que mire `main` sem vir de `stage`. Escape hatch para hotfix urgente
+de produção: branch `hotfix/<slug>` ou label `hotfix` no PR.
+
+**Todo hotfix aplicado direto em `main` exige backport imediato para `stage`**:
+
+```bash
+git fetch origin
+git checkout stage
+git pull --ff-only origin stage
+git merge origin/main      # so agora origin/main inclui o hotfix
+git push origin stage
+```
+
+O `git fetch` no inicio nao e opcional: sem ele, `origin/main` local pode estar
+anterior ao hotfix, o merge nao traz nada e o push "conclui" com `stage` ainda
+sem a correcao. Enquanto `main`
+tiver commit que `stage` nao tem, a promocao seguinte roda com
+`git merge -X theirs origin/stage` (default de `promote_stage_to_main.sh`), que
+resolve conflito em favor de `stage` **sem avisar** — ou seja, pode desfazer
+silenciosamente a correcao de emergencia. Se por qualquer motivo o backport nao
+tiver sido feito, promova com `PREFER_STAGE_ON_CONFLICTS=0
+bash scripts/promote_stage_to_main.sh` e resolva os conflitos a mao.
+
+Passo manual pendente (precisa de admin do repositorio, nao da para automatizar
+por API nesta sessao):
+
+- **Default branch = `stage`** em Settings -> General -> Default branch. Sem
+  isso, todo PR novo (inclusive os abertos por agentes) continua nascendo com
+  base `main` e o guard so avisa depois.
+- Opcional, para bloquear de fato: Settings -> Branches -> proteger `main`
+  exigindo PR + o check `Branch Flow Guard`. O guard sozinho sinaliza, mas nao
+  impede o merge nem cobre push direto em `main`.
+
+Workflow manual que aplique algo em produção precisa de duas travas, porque em
+`workflow_dispatch` o YAML executado vem do ref selecionado no dispatch (e esse
+ref default acompanha o default branch do repositorio):
+
+1. `ref: main` no `actions/checkout` — garante que os arquivos copiados para a
+   VPS sao os promovidos, nao os de `stage`.
+2. Passo inicial exigindo `github.ref == refs/heads/main` — garante que os
+   proprios passos `run` do job sao os promovidos. O checkout pinado nao cobre
+   isso.
+
+Aplicado em `sync-portal-email-env.yml`, `provision-institutional-host.yml`,
+`recover-frases-prod.yml` e (condicionado a `environment=production`)
+`fix-database.yml`.
+
+Limite conhecido: esses dois guards vivem dentro do proprio workflow, que vem do
+ref do dispatch — logo protegem contra **acidente** (rodar produção a partir de
+`stage` sem perceber), nao contra edicao deliberada do workflow em `stage` por
+quem tem permissao de push.
+
+Fechar essa segunda ameaca nao e ajuste de YAML, e um trabalho proprio, ainda
+nao feito:
+
+- `VPS_SSH_KEY`/`VPS_HOST`/`VPS_SUDO_PASSWORD` sao secrets de repositorio e
+  **as mesmas credenciais servem stage e produção** — nao existe hoje credencial
+  separada por ambiente.
+- Nove jobs os consomem: os 4 manuais de produção, os 3 manuais de stage
+  (`recover-frases-stage`, `sync-frases-store-stage`, `sync-frases-to-stage`) e
+  os 2 deploys automaticos (`deploy`, `deploy-stage`).
+- Enquanto as credenciais estiverem no escopo do repositorio, gatear por
+  Environment nao impede nada contra quem edita workflow: basta o YAML omitir
+  `environment:` e ler o secret do repositorio. Para valer, seria preciso
+  credencial exclusiva de stage na VPS, mover as de produção para um Environment
+  e vincular todos os consumidores — e, se o deploy automatico de `main` entrar
+  nesse Environment com required reviewers, produção deixa de ser deploy
+  desatendido.
+
+O que existe hoje: os 4 jobs manuais de produção declaram `environment:
+production`. Isso nao fecha a ameaca acima, mas permite uma trava util e barata
+— adicionar required reviewers a esse Environment faz **dispatch manual em
+produção exigir aprovacao humana**, protegendo contra disparo descuidado.
+Enquanto o Environment nao tiver regras, o binding nao muda nada.
+
 ## Fluxo recomendado (automatizado)
 
 ### 1) Local: promover stage -> main sem tocar no runtime local

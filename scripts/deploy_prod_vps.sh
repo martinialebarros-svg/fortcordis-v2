@@ -22,6 +22,10 @@ set -euo pipefail
 #   WHATSAPP_STAGE_BACKEND_PORT=3010
 #   WHATSAPP_STAGE_BACKEND_URL=http://127.0.0.1:3010
 #   WHATSAPP_META_SOURCE_ENV_FILE=/caminho/seguro/.env
+#   WHATSAPP_EXPECTED_PHONE_NUMBER_ID=<id-publico-do-ambiente>
+#   WHATSAPP_EXPECTED_META_APP_ID=<id-publico-do-ambiente>
+#   WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID=<id-publico-do-ambiente>
+#   WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION=0|1
 #   WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED=true|false
 #   WHATSAPP_RUNTIME_LABEL=Stage
 #   ENABLE_WHATSAPP_STAGE_SMOKE=1
@@ -63,6 +67,13 @@ WHATSAPP_STAGE_BACKEND_URL="${WHATSAPP_STAGE_BACKEND_URL:-http://127.0.0.1:${WHA
 WHATSAPP_STAGE_BACKEND_DIR="${WHATSAPP_STAGE_BACKEND_DIR:-${APP_DIR}/whatsapp-stage-backend}"
 WHATSAPP_STAGE_BACKEND_ENV_FILE="${WHATSAPP_STAGE_BACKEND_ENV_FILE:-${WHATSAPP_STAGE_BACKEND_DIR}/.env}"
 WHATSAPP_META_SOURCE_ENV_FILE="${WHATSAPP_META_SOURCE_ENV_FILE:-}"
+WHATSAPP_EXPECTED_PHONE_NUMBER_ID="${WHATSAPP_EXPECTED_PHONE_NUMBER_ID:-}"
+WHATSAPP_EXPECTED_META_APP_ID="${WHATSAPP_EXPECTED_META_APP_ID:-}"
+WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID="${WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID:-}"
+WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION="${WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION:-0}"
+WHATSAPP_PRODUCTION_PHONE_NUMBER_ID="1279142515283484"
+WHATSAPP_PRODUCTION_META_APP_ID="975334532125008"
+WHATSAPP_PRODUCTION_BUSINESS_ACCOUNT_ID="1369494994627980"
 WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED="${WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED:-}"
 WHATSAPP_RUNTIME_LABEL="${WHATSAPP_RUNTIME_LABEL:-Stage}"
 ENABLE_WHATSAPP_STAGE_SMOKE="${ENABLE_WHATSAPP_STAGE_SMOKE:-1}"
@@ -440,6 +451,7 @@ sync_env_key_from_file() {
 ensure_whatsapp_stage_env_file() {
   local generated_internal_token generated_verify_token
   local default_access_token default_phone_number_id default_app_secret
+  local default_meta_app_id default_business_account_id
   local current_internal_token_before current_internal_token_after
   local backend_database_url
   generated_internal_token="$(
@@ -455,8 +467,10 @@ print("stage_verify_" + secrets.token_hex(8))
 PY
   )"
   default_access_token="stage_access_token_not_configured"
-  default_phone_number_id="1279142515283484"
+  default_phone_number_id="${WHATSAPP_EXPECTED_PHONE_NUMBER_ID:-stage_phone_number_id_not_configured}"
   default_app_secret="stage_app_secret_not_configured"
+  default_meta_app_id="${WHATSAPP_EXPECTED_META_APP_ID:-stage_meta_app_id_not_configured}"
+  default_business_account_id="${WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID:-stage_business_account_id_not_configured}"
 
   backend_database_url="$(read_env_file_value "${BACKEND_DIR}/.env" "DATABASE_URL" "")"
   if [[ -z "${backend_database_url}" ]]; then
@@ -474,8 +488,8 @@ PHONE_NUMBER_ID=${default_phone_number_id}
 WHATSAPP_VERIFY_TOKEN=${generated_verify_token}
 WHATSAPP_APP_SECRET=${default_app_secret}
 WHATSAPP_GRAPH_API_VERSION=v26.0
-META_APP_ID=975334532125008
-WHATSAPP_BUSINESS_ACCOUNT_ID=1369494994627980
+META_APP_ID=${default_meta_app_id}
+WHATSAPP_BUSINESS_ACCOUNT_ID=${default_business_account_id}
 WHATSAPP_RESERVATION_TEMPLATE_NAME=reserva_de_agendamento
 WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE=pt_BR
 NODE_ENV=production
@@ -546,8 +560,8 @@ EOF
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "${generated_verify_token}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "${default_app_secret}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_GRAPH_API_VERSION" "v26.0"
-  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "META_APP_ID" "975334532125008"
-  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_BUSINESS_ACCOUNT_ID" "1369494994627980"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "META_APP_ID" "${default_meta_app_id}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_BUSINESS_ACCOUNT_ID" "${default_business_account_id}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_NAME" "reserva_de_agendamento"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE" "pt_BR"
 
@@ -576,8 +590,8 @@ validate_whatsapp_stage_meta_config() {
     echo "[ERROR] WHATSAPP_ACCESS_TOKEN ausente, placeholder ou fora do formato esperado." >&2
     invalid=1
   fi
-  if [[ "${phone_number_id}" != "1279142515283484" ]]; then
-    echo "[ERROR] PHONE_NUMBER_ID nao corresponde ao numero Fort Cordis aprovado." >&2
+  if is_env_placeholder_value "${phone_number_id}" || [[ ! "${phone_number_id}" =~ ^[0-9]{10,32}$ ]]; then
+    echo "[ERROR] PHONE_NUMBER_ID ausente, placeholder ou fora do formato esperado." >&2
     invalid=1
   fi
   if is_env_placeholder_value "${app_secret}" || [[ ! "${app_secret}" =~ ^[[:xdigit:]]{32}$ ]]; then
@@ -588,13 +602,42 @@ validate_whatsapp_stage_meta_config() {
     echo "[ERROR] WHATSAPP_VERIFY_TOKEN ausente, placeholder ou muito curto." >&2
     invalid=1
   fi
-  if [[ "${meta_app_id}" != "975334532125008" ]]; then
-    echo "[ERROR] META_APP_ID nao corresponde ao app FortZap aprovado." >&2
+  if is_env_placeholder_value "${meta_app_id}" || [[ ! "${meta_app_id}" =~ ^[0-9]{10,32}$ ]]; then
+    echo "[ERROR] META_APP_ID ausente, placeholder ou fora do formato esperado." >&2
     invalid=1
   fi
-  if [[ "${business_account_id}" != "1369494994627980" ]]; then
-    echo "[ERROR] WHATSAPP_BUSINESS_ACCOUNT_ID nao corresponde a WABA Fort Cordis." >&2
+  if is_env_placeholder_value "${business_account_id}" || [[ ! "${business_account_id}" =~ ^[0-9]{10,32}$ ]]; then
+    echo "[ERROR] WHATSAPP_BUSINESS_ACCOUNT_ID ausente, placeholder ou fora do formato esperado." >&2
     invalid=1
+  fi
+  if [[ -n "${WHATSAPP_EXPECTED_PHONE_NUMBER_ID}" && "${phone_number_id}" != "${WHATSAPP_EXPECTED_PHONE_NUMBER_ID}" ]]; then
+    echo "[ERROR] PHONE_NUMBER_ID nao corresponde a identidade esperada para ${WHATSAPP_RUNTIME_LABEL}." >&2
+    invalid=1
+  fi
+  if [[ -n "${WHATSAPP_EXPECTED_META_APP_ID}" && "${meta_app_id}" != "${WHATSAPP_EXPECTED_META_APP_ID}" ]]; then
+    echo "[ERROR] META_APP_ID nao corresponde a identidade esperada para ${WHATSAPP_RUNTIME_LABEL}." >&2
+    invalid=1
+  fi
+  if [[ -n "${WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID}" && "${business_account_id}" != "${WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID}" ]]; then
+    echo "[ERROR] WHATSAPP_BUSINESS_ACCOUNT_ID nao corresponde a identidade esperada para ${WHATSAPP_RUNTIME_LABEL}." >&2
+    invalid=1
+  fi
+  if [[ "${WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION}" != "0" && "${WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION}" != "1" ]]; then
+    echo "[ERROR] WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION deve ser 0 ou 1." >&2
+    invalid=1
+  elif [[ "${WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION}" == "1" ]]; then
+    if [[ "${phone_number_id}" == "${WHATSAPP_PRODUCTION_PHONE_NUMBER_ID}" ]]; then
+      echo "[ERROR] PHONE_NUMBER_ID de stage nao pode reutilizar o numero de producao." >&2
+      invalid=1
+    fi
+    if [[ "${meta_app_id}" == "${WHATSAPP_PRODUCTION_META_APP_ID}" ]]; then
+      echo "[ERROR] META_APP_ID de stage nao pode reutilizar o app de producao." >&2
+      invalid=1
+    fi
+    if [[ "${business_account_id}" == "${WHATSAPP_PRODUCTION_BUSINESS_ACCOUNT_ID}" ]]; then
+      echo "[ERROR] WHATSAPP_BUSINESS_ACCOUNT_ID de stage nao pode reutilizar a WABA de producao." >&2
+      invalid=1
+    fi
   fi
   if [[ "${template_name}" != "reserva_de_agendamento" || "${template_language}" != "pt_BR" ]]; then
     echo "[ERROR] Modelo de reserva ou idioma nao correspondem ao modelo aprovado." >&2

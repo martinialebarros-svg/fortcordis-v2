@@ -31,6 +31,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      - name: Test WhatsApp stage Meta isolation
+        run: bash scripts/tests/test_whatsapp_stage_meta_isolation.sh
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -276,7 +279,10 @@ jobs:
             WHATSAPP_STAGE_BACKEND_SERVICE=fortcordis-whatsapp-backend \
             WHATSAPP_STAGE_BACKEND_PORT=3020 \
             WHATSAPP_STAGE_BACKEND_URL=http://127.0.0.1:3020 \
-            WHATSAPP_META_SOURCE_ENV_FILE=/var/www/fortcordis-stage/whatsapp-stage-backend/.env \
+            WHATSAPP_EXPECTED_PHONE_NUMBER_ID=1279142515283484 \
+            WHATSAPP_EXPECTED_META_APP_ID=975334532125008 \
+            WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID=1369494994627980 \
+            WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION=0 \
             WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED=false \
             WHATSAPP_RUNTIME_LABEL=Production \
             ENABLE_WHATSAPP_STAGE_SMOKE=0 \
