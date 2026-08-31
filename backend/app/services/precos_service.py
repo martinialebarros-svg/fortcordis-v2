@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+from typing import Iterable
 
 from fastapi import HTTPException
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -128,3 +129,166 @@ def calcular_preco_servico(
                 return to_decimal(field)
 
     return _preco_tabela_padrao(db, clinica, servico, horario)
+
+
+def calcular_precos_servicos_em_lote(
+    db: Session,
+    solicitacoes: Iterable[tuple[int | None, int, str | None]],
+    tipo_horario: str = "comercial",
+    *,
+    usar_preco_clinica: bool = True,
+) -> dict[tuple[int | None, int, str], Decimal]:
+    """Calcula precos para combinacoes de clinica, servico e origem em consultas limitadas.
+
+    A regra de prioridade e a mesma de :func:`calcular_preco_servico`, mas as
+    entidades e tabelas de precificacao sao carregadas uma vez por lote. Isso
+    evita que resumos com varios agendamentos repitam as mesmas consultas.
+    """
+    horario = _normalize_tipo_horario(tipo_horario)
+    chaves: list[tuple[int | None, int, str]] = []
+    vistos: set[tuple[int | None, int, str]] = set()
+
+    for clinica_id, servico_id, origem_atendimento in solicitacoes:
+        try:
+            servico_id_normalizado = int(servico_id)
+        except (TypeError, ValueError):
+            continue
+        if servico_id_normalizado <= 0:
+            continue
+
+        try:
+            clinica_id_normalizado = int(clinica_id) if clinica_id is not None else None
+        except (TypeError, ValueError):
+            clinica_id_normalizado = None
+        if clinica_id_normalizado is not None and clinica_id_normalizado <= 0:
+            clinica_id_normalizado = None
+
+        origem_normalizada = str(origem_atendimento or "").strip().lower()
+        chave = (clinica_id_normalizado, servico_id_normalizado, origem_normalizada)
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        chaves.append(chave)
+
+    if not chaves:
+        return {}
+
+    servico_ids = sorted({servico_id for _, servico_id, _ in chaves})
+    clinica_ids = sorted({clinica_id for clinica_id, _, _ in chaves if clinica_id is not None})
+    servicos = {
+        int(servico.id): servico
+        for servico in db.query(Servico).filter(Servico.id.in_(servico_ids)).all()
+    }
+    clinicas = {
+        int(clinica.id): clinica
+        for clinica in db.query(Clinica).filter(Clinica.id.in_(clinica_ids)).all()
+    } if clinica_ids else {}
+
+    precos_clinica: dict[tuple[int, int], PrecoServicoClinica] = {}
+    if usar_preco_clinica and clinica_ids:
+        try:
+            precos_clinica_rows = (
+                db.query(PrecoServicoClinica)
+                .filter(
+                    PrecoServicoClinica.clinica_id.in_(clinica_ids),
+                    PrecoServicoClinica.servico_id.in_(servico_ids),
+                    PrecoServicoClinica.ativo == 1,
+                )
+                .all()
+            )
+        except (OperationalError, ProgrammingError) as exc:
+            if not _is_missing_pricing_schema_error(exc):
+                raise
+            precos_clinica_rows = []
+        for preco_clinica in precos_clinica_rows:
+            precos_clinica.setdefault(
+                (int(preco_clinica.clinica_id), int(preco_clinica.servico_id)),
+                preco_clinica,
+            )
+
+    tabela_ids_customizadas = sorted(
+        {
+            int(getattr(clinica, "tabela_preco_id", None) or 1)
+            for clinica in clinicas.values()
+            if int(getattr(clinica, "tabela_preco_id", None) or 1) not in (1, 2, 3)
+        }
+    )
+    precos_tabela: dict[tuple[int, int], PrecoServico] = {}
+    if tabela_ids_customizadas:
+        try:
+            precos_tabela_rows = (
+                db.query(PrecoServico)
+                .filter(
+                    PrecoServico.tabela_preco_id.in_(tabela_ids_customizadas),
+                    PrecoServico.servico_id.in_(servico_ids),
+                )
+                .all()
+            )
+        except (OperationalError, ProgrammingError) as exc:
+            if not _is_missing_pricing_schema_error(exc):
+                raise
+            precos_tabela_rows = []
+        for preco_tabela in precos_tabela_rows:
+            precos_tabela.setdefault(
+                (int(preco_tabela.tabela_preco_id), int(preco_tabela.servico_id)),
+                preco_tabela,
+            )
+
+    precos: dict[tuple[int | None, int, str], Decimal] = {}
+    for clinica_id, servico_id, origem in chaves:
+        servico = servicos.get(servico_id)
+        if not servico:
+            continue
+
+        if clinica_id is None:
+            if origem == "domiciliar":
+                preco_domiciliar = to_decimal(
+                    servico.preco_domiciliar_plantao
+                    if horario == "plantao"
+                    else servico.preco_domiciliar_comercial
+                )
+                precos[(clinica_id, servico_id, origem)] = (
+                    preco_domiciliar if preco_domiciliar > Decimal("0.00") else to_decimal(servico.preco)
+                )
+            continue
+
+        clinica = clinicas.get(clinica_id)
+        if not clinica:
+            continue
+
+        preco_clinica = precos_clinica.get((clinica_id, servico_id))
+        if preco_clinica:
+            campo_preco_clinica = (
+                preco_clinica.preco_plantao if horario == "plantao" else preco_clinica.preco_comercial
+            )
+            if campo_preco_clinica is not None:
+                precos[(clinica_id, servico_id, origem)] = to_decimal(campo_preco_clinica)
+                continue
+
+        tabela_id = int(getattr(clinica, "tabela_preco_id", None) or 1)
+        if tabela_id == 1:
+            precos[(clinica_id, servico_id, origem)] = to_decimal(
+                servico.preco_fortaleza_plantao if horario == "plantao" else servico.preco_fortaleza_comercial
+            )
+            continue
+        if tabela_id == 2:
+            precos[(clinica_id, servico_id, origem)] = to_decimal(
+                servico.preco_rm_plantao if horario == "plantao" else servico.preco_rm_comercial
+            )
+            continue
+        if tabela_id == 3:
+            precos[(clinica_id, servico_id, origem)] = to_decimal(
+                servico.preco_domiciliar_plantao if horario == "plantao" else servico.preco_domiciliar_comercial
+            )
+            continue
+
+        preco_tabela = precos_tabela.get((tabela_id, servico_id))
+        if preco_tabela:
+            campo_preco_tabela = preco_tabela.preco_plantao if horario == "plantao" else preco_tabela.preco_comercial
+            if campo_preco_tabela is not None:
+                precos[(clinica_id, servico_id, origem)] = to_decimal(campo_preco_tabela)
+                continue
+
+        precos[(clinica_id, servico_id, origem)] = to_decimal(servico.preco)
+
+    return precos

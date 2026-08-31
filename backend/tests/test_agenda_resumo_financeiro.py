@@ -7,7 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -23,7 +23,9 @@ from app.models.clinica import Clinica
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
+from app.models.tabela_preco import PrecoServico, PrecoServicoClinica
 from app.models.tutor import Tutor
+from app.services.precos_service import calcular_precos_servicos_em_lote
 
 
 class AgendaResumoFinanceiroTest(unittest.TestCase):
@@ -36,6 +38,8 @@ class AgendaResumoFinanceiroTest(unittest.TestCase):
             Paciente.__table__,
             Clinica.__table__,
             Servico.__table__,
+            PrecoServico.__table__,
+            PrecoServicoClinica.__table__,
             Agendamento.__table__,
             OrdemServico.__table__,
         ):
@@ -50,7 +54,12 @@ class AgendaResumoFinanceiroTest(unittest.TestCase):
 
         paciente = Paciente(tutor_id=tutor.id, nome="Luna", especie="Canina", ativo=1)
         clinica = Clinica(nome="Pet Center", ativo=True)
-        servico = Servico(nome="Ecocardiograma", ativo=True)
+        servico = Servico(
+            nome="Ecocardiograma",
+            ativo=True,
+            preco_fortaleza_comercial=Decimal("80.00"),
+            preco=Decimal("60.00"),
+        )
         db.add_all([paciente, clinica, servico])
         db.flush()
 
@@ -192,6 +201,84 @@ class AgendaResumoFinanceiroTest(unittest.TestCase):
             self.assertEqual(resultado["qtd_agendados"], 0)
             self.assertAlmostEqual(resultado["valor_realizado"], 210.0, places=2)
             self.assertAlmostEqual(resultado["valor_agendado"], 0.0, places=2)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_precos_em_lote_preservam_negociado_e_domiciliar(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            _tutor, _paciente, clinica, servico = self._seed_base(db)
+            servico.preco_domiciliar_comercial = Decimal("72.00")
+            db.add(
+                PrecoServicoClinica(
+                    clinica_id=clinica.id,
+                    servico_id=servico.id,
+                    preco_comercial=Decimal("110.00"),
+                    ativo=1,
+                )
+            )
+            db.commit()
+
+            precos = calcular_precos_servicos_em_lote(
+                db,
+                [
+                    (clinica.id, servico.id, "clinica_parceira"),
+                    (None, servico.id, "domiciliar"),
+                ],
+            )
+
+            self.assertEqual(precos[(clinica.id, servico.id, "clinica_parceira")], Decimal("110.00"))
+            self.assertEqual(precos[(None, servico.id, "domiciliar")], Decimal("72.00"))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_resumo_financeiro_calcula_previsoes_em_consultas_limitadas(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            _tutor, paciente, clinica, servico = self._seed_base(db)
+            db.add(
+                PrecoServicoClinica(
+                    clinica_id=clinica.id,
+                    servico_id=servico.id,
+                    preco_comercial=Decimal("105.00"),
+                    ativo=1,
+                )
+            )
+            for indice in range(12):
+                self._create_agendamento(
+                    db,
+                    data="2026-05-20",
+                    hora=f"{8 + (indice % 10):02d}:{(indice % 2) * 30:02d}",
+                    status="Agendado",
+                    paciente_id=paciente.id,
+                    clinica_id=clinica.id,
+                    servico_id=servico.id,
+                )
+            db.commit()
+
+            selects: list[str] = []
+
+            def registrar_select(_conn, _cursor, statement, _parameters, _context, _executemany):
+                if statement.lstrip().upper().startswith("SELECT"):
+                    selects.append(statement)
+
+            event.listen(engine, "before_cursor_execute", registrar_select)
+            try:
+                resultado = agenda.resumo_financeiro_agenda(
+                    data="2026-05-20",
+                    db=db,
+                    current_user=SimpleNamespace(tem_papel=lambda role: role == "admin"),
+                )
+            finally:
+                event.remove(engine, "before_cursor_execute", registrar_select)
+
+            self.assertEqual(resultado["qtd_agendados"], 12)
+            self.assertAlmostEqual(resultado["valor_agendado"], 1260.0, places=2)
+            self.assertLessEqual(len(selects), 5)
         finally:
             db.close()
             engine.dispose()

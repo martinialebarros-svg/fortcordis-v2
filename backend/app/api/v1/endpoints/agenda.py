@@ -57,7 +57,7 @@ from app.services.logistica_service import (
     obter_duracao_deslocamento,
     obter_duracao_deslocamento_entidades,
 )
-from app.services.precos_service import calcular_preco_servico, to_decimal
+from app.services.precos_service import calcular_preco_servico, calcular_precos_servicos_em_lote, to_decimal
 from app.services.auditoria_service import registrar_auditoria
 from app.services.push_notifications import (
     send_agenda_push_notification,
@@ -3774,37 +3774,46 @@ def listar_relacionados_agenda(
     }
 
 
-def _calcular_previsao_agendamento(db: Session, agendamento: Agendamento) -> Decimal:
-    origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
-    if not agendamento.servico_id:
-        return Decimal("0.00")
-    if origem != ORIGEM_ATENDIMENTO_DOMICILIAR and not agendamento.clinica_id:
-        return Decimal("0.00")
+def _calcular_previsoes_agendamentos_em_lote(
+    db: Session,
+    agendamentos: list[Agendamento],
+) -> dict[int, Decimal]:
+    """Calcula previsoes da Agenda sem repetir consultas de precificacao por item."""
+    previsoes = {int(agendamento.id): Decimal("0.00") for agendamento in agendamentos}
+    chaves_por_agendamento: dict[int, tuple[int | None, int, str]] = {}
+
+    for agendamento in agendamentos:
+        origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
+        if not agendamento.servico_id:
+            continue
+        if origem != ORIGEM_ATENDIMENTO_DOMICILIAR and not agendamento.clinica_id:
+            continue
+
+        try:
+            servico_id = int(agendamento.servico_id)
+            clinica_id = int(agendamento.clinica_id) if agendamento.clinica_id else None
+        except (TypeError, ValueError):
+            continue
+        chaves_por_agendamento[int(agendamento.id)] = (clinica_id, servico_id, origem)
+
+    if not chaves_por_agendamento:
+        return previsoes
 
     try:
-        return to_decimal(calcular_preco_servico(
-            db=db,
-            clinica_id=agendamento.clinica_id,
-            servico_id=agendamento.servico_id,
+        precos = calcular_precos_servicos_em_lote(
+            db,
+            chaves_por_agendamento.values(),
             tipo_horario="comercial",
             usar_preco_clinica=True,
-            origem_atendimento=origem,
-        ))
-    except HTTPException as exc:
-        logger.warning(
-            "Resumo financeiro da agenda sem preco para agendamento %s (clinica=%s, servico=%s): %s",
-            agendamento.id,
-            agendamento.clinica_id,
-            agendamento.servico_id,
-            exc.detail,
         )
-        return Decimal("0.00")
     except Exception:
-        logger.exception(
-            "Resumo financeiro da agenda falhou ao calcular previsao do agendamento %s",
-            agendamento.id,
-        )
-        return Decimal("0.00")
+        logger.exception("Resumo financeiro da agenda falhou ao carregar precificacao em lote")
+        return previsoes
+
+    for agendamento_id, chave in chaves_por_agendamento.items():
+        previsoes[agendamento_id] = to_decimal(precos.get(chave))
+
+    return previsoes
 
 
 @router.get("/resumo-financeiro")
@@ -3870,6 +3879,19 @@ def resumo_financeiro_agenda(
             if os_data.agendamento_id not in mapa_os:
                 mapa_os[os_data.agendamento_id] = os_data
 
+    agendamentos_sem_valor_na_os = [
+        agendamento
+        for agendamento in agendamentos
+        if not (
+            mapa_os.get(agendamento.id)
+            and mapa_os[agendamento.id].valor_final is not None
+        )
+    ]
+    previsoes_por_agendamento = _calcular_previsoes_agendamentos_em_lote(
+        db,
+        agendamentos_sem_valor_na_os,
+    )
+
     valor_realizado = Decimal("0.00")
     valor_agendado = Decimal("0.00")
     qtd_realizados = 0
@@ -3880,7 +3902,7 @@ def resumo_financeiro_agenda(
         valor_base = (
             to_decimal(os_vinculada.valor_final)
             if os_vinculada and os_vinculada.valor_final is not None
-            else _calcular_previsao_agendamento(db, ag)
+            else previsoes_por_agendamento.get(int(ag.id), Decimal("0.00"))
         )
 
         if ag.status == "Realizado":
