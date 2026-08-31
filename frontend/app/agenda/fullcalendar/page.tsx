@@ -18,6 +18,7 @@ import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import { normalizarCoordenadaOpcional } from "@/lib/coordinates";
+import { agruparIdsAgendamentosVisiveis } from "@/lib/agenda-loading";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
 import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
 import {
@@ -877,177 +878,50 @@ export default function AgendaFullCalendarPage() {
     return montarGoogleMapsWebUrl(destino);
   }, [montarGoogleMapsWebUrl, resolverDestinoAgendamento, selecionado]);
 
-  const carregarClinicasComEndereco = useCallback(async (items: Agendamento[]) => {
-    const idsClinica = Array.from(
-      new Set(
-        items
-          .map((item) => Number(item.clinica_id))
-          .filter((id) => Number.isFinite(id) && id > 0)
-      )
-    );
-
-    if (idsClinica.length === 0) {
+  const carregarRelacionadosVisiveis = useCallback(async (items: Agendamento[]) => {
+    const lotesIds = agruparIdsAgendamentosVisiveis(items);
+    const limparRelacionados = () => {
       setClinicasEndereco({});
+      setTutoresEndereco({});
+      setOrdensServicoPorAgendamento({});
+      setLaudosVinculados({});
+    };
+
+    if (lotesIds.length === 0) {
+      limparRelacionados();
       return;
     }
 
-    try {
-      const respClinicas = await api.get("/clinicas?limit=1000");
-      const listaClinicas = Array.isArray(respClinicas.data?.items) ? respClinicas.data.items : [];
-
-      const mapa: Record<number, ClinicaEndereco> = {};
-      for (const clinica of listaClinicas) {
-        const clinicaId = Number(clinica?.id);
-        if (!Number.isFinite(clinicaId) || !idsClinica.includes(clinicaId)) {
-          continue;
-        }
-
-        mapa[clinicaId] = {
-          id: clinicaId,
-          nome: clinica?.nome || null,
-          endereco: clinica?.endereco || null,
-          numero: clinica?.numero || null,
-          bairro: clinica?.bairro || null,
-          cidade: clinica?.cidade || null,
-          estado: clinica?.estado || null,
-          cep: clinica?.cep || null,
-          latitude: normalizarCoordenadaOpcional(clinica?.latitude),
-          longitude: normalizarCoordenadaOpcional(clinica?.longitude),
-          endereco_normalizado: clinica?.endereco_normalizado || null,
-        };
-      }
-
-      setClinicasEndereco(mapa);
-    } catch (error) {
-      console.error("Erro ao carregar enderecos de clinicas no FullCalendar:", error);
-      setClinicasEndereco({});
-    }
-  }, []);
-
-  const carregarTutoresComEndereco = useCallback(async (items: Agendamento[]) => {
-    const idsTutor = Array.from(
-      new Set(
-        items
-          .map((item) => Number(item.tutor_id))
-          .filter((id) => Number.isFinite(id) && id > 0)
-      )
-    );
-
-    if (idsTutor.length === 0) {
-      setTutoresEndereco({});
-      return;
-    }
-
-    try {
-      const respTutores = await api.get("/tutores?limit=2000");
-      const listaTutores = Array.isArray(respTutores.data?.items) ? respTutores.data.items : [];
-
-      const mapa: Record<number, TutorEndereco> = {};
-      for (const tutor of listaTutores) {
-        const tutorId = Number(tutor?.id);
-        if (!Number.isFinite(tutorId) || !idsTutor.includes(tutorId)) {
-          continue;
-        }
-
-        mapa[tutorId] = {
-          id: tutorId,
-          nome: tutor?.nome || null,
-          endereco: tutor?.endereco || null,
-          numero: tutor?.numero || null,
-          bairro: tutor?.bairro || null,
-          cidade: tutor?.cidade || null,
-          estado: tutor?.estado || null,
-          cep: tutor?.cep || null,
-          latitude: normalizarCoordenadaOpcional(tutor?.latitude),
-          longitude: normalizarCoordenadaOpcional(tutor?.longitude),
-          endereco_normalizado: tutor?.endereco_normalizado || null,
-        };
-      }
-
-      setTutoresEndereco(mapa);
-    } catch (error) {
-      console.error("Erro ao carregar enderecos de tutores no FullCalendar:", error);
-      setTutoresEndereco({});
-    }
-  }, []);
-
-  const carregarOrdensServicoVinculadas = useCallback(
-    async (items: Agendamento[], periodo: IntervaloConsulta) => {
-      const idsAgendamento = new Set(items.map((item) => item.id));
-      if (idsAgendamento.size === 0) {
-        setOrdensServicoPorAgendamento({});
-        return;
-      }
-
-      try {
-        const params = new URLSearchParams();
-        params.append("limit", "2000");
-        if (periodo.inicio && periodo.fim) {
-          params.append("data_inicio", periodo.inicio);
-          params.append("data_fim", periodo.fim);
-        }
-
-        const response = await api.get(`/ordens-servico?${params.toString()}`);
-        const listaOs = Array.isArray(response.data?.items) ? response.data.items : [];
-
-        const mapa: Record<number, OrdemServicoResumo> = {};
-        for (const os of listaOs) {
-          const agendamentoId = Number(os?.agendamento_id);
-          if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
-            continue;
-          }
-
-          const statusOs = String(os?.status || "").trim();
-          if (statusOs === "Cancelado") {
-            continue;
-          }
-
-          const osId = Number(os?.id);
-          if (!Number.isFinite(osId)) {
-            continue;
-          }
-
-          const anterior = mapa[agendamentoId];
-          if (!anterior || osId > anterior.id) {
-            mapa[agendamentoId] = {
-              id: osId,
-              agendamento_id: agendamentoId,
-              numero_os: String(os?.numero_os || ""),
-              status: statusOs || "Pendente",
-              valor_servico: Number(os?.valor_servico || 0),
-              desconto: Number(os?.desconto || 0),
-              valor_final: Number(os?.valor_final || 0),
-            };
-          }
-        }
-
-        setOrdensServicoPorAgendamento(mapa);
-      } catch (error) {
-        console.error("Erro ao carregar OS vinculadas no FullCalendar:", error);
-        setOrdensServicoPorAgendamento({});
-      }
-    },
-    []
-  );
-
-  const carregarLaudosVinculados = useCallback(async (items: Agendamento[]) => {
-    const idsAgendamento = new Set(items.map((item) => item.id));
+    const idsAgendamento = new Set(lotesIds.flat());
     const pacientePorAgendamento = new Map(
       items.map((item) => [item.id, Number(item.paciente_id || 0)])
     );
-    if (idsAgendamento.size === 0) {
-      setLaudosVinculados({});
-      return;
-    }
 
     try {
-      const response = await api.get("/laudos?limit=1000");
-      const listaLaudos = Array.isArray(response.data?.items) ? response.data.items : [];
+      const responses = await Promise.all(
+        lotesIds.map((ids) =>
+          api.get("/agenda/relacionados", {
+            params: { agendamento_ids: ids.join(",") },
+          })
+        )
+      );
+      const listaLaudos = responses.flatMap((response) =>
+        Array.isArray(response.data?.laudos) ? response.data.laudos : []
+      );
+      const listaOrdens = responses.flatMap((response) =>
+        Array.isArray(response.data?.ordens_servico) ? response.data.ordens_servico : []
+      );
+      const listaClinicas = responses.flatMap((response) =>
+        Array.isArray(response.data?.clinicas) ? response.data.clinicas : []
+      );
+      const listaTutores = responses.flatMap((response) =>
+        Array.isArray(response.data?.tutores) ? response.data.tutores : []
+      );
 
-      const mapa: LaudosVinculadosPorAgendamento = {};
+      const mapaLaudos: LaudosVinculadosPorAgendamento = {};
       for (const laudo of listaLaudos) {
         const agendamentoId = Number(laudo?.agendamento_id);
-        if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
+        if (!Number.isInteger(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
           continue;
         }
 
@@ -1065,14 +939,14 @@ export default function AgendaFullCalendarPage() {
 
         const tipo = String(laudo?.tipo || "");
         const laudoId = Number(laudo?.id);
-        if (!tipo || !Number.isFinite(laudoId)) {
+        if (!tipo || !Number.isInteger(laudoId)) {
           continue;
         }
 
-        const laudosDoAgendamento = mapa[agendamentoId] || {};
+        const laudosDoAgendamento = mapaLaudos[agendamentoId] || {};
         const anterior = laudosDoAgendamento[tipo];
         if (!anterior || laudoId > anterior.id) {
-          mapa[agendamentoId] = {
+          mapaLaudos[agendamentoId] = {
             ...laudosDoAgendamento,
             [tipo]: {
               id: laudoId,
@@ -1084,10 +958,73 @@ export default function AgendaFullCalendarPage() {
         }
       }
 
-      setLaudosVinculados(mapa);
+      const mapaOrdens: Record<number, OrdemServicoResumo> = {};
+      for (const os of listaOrdens) {
+        const agendamentoId = Number(os?.agendamento_id);
+        if (!Number.isInteger(agendamentoId) || !idsAgendamento.has(agendamentoId)) continue;
+        const statusOs = String(os?.status || "").trim();
+        if (statusOs === "Cancelado") continue;
+        const osId = Number(os?.id);
+        if (!Number.isInteger(osId)) continue;
+        const anterior = mapaOrdens[agendamentoId];
+        if (!anterior || osId > anterior.id) {
+          mapaOrdens[agendamentoId] = {
+            id: osId,
+            agendamento_id: agendamentoId,
+            numero_os: String(os?.numero_os || ""),
+            status: statusOs || "Pendente",
+            valor_servico: Number(os?.valor_servico || 0),
+            desconto: Number(os?.desconto || 0),
+            valor_final: Number(os?.valor_final || 0),
+          };
+        }
+      }
+
+      const mapaClinicas: Record<number, ClinicaEndereco> = {};
+      for (const clinica of listaClinicas) {
+        const clinicaId = Number(clinica?.id);
+        if (!Number.isInteger(clinicaId) || clinicaId <= 0) continue;
+        mapaClinicas[clinicaId] = {
+          id: clinicaId,
+          nome: clinica?.nome || null,
+          endereco: clinica?.endereco || null,
+          numero: clinica?.numero || null,
+          bairro: clinica?.bairro || null,
+          cidade: clinica?.cidade || null,
+          estado: clinica?.estado || null,
+          cep: clinica?.cep || null,
+          latitude: normalizarCoordenadaOpcional(clinica?.latitude),
+          longitude: normalizarCoordenadaOpcional(clinica?.longitude),
+          endereco_normalizado: clinica?.endereco_normalizado || null,
+        };
+      }
+
+      const mapaTutores: Record<number, TutorEndereco> = {};
+      for (const tutor of listaTutores) {
+        const tutorId = Number(tutor?.id);
+        if (!Number.isInteger(tutorId) || tutorId <= 0) continue;
+        mapaTutores[tutorId] = {
+          id: tutorId,
+          nome: tutor?.nome || null,
+          endereco: tutor?.endereco || null,
+          numero: tutor?.numero || null,
+          bairro: tutor?.bairro || null,
+          cidade: tutor?.cidade || null,
+          estado: tutor?.estado || null,
+          cep: tutor?.cep || null,
+          latitude: normalizarCoordenadaOpcional(tutor?.latitude),
+          longitude: normalizarCoordenadaOpcional(tutor?.longitude),
+          endereco_normalizado: tutor?.endereco_normalizado || null,
+        };
+      }
+
+      setClinicasEndereco(mapaClinicas);
+      setTutoresEndereco(mapaTutores);
+      setOrdensServicoPorAgendamento(mapaOrdens);
+      setLaudosVinculados(mapaLaudos);
     } catch (error) {
-      console.error("Erro ao carregar laudos vinculados no FullCalendar:", error);
-      setLaudosVinculados({});
+      console.error("Erro ao carregar relacionados visiveis no FullCalendar:", error);
+      limparRelacionados();
     }
   }, []);
 
@@ -1129,12 +1066,7 @@ export default function AgendaFullCalendarPage() {
 
       setAgendamentos(items);
       if (includeRelated) {
-        await Promise.all([
-          carregarClinicasComEndereco(items),
-          carregarTutoresComEndereco(items),
-          carregarOrdensServicoVinculadas(items, periodo),
-          carregarLaudosVinculados(items),
-        ]);
+        await carregarRelacionadosVisiveis(items);
       }
       setErro("");
     } catch (error) {
@@ -1143,7 +1075,7 @@ export default function AgendaFullCalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [carregarClinicasComEndereco, carregarLaudosVinculados, carregarOrdensServicoVinculadas, carregarTutoresComEndereco]);
+  }, [carregarRelacionadosVisiveis]);
 
   const carregarConfiguracaoAgenda = useCallback(async () => {
     try {
