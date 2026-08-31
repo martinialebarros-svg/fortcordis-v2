@@ -4,7 +4,7 @@ Data: 2026-08-30
 
 Responsavel: Codex / equipe FortCordis
 
-Status: in_progress
+Status: done_in_stage
 
 ## 1) Problema atual
 

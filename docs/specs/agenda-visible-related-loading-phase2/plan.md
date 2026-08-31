@@ -4,7 +4,7 @@ Data: 2026-08-30
 
 Responsavel: Codex / equipe FortCordis
 
-Status: ready_for_review
+Status: done_in_stage
 
 ## 1) Sequencia da entrega PERF-08
 
@@ -24,7 +24,7 @@ Status: ready_for_review
 - [x] T2.4 Consumir a resposta agregada na lista e no FullCalendar.
 - [x] T2.5 Adiar catalogos dos filtros ate foco/interacao.
 - [x] T2.6 Permitir retry apos falha e evitar requisicao duplicada em voo.
-- [ ] T2.7 Registrar validacoes e evidencia stage.
+- [x] T2.7 Registrar validacoes e evidencia stage.
 
 ## 3) Criterio de conclusao
 
