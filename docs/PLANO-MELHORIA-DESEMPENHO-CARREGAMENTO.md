@@ -65,13 +65,13 @@ Objetivo: impedir espera infinita e recuperar o Financeiro, rota mais critica da
 | PERF-07 | Financeiro carregar apenas dados da aba ativa | concluido em producao | aba de transacoes nao baixa OS/clinicas/servicos na entrada |
 | PERF-08 | Agenda substituir listas de 1000/2000 itens por lotes/IDs visiveis | concluido em producao | carga inicial nao baixa catalogos completos sem uso imediato |
 | PERF-09 | Atendimento paginar pacientes, medicamentos e frases | concluido em producao | dados secundarios sao carregados sob demanda |
-| PERF-10 | Adotar cache com validade para catalogos estaveis | em desenvolvimento | navegacao nao repete catalogos ainda validos |
+| PERF-10 | Adotar cache com validade para catalogos estaveis | concluido em producao | navegacao nao repete catalogos ainda validos |
 
 ### Fase 3 - consultas e banco
 
 | ID | Tarefa | Estado | Criterio de conclusao |
 | --- | --- | --- | --- |
-| PERF-11 | Remover N+1 do resumo financeiro da Agenda | pendente | quantidade de queries constante por pagina |
+| PERF-11 | Remover N+1 do resumo financeiro da Agenda | em desenvolvimento | quantidade de queries constante por pagina |
 | PERF-12 | Paginar a fila de Laudos no banco | pendente | nenhuma montagem integral seguida de slice em memoria |
 | PERF-13 | Revisar indices com `EXPLAIN ANALYZE` | pendente | plano e ganho anexados ao PR, sem indice especulativo |
 | PERF-14 | Configurar pool, `pre_ping`, reciclagem e timeouts de conexao | pendente | conexoes degradadas falham de modo limitado e observavel |
