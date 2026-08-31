@@ -95,6 +95,7 @@ ASSISTENTE_AGENDA_MAX_WINDOW_ENV = "ASSISTENTE_AGENDA_MAX_WINDOW_DAYS"
 ASSISTENTE_AGENDA_DEFAULT_WINDOW_DAYS = 7
 ASSISTENTE_AGENDA_DEFAULT_MAX_WINDOW_DAYS = 14
 ASSISTENTE_AGENDA_HARD_MAX_WINDOW_DAYS = 31
+AGENDA_RELACIONADOS_MAX_IDS = 100
 DIAS_SEMANA_PT = [
     "segunda-feira",
     "terca-feira",
@@ -104,6 +105,33 @@ DIAS_SEMANA_PT = [
     "sabado",
     "domingo",
 ]
+
+
+def _parse_agendamento_ids_param(value: str) -> list[int]:
+    tokens = str(value or "").split(",")
+    if not tokens or any(not token.strip() for token in tokens):
+        raise HTTPException(status_code=400, detail="Informe agendamento_ids separados por virgula.")
+
+    ids: list[int] = []
+    vistos: set[int] = set()
+    for token in tokens:
+        normalizado = token.strip()
+        if not normalizado.isdigit():
+            raise HTTPException(status_code=400, detail="agendamento_ids deve conter apenas inteiros positivos.")
+        agendamento_id = int(normalizado)
+        if agendamento_id <= 0:
+            raise HTTPException(status_code=400, detail="agendamento_ids deve conter apenas inteiros positivos.")
+        if agendamento_id in vistos:
+            continue
+        vistos.add(agendamento_id)
+        ids.append(agendamento_id)
+
+    if len(ids) > AGENDA_RELACIONADOS_MAX_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"agendamento_ids aceita no maximo {AGENDA_RELACIONADOS_MAX_IDS} IDs unicos.",
+        )
+    return ids
 
 
 def _usuario_tem_papel(usuario: Any, papel: str) -> bool:
@@ -3601,6 +3629,148 @@ def listar_agendamentos(
         "agenda_semanal": agenda_semanal,
         "agenda_feriados": agenda_feriados,
         "agenda_excecoes": agenda_excecoes,
+    }
+
+
+def _serialize_endereco_relacionado(entidade: Any) -> dict[str, Any]:
+    return {
+        "id": entidade.id,
+        "nome": entidade.nome,
+        "endereco": entidade.endereco,
+        "numero": entidade.numero,
+        "bairro": entidade.bairro,
+        "cidade": entidade.cidade,
+        "estado": entidade.estado,
+        "cep": entidade.cep,
+        "latitude": entidade.latitude,
+        "longitude": entidade.longitude,
+        "endereco_normalizado": entidade.endereco_normalizado,
+    }
+
+
+@router.get("/relacionados", response_model=dict)
+def listar_relacionados_agenda(
+    agendamento_ids: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Retorna apenas os resumos relacionados ao lote visivel da Agenda."""
+    del current_user
+    ids_solicitados = _parse_agendamento_ids_param(agendamento_ids)
+
+    relacoes = (
+        db.query(
+            Agendamento.id.label("agendamento_id"),
+            Agendamento.clinica_id.label("clinica_id"),
+            func.coalesce(Agendamento.tutor_id, Paciente.tutor_id).label("tutor_id"),
+        )
+        .outerjoin(Paciente, Paciente.id == Agendamento.paciente_id)
+        .filter(Agendamento.id.in_(ids_solicitados))
+        .all()
+    )
+    ids_validos = sorted({int(item.agendamento_id) for item in relacoes})
+    if not ids_validos:
+        return {
+            "agendamento_ids": [],
+            "laudos": [],
+            "ordens_servico": [],
+            "clinicas": [],
+            "tutores": [],
+        }
+
+    laudos_rows = (
+        db.query(
+            Laudo.id,
+            Laudo.agendamento_id,
+            Laudo.paciente_id,
+            Laudo.tipo,
+            Laudo.status,
+            Laudo.titulo,
+        )
+        .filter(Laudo.agendamento_id.in_(ids_validos))
+        .all()
+    )
+    laudos_por_chave: dict[tuple[int, str], dict[str, Any]] = {}
+    for laudo in laudos_rows:
+        agendamento_id = int(laudo.agendamento_id)
+        tipo = str(laudo.tipo or "")
+        if not tipo:
+            continue
+        chave = (agendamento_id, tipo)
+        anterior = laudos_por_chave.get(chave)
+        if anterior is None or int(laudo.id) > int(anterior["id"]):
+            laudos_por_chave[chave] = {
+                "id": int(laudo.id),
+                "agendamento_id": agendamento_id,
+                "paciente_id": int(laudo.paciente_id),
+                "tipo": tipo,
+                "status": str(laudo.status or ""),
+                "titulo": str(laudo.titulo or f"Laudo {laudo.id}"),
+            }
+
+    ordens_rows = (
+        db.query(
+            OrdemServico.id,
+            OrdemServico.agendamento_id,
+            OrdemServico.numero_os,
+            OrdemServico.status,
+            OrdemServico.valor_servico,
+            OrdemServico.desconto,
+            OrdemServico.valor_final,
+        )
+        .filter(OrdemServico.agendamento_id.in_(ids_validos))
+        .all()
+    )
+    ordens_por_agendamento: dict[int, dict[str, Any]] = {}
+    for ordem in ordens_rows:
+        agendamento_id = int(ordem.agendamento_id)
+        anterior = ordens_por_agendamento.get(agendamento_id)
+        if anterior is None or int(ordem.id) > int(anterior["id"]):
+            ordens_por_agendamento[agendamento_id] = {
+                "id": int(ordem.id),
+                "agendamento_id": agendamento_id,
+                "numero_os": str(ordem.numero_os or ""),
+                "status": str(ordem.status or ""),
+                "valor_servico": float(ordem.valor_servico or 0),
+                "desconto": float(ordem.desconto or 0),
+                "valor_final": float(ordem.valor_final or 0),
+            }
+
+    ids_clinica = sorted(
+        {
+            int(item.clinica_id)
+            for item in relacoes
+            if item.clinica_id is not None and int(item.clinica_id) > 0
+        }
+    )
+    ids_tutor = sorted(
+        {
+            int(item.tutor_id)
+            for item in relacoes
+            if item.tutor_id is not None and int(item.tutor_id) > 0
+        }
+    )
+    clinicas = db.query(Clinica).filter(Clinica.id.in_(ids_clinica)).all() if ids_clinica else []
+    tutores = db.query(Tutor).filter(Tutor.id.in_(ids_tutor)).all() if ids_tutor else []
+
+    return {
+        "agendamento_ids": ids_validos,
+        "laudos": sorted(
+            laudos_por_chave.values(),
+            key=lambda item: (item["agendamento_id"], item["tipo"], item["id"]),
+        ),
+        "ordens_servico": sorted(
+            ordens_por_agendamento.values(),
+            key=lambda item: (item["agendamento_id"], item["id"]),
+        ),
+        "clinicas": sorted(
+            (_serialize_endereco_relacionado(clinica) for clinica in clinicas),
+            key=lambda item: item["id"],
+        ),
+        "tutores": sorted(
+            (_serialize_endereco_relacionado(tutor) for tutor in tutores),
+            key=lambda item: item["id"],
+        ),
     }
 
 
