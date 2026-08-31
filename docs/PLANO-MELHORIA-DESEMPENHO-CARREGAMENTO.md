@@ -63,7 +63,7 @@ Objetivo: impedir espera infinita e recuperar o Financeiro, rota mais critica da
 | --- | --- | --- | --- |
 | PERF-06 | Criar layout persistente da area autenticada | pendente | auth, branding, push e alertas nao remontam em cada rota |
 | PERF-07 | Financeiro carregar apenas dados da aba ativa | concluido em producao | aba de transacoes nao baixa OS/clinicas/servicos na entrada |
-| PERF-08 | Agenda substituir listas de 1000/2000 itens por lotes/IDs visiveis | em andamento na branch | carga inicial nao baixa catalogos completos sem uso imediato |
+| PERF-08 | Agenda substituir listas de 1000/2000 itens por lotes/IDs visiveis | concluido em stage | carga inicial nao baixa catalogos completos sem uso imediato |
 | PERF-09 | Atendimento paginar pacientes, medicamentos e frases | pendente | dados secundarios sao carregados sob demanda |
 | PERF-10 | Adotar cache com validade para catalogos estaveis | pendente | navegacao nao repete catalogos ainda validos |
 
