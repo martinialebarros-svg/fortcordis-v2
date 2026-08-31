@@ -2658,6 +2658,7 @@ def listar_frases_clinicas_atendimento(
     secao: Optional[str] = None,
     search: Optional[str] = None,
     include_inactive: int = 0,
+    skip: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=1000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -2668,6 +2669,7 @@ def listar_frases_clinicas_atendimento(
         secao=(secao or "").strip() or None,
         search=(search or "").strip() or None,
         include_inactive=bool(include_inactive),
+        skip=skip,
         limit=limit,
     )
 

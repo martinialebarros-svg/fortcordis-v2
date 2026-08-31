@@ -94,6 +94,34 @@ class ClinicalPhraseServiceTest(unittest.TestCase):
                 db.close()
                 engine.dispose()
 
+    def test_context_paginates_and_reports_total(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            payload = _sample_payload()
+            payload["frases"].append(
+                {
+                    "secao": "anamnese",
+                    "titulo": "Apetite preservado",
+                    "texto": "Tutor relata apetite preservado.",
+                    "ordem": 30,
+                }
+            )
+            payload_file = Path(tmpdir) / "atendimento_clinical_phrases.json"
+            payload_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+            db, engine = self._build_session(tmpdir)
+            try:
+                with patch.object(clinical_phrase_service, "CLINICAL_PHRASES_FILE", payload_file):
+                    first_page = clinical_phrase_service.montar_contexto_frases_clinicas(db, limit=1)
+                    second_page = clinical_phrase_service.montar_contexto_frases_clinicas(db, skip=1, limit=1)
+
+                    self.assertEqual(first_page["total"], 3)
+                    self.assertEqual(len(first_page["frases"]), 1)
+                    self.assertEqual(len(second_page["frases"]), 1)
+                    self.assertNotEqual(first_page["frases"][0]["id"], second_page["frases"][0]["id"])
+            finally:
+                db.close()
+                engine.dispose()
+
 
 if __name__ == "__main__":
     unittest.main()

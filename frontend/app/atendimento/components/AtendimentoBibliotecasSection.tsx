@@ -18,6 +18,8 @@ export default function AtendimentoBibliotecasSection(props: AtendimentoBibliote
   const {
     CLINICAL_SECTION_OPTIONS,
     adicionarMedicamentoNaPrescricao,
+    carregarMaisFrasesClinicas,
+    carregarMaisMedicamentosBanco,
     carregarFrasesClinicas,
     carregarMedicamentosBanco,
     clinicalPhraseForm,
@@ -50,6 +52,8 @@ export default function AtendimentoBibliotecasSection(props: AtendimentoBibliote
     showMedicationBank,
     showPhraseBank,
     toggleClinicalPhrase,
+    totalClinicalPhrases,
+    totalMedicamentos,
   } = props;
 
   return (
@@ -85,7 +89,7 @@ export default function AtendimentoBibliotecasSection(props: AtendimentoBibliote
               </span>
             </button>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-              {clinicalPhrases.length} frase(s)
+              {clinicalPhrases.length}{totalClinicalPhrases > clinicalPhrases.length ? ` de ${totalClinicalPhrases}` : ""} frase(s)
             </span>
           </div>
         </div>
@@ -289,6 +293,15 @@ export default function AtendimentoBibliotecasSection(props: AtendimentoBibliote
                       Nenhuma frase clinica encontrada para os filtros atuais.
                     </div>
                   ) : null}
+                  {clinicalPhrases.length < totalClinicalPhrases ? (
+                    <button
+                      type="button"
+                      onClick={() => void carregarMaisFrasesClinicas()}
+                      className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      Carregar mais frases
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -321,7 +334,7 @@ export default function AtendimentoBibliotecasSection(props: AtendimentoBibliote
             )}
           </button>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-            {medicamentos.length} medicamento(s)
+            {medicamentos.length}{totalMedicamentos > medicamentos.length ? ` de ${totalMedicamentos}` : ""} medicamento(s)
           </span>
         </div>
 
@@ -573,6 +586,17 @@ export default function AtendimentoBibliotecasSection(props: AtendimentoBibliote
                   </tbody>
                 </table>
               </div>
+              {medicamentos.length < totalMedicamentos ? (
+                <div className="border-t border-slate-200 p-3">
+                  <button
+                    type="button"
+                    onClick={() => void carregarMaisMedicamentosBanco()}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Carregar mais medicamentos
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         ) : (

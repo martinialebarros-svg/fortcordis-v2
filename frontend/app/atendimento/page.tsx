@@ -31,6 +31,12 @@ import {
   normalizarTelefone,
 } from "@/lib/atendimento-cadastro";
 import {
+  buildClinicalPhraseLibraryPath,
+  buildMedicationLibraryPath,
+  buildPatientSearchPath,
+  mergeRecordsById,
+} from "@/lib/atendimento-library-loading";
+import {
   PROTOCOLOS_PRESCRICAO,
   type ProtocoloPrescricao,
   type ProtocoloPrescricaoItem,
@@ -1446,9 +1452,15 @@ export default function AtendimentoPage() {
   const [pacientes, setPacientes] = useState<PacienteResumo[]>([]);
   const [clinicas, setClinicas] = useState<ClinicaResumo[]>([]);
   const [medicamentos, setMedicamentos] = useState<Medicamento[]>([]);
+  const [totalMedicamentos, setTotalMedicamentos] = useState(0);
+  const [buscaMedicamentosBiblioteca, setBuscaMedicamentosBiblioteca] = useState("");
+  const [medicamentosBibliotecaCarregados, setMedicamentosBibliotecaCarregados] = useState(false);
   const [catalogoExames, setCatalogoExames] = useState<CatalogoExame[]>([]);
   const [paineisExames, setPaineisExames] = useState<PainelExame[]>([]);
   const [clinicalPhrases, setClinicalPhrases] = useState<ClinicalPhraseRecord[]>([]);
+  const [totalClinicalPhrases, setTotalClinicalPhrases] = useState(0);
+  const [buscaFrasesBiblioteca, setBuscaFrasesBiblioteca] = useState("");
+  const [frasesBibliotecaCarregadas, setFrasesBibliotecaCarregadas] = useState(false);
   const [savingQuickPhrase, setSavingQuickPhrase] = useState(false);
   const [documentTemplates, setDocumentTemplates] = useState<DocumentoAtendimentoTemplate[]>([]);
 
@@ -1538,6 +1550,13 @@ export default function AtendimentoPage() {
   // chamada antes mesmo dela chegar a esperar a resposta.
   const historicoPacienteRequestIdRef = useRef(0);
   const cadastroComplementarRequestIdRef = useRef(0);
+  const pacientesBuscaRequestIdRef = useRef(0);
+  const medicamentosBuscaRequestIdRef = useRef(0);
+  const frasesClinicasBuscaRequestIdRef = useRef(0);
+  const pacienteBuscaTimerRef = useRef<number | null>(null);
+  const medicamentoBuscaTimerRef = useRef<number | null>(null);
+  const fraseClinicaBuscaTimerRef = useRef<number | null>(null);
+  const frasesClinicasCarregadasPorSecaoRef = useRef<Set<ClinicalFieldKey>>(new Set());
   // Idem para abrirAtendimento: dois cliques rapidos na lista lateral nao
   // podem deixar a resposta do clique mais antigo sobrescrever o prontuario
   // do clique mais recente.
@@ -1846,6 +1865,18 @@ export default function AtendimentoPage() {
       // esta em voo (ou ja aplicou seu resultado) - aplicar esta agora
       // sobrescreveria cadastroComplementar com dados do paciente errado.
       if (requestId !== cadastroComplementarRequestIdRef.current) return;
+      setPacientes((prev) =>
+        mergeRecordsById(prev, [
+          {
+            id: normalized,
+            nome: pacienteData?.nome || "",
+            tutor: pacienteData?.tutor || tutorData?.nome || "",
+            tutor_id: pacienteData?.tutor_id || null,
+            especie: pacienteData?.especie || "",
+            raca: pacienteData?.raca || "",
+          },
+        ])
+      );
       aplicarCadastroComplementar(
         {
           ...pacienteData,
@@ -2109,33 +2140,23 @@ export default function AtendimentoPage() {
   const carregarBase = async () => {
     setLoading(true);
     try {
-      // allSettled em vez de all: a falha de um recurso secundario (ex.:
-      // frases clinicas do autocomplete) nao pode derrubar pacientes/
-      // clinicas/medicamentos/catalogo, que sao essenciais para operar o
-      // atendimento.
-      const [rp, rc, rm, re, rf] = await Promise.allSettled([
-        api.get("/pacientes?limit=1000"),
+      // A tela abre com o que e necessario para listar/criar o atendimento.
+      // Pacientes, medicamentos e frases sao bibliotecas pesquisaveis e sao
+      // carregados somente quando o operador as utiliza, em paginas limitadas.
+      const [rc, re] = await Promise.allSettled([
         api.get("/clinicas?limit=500"),
-        api.get("/atendimentos/medicamentos/banco?limit=500"),
         api.get("/atendimentos/exames/catalogo"),
-        api.get("/atendimentos/frases-clinicas?include_inactive=1&limit=1000"),
       ]);
-      if (rp.status === "fulfilled") setPacientes(rp.value.data?.items || []);
       if (rc.status === "fulfilled") setClinicas(rc.value.data?.items || []);
-      if (rm.status === "fulfilled") setMedicamentos(rm.value.data?.items || []);
       if (re.status === "fulfilled") {
         setCatalogoExames(ordenarCatalogoExames(re.value.data?.exames || []));
         setPaineisExames(re.value.data?.paineis || []);
       }
-      if (rf.status === "fulfilled") setClinicalPhrases(rf.value.data?.frases || []);
 
       const recursosComFalha = (
         [
-          [rp, "lista de pacientes"],
           [rc, "lista de clinicas"],
-          [rm, "banco de medicamentos"],
           [re, "catalogo de exames"],
-          [rf, "frases clinicas"],
         ] as const
       )
         .filter(([resultado]) => resultado.status === "rejected")
@@ -2153,6 +2174,43 @@ export default function AtendimentoPage() {
       setLoading(false);
     }
   };
+
+  const buscarPacientes = useCallback(async (termo: string) => {
+    const buscaNormalizada = termo.trim();
+    if (buscaNormalizada.length < 2) return;
+    const requestId = ++pacientesBuscaRequestIdRef.current;
+    try {
+      const response = await api.get(buildPatientSearchPath(buscaNormalizada));
+      if (requestId === pacientesBuscaRequestIdRef.current) {
+        setPacientes(response.data?.items || []);
+      }
+    } catch (e: any) {
+      if (requestId === pacientesBuscaRequestIdRef.current) {
+        setErro(extractApiErrorMessageSync(e, "Erro ao buscar pacientes."));
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const buscaNormalizada = pacienteBusca.trim();
+    if (pacienteBuscaTimerRef.current) {
+      window.clearTimeout(pacienteBuscaTimerRef.current);
+      pacienteBuscaTimerRef.current = null;
+    }
+    if (buscaNormalizada.length < 2) {
+      if (!form.paciente_id) setPacientes([]);
+      return;
+    }
+    pacienteBuscaTimerRef.current = window.setTimeout(() => {
+      void buscarPacientes(buscaNormalizada);
+    }, 250);
+    return () => {
+      if (pacienteBuscaTimerRef.current) {
+        window.clearTimeout(pacienteBuscaTimerRef.current);
+        pacienteBuscaTimerRef.current = null;
+      }
+    };
+  }, [buscarPacientes, form.paciente_id, pacienteBusca]);
 
   const carregarLista = async (
     page: number = paginaLista,
@@ -5467,17 +5525,43 @@ export default function AtendimentoPage() {
     }
   };
 
-  const carregarMedicamentosBanco = async () => {
+  const carregarMedicamentosBanco = useCallback(async (options: { search?: string; skip?: number; append?: boolean } = {}) => {
+    const requestId = ++medicamentosBuscaRequestIdRef.current;
     try {
-      const response = await api.get("/atendimentos/medicamentos/banco?limit=500");
+      const response = await api.get(buildMedicationLibraryPath(options));
       const items = response.data?.items || [];
-      setMedicamentos(items);
+      if (requestId !== medicamentosBuscaRequestIdRef.current) return [];
+      setMedicamentos((prev) => (options.append ? mergeRecordsById(prev, items) : items));
+      setTotalMedicamentos(Number(response.data?.total || items.length));
+      setBuscaMedicamentosBiblioteca(options.search?.trim() || "");
+      setMedicamentosBibliotecaCarregados(true);
       return items;
     } catch (e: any) {
-      setErro(extractApiErrorMessageSync(e, "Erro ao atualizar banco de medicamentos."));
+      if (requestId === medicamentosBuscaRequestIdRef.current) {
+        setErro(extractApiErrorMessageSync(e, "Erro ao atualizar banco de medicamentos."));
+      }
       return [];
     }
-  };
+  }, []);
+
+  const agendarBuscaMedicamentos = useCallback(
+    (termo: string) => {
+      if (medicamentoBuscaTimerRef.current) {
+        window.clearTimeout(medicamentoBuscaTimerRef.current);
+      }
+      const buscaNormalizada = termo.trim();
+      if (buscaNormalizada.length < 2) return;
+      medicamentoBuscaTimerRef.current = window.setTimeout(() => {
+        void carregarMedicamentosBanco({ search: buscaNormalizada });
+      }, 250);
+    },
+    [carregarMedicamentosBanco]
+  );
+
+  const carregarMaisMedicamentosBanco = useCallback(
+    () => carregarMedicamentosBanco({ search: buscaMedicamentosBiblioteca, skip: medicamentos.length, append: true }),
+    [buscaMedicamentosBiblioteca, carregarMedicamentosBanco, medicamentos.length]
+  );
 
   const resetMedicationForm = () => {
     setMedForm(emptyMedicationForm());
@@ -5561,14 +5645,82 @@ export default function AtendimentoPage() {
     }
   };
 
-  const carregarFrasesClinicas = async () => {
+  const carregarFrasesClinicas = useCallback(async (options: { search?: string; skip?: number; append?: boolean } = {}) => {
+    const requestId = ++frasesClinicasBuscaRequestIdRef.current;
     try {
-      const response = await api.get("/atendimentos/frases-clinicas?include_inactive=1&limit=1000");
-      setClinicalPhrases(response.data?.frases || []);
+      const response = await api.get(buildClinicalPhraseLibraryPath({ ...options, includeInactive: true }));
+      const items = response.data?.frases || [];
+      if (requestId !== frasesClinicasBuscaRequestIdRef.current) return [];
+      setClinicalPhrases((prev) => (options.append ? mergeRecordsById(prev, items) : items));
+      setTotalClinicalPhrases(Number(response.data?.total || items.length));
+      setBuscaFrasesBiblioteca(options.search?.trim() || "");
+      setFrasesBibliotecaCarregadas(true);
+      frasesClinicasCarregadasPorSecaoRef.current.clear();
+      return items;
     } catch (e: any) {
-      setErro(extractApiErrorMessageSync(e, "Erro ao atualizar banco de frases clinicas."));
+      if (requestId === frasesClinicasBuscaRequestIdRef.current) {
+        setErro(extractApiErrorMessageSync(e, "Erro ao atualizar banco de frases clinicas."));
+      }
+      return [];
     }
-  };
+  }, []);
+
+  const carregarMaisFrasesClinicas = useCallback(
+    () => carregarFrasesClinicas({ search: buscaFrasesBiblioteca, skip: clinicalPhrases.length, append: true }),
+    [buscaFrasesBiblioteca, carregarFrasesClinicas, clinicalPhrases.length]
+  );
+
+  const agendarBuscaFrasesClinicas = useCallback(
+    (termo: string) => {
+      if (fraseClinicaBuscaTimerRef.current) {
+        window.clearTimeout(fraseClinicaBuscaTimerRef.current);
+      }
+      fraseClinicaBuscaTimerRef.current = window.setTimeout(() => {
+        void carregarFrasesClinicas({ search: termo.trim() });
+      }, 250);
+    },
+    [carregarFrasesClinicas]
+  );
+
+  const atualizarBuscaRapidaPrescricao = useCallback(
+    (valor: string) => {
+      setPrescricaoBuscaRapida(valor);
+      agendarBuscaMedicamentos(valor);
+    },
+    [agendarBuscaMedicamentos]
+  );
+
+  const atualizarBuscaMedicamentosBiblioteca = useCallback(
+    (valor: string) => {
+      setMedBusca(valor);
+      agendarBuscaMedicamentos(valor);
+    },
+    [agendarBuscaMedicamentos]
+  );
+
+  const atualizarBuscaFrasesClinicas = useCallback(
+    (valor: string) => {
+      setClinicalPhraseSearch(valor);
+      agendarBuscaFrasesClinicas(valor);
+    },
+    [agendarBuscaFrasesClinicas]
+  );
+
+  const carregarFrasesClinicasPorSecoes = useCallback(async (secoes: ClinicalFieldKey[]) => {
+    const secoesPendentes = secoes.filter((secao) => !frasesClinicasCarregadasPorSecaoRef.current.has(secao));
+    if (secoesPendentes.length === 0) return;
+    const resultados = await Promise.allSettled(
+      secoesPendentes.map((secao) => api.get(buildClinicalPhraseLibraryPath({ secao })))
+    );
+    const frases = resultados.flatMap((resultado, index) => {
+      if (resultado.status !== "fulfilled") return [];
+      frasesClinicasCarregadasPorSecaoRef.current.add(secoesPendentes[index]);
+      return resultado.value.data?.frases || [];
+    });
+    if (frases.length > 0) {
+      setClinicalPhrases((prev) => mergeRecordsById(prev, frases));
+    }
+  }, []);
 
   const editarFraseClinica = (item: ClinicalPhraseRecord) => {
     setClinicalPhraseForm({
@@ -5957,6 +6109,33 @@ export default function AtendimentoPage() {
   const isPrescricaoWorkspace = workspacePainel === "prescricao";
   const isDocumentosWorkspace = workspacePainel === "documentos";
   const isBibliotecasWorkspace = workspacePainel === "bibliotecas";
+
+  useEffect(() => {
+    if (loading) return;
+    if (isConsultaWorkspace) {
+      const etapa = CONSULTA_EDITOR_ETAPAS.find((item) => item.key === consultaEditorEtapa) || CONSULTA_EDITOR_ETAPAS[0];
+      void carregarFrasesClinicasPorSecoes(etapa.campos);
+      return;
+    }
+    if ((isPrescricaoWorkspace || isBibliotecasWorkspace) && !medicamentosBibliotecaCarregados) {
+      void carregarMedicamentosBanco();
+    }
+    if (isBibliotecasWorkspace && !frasesBibliotecaCarregadas) {
+      void carregarFrasesClinicas();
+    }
+  }, [
+    carregarFrasesClinicas,
+    carregarFrasesClinicasPorSecoes,
+    carregarMedicamentosBanco,
+    consultaEditorEtapa,
+    frasesBibliotecaCarregadas,
+    isBibliotecasWorkspace,
+    isConsultaWorkspace,
+    isPrescricaoWorkspace,
+    loading,
+    medicamentosBibliotecaCarregados,
+  ]);
+
   const showCaseSidebar = painelCasosAberto && !isPrescricaoWorkspace && !isBibliotecasWorkspace;
   const labelWorkspacePainelAnterior =
     workspaceCards.find((item) => item.key === workspacePainelAnterior)?.titulo || "Consulta";
@@ -6413,6 +6592,7 @@ export default function AtendimentoPage() {
                     const valor = e.target.value;
                     setMedicamentoBuscaPorItem((prev) => ({ ...prev, [idx]: valor }));
                     setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: true }));
+                    agendarBuscaMedicamentos(valor);
                   }}
                   onFocus={() => setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: true }))}
                   onBlur={() => setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: false }))}
@@ -7704,7 +7884,7 @@ export default function AtendimentoPage() {
                     selecionarProtocoloPrescricao={selecionarProtocoloPrescricao}
                     setField={setField}
                     setNomeNovoPresetPrescricao={setNomeNovoPresetPrescricao}
-                    setPrescricaoBuscaRapida={setPrescricaoBuscaRapida}
+                    setPrescricaoBuscaRapida={atualizarBuscaRapidaPrescricao}
                     setPrescricaoEntradaModo={setPrescricaoEntradaModo}
                     setPrescricaoModoFoco={setPrescricaoModoFoco}
                     setPrescricaoPreviewAtivo={setPrescricaoPreviewAtivo}
@@ -7794,6 +7974,8 @@ export default function AtendimentoPage() {
             clinicalPhraseSectionFilter={clinicalPhraseSectionFilter}
             clinicalPhrases={clinicalPhrases}
             clinicalPhrasesFiltered={clinicalPhrasesFiltered}
+            carregarMaisFrasesClinicas={carregarMaisFrasesClinicas}
+            carregarMaisMedicamentosBanco={carregarMaisMedicamentosBanco}
             clinicalSectionLabels={clinicalSectionLabels}
             desativarMedicamento={desativarMedicamento}
             duplicarMedicamentoManipulado={duplicarMedicamentoManipulado}
@@ -7804,15 +7986,17 @@ export default function AtendimentoPage() {
             medFiltrados={medFiltrados}
             medForm={medForm}
             medicamentos={medicamentos}
+            totalClinicalPhrases={totalClinicalPhrases}
+            totalMedicamentos={totalMedicamentos}
             resetClinicalPhraseForm={resetClinicalPhraseForm}
             resetMedicationForm={resetMedicationForm}
             saveClinicalPhrase={saveClinicalPhrase}
             saveMedicamento={saveMedicamento}
             savingClinicalPhrase={savingClinicalPhrase}
             setClinicalPhraseForm={setClinicalPhraseForm}
-            setClinicalPhraseSearch={setClinicalPhraseSearch}
+            setClinicalPhraseSearch={atualizarBuscaFrasesClinicas}
             setClinicalPhraseSectionFilter={setClinicalPhraseSectionFilter}
-            setMedBusca={setMedBusca}
+            setMedBusca={atualizarBuscaMedicamentosBiblioteca}
             setMedForm={setMedForm}
             setShowMedicationBank={setShowMedicationBank}
             setShowPhraseBank={setShowPhraseBank}
