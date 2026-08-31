@@ -38,15 +38,25 @@ npx vitest run
 - `frontend`: `tsc --noEmit` e `eslint --max-warnings=0` sem erros; `vitest run` - **85 testes
   passaram** (14 arquivos), sem regressão.
 
+## Aprovação da Meta - 2026-08-31
+
+Os 3 modelos foram aprovados pela Meta (status "Ativo — Qualidade pendente" no WhatsApp Manager,
+categoria Utilidade; "qualidade pendente" é normal em modelo novo sem volume de envio ainda, não
+indica problema). `metaId` atualizado em `approvedTemplates.ts` com os IDs reais:
+
+| Chave | `name` | `metaId` |
+|---|---|---|
+| `portalClinicInviteActivation` | `convite_portal_clinica_v2` | `1402681525155612` |
+| `portalClinicInviteLoginAccess` | `acesso_portal_clinica` | `1758345232162346` |
+| `portalClinicInviteTemporaryPassword` | `senha_temporaria_portal_clinica` | `1087880320425546` |
+
+`test-approved-templates.ts` atualizado com os 3 IDs reais - `tsc --noEmit` e
+`test:approved-templates` passaram novamente após a mudança. O envio pelo WhatsApp Business
+(Cloud API) já pode funcionar de ponta a ponta para os 3 fluxos (convite, lembrete de acesso,
+senha temporária); nenhuma mudança de código além do `metaId` foi necessária.
+
 ## Risco residual
 
-- **Aprovação da Meta pendente**: os 3 modelos foram submetidos ao WhatsApp Manager em 30/08/2026
-  (categoria Utilidade) e seguem em análise - `metaId` permanece `PENDING_META_APPROVAL` em
-  `approvedTemplates.ts`. Até lá, o convite continua funcionando normalmente, só que sempre cai em
-  `delivery_status = "manual_copy"` (mesmo comportamento de fallback que existia antes desta
-  mudança). Assim que a Meta aprovar, falta apenas atualizar os 3 `metaId` em
-  `approvedTemplates.ts` - nenhuma outra mudança de código é necessária para o envio passar a
-  funcionar de ponta a ponta.
 - **Nome e texto ajustados na submissão real**: a checagem automática da Meta ("A categoria não
   corresponde") sinalizou os 3 textos originalmente planejados como mais próximos de Autenticação
   (linguagem de "ativar acesso/senha/conta" perto de um link é lida como entrega de credencial/OTP).

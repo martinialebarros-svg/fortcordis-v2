@@ -115,11 +115,11 @@ export const APPROVED_UTILITY_TEMPLATES = {
   },
   portalClinicInviteActivation: {
     name: "convite_portal_clinica_v2",
-    // Submetido a Meta em 30/08/2026 (categoria Utilidade) - ver docs/specs/whatsapp-portal-clinic-invite-template/.
+    // Aprovado pela Meta em 30/08/2026 (categoria Utilidade) - ver docs/specs/whatsapp-portal-clinic-invite-template/.
     // Nome mudou de "convite_portal_clinica" para "_v2": a primeira submissao foi rejeitada por
     // categoria (a Meta sugeriu Autenticacao) e nomes de modelo excluidos/rejeitados ficam bloqueados
-    // por 30 dias no WhatsApp Manager. Atualizar com o ID real assim que o modelo for aprovado.
-    metaId: "PENDING_META_APPROVAL",
+    // por 30 dias no WhatsApp Manager.
+    metaId: "1402681525155612",
     body:
       "Olá, equipe {{1}}. A Fort Cordis liberou o acesso da unidade ao Portal Fort Cordis, onde é " +
       "possível acompanhar exames e laudos dos pacientes atendidos. Para começar a usar, abra o link " +
@@ -129,9 +129,8 @@ export const APPROVED_UTILITY_TEMPLATES = {
   },
   portalClinicInviteLoginAccess: {
     name: "acesso_portal_clinica",
-    // Submetido a Meta em 30/08/2026 (categoria Utilidade) - ver docs/specs/whatsapp-portal-clinic-invite-template/.
-    // Atualizar com o ID real assim que o modelo for aprovado no Business Manager.
-    metaId: "PENDING_META_APPROVAL",
+    // Aprovado pela Meta em 30/08/2026 (categoria Utilidade) - ver docs/specs/whatsapp-portal-clinic-invite-template/.
+    metaId: "1758345232162346",
     body:
       "Olá, equipe {{1}}. A Fort Cordis atualizou o cadastro da unidade no Portal Fort Cordis. " +
       "Continue consultando exames e laudos pelo link {{2}}. Referência: {{3}}. Qualquer dúvida, " +
@@ -141,9 +140,8 @@ export const APPROVED_UTILITY_TEMPLATES = {
   },
   portalClinicInviteTemporaryPassword: {
     name: "senha_temporaria_portal_clinica",
-    // Submetido a Meta em 30/08/2026 (categoria Utilidade) - ver docs/specs/whatsapp-portal-clinic-invite-template/.
-    // Atualizar com o ID real assim que o modelo for aprovado no Business Manager.
-    metaId: "PENDING_META_APPROVAL",
+    // Aprovado pela Meta em 30/08/2026 (categoria Utilidade) - ver docs/specs/whatsapp-portal-clinic-invite-template/.
+    metaId: "1087880320425546",
     body:
       "Olá, equipe {{1}}. Concluímos o cadastro da unidade no Portal Fort Cordis. Continue " +
       "consultando exames e laudos pelo link {{2}}. Dados do cadastro: {{3}} / {{4}}. Qualquer " +
