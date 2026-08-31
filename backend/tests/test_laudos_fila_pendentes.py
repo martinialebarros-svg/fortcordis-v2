@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -418,6 +418,44 @@ class LaudosFilaPendentesTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_agendamento_usa_o_laudo_mais_recente_do_mesmo_tipo(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            agendamento = self._seed_agendamento_sem_atendimento(
+                db, servico_nome="Ecocardiograma", inicio=datetime(2026, 8, 10, 10, 0)
+            )
+            db.add_all(
+                [
+                    Laudo(
+                        paciente_id=1,
+                        veterinario_id=1,
+                        agendamento_id=agendamento.id,
+                        tipo="ecocardiograma",
+                        titulo="Rascunho antigo",
+                        status="Rascunho",
+                        created_at=datetime(2026, 8, 10, 11, 0),
+                    ),
+                    Laudo(
+                        paciente_id=1,
+                        veterinario_id=1,
+                        agendamento_id=agendamento.id,
+                        tipo="ecocardiograma",
+                        titulo="Finalizado recente",
+                        status="Finalizado",
+                        created_at=datetime(2026, 8, 10, 12, 0),
+                    ),
+                ]
+            )
+            db.commit()
+
+            resultado = laudos.listar_laudos_pendentes(db=db, current_user=self._user())
+
+            self.assertEqual(resultado["total"], 0)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_agendamento_servico_id_nulo_usa_nome_denormalizado(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
@@ -461,6 +499,68 @@ class LaudosFilaPendentesTest(unittest.TestCase):
             resultado = laudos.listar_laudos_pendentes(db=db, current_user=self._user())
 
             self.assertEqual(resultado["total"], 0)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_paginacao_da_fila_acontece_no_banco_antes_da_hidratacao(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            servico = Servico(nome="Ecocardiograma", duracao_minutos=30, ativo=True)
+            db.add(servico)
+            db.flush()
+            inicio_base = datetime(2026, 8, 1, 8, 0)
+            for indice in range(125):
+                db.add(
+                    Agendamento(
+                        inicio=inicio_base + timedelta(minutes=indice),
+                        status="Realizado",
+                        servico_id=servico.id,
+                        servico="Ecocardiograma",
+                    )
+                )
+            db.commit()
+
+            statements: list[str] = []
+
+            def registrar_sql(conn, cursor, statement, parameters, context, executemany):
+                statements.append(statement)
+
+            event.listen(engine, "before_cursor_execute", registrar_sql)
+            try:
+                primeira_pagina = laudos.listar_laudos_pendentes(
+                    skip=0,
+                    limit=100,
+                    db=db,
+                    current_user=self._user(),
+                )
+                segunda_pagina = laudos.listar_laudos_pendentes(
+                    skip=100,
+                    limit=25,
+                    db=db,
+                    current_user=self._user(),
+                )
+            finally:
+                event.remove(engine, "before_cursor_execute", registrar_sql)
+
+            self.assertEqual(primeira_pagina["total"], 125)
+            self.assertEqual(len(primeira_pagina["items"]), 100)
+            self.assertEqual(len(segunda_pagina["items"]), 25)
+            self.assertFalse(
+                {item["agendamento_id"] for item in primeira_pagina["items"]}
+                & {item["agendamento_id"] for item in segunda_pagina["items"]}
+            )
+
+            consultas_fila = [
+                statement.upper()
+                for statement in statements
+                if "FILA_LAUDOS_PENDENTES" in statement.upper()
+            ]
+            self.assertTrue(any("UNION ALL" in statement for statement in consultas_fila))
+            self.assertTrue(
+                any("LIMIT" in statement and "OFFSET" in statement for statement in consultas_fila)
+            )
         finally:
             db.close()
             engine.dispose()
