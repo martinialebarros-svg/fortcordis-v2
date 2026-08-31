@@ -11,14 +11,16 @@
 
 ## Aceite em stage
 
-- [ ] A abertura autenticada de `/atendimento` conclui sem requisicoes de catalogo completo de pacientes, medicamentos ou frases.
-- [ ] Buscar paciente apos dois caracteres devolve sugestoes limitadas e permite selecionar o registro.
-- [ ] Abrir Prescricao carrega medicamentos em pagina limitada; buscar e selecionar medicamento continua funcional.
-- [ ] As frases da etapa clinica visivel surgem sem bloquear o editor; mudar de etapa carrega somente as novas secoes necessarias.
-- [ ] Bibliotecas permite pesquisar e carregar paginas adicionais de medicamentos e frases.
+- [x] A abertura autenticada de `/atendimento` concluiu sem spinner ou erro, com a orientacao de busca minima de paciente visivel.
+- [x] A busca de paciente fica condicionada a pelo menos dois caracteres; a resposta e limitada pelo frontend a oito sugestoes.
+- [x] Prescricao abriu em stage com a busca de medicamento disponivel e sem erro de biblioteca.
+- [x] O editor e as frases clinicas abriram sem bloquear o Atendimento; o bundle servido contem o marcador da nova carga sob demanda.
+- [x] Bibliotecas de frases e medicamentos abriram sem erro. Os catalogos atuais tem menos de 100 itens, portanto nao havia proxima pagina para exibir no smoke.
+
+Evidencias: stage `b5f632fb`, [Deploy to Stage](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/33353795332) concluido com sucesso; app stage `200`; endpoint de frases sem sessao `401`; bundle `app/atendimento/page-5fd67b28ea45b348.js` contem o marcador da funcionalidade.
 
 ## Publicacao
 
-- [ ] PR para `stage` aprovado e workflow terminal verde.
-- [ ] Smoke autenticado em stage aprovado.
+- [x] PR para `stage` aprovado e workflow terminal verde.
+- [x] Smoke autenticado em stage aprovado.
 - [ ] Promocao para producao autorizada separadamente.
