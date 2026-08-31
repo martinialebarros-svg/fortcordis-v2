@@ -7,7 +7,7 @@
 - [x] `cd frontend && npm test`
 - [x] `cd frontend && npm run lint`
 - [x] `cd frontend && npm run build`
-- [ ] `python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEAD`
+- [x] `python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEAD`
 
 ## Aceite em stage
 
