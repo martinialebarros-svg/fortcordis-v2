@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle, Pencil, Plus, Trash2, Send, Loader2 } from "lucide-react";
 import api from "@/lib/axios";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import {
   formatarCepVisual,
@@ -1275,8 +1276,16 @@ export default function NovoAgendamentoModal({
     const resultados = await Promise.allSettled([
       api.get("/pacientes?limit=1000"),
       api.get("/tutores?limit=1000"),
-      api.get("/clinicas?limit=1000"),
-      api.get("/servicos?limit=1000"),
+      loadStableCatalog({
+        catalog: "clinicas",
+        variant: "limit=1000",
+        load: () => api.get("/clinicas?limit=1000").then((response) => response.data),
+      }),
+      loadStableCatalog({
+        catalog: "servicos",
+        variant: "limit=1000",
+        load: () => api.get("/servicos?limit=1000").then((response) => response.data),
+      }),
     ]);
 
     const falhas: string[] = [];
@@ -1299,7 +1308,7 @@ export default function NovoAgendamentoModal({
 
     const clinicasResp = resultados[2];
     if (clinicasResp.status === "fulfilled") {
-      setClinicas(extrairItems(clinicasResp.value?.data));
+      setClinicas(extrairItems(clinicasResp.value));
     } else {
       setClinicas([]);
       falhas.push("clinicas");
@@ -1307,7 +1316,7 @@ export default function NovoAgendamentoModal({
 
     const servicosResp = resultados[3];
     if (servicosResp.status === "fulfilled") {
-      setServicos(extrairItems(servicosResp.value?.data));
+      setServicos(extrairItems(servicosResp.value));
     } else {
       setServicos([]);
       falhas.push("servicos");
