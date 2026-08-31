@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { APP_BASE_URL, APP_PREVIEW_IMAGE, buildPortalMetadata } from "@/lib/portal-metadata";
+import { DashboardShell } from "./layout-dashboard";
 import "./globals.css";
 
 const inter = Inter({
@@ -48,7 +49,7 @@ export default function RootLayout({
         translate="no"
         suppressHydrationWarning
       >
-        {children}
+        <DashboardShell>{children}</DashboardShell>
       </body>
     </html>
   );
