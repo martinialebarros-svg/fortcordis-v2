@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import {
   appendUniqueLoadFailure,
   getFinanceiroLoadingPlan,
@@ -628,14 +629,22 @@ export default function FinanceiroPage() {
       const cargaClinicas = loadingPlan.catalogosOrdens
         ? registrarCarga(
             "Clinicas",
-            api.get<{ items?: ClinicaOption[] }>("/clinicas?limit=1000", { signal }).then((response) => response.data),
+            loadStableCatalog({
+              catalog: "clinicas",
+              variant: "limit=1000",
+              load: () => api.get<{ items?: ClinicaOption[] }>("/clinicas?limit=1000").then((response) => response.data),
+            }),
             (data) => setClinicas(data.items || [])
           )
         : Promise.resolve();
       const cargaServicos = loadingPlan.catalogosOrdens
         ? registrarCarga(
             "Servicos",
-            api.get<{ items?: ServicoOption[] }>("/servicos?limit=1000", { signal }).then((response) => response.data),
+            loadStableCatalog({
+              catalog: "servicos",
+              variant: "limit=1000",
+              load: () => api.get<{ items?: ServicoOption[] }>("/servicos?limit=1000").then((response) => response.data),
+            }),
             (data) => setServicos(data.items || [])
           )
         : Promise.resolve();

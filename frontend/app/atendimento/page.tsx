@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { extractApiErrorMessage, extractApiErrorMessageSync } from "@/lib/api-error";
 import {
   buildExamMergeKey,
@@ -2144,10 +2145,14 @@ export default function AtendimentoPage() {
       // Pacientes, medicamentos e frases sao bibliotecas pesquisaveis e sao
       // carregados somente quando o operador as utiliza, em paginas limitadas.
       const [rc, re] = await Promise.allSettled([
-        api.get("/clinicas?limit=500"),
+        loadStableCatalog({
+          catalog: "clinicas",
+          variant: "limit=500",
+          load: () => api.get("/clinicas?limit=500").then((response) => response.data),
+        }),
         api.get("/atendimentos/exames/catalogo"),
       ]);
-      if (rc.status === "fulfilled") setClinicas(rc.value.data?.items || []);
+      if (rc.status === "fulfilled") setClinicas(rc.value?.items || []);
       if (re.status === "fulfilled") {
         setCatalogoExames(ordenarCatalogoExames(re.value.data?.exames || []));
         setPaineisExames(re.value.data?.paineis || []);
