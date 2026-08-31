@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import {
   formatarCepVisual,
   formatarCnpjVisual,
@@ -291,8 +292,12 @@ export default function NovaClinicaPage() {
   const carregarPrecosServicos = async () => {
     setLoadingPrecosServicos(true);
     try {
-      const response = await api.get("/servicos?limit=1000");
-      const servicos = Array.isArray(response?.data?.items) ? response.data.items : [];
+      const payload = await loadStableCatalog({
+        catalog: "servicos",
+        variant: "limit=1000",
+        load: () => api.get("/servicos?limit=1000").then((response) => response.data),
+      });
+      const servicos = Array.isArray(payload?.items) ? payload.items : [];
       setPrecosServicos((prev) => {
         const mapaAnterior = new Map(prev.map((item) => [item.servico_id, item]));
         return servicos.map((servico: any) => {

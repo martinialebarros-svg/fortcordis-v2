@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { normalizarCoordenadaOpcional } from "@/lib/coordinates";
 import {
   createAgendaCatalogLoader,
@@ -730,8 +731,12 @@ export default function AgendaPage() {
     if (!clinicasFiltroLoaderRef.current) {
       clinicasFiltroLoaderRef.current = createAgendaCatalogLoader({
         request: async () => {
-          const response = await api.get("/clinicas?limit=1000");
-          return normalizarOpcoesFiltroAgenda(response.data);
+          const payload = await loadStableCatalog({
+            catalog: "clinicas",
+            variant: "limit=1000",
+            load: () => api.get("/clinicas?limit=1000").then((response) => response.data),
+          });
+          return normalizarOpcoesFiltroAgenda(payload);
         },
         onSuccess: setOpcoesClinicas,
         onLoadingChange: setCarregandoClinicasFiltro,
@@ -745,8 +750,12 @@ export default function AgendaPage() {
     if (!servicosFiltroLoaderRef.current) {
       servicosFiltroLoaderRef.current = createAgendaCatalogLoader({
         request: async () => {
-          const response = await api.get("/servicos?limit=1000");
-          return normalizarOpcoesFiltroAgenda(response.data);
+          const payload = await loadStableCatalog({
+            catalog: "servicos",
+            variant: "limit=1000",
+            load: () => api.get("/servicos?limit=1000").then((response) => response.data),
+          });
+          return normalizarOpcoesFiltroAgenda(payload);
         },
         onSuccess: setOpcoesServicos,
         onLoadingChange: setCarregandoServicosFiltro,

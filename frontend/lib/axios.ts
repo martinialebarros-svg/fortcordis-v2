@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { extractApiErrorMessage } from './api-error';
+import { invalidateStableCatalogForMutation } from './stable-catalog-cache';
 
 const SAFE_METHODS = new Set(['get', 'head', 'options', 'trace']);
 const BINARY_RESPONSE_TYPES = new Set(['arraybuffer', 'blob', 'stream']);
@@ -70,7 +71,10 @@ api.interceptors.request.use(
 
 // Interceptor para tratamento de erros de autenticação
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    invalidateStableCatalogForMutation(response.config.method, response.config.url);
+    return response;
+  },
   async (error) => {
     const normalizedMessage = await extractApiErrorMessage(error, "Erro de comunicacao com o servidor.");
     if (error && typeof error === "object") {
