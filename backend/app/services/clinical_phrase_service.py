@@ -134,6 +134,7 @@ def listar_frases_clinicas(
     secao: Optional[str] = None,
     search: Optional[str] = None,
     include_inactive: bool = False,
+    skip: int = 0,
     limit: int = 500,
 ) -> List[FraseAtendimentoClinico]:
     ensure_clinical_phrases_seeded(db)
@@ -159,6 +160,7 @@ def listar_frases_clinicas(
             FraseAtendimentoClinico.ordem.asc(),
             FraseAtendimentoClinico.titulo.asc(),
         )
+        .offset(skip)
         .limit(limit)
         .all()
     )
@@ -170,18 +172,37 @@ def montar_contexto_frases_clinicas(
     secao: Optional[str] = None,
     search: Optional[str] = None,
     include_inactive: bool = False,
+    skip: int = 0,
     limit: int = 500,
 ) -> Dict[str, Any]:
+    ensure_clinical_phrases_seeded(db)
+    query = db.query(FraseAtendimentoClinico)
+    if secao:
+        query = query.filter(FraseAtendimentoClinico.secao == secao)
+    if not include_inactive:
+        query = query.filter(FraseAtendimentoClinico.ativo == 1)
+    if search:
+        term = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                FraseAtendimentoClinico.secao.ilike(term),
+                FraseAtendimentoClinico.titulo.ilike(term),
+                FraseAtendimentoClinico.texto.ilike(term),
+            )
+        )
+
     frases = listar_frases_clinicas(
         db,
         secao=secao,
         search=search,
         include_inactive=include_inactive,
+        skip=skip,
         limit=limit,
     )
     secoes = sorted(set(VALID_SECOES) | {frase.secao for frase in frases if (frase.secao or "").strip()})
     return {
         "seed": ensure_clinical_phrases_seeded(db),
         "secoes": secoes,
+        "total": query.count(),
         "frases": [clinical_phrase_to_dict(item) for item in frases],
     }
