@@ -72,8 +72,8 @@ Objetivo: impedir espera infinita e recuperar o Financeiro, rota mais critica da
 | ID | Tarefa | Estado | Criterio de conclusao |
 | --- | --- | --- | --- |
 | PERF-11 | Remover N+1 do resumo financeiro da Agenda | concluido em producao | quantidade de queries constante por pagina |
-| PERF-12 | Paginar a fila de Laudos no banco | em desenvolvimento | nenhuma montagem integral seguida de slice em memoria |
-| PERF-13 | Revisar indices com `EXPLAIN ANALYZE` | pendente | plano e ganho anexados ao PR, sem indice especulativo |
+| PERF-12 | Paginar a fila de Laudos no banco | concluido em producao | nenhuma montagem integral seguida de slice em memoria |
+| PERF-13 | Revisar indices com `EXPLAIN ANALYZE` | em desenvolvimento | plano e ganho anexados ao PR, sem indice especulativo |
 | PERF-14 | Configurar pool, `pre_ping`, reciclagem e timeouts de conexao | pendente | conexoes degradadas falham de modo limitado e observavel |
 
 ### Fase 4 - infraestrutura e observabilidade
