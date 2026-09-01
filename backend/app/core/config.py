@@ -4,6 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -11,6 +12,14 @@ ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 class Settings(BaseSettings):
     DATABASE_URL: str
+    # Limites por processo da API. Em PostgreSQL, evitam que conexoes degradadas
+    # acumulem espera indefinida e respeitam o teto do pooler gerenciado.
+    DATABASE_POOL_SIZE: int = Field(default=5, ge=1)
+    DATABASE_MAX_OVERFLOW: int = Field(default=5, ge=0)
+    DATABASE_POOL_TIMEOUT_SECONDS: int = Field(default=15, ge=1)
+    DATABASE_POOL_RECYCLE_SECONDS: int = Field(default=1800, ge=1)
+    DATABASE_CONNECT_TIMEOUT_SECONDS: int = Field(default=10, ge=1)
+    DATABASE_POOL_PRE_PING: bool = True
     APP_ENV: str = "development"
     SECRET_KEY: str = "change-me"
     ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION: bool = True
