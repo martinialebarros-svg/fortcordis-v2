@@ -146,6 +146,11 @@ def main() -> int:
         if isinstance(observability, dict)
         else {}
     )
+    workers_managed_externally = bool(
+        health_payload.get("background_workers_managed_externally")
+        if isinstance(health_payload, dict)
+        else False
+    )
     print("[gate] readiness:", health_payload.get("readiness"))
     if isinstance(http_5xx, dict):
         print(
@@ -155,7 +160,9 @@ def main() -> int:
             f"window={http_5xx.get('window_minutes')}",
             f"threshold={http_5xx.get('threshold')}",
         )
-    if isinstance(worker, dict):
+    if workers_managed_externally:
+        print("[gate] cleanup_worker: managed_externally=True")
+    elif isinstance(worker, dict):
         print(
             "[gate] cleanup_worker:",
             f"enabled={worker.get('enabled')}",

@@ -80,7 +80,7 @@ Objetivo: impedir espera infinita e recuperar o Financeiro, rota mais critica da
 
 | ID | Tarefa | Estado | Criterio de conclusao |
 | --- | --- | --- | --- |
-| PERF-15 | Separar API web e workers periodicos | pendente | workers nao competem no mesmo processo da API |
+| PERF-15 | Separar API web e workers periodicos | em implementacao | workers nao competem no mesmo processo da API |
 | PERF-16 | Habilitar e validar HTTP/2 no Nginx | pendente | `curl --http2` negocia HTTP/2 no host canonico |
 | PERF-17 | Persistir p50/p95/p99, tempo de banco e espera de pool | pendente | painel permite localizar endpoint lento por release |
 | PERF-18 | Tornar o gate autenticado e sensivel a latencia | pendente | 401/403 nao contam como sucesso e p95 excedido bloqueia release |

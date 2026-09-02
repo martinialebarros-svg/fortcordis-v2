@@ -13,6 +13,7 @@ set -euo pipefail
 #   APP_DIR=/var/www/fortcordis-v2
 #   BRANCH=main
 #   BACKEND_SERVICE=fortcordis-backend
+#   BACKGROUND_WORKER_SERVICE=fortcordis-backend-worker
 #   FRONTEND_SERVICE=fortcordis-frontend
 #   BACKEND_PORT=8000
 #   FRONTEND_PORT=3000
@@ -54,6 +55,7 @@ BACKEND_DIR="${APP_DIR}/backend"
 FRONTEND_DIR="${APP_DIR}/frontend"
 
 BACKEND_SERVICE="${BACKEND_SERVICE:-fortcordis-backend}"
+BACKGROUND_WORKER_SERVICE="${BACKGROUND_WORKER_SERVICE:-${BACKEND_SERVICE}-worker}"
 FRONTEND_SERVICE="${FRONTEND_SERVICE:-fortcordis-frontend}"
 
 BACKEND_PORT="${BACKEND_PORT:-8000}"
@@ -270,6 +272,15 @@ run_systemctl_command() {
   fi
 
   "$SYSTEMCTL_BIN" "$action" "$@"
+}
+
+read_backend_service_property() {
+  local property="$1"
+
+  if run_with_sudo "$SYSTEMCTL_BIN" show "$BACKEND_SERVICE" "--property=${property}" --value 2>/dev/null; then
+    return 0
+  fi
+  "$SYSTEMCTL_BIN" show "$BACKEND_SERVICE" "--property=${property}" --value 2>/dev/null || true
 }
 
 run_frontend_build() {
@@ -705,6 +716,83 @@ EOF
   run_systemctl_command enable "${WHATSAPP_STAGE_BACKEND_SERVICE}"
 }
 
+ensure_background_worker_service_units() {
+  local worker_unit_path="/etc/systemd/system/${BACKGROUND_WORKER_SERVICE}.service"
+  local api_dropin_dir="/etc/systemd/system/${BACKEND_SERVICE}.service.d"
+  local api_dropin_path="${api_dropin_dir}/fortcordis-process-role.conf"
+  local worker_unit_tmp="${APP_DIR}/.tmp.${BACKGROUND_WORKER_SERVICE}.service"
+  local api_dropin_tmp="${APP_DIR}/.tmp.${BACKEND_SERVICE}.process-role.conf"
+  local backend_service_user backend_service_group worker_account_lines
+  backend_service_user="$(read_backend_service_property User)"
+  backend_service_group="$(read_backend_service_property Group)"
+  worker_account_lines=""
+  if [[ -n "${backend_service_user}" ]]; then
+    worker_account_lines+="User=${backend_service_user}"$'\n'
+  fi
+  if [[ -n "${backend_service_group}" ]]; then
+    worker_account_lines+="Group=${backend_service_group}"$'\n'
+  fi
+
+  cat > "${worker_unit_tmp}" <<EOF
+[Unit]
+Description=FortCordis Background Workers (${BRANCH})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${BACKEND_DIR}
+EnvironmentFile=${BACKEND_DIR}/.env
+Environment=FORTCORDIS_PROCESS_ROLE=worker
+Environment=PYTHONPATH=${BACKEND_DIR}
+${worker_account_lines}ExecStart=${BACKEND_DIR}/venv/bin/python -m app.worker
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  cat > "${api_dropin_tmp}" <<EOF
+[Service]
+Environment=FORTCORDIS_PROCESS_ROLE=api
+EOF
+
+  if run_with_sudo install -m 0644 "${worker_unit_tmp}" "${worker_unit_path}"; then
+    :
+  else
+    install -m 0644 "${worker_unit_tmp}" "${worker_unit_path}"
+  fi
+  if run_with_sudo mkdir -p "${api_dropin_dir}"; then
+    :
+  else
+    mkdir -p "${api_dropin_dir}"
+  fi
+  if run_with_sudo install -m 0644 "${api_dropin_tmp}" "${api_dropin_path}"; then
+    :
+  else
+    install -m 0644 "${api_dropin_tmp}" "${api_dropin_path}"
+  fi
+  rm -f "${worker_unit_tmp}" "${api_dropin_tmp}"
+
+  run_systemctl_command daemon-reload
+  run_systemctl_command enable "${BACKGROUND_WORKER_SERVICE}"
+}
+
+remove_background_worker_service_units() {
+  local worker_unit_path="/etc/systemd/system/${BACKGROUND_WORKER_SERVICE}.service"
+  local api_dropin_path="/etc/systemd/system/${BACKEND_SERVICE}.service.d/fortcordis-process-role.conf"
+
+  run_systemctl_command disable --now "${BACKGROUND_WORKER_SERVICE}" || true
+  if run_with_sudo rm -f "${worker_unit_path}" "${api_dropin_path}"; then
+    :
+  else
+    rm -f "${worker_unit_path}" "${api_dropin_path}"
+  fi
+  run_systemctl_command daemon-reload
+}
+
 ensure_ffmpeg_static_binary() {
   local backend_dir="$1"
   local ffmpeg_bin
@@ -839,6 +927,12 @@ rollback_deploy() {
   rollback_hash="$(git rev-parse --short HEAD)"
   log "Rollback HEAD: ${rollback_hash}"
 
+  if [[ "${PREVIOUS_BACKGROUND_WORKER_SUPPORT}" != "1" ]]; then
+    # A versao anterior iniciava os workers dentro da API. Remover o drop-in
+    # antes de reinicia-la devolve exatamente esse comportamento no rollback.
+    remove_background_worker_service_units
+  fi
+
   cd "$BACKEND_DIR"
   if [[ ! -x "${BACKEND_DIR}/venv/bin/python" ]]; then
     log "Creating backend venv for rollback"
@@ -851,6 +945,15 @@ rollback_deploy() {
     echo "[ERROR] Rollback backend health check failed." >&2
     print_service_diagnostics "$BACKEND_SERVICE"
     return 1
+  fi
+
+  if [[ "${PREVIOUS_BACKGROUND_WORKER_SUPPORT}" == "1" ]]; then
+    restart_service "$BACKGROUND_WORKER_SERVICE"
+    if ! run_systemctl_command is-active --quiet "$BACKGROUND_WORKER_SERVICE"; then
+      echo "[ERROR] Rollback background worker service is not active." >&2
+      print_service_diagnostics "$BACKGROUND_WORKER_SERVICE"
+      return 1
+    fi
   fi
 
   cd "$FRONTEND_DIR"
@@ -937,8 +1040,12 @@ fi
 log "Starting deploy in ${APP_DIR} (branch=${BRANCH})"
 cd "$APP_DIR"
 PRE_DEPLOY_HASH="$(git rev-parse HEAD 2>/dev/null || true)"
+PREVIOUS_BACKGROUND_WORKER_SUPPORT=0
 if [[ -n "${PRE_DEPLOY_HASH}" ]]; then
   log "Pre-deploy HEAD: $(git rev-parse --short "${PRE_DEPLOY_HASH}")"
+  if git cat-file -e "${PRE_DEPLOY_HASH}:backend/app/worker.py" 2>/dev/null; then
+    PREVIOUS_BACKGROUND_WORKER_SUPPORT=1
+  fi
 fi
 
 mkdir -p "$RUNTIME_BACKUP_DIR"
@@ -994,6 +1101,9 @@ else
   log "No migration runner found; skipping migrations."
 fi
 
+DEPLOY_STAGE="background_worker_setup"
+ensure_background_worker_service_units
+
 DEPLOY_STAGE="backend_restart"
 restart_service "$BACKEND_SERVICE"
 sleep 3
@@ -1003,6 +1113,15 @@ if ! wait_http_ok "http://127.0.0.1:${BACKEND_PORT}/health" 25 1; then
   exit 1
 fi
 log "Backend health OK"
+
+DEPLOY_STAGE="background_worker_restart"
+restart_service "$BACKGROUND_WORKER_SERVICE"
+if ! run_systemctl_command is-active --quiet "$BACKGROUND_WORKER_SERVICE"; then
+  echo "[ERROR] Background worker service is not active." >&2
+  print_service_diagnostics "$BACKGROUND_WORKER_SERVICE"
+  exit 1
+fi
+log "Background worker service active"
 
 DEPLOY_STAGE="whatsapp_stage_backend"
 deploy_whatsapp_stage_backend

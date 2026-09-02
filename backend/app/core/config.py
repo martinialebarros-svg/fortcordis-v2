@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     DATABASE_CONNECT_TIMEOUT_SECONDS: int = Field(default=10, ge=1)
     DATABASE_POOL_PRE_PING: bool = True
     APP_ENV: str = "development"
+    # `all` mantem o comportamento local legado. Em producao, o systemd
+    # executa a API como `api` e os trabalhos assincronos como `worker`.
+    FORTCORDIS_PROCESS_ROLE: Literal["all", "api", "worker"] = "all"
     SECRET_KEY: str = "change-me"
     ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION: bool = True
     ALGORITHM: str = "HS256"
