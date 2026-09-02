@@ -27,6 +27,8 @@ Executado em worktree isolado baseado em `origin/stage` no commit
 - [x] `quality-gate`, `sdd-guardrail` e Migration CI concluiram com sucesso.
 - [ ] O Deploy to Stage fez rollback automatico por uma validacao obsoleta do
   gate de workers da PERF-15, nao por Express ou pelo backend WhatsApp. A
-  correcao desse gate sera validada e reenviada antes de novo deploy.
+  correcao do runtime gate passou, e o segundo deploy revelou que o canario
+  administrativo tambem precisava receber o sinal de worker externo; essa
+  correcao sera validada e reenviada antes de novo deploy.
 - [ ] Executar preflight/smoke autenticado em stage antes de qualquer promocao
   para producao.

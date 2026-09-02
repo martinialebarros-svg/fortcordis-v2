@@ -16,8 +16,10 @@
 - [x] A API respondeu `/health` com `process_role=api` e
   `background_workers_managed_externally=true` no primeiro deploy de stage.
 - [x] `fortcordis-stage-backend-worker` esteve `active` no log de deploy.
-- [ ] O primeiro deploy fez rollback automaticamente porque o gate ainda
-  exigia a thread local; a correcao do gate sera reenviada para stage.
+- [ ] O primeiro deploy fez rollback automaticamente porque o runtime gate
+  ainda exigia a thread local. O segundo passou nesse gate, mas o canario
+  administrativo nao recebia o indicador de worker externo; a API e seu teste
+  foram corrigidos antes de novo deploy.
 - [ ] Smoke de rotas publicas, API protegida esperada e fluxo autenticado
   afetado passam sem regressao.
 

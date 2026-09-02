@@ -34,4 +34,6 @@ gerenciados externamente. Nessa situacao, a ausencia de threads no processo
 HTTP nao deve gerar alerta enganoso; a disponibilidade do worker e confirmada
 pelo `systemctl` no deploy. Os gates de runtime e canario autenticado devem
 preservar a validacao de threads apenas quando
-`background_workers_managed_externally=false`.
+`background_workers_managed_externally=false`. O endpoint administrativo
+`/api/v1/admin/hardening-readiness` deve expor o mesmo indicador no bloco
+`runtime.environment`, para que o canario avalie a mesma topologia do health.

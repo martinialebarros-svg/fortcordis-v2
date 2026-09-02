@@ -26,6 +26,10 @@ class AdminHardeningReadinessTest(unittest.TestCase):
             "ready": True,
             "warnings": [],
             "readiness_issues": [],
+            "environment": {
+                "process_role": "api",
+                "background_workers_managed_externally": True,
+            },
             "observability": {
                 "http_5xx_monitor": {
                     "window_minutes": 5,
@@ -58,12 +62,14 @@ class AdminHardeningReadinessTest(unittest.TestCase):
                             )
 
         self.assertIn("runtime", payload)
+        self.assertIn("environment", payload["runtime"])
         self.assertIn("observability", payload["runtime"])
         self.assertIn("readiness_issues", payload["runtime"])
         self.assertEqual(
             payload["runtime"]["observability"]["http_5xx_monitor"]["recent_5xx_count"],
             2,
         )
+        self.assertTrue(payload["runtime"]["environment"]["background_workers_managed_externally"])
 
 
 if __name__ == "__main__":

@@ -526,6 +526,7 @@ def obter_hardening_readiness(
             "ready": bool(runtime_report.get("ready")),
             "warnings": runtime_report.get("warnings") or [],
             "readiness_issues": runtime_report.get("readiness_issues") or [],
+            "environment": runtime_report.get("environment") or {},
             "observability": runtime_report.get("observability") or {},
         },
         "flags": {
