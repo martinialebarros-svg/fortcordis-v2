@@ -49,6 +49,23 @@ class DeployAuthenticatedCanaryValidationTest(unittest.TestCase):
         self.assertTrue(any("status invalido" in item for item in errors))
         self.assertTrue(any("thread_alive=false" in item for item in errors))
 
+    def test_validate_admin_payload_accepts_external_worker(self) -> None:
+        payload = {
+            "runtime": {
+                "ready": True,
+                "environment": {"background_workers_managed_externally": True},
+                "observability": {
+                    "http_5xx_monitor": {"alert_active": False},
+                    "upload_dedupe_cleanup_worker": {
+                        "enabled": True,
+                        "status": "stopped",
+                        "thread_alive": False,
+                    },
+                },
+            }
+        }
+        self.assertEqual(CANARY._validate_admin_payload(payload), [])
+
     def test_validate_agenda_payload_requires_items_list(self) -> None:
         self.assertEqual(CANARY._validate_agenda_payload({"items": []}), [])
         errors = CANARY._validate_agenda_payload({"items": "nao-lista"})

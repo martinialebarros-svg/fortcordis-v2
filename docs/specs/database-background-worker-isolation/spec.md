@@ -32,4 +32,6 @@ artefatos antes de reiniciar a API, restaurando o modo integrado anterior.
 O endpoint de saude da API informa o papel do processo e se os workers sao
 gerenciados externamente. Nessa situacao, a ausencia de threads no processo
 HTTP nao deve gerar alerta enganoso; a disponibilidade do worker e confirmada
-pelo `systemctl` no deploy.
+pelo `systemctl` no deploy. Os gates de runtime e canario autenticado devem
+preservar a validacao de threads apenas quando
+`background_workers_managed_externally=false`.

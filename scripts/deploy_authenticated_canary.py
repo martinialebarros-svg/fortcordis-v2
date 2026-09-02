@@ -179,12 +179,18 @@ def _validate_admin_payload(payload: Dict[str, Any]) -> List[str]:
     if not isinstance(worker, dict):
         errors.append("runtime.observability.upload_dedupe_cleanup_worker ausente ou invalido.")
     else:
+        environment = runtime.get("environment")
+        workers_managed_externally = bool(
+            environment.get("background_workers_managed_externally")
+            if isinstance(environment, dict)
+            else False
+        )
         enabled = bool(worker.get("enabled"))
         status = str(worker.get("status") or "").strip().lower()
         thread_alive = bool(worker.get("thread_alive"))
-        if enabled and status != "running":
+        if enabled and not workers_managed_externally and status != "running":
             errors.append(f"worker cleanup habilitado com status invalido: {status or 'vazio'}.")
-        if enabled and not thread_alive:
+        if enabled and not workers_managed_externally and not thread_alive:
             errors.append("worker cleanup habilitado com thread_alive=false.")
 
     return errors

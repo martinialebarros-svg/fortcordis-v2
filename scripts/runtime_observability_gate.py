@@ -64,15 +64,16 @@ def _validate_health_payload(health: Dict[str, Any]) -> List[str]:
     if not isinstance(cleanup_worker, dict):
         errors.append("observability.upload_dedupe_cleanup_worker ausente ou invalido.")
     else:
+        workers_managed_externally = bool(health.get("background_workers_managed_externally"))
         enabled = bool(cleanup_worker.get("enabled"))
         status = str(cleanup_worker.get("status") or "").strip().lower()
         thread_alive = bool(cleanup_worker.get("thread_alive"))
-        if enabled and status != "running":
+        if enabled and not workers_managed_externally and status != "running":
             errors.append(
                 "worker de cleanup habilitado com status diferente de running "
                 f"(status atual: {status or 'vazio'})."
             )
-        if enabled and not thread_alive:
+        if enabled and not workers_managed_externally and not thread_alive:
             errors.append("worker de cleanup habilitado com thread_alive=false.")
 
     return errors

@@ -23,8 +23,10 @@ Executado em worktree isolado baseado em `origin/stage` no commit
 
 ## Pendencia de rollout
 
-- [ ] Enviar o commit para `stage`.
-- [ ] Aguardar `quality-gate`, `sdd-guardrail`, Migration CI e Deploy to Stage
-  em estado terminal de sucesso.
+- [x] Enviado para `stage` no commit `e9f79f15`.
+- [x] `quality-gate`, `sdd-guardrail` e Migration CI concluiram com sucesso.
+- [ ] O Deploy to Stage fez rollback automatico por uma validacao obsoleta do
+  gate de workers da PERF-15, nao por Express ou pelo backend WhatsApp. A
+  correcao desse gate sera validada e reenviada antes de novo deploy.
 - [ ] Executar preflight/smoke autenticado em stage antes de qualquer promocao
   para producao.
