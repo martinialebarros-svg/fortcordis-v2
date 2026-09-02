@@ -635,6 +635,10 @@ async function sendAttachmentMessage(
 
 export async function sendConversationMessage(req: Request, res: Response): Promise<void> {
   const conversationId = req.params.id;
+  if (typeof conversationId !== "string" || conversationId.trim().length === 0) {
+    res.status(400).json({ error: "conversation id is required" });
+    return;
+  }
   const file = req.file;
   const caption = typeof req.body?.body === "string" ? req.body.body.trim() : "";
   const type = req.body?.type ?? "text";
