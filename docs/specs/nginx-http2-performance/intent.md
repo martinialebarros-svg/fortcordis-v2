@@ -11,6 +11,8 @@ Habilitar HTTP/2 de forma controlada nos vhosts HTTPS do app que compartilham o 
 ## Escopo
 
 - Descobrir o arquivo Nginx pelo `server_name` esperado.
+- Inventariar em modo somente-leitura todos os listeners TLS e vhosts ativos
+  antes de incluir qualquer host adicional no conjunto atomico.
 - Alterar somente diretivas `listen 443 ... ssl` que ainda nao contem `http2`.
 - Criar backup, validar a configuracao, recarregar Nginx e testar a negociacao HTTP/2.
 - Restaurar automaticamente o backup se qualquer etapa falhar.

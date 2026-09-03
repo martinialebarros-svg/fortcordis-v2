@@ -5,6 +5,7 @@
 ```bash
 bash -n scripts/ensure_nginx_http2.sh scripts/deploy_prod_vps.sh scripts/deploy_stage_vps.sh
 bash scripts/tests/test_nginx_http2_enablement.sh
+bash scripts/tests/test_nginx_tls_listener_inventory.sh
 python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/main --head-sha HEAD
 ```
 
@@ -30,3 +31,10 @@ python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/main --head-sha HEAD
 O rollout `1891b71d` recebeu autorizacao explicita para alterar os hosts do app. A descoberta encontrou os dois hosts no mesmo arquivo ativo; a rotina alterou um arquivo, `nginx -t` passou e a verificacao local continuou em HTTP/1.1. O backup desse arquivo foi restaurado e o deploy reverteu stage para `44e9c07`.
 
 Antes de nova tentativa, inventariar somente em leitura todos os vhosts com `listen :443`. Se for necessario incluir vhost fora do app no conjunto atomico, obter autorizacao especifica antes da escrita. Depois disso, testar os dois hosts por `curl --http2` e repetir o smoke autenticado.
+
+### Inventario somente-leitura preparado
+
+- `scripts/inventory_nginx_tls_listeners.sh` nao escreve, nao recarrega Nginx e
+  limita a saida aos metadados permitidos pela especificacao.
+- O workflow manual so aceita dispatch na branch `stage`, usa a mesma trava dos
+  deploys e transmite o script por stdin, sem criar artefato remoto.
