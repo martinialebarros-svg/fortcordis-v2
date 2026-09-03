@@ -15,6 +15,14 @@ Habilitar HTTP/2 de forma controlada nos vhosts HTTPS do app, primeiro em stage 
 - Criar backup, validar a configuracao, recarregar Nginx e testar a negociacao HTTP/2.
 - Restaurar automaticamente o backup se qualquer etapa falhar.
 
+## Bloqueio confirmado em stage
+
+Em 2026-09-03, a alteracao isolada de `fortcordis-stage` passou em
+`nginx -t`, mas a conexao local continuou em HTTP/1.1; o helper restaurou o
+backup. Os hosts de stage e producao compartilham a mesma VPS e listener TLS
+na porta 443. A proxima tentativa deve tratar o conjunto de vhosts como uma
+mudanca atomica de producao, mediante autorizacao explicita.
+
 ## Fora de escopo
 
 - Alterar TLS, certificados, DNS, Cloudflare, cache ou regras de proxy.

@@ -289,13 +289,5 @@ jobs:
             WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED=false \
             WHATSAPP_RUNTIME_LABEL=Production \
             ENABLE_WHATSAPP_STAGE_SMOKE=0 \
-            ENABLE_NGINX_HTTP2=1 \
-            NGINX_HTTP2_EXPECTED_HOST=app.fortcordis.com.br \
             bash "$DEPLOY_SCRIPT_DIR/scripts/deploy_prod_vps.sh"
         EOF
-
-    - name: Verify HTTP/2 on Production app host
-      run: |
-        protocol="$(curl --silent --show-error --fail --http2 --connect-timeout 8 --max-time 25 \
-          --output /dev/null --write-out '%{http_version}' https://app.fortcordis.com.br/)"
-        test "$protocol" = "2" || test "$protocol" = "2.0"

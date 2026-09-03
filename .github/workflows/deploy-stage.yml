@@ -419,12 +419,6 @@ jobs:
               bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"
           EOF
 
-      - name: Verify HTTP/2 on Stage app host
-        run: |
-          protocol="$(curl --silent --show-error --fail --http2 --connect-timeout 8 --max-time 25 \
-            --output /dev/null --write-out '%{http_version}' https://app.stage.fortcordis.com.br/)"
-          test "$protocol" = "2" || test "$protocol" = "2.0"
-
       - name: Run one-shot AI echo canary on Stage
         if: contains(github.event.head_commit.message, '[ai-echo-canary]')
         run: |

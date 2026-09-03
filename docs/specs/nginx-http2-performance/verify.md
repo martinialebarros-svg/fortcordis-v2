@@ -17,5 +17,13 @@ python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/main --head-sha HEAD
 
 ## Validacao de rollout pendente
 
-- Stage: workflow e `curl --http2` externo em `https://app.stage.fortcordis.com.br/` devem negociar HTTP/2, seguido de smoke autenticado de Dashboard, Financeiro e WhatsApp.
-- Producao: somente apos stage aprovado, o mesmo snapshot deve negociar HTTP/2 em `https://app.fortcordis.com.br/`, com smoke autenticado e rota protegida respondendo 401 sem credenciais.
+### Tentativa isolada de stage - 2026-09-03
+
+- Quality gate, SDD e Migration CI passaram para `b95fe0db`.
+- O deploy encontrou exatamente o vhost `fortcordis-stage`, criou backup, adicionou a diretiva HTTP/2 e passou em `nginx -t`.
+- A requisicao local com SNI ainda negociou HTTP/1.1; o helper restaurou o backup e o rollback automatico retornou o checkout de stage a `9b6dd020`.
+- Nenhuma configuracao de producao foi alterada.
+
+### Proxima validacao autorizada
+
+Somente apos autorizacao explicita para alterar os vhosts compartilhados de stage e producao: inventariar os listeners `:443`, aplicar HTTP/2 de modo atomico, validar `nginx -t`, fazer rollback de todos os arquivos se falhar, testar os dois hosts por `curl --http2` e repetir o smoke autenticado.
