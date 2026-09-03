@@ -8,7 +8,7 @@
 - RF-004: antes de qualquer escrita, cada arquivo ativo que sera alterado deve ser salvo com sufixo `.bak.http2.<timestamp>`.
 - RF-005: somente depois de todos os backups o helper pode escrever os arquivos; `nginx -t` deve passar antes do reload. Falha restaura todos os arquivos alterados.
 - RF-006: depois do reload, uma requisicao local com SNI para cada host declarado deve negociar HTTP/2. Falha tambem restaura todos os arquivos alterados quando houve escrita.
-- RF-007: quando hosts de stage e producao compartilham o listener TLS `:443`, a habilitacao deve ocorrer apenas pela rotina atomica autorizada. Antes de alterar vhost fora do conjunto explicitamente autorizado, deve haver inventario somente-leitura de todos os `listen :443` e nova autorizacao explicita.
+- RF-007: quando hosts de stage e producao compartilham o listener TLS `:443`, a habilitacao deve ocorrer apenas pela rotina atomica autorizada. O inventario confirmou que `fortcordis-app`, `fortcordis-stage`, `fortcordis-com-br` e `fortcordis-www` compartilham esse listener. Antes de alterar os dois vhosts institucionais ou de repetir uma tentativa limitada aos hosts do app, deve haver autorizacao explicita.
 - RF-008: o inventario one-shot de stage, acionado exclusivamente pelo marcador
   `[nginx-tls-inventory]`, deve executar apenas leitura de socket, topologia
   ativa do Nginx e probes locais descartando o corpo da resposta; nao pode

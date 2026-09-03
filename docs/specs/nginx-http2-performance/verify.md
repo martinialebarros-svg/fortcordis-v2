@@ -39,3 +39,16 @@ Antes de nova tentativa, inventariar somente em leitura todos os vhosts com `lis
 - A etapa one-shot do deploy de `stage` exige o marcador
   `[nginx-tls-inventory]`, ocorre somente depois do deploy aprovado e transmite
   o script por stdin, sem criar artefato remoto.
+
+### Inventario somente-leitura executado - 2026-09-03
+
+- Workflow de stage `33755166487`, commit `8370c3c1`: concluido com sucesso;
+  a etapa de inventario tambem foi concluida com sucesso.
+- Nginx `1.18.0` escuta em `0.0.0.0:443`. Os vhosts ativos sao
+  `fortcordis-app`, `fortcordis-stage`, `fortcordis-com-br` e
+  `fortcordis-www`; todos possuem `http2=absent`.
+- As probes locais com SNI retornaram `HTTP/1.1` e `200` para
+  `app.stage.fortcordis.com.br` e `app.fortcordis.com.br`.
+- Nenhum arquivo, certificado, listener ou servico foi alterado durante a
+  coleta. Qualquer proxima escrita exige autorizacao explicita sobre o conjunto
+  de vhosts a alterar.

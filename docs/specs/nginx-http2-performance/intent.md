@@ -2,7 +2,11 @@
 
 ## Problema
 
-Os hosts autenticados `app.stage.fortcordis.com.br` e `app.fortcordis.com.br` negociam HTTP/1.1, embora o host institucional ja negocie HTTP/2. Isso limita a multiplexacao de recursos da aplicacao e aumenta a competicao entre requisicoes no carregamento das rotas autenticadas.
+Os hosts autenticados `app.stage.fortcordis.com.br` e `app.fortcordis.com.br`
+negociam HTTP/1.1. O inventario ativo de 2026-09-03 tambem encontrou HTTP/1.1
+nos vhosts institucionais que compartilham o mesmo socket TLS. Isso limita a
+multiplexacao de recursos da aplicacao e aumenta a competicao entre requisicoes
+no carregamento das rotas autenticadas.
 
 ## Objetivo
 
@@ -25,11 +29,13 @@ backup. Os hosts de stage e producao compartilham a mesma VPS e listener TLS
 na porta 443. A proxima tentativa deve tratar o conjunto de vhosts como uma
 mudanca atomica de producao, mediante autorizacao explicita.
 
-Na tentativa atomica autorizada, os dois hosts do app foram encontrados no
-mesmo arquivo ativo; esse unico arquivo foi alterado, passou em `nginx -t` e
-ainda negociou HTTP/1.1. A rotina restaurou o backup e o deploy reverteu stage.
-Logo, e necessario inventariar todos os vhosts que declaram `listen :443` antes
-de considerar alterar qualquer host adicional.
+Na tentativa atomica autorizada, a negociacao continuou em HTTP/1.1 mesmo apos
+`nginx -t`; a rotina restaurou o backup e o deploy reverteu stage. O inventario
+somente-leitura posterior encontrou quatro vhosts ativos no socket
+`0.0.0.0:443`: `fortcordis-app`, `fortcordis-stage`, `fortcordis-com-br` e
+`fortcordis-www`. Todos estao sem HTTP/2; os dois ultimos sao institucionais e
+nao pertencem a autorizacao anterior. Logo, nao pode haver nova escrita antes
+de uma decisao explicita sobre o conjunto completo.
 
 ## Fora de escopo
 

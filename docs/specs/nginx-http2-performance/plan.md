@@ -10,8 +10,12 @@
    topologia efetiva de `nginx -T` limitada a arquivo, `listen`, `server_name`
    e `http2`, mais probes ALPN dos dois hosts do app. A etapa so e executada
    com o marcador `[nginx-tls-inventory]` depois do deploy validado em `stage`.
-8. Se o inventario indicar que a correcao exige vhost fora do app, solicitar
-   autorizacao especifica antes de qualquer escrita.
+8. Resultado do inventario: `fortcordis-app`, `fortcordis-stage`,
+   `fortcordis-com-br` e `fortcordis-www` compartilham `0.0.0.0:443` e todos
+   estao sem HTTP/2; os probes ALPN dos dois hosts do app retornaram HTTP/1.1.
+9. Solicitar autorizacao especifica antes de qualquer escrita que inclua
+   `fortcordis-com-br` ou `fortcordis-www`, ou antes de qualquer nova tentativa
+   limitada aos vhosts do app.
 
 ## Rollback
 
