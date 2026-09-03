@@ -81,14 +81,16 @@ Objetivo: impedir espera infinita e recuperar o Financeiro, rota mais critica da
 | ID | Tarefa | Estado | Criterio de conclusao |
 | --- | --- | --- | --- |
 | PERF-15 | Separar API web e workers periodicos | concluido em producao | workers nao competem no mesmo processo da API |
-| PERF-16 | Habilitar e validar HTTP/2 no Nginx | em validacao atomica autorizada | `curl --http2` negocia HTTP/2 nos hosts `app.stage` e `app` |
+| PERF-16 | Habilitar e validar HTTP/2 no Nginx | bloqueado por topologia incompleta do listener | `curl --http2` negocia HTTP/2 nos hosts `app.stage` e `app` |
 | PERF-17 | Persistir p50/p95/p99, tempo de banco e espera de pool | pendente | painel permite localizar endpoint lento por release |
 | PERF-18 | Tornar o gate autenticado e sensivel a latencia | pendente | 401/403 nao contam como sucesso e p95 excedido bloqueia release |
 
-O bloqueio da tentativa isolada foi resolvido por autorizacao para alterar os dois
-vhosts do app no mesmo ciclo. A rotina exige os dois hosts, cria todos os backups
-antes de escrever, valida e recarrega uma unica configuracao Nginx e restaura o
-conjunto inteiro se qualquer host nao negociar HTTP/2.
+A tentativa atomica autorizada exigiu os dois hosts, criou backup, passou em
+`nginx -t` e alterou o unico arquivo ativo que os declara; ainda assim a
+negociacao permaneceu em HTTP/1.1. A rotina restaurou a configuracao e o deploy
+reverteu stage. Antes de outra tentativa, e necessario inventariar somente em
+leitura todos os vhosts com `listen :443`; qualquer necessidade de alterar host
+fora do app requer autorizacao explicita adicional.
 
 ## 5. Metas de aceitacao
 

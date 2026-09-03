@@ -23,6 +23,12 @@ backup. Os hosts de stage e producao compartilham a mesma VPS e listener TLS
 na porta 443. A proxima tentativa deve tratar o conjunto de vhosts como uma
 mudanca atomica de producao, mediante autorizacao explicita.
 
+Na tentativa atomica autorizada, os dois hosts do app foram encontrados no
+mesmo arquivo ativo; esse unico arquivo foi alterado, passou em `nginx -t` e
+ainda negociou HTTP/1.1. A rotina restaurou o backup e o deploy reverteu stage.
+Logo, e necessario inventariar todos os vhosts que declaram `listen :443` antes
+de considerar alterar qualquer host adicional.
+
 ## Fora de escopo
 
 - Alterar TLS, certificados, DNS, Cloudflare, cache ou regras de proxy.

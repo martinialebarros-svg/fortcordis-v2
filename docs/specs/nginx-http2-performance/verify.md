@@ -27,4 +27,6 @@ python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/main --head-sha HEAD
 
 ### Validacao atomica autorizada
 
-A autorizacao explicita para alterar os vhosts compartilhados de stage e producao foi recebida. O rollout deve inventariar os listeners `:443`, aplicar HTTP/2 de modo atomico, validar `nginx -t`, fazer rollback de todos os arquivos se falhar, testar os dois hosts por `curl --http2` e repetir o smoke autenticado.
+O rollout `1891b71d` recebeu autorizacao explicita para alterar os hosts do app. A descoberta encontrou os dois hosts no mesmo arquivo ativo; a rotina alterou um arquivo, `nginx -t` passou e a verificacao local continuou em HTTP/1.1. O backup desse arquivo foi restaurado e o deploy reverteu stage para `44e9c07`.
+
+Antes de nova tentativa, inventariar somente em leitura todos os vhosts com `listen :443`. Se for necessario incluir vhost fora do app no conjunto atomico, obter autorizacao especifica antes da escrita. Depois disso, testar os dois hosts por `curl --http2` e repetir o smoke autenticado.

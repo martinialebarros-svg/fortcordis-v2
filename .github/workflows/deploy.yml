@@ -289,20 +289,6 @@ jobs:
             WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED=false \
             WHATSAPP_RUNTIME_LABEL=Production \
             ENABLE_WHATSAPP_STAGE_SMOKE=0 \
-            ENABLE_NGINX_HTTP2=1 \
-            NGINX_HTTP2_EXPECTED_HOSTS=app.stage.fortcordis.com.br,app.fortcordis.com.br \
             bash "$DEPLOY_SCRIPT_DIR/scripts/deploy_prod_vps.sh"
         EOF
-
-    - name: Verify HTTP/2 on shared app hosts
-      run: |
-        set -euo pipefail
-        for host in app.stage.fortcordis.com.br app.fortcordis.com.br; do
-          protocol="$(curl --noproxy '*' --silent --show-error --fail --http2 \
-            --connect-timeout 8 --max-time 20 --output /dev/null --write-out '%{http_version}' \
-            "https://${host}/")"
-          if [ "$protocol" != "2" ] && [ "$protocol" != "2.0" ]; then
-            echo "Expected HTTP/2 for ${host}; negotiated ${protocol:-none}." >&2
-            exit 1
-          fi
         done

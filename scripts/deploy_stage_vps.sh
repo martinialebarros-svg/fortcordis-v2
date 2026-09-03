@@ -19,10 +19,11 @@ ENABLE_WHATSAPP_STAGE_SMOKE="1"
 WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION="1"
 ENABLE_ECO_STUDY_OCR="1"
 REQUIRE_ECO_STUDY_OCR="1"
-# Autorizacao recebida para atualizar, como uma unica operacao reversivel,
-# os dois vhosts do app que compartilham o listener TLS :443.
-ENABLE_NGINX_HTTP2="1"
-NGINX_HTTP2_EXPECTED_HOSTS="app.stage.fortcordis.com.br,app.fortcordis.com.br"
+# A tentativa atomica autorizada ainda negociou HTTP/1.1 e foi restaurada.
+# Nao reexecutar ate inventariar todos os listeners :443 e obter autorizacao
+# especifica caso algum vhost fora do app precise entrar no conjunto.
+ENABLE_NGINX_HTTP2="0"
+NGINX_HTTP2_EXPECTED_HOSTS=""
 
 export APP_DIR BRANCH BACKEND_SERVICE FRONTEND_SERVICE BACKEND_PORT FRONTEND_PORT API_BACKEND_URL PUBLIC_URL \
   ENABLE_WHATSAPP_STAGE_BACKEND WHATSAPP_STAGE_BACKEND_SERVICE WHATSAPP_STAGE_BACKEND_PORT \
