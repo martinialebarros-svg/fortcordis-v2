@@ -419,6 +419,14 @@ jobs:
               bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"
           EOF
 
+      - name: Run one-shot Nginx TLS listener inventory on Stage
+        if: contains(github.event.head_commit.message, '[nginx-tls-inventory]')
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' INVENTORY_HOSTS='app.stage.fortcordis.com.br,app.fortcordis.com.br' bash -s" \
+            < scripts/inventory_nginx_tls_listeners.sh
+
       - name: Run one-shot AI echo canary on Stage
         if: contains(github.event.head_commit.message, '[ai-echo-canary]')
         run: |

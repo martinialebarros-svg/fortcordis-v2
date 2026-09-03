@@ -36,5 +36,6 @@ Antes de nova tentativa, inventariar somente em leitura todos os vhosts com `lis
 
 - `scripts/inventory_nginx_tls_listeners.sh` nao escreve, nao recarrega Nginx e
   limita a saida aos metadados permitidos pela especificacao.
-- O workflow manual so aceita dispatch na branch `stage`, usa a mesma trava dos
-  deploys e transmite o script por stdin, sem criar artefato remoto.
+- A etapa one-shot do deploy de `stage` exige o marcador
+  `[nginx-tls-inventory]`, ocorre somente depois do deploy aprovado e transmite
+  o script por stdin, sem criar artefato remoto.

@@ -9,7 +9,8 @@
 - RF-005: somente depois de todos os backups o helper pode escrever os arquivos; `nginx -t` deve passar antes do reload. Falha restaura todos os arquivos alterados.
 - RF-006: depois do reload, uma requisicao local com SNI para cada host declarado deve negociar HTTP/2. Falha tambem restaura todos os arquivos alterados quando houve escrita.
 - RF-007: quando hosts de stage e producao compartilham o listener TLS `:443`, a habilitacao deve ocorrer apenas pela rotina atomica autorizada. Antes de alterar vhost fora do conjunto explicitamente autorizado, deve haver inventario somente-leitura de todos os `listen :443` e nova autorizacao explicita.
-- RF-008: o inventario manual deve executar apenas leitura de socket, topologia
+- RF-008: o inventario one-shot de stage, acionado exclusivamente pelo marcador
+  `[nginx-tls-inventory]`, deve executar apenas leitura de socket, topologia
   ativa do Nginx e probes locais descartando o corpo da resposta; nao pode
   escrever arquivos, recarregar servicos ou alterar vhosts.
 
