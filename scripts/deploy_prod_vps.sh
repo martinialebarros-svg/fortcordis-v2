@@ -46,7 +46,12 @@ set -euo pipefail
 #   REQUIRE_ECO_STUDY_OCR=0
 #   RUNTIME_BACKUP_RETENTION_DAYS=30
 #   RUNTIME_BACKUP_MAX_ITEMS=200
+#   ENABLE_NGINX_HTTP2=0|1
+#   NGINX_HTTP2_EXPECTED_HOST=app.fortcordis.com.br
+#   NGINX_HTTP2_SITE_ROOT=/etc/nginx/sites-available
+#   NGINX_HTTP2_ENABLED_ROOT=/etc/nginx/sites-enabled
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-/var/www/fortcordis-v2}"
 BRANCH="${BRANCH:-main}"
 SUDO_PASSWORD="${SUDO_PASSWORD:-${VPS_SUDO_PASSWORD:-}}"
@@ -99,6 +104,10 @@ BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK="${BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK
 BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR="${BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR:-0}"
 ENABLE_ECO_STUDY_OCR="${ENABLE_ECO_STUDY_OCR:-1}"
 REQUIRE_ECO_STUDY_OCR="${REQUIRE_ECO_STUDY_OCR:-0}"
+ENABLE_NGINX_HTTP2="${ENABLE_NGINX_HTTP2:-0}"
+NGINX_HTTP2_EXPECTED_HOST="${NGINX_HTTP2_EXPECTED_HOST:-}"
+NGINX_HTTP2_SITE_ROOT="${NGINX_HTTP2_SITE_ROOT:-/etc/nginx/sites-available}"
+NGINX_HTTP2_ENABLED_ROOT="${NGINX_HTTP2_ENABLED_ROOT:-/etc/nginx/sites-enabled}"
 PRE_DEPLOY_HASH=""
 NEW_HASH=""
 CODE_UPDATED=0
@@ -261,6 +270,27 @@ reload_nginx_if_possible() {
   fi
   log "Skipping nginx reload (insufficient permissions)."
   return 0
+}
+
+ensure_nginx_http2_if_enabled() {
+  if [[ "${ENABLE_NGINX_HTTP2}" != "1" ]]; then
+    log "HTTP/2 enablement disabled (ENABLE_NGINX_HTTP2=${ENABLE_NGINX_HTTP2}); skipping."
+    return 0
+  fi
+
+  local helper="${SCRIPT_DIR}/ensure_nginx_http2.sh"
+  if [[ ! -f "${helper}" ]]; then
+    echo "[ERROR] HTTP/2 helper is missing: ${helper}" >&2
+    return 1
+  fi
+
+  ENABLE_NGINX_HTTP2="${ENABLE_NGINX_HTTP2}" \
+    NGINX_HTTP2_EXPECTED_HOST="${NGINX_HTTP2_EXPECTED_HOST}" \
+    NGINX_HTTP2_SITE_ROOT="${NGINX_HTTP2_SITE_ROOT}" \
+    NGINX_HTTP2_ENABLED_ROOT="${NGINX_HTTP2_ENABLED_ROOT}" \
+    PUBLIC_URL="${PUBLIC_URL}" \
+    SUDO_PASSWORD="${SUDO_PASSWORD}" \
+    bash "${helper}"
 }
 
 run_systemctl_command() {
@@ -1149,6 +1179,7 @@ log "Frontend local check OK"
 
 DEPLOY_STAGE="public_check"
 log "Nginx reload + public check"
+ensure_nginx_http2_if_enabled
 reload_nginx_if_possible
 
 if ! wait_http_head_ok "$PUBLIC_URL" 15 1; then

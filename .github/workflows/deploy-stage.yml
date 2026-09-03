@@ -409,7 +409,8 @@ jobs:
             trap cleanup_deploy_scripts EXIT
             git archive --format=tar "origin/${BRANCH}" -- \
               scripts/deploy_stage_vps.sh \
-              scripts/deploy_prod_vps.sh | tar -xf - -C "$deploy_scripts_dir"
+              scripts/deploy_prod_vps.sh \
+              scripts/ensure_nginx_http2.sh | tar -xf - -C "$deploy_scripts_dir"
 
             echo "Running standardized stage deploy script..."
             SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' \
@@ -417,6 +418,12 @@ jobs:
               BRANCH="$BRANCH" \
               bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"
           EOF
+
+      - name: Verify HTTP/2 on Stage app host
+        run: |
+          protocol="$(curl --silent --show-error --fail --http2 --connect-timeout 8 --max-time 25 \
+            --output /dev/null --write-out '%{http_version}' https://app.stage.fortcordis.com.br/)"
+          test "$protocol" = "2" || test "$protocol" = "2.0"
 
       - name: Run one-shot AI echo canary on Stage
         if: contains(github.event.head_commit.message, '[ai-echo-canary]')
