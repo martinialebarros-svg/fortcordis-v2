@@ -6,7 +6,7 @@ Os hosts autenticados `app.stage.fortcordis.com.br` e `app.fortcordis.com.br` ne
 
 ## Objetivo
 
-Habilitar HTTP/2 de forma controlada nos vhosts HTTPS do app, primeiro em stage e somente depois em producao, sem modificar hosts institucionais ou vhosts ambiguos.
+Habilitar HTTP/2 de forma controlada nos vhosts HTTPS do app que compartilham o listener TLS, sem modificar hosts institucionais ou vhosts ambiguos. A autorizacao explicita para a operacao atomica de stage e producao foi recebida neste ciclo.
 
 ## Escopo
 

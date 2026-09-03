@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Enables HTTP/2 only in the HTTPS vhost that declares the expected host.
-# The script is deliberately fail-closed: it refuses ambiguous discovery,
-# validates Nginx before reload, and restores its backup on a failed change.
+# Enables HTTP/2 as one grouped change for every declared HTTPS app vhost.
+# It is fail-closed: every target must resolve to exactly one enabled vhost,
+# all backups are made before any write, and every changed file is restored
+# if Nginx validation, reload, or HTTP/2 verification fails.
 
 ENABLE_NGINX_HTTP2="${ENABLE_NGINX_HTTP2:-0}"
-NGINX_HTTP2_EXPECTED_HOST="${NGINX_HTTP2_EXPECTED_HOST:-}"
+NGINX_HTTP2_EXPECTED_HOSTS="${NGINX_HTTP2_EXPECTED_HOSTS:-}"
 NGINX_HTTP2_SITE_ROOT="${NGINX_HTTP2_SITE_ROOT:-/etc/nginx/sites-available}"
 NGINX_HTTP2_ENABLED_ROOT="${NGINX_HTTP2_ENABLED_ROOT:-/etc/nginx/sites-enabled}"
-PUBLIC_URL="${PUBLIC_URL:-}"
 SUDO_PASSWORD="${SUDO_PASSWORD:-${VPS_SUDO_PASSWORD:-}}"
 
 log() {
@@ -35,15 +35,11 @@ run_with_sudo() {
   "$@"
 }
 
-restore_site_file() {
-  local site_file="$1"
-  local backup_file="$2"
-  local nginx_bin="$3"
-
-  log "Restoring Nginx vhost backup after failed HTTP/2 validation."
-  run_with_sudo cp -- "$backup_file" "$site_file"
-  run_with_sudo "$nginx_bin" -t || true
-  run_with_sudo systemctl reload nginx || true
+trim() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "${value}"
 }
 
 if [[ "${ENABLE_NGINX_HTTP2}" != "1" ]]; then
@@ -51,8 +47,8 @@ if [[ "${ENABLE_NGINX_HTTP2}" != "1" ]]; then
   exit 0
 fi
 
-if [[ -z "${NGINX_HTTP2_EXPECTED_HOST}" || -z "${PUBLIC_URL}" ]]; then
-  echo "[nginx-http2] Expected host and public URL are required when HTTP/2 is enabled." >&2
+if [[ -z "${NGINX_HTTP2_EXPECTED_HOSTS}" ]]; then
+  echo "[nginx-http2] NGINX_HTTP2_EXPECTED_HOSTS is required when HTTP/2 is enabled." >&2
   exit 1
 fi
 
@@ -67,79 +63,160 @@ if [[ -z "${nginx_bin}" ]]; then
   exit 1
 fi
 
-declare -a site_candidates=()
-while IFS= read -r -d '' enabled_entry; do
-  candidate="$(run_with_sudo readlink -f -- "${enabled_entry}")"
-  if [[ "${candidate}" == "${NGINX_HTTP2_SITE_ROOT}/"* ]] && \
-    run_with_sudo test -f "${candidate}" && \
-    run_with_sudo grep -Fq -- "${NGINX_HTTP2_EXPECTED_HOST}" "${candidate}"; then
-    site_candidates+=("${candidate}")
+declare -a raw_hosts=()
+IFS=',' read -r -a raw_hosts <<< "${NGINX_HTTP2_EXPECTED_HOSTS}"
+declare -a expected_hosts=()
+for raw_host in "${raw_hosts[@]:-}"; do
+  host="$(trim "${raw_host}")"
+  if [[ -z "${host}" ]]; then
+    echo "[nginx-http2] Empty host in NGINX_HTTP2_EXPECTED_HOSTS." >&2
+    exit 1
   fi
-# Nginx sites-enabled is intentionally a flat directory. Avoid GNU-only
-# find flags here because the helper is also exercised by the local shell test.
+  for known_host in "${expected_hosts[@]:-}"; do
+    if [[ "${known_host}" == "${host}" ]]; then
+      echo "[nginx-http2] Duplicate expected host: ${host}." >&2
+      exit 1
+    fi
+  done
+  expected_hosts+=("${host}")
+done
+
+if [[ "${#expected_hosts[@]}" -lt 2 ]]; then
+  echo "[nginx-http2] At least two distinct hosts are required for the shared TLS listener." >&2
+  exit 1
+fi
+
+declare -a enabled_entries=()
+while IFS= read -r -d '' enabled_entry; do
+  enabled_entries+=("${enabled_entry}")
 done < <(run_with_sudo find "${NGINX_HTTP2_ENABLED_ROOT}" \( -type f -o -type l \) -print0)
 
-if [[ "${#site_candidates[@]}" -ne 1 ]]; then
-  echo "[nginx-http2] Expected exactly one vhost for ${NGINX_HTTP2_EXPECTED_HOST}; found ${#site_candidates[@]}." >&2
-  exit 1
-fi
+declare -a site_files=()
+for host in "${expected_hosts[@]}"; do
+  declare -a candidates=()
+  for enabled_entry in "${enabled_entries[@]:-}"; do
+    candidate="$(run_with_sudo readlink -f -- "${enabled_entry}" || true)"
+    if [[ "${candidate}" == "${NGINX_HTTP2_SITE_ROOT}/"* ]] && \
+      run_with_sudo test -f "${candidate}" && \
+      run_with_sudo grep -Fq -- "${host}" "${candidate}"; then
+      candidates+=("${candidate}")
+    fi
+  done
 
-site_file="${site_candidates[0]}"
-if ! run_with_sudo grep -Eq '^[[:space:]]*listen[[:space:]]+(\[::\]:)?443[[:space:]].*ssl.*;' "${site_file}"; then
-  echo "[nginx-http2] HTTPS listen directive was not found in ${site_file}." >&2
-  exit 1
-fi
+  if [[ "${#candidates[@]}" -ne 1 ]]; then
+    echo "[nginx-http2] Expected exactly one enabled vhost for ${host}; found ${#candidates[@]}." >&2
+    exit 1
+  fi
 
-updated_file="$(mktemp)"
+  site_file="${candidates[0]}"
+  if ! run_with_sudo grep -Eq '^[[:space:]]*listen[[:space:]]+(\[::\]:)?443[[:space:]].*ssl.*;' "${site_file}"; then
+    echo "[nginx-http2] HTTPS listen directive was not found in ${site_file}." >&2
+    exit 1
+  fi
+
+  already_listed=0
+  for known_site in "${site_files[@]:-}"; do
+    if [[ "${known_site}" == "${site_file}" ]]; then
+      already_listed=1
+      break
+    fi
+  done
+  if [[ "${already_listed}" == "0" ]]; then
+    site_files+=("${site_file}")
+  fi
+done
+
+temp_dir="$(mktemp -d)"
 cleanup() {
-  rm -f -- "${updated_file}"
+  rm -rf -- "${temp_dir}"
 }
 trap cleanup EXIT
 
-run_with_sudo cat -- "${site_file}" > "${updated_file}"
-awk '
-  /^[[:space:]]*listen[[:space:]]+(\[::\]:)?443[[:space:]].*ssl.*;[[:space:]]*$/ {
-    if ($0 !~ /(^|[[:space:]])http2([[:space:];]|$)/) {
-      sub(/;[[:space:]]*$/, " http2;")
-    }
-  }
-  { print }
-' "${updated_file}" > "${updated_file}.next"
-mv -- "${updated_file}.next" "${updated_file}"
+declare -a updated_files=()
+declare -a changed_files=()
+declare -a backup_files=()
+changed_count=0
 
-changed=0
-backup_file=""
-if ! cmp -s "${site_file}" "${updated_file}"; then
-  changed=1
-  backup_file="${site_file}.bak.http2.$(date +%Y%m%d%H%M%S)"
-  run_with_sudo cp -- "${site_file}" "${backup_file}"
-  run_with_sudo cp -- "${updated_file}" "${site_file}"
-  log "HTTP/2 directive added to ${site_file}; validating Nginx."
+for index in "${!site_files[@]}"; do
+  original_file="${temp_dir}/vhost-${index}.original"
+  updated_file="${temp_dir}/vhost-${index}.updated"
+  run_with_sudo cat -- "${site_files[index]}" > "${original_file}"
+  awk '
+    /^[[:space:]]*listen[[:space:]]+(\[::\]:)?443[[:space:]].*ssl.*;[[:space:]]*$/ {
+      if ($0 !~ /(^|[[:space:]])http2([[:space:];]|$)/) {
+        sub(/;[[:space:]]*$/, " http2;")
+      }
+    }
+    { print }
+  ' "${original_file}" > "${updated_file}"
+
+  updated_files[index]="${updated_file}"
+  changed_files[index]=0
+  backup_files[index]=""
+  if ! cmp -s "${original_file}" "${updated_file}"; then
+    changed_files[index]=1
+    changed_count=$((changed_count + 1))
+  fi
+done
+
+restore_changed_vhosts() {
+  log "Restoring every changed Nginx vhost backup after failed HTTP/2 validation."
+  for restore_index in "${!site_files[@]}"; do
+    if [[ "${changed_files[restore_index]}" == "1" ]] && [[ -n "${backup_files[restore_index]}" ]]; then
+      run_with_sudo cp -- "${backup_files[restore_index]}" "${site_files[restore_index]}" || true
+    fi
+  done
+  run_with_sudo "${nginx_bin}" -t || true
+  run_with_sudo systemctl reload nginx || true
+}
+
+if [[ "${changed_count}" -gt 0 ]]; then
+  backup_suffix="$(date +%Y%m%d%H%M%S)"
+  for index in "${!site_files[@]}"; do
+    if [[ "${changed_files[index]}" == "1" ]]; then
+      backup_files[index]="${site_files[index]}.bak.http2.${backup_suffix}"
+      if ! run_with_sudo cp -- "${site_files[index]}" "${backup_files[index]}"; then
+        echo "[nginx-http2] Could not create the backup for ${site_files[index]}." >&2
+        exit 1
+      fi
+    fi
+  done
+
+  for index in "${!site_files[@]}"; do
+    if [[ "${changed_files[index]}" == "1" ]]; then
+      if ! run_with_sudo cp -- "${updated_files[index]}" "${site_files[index]}"; then
+        echo "[nginx-http2] Could not write ${site_files[index]}; restoring grouped backups." >&2
+        restore_changed_vhosts
+        exit 1
+      fi
+    fi
+  done
+  log "HTTP/2 directive added atomically to ${changed_count} vhost file(s); validating Nginx."
 
   if ! run_with_sudo "${nginx_bin}" -t; then
-    restore_site_file "${site_file}" "${backup_file}" "${nginx_bin}"
+    restore_changed_vhosts
     exit 1
   fi
 
   if ! run_with_sudo systemctl reload nginx; then
-    restore_site_file "${site_file}" "${backup_file}" "${nginx_bin}"
+    restore_changed_vhosts
     exit 1
   fi
 else
-  log "HTTP/2 directive already present in ${site_file}."
+  log "HTTP/2 directive already present in every declared vhost."
 fi
 
-protocol="$(curl --silent --show-error --fail --http2 \
-  --connect-timeout 8 --max-time 20 --output /dev/null --write-out '%{http_version}' \
-  --resolve "${NGINX_HTTP2_EXPECTED_HOST}:443:127.0.0.1" \
-  "${PUBLIC_URL}" || true)"
-
-if [[ "${protocol}" != "2" && "${protocol}" != "2.0" ]]; then
-  echo "[nginx-http2] HTTP/2 verification failed for ${NGINX_HTTP2_EXPECTED_HOST}; negotiated '${protocol:-none}'." >&2
-  if [[ "${changed}" == "1" ]]; then
-    restore_site_file "${site_file}" "${backup_file}" "${nginx_bin}"
+for host in "${expected_hosts[@]}"; do
+  protocol="$(curl --noproxy '*' --silent --show-error --fail --http2 \
+    --connect-timeout 8 --max-time 20 --output /dev/null --write-out '%{http_version}' \
+    --resolve "${host}:443:127.0.0.1" \
+    "https://${host}/" || true)"
+  if [[ "${protocol}" != "2" && "${protocol}" != "2.0" ]]; then
+    echo "[nginx-http2] HTTP/2 verification failed for ${host}; negotiated '${protocol:-none}'." >&2
+    if [[ "${changed_count}" -gt 0 ]]; then
+      restore_changed_vhosts
+    fi
+    exit 1
   fi
-  exit 1
-fi
-
-log "HTTP/2 verified for ${NGINX_HTTP2_EXPECTED_HOST}."
+  log "HTTP/2 verified for ${host}."
+done

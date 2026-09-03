@@ -6,6 +6,10 @@ SCRIPT_UNDER_TEST="${REPO_ROOT}/scripts/ensure_nginx_http2.sh"
 FIXTURE_ROOT="$(mktemp -d)"
 trap 'rm -rf -- "${FIXTURE_ROOT}"' EXIT
 
+stage_host="app.stage.fortcordis.com.br"
+production_host="app.fortcordis.com.br"
+expected_hosts="${stage_host},${production_host}"
+
 fail() {
   echo "[test-nginx-http2] $*" >&2
   exit 1
@@ -27,10 +31,7 @@ EOF
   cat > "${fake_bin}/nginx" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${FAKE_NGINX_TEST_FAIL:-0}" == "1" ]]; then
-  exit 1
-fi
-exit 0
+test "${FAKE_NGINX_TEST_FAIL:-0}" != "1"
 EOF
 
   cat > "${fake_bin}/readlink" <<'EOF'
@@ -61,29 +62,28 @@ EOF
 write_site() {
   local site_root="$1"
   local enabled_root="$2"
-  local host="$3"
-  mkdir -p "${site_root}"
-  mkdir -p "${enabled_root}"
-  cat > "${site_root}/fortcordis-app" <<EOF
+  local name="$3"
+  local host="$4"
+  mkdir -p "${site_root}" "${enabled_root}"
+  cat > "${site_root}/${name}" <<EOF
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
     server_name ${host};
 }
 EOF
+  ln -s "${site_root}/${name}" "${enabled_root}/${name}"
 }
 
 run_script() {
   local site_root="$1"
   local enabled_root="$2"
-  local host="$3"
-  shift 3
+  shift 2
   PATH="${FIXTURE_ROOT}/bin:${PATH}" \
     ENABLE_NGINX_HTTP2=1 \
     NGINX_HTTP2_SITE_ROOT="${site_root}" \
     NGINX_HTTP2_ENABLED_ROOT="${enabled_root}" \
-    NGINX_HTTP2_EXPECTED_HOST="${host}" \
-    PUBLIC_URL="https://${host}" \
+    NGINX_HTTP2_EXPECTED_HOSTS="${expected_hosts}" \
     "$@" bash "${SCRIPT_UNDER_TEST}"
 }
 
@@ -91,41 +91,59 @@ make_fake_bin "${FIXTURE_ROOT}/bin"
 
 site_root="${FIXTURE_ROOT}/sites-success"
 enabled_root="${FIXTURE_ROOT}/enabled-success"
-host="app.stage.fortcordis.com.br"
-write_site "${site_root}" "${enabled_root}" "${host}"
-ln -s "${site_root}/fortcordis-app" "${enabled_root}/fortcordis-app"
-run_script "${site_root}" "${enabled_root}" "${host}" env
+write_site "${site_root}" "${enabled_root}" "fortcordis-stage" "${stage_host}"
+write_site "${site_root}" "${enabled_root}" "fortcordis-app" "${production_host}"
+run_script "${site_root}" "${enabled_root}" env
 
-site_file="${site_root}/fortcordis-app"
-grep -Fqx '    listen 443 ssl http2;' "${site_file}" || fail "IPv4 HTTP/2 directive was not added."
-grep -Fqx '    listen [::]:443 ssl http2;' "${site_file}" || fail "IPv6 HTTP/2 directive was not added."
+for site_file in "${site_root}/fortcordis-stage" "${site_root}/fortcordis-app"; do
+  grep -Fqx '    listen 443 ssl http2;' "${site_file}" || fail "IPv4 HTTP/2 directive was not added to ${site_file}."
+  grep -Fqx '    listen [::]:443 ssl http2;' "${site_file}" || fail "IPv6 HTTP/2 directive was not added to ${site_file}."
+done
 
-before_idempotency="$(sha256sum "${site_file}" | awk '{print $1}')"
-run_script "${site_root}" "${enabled_root}" "${host}" env
-after_idempotency="$(sha256sum "${site_file}" | awk '{print $1}')"
+before_idempotency="$(sha256sum "${site_root}/fortcordis-stage" "${site_root}/fortcordis-app")"
+run_script "${site_root}" "${enabled_root}" env
+after_idempotency="$(sha256sum "${site_root}/fortcordis-stage" "${site_root}/fortcordis-app")"
 test "${before_idempotency}" = "${after_idempotency}" || fail "Second execution changed an already-enabled vhost."
 
 rollback_root="${FIXTURE_ROOT}/sites-rollback"
 rollback_enabled_root="${FIXTURE_ROOT}/enabled-rollback"
-write_site "${rollback_root}" "${rollback_enabled_root}" "${host}"
-ln -s "${rollback_root}/fortcordis-app" "${rollback_enabled_root}/fortcordis-app"
-if run_script "${rollback_root}" "${rollback_enabled_root}" "${host}" env FAKE_NGINX_TEST_FAIL=1; then
+write_site "${rollback_root}" "${rollback_enabled_root}" "fortcordis-stage" "${stage_host}"
+write_site "${rollback_root}" "${rollback_enabled_root}" "fortcordis-app" "${production_host}"
+if run_script "${rollback_root}" "${rollback_enabled_root}" env FAKE_NGINX_TEST_FAIL=1; then
   fail "Nginx validation failure was accepted."
 fi
-grep -Fqx '    listen 443 ssl;' "${rollback_root}/fortcordis-app" || fail "Rollback did not restore the original IPv4 listen line."
-if grep -Fq 'http2' "${rollback_root}/fortcordis-app"; then
-  fail "Rollback left an HTTP/2 directive in the failed vhost."
+for site_file in "${rollback_root}/fortcordis-stage" "${rollback_root}/fortcordis-app"; do
+  grep -Fqx '    listen 443 ssl;' "${site_file}" || fail "Rollback did not restore ${site_file}."
+  if grep -Fq 'http2' "${site_file}"; then
+    fail "Rollback left an HTTP/2 directive in ${site_file}."
+  fi
+done
+
+protocol_rollback_root="${FIXTURE_ROOT}/sites-protocol-rollback"
+protocol_rollback_enabled_root="${FIXTURE_ROOT}/enabled-protocol-rollback"
+write_site "${protocol_rollback_root}" "${protocol_rollback_enabled_root}" "fortcordis-stage" "${stage_host}"
+write_site "${protocol_rollback_root}" "${protocol_rollback_enabled_root}" "fortcordis-app" "${production_host}"
+if run_script "${protocol_rollback_root}" "${protocol_rollback_enabled_root}" env FAKE_HTTP_VERSION=1; then
+  fail "HTTP/1.1 negotiation was accepted."
 fi
+for site_file in "${protocol_rollback_root}/fortcordis-stage" "${protocol_rollback_root}/fortcordis-app"; do
+  grep -Fqx '    listen 443 ssl;' "${site_file}" || fail "Protocol rollback did not restore ${site_file}."
+  if grep -Fq 'http2' "${site_file}"; then
+    fail "Protocol rollback left an HTTP/2 directive in ${site_file}."
+  fi
+done
 
 ambiguous_root="${FIXTURE_ROOT}/sites-ambiguous"
 ambiguous_enabled_root="${FIXTURE_ROOT}/enabled-ambiguous"
-write_site "${ambiguous_root}" "${ambiguous_enabled_root}" "${host}"
-cp "${ambiguous_root}/fortcordis-app" "${ambiguous_root}/fortcordis-app-copy"
-ln -s "${ambiguous_root}/fortcordis-app" "${ambiguous_enabled_root}/fortcordis-app"
-ln -s "${ambiguous_root}/fortcordis-app-copy" "${ambiguous_enabled_root}/fortcordis-app-copy"
-if run_script "${ambiguous_root}" "${ambiguous_enabled_root}" "${host}" env; then
+write_site "${ambiguous_root}" "${ambiguous_enabled_root}" "fortcordis-stage" "${stage_host}"
+write_site "${ambiguous_root}" "${ambiguous_enabled_root}" "fortcordis-app" "${production_host}"
+cp "${ambiguous_root}/fortcordis-stage" "${ambiguous_root}/fortcordis-stage-copy"
+ln -s "${ambiguous_root}/fortcordis-stage-copy" "${ambiguous_enabled_root}/fortcordis-stage-copy"
+if run_script "${ambiguous_root}" "${ambiguous_enabled_root}" env; then
   fail "Ambiguous vhost discovery was accepted."
 fi
-grep -Fqx '    listen 443 ssl;' "${ambiguous_root}/fortcordis-app" || fail "Ambiguous discovery changed a vhost."
+for site_file in "${ambiguous_root}/fortcordis-stage" "${ambiguous_root}/fortcordis-app"; do
+  grep -Fqx '    listen 443 ssl;' "${site_file}" || fail "Ambiguous discovery changed ${site_file}."
+done
 
 echo "Nginx HTTP/2 enablement tests passed."

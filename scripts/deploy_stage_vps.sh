@@ -19,16 +19,15 @@ ENABLE_WHATSAPP_STAGE_SMOKE="1"
 WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION="1"
 ENABLE_ECO_STUDY_OCR="1"
 REQUIRE_ECO_STUDY_OCR="1"
-# Stage e producao compartilham o mesmo listener TLS :443. Nao habilitar
-# HTTP/2 em apenas um vhost: a alteracao deve ser atomica e explicitamente
-# autorizada para todos os vhosts que compartilham o listener.
-ENABLE_NGINX_HTTP2="0"
-NGINX_HTTP2_EXPECTED_HOST=""
+# Autorizacao recebida para atualizar, como uma unica operacao reversivel,
+# os dois vhosts do app que compartilham o listener TLS :443.
+ENABLE_NGINX_HTTP2="1"
+NGINX_HTTP2_EXPECTED_HOSTS="app.stage.fortcordis.com.br,app.fortcordis.com.br"
 
 export APP_DIR BRANCH BACKEND_SERVICE FRONTEND_SERVICE BACKEND_PORT FRONTEND_PORT API_BACKEND_URL PUBLIC_URL \
   ENABLE_WHATSAPP_STAGE_BACKEND WHATSAPP_STAGE_BACKEND_SERVICE WHATSAPP_STAGE_BACKEND_PORT \
   WHATSAPP_STAGE_BACKEND_URL ENABLE_WHATSAPP_STAGE_SMOKE WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION
 export ENABLE_ECO_STUDY_OCR REQUIRE_ECO_STUDY_OCR
-export ENABLE_NGINX_HTTP2 NGINX_HTTP2_EXPECTED_HOST
+export ENABLE_NGINX_HTTP2 NGINX_HTTP2_EXPECTED_HOSTS
 
 bash "${SCRIPT_DIR}/deploy_prod_vps.sh"
