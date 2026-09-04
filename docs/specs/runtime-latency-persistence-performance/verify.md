@@ -5,7 +5,7 @@
 - [x] Amostras priorizadas calculam p50/p95/p99 e preservam o monitor em memória.
 - [x] Instrumentação de SQL/pool é acumulada somente dentro de uma requisição monitorada.
 - [x] Migração cria a tabela e índices de forma idempotente em SQLite.
-- [x] Persistência e limpeza respeitam a retenção e não propagam falhas ao request.
+- [x] Persistência e limpeza respeitam a retenção e não propagam falhas ao request, inclusive no primeiro ciclo após reinício.
 - [x] Endpoint administrativo exige `admin` e não devolve campos sensíveis.
 - [x] Frontend compila e mostra estados de carregamento, vazio e erro.
 
