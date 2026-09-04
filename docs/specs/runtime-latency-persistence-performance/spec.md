@@ -19,7 +19,8 @@ clínico pode ser persistido nessa tabela.
 - A escrita ocorre depois de produzir a resposta e usa sessão separada.
 - Erro de telemetria é registrado localmente e não muda a resposta HTTP.
 - A limpeza é executada de forma limitada e periódica durante escritas bem
-  sucedidas, removendo somente amostras além da retenção configurada.
+  sucedidas, removendo somente amostras além da retenção configurada. A primeira
+  escrita após iniciar o processo sempre executa essa limpeza.
 - SQLite continua sem `QueuePool`; o monitor de espera de pool só se aplica aos
   bancos que usam pool de conexões.
 
