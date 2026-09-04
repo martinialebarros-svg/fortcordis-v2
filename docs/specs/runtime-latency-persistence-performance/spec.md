@@ -36,3 +36,7 @@ amostras e informa quando ele foi atingido.
 O deploy grava o hash curto efetivamente instalado em
 `RUNTIME_HTTP_LATENCY_RELEASE_ID`. Se indisponível, a API informa `unknown`,
 sem inferir ou expor metadados de repositório ao cliente.
+
+O workflow de produção deve encerrar com o resultado do script de deploy. Não
+deve haver comando shell residual após o heredoc SSH que transforme um deploy
+e canários concluídos em falha artificial da esteira.

@@ -8,6 +8,8 @@
 - [x] Persistência e limpeza respeitam a retenção e não propagam falhas ao request, inclusive no primeiro ciclo após reinício.
 - [x] Endpoint administrativo exige `admin` e não devolve campos sensíveis.
 - [x] Frontend compila e mostra estados de carregamento, vazio e erro.
+- [x] O bloco SSH do workflow de produção é sintaticamente válido e preserva o
+  status de saída do script de deploy.
 
 ## Stage e produção
 

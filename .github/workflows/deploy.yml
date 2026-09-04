@@ -291,4 +291,3 @@ jobs:
             ENABLE_WHATSAPP_STAGE_SMOKE=0 \
             bash "$DEPLOY_SCRIPT_DIR/scripts/deploy_prod_vps.sh"
         EOF
-        done
