@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask, BackgroundTasks
+from starlette.concurrency import run_in_threadpool
 
 from app.api.v1.endpoints import (
     admin,
@@ -59,7 +61,12 @@ from app.services.background_workers import (
     shutdown_background_workers as shutdown_background_worker_services,
     start_background_workers,
 )
-from app.services.runtime_observability import record_http_request
+from app.services.runtime_observability import (
+    begin_http_request_observation,
+    end_http_request_observation,
+    persist_http_latency_sample,
+    record_http_request,
+)
 
 app = FastAPI(
     redirect_slashes=False,
@@ -353,25 +360,40 @@ async def enforce_csrf_for_cookie_session(request: Request, call_next):
 async def monitor_runtime_http_status(request: Request, call_next):
     path = request.url.path
     start_monotonic = time.monotonic()
+    observation_token = begin_http_request_observation(path)
     try:
         response = await call_next(request)
     except Exception:
         elapsed_ms = (time.monotonic() - start_monotonic) * 1000.0
         try:
-            record_http_request(path=path, status_code=500, duration_ms=elapsed_ms)
+            sample = record_http_request(path=path, status_code=500, duration_ms=elapsed_ms)
+            if sample is not None:
+                # Em erro não existe Response para carregar tarefa de fundo.
+                await run_in_threadpool(persist_http_latency_sample, sample)
         except Exception:
             logger.exception("Falha ao registrar erro 5xx/latencia no monitor de runtime.")
+        finally:
+            end_http_request_observation(observation_token)
         raise
 
     elapsed_ms = (time.monotonic() - start_monotonic) * 1000.0
     try:
-        record_http_request(
+        sample = record_http_request(
             path=path,
             status_code=response.status_code,
             duration_ms=elapsed_ms,
         )
+        if sample is not None:
+            if response.background is None:
+                response.background = BackgroundTask(persist_http_latency_sample, sample)
+            else:
+                background_tasks = BackgroundTasks(tasks=[response.background])
+                background_tasks.add_task(persist_http_latency_sample, sample)
+                response.background = background_tasks
     except Exception:
         logger.exception("Falha ao registrar status/latencia HTTP no monitor de runtime.")
+    finally:
+        end_http_request_observation(observation_token)
     return _append_security_headers(path, response)
 
 # Rotas REST

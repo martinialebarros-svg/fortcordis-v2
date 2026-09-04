@@ -17,6 +17,7 @@ from app.models.auditoria_evento import AuditoriaEvento
 from app.models.papel import Papel
 from app.models.papel_permissao import PapelPermissao
 from app.models.user import User
+from app.services.runtime_observability import get_persisted_http_latency_summary
 
 router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -542,6 +543,19 @@ def obter_hardening_readiness(
         "checks": checks,
         "rollout_checklist": _montar_checklist_rollout(checks),
     }
+
+
+@router.get("/observability/http-latency")
+def obter_latencia_http_persistida(
+    hours: int = Query(default=24, ge=1, le=168),
+    current_user: User = Depends(require_papel("admin")),
+    db: Session = Depends(get_db),
+):
+    """Resumo de performance por prefixo e release, restrito a administradores."""
+
+    _ = current_user
+    return get_persisted_http_latency_summary(db, hours=hours)
+
 
 @router.get("/papeis", response_model=List[PapelAdminResponse])
 def listar_papeis(

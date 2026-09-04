@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import logging
 import math
+import re
 import threading
 import time
 from collections import deque
-from datetime import datetime, timezone
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from contextvars import ContextVar, Token
+from datetime import datetime, timedelta, timezone
+from typing import Any, Deque, Dict, List, Mapping, Optional, Tuple
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_5XX_WINDOW_MINUTES = 5
 _DEFAULT_5XX_THRESHOLD = 20
@@ -21,6 +26,15 @@ _MAX_LATENCY_WINDOW_MINUTES = 1440
 _DEFAULT_LATENCY_MAX_SAMPLES = 2000
 _MIN_LATENCY_MAX_SAMPLES = 100
 _MAX_LATENCY_MAX_SAMPLES = 20000
+_DEFAULT_PERSISTENCE_RETENTION_DAYS = 14
+_MIN_PERSISTENCE_RETENTION_DAYS = 1
+_MAX_PERSISTENCE_RETENTION_DAYS = 90
+_DEFAULT_PERSISTENCE_CLEANUP_INTERVAL_SECONDS = 21600
+_MIN_PERSISTENCE_CLEANUP_INTERVAL_SECONDS = 60
+_MAX_PERSISTENCE_CLEANUP_INTERVAL_SECONDS = 86400
+_DEFAULT_PERSISTENCE_QUERY_MAX_SAMPLES = 20000
+_MIN_PERSISTENCE_QUERY_MAX_SAMPLES = 100
+_MAX_PERSISTENCE_QUERY_MAX_SAMPLES = 100000
 _DEFAULT_LATENCY_ENDPOINTS = [
     "/api/v1/agenda",
     "/api/v1/atendimentos",
@@ -31,8 +45,14 @@ _DEFAULT_LATENCY_ENDPOINTS = [
 
 _HTTP_5XX_EVENTS: Deque[Tuple[float, datetime]] = deque()
 _HTTP_5XX_LOCK = threading.Lock()
-_HTTP_LATENCY_EVENTS: Dict[str, Deque[Tuple[float, float, int, datetime]]] = {}
+_HTTP_LATENCY_EVENTS: Dict[str, Deque[Tuple[float, float, int, float, float, datetime]]] = {}
 _HTTP_LATENCY_LOCK = threading.Lock()
+_REQUEST_LATENCY_CONTEXT: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+    "fortcordis_request_latency_context",
+    default=None,
+)
+_PERSISTENCE_CLEANUP_LOCK = threading.Lock()
+_LAST_PERSISTENCE_CLEANUP_MONOTONIC = 0.0
 
 
 def _utc_now() -> datetime:
@@ -149,6 +169,88 @@ def get_http_latency_monitor_config() -> Dict[str, Any]:
     }
 
 
+def _safe_release_id(raw_value: Any) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9._-]", "", str(raw_value or "").strip())
+    return normalized[:80] or "unknown"
+
+
+def get_http_latency_persistence_config() -> Dict[str, Any]:
+    retention_days, retention_warning = _parse_int_setting(
+        settings.RUNTIME_HTTP_LATENCY_RETENTION_DAYS,
+        name="RUNTIME_HTTP_LATENCY_RETENTION_DAYS",
+        default=_DEFAULT_PERSISTENCE_RETENTION_DAYS,
+        min_value=_MIN_PERSISTENCE_RETENTION_DAYS,
+        max_value=_MAX_PERSISTENCE_RETENTION_DAYS,
+    )
+    cleanup_interval_seconds, cleanup_warning = _parse_int_setting(
+        settings.RUNTIME_HTTP_LATENCY_CLEANUP_INTERVAL_SECONDS,
+        name="RUNTIME_HTTP_LATENCY_CLEANUP_INTERVAL_SECONDS",
+        default=_DEFAULT_PERSISTENCE_CLEANUP_INTERVAL_SECONDS,
+        min_value=_MIN_PERSISTENCE_CLEANUP_INTERVAL_SECONDS,
+        max_value=_MAX_PERSISTENCE_CLEANUP_INTERVAL_SECONDS,
+    )
+    query_max_samples, query_limit_warning = _parse_int_setting(
+        settings.RUNTIME_HTTP_LATENCY_QUERY_MAX_SAMPLES,
+        name="RUNTIME_HTTP_LATENCY_QUERY_MAX_SAMPLES",
+        default=_DEFAULT_PERSISTENCE_QUERY_MAX_SAMPLES,
+        min_value=_MIN_PERSISTENCE_QUERY_MAX_SAMPLES,
+        max_value=_MAX_PERSISTENCE_QUERY_MAX_SAMPLES,
+    )
+    warnings = [
+        warning
+        for warning in (retention_warning, cleanup_warning, query_limit_warning)
+        if warning
+    ]
+    return {
+        "enabled": bool(settings.RUNTIME_HTTP_LATENCY_PERSIST_ENABLED),
+        "retention_days": retention_days,
+        "cleanup_interval_seconds": cleanup_interval_seconds,
+        "query_max_samples": query_max_samples,
+        "release_id": _safe_release_id(settings.RUNTIME_HTTP_LATENCY_RELEASE_ID),
+        "warnings": warnings,
+    }
+
+
+def begin_http_request_observation(path: str) -> Optional[Token]:
+    """Abre contexto somente para um prefixo configurado, sem guardar a URL."""
+
+    config = get_http_latency_monitor_config()
+    endpoint = _resolve_monitored_endpoint(path, list(config["priority_endpoints"]))
+    if endpoint is None:
+        return None
+    return _REQUEST_LATENCY_CONTEXT.set(
+        {
+            "endpoint": endpoint,
+            "database_ms": 0.0,
+            "pool_wait_ms": 0.0,
+        }
+    )
+
+
+def end_http_request_observation(token: Optional[Token]) -> None:
+    if token is not None:
+        _REQUEST_LATENCY_CONTEXT.reset(token)
+
+
+def _record_request_component(component: str, elapsed_ms: float) -> None:
+    context = _REQUEST_LATENCY_CONTEXT.get()
+    if context is None:
+        return
+    try:
+        elapsed = max(0.0, float(elapsed_ms))
+    except (TypeError, ValueError):
+        return
+    context[component] = float(context.get(component, 0.0)) + elapsed
+
+
+def record_database_query_duration(elapsed_ms: float) -> None:
+    _record_request_component("database_ms", elapsed_ms)
+
+
+def record_database_pool_wait(elapsed_ms: float) -> None:
+    _record_request_component("pool_wait_ms", elapsed_ms)
+
+
 def _purge_old_events_locked(*, now_monotonic: float, window_seconds: int) -> None:
     cutoff = now_monotonic - window_seconds
     while _HTTP_5XX_EVENTS and _HTTP_5XX_EVENTS[0][0] < cutoff:
@@ -156,7 +258,7 @@ def _purge_old_events_locked(*, now_monotonic: float, window_seconds: int) -> No
 
 
 def _purge_old_latency_events_locked(
-    events: Deque[Tuple[float, float, int, datetime]],
+    events: Deque[Tuple[float, float, int, float, float, datetime]],
     *,
     now_monotonic: float,
     window_seconds: int,
@@ -191,7 +293,20 @@ def record_http_status(status_code: int) -> None:
         _purge_old_events_locked(now_monotonic=now_monotonic, window_seconds=window_seconds)
 
 
-def record_http_request(*, path: str, status_code: int, duration_ms: float) -> None:
+def record_http_request(
+    *,
+    path: str,
+    status_code: int,
+    duration_ms: float,
+    database_ms: Optional[float] = None,
+    pool_wait_ms: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    """Registra o resumo em memória e devolve uma amostra segura para persistir.
+
+    A função nunca escreve no banco: a middleware agenda a escrita após a
+    resposta para que indisponibilidade da telemetria não afete o usuário.
+    """
+
     status_int = int(status_code)
     duration_float = float(duration_ms)
     if duration_float < 0:
@@ -202,7 +317,17 @@ def record_http_request(*, path: str, status_code: int, duration_ms: float) -> N
     config = get_http_latency_monitor_config()
     endpoint = _resolve_monitored_endpoint(path, list(config["priority_endpoints"]))
     if endpoint is None:
-        return
+        return None
+
+    request_context = _REQUEST_LATENCY_CONTEXT.get() or {}
+    database_float = float(
+        request_context.get("database_ms", 0.0) if database_ms is None else database_ms
+    )
+    pool_wait_float = float(
+        request_context.get("pool_wait_ms", 0.0) if pool_wait_ms is None else pool_wait_ms
+    )
+    database_float = max(0.0, database_float)
+    pool_wait_float = max(0.0, pool_wait_float)
 
     window_seconds = int(config["window_minutes"]) * 60
     max_samples = int(config["max_samples_per_endpoint"])
@@ -211,7 +336,16 @@ def record_http_request(*, path: str, status_code: int, duration_ms: float) -> N
 
     with _HTTP_LATENCY_LOCK:
         events = _HTTP_LATENCY_EVENTS.setdefault(endpoint, deque())
-        events.append((now_monotonic, duration_float, status_int, now_utc))
+        events.append(
+            (
+                now_monotonic,
+                duration_float,
+                status_int,
+                database_float,
+                pool_wait_float,
+                now_utc,
+            )
+        )
         _purge_old_latency_events_locked(
             events,
             now_monotonic=now_monotonic,
@@ -219,6 +353,19 @@ def record_http_request(*, path: str, status_code: int, duration_ms: float) -> N
         )
         while len(events) > max_samples:
             events.popleft()
+
+    persistence_config = get_http_latency_persistence_config()
+    if not persistence_config["enabled"]:
+        return None
+    return {
+        "endpoint": endpoint,
+        "release_id": persistence_config["release_id"],
+        "status_code": status_int,
+        "duration_ms": round(duration_float, 3),
+        "database_ms": round(database_float, 3),
+        "pool_wait_ms": round(pool_wait_float, 3),
+        "created_at": now_utc,
+    }
 
 
 def get_http_5xx_monitor_status() -> Dict[str, Any]:
@@ -268,33 +415,226 @@ def get_http_latency_monitor_status() -> Dict[str, Any]:
             samples = list(events)
 
             durations = [sample[1] for sample in samples]
+            database_durations = [sample[3] for sample in samples]
+            pool_waits = [sample[4] for sample in samples]
             request_count = len(samples)
             error_5xx_count = sum(1 for sample in samples if 500 <= int(sample[2]) <= 599)
             avg_ms = round(sum(durations) / request_count, 2) if request_count else None
+            database_avg_ms = (
+                round(sum(database_durations) / request_count, 2) if request_count else None
+            )
+            pool_wait_avg_ms = round(sum(pool_waits) / request_count, 2) if request_count else None
+            p50_ms = _percentile_ms(durations, 50)
             p95_ms = _percentile_ms(durations, 95)
             p99_ms = _percentile_ms(durations, 99)
-            last_seen_at = samples[-1][3].isoformat() if samples else None
+            last_seen_at = samples[-1][5].isoformat() if samples else None
 
             endpoint_payload[endpoint] = {
                 "request_count": request_count,
                 "error_5xx_count": error_5xx_count,
                 "avg_ms": avg_ms,
+                "p50_ms": p50_ms,
                 "p95_ms": p95_ms,
                 "p99_ms": p99_ms,
+                "database_avg_ms": database_avg_ms,
+                "database_p95_ms": _percentile_ms(database_durations, 95),
+                "pool_wait_avg_ms": pool_wait_avg_ms,
+                "pool_wait_p95_ms": _percentile_ms(pool_waits, 95),
                 "last_seen_at": last_seen_at,
             }
 
+    persistence_config = get_http_latency_persistence_config()
     return {
         "window_minutes": int(config["window_minutes"]),
         "max_samples_per_endpoint": int(config["max_samples_per_endpoint"]),
         "priority_endpoints": endpoints,
         "endpoints": endpoint_payload,
-        "config_warnings": list(config["warnings"]),
+        "persistence": {
+            "enabled": persistence_config["enabled"],
+            "retention_days": persistence_config["retention_days"],
+            "release_id": persistence_config["release_id"],
+        },
+        "config_warnings": list(config["warnings"]) + list(persistence_config["warnings"]),
+    }
+
+
+def _claim_persistence_cleanup(now_monotonic: float, interval_seconds: int) -> bool:
+    global _LAST_PERSISTENCE_CLEANUP_MONOTONIC
+    with _PERSISTENCE_CLEANUP_LOCK:
+        if now_monotonic - _LAST_PERSISTENCE_CLEANUP_MONOTONIC < interval_seconds:
+            return False
+        _LAST_PERSISTENCE_CLEANUP_MONOTONIC = now_monotonic
+        return True
+
+
+def persist_http_latency_sample(sample: Mapping[str, Any]) -> bool:
+    """Persiste uma amostra já higienizada, isolando qualquer falha do request."""
+
+    config = get_http_latency_persistence_config()
+    if not config["enabled"]:
+        return False
+
+    endpoint = str(sample.get("endpoint") or "")
+    allowed_endpoints = set(get_http_latency_monitor_config()["priority_endpoints"])
+    if endpoint not in allowed_endpoints:
+        logger.warning("Amostra de latencia descartada por endpoint nao priorizado.")
+        return False
+
+    try:
+        status_code = int(sample["status_code"])
+        duration_ms = max(0.0, float(sample["duration_ms"]))
+        database_ms = max(0.0, float(sample.get("database_ms", 0.0)))
+        pool_wait_ms = max(0.0, float(sample.get("pool_wait_ms", 0.0)))
+    except (KeyError, TypeError, ValueError):
+        logger.warning("Amostra de latencia descartada por formato invalido.")
+        return False
+
+    from app.db.database import SessionLocal
+    from app.models.runtime_http_latency_metric import RuntimeHttpLatencyMetric
+
+    db = None
+    try:
+        db = SessionLocal()
+        db.add(
+            RuntimeHttpLatencyMetric(
+                endpoint=endpoint,
+                release_id=_safe_release_id(sample.get("release_id") or config["release_id"]),
+                status_code=status_code,
+                duration_ms=duration_ms,
+                database_ms=database_ms,
+                pool_wait_ms=pool_wait_ms,
+                created_at=sample.get("created_at") or _utc_now(),
+            )
+        )
+        db.commit()
+
+        if _claim_persistence_cleanup(
+            time.monotonic(),
+            int(config["cleanup_interval_seconds"]),
+        ):
+            cutoff = _utc_now() - timedelta(days=int(config["retention_days"]))
+            db.query(RuntimeHttpLatencyMetric).filter(
+                RuntimeHttpLatencyMetric.created_at < cutoff
+            ).delete(synchronize_session=False)
+            db.commit()
+        return True
+    except Exception:
+        if db is not None:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        logger.exception("Falha ao persistir telemetria de latencia HTTP.")
+        return False
+    finally:
+        if db is not None:
+            db.close()
+
+
+def get_persisted_http_latency_summary(db: Any, *, hours: int) -> Dict[str, Any]:
+    """Agrega amostras persistidas sem devolver registros individuais."""
+
+    from sqlalchemy import desc
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.models.runtime_http_latency_metric import RuntimeHttpLatencyMetric
+
+    config = get_http_latency_persistence_config()
+    max_samples = int(config["query_max_samples"])
+    cutoff = _utc_now() - timedelta(hours=int(hours))
+    try:
+        rows = (
+            db.query(RuntimeHttpLatencyMetric)
+            .filter(RuntimeHttpLatencyMetric.created_at >= cutoff)
+            .order_by(desc(RuntimeHttpLatencyMetric.created_at))
+            .limit(max_samples + 1)
+            .all()
+        )
+    except SQLAlchemyError:
+        logger.exception("Falha ao consultar telemetria persistida de latencia HTTP.")
+        return {
+            "available": False,
+            "hours": int(hours),
+            "retention_days": int(config["retention_days"]),
+            "query_max_samples": max_samples,
+            "truncated": False,
+            "groups": [],
+        }
+
+    truncated = len(rows) > max_samples
+    rows = rows[:max_samples]
+    groups: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for row in rows:
+        key = (str(row.endpoint), str(row.release_id or "unknown"))
+        group = groups.setdefault(
+            key,
+            {
+                "endpoint": key[0],
+                "release_id": key[1],
+                "durations": [],
+                "database_durations": [],
+                "pool_waits": [],
+                "error_5xx_count": 0,
+                "last_seen_at": None,
+            },
+        )
+        group["durations"].append(float(row.duration_ms or 0.0))
+        group["database_durations"].append(float(row.database_ms or 0.0))
+        group["pool_waits"].append(float(row.pool_wait_ms or 0.0))
+        if 500 <= int(row.status_code or 0) <= 599:
+            group["error_5xx_count"] += 1
+        if group["last_seen_at"] is None:
+            group["last_seen_at"] = (
+                row.created_at.isoformat() if getattr(row, "created_at", None) else None
+            )
+
+    result_groups = []
+    for group in groups.values():
+        durations = group.pop("durations")
+        database_durations = group.pop("database_durations")
+        pool_waits = group.pop("pool_waits")
+        request_count = len(durations)
+        result_groups.append(
+            {
+                **group,
+                "request_count": request_count,
+                "avg_ms": round(sum(durations) / request_count, 2) if request_count else None,
+                "p50_ms": _percentile_ms(durations, 50),
+                "p95_ms": _percentile_ms(durations, 95),
+                "p99_ms": _percentile_ms(durations, 99),
+                "database_avg_ms": (
+                    round(sum(database_durations) / request_count, 2)
+                    if request_count
+                    else None
+                ),
+                "database_p95_ms": _percentile_ms(database_durations, 95),
+                "pool_wait_avg_ms": (
+                    round(sum(pool_waits) / request_count, 2) if request_count else None
+                ),
+                "pool_wait_p95_ms": _percentile_ms(pool_waits, 95),
+            }
+        )
+
+    result_groups.sort(
+        key=lambda group: (group["p95_ms"] is not None, group["p95_ms"] or 0.0),
+        reverse=True,
+    )
+    return {
+        "available": True,
+        "hours": int(hours),
+        "retention_days": int(config["retention_days"]),
+        "query_max_samples": max_samples,
+        "truncated": truncated,
+        "groups": result_groups,
     }
 
 
 def reset_http_5xx_monitor_state_for_tests() -> None:
+    global _LAST_PERSISTENCE_CLEANUP_MONOTONIC
     with _HTTP_5XX_LOCK:
         _HTTP_5XX_EVENTS.clear()
     with _HTTP_LATENCY_LOCK:
         _HTTP_LATENCY_EVENTS.clear()
+    with _PERSISTENCE_CLEANUP_LOCK:
+        _LAST_PERSISTENCE_CLEANUP_MONOTONIC = 0.0
+    _REQUEST_LATENCY_CONTEXT.set(None)

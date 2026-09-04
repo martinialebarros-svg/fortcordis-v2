@@ -956,6 +956,10 @@ rollback_deploy() {
   local rollback_hash
   rollback_hash="$(git rev-parse --short HEAD)"
   log "Rollback HEAD: ${rollback_hash}"
+  if [[ -f "${BACKEND_DIR}/.env" ]]; then
+    upsert_env_key "${BACKEND_DIR}/.env" "RUNTIME_HTTP_LATENCY_RELEASE_ID" "${rollback_hash}"
+    log "Runtime latency release id restored for rollback."
+  fi
 
   if [[ "${PREVIOUS_BACKGROUND_WORKER_SUPPORT}" != "1" ]]; then
     # A versao anterior iniciava os workers dentro da API. Remover o drop-in
@@ -1103,6 +1107,16 @@ restore_runtime_artifacts
 NEW_HASH="$(git rev-parse --short HEAD)"
 log "Current HEAD: ${NEW_HASH}"
 git log --oneline -n 1
+
+# PERF-17: permite comparar a latencia com o release realmente instalado, sem
+# expor hash pelo navegador. Nao cria arquivo de ambiente ausente, para manter
+# a configuracao existente de cada host como fonte de verdade.
+if [[ -f "${BACKEND_DIR}/.env" ]]; then
+  upsert_env_key "${BACKEND_DIR}/.env" "RUNTIME_HTTP_LATENCY_RELEASE_ID" "${NEW_HASH}"
+  log "Runtime latency release id updated."
+else
+  log "WARNING: backend .env not found; latency samples will use release_id=unknown."
+fi
 
 DEPLOY_STAGE="backend_setup"
 log "Backend: install deps + migrations"

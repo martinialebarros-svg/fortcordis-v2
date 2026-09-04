@@ -44,6 +44,7 @@ class DatabaseConnectionPoolTest(unittest.TestCase):
                 "max_overflow": 5,
                 "pool_timeout": 15,
                 "pool_recycle": 1800,
+                "poolclass": database.ObservedQueuePool,
             },
         )
 
@@ -68,6 +69,7 @@ class DatabaseConnectionPoolTest(unittest.TestCase):
             max_overflow=5,
             pool_timeout=15,
             pool_recycle=1800,
+            poolclass=database.ObservedQueuePool,
         )
 
     def test_settings_reject_invalid_pool_capacity(self) -> None:

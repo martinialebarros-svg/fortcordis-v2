@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS: str = (
         "/api/v1/agenda,/api/v1/atendimentos,/api/v1/relatorios,/api/v1/fiscal,/api/v1/logistica"
     )
+    # PERF-17: historico administrativo sem URL, payload ou identificadores clinicos.
+    # A escrita e tolerante a falhas para nunca bloquear uma resposta da aplicacao.
+    RUNTIME_HTTP_LATENCY_PERSIST_ENABLED: bool = True
+    RUNTIME_HTTP_LATENCY_RETENTION_DAYS: int = Field(default=14, ge=1, le=90)
+    RUNTIME_HTTP_LATENCY_CLEANUP_INTERVAL_SECONDS: int = Field(default=21600, ge=60, le=86400)
+    RUNTIME_HTTP_LATENCY_QUERY_MAX_SAMPLES: int = Field(default=20000, ge=100, le=100000)
+    RUNTIME_HTTP_LATENCY_RELEASE_ID: str = ""
     WEB_PUSH_VAPID_PUBLIC_KEY: str = ""
     WEB_PUSH_VAPID_PRIVATE_KEY: str = ""
     WEB_PUSH_VAPID_CLAIMS_SUB: str = "mailto:suporte@fortcordis.local"
