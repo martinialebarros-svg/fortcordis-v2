@@ -141,7 +141,10 @@ class RuntimeHttpLatencyPersistenceTest(unittest.TestCase):
             duration_ms=100,
         )
         with patch.object(runtime_observability.settings, "RUNTIME_HTTP_LATENCY_RETENTION_DAYS", 1):
-            self.assertTrue(runtime_observability.persist_http_latency_sample(sample))
+            # Processo recem-iniciado pode ter monotonic menor que o intervalo.
+            # A primeira escrita ainda precisa executar a limpeza de retencao.
+            with patch("app.services.runtime_observability.time.monotonic", return_value=5.0):
+                self.assertTrue(runtime_observability.persist_http_latency_sample(sample))
 
         db = self.session_factory()
         try:

@@ -52,7 +52,7 @@ _REQUEST_LATENCY_CONTEXT: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
     default=None,
 )
 _PERSISTENCE_CLEANUP_LOCK = threading.Lock()
-_LAST_PERSISTENCE_CLEANUP_MONOTONIC = 0.0
+_LAST_PERSISTENCE_CLEANUP_MONOTONIC: Optional[float] = None
 
 
 def _utc_now() -> datetime:
@@ -461,7 +461,10 @@ def get_http_latency_monitor_status() -> Dict[str, Any]:
 def _claim_persistence_cleanup(now_monotonic: float, interval_seconds: int) -> bool:
     global _LAST_PERSISTENCE_CLEANUP_MONOTONIC
     with _PERSISTENCE_CLEANUP_LOCK:
-        if now_monotonic - _LAST_PERSISTENCE_CLEANUP_MONOTONIC < interval_seconds:
+        if (
+            _LAST_PERSISTENCE_CLEANUP_MONOTONIC is not None
+            and now_monotonic - _LAST_PERSISTENCE_CLEANUP_MONOTONIC < interval_seconds
+        ):
             return False
         _LAST_PERSISTENCE_CLEANUP_MONOTONIC = now_monotonic
         return True
@@ -636,5 +639,5 @@ def reset_http_5xx_monitor_state_for_tests() -> None:
     with _HTTP_LATENCY_LOCK:
         _HTTP_LATENCY_EVENTS.clear()
     with _PERSISTENCE_CLEANUP_LOCK:
-        _LAST_PERSISTENCE_CLEANUP_MONOTONIC = 0.0
+        _LAST_PERSISTENCE_CLEANUP_MONOTONIC = None
     _REQUEST_LATENCY_CONTEXT.set(None)
