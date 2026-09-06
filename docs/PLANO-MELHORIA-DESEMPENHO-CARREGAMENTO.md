@@ -95,10 +95,12 @@ a proxima execucao de stage altera os quatro arquivos de forma atomica, valida
 `nginx -t`, exige ALPN HTTP/2 para cada host-alvo e restaura todos os backups
 se qualquer verificacao falhar.
 
-Em 2026-09-06, a tentativa controlada passou em `nginx -t`, mas o probe local
-de `app.stage` continuou em HTTP/1.1. Os backups e o checkout de stage foram
-restaurados automaticamente. A proxima tentativa verifica a presenca do modulo
-HTTP/2 antes da escrita e preserva comentarios finais em diretivas `listen`.
+Em 2026-09-06, duas tentativas controladas passaram em `nginx -t`, mas o
+primeiro probe local de `app.stage`, executado logo apos o reload, continuou em
+HTTP/1.1. Os backups e o checkout de stage foram restaurados automaticamente.
+A segunda confirmou modulo HTTP/2 e os quatro vhosts. A proxima tentativa
+verifica ate cinco vezes, com intervalo de um segundo, antes de concluir a
+falha; tambem preserva comentarios finais em diretivas `listen`.
 
 ## 5. Metas de aceitacao
 

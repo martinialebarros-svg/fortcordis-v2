@@ -20,6 +20,9 @@
 10. A tentativa `34013916876` passou em `nginx -t`, recebeu HTTP/1.1 e foi
     revertida automaticamente. Antes de repeti-la, exigir modulo HTTP/2 e
     aceitar diretivas `listen` com comentario final sem descartar o comentario.
+11. A tentativa `34059287314` confirmou modulo e quatro vhosts, mas o primeiro
+    probe ocorreu cerca de 0,2 segundo apos o reload. Repetir a validacao com
+    cinco probes limitados, em intervalo de um segundo, antes do rollback.
 
 ## Rollback
 

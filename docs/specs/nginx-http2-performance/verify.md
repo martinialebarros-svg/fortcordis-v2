@@ -15,6 +15,8 @@ python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEA
 - Segunda execucao: nao duplica diretivas nem modifica os arquivos.
 - Falha de `nginx -t`: restaura os quatro vhosts originais.
 - Negociacao HTTP/1.1 local ou externa apos o reload: restaura os quatro vhosts originais.
+- Troca gradual de worker: os dois primeiros probes locais retornam HTTP/1.1,
+  o terceiro retorna HTTP/2 e a rotina segue sem rollback.
 - Modulo HTTP/2 indisponivel: interrompe antes de criar backup ou escrever vhost.
 - Mais de um vhost para qualquer host esperado: interrompe sem modificar nenhum arquivo.
 
@@ -75,3 +77,14 @@ Antes da nova tentativa, o inventario somente-leitura deve listar todos os vhost
   producao.
 - A proxima tentativa exige preflight do modulo HTTP/2 e cobre diretivas
   `listen` com comentario final antes de qualquer escrita.
+
+### Segunda tentativa controlada e rollback (2026-09-06)
+
+- O workflow `34059287314` confirmou o modulo HTTP/2, mapeou os quatro hosts
+  para quatro arquivos distintos e adicionou as diretivas de forma atomica;
+  `nginx -t` tambem passou.
+- O primeiro probe local, emitido aproximadamente 0,2 segundo apos o reload,
+  ainda recebeu HTTP/1.1. O rollback dos vhosts e do checkout para `206259c`
+  foi concluido com sucesso.
+- A proxima versao permite ate cinco probes locais e externos, separados por
+  um segundo, antes de concluir que a ativacao falhou.

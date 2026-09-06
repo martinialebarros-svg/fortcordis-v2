@@ -224,6 +224,38 @@ restore_changed_vhosts() {
   run_with_sudo systemctl reload nginx || true
 }
 
+http2_protocol_with_retry() {
+  local host="$1"
+  local verification_scope="$2"
+  local protocol=""
+  local attempt
+
+  for attempt in 1 2 3 4 5; do
+    if [[ "${verification_scope}" == "local" ]]; then
+      protocol="$(curl --noproxy '*' --silent --show-error --fail --http2 \
+        --connect-timeout 8 --max-time 20 --output /dev/null --write-out '%{http_version}' \
+        --resolve "${host}:443:127.0.0.1" \
+        "https://${host}/" || true)"
+    else
+      protocol="$(curl --noproxy '*' --silent --show-error --fail --http2 \
+        --connect-timeout 8 --max-time 20 --output /dev/null --write-out '%{http_version}' \
+        "https://${host}/" || true)"
+    fi
+
+    if [[ "${protocol}" == "2" || "${protocol}" == "2.0" ]]; then
+      printf '%s' "${protocol}"
+      return 0
+    fi
+
+    if [[ "${attempt}" -lt 5 ]]; then
+      sleep 1
+    fi
+  done
+
+  printf '%s' "${protocol}"
+  return 1
+}
+
 if [[ "${changed_count}" -gt 0 ]]; then
   backup_suffix="$(date +%Y%m%d%H%M%S)"
   for index in "${!site_files[@]}"; do
@@ -261,11 +293,7 @@ else
 fi
 
 for host in "${expected_hosts[@]}"; do
-  protocol="$(curl --noproxy '*' --silent --show-error --fail --http2 \
-    --connect-timeout 8 --max-time 20 --output /dev/null --write-out '%{http_version}' \
-    --resolve "${host}:443:127.0.0.1" \
-    "https://${host}/" || true)"
-  if [[ "${protocol}" != "2" && "${protocol}" != "2.0" ]]; then
+  if ! protocol="$(http2_protocol_with_retry "${host}" "local")"; then
     echo "[nginx-http2] Local HTTP/2 verification failed for ${host}; negotiated '${protocol:-none}'." >&2
     if [[ "${changed_count}" -gt 0 ]]; then
       restore_changed_vhosts
@@ -274,10 +302,7 @@ for host in "${expected_hosts[@]}"; do
   fi
   log "Local HTTP/2 verified for ${host}."
 
-  protocol="$(curl --noproxy '*' --silent --show-error --fail --http2 \
-    --connect-timeout 8 --max-time 20 --output /dev/null --write-out '%{http_version}' \
-    "https://${host}/" || true)"
-  if [[ "${protocol}" != "2" && "${protocol}" != "2.0" ]]; then
+  if ! protocol="$(http2_protocol_with_retry "${host}" "external")"; then
     echo "[nginx-http2] External HTTP/2 verification failed for ${host}; negotiated '${protocol:-none}'." >&2
     if [[ "${changed_count}" -gt 0 ]]; then
       restore_changed_vhosts

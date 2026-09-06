@@ -65,6 +65,17 @@ EOF
 set -euo pipefail
 for argument in "$@"; do
   if [[ "${argument}" == "--resolve" ]]; then
+    if [[ "${FAKE_HTTP2_LOCAL_WARMUP_CALLS:-0}" != "0" ]] && [[ -n "${FAKE_CURL_STATE_FILE:-}" ]]; then
+      current_calls=0
+      if [[ -f "${FAKE_CURL_STATE_FILE}" ]]; then
+        read -r current_calls < "${FAKE_CURL_STATE_FILE}"
+      fi
+      printf '%s\n' "$((current_calls + 1))" > "${FAKE_CURL_STATE_FILE}"
+      if [[ "${current_calls}" -lt "${FAKE_HTTP2_LOCAL_WARMUP_CALLS}" ]]; then
+        printf '1'
+        exit 0
+      fi
+    fi
     printf '%s' "${FAKE_HTTP_VERSION:-2}"
     exit 0
   fi
@@ -158,6 +169,16 @@ enabled_root="${FIXTURE_ROOT}/enabled-success"
 write_all_sites "${site_root}" "${enabled_root}"
 run_script "${site_root}" "${enabled_root}" env
 assert_http2_enabled "${site_root}"
+
+warmup_root="${FIXTURE_ROOT}/sites-warmup"
+warmup_enabled_root="${FIXTURE_ROOT}/enabled-warmup"
+warmup_state_file="${FIXTURE_ROOT}/curl-warmup-count"
+write_all_sites "${warmup_root}" "${warmup_enabled_root}"
+run_script "${warmup_root}" "${warmup_enabled_root}" env \
+  FAKE_HTTP2_LOCAL_WARMUP_CALLS=2 \
+  FAKE_CURL_STATE_FILE="${warmup_state_file}"
+assert_http2_enabled "${warmup_root}"
+test "$(cat "${warmup_state_file}")" = "6" || fail "HTTP/2 verification did not retry the local probe."
 
 before_idempotency="$(checksums "${site_root}")"
 run_script "${site_root}" "${enabled_root}" env
