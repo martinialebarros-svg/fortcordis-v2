@@ -1,6 +1,7 @@
 import importlib.util
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 REPO_DIR = Path(__file__).resolve().parents[2]
@@ -70,6 +71,58 @@ class DeployAuthenticatedCanaryValidationTest(unittest.TestCase):
         self.assertEqual(CANARY._validate_agenda_payload({"items": []}), [])
         errors = CANARY._validate_agenda_payload({"items": "nao-lista"})
         self.assertTrue(any("items" in item for item in errors))
+
+    def test_http_401_e_403_nao_sao_sucesso_de_canario(self) -> None:
+        self.assertEqual(CANARY._validate_success_status(200), [])
+        self.assertTrue(any("401" in item for item in CANARY._validate_success_status(401)))
+        self.assertTrue(any("403" in item for item in CANARY._validate_success_status(403)))
+
+    def test_latencia_da_agenda_reprova_p95_acima_do_limite(self) -> None:
+        errors = CANARY._validate_agenda_latency(
+            [100.0, 110.0, 120.0, 130.0, 1500.0],
+            expected_samples=5,
+            max_p95_ms=1200.0,
+        )
+        self.assertTrue(any("p95=1500.00ms" in item for item in errors))
+
+    def test_latencia_da_agenda_exige_todas_as_amostras(self) -> None:
+        errors = CANARY._validate_agenda_latency(
+            [100.0, 110.0, 120.0, 130.0],
+            expected_samples=5,
+            max_p95_ms=1200.0,
+        )
+        self.assertTrue(any("4/5" in item for item in errors))
+
+    def test_canario_mede_cinco_leituras_autenticadas_da_agenda(self) -> None:
+        original_http_json = CANARY._http_json
+        original_monotonic = CANARY.time.monotonic
+        instantes = iter([0.0, 0.1, 1.0, 1.2, 2.0, 2.3, 3.0, 3.4, 4.0, 4.5])
+        try:
+            CANARY._http_json = lambda *_args, **_kwargs: (200, {"items": []})
+            CANARY.time.monotonic = lambda: next(instantes)
+            errors = CANARY._run_agenda_latency_canary(
+                SimpleNamespace(
+                    base_url="http://canary.local",
+                    timeout_seconds=8,
+                    agenda_latency_samples=5,
+                    agenda_max_p95_ms=600.0,
+                    expected_release_id="abc1234",
+                ),
+                {"Authorization": "Bearer token"},
+            )
+        finally:
+            CANARY._http_json = original_http_json
+            CANARY.time.monotonic = original_monotonic
+
+        self.assertEqual(errors, [])
+
+    def test_deploy_propaga_limite_e_release_para_o_canario(self) -> None:
+        deploy_script = (REPO_DIR / "scripts" / "deploy_prod_vps.sh").read_text(encoding="utf-8")
+        self.assertIn("AUTH_CANARY_AGENDA_LATENCY_SAMPLES", deploy_script)
+        self.assertIn("AUTH_CANARY_AGENDA_MAX_P95_MS", deploy_script)
+        self.assertIn("--agenda-latency-samples", deploy_script)
+        self.assertIn("--agenda-max-p95-ms", deploy_script)
+        self.assertIn("--expected-release-id", deploy_script)
 
     def test_validate_cleanup_status_payload_requires_expected_keys(self) -> None:
         payload = {

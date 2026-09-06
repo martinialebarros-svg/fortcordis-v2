@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -202,6 +204,46 @@ def _validate_agenda_payload(payload: Dict[str, Any]) -> List[str]:
     return []
 
 
+def _validate_success_status(status: int, *, expected: int = 200) -> List[str]:
+    """401/403 nunca sao canario aprovado, mesmo que tenham JSON valido."""
+
+    if int(status) == int(expected):
+        return []
+    return [f"HTTP {status} (esperado {expected})."]
+
+
+def _percentile_ms(values: List[float], percentile: int) -> Optional[float]:
+    if not values:
+        return None
+    ordered = sorted(max(0.0, float(value)) for value in values)
+    rank = max(1, math.ceil((float(percentile) / 100.0) * len(ordered)))
+    return round(ordered[rank - 1], 2)
+
+
+def _validate_agenda_latency(
+    samples_ms: List[float],
+    *,
+    expected_samples: int,
+    max_p95_ms: float,
+) -> List[str]:
+    errors: List[str] = []
+    if len(samples_ms) != int(expected_samples):
+        errors.append(
+            "Agenda sem todas as amostras de latencia esperadas "
+            f"({len(samples_ms)}/{expected_samples})."
+        )
+        return errors
+
+    p95_ms = _percentile_ms(samples_ms, 95)
+    if p95_ms is None:
+        errors.append("Agenda sem amostras de latencia validas.")
+    elif p95_ms > float(max_p95_ms):
+        errors.append(
+            f"Agenda p95={p95_ms:.2f}ms excede o limite de {float(max_p95_ms):.2f}ms."
+        )
+    return errors
+
+
 def _validate_cleanup_status_payload(payload: Dict[str, Any]) -> List[str]:
     required_keys = {"last_status", "consecutive_failures", "alert_active"}
     missing = [key for key in required_keys if key not in payload]
@@ -223,6 +265,56 @@ def _validate_assistente_ia_status_payload(payload: Dict[str, Any]) -> List[str]
     return errors
 
 
+def _run_agenda_latency_canary(
+    args: argparse.Namespace,
+    auth_header: Dict[str, str],
+) -> List[str]:
+    """Mede uma pequena amostra autenticada sem registrar payloads da Agenda."""
+
+    errors: List[str] = []
+    samples_ms: List[float] = []
+    agenda_url = _join_url(args.base_url, "/api/v1/agenda")
+    for sample_number in range(1, int(args.agenda_latency_samples) + 1):
+        started_at = time.monotonic()
+        try:
+            status, payload = _http_json(
+                agenda_url,
+                timeout_seconds=args.timeout_seconds,
+                headers=auth_header,
+            )
+            elapsed_ms = (time.monotonic() - started_at) * 1000.0
+            status_errors = _validate_success_status(status)
+            payload_errors = _validate_agenda_payload(payload)
+            if status_errors or payload_errors:
+                errors.extend(f"[agenda_latency amostra {sample_number}] {item}" for item in status_errors)
+                errors.extend(f"[agenda_latency amostra {sample_number}] {item}" for item in payload_errors)
+                continue
+            samples_ms.append(elapsed_ms)
+        except Exception as exc:
+            errors.append(f"[agenda_latency amostra {sample_number}] falhou: {exc}")
+
+    p50_ms = _percentile_ms(samples_ms, 50)
+    p95_ms = _percentile_ms(samples_ms, 95)
+    release_id = str(args.expected_release_id or "unknown").strip() or "unknown"
+    print(
+        "[canary] agenda_latency:",
+        f"release={release_id}",
+        f"samples={len(samples_ms)}/{args.agenda_latency_samples}",
+        f"p50_ms={p50_ms if p50_ms is not None else 'n/a'}",
+        f"p95_ms={p95_ms if p95_ms is not None else 'n/a'}",
+        f"limit_ms={float(args.agenda_max_p95_ms):.2f}",
+    )
+    errors.extend(
+        f"[agenda_latency] {item}"
+        for item in _validate_agenda_latency(
+            samples_ms,
+            expected_samples=args.agenda_latency_samples,
+            max_p95_ms=args.agenda_max_p95_ms,
+        )
+    )
+    return errors
+
+
 def _run_canary(args: argparse.Namespace) -> List[str]:
     errors: List[str] = []
     token = _resolve_token(args)
@@ -233,11 +325,6 @@ def _run_canary(args: argparse.Namespace) -> List[str]:
             "admin_hardening",
             "/api/v1/admin/hardening-readiness",
             _validate_admin_payload,
-        ),
-        (
-            "agenda_list",
-            "/api/v1/agenda",
-            _validate_agenda_payload,
         ),
         (
             "atendimento_cleanup_status",
@@ -259,8 +346,9 @@ def _run_canary(args: argparse.Namespace) -> List[str]:
                 timeout_seconds=args.timeout_seconds,
                 headers=auth_header,
             )
-            if status != 200:
-                errors.append(f"[{check_name}] HTTP {status} (esperado 200).")
+            status_errors = _validate_success_status(status)
+            if status_errors:
+                errors.extend(f"[{check_name}] {item}" for item in status_errors)
                 continue
             validation_errors = validator(payload)
             for item in validation_errors:
@@ -268,6 +356,7 @@ def _run_canary(args: argparse.Namespace) -> List[str]:
         except Exception as exc:
             errors.append(f"[{check_name}] falhou: {exc}")
 
+    errors.extend(_run_agenda_latency_canary(args, auth_header))
     return errors
 
 
@@ -297,7 +386,28 @@ def main() -> int:
         action="store_true",
         help="Desativa fallback de token interno gerado no VPS.",
     )
+    parser.add_argument(
+        "--agenda-latency-samples",
+        type=int,
+        default=5,
+        help="Quantidade de leituras autenticadas da Agenda usadas para o p95.",
+    )
+    parser.add_argument(
+        "--agenda-max-p95-ms",
+        type=float,
+        default=1200.0,
+        help="Limite de p95, em ms, para as leituras autenticadas da Agenda.",
+    )
+    parser.add_argument(
+        "--expected-release-id",
+        default="",
+        help="Hash curto do release, exibido somente no resumo seguro do canario.",
+    )
     args = parser.parse_args()
+    if args.agenda_latency_samples < 2:
+        parser.error("--agenda-latency-samples deve ser no minimo 2.")
+    if args.agenda_max_p95_ms <= 0:
+        parser.error("--agenda-max-p95-ms deve ser maior que zero.")
 
     errors = _run_canary(args)
     if errors:

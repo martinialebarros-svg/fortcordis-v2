@@ -13,8 +13,8 @@
 
 ## Stage e produção
 
-- [ ] A migração foi aplicada e a API de administração responde autenticada em stage.
-- [ ] Há amostras para ao menos uma rota prioritária e o release corresponde ao deploy.
-- [ ] Smoke de rotas públicas e protegidas passou em stage.
-- [ ] A promoção para produção usou o mesmo commit validado em stage.
-- [ ] Smoke equivalente em produção passou após a promoção.
+- [x] A migração foi aplicada e a API de administração responde autenticada em stage.
+- [x] Há amostras para ao menos uma rota prioritária e o release corresponde ao deploy.
+- [x] Smoke de rotas públicas e protegidas passou em stage.
+- [x] A promoção para produção usou o mesmo commit validado em stage.
+- [x] Smoke equivalente em produção passou após a promoção (release `4f94683`, 2026-09-06).
