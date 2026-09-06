@@ -13,7 +13,10 @@ interface TemplateCatalogMetadata {
   variable_labels: readonly string[];
 }
 
-const TEMPLATE_CATALOG_METADATA: Record<ApprovedUtilityTemplateKey, TemplateCatalogMetadata> = {
+// Modelos sem entrada aqui (ex.: convite de acesso ao Portal Clinicas) nao aparecem no catalogo
+// consultado pela caixa de entrada - sao disparados apenas pelo fluxo automatizado que os origina,
+// nao pela escolha manual do atendente durante uma conversa.
+const TEMPLATE_CATALOG_METADATA: Partial<Record<ApprovedUtilityTemplateKey, TemplateCatalogMetadata>> = {
   reservation: {
     category: "agenda",
     workflow_label: "Reserva de agendamento",
@@ -93,25 +96,27 @@ const TEMPLATE_CATALOG_METADATA: Record<ApprovedUtilityTemplateKey, TemplateCata
 };
 
 export async function listApprovedTemplateCatalog(_req: Request, res: Response): Promise<void> {
-  const data = Object.entries(APPROVED_UTILITY_TEMPLATES).map(([key, definition]) => {
-    const templateKey = key as ApprovedUtilityTemplateKey;
-    const metadata = TEMPLATE_CATALOG_METADATA[templateKey];
-    return {
-      key: templateKey,
-      name: definition.name,
-      meta_id: definition.metaId,
-      language: APPROVED_TEMPLATE_LANGUAGE,
-      body: definition.body,
-      body_parameter_count: getTemplateBodyParameterCount(templateKey),
-      variable_labels: metadata.variable_labels,
-      quick_replies: definition.quickReplies,
-      category: metadata.category,
-      workflow_label: metadata.workflow_label,
-      requires_document: templateRequiresDocumentHeader(templateKey),
-      can_copy_as_free_text: !templateRequiresDocumentHeader(templateKey),
-      meta_approval_live: null
-    };
-  });
+  const data = Object.entries(APPROVED_UTILITY_TEMPLATES)
+    .filter(([key]) => (key as ApprovedUtilityTemplateKey) in TEMPLATE_CATALOG_METADATA)
+    .map(([key, definition]) => {
+      const templateKey = key as ApprovedUtilityTemplateKey;
+      const metadata = TEMPLATE_CATALOG_METADATA[templateKey] as TemplateCatalogMetadata;
+      return {
+        key: templateKey,
+        name: definition.name,
+        meta_id: definition.metaId,
+        language: APPROVED_TEMPLATE_LANGUAGE,
+        body: definition.body,
+        body_parameter_count: getTemplateBodyParameterCount(templateKey),
+        variable_labels: metadata.variable_labels,
+        quick_replies: definition.quickReplies,
+        category: metadata.category,
+        workflow_label: metadata.workflow_label,
+        requires_document: templateRequiresDocumentHeader(templateKey),
+        can_copy_as_free_text: !templateRequiresDocumentHeader(templateKey),
+        meta_approval_live: null
+      };
+    });
 
   res.json({
     data,
