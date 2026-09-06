@@ -15,6 +15,7 @@ python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEA
 - Segunda execucao: nao duplica diretivas nem modifica os arquivos.
 - Falha de `nginx -t`: restaura os quatro vhosts originais.
 - Negociacao HTTP/1.1 local ou externa apos o reload: restaura os quatro vhosts originais.
+- Modulo HTTP/2 indisponivel: interrompe antes de criar backup ou escrever vhost.
 - Mais de um vhost para qualquer host esperado: interrompe sem modificar nenhum arquivo.
 
 ## Validacao de rollout pendente
@@ -63,3 +64,14 @@ Antes da nova tentativa, o inventario somente-leitura deve listar todos os vhost
 - Os probes ALPN de `app.stage.fortcordis.com.br` e
   `app.fortcordis.com.br` retornaram HTTP/1.1. A ativacao e o smoke externo
   completo permanecem pendentes nesta versao.
+
+### Tentativa controlada e rollback (2026-09-06)
+
+- O workflow de stage `34013916876` aprovou SDD e quality gate, mas o helper
+  alterou temporariamente tres arquivos, passou em `nginx -t` e recebeu
+  HTTP/1.1 no probe local de `app.stage.fortcordis.com.br`.
+- O helper restaurou os backups; em seguida o deploy executou rollback do
+  checkout para `206259c`. O workflow terminou com falha, sem promocao para
+  producao.
+- A proxima tentativa exige preflight do modulo HTTP/2 e cobre diretivas
+  `listen` com comentario final antes de qualquer escrita.

@@ -4,7 +4,8 @@
 
 - RF-001: com `ENABLE_NGINX_HTTP2=1`, o deploy deve exigir `NGINX_HTTP2_EXPECTED_HOSTS` com ao menos dois hosts distintos separados por virgula.
 - RF-002: para cada host declarado, deve haver exatamente um vhost habilitado em `NGINX_HTTP2_ENABLED_ROOT`, apontando para um arquivo regular em `NGINX_HTTP2_SITE_ROOT` contendo o host; zero ou mais de um interrompem o deploy sem escrita.
-- RF-003: apenas linhas HTTPS `listen 443 ... ssl;` sem `http2` recebem o parametro `http2`.
+- RF-003: apenas linhas HTTPS `listen 443 ... ssl;` sem `http2` recebem o parametro `http2`, inclusive quando possuem comentario final; o comentario deve ser preservado.
+- RF-003a: antes de qualquer backup ou escrita, o helper deve confirmar que o binario Nginx contem `--with-http_v2_module`; ausencia do modulo interrompe sem modificar vhost.
 - RF-004: antes de qualquer escrita, cada arquivo ativo que sera alterado deve ser salvo com sufixo `.bak.http2.<timestamp>`.
 - RF-005: somente depois de todos os backups o helper pode escrever os arquivos; `nginx -t` deve passar antes do reload. Falha restaura todos os arquivos alterados.
 - RF-006: depois do reload, uma requisicao local com SNI e uma requisicao pelo caminho publico para cada host declarado devem negociar HTTP/2. Falha em qualquer verificacao restaura todos os arquivos alterados quando houve escrita.

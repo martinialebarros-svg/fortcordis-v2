@@ -102,6 +102,13 @@ if [[ -z "${nginx_bin}" ]]; then
   exit 1
 fi
 
+nginx_build_details="$(run_with_sudo "${nginx_bin}" -V 2>&1 || true)"
+if ! printf '%s\n' "${nginx_build_details}" | grep -Fq -- '--with-http_v2_module'; then
+  echo "[nginx-http2] Nginx was not built with the HTTP/2 module; refusing to modify vhosts." >&2
+  exit 1
+fi
+log "Nginx HTTP/2 module is available."
+
 declare -a raw_hosts=()
 IFS=',' read -r -a raw_hosts <<< "${NGINX_HTTP2_EXPECTED_HOSTS}"
 declare -a expected_hosts=()
@@ -148,6 +155,7 @@ for host in "${expected_hosts[@]}"; do
   fi
 
   site_file="${candidates[0]}"
+  log "Resolved ${host} to ${site_file}."
   if ! run_with_sudo grep -Eq '^[[:space:]]*listen[[:space:]]+(\[::\]:)?443[[:space:]].*ssl.*;' "${site_file}"; then
     echo "[nginx-http2] HTTPS listen directive was not found in ${site_file}." >&2
     exit 1
@@ -181,9 +189,16 @@ for index in "${!site_files[@]}"; do
   updated_file="${temp_dir}/vhost-${index}.updated"
   run_with_sudo cat -- "${site_files[index]}" > "${original_file}"
   awk '
-    /^[[:space:]]*listen[[:space:]]+(\[::\]:)?443[[:space:]].*ssl.*;[[:space:]]*$/ {
-      if ($0 !~ /(^|[[:space:]])http2([[:space:];]|$)/) {
-        sub(/;[[:space:]]*$/, " http2;")
+    /^[[:space:]]*listen[[:space:]]+(\[::\]:)?443[[:space:]].*ssl.*;([[:space:]]*#.*)?[[:space:]]*$/ {
+      listener = $0
+      comment = ""
+      if (match(listener, /[[:space:]]*#.*/)) {
+        comment = substr(listener, RSTART)
+        listener = substr(listener, 1, RSTART - 1)
+      }
+      if (listener !~ /(^|[[:space:]])http2([[:space:];]|$)/) {
+        sub(/;[[:space:]]*$/, " http2;", listener)
+        $0 = listener comment
       }
     }
     { print }

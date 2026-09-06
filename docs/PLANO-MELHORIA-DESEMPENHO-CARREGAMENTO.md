@@ -81,7 +81,7 @@ Objetivo: impedir espera infinita e recuperar o Financeiro, rota mais critica da
 | ID | Tarefa | Estado | Criterio de conclusao |
 | --- | --- | --- | --- |
 | PERF-15 | Separar API web e workers periodicos | concluido em producao | workers nao competem no mesmo processo da API |
-| PERF-16 | Habilitar e validar HTTP/2 no Nginx | em validacao em stage: autorizacao cobre os quatro vhosts do listener compartilhado | `curl --http2` negocia HTTP/2 nos dominios e aliases de stage, app e institucional |
+| PERF-16 | Habilitar e validar HTTP/2 no Nginx | diagnostico em stage: tentativa recebeu HTTP/1.1 e foi revertida automaticamente | `curl --http2` negocia HTTP/2 nos dominios e aliases de stage, app e institucional |
 | PERF-17 | Persistir p50/p95/p99, tempo de banco e espera de pool | concluido em producao | painel administrativo, retenção limitada e comparação por release implementados e validados autenticadamente |
 | PERF-18 | Tornar o gate autenticado e sensivel a latencia | concluido em producao | 401/403 nao contam como sucesso e p95 excedido bloqueia release |
 
@@ -94,6 +94,11 @@ compartilham `0.0.0.0:443`, todos sem diretiva HTTP/2, e que `app.stage` e
 a proxima execucao de stage altera os quatro arquivos de forma atomica, valida
 `nginx -t`, exige ALPN HTTP/2 para cada host-alvo e restaura todos os backups
 se qualquer verificacao falhar.
+
+Em 2026-09-06, a tentativa controlada passou em `nginx -t`, mas o probe local
+de `app.stage` continuou em HTTP/1.1. Os backups e o checkout de stage foram
+restaurados automaticamente. A proxima tentativa verifica a presenca do modulo
+HTTP/2 antes da escrita e preserva comentarios finais em diretivas `listen`.
 
 ## 5. Metas de aceitacao
 

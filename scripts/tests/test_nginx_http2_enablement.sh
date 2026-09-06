@@ -35,6 +35,12 @@ EOF
   cat > "${fake_bin}/nginx" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "-V" ]]; then
+  if [[ "${FAKE_NGINX_HTTP2_MODULE:-1}" == "1" ]]; then
+    echo 'nginx version: nginx/1.27.0 --with-http_v2_module' >&2
+  fi
+  exit 0
+fi
 test "${FAKE_NGINX_TEST_FAIL:-0}" != "1"
 EOF
 
@@ -81,8 +87,8 @@ write_site() {
   mkdir -p "${site_root}" "${enabled_root}"
   cat > "${site_root}/${name}" <<EOF
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl; # managed by test
+    listen [::]:443 ssl; # managed by test
     server_name ${host};
 }
 EOF
@@ -106,8 +112,8 @@ assert_http2_enabled() {
 
   for site_name in "${site_names[@]}"; do
     site_file="${site_root}/${site_name}"
-    grep -Fqx '    listen 443 ssl http2;' "${site_file}" || fail "IPv4 HTTP/2 directive was not added to ${site_file}."
-    grep -Fqx '    listen [::]:443 ssl http2;' "${site_file}" || fail "IPv6 HTTP/2 directive was not added to ${site_file}."
+    grep -Fqx '    listen 443 ssl http2; # managed by test' "${site_file}" || fail "IPv4 HTTP/2 directive was not added to ${site_file}."
+    grep -Fqx '    listen [::]:443 ssl http2; # managed by test' "${site_file}" || fail "IPv6 HTTP/2 directive was not added to ${site_file}."
   done
 }
 
@@ -118,7 +124,7 @@ assert_original_config_restored() {
 
   for site_name in "${site_names[@]}"; do
     site_file="${site_root}/${site_name}"
-    grep -Fqx '    listen 443 ssl;' "${site_file}" || fail "Rollback did not restore ${site_file}."
+    grep -Fqx '    listen 443 ssl; # managed by test' "${site_file}" || fail "Rollback did not restore ${site_file}."
     if grep -Fq 'http2' "${site_file}"; then
       fail "Rollback left an HTTP/2 directive in ${site_file}."
     fi
@@ -181,6 +187,14 @@ if run_script "${external_rollback_root}" "${external_rollback_enabled_root}" en
   fail "External HTTP/1.1 negotiation was accepted."
 fi
 assert_original_config_restored "${external_rollback_root}"
+
+module_failure_root="${FIXTURE_ROOT}/sites-module-failure"
+module_failure_enabled_root="${FIXTURE_ROOT}/enabled-module-failure"
+write_all_sites "${module_failure_root}" "${module_failure_enabled_root}"
+if run_script "${module_failure_root}" "${module_failure_enabled_root}" env FAKE_NGINX_HTTP2_MODULE=0; then
+  fail "Missing Nginx HTTP/2 module was accepted."
+fi
+assert_original_config_restored "${module_failure_root}"
 
 ambiguous_root="${FIXTURE_ROOT}/sites-ambiguous"
 ambiguous_enabled_root="${FIXTURE_ROOT}/enabled-ambiguous"

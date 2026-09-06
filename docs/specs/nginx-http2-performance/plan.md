@@ -17,6 +17,9 @@
    em stage para `app.stage`, `app`, `fortcordis.com.br` e `fortcordis.com`,
    validar o rollback localmente e confirmar ALPN HTTP/2 externo antes de
    promover o snapshot exato para producao.
+10. A tentativa `34013916876` passou em `nginx -t`, recebeu HTTP/1.1 e foi
+    revertida automaticamente. Antes de repeti-la, exigir modulo HTTP/2 e
+    aceitar diretivas `listen` com comentario final sem descartar o comentario.
 
 ## Rollback
 
