@@ -5982,17 +5982,16 @@ def atualizar_agendamento(
     novo_servico_id = update_data.get("servico_id", servico_original)
     alterando_servico = novo_servico_id != servico_original
     inicio_original_local = _to_local_naive(inicio_original)
-    hoje_local = datetime.now(LOCAL_TZ).date()
-    alterando_servico_de_hoje = bool(
-        alterando_servico
-        and inicio_original_local is not None
-        and inicio_original_local.date() == hoje_local
+    agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None)
+    atendimento_ja_iniciado = bool(
+        inicio_original_local is not None and inicio_original_local <= agora_local
     )
+    alterando_servico_de_hoje = bool(alterando_servico and atendimento_ja_iniciado)
     if alterando_servico_de_hoje:
         if not _usuario_tem_papel(current_user, "admin"):
             raise HTTPException(
                 status_code=403,
-                detail="Somente administradores podem alterar o servico de um agendamento de hoje.",
+                detail="Somente administradores podem alterar o servico de um atendimento ja iniciado.",
             )
         if not confirmar_alteracao_servico_hoje:
             raise HTTPException(
@@ -6000,7 +5999,7 @@ def atualizar_agendamento(
                 detail={
                     "codigo": "CONFIRMACAO_ALTERACAO_SERVICO_HOJE",
                     "mensagem": (
-                        "Confirme a alteracao administrativa do servico deste agendamento de hoje."
+                        "Confirme a alteracao administrativa do servico deste atendimento ja iniciado."
                     ),
                     "confirmavel": True,
                 },

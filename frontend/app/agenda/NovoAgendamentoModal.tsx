@@ -1002,6 +1002,21 @@ export default function NovoAgendamentoModal({
     return toInputDate(agora);
   };
 
+  const agoraFortalezaIso = (): string => {
+    const partes = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Fortaleza",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date());
+    const valor = Object.fromEntries(partes.map((parte) => [parte.type, parte.value]));
+    return `${valor.year}-${valor.month}-${valor.day}T${valor.hour}:${valor.minute}:${valor.second}`;
+  };
+
   const toBrDate = (isoDate?: string): string => {
     const match = String(isoDate || "")
       .trim()
@@ -3206,21 +3221,30 @@ export default function NovoAgendamentoModal({
       const dataOriginalAgendamento = String(
         agendamento?.data || String(agendamento?.inicio || "").slice(0, 10)
       );
+      const horaOriginalAgendamento = String(
+        agendamento?.hora || String(agendamento?.inicio || "").slice(11, 16)
+      );
+      const inicioOriginalIso =
+        dataOriginalAgendamento && horaOriginalAgendamento
+          ? `${dataOriginalAgendamento}T${horaOriginalAgendamento.padEnd(8, ":00")}`
+          : null;
+      const atendimentoJaIniciado =
+        !!inicioOriginalIso && inicioOriginalIso <= agoraFortalezaIso();
       const alterandoServicoDeHoje =
         isEditando &&
         servicoOriginalId !== String(formData.servico_id || "") &&
-        dataOriginalAgendamento === hojeLocalIso();
+        atendimentoJaIniciado;
 
       if (alterandoServicoDeHoje) {
         if (!isAdmin) {
           throw new Error(
-            "Somente administradores podem alterar o servico de um agendamento de hoje."
+            "Somente administradores podem alterar o servico de um atendimento ja iniciado."
           );
         }
         const confirmouAlteracao = await fortinho.confirm({
           title: "Confirmar alteração do serviço",
           message:
-            "Este agendamento é de hoje. Deseja confirmar a troca administrativa do serviço? Se o atendimento já tiver iniciado, o horário original será preservado.",
+            "Este atendimento já foi iniciado. Deseja confirmar a troca administrativa do serviço? O horário original será preservado.",
           mood: "alert",
           gesture: "open-arms",
           confirmLabel: "Confirmar alteração",
