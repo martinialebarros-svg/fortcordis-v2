@@ -83,7 +83,7 @@ Objetivo: impedir espera infinita e recuperar o Financeiro, rota mais critica da
 | PERF-15 | Separar API web e workers periodicos | concluido em producao | workers nao competem no mesmo processo da API |
 | PERF-16 | Habilitar e validar HTTP/2 no Nginx | bloqueado: quatro vhosts compartilham `0.0.0.0:443`; dois institucionais estao fora da autorizacao | `curl --http2` negocia HTTP/2 nos hosts `app.stage` e `app` |
 | PERF-17 | Persistir p50/p95/p99, tempo de banco e espera de pool | concluido em producao | painel administrativo, retenção limitada e comparação por release implementados e validados autenticadamente |
-| PERF-18 | Tornar o gate autenticado e sensivel a latencia | em andamento | 401/403 nao contam como sucesso e p95 excedido bloqueia release |
+| PERF-18 | Tornar o gate autenticado e sensivel a latencia | concluido em producao | 401/403 nao contam como sucesso e p95 excedido bloqueia release |
 
 A tentativa atomica autorizada criou backup, passou em `nginx -t` e ainda assim
 a negociacao permaneceu em HTTP/1.1; a rotina restaurou a configuracao e o
@@ -116,11 +116,12 @@ As metas devem ser recalibradas depois que a telemetria persistente estiver disp
 
 ## 7. Dependencias e bloqueios conhecidos
 
-- Em 2026-08-29, `origin/main` e `origin/stage` possuem historicos divergentes. PRs para `stage` podem seguir, mas qualquer promocao desta trilha exige reconciliacao e nova prova de ancestralidade.
-- A telemetria persistente foi validada autenticadamente em producao em 2026-09-06. A Agenda teve 478 amostras, sem 5xx, com p50 de 139,52 ms, p95 de 2.661,86 ms e p99 de 5.026,37 ms; o proximo gate mede o release novo sem registrar payloads.
+- Em 2026-09-06, `origin/main` e `origin/stage` foram reconciliados no snapshot `3aef3d7`; qualquer promocao futura continua exigindo nova prova de ancestralidade e de que o stage validado e o commit exato promovido.
+- A telemetria persistente foi validada autenticadamente em producao em 2026-09-06. Antes do gate, a Agenda teve 478 amostras, sem 5xx, com p50 de 139,52 ms, p95 de 2.661,86 ms e p99 de 5.026,37 ms. O PERF-18 foi publicado no mesmo dia: o canario autenticado do release `3aef3d7` mediu p95 de 459,24 ms (5/5 leituras) e o painel, apos o deploy, registrou p95 de 455,36 ms (8 amostras), ambos abaixo do limite de 1.200 ms e sem 5xx.
 - Alteracoes de Nginx, processos e banco exigem validacao em stage antes de producao.
 - PERF-15 foi publicado em 2026-09-02 com worker systemd separado, runtime gate e canario autenticado aprovados. PERF-16 deve manter backup e rollback do vhost antes do reload do Nginx.
 - Em 2026-09-03, a tentativa limitada a stage passou em `nginx -t`, mas permaneceu em HTTP/1.1 e foi restaurada automaticamente. `app.stage` e `app` compartilham a mesma VPS/Nginx na porta 443; o proximo ajuste precisa alterar os vhosts compartilhados de forma atomica e requer autorizacao explicita por tambem afetar producao.
+- PERF-18 foi validado em stage e producao com workflows terminais, smoke autenticado de Agenda/Desempenho e endpoints protegidos respondendo 401 sem sessao. O canario mede somente latencia e contrato agregado; nao registra payloads, dados clinicos nem segredos.
 
 ## 8. Referencias existentes
 

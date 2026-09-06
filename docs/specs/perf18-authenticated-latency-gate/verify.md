@@ -19,6 +19,6 @@
 
 ## Evidência de stage e produção
 
-- [ ] Stage: workflow terminal e canário autenticado aprovados.
-- [ ] Stage: smoke autenticado de Agenda e Desempenho aprovado.
-- [ ] Produção: promoção do snapshot exato de stage e canário aprovado.
+- [x] Stage: workflow terminal aprovado; canário autenticado do release `3aef3d7` com 5/5 leituras, p50 de 180,5 ms e p95 de 330,7 ms (limite 1.200 ms).
+- [x] Stage: smoke autenticado de Agenda e Desempenho aprovado; painel mostrou `3aef3d7`, p95 de 474,85 ms para Agenda e 0 erros 5xx.
+- [x] Produção: snapshot exato de stage promovido para `main` (`3aef3d7`), workflows terminais aprovados e canário com 5/5 leituras, p50 de 171,53 ms e p95 de 459,24 ms (limite 1.200 ms). Smoke autenticado mostrou p95 de 455,36 ms para Agenda e 0 erros 5xx.
