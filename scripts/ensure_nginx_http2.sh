@@ -42,6 +42,45 @@ trim() {
   printf '%s' "${value}"
 }
 
+vhost_declares_host() {
+  local expected_host="$1"
+  local site_file="$2"
+
+  run_with_sudo awk -v expected_host="${expected_host}" '
+    /^[[:space:]]*#/ { next }
+    {
+      line = $0
+      sub(/[[:space:]]*#.*/, "", line)
+
+      if (collecting) {
+        directive = directive " " line
+      } else if (line ~ /^[[:space:]]*server_name[[:space:]]+/) {
+        directive = line
+        collecting = 1
+      } else {
+        next
+      }
+
+      if (directive !~ /;/) {
+        next
+      }
+
+      sub(/^[[:space:]]*server_name[[:space:]]+/, "", directive)
+      sub(/;.*/, "", directive)
+      count = split(directive, names, /[[:space:]]+/)
+      for (name_index = 1; name_index <= count; name_index++) {
+        if (names[name_index] == expected_host) {
+          found = 1
+          exit
+        }
+      }
+      directive = ""
+      collecting = 0
+    }
+    END { exit(found ? 0 : 1) }
+  ' "${site_file}"
+}
+
 if [[ "${ENABLE_NGINX_HTTP2}" != "1" ]]; then
   log "HTTP/2 enablement disabled; skipping."
   exit 0
@@ -98,7 +137,7 @@ for host in "${expected_hosts[@]}"; do
     candidate="$(run_with_sudo readlink -f -- "${enabled_entry}" || true)"
     if [[ "${candidate}" == "${NGINX_HTTP2_SITE_ROOT}/"* ]] && \
       run_with_sudo test -f "${candidate}" && \
-      run_with_sudo grep -Fq -- "${host}" "${candidate}"; then
+      vhost_declares_host "${host}" "${candidate}"; then
       candidates+=("${candidate}")
     fi
   done
@@ -212,11 +251,23 @@ for host in "${expected_hosts[@]}"; do
     --resolve "${host}:443:127.0.0.1" \
     "https://${host}/" || true)"
   if [[ "${protocol}" != "2" && "${protocol}" != "2.0" ]]; then
-    echo "[nginx-http2] HTTP/2 verification failed for ${host}; negotiated '${protocol:-none}'." >&2
+    echo "[nginx-http2] Local HTTP/2 verification failed for ${host}; negotiated '${protocol:-none}'." >&2
     if [[ "${changed_count}" -gt 0 ]]; then
       restore_changed_vhosts
     fi
     exit 1
   fi
-  log "HTTP/2 verified for ${host}."
+  log "Local HTTP/2 verified for ${host}."
+
+  protocol="$(curl --noproxy '*' --silent --show-error --fail --http2 \
+    --connect-timeout 8 --max-time 20 --output /dev/null --write-out '%{http_version}' \
+    "https://${host}/" || true)"
+  if [[ "${protocol}" != "2" && "${protocol}" != "2.0" ]]; then
+    echo "[nginx-http2] External HTTP/2 verification failed for ${host}; negotiated '${protocol:-none}'." >&2
+    if [[ "${changed_count}" -gt 0 ]]; then
+      restore_changed_vhosts
+    fi
+    exit 1
+  fi
+  log "External HTTP/2 verified for ${host}."
 done

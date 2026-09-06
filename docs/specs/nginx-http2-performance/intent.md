@@ -10,13 +10,15 @@ no carregamento das rotas autenticadas.
 
 ## Objetivo
 
-Habilitar HTTP/2 de forma controlada nos vhosts HTTPS do app que compartilham o listener TLS, sem modificar hosts institucionais ou vhosts ambiguos. A autorizacao explicita para a operacao atomica de stage e producao foi recebida neste ciclo.
+Habilitar HTTP/2 de forma controlada nos quatro vhosts HTTPS que compartilham o listener TLS. A autorizacao explicita cobre a operacao atomica de stage e producao, incluindo os hosts institucionais mapeados para o mesmo listener.
 
 ## Escopo
 
 - Descobrir o arquivo Nginx pelo `server_name` esperado.
 - Inventariar em modo somente-leitura todos os listeners TLS e vhosts ativos
-  antes de incluir qualquer host adicional no conjunto atomico.
+  antes da escrita atomica.
+- Tratar `app.stage.fortcordis.com.br`, `app.fortcordis.com.br`,
+  `fortcordis.com.br` e `fortcordis.com` como o conjunto atomico autorizado.
 - Alterar somente diretivas `listen 443 ... ssl` que ainda nao contem `http2`.
 - Criar backup, validar a configuracao, recarregar Nginx e testar a negociacao HTTP/2.
 - Restaurar automaticamente o backup se qualquer etapa falhar.
@@ -29,13 +31,13 @@ backup. Os hosts de stage e producao compartilham a mesma VPS e listener TLS
 na porta 443. A proxima tentativa deve tratar o conjunto de vhosts como uma
 mudanca atomica de producao, mediante autorizacao explicita.
 
-Na tentativa atomica autorizada, a negociacao continuou em HTTP/1.1 mesmo apos
+Na tentativa atomica anterior, a negociacao continuou em HTTP/1.1 mesmo apos
 `nginx -t`; a rotina restaurou o backup e o deploy reverteu stage. O inventario
-somente-leitura posterior encontrou quatro vhosts ativos no socket
+somente-leitura de 2026-09-06 encontrou quatro vhosts ativos no socket
 `0.0.0.0:443`: `fortcordis-app`, `fortcordis-stage`, `fortcordis-com-br` e
-`fortcordis-www`. Todos estao sem HTTP/2; os dois ultimos sao institucionais e
-nao pertencem a autorizacao anterior. Logo, nao pode haver nova escrita antes
-de uma decisao explicita sobre o conjunto completo.
+`fortcordis-www`. Todos estao sem HTTP/2. A autorizacao atual cobre os quatro
+arquivos em uma escrita atomica; uma falha em configuracao, reload ou ALPN deve
+restaurar todo o conjunto.
 
 ## Fora de escopo
 

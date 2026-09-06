@@ -278,6 +278,8 @@ jobs:
           SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' \
             APP_DIR="$APP_DIR" \
             BRANCH="$BRANCH" \
+            ENABLE_NGINX_HTTP2=1 \
+            NGINX_HTTP2_EXPECTED_HOSTS=app.stage.fortcordis.com.br,app.fortcordis.com.br,fortcordis.com.br,fortcordis.com \
             ENABLE_WHATSAPP_STAGE_BACKEND=1 \
             WHATSAPP_STAGE_BACKEND_SERVICE=fortcordis-whatsapp-backend \
             WHATSAPP_STAGE_BACKEND_PORT=3020 \

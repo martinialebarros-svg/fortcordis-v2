@@ -424,7 +424,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            "SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' INVENTORY_HOSTS='app.stage.fortcordis.com.br,app.fortcordis.com.br' bash -s" \
+            "SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' INVENTORY_HOSTS='app.stage.fortcordis.com.br,stage.fortcordis.com.br,www.stage.fortcordis.com.br,app.fortcordis.com.br,fortcordis.com.br,www.fortcordis.com.br,fortcordis.com,www.fortcordis.com' bash -s" \
             < scripts/inventory_nginx_tls_listeners.sh
 
       - name: Run one-shot AI echo canary on Stage
