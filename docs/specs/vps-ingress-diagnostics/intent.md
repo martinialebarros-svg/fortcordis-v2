@@ -9,9 +9,11 @@ eventos de transporte.
 
 ## Objetivo
 
-Disponibilizar um diagnostico one-shot, explicitamente acionado no deploy de
-stage e estritamente somente-leitura para correlacionar probes HTTPS
-independentes com o estado agregado da porta 443, do kernel e do Nginx.
+Disponibilizar diagnosticos explicitamente acionados no deploy de stage e
+estritamente somente-leitura para correlacionar probes HTTPS independentes com
+o estado agregado da porta 443, do kernel e do Nginx. A segunda etapa mede
+deltas por uma janela limitada, separando contadores historicos de pressao que
+ocorre durante a observacao.
 
 ## Escopo
 
@@ -22,6 +24,11 @@ independentes com o estado agregado da porta 443, do kernel e do Nginx.
 - Coletar contagens agregadas de sockets, filas TCP, contadores do kernel,
   limites de arquivo e estado do Nginx.
 - Registrar apenas metadados de transporte e totais de erro do Nginx.
+- Executar, somente com o marcador `[vps-ingress-monitor]`, uma janela de
+  aproximadamente cinco minutos com trinta amostras da VPS e trinta probes
+  HTTPS externos em paralelo (ate oito minutos na serie externa com timeouts).
+- Registrar picos de ocupacao e deltas de contadores TCP sem listar conexoes
+  individuais nem enderecos de clientes.
 
 ## Fora de escopo
 

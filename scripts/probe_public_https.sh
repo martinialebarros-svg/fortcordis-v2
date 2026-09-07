@@ -47,7 +47,7 @@ main() {
 
   for ((attempt = 1; attempt <= PROBE_ATTEMPTS; attempt++)); do
     set +e
-    metrics="$(curl --silent --show-error --location --output /dev/null \
+    metrics="$(curl --disable --silent --show-error --location --proto '=https' --proto-redir '=https' --output /dev/null \
       --connect-timeout "${PROBE_CONNECT_TIMEOUT_SECONDS}" \
       --max-time "${PROBE_MAX_TIME_SECONDS}" \
       --write-out 'http=%{http_code} remote_ip=%{remote_ip} http_version=%{http_version} time_connect_s=%{time_connect} time_tls_s=%{time_appconnect} time_total_s=%{time_total}' \
@@ -63,8 +63,8 @@ main() {
       ((failure_count += 1))
     fi
 
-    printf 'PUBLIC_HTTPS_PROBE label=%s attempt=%s curl_exit=%s %s\n' \
-      "${PROBE_LABEL}" "${attempt}" "${curl_exit}" "${metrics:-transport_metrics_unavailable}"
+    printf 'PUBLIC_HTTPS_PROBE label=%s attempt=%s curl_exit=%s %s timestamp_utc=%s\n' \
+      "${PROBE_LABEL}" "${attempt}" "${curl_exit}" "${metrics:-transport_metrics_unavailable}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     if (( attempt < PROBE_ATTEMPTS && PROBE_INTERVAL_SECONDS > 0 )); then
       sleep "${PROBE_INTERVAL_SECONDS}"

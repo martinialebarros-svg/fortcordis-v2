@@ -34,6 +34,13 @@ jobs:
       - name: Test WhatsApp stage Meta isolation
         run: bash scripts/tests/test_whatsapp_stage_meta_isolation.sh
 
+      - name: Test VPS ingress diagnostics
+        run: |
+          bash scripts/tests/test_collect_vps_ingress_diagnostics.sh
+          bash scripts/tests/test_probe_public_https.sh
+          bash scripts/tests/test_monitor_vps_ingress_deltas.sh
+          bash scripts/tests/test_vps_ingress_diagnostics_stage_trigger.sh
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -449,6 +456,33 @@ jobs:
             PROBE_CONNECT_TIMEOUT_SECONDS=4 \
             PROBE_MAX_TIME_SECONDS=6 \
             bash scripts/probe_public_https.sh
+
+      - name: Run bounded VPS ingress delta monitor on Stage
+        if: contains(github.event.head_commit.message, '[vps-ingress-monitor]')
+        timeout-minutes: 9
+        run: |
+          PROBE_URL=https://app.stage.fortcordis.com.br/dashboard \
+            PROBE_LABEL=stage_dashboard_monitor \
+            PROBE_ATTEMPTS=30 \
+            PROBE_INTERVAL_SECONDS=10 \
+            PROBE_CONNECT_TIMEOUT_SECONDS=4 \
+            PROBE_MAX_TIME_SECONDS=6 \
+            bash scripts/probe_public_https.sh &
+          probe_pid=$!
+
+          set +e
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=2 \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            'cd /var/www/fortcordis-stage && test "$(git rev-parse HEAD)" = "${{ github.sha }}" && INGRESS_MONITOR_SAMPLES=30 INGRESS_MONITOR_INTERVAL_SECONDS=10 timeout --kill-after=5 360 bash scripts/monitor_vps_ingress_deltas.sh'
+          monitor_exit=$?
+          wait "${probe_pid}"
+          probe_exit=$?
+          set -e
+
+          if (( monitor_exit != 0 || probe_exit != 0 )); then
+            echo "Bounded VPS ingress delta monitor could not complete."
+            exit 1
+          fi
 
       - name: Run one-shot AI echo canary on Stage
         if: contains(github.event.head_commit.message, '[ai-echo-canary]')
