@@ -1,0 +1,60 @@
+name: VPS Ingress Diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fortcordis-vps-ingress-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  diagnose-stage-ingress:
+    name: Diagnose stage ingress (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout diagnostic scripts
+        uses: actions/checkout@v5
+
+      - name: Probe public stage ingress before VPS snapshot
+        env:
+          PROBE_URL: https://app.stage.fortcordis.com.br/dashboard
+          PROBE_LABEL: stage_dashboard_before_snapshot
+          PROBE_ATTEMPTS: "20"
+          PROBE_INTERVAL_SECONDS: "1"
+          PROBE_CONNECT_TIMEOUT_SECONDS: "4"
+          PROBE_MAX_TIME_SECONDS: "6"
+        run: bash scripts/probe_public_https.sh
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS to known hosts
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Collect read-only VPS ingress snapshot
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          ssh -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 \
+            "$VPS_USER@$VPS_HOST" 'bash -s --' < scripts/collect_vps_ingress_diagnostics.sh
+
+      - name: Probe public stage ingress after VPS snapshot
+        env:
+          PROBE_URL: https://app.stage.fortcordis.com.br/dashboard
+          PROBE_LABEL: stage_dashboard_after_snapshot
+          PROBE_ATTEMPTS: "20"
+          PROBE_INTERVAL_SECONDS: "1"
+          PROBE_CONNECT_TIMEOUT_SECONDS: "4"
+          PROBE_MAX_TIME_SECONDS: "6"
+        run: bash scripts/probe_public_https.sh
