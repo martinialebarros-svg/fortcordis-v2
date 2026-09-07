@@ -2,8 +2,10 @@
 
 ## Requisitos funcionais
 
-- RF-001: `vps-ingress-diagnostics.yml` deve ter apenas o gatilho manual
-  `workflow_dispatch` e uma unica coleta direcionada a stage.
+- RF-001: o deploy de stage deve executar uma unica coleta direcionada a stage
+  somente quando a mensagem do commit contiver
+  `[vps-ingress-diagnostics]`; sem o marcador, nao deve haver probe ou SSH
+  adicional.
 - RF-002: cada execucao deve realizar duas series de vinte probes HTTPS sem
   corpo, cookies ou cabecalhos de autenticacao, uma antes e outra depois da
   coleta remota.
@@ -28,7 +30,7 @@
   arquivo ou limpeza de recurso remoto.
 - NFR-002: os logs nao podem incluir secrets, arquivos de configuracao, linhas
   brutas de journal, corpo HTTP, cookies ou cabecalhos de autenticacao.
-- NFR-003: o job deve ter `contents: read`, timeout de doze minutos e evitar
-  execucoes concorrentes.
+- NFR-003: a coleta deve usar a etapa existente de deploy de stage, sem criar
+  um workflow manual dependente da branch padrao do GitHub.
 - NFR-004: o workflow nao altera stage nem producao e nao constitui prova de
   uma correcao; seus dados apenas orientam uma alteracao posterior autorizada.

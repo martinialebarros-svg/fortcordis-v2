@@ -427,6 +427,29 @@ jobs:
             "SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' INVENTORY_HOSTS='app.stage.fortcordis.com.br,stage.fortcordis.com.br,www.stage.fortcordis.com.br,app.fortcordis.com.br,fortcordis.com.br,www.fortcordis.com.br,fortcordis.com,www.fortcordis.com' bash -s" \
             < scripts/inventory_nginx_tls_listeners.sh
 
+      - name: Run one-shot VPS ingress diagnostics on Stage
+        if: contains(github.event.head_commit.message, '[vps-ingress-diagnostics]')
+        run: |
+          PROBE_URL=https://app.stage.fortcordis.com.br/dashboard \
+            PROBE_LABEL=stage_dashboard_before_snapshot \
+            PROBE_ATTEMPTS=20 \
+            PROBE_INTERVAL_SECONDS=1 \
+            PROBE_CONNECT_TIMEOUT_SECONDS=4 \
+            PROBE_MAX_TIME_SECONDS=6 \
+            bash scripts/probe_public_https.sh
+
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            'bash -s --' < scripts/collect_vps_ingress_diagnostics.sh
+
+          PROBE_URL=https://app.stage.fortcordis.com.br/dashboard \
+            PROBE_LABEL=stage_dashboard_after_snapshot \
+            PROBE_ATTEMPTS=20 \
+            PROBE_INTERVAL_SECONDS=1 \
+            PROBE_CONNECT_TIMEOUT_SECONDS=4 \
+            PROBE_MAX_TIME_SECONDS=6 \
+            bash scripts/probe_public_https.sh
+
       - name: Run one-shot AI echo canary on Stage
         if: contains(github.event.head_commit.message, '[ai-echo-canary]')
         run: |

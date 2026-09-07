@@ -10,8 +10,9 @@ backend/venv/bin/python - <<'PY'
 import pathlib
 import yaml
 
-yaml.safe_load(pathlib.Path('.github/workflows/vps-ingress-diagnostics.yml').read_text())
-print('workflow YAML valid')
+payload = yaml.safe_load(pathlib.Path('.github/workflows/deploy-stage.yml').read_text())
+assert 'deploy-stage' in payload['jobs']
+print('stage workflow YAML valid')
 PY
 git diff --check origin/stage...HEAD
 python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEAD
@@ -30,7 +31,7 @@ python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEA
 
 ## Validacao de rollout pendente
 
-Depois de publicacao explicitamente autorizada em stage, disparar o workflow
-manual a partir da referencia que o contem e correlacionar os dois resumos de
+Depois de publicacao explicitamente autorizada em stage, usar uma mensagem de
+commit com `[vps-ingress-diagnostics]` e correlacionar os dois resumos de
 probes com o snapshot da VPS. Nenhum achado deve ser tratado como causa sem
 repeticao independente ou contador correspondente.

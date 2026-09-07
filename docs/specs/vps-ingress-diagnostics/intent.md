@@ -9,13 +9,14 @@ eventos de transporte.
 
 ## Objetivo
 
-Disponibilizar um diagnostico manual, temporariamente acionavel e estritamente
-somente-leitura para correlacionar probes HTTPS independentes com o estado
-agregado da porta 443, do kernel e do Nginx.
+Disponibilizar um diagnostico one-shot, explicitamente acionado no deploy de
+stage e estritamente somente-leitura para correlacionar probes HTTPS
+independentes com o estado agregado da porta 443, do kernel e do Nginx.
 
 ## Escopo
 
-- Executar somente por `workflow_dispatch`.
+- Executar somente quando o commit de stage incluir o marcador
+  `[vps-ingress-diagnostics]`.
 - Amostrar `https://app.stage.fortcordis.com.br/dashboard` antes e depois da
   coleta na VPS, descartando o corpo e sem cookies ou credenciais.
 - Coletar contagens agregadas de sockets, filas TCP, contadores do kernel,

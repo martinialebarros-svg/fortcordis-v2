@@ -4,13 +4,13 @@
    corpo descartado.
 2. Criar um coletor remoto sem comandos mutaveis, com saida agregada da porta
    443, TCP, conntrack, descritores, Nginx e categorias de erro recentes.
-3. Executar o coletor por SSH em um workflow exclusivamente manual, com
-   permissoes minimas de leitura de conteudo no GitHub.
+3. Executar o coletor por SSH como etapa one-shot do deploy de stage somente
+   quando o commit contiver `[vps-ingress-diagnostics]`; isso evita depender
+   de um workflow manual fora da branch padrao do GitHub.
 4. Cobrir os dois scripts com binarios simulados e validar sintaxe Bash e YAML
    localmente.
-5. Publicar ou executar o workflow somente mediante solicitacao explicita de
-   release; interpretar os contadores junto aos probes antes de qualquer ajuste
-   de infraestrutura.
+5. Publicar o commit marcado somente mediante solicitacao explicita; interpretar
+   os contadores junto aos probes antes de qualquer ajuste de infraestrutura.
 
 ## Reversibilidade
 
