@@ -75,6 +75,7 @@ describe("WhatsAppStagePage", () => {
   const routerComEstadoDoBot = (estadoDoBot: Record<string, unknown> | null) =>
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
       if (url.startsWith("/whatsapp/conversations?")) {
         return jsonResponse({
           data: [{
@@ -164,6 +165,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
 
         if (url.startsWith("/whatsapp/conversations?")) {
           return jsonResponse({
@@ -254,6 +256,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         const customerServiceWindow = {
           last_inbound_at: "2026-08-14T02:26:00.000Z",
           expires_at: "2026-08-15T02:26:00.000Z",
@@ -338,6 +341,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         requestedUrls.push(url);
 
         if (url.startsWith("/whatsapp/conversations?")) {
@@ -454,6 +458,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         if (url.startsWith("/whatsapp/conversations?")) {
           return jsonResponse({
             data: [{
@@ -511,6 +516,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
           data: [{ id: "3926", wa_phone_number: "5585999990001", wa_psid: null, status: "open", subject: "Contato compartilhado",
             last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: null,
@@ -553,6 +559,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
           data: [
             { id: "1", wa_phone_number: "558511111111", wa_psid: null, status: "open", subject: "Conversa Um", last_agent_id: null,
@@ -615,6 +622,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         const method = init?.method || "GET";
         if (method !== "GET") {
           requestedCalls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
@@ -704,6 +712,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
           data: [{ id: "3926", wa_phone_number: "558500000000", wa_psid: null, status: "open", subject: "Sem responsável",
             last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: null,
@@ -747,6 +756,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
           data: [{ id: "3926", wa_phone_number: "558500000000", wa_psid: null, status: "open", subject: "Sem responsável",
             last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: null,
@@ -787,6 +797,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         if ((init?.method || "GET") === "PATCH") patchCalls.push(url);
 
         if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
@@ -851,6 +862,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
           data: [{ id: "70", wa_phone_number: "558533330000", wa_psid: null, status: "open", subject: "Foto do exame",
             last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: "2026-08-14T02:26:00.000Z",
@@ -900,6 +912,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
           data: [{ id: "80", wa_phone_number: "558544440000", wa_psid: null, status: "open", subject: "Áudio recebido",
             last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: "2026-08-14T02:26:00.000Z",
@@ -949,6 +962,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         const method = init?.method || "GET";
         if (method !== "GET") {
           requestedCalls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
@@ -1014,6 +1028,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         const method = init?.method || "GET";
 
         if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
@@ -1077,6 +1092,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
           data: [{ id: "121", wa_phone_number: "558577770000", wa_psid: null, status: "open", subject: "Anexo invalido",
             last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: "2026-08-14T02:26:00.000Z",
@@ -1115,6 +1131,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
           data: [
             { id: "200", wa_phone_number: "558511110000", wa_psid: null, status: "open", subject: "Primeira conversa",
@@ -1164,6 +1181,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
           data: [{ id: "210", wa_phone_number: "558533330001", wa_psid: null, status: "open", subject: "Troca de anexo",
             last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: "2026-08-14T02:26:00.000Z",
@@ -1207,6 +1225,7 @@ describe("WhatsAppStagePage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+      if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
         if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
           data: [{ id: "220", wa_phone_number: "558533330002", wa_psid: null, status: "open", subject: "Anexo com falha",
             last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: "2026-08-14T02:26:00.000Z",

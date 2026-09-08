@@ -19,6 +19,7 @@ import {
 } from "@/lib/whatsapp-message-retry";
 import { useWhatsAppDrafts } from "@/lib/use-whatsapp-drafts";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+import QuickReplyLibrary from "@/components/whatsapp/QuickReplyLibrary";
 
 type AssignedFilter = "all" | "assigned" | "unassigned" | "mine";
 type ConversationStatus = "open" | "pending" | "closed";
@@ -37,6 +38,9 @@ interface Conversation {
   last_inbound_at?: string | null;
   last_seen_at?: string | null;
   unread?: boolean;
+  needs_reply?: boolean;
+  waiting_since?: string | null;
+  last_message_id?: string | null;
   created_at: string;
   updated_at: string;
   last_message_body?: string | null;
@@ -85,11 +89,12 @@ interface TemplateCatalogItem {
 
 interface Pagination { page: number; limit: number; total: number }
 interface ApiResult<T> { ok: boolean; status: number; data: T | null; errorText?: string }
-interface QueueSummary { total: number; unread: number; unassigned: number; open: number; pending: number; closed: number }
+interface QueueSummary { total: number; unread: number; unassigned: number; open: number; pending: number; closed: number; needs_reply?: number }
 interface ConversationsResponse { data: Conversation[]; pagination: Pagination; summary?: QueueSummary }
 interface AgentsResponse { data: Agent[] }
 interface MessagesResponse {
   data: Message[];
+  last_message_id?: string | null;
   pagination: Pagination;
   last_inbound_at?: string | null;
   customer_service_window: CustomerServiceWindow;
@@ -193,11 +198,6 @@ const BOT_SILENCIO_MOTIVOS: Record<string, string> = {
 const MESSAGE_STATUS_REFRESH_INTERVAL_MS = 5_000;
 const QUEUE_REFRESH_INTERVAL_MS = 15_000;
 const CUSTOMER_SERVICE_WINDOW_CLOCK_INTERVAL_MS = 30_000;
-const QUICK_RESPONSES = [
-  "Olá! Como podemos ajudar?",
-  "Recebemos sua mensagem e já estamos verificando.",
-  "Obrigada. Permanecemos à disposição.",
-];
 const CONVERSATION_STATUS_OPTIONS: Array<{ value: "" | ConversationStatus; label: string }> = [
   { value: "", label: "Todas" },
   { value: "open", label: "Em atendimento" },
@@ -306,6 +306,16 @@ function formatPhone(value: string): string {
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
+}
+
+function formatWaitingTime(since: string | null | undefined, now: number): string {
+  if (!since || !Number.isFinite(Date.parse(since))) return "Precisa de resposta";
+  const minutes = Math.max(0, Math.floor((now - Date.parse(since)) / 60_000));
+  if (minutes < 1) return "Aguardando há menos de 1 min";
+  if (minutes < 60) return `Aguardando há ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Aguardando há ${hours} h ${minutes % 60} min`;
+  return `Aguardando há ${Math.floor(hours / 24)} d ${hours % 24} h`;
 }
 
 function conversationStatusLabel(status: string): string {
@@ -475,6 +485,11 @@ export default function WhatsAppStagePage() {
   const queueBusyRef = useRef(false);
   const appliedSearchRef = useRef("");
   const [unreadFilter, setUnreadFilter] = useState(false);
+  const [needsReplyFilter, setNeedsReplyFilter] = useState(false);
+  const selectionVersionRef = useRef(0);
+  const viewedMessageIdRef = useRef<Record<string, string | null>>({});
+  const statusActionRef = useRef(false);
+  const assignmentActionRef = useRef(false);
   const [selectedConversationSnapshot, setSelectedConversationSnapshot] = useState<Conversation | null>(null);
   const messageRequestRef = useRef(0);
   const messageReadsRef = useRef(0);
@@ -563,6 +578,21 @@ export default function WhatsAppStagePage() {
     if (!myEmail) return null;
     return agents.find((agent) => agent.active && agent.email?.trim().toLowerCase() === myEmail)?.id || null;
   }, [agents, currentUser]);
+  const queueViewKey = JSON.stringify([statusFilter, assignedFilter, searchFilter, unreadFilter, needsReplyFilter, conversationsPagination.page]);
+  const queueViewKeyRef = useRef(queueViewKey);
+  const queueViewVersionRef = useRef(0);
+  if (queueViewKeyRef.current !== queueViewKey) {
+    queueViewKeyRef.current = queueViewKey;
+    queueViewVersionRef.current += 1;
+  }
+  const shortcutMatch = sendMessageBody.match(/(?:^|\s)\/([a-zA-Z0-9_-]*)$/);
+  const insertQuickReply = (body: string): void => {
+    if (!selectedConversationId || !windowState.isOpen) return;
+    setSendMessageBody(shortcutMatch
+      ? sendMessageBody.slice(0, sendMessageBody.length - shortcutMatch[1].length - 1) + body
+      : sendMessageBody.trim() ? `${sendMessageBody}\n\n${body}` : body);
+    composerRef.current?.focus();
+  };
   const templatePreview = selectedTemplate ? renderTemplateBody(selectedTemplate, templateParameters) : "";
   const templateComplete = Boolean(selectedTemplate &&
     templateParameters.length === selectedTemplate.body_parameter_count &&
@@ -570,6 +600,7 @@ export default function WhatsAppStagePage() {
 
   const selectConversation = (conversation: Conversation): void => {
     if (selectedConversationIdRef.current !== conversation.id) {
+      selectionVersionRef.current += 1;
       setBotConversationState(null); setLoadingBotState(false); setEditingBotDraft(false); setEditedBotDraft("");
       setInfoMessage(null); setErrorMessage(null);
     }
@@ -580,7 +611,7 @@ export default function WhatsAppStagePage() {
 
   const loadConversations = async (
     page = 1,
-    overrides: { status?: "" | ConversationStatus; assigned?: AssignedFilter; search?: string; unread?: boolean; silent?: boolean } = {},
+    overrides: { status?: "" | ConversationStatus; assigned?: AssignedFilter; search?: string; unread?: boolean; needsReply?: boolean; silent?: boolean } = {},
   ): Promise<void> => {
     const requestId = ++queueRequestRef.current;
     queueAbortRef.current?.abort();
@@ -601,6 +632,7 @@ export default function WhatsAppStagePage() {
         params.set("agent_id", myAgentId);
       } else if (effectiveAssigned !== "all") params.set("assigned", effectiveAssigned);
       if (overrides.unread ?? unreadFilter) params.set("unread", "true");
+      if (overrides.needsReply ?? needsReplyFilter) params.set("needs_reply", "true");
       if (effectiveSearch) params.set("search", effectiveSearch);
       const result = await requestJson<ConversationsResponse>(`/whatsapp/conversations?${params}`, { signal: controller.signal });
       if (requestId !== queueRequestRef.current) return;
@@ -641,6 +673,10 @@ export default function WhatsAppStagePage() {
       const result = await requestJson<MessagesResponse>(`/whatsapp/conversations/${conversationId}/messages?${params}`, { signal: controller.signal });
       if (!current()) return;
       if (!result.ok || !result.data) throw new Error("Não foi possível carregar as mensagens. Atualize a conversa para tentar novamente.");
+      if (page === 1) {
+        viewedMessageIdRef.current[conversationId] = result.data.last_message_id ??
+          result.data.data.reduce<string | null>((max, item) => max === null || item.id.localeCompare(max, undefined, { numeric: true }) > 0 ? item.id : max, null);
+      }
       if (page > 1 && messageStreamRef.current) prependScrollRef.current = {
         height: messageStreamRef.current.scrollHeight, top: messageStreamRef.current.scrollTop,
       };
@@ -863,16 +899,22 @@ export default function WhatsAppStagePage() {
     await loadAgents();
   };
 
-  const handleClaimToggle = async (mode: "claim" | "unclaim", requestedAgentId?: string): Promise<void> => {
-    if (!selectedConversationId || savingAssignment) return;
+  const handleClaimToggle = async (mode: "claim" | "unclaim", requestedAgentId?: string, onlyIfUnassigned = false): Promise<void> => {
+    if (!selectedConversationId || assignmentActionRef.current) return;
     const requestConversationId = selectedConversationId;
     const targetAgentId = requestedAgentId || agentActionId;
     if (!targetAgentId) { setErrorMessage("Selecione um atendente."); return; }
-    setSavingAssignment(true); setErrorMessage(null);
+    assignmentActionRef.current = true; setSavingAssignment(true); setErrorMessage(null);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
     try {
-      const result = await requestJson<{ message: string }>(`/whatsapp/conversations/${requestConversationId}/${mode}`, {
-        method: "POST", body: JSON.stringify({ agent_id: Number(targetAgentId) }),
+      const result = await requestJson<{ message: string; code?: string }>(`/whatsapp/conversations/${requestConversationId}/${mode}`, {
+        method: "POST", signal: controller.signal, body: JSON.stringify({ agent_id: Number(targetAgentId), ...(onlyIfUnassigned ? { only_if_unassigned: true } : {}) }),
       });
+      if (result.status === 409 && result.data?.code === "CONVERSATION_ALREADY_ASSIGNED") {
+        latestQueueRefreshRef.current();
+        throw new Error("Esta conversa já foi assumida por outra pessoa. O responsável foi mantido.");
+      }
       if (!result.ok) throw new Error(result.errorText || "Não foi possível atualizar o responsável.");
       const agent = mode === "claim" ? agents.find((item) => item.id === targetAgentId) : null;
       const update = (conversation: Conversation) => conversation.id === requestConversationId ? { ...conversation,
@@ -885,23 +927,68 @@ export default function WhatsAppStagePage() {
       latestQueueRefreshRef.current();
     } catch (error) {
       if (selectedConversationIdRef.current === requestConversationId) setErrorMessage(error instanceof Error ? error.message : "Não foi possível atualizar o responsável. Tente novamente.");
-    } finally { setSavingAssignment(false); }
+    } finally { window.clearTimeout(timeout); assignmentActionRef.current = false; setSavingAssignment(false); }
   };
 
-  const handleStatusChange = async (status: ConversationStatus): Promise<void> => {
-    if (!selectedConversationId || status === selectedConversation?.status) return;
+  const handleStatusChange = async (status: ConversationStatus, openNext = false): Promise<void> => {
+    if (!selectedConversationId || status === selectedConversation?.status || statusActionRef.current) return;
     const requestConversationId = selectedConversationId;
-    setSavingStatus(true); setErrorMessage(null);
+    const selectionVersion = selectionVersionRef.current;
+    const viewVersion = queueViewVersionRef.current;
+    const isSameSelection = () => selectedConversationIdRef.current === requestConversationId && selectionVersionRef.current === selectionVersion;
+    if (status === "closed" && !(requestConversationId in viewedMessageIdRef.current)) {
+      setErrorMessage("Aguarde o histórico carregar antes de resolver a conversa."); return;
+    }
+    statusActionRef.current = true; setSavingStatus(true); setErrorMessage(null);
+    let resolved = false;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
     try {
-      const result = await requestJson<{ data: Conversation; changed: boolean }>(
-        `/whatsapp/conversations/${selectedConversationId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
-      if (!result.ok) throw new Error(result.errorText || `Falha ao atualizar status (HTTP ${result.status})`);
-      setConversations((items) => items.map((item) => item.id === requestConversationId ? { ...item, status } : item));
-      setSelectedConversationSnapshot((item) => item?.id === requestConversationId ? { ...item, status } : item);
-      if (selectedConversationIdRef.current === requestConversationId) setInfoMessage(`Conversa marcada como ${conversationStatusLabel(status).toLowerCase()}.`);
-      latestQueueRefreshRef.current();
-    } catch (error) { setErrorMessage(error instanceof Error ? error.message : "Erro ao atualizar o status"); }
-    finally { setSavingStatus(false); }
+      const result = await requestJson<{ data: Conversation; changed: boolean; code?: string }>(
+        `/whatsapp/conversations/${requestConversationId}/status`, {
+          method: "PATCH", signal: controller.signal, body: JSON.stringify({ status, ...(status === "closed"
+            ? { expected_last_message_id: viewedMessageIdRef.current[requestConversationId] } : {}) }),
+        });
+      if (result.status === 409 && result.data?.code === "CONVERSATION_CHANGED") {
+        if (isSameSelection()) {
+          setErrorMessage("Chegou uma nova mensagem. Revise o histórico antes de resolver a conversa.");
+          void loadMessages(requestConversationId, 1);
+        }
+        latestQueueRefreshRef.current(); return;
+      }
+      if (!result.ok) throw new Error("Não foi possível atualizar o status. Tente novamente.");
+      resolved = status === "closed";
+      const update = (item: Conversation): Conversation => item.id === requestConversationId
+        ? { ...item, status, ...(resolved ? { needs_reply: false, waiting_since: null } : {}) } : item;
+      setConversations((items) => items.map(update));
+      setSelectedConversationSnapshot((item) => item ? update(item) : null);
+      if (isSameSelection()) setInfoMessage(`Conversa marcada como ${conversationStatusLabel(status).toLowerCase()}.`);
+      if (!openNext || !isSameSelection() || queueViewVersionRef.current !== viewVersion) {
+        latestQueueRefreshRef.current(); return;
+      }
+      // Consulta nova: a próxima pendência pode estar fora da página já carregada.
+      const params = new URLSearchParams({ page: "1", limit: "2", needs_reply: "true" });
+      if (statusFilter) params.set("status", statusFilter);
+      if (searchFilter.trim()) params.set("search", searchFilter.trim());
+      if (unreadFilter) params.set("unread", "true");
+      if (assignedFilter === "mine") {
+        if (!myAgentId) return;
+        params.set("agent_id", myAgentId);
+      } else if (assignedFilter !== "all") params.set("assigned", assignedFilter);
+      const nextResult = await requestJson<ConversationsResponse>(`/whatsapp/conversations?${params}`);
+      if (!isSameSelection() || queueViewVersionRef.current !== viewVersion) return;
+      if (!nextResult.ok || !nextResult.data) throw new Error("Conversa resolvida. Não foi possível carregar a próxima pendência; atualize a fila.");
+      const next = nextResult.data.data.find((item) => item.id !== requestConversationId);
+      if (next) { selectConversation(next); setInfoMessage("Conversa resolvida. Próxima pendência aberta."); }
+      else setInfoMessage("Conversa resolvida. Não há outra pendência nos filtros atuais.");
+    } catch (error) {
+      if (isSameSelection()) setErrorMessage(error instanceof Error ? error.message :
+        resolved ? "Conversa resolvida. Atualize a fila para continuar." : "Erro ao atualizar o status.");
+    } finally {
+      window.clearTimeout(timeout);
+      if (openNext && resolved) latestQueueRefreshRef.current();
+      statusActionRef.current = false; setSavingStatus(false);
+    }
   };
 
   const clearAttachment = (): void => {
@@ -1126,6 +1213,10 @@ export default function WhatsAppStagePage() {
         </header>
 
         <section className="fc-wa-metrics" aria-label="Resumo do atendimento WhatsApp">
+          <button type="button" className="fc-wa-metric fc-wa-metric-amber fc-wa-metric-action" aria-label="Ver conversas que precisam de resposta" onClick={() => {
+            setNeedsReplyFilter(true); setUnreadFilter(false); setStatusFilter(""); setSearchFilter(""); setAssignedFilter("all");
+            void loadConversations(1, { needsReply: true, unread: false, status: "", search: "", assigned: "all" });
+          }}><Clock3 className="h-5 w-5" /><strong>{queueSummary?.needs_reply ?? "—"}</strong><span>Precisam de resposta · total</span></button>
           <div className="fc-wa-metric fc-wa-metric-cordis"><MessagesSquare className="h-5 w-5" /><strong>{queueSummary?.total ?? "—"}</strong><span>Conversas cadastradas</span></div>
           <div className="fc-wa-metric fc-wa-metric-vital"><MessageSquare className="h-5 w-5" /><strong>{queueSummary?.unread ?? "—"}</strong><span>Conversas não lidas</span></div>
           <div className="fc-wa-metric fc-wa-metric-amber"><UserCheck className="h-5 w-5" /><strong>{queueSummary?.unassigned ?? "—"}</strong><span>Sem responsável · total</span></div>
@@ -1154,13 +1245,17 @@ export default function WhatsAppStagePage() {
               onChange={(event) => { const value = event.target.value as AssignedFilter; setAssignedFilter(value); void loadConversations(1, { assigned: value }); }} aria-label="Filtrar por responsável">
               <option value="all">Todos os responsáveis</option><option value="mine" disabled={!myAgentId}>Minhas conversas</option><option value="assigned">Com responsável</option><option value="unassigned">Sem responsável</option></select></div>
             <div className="fc-wa-queue-tools">
+              <label><input type="checkbox" checked={needsReplyFilter} onChange={(event) => {
+                setNeedsReplyFilter(event.target.checked); void loadConversations(1, { needsReply: event.target.checked });
+              }} /> Precisa de resposta</label>
               <label><input type="checkbox" checked={unreadFilter} onChange={(event) => {
                 setUnreadFilter(event.target.checked); void loadConversations(1, { unread: event.target.checked });
               }} /> Somente não lidas</label>
-              {searchFilter || statusFilter || assignedFilter !== "all" || unreadFilter ? <button type="button" onClick={() => {
-                setSearchFilter(""); setStatusFilter(""); setAssignedFilter("all"); setUnreadFilter(false);
-                void loadConversations(1, { search: "", status: "", assigned: "all", unread: false });
+              {searchFilter || statusFilter || assignedFilter !== "all" || unreadFilter || needsReplyFilter ? <button type="button" onClick={() => {
+                setSearchFilter(""); setStatusFilter(""); setAssignedFilter("all"); setUnreadFilter(false); setNeedsReplyFilter(false);
+                void loadConversations(1, { search: "", status: "", assigned: "all", unread: false, needsReply: false });
               }}>Limpar filtros</button> : null}
+              {needsReplyFilter ? <small>Mais antigas primeiro. Ler a mensagem não encerra a pendência.</small> : null}
               <small>{loadingConversations ? "Atualizando fila..." : queueUpdatedAt ? `Atualizada às ${formatMessageTime(queueUpdatedAt)} · a cada 15 s` : "Aguardando atualização"}</small>
             </div>
             {queueError ? <div className="fc-wa-queue-error" role="status"><span>{queueError}</span><button type="button" onClick={() => void loadConversations(conversationsPagination.page)}>Tentar novamente</button></div> : null}
@@ -1175,6 +1270,7 @@ export default function WhatsAppStagePage() {
                       <span className="fc-wa-conversation-line">{conversation.unread ? <span className="fc-wa-unread-dot" aria-label="Não lida" /> : null}<strong>{label}</strong><time>{formatMessageTime(conversation.last_message_at || conversation.last_activity_at)}</time></span>
                       {conversation.subject ? <small>{formatPhone(conversation.wa_phone_number)}</small> : null}
                       <span className="fc-wa-conversation-preview">{conversation.last_message_from_me ? "Você: " : ""}{conversation.last_message_body || "Conversa iniciada"}</span>
+                      {conversation.needs_reply ? <span className="fc-wa-waiting" title={`Precisa de resposta desde ${formatDateTime(conversation.waiting_since)}`}><Clock3 className="h-3 w-3" />{formatWaitingTime(conversation.waiting_since, customerServiceWindowClock)}</span> : null}
                       <span className="fc-wa-conversation-meta"><span className={`fc-wa-status ${conversationStatusClass(conversation.status)}`}>{conversationStatusLabel(conversation.status)}</span>
                         <span>{conversation.assigned_agent_name || "Sem responsável"}</span>{hasDraft(conversation.id) ? <span className="fc-wa-draft-label">Rascunho</span> : null}</span></span></button>;
                 })}
@@ -1193,6 +1289,14 @@ export default function WhatsAppStagePage() {
               <button type="button" className="fc-wa-icon-button" onClick={() => selectedConversationId && void loadMessages(selectedConversationId, 1)} disabled={loadingMessages} aria-label="Atualizar mensagens">
                 <RefreshCw className={`h-4 w-4 ${loadingMessages ? "animate-spin" : ""}`} /></button></> :
               <div><h2>Nenhuma conversa selecionada</h2><p>Escolha um contato na caixa de entrada.</p></div>}</div>
+            {selectedConversation ? <div className="fc-wa-work-actions" aria-label="Ações do atendimento">
+              {selectedConversation.needs_reply ? <span className="fc-wa-waiting">{formatWaitingTime(selectedConversation.waiting_since, customerServiceWindowClock)}</span> : <span />}
+              {!selectedConversation.last_agent_id ? <button type="button" className="fc-wa-secondary" onClick={() => myAgentId && void handleClaimToggle("claim", myAgentId, true)} disabled={savingAssignment || !myAgentId}
+                title={!myAgentId ? "Seu usuário precisa estar vinculado a um atendente ativo pelo email." : undefined}><UserCheck className="h-4 w-4" />Assumir para mim</button> : null}
+              <button type="button" className="fc-wa-secondary" onClick={() => void handleStatusChange("closed", true)}
+                disabled={savingStatus || loadingMessages || sendingMessage || selectedConversation.status === "closed"} title="Resolve esta conversa e abre a pendência mais antiga nos filtros atuais. O rascunho será preservado.">
+                <Check className="h-4 w-4" />{savingStatus ? "Atualizando..." : "Resolver e abrir próxima"}</button>
+            </div> : null}
             {selectedConversation ? <div className={`fc-wa-window ${windowState.isOpen ? "fc-wa-window-open" : "fc-wa-window-closed"}`} role="status" aria-live="polite">
               <Clock3 className="h-4 w-4" /><span>{windowState.isOpen ? `Resposta livre disponível até ${formatDateTime(windowState.expiresAt)}` : windowState.hasInboundMessage ?
                 `Janela encerrada em ${formatDateTime(windowState.expiresAt)}. Use o fluxo de modelo correspondente.` : "Aguardando uma mensagem da clínica para liberar respostas em texto livre."}</span></div> : null}
@@ -1269,8 +1373,9 @@ export default function WhatsAppStagePage() {
             <div className="fc-wa-composer"><div className="fc-wa-composer-tabs" role="tablist" aria-label="Modo de resposta">
               <button type="button" role="tab" aria-selected={composerMode === "message"} className={composerMode === "message" ? "active" : ""} onClick={() => setComposerMode("message")}><MessageSquare className="h-4 w-4" /> Mensagem</button>
               <button type="button" role="tab" aria-selected={composerMode === "template"} className={composerMode === "template" ? "active" : ""} onClick={() => setComposerMode("template")}><Sparkles className="h-4 w-4" /> Modelos configurados</button></div>
-              {composerMode === "message" ? <form onSubmit={handleSendMessage}><div className="fc-wa-quick-responses" aria-label="Respostas rápidas">
-                {QUICK_RESPONSES.map((response) => <button key={response} type="button" onClick={() => { setSendMessageBody(sendMessageBody.trim() ? `${sendMessageBody}\n\n${response}` : response); composerRef.current?.focus(); }} disabled={!selectedConversationId || !windowState.isOpen}>{response}</button>)}</div>
+              {composerMode === "message" ? <><QuickReplyLibrary onInsert={insertQuickReply}
+                disabled={!selectedConversationId || !windowState.isOpen} shortcutQuery={shortcutMatch?.[1]} userId={currentUser?.id ? String(currentUser.id) : undefined} />
+                <form onSubmit={handleSendMessage}>
                 <input ref={fileInputRef} type="file" className="sr-only" accept={ATTACHMENT_ACCEPT} aria-label="Selecionar arquivo para anexar" onChange={handleAttachmentChange} />
                 {attachmentFile ? <div className="fc-wa-attachment-chip"><FileText className="h-3.5 w-3.5" /><span>{attachmentFile.name}</span>
                   <button type="button" onClick={clearAttachment} aria-label="Remover anexo"><X className="h-3.5 w-3.5" /></button></div> : null}
@@ -1281,7 +1386,7 @@ export default function WhatsAppStagePage() {
                   onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}
                   disabled={!selectedConversationId || !windowState.isOpen} rows={3} />
                   <button type="submit" className="fc-wa-send" disabled={sendingMessage || !selectedConversationId || !windowState.isOpen || (!sendMessageBody.trim() && !attachmentFile)}><Send className="h-4 w-4" /> {sendingMessage ? "Enviando…" : "Enviar"}</button></div>
-                <p className="fc-wa-composer-hint">{windowState.isOpen ? "Ctrl/Cmd + Enter para enviar · Rascunhos mantidos ao trocar conversa, até sair desta página" : "Texto livre indisponível. Consulte os modelos e use o fluxo correspondente."}</p></form> :
+                <p className="fc-wa-composer-hint">{windowState.isOpen ? "Ctrl/Cmd + Enter para enviar · Rascunhos mantidos ao trocar conversa, até sair desta página" : "Texto livre indisponível. Consulte os modelos e use o fluxo correspondente."}</p></form></> :
                 <div className="fc-wa-template-composer"><div className="fc-wa-template-notice"><Info className="h-4 w-4" /><span>Catálogo configurado no Fort Cordis. A aprovação atual na Meta não é consultada nesta tela.</span></div>
                   {loadingTemplates ? <div className="fc-wa-empty">Carregando modelos...</div> : templateCatalogError ? <div className="fc-wa-template-error">{templateCatalogError}</div> : templates.length === 0 ? <div className="fc-wa-empty">Nenhum modelo configurado.</div> : <>
                     <label className="fc-wa-field"><span>Modelo</span><select value={selectedTemplateKey} onChange={(event) => handleTemplateSelection(event.target.value)}>

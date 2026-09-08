@@ -31,7 +31,9 @@
     "test:audio-transcode": "ts-node --transpile-only scripts/test-audio-transcode.ts",
     "test:conversation-ordering": "ts-node --transpile-only scripts/test-conversation-ordering.ts",
     "test:conversation-productivity": "ts-node --files scripts/test-conversation-productivity.ts",
-    "test:approved-template-button-events": "DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fortcordis_stage ts-node --transpile-only scripts/test-approved-template-button-events.ts"
+    "test:approved-template-button-events": "DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fortcordis_stage ts-node --transpile-only scripts/test-approved-template-button-events.ts",
+    "test:conversation-reply-queue": "ts-node --files scripts/test-conversation-reply-queue.ts",
+    "test:quick-replies": "ts-node --files scripts/test-quick-replies.ts"
   },
   "dependencies": {
     "axios": "^1.19.0",

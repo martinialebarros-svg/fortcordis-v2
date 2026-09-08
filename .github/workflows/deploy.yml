@@ -124,6 +124,8 @@ jobs:
           npm run migrate
           npm run test:conversation-productivity
           npm run test:conversation-ordering
+          npm run test:conversation-reply-queue
+          npm run test:quick-replies
 
   sdd-guardrail:
     runs-on: ubuntu-latest

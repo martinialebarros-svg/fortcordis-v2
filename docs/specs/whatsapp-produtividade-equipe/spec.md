@@ -138,3 +138,10 @@ serviço efêmero do job. Essa configuração não dispara nem autoriza publica�
 Ao receber um lote recente sem sobreposição com o histórico já carregado, a
 UI deve revisitar as páginas anteriores para preencher a lacuna. Refresh após
 mutações deve usar a busca, os filtros e a página atuais.
+
+## Continuação da produtividade
+
+O contrato complementar em `../whatsapp-fila-respostas/spec.md` acrescenta
+pendências independentes de leitura, biblioteca configurável e avanço por
+ação explícita. “Resolver e abrir próxima” é a seleção explícita prevista
+pelo RF-006; polling/filtros comuns continuam preservando a conversa aberta.

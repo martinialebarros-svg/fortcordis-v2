@@ -8768,3 +8768,18 @@ select.prescricao-select-dark option {
     transform: none !important;
   }
 }
+
+/* Fila de respostas e ações de atendimento WhatsApp. */
+.fc-wa-metrics { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.fc-wa-metric-action { text-align: left; cursor: pointer; font: inherit; }
+.fc-wa-metric-action:hover { border-color: #d97706; }
+.fc-wa-metric-action:focus-visible { outline: 2px solid #0f766e; outline-offset: 3px; }
+.fc-wa-waiting { display: inline-flex; align-items: center; gap: 0.3rem; color: #92400e; font-size: 0.72rem; font-weight: 600; }
+.fc-wa-work-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.65rem 1rem; border-bottom: 1px solid #e2e8f0; }
+.fc-wa-work-actions > span:first-child { margin-right: auto; }
+.fc-wa-work-actions button { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; }
+@media (max-width: 1100px) { .fc-wa-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .fc-wa-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fc-wa-work-actions > span:first-child { flex-basis: 100%; }
+}

@@ -103,6 +103,10 @@ async function touchConversation(
       UPDATE conversations
       SET updated_at = now(),
           last_activity_at = now(),
+          status = CASE
+            WHEN $2::timestamptz IS NOT NULL AND status IN ('pending', 'closed') THEN 'open'
+            ELSE status
+          END,
           last_inbound_at = CASE
             WHEN $2::timestamptz IS NULL THEN last_inbound_at
             WHEN last_inbound_at IS NULL OR last_inbound_at < $2::timestamptz THEN $2::timestamptz

@@ -91,3 +91,10 @@ Nesses casos a interface conserva o rascunho e orienta conferir o histórico.
 A validação usa dados sintéticos e comprova os contratos locais. Não equivale
 a smoke de stage/produção nem comprova ganho de produtividade medido com a
 equipe. A publicação permanece como etapa separada.
+
+## Continuação
+
+A primeira entrega acima foi posteriormente publicada em `b8246a32`. As
+evidências da nova etapa, implementada sobre esse baseline, ficam em
+`../whatsapp-fila-respostas/verify.md`; os testes anteriores continuam fazendo
+parte da regressão. Este acréscimo não declara publicação da segunda etapa.

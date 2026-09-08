@@ -97,6 +97,10 @@ function installApi(options: {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     const path = url.pathname;
+    if (path === "/whatsapp/quick-replies") return jsonResponse({ data: [{
+      id: "1", title: "Recebimento", shortcut: "recebido", category: "Atendimento", active: true,
+      body: "Recebemos sua mensagem e já estamos verificando.", created_at: now, updated_at: now,
+    }] });
     if (path === "/whatsapp/conversations") {
       return options.list?.(url.searchParams) ?? conversationResponse();
     }
@@ -174,6 +178,35 @@ describe("produtividade da central de WhatsApp", () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     window.localStorage.clear();
+  });
+
+  it("substitui somente o atalho final e mantém texto e arquivo sem enviar", async () => {
+    const fetchMock = installApi();
+    await openPage();
+    const composer = screen.getByRole("textbox", { name: "Digite sua resposta" });
+    fireEvent.change(composer, { target: { value: "Bom dia!\n/receb" } });
+    fireEvent.change(screen.getByLabelText("Selecionar arquivo para anexar"), {
+      target: { files: [new File(["exemplo"], "horarios.pdf", { type: "application/pdf" })] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Inserir resposta Recebimento" }));
+    expect(composer).toHaveValue("Bom dia!\nRecebemos sua mensagem e já estamos verificando.");
+    expect(screen.getByText("horarios.pdf")).toBeInTheDocument();
+    expect(messagePosts(fetchMock)).toHaveLength(0);
+  });
+
+  it("buscar e gerenciar respostas rápidas fica fora do formulário de envio", async () => {
+    const fetchMock = installApi();
+    await openPage();
+    fireEvent.change(screen.getByRole("textbox", { name: "Digite sua resposta" }), { target: { value: "Rascunho privado" } });
+    const search = screen.getByRole("textbox", { name: "Buscar resposta rápida" });
+    expect(search.closest("form")).toBeNull();
+    fireEvent.keyDown(search, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Gerenciar respostas" }));
+    const replyBody = screen.getByRole("textbox", { name: /Texto da resposta/ });
+    expect(replyBody.closest("form")).toBeNull();
+    fireEvent.keyDown(replyBody, { key: "Enter", ctrlKey: true });
+    expect(messagePosts(fetchMock)).toHaveLength(0);
+    expect(screen.getByRole("textbox", { name: "Digite sua resposta" })).toHaveValue("Rascunho privado");
   });
 
   it("mantém texto e anexo de cada conversa ao alternar entre contatos", async () => {
@@ -263,7 +296,7 @@ describe("produtividade da central de WhatsApp", () => {
     await openPage();
     const composer = screen.getByRole("textbox", { name: "Digite sua resposta" });
     fireEvent.change(composer, { target: { value: "Bom dia, equipe." } });
-    fireEvent.click(screen.getByRole("button", { name: "Recebemos sua mensagem e já estamos verificando." }));
+    fireEvent.click(screen.getByRole("button", { name: "Inserir resposta Recebimento" }));
     expect((composer as HTMLTextAreaElement).value).toMatch(/^Bom dia, equipe\.\s+Recebemos sua mensagem e já estamos verificando\.$/);
   });
 

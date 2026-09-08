@@ -76,6 +76,31 @@ const UNREAD_CONVERSATION_SQL = `(
   AND (c.last_seen_at IS NULL OR c.last_inbound_at > c.last_seen_at)
 )`;
 
+// Delivery failures and reading the inbox never answer a customer. Retry may
+// reuse an outbound ID and refresh created_at, so use the history's tuple order
+// for replies, and the persisted ID frontier only for explicit resolution.
+const REPLY_QUEUE_JOINS_SQL = `
+  LEFT JOIN LATERAL (
+    SELECT m.id, m.created_at
+    FROM messages m
+    WHERE m.conversation_id = c.id AND m.from_me = TRUE
+      AND m.status IN ('sent', 'delivered', 'read')
+    ORDER BY m.created_at DESC, m.id DESC
+    LIMIT 1
+  ) successful_reply ON true
+  LEFT JOIN LATERAL (
+    SELECT m.id, m.created_at AS waiting_since
+    FROM messages m
+    WHERE m.conversation_id = c.id AND m.from_me = FALSE
+      AND m.id > COALESCE(c.resolved_through_message_id, 0)
+      AND (successful_reply.id IS NULL
+        OR (m.created_at, m.id) > (successful_reply.created_at, successful_reply.id))
+    ORDER BY m.created_at ASC, m.id ASC
+    LIMIT 1
+  ) reply_queue ON true
+`;
+const NEEDS_REPLY_SQL = "(reply_queue.id IS NOT NULL)";
+
 function isPositiveBigInt(value: unknown): value is string {
   return typeof value === "string"
     && /^[1-9]\d*$/.test(value)
@@ -120,6 +145,7 @@ export async function listConversations(req: Request, res: Response): Promise<vo
   const search = (req.query.search as string | undefined) || phone;
   const agentId = req.query.agent_id;
   const unread = req.query.unread;
+  const needsReply = req.query.needs_reply;
 
   if (agentId !== undefined && !isPositiveBigInt(agentId)) {
     res.status(422).json({ error: "agent_id must be a positive integer" });
@@ -127,6 +153,10 @@ export async function listConversations(req: Request, res: Response): Promise<vo
   }
   if (unread !== undefined && unread !== "true" && unread !== "false") {
     res.status(422).json({ error: "unread must be true or false" });
+    return;
+  }
+  if (needsReply !== undefined && needsReply !== "true" && needsReply !== "false") {
+    res.status(422).json({ error: "needs_reply must be true or false" });
     return;
   }
   if (search !== undefined && typeof search !== "string") {
@@ -158,6 +188,9 @@ export async function listConversations(req: Request, res: Response): Promise<vo
   if (unread !== undefined) {
     whereClauses.push(`${UNREAD_CONVERSATION_SQL} = ${unread === "true" ? "TRUE" : "FALSE"}`);
   }
+  if (needsReply !== undefined) {
+    whereClauses.push(`${NEEDS_REPLY_SQL} = ${needsReply === "true" ? "TRUE" : "FALSE"}`);
+  }
 
   if (search?.trim()) {
     params.push(`%${search.trim()}%`);
@@ -175,7 +208,12 @@ export async function listConversations(req: Request, res: Response): Promise<vo
 
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
   const joinsSql = `
+    ${REPLY_QUEUE_JOINS_SQL}
     LEFT JOIN agents assigned_agent ON assigned_agent.id = c.last_agent_id
+    LEFT JOIN LATERAL (
+      SELECT MAX(m.id)::text AS last_message_id
+      FROM messages m WHERE m.conversation_id = c.id
+    ) message_revision ON true
     LEFT JOIN LATERAL (
       SELECT m.body, m.created_at, m.from_me, m.type
       FROM messages m
@@ -188,7 +226,7 @@ export async function listConversations(req: Request, res: Response): Promise<vo
   const dataParams = [...params, limit, offset];
   const [totalResult, dataResult, summaryResult] = await Promise.all([
     query<{ total: string }>(
-      `SELECT COUNT(*)::text AS total FROM conversations c ${search?.trim() ? joinsSql : ""} ${whereSql}`,
+      `SELECT COUNT(*)::text AS total FROM conversations c ${search?.trim() ? joinsSql : needsReply !== undefined ? REPLY_QUEUE_JOINS_SQL : ""} ${whereSql}`,
       params
     ),
     query<ConversationRow>(
@@ -196,6 +234,9 @@ export async function listConversations(req: Request, res: Response): Promise<vo
       SELECT
         c.*,
         ${UNREAD_CONVERSATION_SQL} AS unread,
+        ${NEEDS_REPLY_SQL} AS needs_reply,
+        reply_queue.waiting_since,
+        message_revision.last_message_id,
         assigned_agent.name AS assigned_agent_name,
         assigned_agent.email AS assigned_agent_email,
         last_message.body AS last_message_body,
@@ -206,6 +247,7 @@ export async function listConversations(req: Request, res: Response): Promise<vo
       ${joinsSql}
       ${whereSql}
       ORDER BY
+        ${needsReply === "true" ? "reply_queue.waiting_since ASC NULLS LAST, reply_queue.id ASC," : ""}
         unread DESC,
         CASE WHEN ${UNREAD_CONVERSATION_SQL} THEN c.last_inbound_at END ASC NULLS LAST,
         c.last_activity_at DESC,
@@ -219,12 +261,13 @@ export async function listConversations(req: Request, res: Response): Promise<vo
       `SELECT
         COUNT(*)::text AS total,
         COUNT(*) FILTER (WHERE ${UNREAD_CONVERSATION_SQL})::text AS unread,
+        COUNT(*) FILTER (WHERE ${NEEDS_REPLY_SQL})::text AS needs_reply,
         COUNT(*) FILTER (WHERE c.last_agent_id IS NULL)::text AS unassigned,
         COUNT(*) FILTER (WHERE c.status = 'open')::text AS open,
         COUNT(*) FILTER (WHERE c.status = 'pending')::text AS pending,
         COUNT(*) FILTER (WHERE c.status = 'closed')::text AS closed
         ${agentId === undefined ? "" : ", COUNT(*) FILTER (WHERE c.last_agent_id = $1)::text AS mine"}
-       FROM conversations c`,
+       FROM conversations c ${REPLY_QUEUE_JOINS_SQL}`,
       agentId === undefined ? [] : [agentId]
     )
   ]);
@@ -249,6 +292,7 @@ export async function listConversations(req: Request, res: Response): Promise<vo
 export async function updateConversationStatus(req: Request, res: Response): Promise<void> {
   const conversationId = req.params.id;
   const nextStatus = req.body?.status;
+  const expectedLastMessageId = req.body?.expected_last_message_id;
 
   if (!isConversationStatus(nextStatus)) {
     res.status(422).json({
@@ -256,14 +300,14 @@ export async function updateConversationStatus(req: Request, res: Response): Pro
     });
     return;
   }
+  if (expectedLastMessageId !== undefined && expectedLastMessageId !== null && !isPositiveBigInt(expectedLastMessageId)) {
+    res.status(422).json({ error: "expected_last_message_id must be a positive integer string or null" });
+    return;
+  }
 
   const result = await withTransaction(async (client) => {
-    const current = await client.query<{
-      id: string;
-      status: string;
-      wa_phone_number: string;
-    }>(
-      `SELECT id, status, wa_phone_number FROM conversations WHERE id = $1 FOR UPDATE`,
+    const current = await client.query<ConversationRow>(
+      `SELECT * FROM conversations WHERE id = $1 FOR UPDATE`,
       [conversationId]
     );
 
@@ -272,36 +316,61 @@ export async function updateConversationStatus(req: Request, res: Response): Pro
       return { notFound: true as const };
     }
 
-    if (conversation.status === nextStatus) {
-      return { conversation, changed: false };
+    // The inbound upsert holds this same conversation lock before inserting.
+    // A later inbound therefore either causes this comparison to fail, or is
+    // inserted after commit and reopens the conversation without being covered.
+    const revision = await client.query<{ last_message_id: string | null }>(
+      `SELECT MAX(id)::text AS last_message_id FROM messages WHERE conversation_id = $1`,
+      [conversationId]
+    );
+    const lastMessageId = revision.rows[0].last_message_id;
+    if (nextStatus === "closed" && expectedLastMessageId !== undefined && expectedLastMessageId !== lastMessageId) {
+      return { conflict: true as const, lastMessageId };
     }
 
-    const updated = await client.query<ConversationRow>(
-      `UPDATE conversations
-       SET status = $2, updated_at = now()
-       WHERE id = $1
-       RETURNING *`,
-      [conversationId, nextStatus]
-    );
+    const resolvedThroughMessageId = nextStatus === "closed"
+      ? lastMessageId ?? "0"
+      : conversation.resolved_through_message_id;
+    const changed = conversation.status !== nextStatus
+      || conversation.resolved_through_message_id !== resolvedThroughMessageId;
 
-    await client.query(
-      `INSERT INTO audit_logs (conversation_id, action, payload, created_at)
-       VALUES ($1, 'conversation_status_changed', $2::jsonb, now())`,
-      [
-        conversationId,
-        JSON.stringify({
+    if (changed) {
+      await client.query(
+        `UPDATE conversations
+         SET status = $2, resolved_through_message_id = $3, updated_at = now()
+         WHERE id = $1`,
+        [conversationId, nextStatus, resolvedThroughMessageId]
+      );
+      await client.query(
+        `INSERT INTO audit_logs (conversation_id, action, payload, created_at)
+         VALUES ($1, 'conversation_status_changed', $2::jsonb, now())`,
+        [conversationId, JSON.stringify({
           source: "api.conversation_status",
           previous_status: conversation.status,
-          status: nextStatus
-        })
-      ]
+          status: nextStatus,
+          resolved_through_message_id: resolvedThroughMessageId
+        })]
+      );
+    }
+    const updated = await client.query<ConversationRow>(
+      `SELECT c.*, ${NEEDS_REPLY_SQL} AS needs_reply, reply_queue.waiting_since
+       FROM conversations c ${REPLY_QUEUE_JOINS_SQL} WHERE c.id = $1`,
+      [conversationId]
     );
 
-    return { conversation: updated.rows[0], changed: true };
+    return { conversation: { ...updated.rows[0], last_message_id: lastMessageId }, changed };
   });
 
   if ("notFound" in result) {
     res.status(404).json({ error: "Conversation not found" });
+    return;
+  }
+  if ("conflict" in result) {
+    res.status(409).json({
+      error: "A conversa recebeu novas mensagens. Revise o histórico antes de resolver.",
+      code: "CONVERSATION_CHANGED",
+      last_message_id: result.lastMessageId
+    });
     return;
   }
 
@@ -349,8 +418,8 @@ export async function listConversationMessages(req: Request, res: Response): Pro
     return;
   }
 
-  const totalResult = await query<{ total: string }>(
-    `SELECT COUNT(*)::text AS total FROM messages WHERE conversation_id = $1`,
+  const totalResult = await query<{ total: string; last_message_id: string | null }>(
+    `SELECT COUNT(*)::text AS total, MAX(id)::text AS last_message_id FROM messages WHERE conversation_id = $1`,
     [conversationId]
   );
 
@@ -368,6 +437,7 @@ export async function listConversationMessages(req: Request, res: Response): Pro
 
   res.json({
     data: latestFirst ? dataResult.rows.reverse() : dataResult.rows,
+    last_message_id: totalResult.rows[0]?.last_message_id ?? null,
     last_inbound_at: conversation.rows[0]?.last_inbound_at ?? null,
     customer_service_window: describeCustomerServiceWindow(
       conversation.rows[0]?.last_inbound_at ?? null
@@ -894,15 +964,20 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
 export async function claimConversation(req: Request, res: Response): Promise<void> {
   const conversationId = req.params.id;
   const agentId = req.body?.agent_id;
+  const onlyIfUnassigned = req.body?.only_if_unassigned;
 
   if (!agentId) {
     res.status(400).json({ error: "agent_id is required" });
     return;
   }
+  if (onlyIfUnassigned !== undefined && typeof onlyIfUnassigned !== "boolean") {
+    res.status(422).json({ error: "only_if_unassigned must be a boolean" });
+    return;
+  }
 
   const result = await withTransaction(async (client) => {
-    const conversation = await client.query<{ id: string }>(
-      `SELECT id FROM conversations WHERE id = $1 FOR UPDATE`,
+    const conversation = await client.query<{ id: string; last_agent_id: string | null }>(
+      `SELECT id, last_agent_id FROM conversations WHERE id = $1 FOR UPDATE`,
       [conversationId]
     );
 
@@ -917,6 +992,19 @@ export async function claimConversation(req: Request, res: Response): Promise<vo
 
     if (agent.rowCount === 0) {
       return { notFound: "agent" as const };
+    }
+
+    if (onlyIfUnassigned === true && conversation.rows[0].last_agent_id !== null) {
+      if (conversation.rows[0].last_agent_id !== String(agentId)) {
+        return { conflict: true as const, agentId: conversation.rows[0].last_agent_id };
+      }
+      const existing = await client.query<{ id: string }>(
+        `SELECT id FROM conversation_participants
+         WHERE conversation_id = $1 AND agent_id = $2 AND left_at IS NULL
+         ORDER BY id DESC LIMIT 1`,
+        [conversationId, agentId]
+      );
+      return { participantId: existing.rows[0]?.id ?? null, idempotent: true };
     }
 
     await client.query(
@@ -991,10 +1079,19 @@ export async function claimConversation(req: Request, res: Response): Promise<vo
     res.status(404).json({ error: "Agent not found or inactive" });
     return;
   }
+  if ("conflict" in result) {
+    res.status(409).json({
+      error: "Outro integrante da equipe já assumiu esta conversa.",
+      code: "CONVERSATION_ALREADY_ASSIGNED",
+      last_agent_id: result.agentId
+    });
+    return;
+  }
 
   res.status(200).json({
     message: "Conversation claimed",
-    participant_id: (result as any).participantId
+    participant_id: (result as any).participantId,
+    idempotent: "idempotent" in result && result.idempotent === true
   });
 }
 
