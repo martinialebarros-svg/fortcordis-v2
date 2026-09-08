@@ -83,3 +83,10 @@ Esta fila mede ausência de resposta enviada, não a qualidade ou resolução do
 assunto. Fechamento explícito é uma decisão humana e não envia mensagem.
 
 Rollback compatível descrito em plan.md. Evidências e resultados em verify.md.
+
+## Continuação — retornos programados
+
+A etapa `whatsapp-retornos-programados` acrescenta compromissos internos com
+prazo, nota e responsável. Conclusão de retorno é independente de resolução da
+conversa; filtros novos também são respeitados por “Resolver e abrir próxima”.
+Ver `../whatsapp-retornos-programados/spec.md` e `verify.md`.

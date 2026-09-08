@@ -22,6 +22,8 @@ import { sendApprovedDocumentTemplate } from "./controllers/documentTemplateAuto
 import { listApprovedTemplateCatalog } from "./controllers/templateCatalogController";
 import { executeSmokeCleanup, previewSmokeCleanup } from "./controllers/smokeCleanupController";
 
+import { getFollowUp, saveFollowUp } from "./controllers/followUpsController";
+
 const app = express();
 const uploadAttachment = multer({
   storage: multer.memoryStorage(),
@@ -63,6 +65,8 @@ app.post(
   uploadAttachment.single("attachment"),
   asyncHandler(sendConversationMessage)
 );
+app.get("/conversations/:id/follow-up", asyncHandler(getFollowUp));
+app.patch("/conversations/:id/follow-up", asyncHandler(saveFollowUp));
 app.patch("/conversations/:id/status", asyncHandler(updateConversationStatus));
 app.patch("/conversations/:id/seen", asyncHandler(markConversationSeen));
 app.post("/conversations/:id/claim", asyncHandler(claimConversation));

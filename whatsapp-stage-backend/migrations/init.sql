@@ -586,3 +586,19 @@ CREATE INDEX IF NOT EXISTS idx_webhook_event_cleanup_runs_created_at_desc
   ON webhook_event_cleanup_runs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_webhook_event_cleanup_runs_status_created_at
   ON webhook_event_cleanup_runs(status, created_at DESC);
+
+-- One versioned internal follow-up per conversation; terminal rows preserve CAS.
+CREATE TABLE IF NOT EXISTS conversation_follow_ups (
+  conversation_id BIGINT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+  due_at TIMESTAMPTZ NOT NULL,
+  note VARCHAR(1000) NOT NULL CHECK (length(trim(note)) > 0),
+  agent_id BIGINT NOT NULL REFERENCES agents(id),
+  status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'cancelled')),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+  inbound_received_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_follow_ups_pending_due
+  ON conversation_follow_ups (due_at, conversation_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS ix_follow_ups_agent_due
+  ON conversation_follow_ups (agent_id, due_at) WHERE status = 'pending';

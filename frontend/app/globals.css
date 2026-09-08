@@ -8783,3 +8783,11 @@ select.prescricao-select-dark option {
   .fc-wa-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fc-wa-work-actions > span:first-child { flex-basis: 100%; }
 }
+
+.fc-wa-follow-up-summary { display: flex; flex-wrap: wrap; gap: .65rem 1rem; align-items: center; padding: .8rem 1rem; border: 1px solid #fde68a; border-radius: .75rem; background: #fffbeb; font-size: .8rem; margin-bottom: 1rem; }
+.fc-wa-follow-up-summary button { color: #92400e; text-decoration: underline; text-underline-offset: 3px; }
+.fc-wa-follow-up-summary small { flex-basis: 100%; color: #64748b; }
+.fc-wa-follow-up-filter { display: grid; gap: .5rem; padding: .65rem 1rem; font-size: .75rem; border-bottom: 1px solid #e2e8f0; }
+.fc-wa-follow-up-filter label { display: flex; align-items: center; gap: .5rem; }
+.fc-wa-follow-up-filter select { min-width: 0; width: 100%; padding: .4rem; border: 1px solid #cbd5e1; border-radius: .4rem; background: white; }
+.fc-wa-follow-up-filter input { width: 1rem; height: 1rem; }

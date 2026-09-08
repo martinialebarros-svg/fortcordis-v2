@@ -13,6 +13,8 @@ import {
 import { logger } from "../utils/logger";
 import { canonicalWhatsAppIdentity, digitsOnly, whatsappGraphRecipient } from "../utils/phoneNumber";
 
+import { FOLLOW_UP_JOIN, FOLLOW_UP_JSON, FOLLOW_UP_ACTIVE, FOLLOW_UP_DUE, FOLLOW_UP_READY, FOLLOW_UP_TODAY, validId } from "./followUpsController";
+
 const whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 const phoneNumberId = process.env.PHONE_NUMBER_ID;
 
@@ -146,6 +148,14 @@ export async function listConversations(req: Request, res: Response): Promise<vo
   const agentId = req.query.agent_id;
   const unread = req.query.unread;
   const needsReply = req.query.needs_reply;
+  const followUp = req.query.follow_up;
+  const followUpAgentId = req.query.follow_up_agent_id;
+  const summaryAgentId = req.query.summary_agent_id;
+  if ((followUp !== undefined && !["all", "due", "today", "upcoming", "responded", "ready"].includes(followUp as string))
+      || (followUpAgentId !== undefined && !validId(followUpAgentId))
+      || (summaryAgentId !== undefined && !validId(summaryAgentId))) {
+    res.status(422).json({ error: "Filtro de retorno inválido." }); return;
+  }
 
   if (agentId !== undefined && !isPositiveBigInt(agentId)) {
     res.status(422).json({ error: "agent_id must be a positive integer" });
@@ -166,6 +176,20 @@ export async function listConversations(req: Request, res: Response): Promise<vo
 
   const whereClauses: string[] = [];
   const params: unknown[] = [];
+
+  if (followUp !== undefined) {
+    const filters: Record<string, string> = {
+      all: FOLLOW_UP_ACTIVE, due: FOLLOW_UP_DUE, today: FOLLOW_UP_TODAY,
+      ready: FOLLOW_UP_READY,
+      upcoming: `(${FOLLOW_UP_ACTIVE} AND follow_up.due_at >= (date_trunc('day', now() AT TIME ZONE 'America/Fortaleza') + interval '1 day') AT TIME ZONE 'America/Fortaleza')`,
+      responded: `(${FOLLOW_UP_ACTIVE} AND follow_up.inbound_received_at IS NOT NULL)`,
+    };
+    whereClauses.push(filters[followUp as string]);
+  }
+  if (followUpAgentId !== undefined) {
+    params.push(followUpAgentId);
+    whereClauses.push(`(${FOLLOW_UP_ACTIVE} AND follow_up.agent_id = $${params.length})`);
+  }
 
   if (status) {
     params.push(status);
@@ -209,6 +233,7 @@ export async function listConversations(req: Request, res: Response): Promise<vo
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
   const joinsSql = `
     ${REPLY_QUEUE_JOINS_SQL}
+    ${FOLLOW_UP_JOIN}
     LEFT JOIN agents assigned_agent ON assigned_agent.id = c.last_agent_id
     LEFT JOIN LATERAL (
       SELECT MAX(m.id)::text AS last_message_id
@@ -226,13 +251,14 @@ export async function listConversations(req: Request, res: Response): Promise<vo
   const dataParams = [...params, limit, offset];
   const [totalResult, dataResult, summaryResult] = await Promise.all([
     query<{ total: string }>(
-      `SELECT COUNT(*)::text AS total FROM conversations c ${search?.trim() ? joinsSql : needsReply !== undefined ? REPLY_QUEUE_JOINS_SQL : ""} ${whereSql}`,
+      `SELECT COUNT(*)::text AS total FROM conversations c ${search?.trim() ? joinsSql : `${FOLLOW_UP_JOIN} ${needsReply !== undefined ? REPLY_QUEUE_JOINS_SQL : ""}`} ${whereSql}`,
       params
     ),
     query<ConversationRow>(
     `
       SELECT
         c.*,
+        ${FOLLOW_UP_JSON} AS follow_up,
         ${UNREAD_CONVERSATION_SQL} AS unread,
         ${NEEDS_REPLY_SQL} AS needs_reply,
         reply_queue.waiting_since,
@@ -247,6 +273,7 @@ export async function listConversations(req: Request, res: Response): Promise<vo
       ${joinsSql}
       ${whereSql}
       ORDER BY
+        ${followUp !== undefined ? "COALESCE(follow_up.inbound_received_at, follow_up.due_at) ASC, c.id ASC," : ""}
         ${needsReply === "true" ? "reply_queue.waiting_since ASC NULLS LAST, reply_queue.id ASC," : ""}
         unread DESC,
         CASE WHEN ${UNREAD_CONVERSATION_SQL} THEN c.last_inbound_at END ASC NULLS LAST,
@@ -260,15 +287,18 @@ export async function listConversations(req: Request, res: Response): Promise<vo
     query<Record<string, string>>(
       `SELECT
         COUNT(*)::text AS total,
+        COUNT(*) FILTER (WHERE ${FOLLOW_UP_DUE})::text AS follow_up_due,
+        COUNT(*) FILTER (WHERE ${FOLLOW_UP_READY})::text AS follow_up_ready,
+        COUNT(*) FILTER (WHERE ${FOLLOW_UP_READY} AND follow_up.agent_id = $1)::text AS my_follow_up_ready,
         COUNT(*) FILTER (WHERE ${UNREAD_CONVERSATION_SQL})::text AS unread,
         COUNT(*) FILTER (WHERE ${NEEDS_REPLY_SQL})::text AS needs_reply,
         COUNT(*) FILTER (WHERE c.last_agent_id IS NULL)::text AS unassigned,
         COUNT(*) FILTER (WHERE c.status = 'open')::text AS open,
         COUNT(*) FILTER (WHERE c.status = 'pending')::text AS pending,
         COUNT(*) FILTER (WHERE c.status = 'closed')::text AS closed
-        ${agentId === undefined ? "" : ", COUNT(*) FILTER (WHERE c.last_agent_id = $1)::text AS mine"}
-       FROM conversations c ${REPLY_QUEUE_JOINS_SQL}`,
-      agentId === undefined ? [] : [agentId]
+        ${agentId === undefined ? "" : ", COUNT(*) FILTER (WHERE c.last_agent_id = $2)::text AS mine"}
+       FROM conversations c ${REPLY_QUEUE_JOINS_SQL} ${FOLLOW_UP_JOIN}`,
+      agentId === undefined ? [summaryAgentId ?? null] : [summaryAgentId ?? null, agentId]
     )
   ]);
 

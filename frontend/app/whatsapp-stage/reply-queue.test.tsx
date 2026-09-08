@@ -10,6 +10,7 @@ vi.mock("@/lib/useCurrentUser", () => ({
   // O id do usuário do sistema é distinto do id do atendente do WhatsApp.
   useCurrentUser: () => ({ id: 99, nome: "Atendente atual", email: " ATUAL@example.com " }),
 }));
+vi.mock("@/components/whatsapp/FollowUpPanel", () => ({ default: () => null, followUpLabel: () => "Retorno" }));
 vi.mock("@/components/whatsapp/QuickReplyLibrary", () => ({ default: () => null }));
 
 const now = "2026-09-07T12:00:00.000Z";
@@ -181,7 +182,7 @@ describe("fila de resposta e conclusão de atendimento WhatsApp", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Limpar filtros" }));
     await settle();
-    expect(Object.fromEntries(listRequests(fetchMock).at(-1)!.searchParams)).toEqual({ page: "1", limit: "20" });
+    expect(Object.fromEntries(listRequests(fetchMock).at(-1)!.searchParams)).toEqual({ page: "1", limit: "20", summary_agent_id: "11" });
     expect(screen.getByRole("checkbox", { name: "Precisa de resposta" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Somente não lidas" })).not.toBeChecked();
     expect(screen.getByRole("textbox", { name: "Buscar conversas" })).toHaveValue("");
@@ -196,7 +197,7 @@ describe("fila de resposta e conclusão de atendimento WhatsApp", () => {
     expect(within(card).getByText("19")).toBeInTheDocument();
     fireEvent.click(card);
     await settle();
-    expect(Object.fromEntries(listRequests(fetchMock).at(-1)!.searchParams)).toEqual({ page: "1", limit: "20", needs_reply: "true" });
+    expect(Object.fromEntries(listRequests(fetchMock).at(-1)!.searchParams)).toEqual({ page: "1", limit: "20", needs_reply: "true", summary_agent_id: "11" });
     expect(screen.getByRole("checkbox", { name: "Precisa de resposta" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Somente não lidas" })).not.toBeChecked();
     expect(screen.getByRole("textbox", { name: "Buscar conversas" })).toHaveValue("");
@@ -431,4 +432,31 @@ describe("fila de resposta e conclusão de atendimento WhatsApp", () => {
     expect(screen.getByRole("heading", { name: "Clínica Azul", level: 2 })).toBeInTheDocument();
     expect(nextRequests(fetchMock)).toHaveLength(0);
   });
+  it("filtra retornos por vencimento e responsável próprio sem confundir com o dono da conversa", async () => {
+    const fetchMock = installApi(); await openPage();
+    fireEvent.change(screen.getByRole("combobox", { name: "Filtrar retornos" }), { target: { value: "today" } }); await settle();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Meus retornos" })); await settle();
+    expect(Object.fromEntries(listRequests(fetchMock).at(-1)!.searchParams)).toEqual({ page: "1", limit: "20", follow_up: "today", follow_up_agent_id: "11", summary_agent_id: "11" });
+    fireEvent.click(screen.getByRole("button", { name: "Limpar filtros" })); await settle();
+    expect(screen.getByRole("combobox", { name: "Filtrar retornos" })).toHaveValue("");
+    expect(screen.getByRole("checkbox", { name: "Meus retornos" })).not.toBeChecked();
+    expect(listRequests(fetchMock).at(-1)!.searchParams.has("follow_up")).toBe(false);
+    expect(listRequests(fetchMock).at(-1)!.searchParams.has("follow_up_agent_id")).toBe(false);
+  });
+  it("abre lembretes pessoais ignorando filtros que poderiam escondê-los", async () => {
+    const fetchMock = installApi(); await openPage(); await combineFilters();
+    fireEvent.click(screen.getByRole("button", { name: /Meus retornos para revisar/ })); await settle();
+    expect(Object.fromEntries(listRequests(fetchMock).at(-1)!.searchParams)).toEqual({ page: "1", limit: "20", follow_up: "ready", follow_up_agent_id: "11", summary_agent_id: "11" });
+    expect(screen.getByRole("checkbox", { name: "Somente não lidas" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Precisa de resposta" })).not.toBeChecked();
+  });
+  it("resolver e abrir próxima respeita também o filtro de retornos", async () => {
+    const fetchMock = installApi(); await openPage();
+    fireEvent.change(screen.getByRole("combobox", { name: "Filtrar retornos" }), { target: { value: "due" } }); await settle();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Meus retornos" })); await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Resolver e abrir próxima" })); await settle();
+    expect(nextRequests(fetchMock).at(-1)!.searchParams.get("follow_up")).toBe("due");
+    expect(nextRequests(fetchMock).at(-1)!.searchParams.get("follow_up_agent_id")).toBe("11");
+  });
+
 });

@@ -112,3 +112,10 @@ Esta evidência local não substitui smoke autenticado de stage/produção.
 - A promoção ocorrerá com o SHA exato aprovado em stage, após conclusão
   dos workflows e smoke de rota, serviço, APIs protegidas e bundles.
   A evidência terminal de publicação será registrada no relatório da tarefa.
+
+## Continuação — retornos programados
+
+A etapa `whatsapp-retornos-programados` acrescenta compromissos internos com
+prazo, nota e responsável. Conclusão de retorno é independente de resolução da
+conversa; filtros novos também são respeitados por “Resolver e abrir próxima”.
+Ver `../whatsapp-retornos-programados/spec.md` e `verify.md`.

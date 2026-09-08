@@ -21,6 +21,9 @@ import { useWhatsAppDrafts } from "@/lib/use-whatsapp-drafts";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import QuickReplyLibrary from "@/components/whatsapp/QuickReplyLibrary";
 
+import FollowUpPanel, { FollowUp, followUpLabel } from "@/components/whatsapp/FollowUpPanel";
+
+type FollowUpFilter = "" | "all" | "due" | "today" | "upcoming" | "responded" | "ready";
 type AssignedFilter = "all" | "assigned" | "unassigned" | "mine";
 type ConversationStatus = "open" | "pending" | "closed";
 type ComposerMode = "message" | "template";
@@ -38,6 +41,7 @@ interface Conversation {
   last_inbound_at?: string | null;
   last_seen_at?: string | null;
   unread?: boolean;
+  follow_up?: FollowUp | null;
   needs_reply?: boolean;
   waiting_since?: string | null;
   last_message_id?: string | null;
@@ -89,7 +93,7 @@ interface TemplateCatalogItem {
 
 interface Pagination { page: number; limit: number; total: number }
 interface ApiResult<T> { ok: boolean; status: number; data: T | null; errorText?: string }
-interface QueueSummary { total: number; unread: number; unassigned: number; open: number; pending: number; closed: number; needs_reply?: number }
+interface QueueSummary { total: number; unread: number; unassigned: number; open: number; pending: number; closed: number; needs_reply?: number; follow_up_due?: number; follow_up_ready?: number; my_follow_up_ready?: number }
 interface ConversationsResponse { data: Conversation[]; pagination: Pagination; summary?: QueueSummary }
 interface AgentsResponse { data: Agent[] }
 interface MessagesResponse {
@@ -485,6 +489,8 @@ export default function WhatsAppStagePage() {
   const queueBusyRef = useRef(false);
   const appliedSearchRef = useRef("");
   const [unreadFilter, setUnreadFilter] = useState(false);
+  const [followUpFilter, setFollowUpFilter] = useState<FollowUpFilter>("");
+  const [myFollowUps, setMyFollowUps] = useState(false);
   const [needsReplyFilter, setNeedsReplyFilter] = useState(false);
   const selectionVersionRef = useRef(0);
   const viewedMessageIdRef = useRef<Record<string, string | null>>({});
@@ -578,7 +584,7 @@ export default function WhatsAppStagePage() {
     if (!myEmail) return null;
     return agents.find((agent) => agent.active && agent.email?.trim().toLowerCase() === myEmail)?.id || null;
   }, [agents, currentUser]);
-  const queueViewKey = JSON.stringify([statusFilter, assignedFilter, searchFilter, unreadFilter, needsReplyFilter, conversationsPagination.page]);
+  const queueViewKey = JSON.stringify([statusFilter, assignedFilter, searchFilter, unreadFilter, needsReplyFilter, followUpFilter, myFollowUps, conversationsPagination.page]);
   const queueViewKeyRef = useRef(queueViewKey);
   const queueViewVersionRef = useRef(0);
   if (queueViewKeyRef.current !== queueViewKey) {
@@ -611,7 +617,7 @@ export default function WhatsAppStagePage() {
 
   const loadConversations = async (
     page = 1,
-    overrides: { status?: "" | ConversationStatus; assigned?: AssignedFilter; search?: string; unread?: boolean; needsReply?: boolean; silent?: boolean } = {},
+    overrides: { status?: "" | ConversationStatus; assigned?: AssignedFilter; search?: string; unread?: boolean; needsReply?: boolean; followUp?: FollowUpFilter; myFollowUps?: boolean; silent?: boolean } = {},
   ): Promise<void> => {
     const requestId = ++queueRequestRef.current;
     queueAbortRef.current?.abort();
@@ -633,6 +639,10 @@ export default function WhatsAppStagePage() {
       } else if (effectiveAssigned !== "all") params.set("assigned", effectiveAssigned);
       if (overrides.unread ?? unreadFilter) params.set("unread", "true");
       if (overrides.needsReply ?? needsReplyFilter) params.set("needs_reply", "true");
+      const effectiveFollowUp = overrides.followUp ?? followUpFilter;
+      if (effectiveFollowUp) params.set("follow_up", effectiveFollowUp);
+      if ((overrides.myFollowUps ?? myFollowUps) && myAgentId) params.set("follow_up_agent_id", myAgentId);
+      if (myAgentId) params.set("summary_agent_id", myAgentId);
       if (effectiveSearch) params.set("search", effectiveSearch);
       const result = await requestJson<ConversationsResponse>(`/whatsapp/conversations?${params}`, { signal: controller.signal });
       if (requestId !== queueRequestRef.current) return;
@@ -975,6 +985,8 @@ export default function WhatsAppStagePage() {
         if (!myAgentId) return;
         params.set("agent_id", myAgentId);
       } else if (assignedFilter !== "all") params.set("assigned", assignedFilter);
+      if (followUpFilter) params.set("follow_up", followUpFilter);
+      if (myFollowUps && myAgentId) params.set("follow_up_agent_id", myAgentId);
       const nextResult = await requestJson<ConversationsResponse>(`/whatsapp/conversations?${params}`);
       if (!isSameSelection() || queueViewVersionRef.current !== viewVersion) return;
       if (!nextResult.ok || !nextResult.data) throw new Error("Conversa resolvida. Não foi possível carregar a próxima pendência; atualize a fila.");
@@ -1214,14 +1226,26 @@ export default function WhatsAppStagePage() {
 
         <section className="fc-wa-metrics" aria-label="Resumo do atendimento WhatsApp">
           <button type="button" className="fc-wa-metric fc-wa-metric-amber fc-wa-metric-action" aria-label="Ver conversas que precisam de resposta" onClick={() => {
-            setNeedsReplyFilter(true); setUnreadFilter(false); setStatusFilter(""); setSearchFilter(""); setAssignedFilter("all");
-            void loadConversations(1, { needsReply: true, unread: false, status: "", search: "", assigned: "all" });
+            setFollowUpFilter(""); setMyFollowUps(false); setNeedsReplyFilter(true); setUnreadFilter(false); setStatusFilter(""); setSearchFilter(""); setAssignedFilter("all");
+            void loadConversations(1, { needsReply: true, unread: false, status: "", search: "", assigned: "all", followUp: "", myFollowUps: false });
           }}><Clock3 className="h-5 w-5" /><strong>{queueSummary?.needs_reply ?? "—"}</strong><span>Precisam de resposta · total</span></button>
           <div className="fc-wa-metric fc-wa-metric-cordis"><MessagesSquare className="h-5 w-5" /><strong>{queueSummary?.total ?? "—"}</strong><span>Conversas cadastradas</span></div>
           <div className="fc-wa-metric fc-wa-metric-vital"><MessageSquare className="h-5 w-5" /><strong>{queueSummary?.unread ?? "—"}</strong><span>Conversas não lidas</span></div>
           <div className="fc-wa-metric fc-wa-metric-amber"><UserCheck className="h-5 w-5" /><strong>{queueSummary?.unassigned ?? "—"}</strong><span>Sem responsável · total</span></div>
           <div className="fc-wa-metric fc-wa-metric-ink"><Users className="h-5 w-5" /><strong>{agents.filter((agent) => agent.active).length}</strong><span>Atendentes ativos</span></div>
         </section>
+        <div className="fc-wa-follow-up-summary" role="status">
+          <span><strong>{queueSummary?.follow_up_due ?? "—"}</strong> retornos atrasados na equipe</span>
+          <button type="button" onClick={() => {
+            setFollowUpFilter("ready"); setMyFollowUps(false); setNeedsReplyFilter(false); setUnreadFilter(false); setStatusFilter(""); setAssignedFilter("all"); setSearchFilter("");
+            void loadConversations(1, { followUp: "ready", myFollowUps: false, needsReply: false, unread: false, status: "", assigned: "all", search: "" });
+          }}>Ver retornos que precisam de atenção ({queueSummary?.follow_up_ready ?? "—"})</button>
+          {myAgentId ? <button type="button" onClick={() => {
+            setFollowUpFilter("ready"); setMyFollowUps(true); setNeedsReplyFilter(false); setUnreadFilter(false); setStatusFilter(""); setAssignedFilter("all"); setSearchFilter("");
+            void loadConversations(1, { followUp: "ready", myFollowUps: true, needsReply: false, unread: false, status: "", assigned: "all", search: "" });
+          }}>Meus retornos para revisar ({queueSummary?.my_follow_up_ready ?? "—"})</button> : null}
+          <small>Lembretes atualizados enquanto este módulo estiver aberto.</small>
+        </div>
         {infoMessage ? <div className="fc-wa-message fc-wa-message-info">{infoMessage}</div> : null}
         {errorMessage ? <div className="fc-wa-message fc-wa-message-error">{errorMessage}</div> : null}
 
@@ -1241,6 +1265,15 @@ export default function WhatsAppStagePage() {
               {CONVERSATION_STATUS_OPTIONS.map((option) => <button key={option.value || "all"} type="button"
                 aria-pressed={statusFilter === option.value} className={statusFilter === option.value ? "active" : ""} onClick={() => { setStatusFilter(option.value); void loadConversations(1, { status: option.value }); }}>{option.label}</button>)}
             </div>
+            <div className="fc-wa-follow-up-filter"><label>Retornos<select aria-label="Filtrar retornos" value={followUpFilter} onChange={(event) => {
+              const value = event.target.value as FollowUpFilter; setFollowUpFilter(value);
+              void loadConversations(1, { followUp: value });
+            }}><option value="">Todas as conversas</option><option value="all">Todos os retornos pendentes</option>
+              <option value="ready">Precisam de atenção</option><option value="due">Atrasados</option><option value="today">Hoje, a vencer</option>
+              <option value="upcoming">A partir de amanhã</option><option value="responded">Cliente respondeu</option></select></label>
+              <label><input type="checkbox" checked={myFollowUps} disabled={!myAgentId} onChange={(event) => {
+                setMyFollowUps(event.target.checked); void loadConversations(1, { myFollowUps: event.target.checked });
+              }} /> Meus retornos</label></div>
             <div className="fc-wa-assignment-filter"><Filter className="h-3.5 w-3.5" /><select value={assignedFilter}
               onChange={(event) => { const value = event.target.value as AssignedFilter; setAssignedFilter(value); void loadConversations(1, { assigned: value }); }} aria-label="Filtrar por responsável">
               <option value="all">Todos os responsáveis</option><option value="mine" disabled={!myAgentId}>Minhas conversas</option><option value="assigned">Com responsável</option><option value="unassigned">Sem responsável</option></select></div>
@@ -1251,9 +1284,9 @@ export default function WhatsAppStagePage() {
               <label><input type="checkbox" checked={unreadFilter} onChange={(event) => {
                 setUnreadFilter(event.target.checked); void loadConversations(1, { unread: event.target.checked });
               }} /> Somente não lidas</label>
-              {searchFilter || statusFilter || assignedFilter !== "all" || unreadFilter || needsReplyFilter ? <button type="button" onClick={() => {
-                setSearchFilter(""); setStatusFilter(""); setAssignedFilter("all"); setUnreadFilter(false); setNeedsReplyFilter(false);
-                void loadConversations(1, { search: "", status: "", assigned: "all", unread: false, needsReply: false });
+              {searchFilter || statusFilter || assignedFilter !== "all" || unreadFilter || needsReplyFilter || followUpFilter || myFollowUps ? <button type="button" onClick={() => {
+                setSearchFilter(""); setStatusFilter(""); setAssignedFilter("all"); setUnreadFilter(false); setNeedsReplyFilter(false); setFollowUpFilter(""); setMyFollowUps(false);
+                void loadConversations(1, { search: "", status: "", assigned: "all", unread: false, needsReply: false, followUp: "", myFollowUps: false });
               }}>Limpar filtros</button> : null}
               {needsReplyFilter ? <small>Mais antigas primeiro. Ler a mensagem não encerra a pendência.</small> : null}
               <small>{loadingConversations ? "Atualizando fila..." : queueUpdatedAt ? `Atualizada às ${formatMessageTime(queueUpdatedAt)} · a cada 15 s` : "Aguardando atualização"}</small>
@@ -1270,6 +1303,7 @@ export default function WhatsAppStagePage() {
                       <span className="fc-wa-conversation-line">{conversation.unread ? <span className="fc-wa-unread-dot" aria-label="Não lida" /> : null}<strong>{label}</strong><time>{formatMessageTime(conversation.last_message_at || conversation.last_activity_at)}</time></span>
                       {conversation.subject ? <small>{formatPhone(conversation.wa_phone_number)}</small> : null}
                       <span className="fc-wa-conversation-preview">{conversation.last_message_from_me ? "Você: " : ""}{conversation.last_message_body || "Conversa iniciada"}</span>
+                      {conversation.follow_up?.status === "pending" ? <span className="fc-wa-waiting">{followUpLabel(conversation.follow_up, customerServiceWindowClock)} · {conversation.follow_up.agent_name || "Responsável cadastrado"}</span> : null}
                       {conversation.needs_reply ? <span className="fc-wa-waiting" title={`Precisa de resposta desde ${formatDateTime(conversation.waiting_since)}`}><Clock3 className="h-3 w-3" />{formatWaitingTime(conversation.waiting_since, customerServiceWindowClock)}</span> : null}
                       <span className="fc-wa-conversation-meta"><span className={`fc-wa-status ${conversationStatusClass(conversation.status)}`}>{conversationStatusLabel(conversation.status)}</span>
                         <span>{conversation.assigned_agent_name || "Sem responsável"}</span>{hasDraft(conversation.id) ? <span className="fc-wa-draft-label">Rascunho</span> : null}</span></span></button>;
@@ -1407,6 +1441,8 @@ export default function WhatsAppStagePage() {
           <aside className="fc-wa-context" aria-label="Contexto da conversa"><div className="fc-wa-context-heading"><UserRound className="h-5 w-5" /><div><span>Contexto</span><h2>Atendimento</h2></div></div>
             {selectedConversation ? <div className="fc-wa-context-body"><section className="fc-wa-contact-card"><span className="fc-wa-avatar fc-wa-avatar-xl">{getInitials(conversationDisplayName)}</span><h3>{conversationDisplayName}</h3>
               <p>{formatPhone(selectedConversation.wa_phone_number)}</p><span className={`fc-wa-status ${conversationStatusClass(selectedConversation.status)}`}>{conversationStatusLabel(selectedConversation.status)}</span></section>
+              <FollowUpPanel key={currentUser?.id ?? "anonymous"} conversationId={selectedConversation.id} agents={agents} defaultAgentId={myAgentId || selectedConversation.last_agent_id}
+                onChanged={() => void loadConversations(conversationsPagination.page, { silent: true })} />
               <section className="fc-wa-context-section"><div className="fc-wa-context-section-title"><CircleDot className="h-4 w-4" /><h3>Classificação</h3></div>
                 <label className="fc-wa-field"><span>Status da conversa</span><select value={selectedConversation.status} onChange={(event) => void handleStatusChange(event.target.value as ConversationStatus)} disabled={savingStatus}>
                   <option value="open">Em atendimento</option><option value="pending">Aguardando cliente</option><option value="closed">Resolvida</option></select></label></section>

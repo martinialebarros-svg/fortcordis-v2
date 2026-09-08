@@ -129,6 +129,7 @@ jobs:
           npm run test:conversation-ordering
           npm run test:conversation-reply-queue
           npm run test:quick-replies
+          npm run test:follow-ups
 
   sdd-guardrail:
     runs-on: ubuntu-latest

@@ -319,6 +319,11 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
     });
 
     if (inserted) {
+      // The conversation upsert already holds the same lock used by scheduling.
+      // Only a newly persisted inbound bumps the version; provider retries do not.
+      await client.query(`UPDATE conversation_follow_ups
+        SET inbound_received_at = COALESCE(inbound_received_at, now()), revision = revision + 1, updated_at = now()
+        WHERE conversation_id = $1 AND status = 'pending'`, [conversation.id]);
       await handleAgendaButtonReply(client, message);
       await handleApprovedTemplateButtonReply(client, message);
       await touchConversation(
