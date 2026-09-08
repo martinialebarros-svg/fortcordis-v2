@@ -2229,3 +2229,36 @@ para teste (final 8899). A ativacao inicial sera restrita ao destinatario de
 teste, preservando participacao e modos das demais conversas. Nao substituir
 credenciais de um ambiente pelas do outro. Exigir prova de stage antes da
 promocao e conferir entrega antes de repetir qualquer mensagem de teste.
+
+### Publicacao autorizada e correcao de dependencia — 2026-09-08
+
+- Commit funcional `5df0caea520f654503669407b48ff2099f74e989`: stage run
+  `34285225417` concluido com sucesso, inclusive segunda execucao do deploy
+  para carregar a configuracao operacional. Migration CI `34285225425`
+  aprovada. Preflight Meta passou sem expor segredos.
+- Stage e alias retornaram 200 em `/whatsapp-stage`; conversas anonimas e
+  preview do bot retornaram 401. Os 14 chunks da tela responderam 200 e o
+  bundle continha `envio_automatico_liberado`.
+- Simulacao real em stage para o destinatario autorizado final 8899 produziu
+  `aprovado_auto`, com fonte `consultar_horario_funcionamento`. Nenhuma
+  mensagem nova desse destinatario foi recebida durante esta verificacao.
+- Em producao, a Graph API confirmou `CONNECTED`, `CLOUD_API`, qualidade
+  `GREEN` e assinatura do aplicativo esperado. A tentativa unica autorizada
+  do template padrao `hello_world` foi recusada (HTTP 400, codigo 131058);
+  nao houve mensagem aceita. A janela real permanece necessaria para o
+  teste ponta a ponta; nao foi simulada por alteracao de dados.
+- A primeira promocao para main disparou `34286851978`, bloqueada **antes
+  do deploy** por `npm audit`: multer 2.2.0 vulneravel. Migration CI
+  `34286851915` passou. Nao considerar esse run prova de producao publicada.
+- Correcao: `multer ^2.3.0`, lockfile em 2.3.0. Fonte primaria:
+  https://github.com/advisories/GHSA-wc9g-mqfw-jrwm (corrigido em 2.3.0).
+- Validacao local da correcao: build TypeScript, contratos de anexos e
+  autenticacao aprovados; `npm audit --omit=dev --audit-level=high` sem
+  vulnerabilidades. Ensaio HTTP multipart local comprovou arquivo valido
+  (200), limite de 8 MiB (413) e campo de arquivo inesperado (422), sem
+  trafego para a Meta. Repassar o snapshot corrigido por stage antes de main.
+- Escopo operacional preparado: modo institucional preservado em `suggest`,
+  participacao de producao preservada em `piloto`, override automatico
+  apenas para o destinatario autorizado. Ativacao Python em producao deve
+  ocorrer somente com o codigo compativel instalado; a versao anterior
+  rejeita a chave nova no arquivo `.env`.

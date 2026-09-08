@@ -848,3 +848,11 @@ resolvida, apenas os assuntos ja aprovados pela allowlist existente, incluindo
 status de laudo sem conteudo clinico. Agendar, cobrar, negociar, diagnosticar,
 interpretar sintomas e prescrever continuam fora desta automacao. Novos
 contatos nao adquirem acesso a registros por se apresentarem como clinica.
+
+### Dependencia de upload na publicacao de setembro de 2026
+
+O servico WhatsApp usa `multer` a partir de 2.3.0, com versao reproduzivel
+no lockfile, para incorporar as correcoes de seguranca do parser multipart.
+A atualizacao preserva upload em memoria, limite de 8 MiB, um anexo por
+requisicao e autenticacao anterior ao parser. A auditoria de dependencias
+continua obrigatoria em stage e producao, sem excecao para vulnerabilidades.
