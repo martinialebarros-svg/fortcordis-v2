@@ -65,3 +65,6 @@ conversas. Summary inclui follow_up_due, follow_up_ready e my_follow_up_ready.
   próxima” preserva também os filtros de retorno na seleção da próxima pendência.
 - Uma nota atual por conversa; não há histórico navegável de notas anteriores,
   recorrência, múltiplos retornos simultâneos ou notificações fora deste módulo.
+
+O controller importa explicitamente a declaração Express de autenticação para
+que os contratos ts-node carreguem os mesmos tipos do build completo.

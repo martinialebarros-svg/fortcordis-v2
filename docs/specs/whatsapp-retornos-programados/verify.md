@@ -42,3 +42,10 @@ Usuário autorizou “publique”. Origin/stage e origin/main conferidos em
 aditiva executada antes do reinício do backend pelo deploy existente. Nenhum
 segredo, callback ou envio Meta novo. Resultados terminais de deploy e smoke
 serão registrados no relatório de publicação da tarefa.
+
+## Ajuste do quality gate
+
+O run stage 34223075005 interrompeu antes do deploy: `test:inbox-ui` usa
+ts-node sem --files e não carregava a extensão Request.authUser. O controller
+de retornos agora importa explicitamente a declaração de tipos, sem importação
+de runtime. Contrato antigo e build reexecutados para confirmar compatibilidade.

@@ -1,3 +1,4 @@
+import type {} from "../types/express";
 import { Request, Response } from "express";
 import { query, withTransaction } from "../services/dbService";
 
