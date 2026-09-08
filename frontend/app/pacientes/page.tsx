@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { Users, Search, Plus, Dog, Cat, User, Edit2, Trash2, ListChecks } from "lucide-react";
+import { Users, Search, Plus, Dog, Cat, User, Edit2, Trash2, ListChecks, ChevronLeft, ChevronRight } from "lucide-react";
+
+const PACIENTES_POR_PAGINA = 100;
 
 interface Paciente {
   id: number;
@@ -21,12 +23,17 @@ interface Paciente {
 export default function PacientesPage() {
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [totalPacientes, setTotalPacientes] = useState(0);
+  const [totalResultados, setTotalResultados] = useState(0);
   const [loading, setLoading] = useState(true);
   const [deletandoLote, setDeletandoLote] = useState(false);
   const [selecionados, setSelecionados] = useState<number[]>([]);
   const [mensagemAcao, setMensagemAcao] = useState("");
   const [erroAcao, setErroAcao] = useState("");
+  const [buscaDigitada, setBuscaDigitada] = useState("");
   const [busca, setBusca] = useState("");
+  const [pagina, setPagina] = useState(0);
+  const [erroCarregamento, setErroCarregamento] = useState("");
+  const [versaoConsulta, setVersaoConsulta] = useState(0);
   const router = useRouter();
 
   useEffect(() => {
@@ -35,39 +42,63 @@ export default function PacientesPage() {
       router.push("/");
       return;
     }
-    carregarPacientes();
-  }, [router]);
+    let ativo = true;
+    const carregarPacientes = async () => {
+      setLoading(true);
+      setErroCarregamento("");
+      const params = new URLSearchParams({
+        limit: String(PACIENTES_POR_PAGINA),
+        skip: String(pagina * PACIENTES_POR_PAGINA),
+      });
+      if (busca) params.set("search", busca);
 
-  const carregarPacientes = async () => {
-    try {
-      const response = await api.get("/pacientes?limit=1000");
-      setPacientes(response.data.items || []);
-      setTotalPacientes(Number(response.data.total || 0));
-    } catch (error) {
-      console.error("Erro ao carregar pacientes:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+      try {
+        const response = await api.get(`/pacientes?${params.toString()}`);
+        if (!ativo) return;
 
-  const pacientesFiltrados = useMemo(
-    () =>
-      pacientes.filter(
-        (p) =>
-          p.nome.toLowerCase().includes(busca.toLowerCase()) ||
-          p.tutor?.toLowerCase().includes(busca.toLowerCase()) ||
-          String(p.id).includes(busca.trim()) ||
-          String(p.tutor_id || "").includes(busca.trim())
-      ),
-    [busca, pacientes]
-  );
+        const total = Number(response.data.total || 0);
+        const totalAtivos = Number(response.data.total_ativos ?? total);
+        const totalPaginas = Math.max(1, Math.ceil(total / PACIENTES_POR_PAGINA));
+
+        setPacientes(response.data.items || []);
+        setTotalResultados(total);
+        setTotalPacientes(totalAtivos);
+        if (pagina >= totalPaginas && pagina > 0) {
+          setPagina(totalPaginas - 1);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar pacientes:", error);
+        if (!ativo) return;
+        setPacientes([]);
+        setTotalResultados(0);
+        setErroCarregamento("Não foi possível carregar a carteira de pacientes. Tente novamente.");
+      } finally {
+        if (ativo) setLoading(false);
+      }
+    };
+
+    void carregarPacientes();
+    return () => {
+      ativo = false;
+    };
+  }, [busca, pagina, router, versaoConsulta]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setBusca(buscaDigitada.trim());
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [buscaDigitada]);
 
   const selecionadosSet = useMemo(() => new Set(selecionados), [selecionados]);
-  const idsFiltrados = useMemo(() => pacientesFiltrados.map((paciente) => paciente.id), [pacientesFiltrados]);
-  const todosFiltradosSelecionados = useMemo(() => {
-    if (idsFiltrados.length === 0) return false;
-    return idsFiltrados.every((id) => selecionadosSet.has(id));
-  }, [idsFiltrados, selecionadosSet]);
+  const idsVisiveis = useMemo(() => pacientes.map((paciente) => paciente.id), [pacientes]);
+  const todosVisiveisSelecionados = useMemo(() => {
+    if (idsVisiveis.length === 0) return false;
+    return idsVisiveis.every((id) => selecionadosSet.has(id));
+  }, [idsVisiveis, selecionadosSet]);
+  const totalPaginas = Math.max(1, Math.ceil(totalResultados / PACIENTES_POR_PAGINA));
+  const primeiroResultado = totalResultados === 0 ? 0 : pagina * PACIENTES_POR_PAGINA + 1;
+  const ultimoResultado = Math.min((pagina + 1) * PACIENTES_POR_PAGINA, totalResultados);
 
   useEffect(() => {
     setSelecionados((prev) => prev.filter((id) => pacientes.some((paciente) => paciente.id === id)));
@@ -90,11 +121,11 @@ export default function PacientesPage() {
 
   const alternarSelecionarFiltrados = () => {
     setSelecionados((prev) => {
-      if (todosFiltradosSelecionados) {
-        return prev.filter((id) => !idsFiltrados.includes(id));
+      if (todosVisiveisSelecionados) {
+        return prev.filter((id) => !idsVisiveis.includes(id));
       }
       const merged = new Set(prev);
-      for (const id of idsFiltrados) {
+      for (const id of idsVisiveis) {
         merged.add(id);
       }
       return Array.from(merged);
@@ -144,6 +175,7 @@ export default function PacientesPage() {
     if (idsSucesso.size > 0) {
       setPacientes((prev) => prev.filter((paciente) => !idsSucesso.has(paciente.id)));
       setTotalPacientes((prev) => Math.max(0, prev - idsSucesso.size));
+      setTotalResultados((prev) => Math.max(0, prev - idsSucesso.size));
     }
 
     if (falhas.length > 0) {
@@ -169,6 +201,7 @@ export default function PacientesPage() {
 
     setSelecionados((prev) => prev.filter((id) => !idsSucesso.has(id)));
     setDeletandoLote(false);
+    if (idsSucesso.size > 0) setVersaoConsulta((prev) => prev + 1);
   };
 
   return (
@@ -207,8 +240,8 @@ export default function PacientesPage() {
               <Search className="h-5 w-5" />
             </div>
             <div>
-              <strong>{pacientesFiltrados.length}</strong>
-              <span>Resultados visíveis</span>
+              <strong>{totalResultados}</strong>
+              <span>Resultados encontrados</span>
             </div>
           </div>
           <div className="fc-registry-metric fc-registry-metric-ink">
@@ -232,8 +265,11 @@ export default function PacientesPage() {
             <input
               type="text"
               placeholder="Buscar por nome, tutor ou ID..."
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
+              value={buscaDigitada}
+              onChange={(e) => {
+                setBuscaDigitada(e.target.value);
+                setPagina(0);
+              }}
             />
           </div>
         </section>
@@ -256,7 +292,16 @@ export default function PacientesPage() {
             <div className="fc-registry-loading" aria-label="Carregando pacientes">
               {[0, 1, 2].map((item) => <span key={item} />)}
             </div>
-          ) : pacientesFiltrados.length === 0 ? (
+          ) : erroCarregamento ? (
+            <div className="fc-registry-empty" role="alert">
+              <div><Users className="h-6 w-6" /></div>
+              <span>Carteira indisponível</span>
+              <p>{erroCarregamento}</p>
+              <button type="button" onClick={() => setVersaoConsulta((prev) => prev + 1)} className="fc-registry-primary mt-5">
+                Tentar novamente
+              </button>
+            </div>
+          ) : pacientes.length === 0 ? (
             <div className="fc-registry-empty">
               <div><Users className="h-6 w-6" /></div>
               <span>Carteira sem resultados</span>
@@ -272,11 +317,11 @@ export default function PacientesPage() {
                 <label>
                   <input
                     type="checkbox"
-                    checked={todosFiltradosSelecionados}
+                    checked={todosVisiveisSelecionados}
                     onChange={alternarSelecionarFiltrados}
                     className="fc-registry-checkbox"
                   />
-                  Selecionar visiveis ({idsFiltrados.length})
+                  Selecionar visiveis ({idsVisiveis.length})
                 </label>
 
                 <div>
@@ -293,7 +338,7 @@ export default function PacientesPage() {
               </div>
 
               <div className="divide-y divide-ink-100">
-                {pacientesFiltrados.map((paciente) => (
+                {pacientes.map((paciente) => (
                   <div key={paciente.id} className="fc-registry-row group">
                     <label className="fc-registry-row-check" title="Selecionar paciente">
                       <input
@@ -341,6 +386,34 @@ export default function PacientesPage() {
                   </div>
                 ))}
               </div>
+              <nav className="mt-5 flex flex-wrap items-center justify-between gap-3" aria-label="Paginação de pacientes">
+                <span className="text-sm text-ink-500">
+                  Exibindo {primeiroResultado}-{ultimoResultado} de {totalResultados}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="fc-registry-danger bg-white text-ink-700 border border-ink-200 hover:bg-ink-50"
+                    onClick={() => setPagina((prev) => Math.max(0, prev - 1))}
+                    disabled={pagina === 0 || loading}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </button>
+                  <span className="text-sm font-medium text-ink-700" aria-label={`Página ${pagina + 1} de ${totalPaginas}`}>
+                    Página {pagina + 1} de {totalPaginas}
+                  </span>
+                  <button
+                    type="button"
+                    className="fc-registry-danger bg-white text-ink-700 border border-ink-200 hover:bg-ink-50"
+                    onClick={() => setPagina((prev) => Math.min(totalPaginas - 1, prev + 1))}
+                    disabled={pagina >= totalPaginas - 1 || loading}
+                  >
+                    Próxima
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </nav>
             </div>
           )}
         </section>
