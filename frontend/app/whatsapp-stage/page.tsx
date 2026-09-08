@@ -17,9 +17,10 @@ import {
   buildMessageResendRequest,
   shouldOfferMessageResend,
 } from "@/lib/whatsapp-message-retry";
+import { useWhatsAppDrafts } from "@/lib/use-whatsapp-drafts";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
-type AssignedFilter = "all" | "assigned" | "unassigned";
+type AssignedFilter = "all" | "assigned" | "unassigned" | "mine";
 type ConversationStatus = "open" | "pending" | "closed";
 type ComposerMode = "message" | "template";
 
@@ -84,7 +85,8 @@ interface TemplateCatalogItem {
 
 interface Pagination { page: number; limit: number; total: number }
 interface ApiResult<T> { ok: boolean; status: number; data: T | null; errorText?: string }
-interface ConversationsResponse { data: Conversation[]; pagination: Pagination }
+interface QueueSummary { total: number; unread: number; unassigned: number; open: number; pending: number; closed: number }
+interface ConversationsResponse { data: Conversation[]; pagination: Pagination; summary?: QueueSummary }
 interface AgentsResponse { data: Agent[] }
 interface MessagesResponse {
   data: Message[];
@@ -189,6 +191,7 @@ const BOT_SILENCIO_MOTIVOS: Record<string, string> = {
 };
 
 const MESSAGE_STATUS_REFRESH_INTERVAL_MS = 5_000;
+const QUEUE_REFRESH_INTERVAL_MS = 15_000;
 const CUSTOMER_SERVICE_WINDOW_CLOCK_INTERVAL_MS = 30_000;
 const QUICK_RESPONSES = [
   "Olá! Como podemos ajudar?",
@@ -209,23 +212,26 @@ function getAuthHeaders(): Record<string, string> {
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<ApiResult<T>> {
-  const response = await fetch(url, {
-    cache: "no-store",
-    ...init,
-    headers: { "Content-Type": "application/json", ...getAuthHeaders(), ...(init?.headers || {}) },
-  });
-  const contentType = response.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    const parsed = (await response.json()) as T;
-    return { ok: response.ok, status: response.status, data: parsed,
-      errorText: response.ok ? undefined : JSON.stringify(parsed) };
-  }
-  const text = await response.text();
-  const normalizedText = /<!doctype html/i.test(text)
-    ? "Backend WhatsApp não configurado neste ambiente."
-    : text.trim().slice(0, 500);
-  return { ok: response.ok, status: response.status, data: null,
-    errorText: normalizedText || `HTTP ${response.status}` };
+  const controller = (!init?.method || init.method === "GET") && !init?.signal ? new AbortController() : null;
+  const timeout = controller ? window.setTimeout(() => controller.abort(), 15_000) : null;
+  try {
+    const response = await fetch(url, {
+      cache: "no-store", ...init,
+      signal: init?.signal ?? controller?.signal,
+      headers: { "Content-Type": "application/json", ...getAuthHeaders(), ...(init?.headers || {}) },
+    });
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const parsed = (await response.json()) as T;
+      return { ok: response.ok, status: response.status, data: parsed,
+        errorText: response.ok ? undefined : JSON.stringify(parsed) };
+    }
+    const text = await response.text();
+    const normalizedText = /<!doctype html/i.test(text)
+      ? "Backend WhatsApp não configurado neste ambiente." : text.trim().slice(0, 500);
+    return { ok: response.ok, status: response.status, data: null,
+      errorText: normalizedText || `HTTP ${response.status}` };
+  } finally { if (timeout !== null) window.clearTimeout(timeout); }
 }
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
@@ -461,7 +467,26 @@ function WhatsAppMediaViewer({ conversationId, message }: { conversationId: stri
 export default function WhatsAppStagePage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationsPagination, setConversationsPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0 });
+  const [queueSummary, setQueueSummary] = useState<QueueSummary | null>(null);
+  const [queueError, setQueueError] = useState<string | null>(null);
+  const [queueUpdatedAt, setQueueUpdatedAt] = useState<string | null>(null);
+  const queueRequestRef = useRef(0);
+  const queueAbortRef = useRef<AbortController | null>(null);
+  const queueBusyRef = useRef(false);
+  const appliedSearchRef = useRef("");
+  const [unreadFilter, setUnreadFilter] = useState(false);
+  const [selectedConversationSnapshot, setSelectedConversationSnapshot] = useState<Conversation | null>(null);
+  const messageRequestRef = useRef(0);
+  const messageReadsRef = useRef(0);
+  const historyPageRef = useRef(1);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const messageStreamRef = useRef<HTMLDivElement>(null);
+  const followMessagesRef = useRef(true);
+  const prependScrollRef = useRef<{ height: number; top: number } | null>(null);
+  const [showLatestButton, setShowLatestButton] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const [messagesPagination, setMessagesPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0 });
   const [agents, setAgents] = useState<Agent[]>([]);
   const [templates, setTemplates] = useState<TemplateCatalogItem[]>([]);
@@ -481,6 +506,12 @@ export default function WhatsAppStagePage() {
   const [savingBotAction, setSavingBotAction] = useState(false);
   const [editingBotDraft, setEditingBotDraft] = useState(false);
   const [editedBotDraft, setEditedBotDraft] = useState("");
+  const editingBotDraftRef = useRef(false);
+  editingBotDraftRef.current = editingBotDraft;
+  const botDraftIdRef = useRef<number | null>(null);
+  botDraftIdRef.current = botConversationState?.rascunho_pendente?.resposta_id ?? null;
+  const botRequestRef = useRef(0);
+  const botActionRef = useRef(false);
   const [savingStatus, setSavingStatus] = useState(false);
   const [integrationState, setIntegrationState] = useState<"checking" | "available" | "unavailable">("checking");
   const [statusFilter, setStatusFilter] = useState<"" | ConversationStatus>("");
@@ -495,10 +526,17 @@ export default function WhatsAppStagePage() {
   const [editAgentEmail, setEditAgentEmail] = useState("");
   const [editAgentRole, setEditAgentRole] = useState("agent");
   const [savingAgentId, setSavingAgentId] = useState<string | null>(null);
-  const [sendMessageBody, setSendMessageBody] = useState("");
-  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const {
+    body: sendMessageBody, file: attachmentFile, setBody: setSendMessageBody, setFile: setAttachmentFile,
+    draftSnapshot, clearDraftIfUnchanged, hasDraft,
+  } = useWhatsAppDrafts(selectedConversationId);
+  const sendingRef = useRef(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [savingAssignment, setSavingAssignment] = useState(false);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [resendingMessageId, setResendingMessageId] = useState<string | null>(null);
+  const resendingRef = useRef(false);
   const [composerMode, setComposerMode] = useState<ComposerMode>("message");
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
   const [templateParameters, setTemplateParameters] = useState<string[]>([]);
@@ -509,8 +547,9 @@ export default function WhatsAppStagePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const selectedConversation = useMemo(() =>
-    conversations.find((item) => item.id === selectedConversationId) || null,
-  [conversations, selectedConversationId]);
+    conversations.find((item) => item.id === selectedConversationId) ||
+      (selectedConversationSnapshot?.id === selectedConversationId ? selectedConversationSnapshot : null),
+  [conversations, selectedConversationId, selectedConversationSnapshot]);
   const selectedTemplate = useMemo(() => templates.find((item) => item.key === selectedTemplateKey) || null,
     [selectedTemplateKey, templates]);
   const selectedCustomerServiceWindow = selectedConversationId
@@ -529,49 +568,113 @@ export default function WhatsAppStagePage() {
     templateParameters.length === selectedTemplate.body_parameter_count &&
     templateParameters.every((parameter) => parameter.trim()));
 
+  const selectConversation = (conversation: Conversation): void => {
+    if (selectedConversationIdRef.current !== conversation.id) {
+      setBotConversationState(null); setLoadingBotState(false); setEditingBotDraft(false); setEditedBotDraft("");
+      setInfoMessage(null); setErrorMessage(null);
+    }
+    selectedConversationIdRef.current = conversation.id;
+    setSelectedConversationSnapshot(conversation);
+    setSelectedConversationId(conversation.id);
+  };
+
   const loadConversations = async (
     page = 1,
-    overrides: { status?: "" | ConversationStatus; assigned?: AssignedFilter } = {}
+    overrides: { status?: "" | ConversationStatus; assigned?: AssignedFilter; search?: string; unread?: boolean; silent?: boolean } = {},
   ): Promise<void> => {
-    setLoadingConversations(true); setErrorMessage(null);
+    const requestId = ++queueRequestRef.current;
+    queueAbortRef.current?.abort();
+    const controller = new AbortController();
+    queueAbortRef.current = controller;
+    queueBusyRef.current = true;
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    if (!overrides.silent) setLoadingConversations(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: String(conversationsPagination.limit) });
-      const effectiveStatus = overrides.status ?? statusFilter;
       const effectiveAssigned = overrides.assigned ?? assignedFilter;
+      const effectiveStatus = overrides.status ?? statusFilter;
+      const effectiveSearch = (overrides.search ?? searchFilter).trim();
+      appliedSearchRef.current = effectiveSearch;
       if (effectiveStatus) params.set("status", effectiveStatus);
-      if (effectiveAssigned !== "all") params.set("assigned", effectiveAssigned);
-      if (searchFilter.trim()) params.set("search", searchFilter.trim());
-      const result = await requestJson<ConversationsResponse>(`/whatsapp/conversations?${params}`);
-      if (!result.ok || !result.data) throw new Error(result.errorText || `Falha ao carregar conversas (HTTP ${result.status})`);
-      setConversations(result.data.data); setConversationsPagination(result.data.pagination); setIntegrationState("available");
-      if (!selectedConversationId && result.data.data.length) setSelectedConversationId(result.data.data[0].id);
-      else if (selectedConversationId && !result.data.data.some((item) => item.id === selectedConversationId))
-        setSelectedConversationId(result.data.data[0]?.id ?? null);
-    } catch (error) { setIntegrationState("unavailable"); setErrorMessage(error instanceof Error ? error.message : "Erro ao carregar conversas"); }
-    finally { setLoadingConversations(false); }
+      if (effectiveAssigned === "mine") {
+        if (!myAgentId) return;
+        params.set("agent_id", myAgentId);
+      } else if (effectiveAssigned !== "all") params.set("assigned", effectiveAssigned);
+      if (overrides.unread ?? unreadFilter) params.set("unread", "true");
+      if (effectiveSearch) params.set("search", effectiveSearch);
+      const result = await requestJson<ConversationsResponse>(`/whatsapp/conversations?${params}`, { signal: controller.signal });
+      if (requestId !== queueRequestRef.current) return;
+      if (!result.ok || !result.data) throw new Error("Não foi possível atualizar a fila. Tente novamente.");
+      const lastPage = Math.max(1, Math.ceil(result.data.pagination.total / result.data.pagination.limit));
+      if (page > lastPage) { await loadConversations(lastPage, overrides); return; }
+      // A fila pode mudar enquanto a equipe escreve; a conversa aberta continua acessível.
+      const selected = result.data.data.find((item) => item.id === selectedConversationIdRef.current);
+      if (selected) setSelectedConversationSnapshot(selected);
+      setConversations(result.data.data); setConversationsPagination(result.data.pagination);
+      setQueueSummary(result.data.summary ?? null); setQueueError(null);
+      setQueueUpdatedAt(new Date().toISOString()); setIntegrationState("available");
+      if (!selectedConversationIdRef.current && result.data.data.length) selectConversation(result.data.data[0]);
+    } catch {
+      if (requestId === queueRequestRef.current) {
+        setIntegrationState("unavailable");
+        setQueueError("Não foi possível atualizar a fila. As conversas já carregadas foram mantidas.");
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      if (requestId === queueRequestRef.current) { queueBusyRef.current = false; setLoadingConversations(false); }
+    }
   };
 
   const loadMessages = async (conversationId: string, page = 1, options: LoadMessagesOptions = {}): Promise<void> => {
     const { isCurrent, silent = false } = options;
-    if (!silent) setLoadingMessages(true); setErrorMessage(null);
+    if (selectedConversationIdRef.current !== conversationId) return;
+    if (silent && messageReadsRef.current > 0) return;
+    const requestId = ++messageRequestRef.current;
+    messageReadsRef.current += 1;
+    const current = () => selectedConversationIdRef.current === conversationId &&
+      requestId === messageRequestRef.current && (!isCurrent || isCurrent());
+    if (!silent) { if (page > 1) setLoadingHistory(true); else setLoadingMessages(true); }
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
     try {
-      const params = new URLSearchParams({ page: String(page), limit: String(messagesPagination.limit) });
-      const result = await requestJson<MessagesResponse>(`/whatsapp/conversations/${conversationId}/messages?${params}`);
-      if (!result.ok || !result.data) throw new Error(result.errorText || `Falha ao carregar mensagens (HTTP ${result.status})`);
-      if (!isCurrent || isCurrent()) {
-        setMessages(result.data.data); setMessagesPagination(result.data.pagination);
-        setCustomerServiceWindows((current) => ({ ...current, [conversationId]: result.data!.customer_service_window }));
-        const latestInbound = result.data.last_inbound_at ?? null;
-        const hasNewInbound = latestInbound !== (lastSeenInboundRef.current[conversationId] ?? null);
-        if (!silent || hasNewInbound) {
+      const params = new URLSearchParams({ page: String(page), limit: "50", order: "latest" });
+      const result = await requestJson<MessagesResponse>(`/whatsapp/conversations/${conversationId}/messages?${params}`, { signal: controller.signal });
+      if (!current()) return;
+      if (!result.ok || !result.data) throw new Error("Não foi possível carregar as mensagens. Atualize a conversa para tentar novamente.");
+      if (page > 1 && messageStreamRef.current) prependScrollRef.current = {
+        height: messageStreamRef.current.scrollHeight, top: messageStreamRef.current.scrollTop,
+      };
+      if (page === 1 && messagesRef.current.length && result.data.data.length &&
+          !result.data.data.some((incoming) => messagesRef.current.some((existing) => existing.id === incoming.id))) {
+        // Muitos recebimentos entre polls deslocam o histórico; revisite a segunda página para preencher a lacuna.
+        historyPageRef.current = 1;
+      }
+      // Atualiza a página recente sem apagar o histórico que já foi aberto.
+      setMessages((existing) => {
+        const merged = new Map(existing.map((message) => [message.id, message]));
+        for (const message of result.data!.data) merged.set(message.id, message);
+        return [...merged.values()].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) ||
+          a.id.localeCompare(b.id, undefined, { numeric: true }));
+      });
+      if (page > 1) historyPageRef.current = page;
+      setMessagesPagination(result.data.pagination);
+      setCustomerServiceWindows((windows) => ({ ...windows, [conversationId]: result.data!.customer_service_window }));
+      const latestInbound = result.data.last_inbound_at ?? result.data.customer_service_window?.last_inbound_at ?? null;
+      const hasNewInbound = latestInbound !== (lastSeenInboundRef.current[conversationId] ?? null);
+      if (page === 1 && (!silent || hasNewInbound) && document.visibilityState !== "hidden") {
+        void requestJson(`/whatsapp/conversations/${conversationId}/seen`, { method: "PATCH" }).then((seen) => {
+          if (!seen.ok || selectedConversationIdRef.current !== conversationId) return;
           lastSeenInboundRef.current[conversationId] = latestInbound;
-          void requestJson(`/whatsapp/conversations/${conversationId}/seen`, { method: "PATCH" });
-          setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, unread: false } : item));
-        }
+          setConversations((items) => items.map((item) => item.id === conversationId ? { ...item, unread: false } : item));
+        }).catch(() => { /* A próxima atualização tenta marcar novamente. */ });
       }
     } catch (error) {
-      if (!isCurrent || isCurrent()) setErrorMessage(error instanceof Error ? error.message : "Erro ao carregar mensagens");
-    } finally { if (!silent && (!isCurrent || isCurrent())) setLoadingMessages(false); }
+      if (current() && !silent) setErrorMessage(error instanceof Error ? error.message : "Não foi possível carregar as mensagens. Tente novamente.");
+    } finally {
+      window.clearTimeout(timeout);
+      messageReadsRef.current -= 1;
+      if (current() && !silent) { setLoadingMessages(false); setLoadingHistory(false); }
+    }
   };
 
   const loadAgents = async (): Promise<void> => {
@@ -619,7 +722,9 @@ export default function WhatsAppStagePage() {
     isCurrent: () => boolean,
     silent = false,
   ): Promise<void> => {
+    const requestId = ++botRequestRef.current;
     if (!silent) setLoadingBotState(true);
+    const current = () => isCurrent() && requestId === botRequestRef.current;
     try {
       const result = await requestJson<WhatsAppBotConversationState>(
         `/api/v1/whatsapp/bot/conversas/${encodeURIComponent(waIdentity)}/estado`,
@@ -627,19 +732,19 @@ export default function WhatsAppStagePage() {
       if (!result.ok || !result.data) {
         throw new Error(result.errorText || `Falha ao carregar o estado do bot (HTTP ${result.status})`);
       }
-      if (isCurrent()) {
+      if (current()) {
         setBotConversationState(result.data);
         const nextDraft = result.data.rascunho_pendente;
-        setEditedBotDraft((current) => editingBotDraft ? current : nextDraft?.texto_gerado || "");
-        if (!nextDraft) setEditingBotDraft(false);
+        const keepEditing = editingBotDraftRef.current && nextDraft?.resposta_id === botDraftIdRef.current;
+        if (!keepEditing) { setEditedBotDraft(nextDraft?.texto_gerado || ""); setEditingBotDraft(false); }
       }
     } catch (error) {
-      if (isCurrent() && !silent) {
+      if (current() && !silent) {
         setBotConversationState(null);
         setErrorMessage(error instanceof Error ? error.message : "Estado do bot indisponível");
       }
     } finally {
-      if (isCurrent() && !silent) setLoadingBotState(false);
+      if (current() && !silent) setLoadingBotState(false);
     }
   };
 
@@ -653,87 +758,71 @@ export default function WhatsAppStagePage() {
     );
   };
 
-  const handleBotModeChange = async (modo: WhatsAppBotMode): Promise<void> => {
-    if (!selectedConversation) return;
+  const updateBotState = async (body: { modo: WhatsAppBotMode } | { pausar: boolean }): Promise<void> => {
+    if (!selectedConversation || botActionRef.current) return;
+    const requestConversationId = selectedConversation.id;
+    botActionRef.current = true; botRequestRef.current += 1;
     setSavingBotAction(true); setErrorMessage(null);
-    const result = await requestJson<WhatsAppBotConversationState>(
-      `/api/v1/whatsapp/bot/conversas/${encodeURIComponent(selectedConversation.wa_phone_number)}/estado`,
-      { method: "PATCH", body: JSON.stringify({ modo }) },
-    );
-    setSavingBotAction(false);
-    if (!result.ok || !result.data) {
-      setErrorMessage(result.errorText || `Falha ao alterar o modo do bot (HTTP ${result.status})`);
-      return;
-    }
-    setBotConversationState(result.data);
-    setInfoMessage(`Modo do bot alterado para ${modo === "suggest" ? "copiloto" : modo === "off" ? "desligado" : "automático"}.`);
+    try {
+      const result = await requestJson<WhatsAppBotConversationState>(
+        `/api/v1/whatsapp/bot/conversas/${encodeURIComponent(selectedConversation.wa_phone_number)}/estado`,
+        { method: "PATCH", body: JSON.stringify(body) },
+      );
+      if (!result.ok || !result.data) throw new Error("Não foi possível atualizar o copiloto. Tente novamente.");
+      if (selectedConversationIdRef.current !== requestConversationId) return;
+      botRequestRef.current += 1;
+      setBotConversationState(result.data);
+      setInfoMessage("modo" in body ? `Modo do bot alterado para ${body.modo === "suggest" ? "copiloto" : "desligado"}.` :
+        body.pausar ? "Bot pausado nesta conversa." : "Pausa do bot removida.");
+    } catch (error) {
+      if (selectedConversationIdRef.current === requestConversationId) setErrorMessage(error instanceof Error ? error.message : "Não foi possível atualizar o copiloto.");
+    } finally { botActionRef.current = false; setSavingBotAction(false); }
   };
+  const handleBotModeChange = (modo: WhatsAppBotMode) => updateBotState({ modo });
+  const handleBotPause = (pausar: boolean) => updateBotState({ pausar });
 
-  const handleBotPause = async (pausar: boolean): Promise<void> => {
-    if (!selectedConversation) return;
+  const performBotDraftAction = async (
+    draft: WhatsAppBotDraft, action: "enviar" | "descartar", body: { texto?: string } = {},
+  ): Promise<void> => {
+    if (!selectedConversationId || botActionRef.current) return;
+    const requestConversationId = selectedConversationId;
+    botActionRef.current = true; botRequestRef.current += 1;
     setSavingBotAction(true); setErrorMessage(null);
-    const result = await requestJson<WhatsAppBotConversationState>(
-      `/api/v1/whatsapp/bot/conversas/${encodeURIComponent(selectedConversation.wa_phone_number)}/estado`,
-      { method: "PATCH", body: JSON.stringify({ pausar }) },
-    );
-    setSavingBotAction(false);
-    if (!result.ok || !result.data) {
-      setErrorMessage(result.errorText || `Falha ao ${pausar ? "pausar" : "retomar"} o bot.`);
-      return;
-    }
-    setBotConversationState(result.data);
-    setInfoMessage(
-      pausar
-        ? `Bot pausado nesta conversa${result.data.pausado_ate ? ` até ${formatDateTime(result.data.pausado_ate)}` : ""}.`
-        : "Pausa do bot removida.",
-    );
+    try {
+      const result = await requestJson<{ status: string; idempotent?: boolean }>(
+        `/api/v1/whatsapp/bot/respostas/${draft.resposta_id}/${action}`,
+        { method: "POST", body: JSON.stringify(body) },
+      );
+      if (!result.ok) throw new Error(result.errorText || "Não foi possível concluir a ação do copiloto.");
+      if (selectedConversationIdRef.current === requestConversationId) {
+        setInfoMessage(action === "descartar" ? "Rascunho descartado sem envio." :
+          result.data?.idempotent ? "Rascunho já havia sido enviado." : "Rascunho revisado e enviado.");
+        if (botDraftIdRef.current === draft.resposta_id) { setEditingBotDraft(false); setEditedBotDraft(""); }
+        await refreshSelectedBotState();
+      }
+      if (action === "enviar") {
+        void loadMessages(requestConversationId, 1, { silent: true });
+        latestQueueRefreshRef.current();
+      }
+    } catch (error) {
+      if (selectedConversationIdRef.current === requestConversationId) setErrorMessage(error instanceof Error ? error.message :
+        "Não foi possível confirmar a ação do copiloto. Atualize a conversa antes de tentar novamente.");
+    } finally { botActionRef.current = false; setSavingBotAction(false); }
   };
 
   const handleDiscardBotDraft = async (): Promise<void> => {
     const draft = botConversationState?.rascunho_pendente;
-    if (!draft || !window.confirm("Descartar este rascunho sem enviar mensagem ao contato?")) return;
-    setSavingBotAction(true); setErrorMessage(null);
-    const result = await requestJson<{ status: string }>(
-      `/api/v1/whatsapp/bot/respostas/${draft.resposta_id}/descartar`,
-      { method: "POST", body: JSON.stringify({}) },
-    );
-    setSavingBotAction(false);
-    if (!result.ok) {
-      setErrorMessage(result.errorText || `Falha ao descartar o rascunho (HTTP ${result.status})`);
-      return;
-    }
-    setInfoMessage("Rascunho descartado sem envio.");
-    setEditingBotDraft(false); setEditedBotDraft("");
-    await refreshSelectedBotState();
+    if (!draft || botActionRef.current || !window.confirm("Descartar este rascunho sem enviar mensagem ao contato?")) return;
+    await performBotDraftAction(draft, "descartar");
   };
 
   const handleSendBotDraft = async (edited: boolean): Promise<void> => {
     const draft = botConversationState?.rascunho_pendente;
-    if (!draft || !selectedConversationId) return;
-    if (!windowState.isOpen) {
-      setErrorMessage("A janela de 24 horas está fechada; o rascunho não pode ser enviado como texto livre.");
-      return;
-    }
+    if (!draft || botActionRef.current) return;
+    if (!windowState.isOpen) { setErrorMessage("A janela de 24 horas está fechada; o rascunho não pode ser enviado como texto livre."); return; }
     const texto = edited ? editedBotDraft.trim() : draft.texto_gerado.trim();
     if (!texto) { setErrorMessage("O rascunho não pode ficar vazio."); return; }
-    setSavingBotAction(true); setErrorMessage(null);
-    const requestConversationId = selectedConversationId;
-    const result = await requestJson<{ status: string; idempotent: boolean }>(
-      `/api/v1/whatsapp/bot/respostas/${draft.resposta_id}/enviar`,
-      { method: "POST", body: JSON.stringify(edited ? { texto } : {}) },
-    );
-    setSavingBotAction(false);
-    if (!result.ok) {
-      setErrorMessage(result.errorText || `Falha ao enviar o rascunho (HTTP ${result.status})`);
-      return;
-    }
-    setInfoMessage(result.data?.idempotent ? "Rascunho já havia sido enviado." : "Rascunho revisado e enviado.");
-    setEditingBotDraft(false); setEditedBotDraft("");
-    await Promise.all([
-      loadMessages(requestConversationId, 1, { isCurrent: () => selectedConversationIdRef.current === requestConversationId }),
-      loadConversations(conversationsPagination.page || 1),
-      refreshSelectedBotState(),
-    ]);
+    await performBotDraftAction(draft, "enviar", edited ? { texto } : {});
   };
 
   const handleFilterSubmit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); await loadConversations(1); };
@@ -775,26 +864,42 @@ export default function WhatsAppStagePage() {
   };
 
   const handleClaimToggle = async (mode: "claim" | "unclaim", requestedAgentId?: string): Promise<void> => {
-    if (!selectedConversationId) { setErrorMessage("Selecione uma conversa."); return; }
+    if (!selectedConversationId || savingAssignment) return;
+    const requestConversationId = selectedConversationId;
     const targetAgentId = requestedAgentId || agentActionId;
     if (!targetAgentId) { setErrorMessage("Selecione um atendente."); return; }
-    const result = await requestJson<{ message: string }>(`/whatsapp/conversations/${selectedConversationId}/${mode}`, {
-      method: "POST", body: JSON.stringify({ agent_id: Number(targetAgentId) }),
-    });
-    if (!result.ok) { setErrorMessage(result.errorText || `Não foi possível ${mode === "claim" ? "atribuir" : "liberar"} a conversa.`); return; }
-    setInfoMessage(mode === "claim" ? "Responsável atualizado." : "Conversa liberada para a equipe.");
-    await loadConversations(conversationsPagination.page || 1);
+    setSavingAssignment(true); setErrorMessage(null);
+    try {
+      const result = await requestJson<{ message: string }>(`/whatsapp/conversations/${requestConversationId}/${mode}`, {
+        method: "POST", body: JSON.stringify({ agent_id: Number(targetAgentId) }),
+      });
+      if (!result.ok) throw new Error(result.errorText || "Não foi possível atualizar o responsável.");
+      const agent = mode === "claim" ? agents.find((item) => item.id === targetAgentId) : null;
+      const update = (conversation: Conversation) => conversation.id === requestConversationId ? { ...conversation,
+        last_agent_id: mode === "claim" ? targetAgentId : null,
+        assigned_agent_name: agent?.name ?? null, assigned_agent_email: agent?.email ?? null,
+      } : conversation;
+      setConversations((items) => items.map(update));
+      setSelectedConversationSnapshot((item) => item ? update(item) : null);
+      if (selectedConversationIdRef.current === requestConversationId) setInfoMessage(mode === "claim" ? "Responsável atualizado." : "Conversa liberada para a equipe.");
+      latestQueueRefreshRef.current();
+    } catch (error) {
+      if (selectedConversationIdRef.current === requestConversationId) setErrorMessage(error instanceof Error ? error.message : "Não foi possível atualizar o responsável. Tente novamente.");
+    } finally { setSavingAssignment(false); }
   };
 
   const handleStatusChange = async (status: ConversationStatus): Promise<void> => {
     if (!selectedConversationId || status === selectedConversation?.status) return;
+    const requestConversationId = selectedConversationId;
     setSavingStatus(true); setErrorMessage(null);
     try {
       const result = await requestJson<{ data: Conversation; changed: boolean }>(
         `/whatsapp/conversations/${selectedConversationId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
       if (!result.ok) throw new Error(result.errorText || `Falha ao atualizar status (HTTP ${result.status})`);
-      setInfoMessage(`Conversa marcada como ${conversationStatusLabel(status).toLowerCase()}.`);
-      await loadConversations(conversationsPagination.page || 1);
+      setConversations((items) => items.map((item) => item.id === requestConversationId ? { ...item, status } : item));
+      setSelectedConversationSnapshot((item) => item?.id === requestConversationId ? { ...item, status } : item);
+      if (selectedConversationIdRef.current === requestConversationId) setInfoMessage(`Conversa marcada como ${conversationStatusLabel(status).toLowerCase()}.`);
+      latestQueueRefreshRef.current();
     } catch (error) { setErrorMessage(error instanceof Error ? error.message : "Erro ao atualizar o status"); }
     finally { setSavingStatus(false); }
   };
@@ -822,6 +927,7 @@ export default function WhatsAppStagePage() {
 
   const handleSendMessage = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
+    if (sendingRef.current) return;
     if (!selectedConversationId) { setErrorMessage("Selecione uma conversa para enviar mensagem."); return; }
     if (!windowState.isOpen) {
       setErrorMessage(windowState.hasInboundMessage ? "A janela de 24 horas foi encerrada. Use o fluxo de modelo aprovado correspondente."
@@ -832,47 +938,69 @@ export default function WhatsAppStagePage() {
       setErrorMessage(`A legenda do anexo excede ${ATTACHMENT_CAPTION_MAX_LENGTH} caracteres.`); return;
     }
     const requestConversationId = selectedConversationId;
-    const result = attachmentFile
-      ? await requestWithAttachment<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
-          `/whatsapp/conversations/${requestConversationId}/messages`, attachmentFile, sendMessageBody)
-      : await requestJson<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
-          `/whatsapp/conversations/${requestConversationId}/messages`, {
-            method: "POST", body: JSON.stringify({ body: sendMessageBody.trim(), type: "text" }),
-          });
-    if (!result.ok) {
-      if (result.status === 409 && result.data?.code === "CUSTOMER_SERVICE_WINDOW_CLOSED") {
-        if (result.data.customer_service_window) setCustomerServiceWindows((current) => ({
-          ...current, [requestConversationId]: result.data!.customer_service_window!,
-        }));
-        setErrorMessage("A janela de 24 horas foi encerrada. Use um modelo aprovado.");
-      } else setErrorMessage(result.errorText || `Falha ao enviar ${attachmentFile ? "o anexo" : "mensagem"} (HTTP ${result.status})`);
-    } else {
-      setInfoMessage(attachmentFile ? "Anexo enviado." : "Mensagem enviada.");
-      if (selectedConversationIdRef.current === requestConversationId) { setSendMessageBody(""); clearAttachment(); }
-    }
-    await loadMessages(requestConversationId, 1, { isCurrent: () => selectedConversationIdRef.current === requestConversationId });
-    await loadConversations(conversationsPagination.page || 1);
+    const sentDraft = draftSnapshot;
+    sendingRef.current = true; setSendingMessage(true); setErrorMessage(null);
+    try {
+      const result = attachmentFile
+        ? await requestWithAttachment<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
+            `/whatsapp/conversations/${requestConversationId}/messages`, attachmentFile, sendMessageBody)
+        : await requestJson<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
+            `/whatsapp/conversations/${requestConversationId}/messages`, {
+              method: "POST", body: JSON.stringify({ body: sendMessageBody.trim(), type: "text" }),
+            });
+      if (!result.ok) {
+        if (result.status === 409 && result.data?.code === "CUSTOMER_SERVICE_WINDOW_CLOSED") {
+          if (result.data.customer_service_window) setCustomerServiceWindows((current) => ({
+            ...current, [requestConversationId]: result.data!.customer_service_window!,
+          }));
+          if (selectedConversationIdRef.current === requestConversationId) setErrorMessage("A janela de 24 horas foi encerrada. Use um modelo aprovado.");
+        } else if (selectedConversationIdRef.current === requestConversationId) {
+          setErrorMessage(result.errorText || `Falha ao enviar mensagem (HTTP ${result.status}). O rascunho foi mantido.`);
+        }
+      } else {
+        clearDraftIfUnchanged(requestConversationId, sentDraft);
+        if (selectedConversationIdRef.current === requestConversationId) {
+          setInfoMessage(attachmentFile ? "Anexo enviado." : "Mensagem enviada.");
+          if (fileInputRef.current) fileInputRef.current.value = "";
+          followMessagesRef.current = true;
+          composerRef.current?.focus();
+        }
+      }
+      void loadMessages(requestConversationId, 1, { silent: true });
+      latestQueueRefreshRef.current();
+    } catch {
+      if (selectedConversationIdRef.current === requestConversationId) {
+        setErrorMessage("Não foi possível confirmar o envio. Seu rascunho foi mantido; confira o histórico antes de tentar novamente.");
+      }
+    } finally { sendingRef.current = false; setSendingMessage(false); }
   };
 
   const handleResendMessage = async (message: Message): Promise<void> => {
-    if (!selectedConversationId || !message.body || message.type !== "text") return;
-    setResendingMessageId(message.id);
-    const retryRequest = buildMessageResendRequest(message, selectedConversationId);
-    const result = await requestJson<{ status?: string; code?: string; customer_service_window?: CustomerServiceWindow }>(
-      retryRequest.url, {
-        method: "POST", body: JSON.stringify(retryRequest.body),
-      });
-    if (!result.ok) {
-      if (result.status === 409 && result.data?.code === "CUSTOMER_SERVICE_WINDOW_CLOSED") {
-        if (result.data.customer_service_window) setCustomerServiceWindows((current) => ({
-          ...current, [selectedConversationId]: result.data!.customer_service_window!,
-        }));
-        setErrorMessage("A janela de 24 horas foi encerrada. Use um modelo aprovado.");
-      } else setErrorMessage(result.errorText || `Falha ao reenviar mensagem (HTTP ${result.status})`);
-    } else setInfoMessage(retryRequest.botReviewed ? "Rascunho revisado e reenviado." : "Mensagem reenviada.");
-    setResendingMessageId(null);
-    await loadMessages(selectedConversationId, 1); await loadConversations(conversationsPagination.page || 1);
-    if (retryRequest.botReviewed) await refreshSelectedBotState();
+    if (!selectedConversationId || !shouldOfferMessageResend(message) || resendingRef.current) return;
+    const requestConversationId = selectedConversationId;
+    const retryRequest = buildMessageResendRequest(message, requestConversationId);
+    resendingRef.current = true; setResendingMessageId(message.id); setErrorMessage(null);
+    try {
+      const result = await requestJson<{ code?: string; customer_service_window?: CustomerServiceWindow }>(
+        retryRequest.url, { method: "POST", body: JSON.stringify(retryRequest.body) });
+      if (!result.ok) {
+        if (result.status === 409 && result.data?.code === "CUSTOMER_SERVICE_WINDOW_CLOSED") {
+          if (result.data.customer_service_window) setCustomerServiceWindows((current) => ({
+            ...current, [requestConversationId]: result.data!.customer_service_window!,
+          }));
+          throw new Error("A janela de 24 horas foi encerrada. Use um modelo aprovado.");
+        }
+        throw new Error(result.errorText || "Não foi possível reenviar a mensagem.");
+      }
+      if (selectedConversationIdRef.current === requestConversationId) {
+        setInfoMessage(retryRequest.botReviewed ? "Rascunho revisado e reenviado." : "Mensagem reenviada.");
+        if (retryRequest.botReviewed) await refreshSelectedBotState();
+      }
+      void loadMessages(requestConversationId, 1, { silent: true });
+      latestQueueRefreshRef.current();
+    } catch (error) {
+      if (selectedConversationIdRef.current === requestConversationId) setErrorMessage(error instanceof Error ? error.message : "Não foi possível confirmar o reenvio. Confira o histórico antes de tentar novamente.");
+    } finally { resendingRef.current = false; setResendingMessageId(null); }
   };
 
   const handleTemplateSelection = (templateKey: string): void => {
@@ -885,7 +1013,7 @@ export default function WhatsAppStagePage() {
   const handleCopyTemplateToComposer = (): void => {
     if (!selectedTemplate || !templateComplete) { setErrorMessage("Preencha todas as variáveis do modelo antes de copiar o texto."); return; }
     if (!windowState.isOpen || !selectedTemplate.can_copy_as_free_text) return;
-    setSendMessageBody(templatePreview); setComposerMode("message");
+    setSendMessageBody(sendMessageBody.trim() ? `${sendMessageBody}\n\n${templatePreview}` : templatePreview); setComposerMode("message");
     setInfoMessage("Texto copiado para o rascunho. Revise antes de enviar como resposta livre.");
   };
 
@@ -897,10 +1025,13 @@ export default function WhatsAppStagePage() {
     return () => window.clearInterval(intervalId);
   }, []);
   useEffect(() => {
-    if (!selectedConversationId) { setMessages([]); return; }
+    setMessages([]); setMessagesPagination({ page: 1, limit: 50, total: 0 });
+    historyPageRef.current = 1; followMessagesRef.current = true;
+    prependScrollRef.current = null; setShowLatestButton(false); setLoadingHistory(false);
+    if (!selectedConversationId) return;
     let active = true; let refreshInProgress = false;
     const refreshMessages = async (silent: boolean) => {
-      if (refreshInProgress) return; refreshInProgress = true;
+      if (refreshInProgress || (silent && document.visibilityState === "hidden")) return; refreshInProgress = true;
       try { await loadMessages(selectedConversationId, 1, { isCurrent: () => active, silent }); }
       finally { refreshInProgress = false; }
     };
@@ -910,7 +1041,6 @@ export default function WhatsAppStagePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedConversationId]);
   useEffect(() => {
-    setAttachmentFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [selectedConversationId]);
   useEffect(() => {
@@ -921,21 +1051,62 @@ export default function WhatsAppStagePage() {
     }
     let active = true;
     void loadDomainContext(selectedConversation.wa_phone_number, () => active);
-    void loadBotConversationState(selectedConversation.wa_phone_number, () => active);
+    let refreshInProgress = false;
+    const refreshBot = async (silent = false) => {
+      if (refreshInProgress || botActionRef.current || (silent && document.visibilityState === "hidden")) return;
+      refreshInProgress = true;
+      try { await loadBotConversationState(selectedConversation.wa_phone_number, () => active, silent); }
+      finally { refreshInProgress = false; }
+    };
+    void refreshBot();
     const intervalId = window.setInterval(
-      () => void loadBotConversationState(selectedConversation.wa_phone_number, () => active, true),
+      () => void refreshBot(true),
       MESSAGE_STATUS_REFRESH_INTERVAL_MS,
     );
     return () => { active = false; window.clearInterval(intervalId); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedConversation?.id, selectedConversation?.wa_phone_number]);
+  const firstActiveAgentId = agents.find((agent) => agent.active)?.id || "";
   useEffect(() => {
-    if (selectedConversation?.last_agent_id) setAgentActionId(selectedConversation.last_agent_id);
-    else if (!agentActionId) {
-      const fallbackId = myAgentId || agents.find((agent) => agent.active)?.id;
-      if (fallbackId) setAgentActionId(fallbackId);
+    setAgentActionId(selectedConversation?.last_agent_id || myAgentId || firstActiveAgentId);
+  }, [selectedConversation?.id, selectedConversation?.last_agent_id, myAgentId, firstActiveAgentId]);
+
+  const latestQueueRefreshRef = useRef(() => {});
+  latestQueueRefreshRef.current = () => {
+    if (!queueBusyRef.current && appliedSearchRef.current === searchFilter.trim()) {
+      void loadConversations(conversationsPagination.page, { silent: true });
     }
-  }, [agentActionId, agents, myAgentId, selectedConversation]);
+  };
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") latestQueueRefreshRef.current();
+    }, QUEUE_REFRESH_INTERVAL_MS);
+    const onVisible = () => { if (document.visibilityState !== "hidden") latestQueueRefreshRef.current(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible);
+      queueRequestRef.current += 1; queueAbortRef.current?.abort();
+    };
+  }, []);
+  useEffect(() => {
+    if (searchFilter.trim() === appliedSearchRef.current) return;
+    const timer = window.setTimeout(() => {
+      if (searchFilter.trim() !== appliedSearchRef.current) void loadConversations(1, { search: searchFilter });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchFilter]);
+  useEffect(() => {
+    const stream = messageStreamRef.current;
+    if (!stream || loadingMessages) return;
+    if (prependScrollRef.current) {
+      stream.scrollTop = prependScrollRef.current.top + stream.scrollHeight - prependScrollRef.current.height;
+      prependScrollRef.current = null;
+    } else if (followMessagesRef.current) {
+      stream.scrollTop = stream.scrollHeight;
+      setShowLatestButton(false);
+    }
+  }, [messages, loadingMessages]);
+
   useEffect(() => {
     if (!selectedTemplate) return;
     const parameters = Array.from({ length: selectedTemplate.body_parameter_count }, () => "");
@@ -951,13 +1122,13 @@ export default function WhatsAppStagePage() {
             <h1>WhatsApp Fort Cordis</h1><p>Atenda clínicas parceiras, organize a fila e acompanhe cada conversa em um só lugar.</p></div>
           <div className="fc-wa-header-actions"><span className={`fc-wa-live-dot fc-wa-live-dot-${integrationState}`}><span />
             {integrationState === "available" ? "Integração disponível" : integrationState === "unavailable" ? "Integração indisponível" : "Verificando integração"}
-          </span><span className="fc-wa-environment">Stage</span></div>
+          </span></div>
         </header>
 
         <section className="fc-wa-metrics" aria-label="Resumo do atendimento WhatsApp">
-          <div className="fc-wa-metric fc-wa-metric-cordis"><MessagesSquare className="h-5 w-5" /><strong>{conversationsPagination.total}</strong><span>Conversas na fila</span></div>
-          <div className="fc-wa-metric fc-wa-metric-vital"><MessageSquare className="h-5 w-5" /><strong>{messagesPagination.total}</strong><span>Mensagens abertas</span></div>
-          <div className="fc-wa-metric fc-wa-metric-amber"><UserCheck className="h-5 w-5" /><strong>{conversations.filter((item) => !item.last_agent_id).length}</strong><span>Sem responsável</span></div>
+          <div className="fc-wa-metric fc-wa-metric-cordis"><MessagesSquare className="h-5 w-5" /><strong>{queueSummary?.total ?? "—"}</strong><span>Conversas cadastradas</span></div>
+          <div className="fc-wa-metric fc-wa-metric-vital"><MessageSquare className="h-5 w-5" /><strong>{queueSummary?.unread ?? "—"}</strong><span>Conversas não lidas</span></div>
+          <div className="fc-wa-metric fc-wa-metric-amber"><UserCheck className="h-5 w-5" /><strong>{queueSummary?.unassigned ?? "—"}</strong><span>Sem responsável · total</span></div>
           <div className="fc-wa-metric fc-wa-metric-ink"><Users className="h-5 w-5" /><strong>{agents.filter((agent) => agent.active).length}</strong><span>Atendentes ativos</span></div>
         </section>
         {infoMessage ? <div className="fc-wa-message fc-wa-message-info">{infoMessage}</div> : null}
@@ -970,28 +1141,42 @@ export default function WhatsAppStagePage() {
               <button type="button" className="fc-wa-icon-button ml-auto" onClick={() => void loadConversations(conversationsPagination.page)} aria-label="Atualizar conversas" disabled={loadingConversations}>
                 <RefreshCw className={`h-4 w-4 ${loadingConversations ? "animate-spin" : ""}`} /></button></div>
             <form className="fc-wa-search" onSubmit={handleFilterSubmit}><Search className="h-4 w-4" />
-              <input value={searchFilter} onChange={(event) => setSearchFilter(event.target.value)} placeholder="Buscar nome, telefone ou mensagem" aria-label="Buscar conversas" />
+              <input value={searchFilter} onChange={(event) => {
+                queueRequestRef.current += 1; queueAbortRef.current?.abort(); queueBusyRef.current = false; setLoadingConversations(false);
+                setSearchFilter(event.target.value);
+              }} placeholder="Nome, telefone ou última mensagem" aria-label="Buscar conversas" />
               <button type="submit" aria-label="Aplicar busca"><ChevronRight className="h-4 w-4" /></button></form>
             <div className="fc-wa-queue-tabs" aria-label="Filtrar por status">
               {CONVERSATION_STATUS_OPTIONS.map((option) => <button key={option.value || "all"} type="button"
-                className={statusFilter === option.value ? "active" : ""} onClick={() => { setStatusFilter(option.value); void loadConversations(1, { status: option.value }); }}>{option.label}</button>)}
+                aria-pressed={statusFilter === option.value} className={statusFilter === option.value ? "active" : ""} onClick={() => { setStatusFilter(option.value); void loadConversations(1, { status: option.value }); }}>{option.label}</button>)}
             </div>
             <div className="fc-wa-assignment-filter"><Filter className="h-3.5 w-3.5" /><select value={assignedFilter}
               onChange={(event) => { const value = event.target.value as AssignedFilter; setAssignedFilter(value); void loadConversations(1, { assigned: value }); }} aria-label="Filtrar por responsável">
-              <option value="all">Todos os responsáveis</option><option value="assigned">Com responsável</option><option value="unassigned">Sem responsável</option></select></div>
-            <div className="fc-wa-conversation-list">
+              <option value="all">Todos os responsáveis</option><option value="mine" disabled={!myAgentId}>Minhas conversas</option><option value="assigned">Com responsável</option><option value="unassigned">Sem responsável</option></select></div>
+            <div className="fc-wa-queue-tools">
+              <label><input type="checkbox" checked={unreadFilter} onChange={(event) => {
+                setUnreadFilter(event.target.checked); void loadConversations(1, { unread: event.target.checked });
+              }} /> Somente não lidas</label>
+              {searchFilter || statusFilter || assignedFilter !== "all" || unreadFilter ? <button type="button" onClick={() => {
+                setSearchFilter(""); setStatusFilter(""); setAssignedFilter("all"); setUnreadFilter(false);
+                void loadConversations(1, { search: "", status: "", assigned: "all", unread: false });
+              }}>Limpar filtros</button> : null}
+              <small>{loadingConversations ? "Atualizando fila..." : queueUpdatedAt ? `Atualizada às ${formatMessageTime(queueUpdatedAt)} · a cada 15 s` : "Aguardando atualização"}</small>
+            </div>
+            {queueError ? <div className="fc-wa-queue-error" role="status"><span>{queueError}</span><button type="button" onClick={() => void loadConversations(conversationsPagination.page)}>Tentar novamente</button></div> : null}
+            <div className="fc-wa-conversation-list" aria-busy={loadingConversations}>
               {loadingConversations && conversations.length === 0 ? <div className="fc-wa-empty">Carregando conversas...</div> : conversations.length === 0 ?
                 <div className="fc-wa-empty"><Inbox className="h-8 w-8" /><strong>Nenhuma conversa encontrada</strong><span>Tente alterar os filtros ou a busca.</span></div> :
                 conversations.map((conversation) => {
                   const label = conversation.subject?.trim() || formatPhone(conversation.wa_phone_number);
-                  return <button key={conversation.id} type="button" onClick={() => setSelectedConversationId(conversation.id)}
+                  return <button key={conversation.id} type="button" onClick={() => selectConversation(conversation)} aria-pressed={conversation.id === selectedConversationId}
                     className={`fc-wa-conversation ${conversation.id === selectedConversationId ? "fc-wa-conversation-active" : ""} ${conversation.unread ? "fc-wa-conversation-unread" : ""}`}>
                     <span className="fc-wa-avatar">{getInitials(label)}</span><span className="fc-wa-conversation-content">
                       <span className="fc-wa-conversation-line">{conversation.unread ? <span className="fc-wa-unread-dot" aria-label="Não lida" /> : null}<strong>{label}</strong><time>{formatMessageTime(conversation.last_message_at || conversation.last_activity_at)}</time></span>
                       {conversation.subject ? <small>{formatPhone(conversation.wa_phone_number)}</small> : null}
                       <span className="fc-wa-conversation-preview">{conversation.last_message_from_me ? "Você: " : ""}{conversation.last_message_body || "Conversa iniciada"}</span>
                       <span className="fc-wa-conversation-meta"><span className={`fc-wa-status ${conversationStatusClass(conversation.status)}`}>{conversationStatusLabel(conversation.status)}</span>
-                        <span>{conversation.assigned_agent_name || "Sem responsável"}</span></span></span></button>;
+                        <span>{conversation.assigned_agent_name || "Sem responsável"}</span>{hasDraft(conversation.id) ? <span className="fc-wa-draft-label">Rascunho</span> : null}</span></span></button>;
                 })}
             </div>
             <div className="fc-wa-pagination"><span>{conversationsPagination.total === 0 ? "0 conversas" :
@@ -1011,7 +1196,14 @@ export default function WhatsAppStagePage() {
             {selectedConversation ? <div className={`fc-wa-window ${windowState.isOpen ? "fc-wa-window-open" : "fc-wa-window-closed"}`} role="status" aria-live="polite">
               <Clock3 className="h-4 w-4" /><span>{windowState.isOpen ? `Resposta livre disponível até ${formatDateTime(windowState.expiresAt)}` : windowState.hasInboundMessage ?
                 `Janela encerrada em ${formatDateTime(windowState.expiresAt)}. Use o fluxo de modelo correspondente.` : "Aguardando uma mensagem da clínica para liberar respostas em texto livre."}</span></div> : null}
-            <div className="fc-wa-message-stream">{!selectedConversationId ? <div className="fc-wa-empty"><MessageSquare className="h-8 w-8" /><strong>Selecione uma conversa</strong></div> : loadingMessages ?
+            {selectedConversation && !conversations.some((item) => item.id === selectedConversation.id) ? <p className="fc-wa-selection-note">Esta conversa continua aberta fora dos filtros ou da página atual.</p> : null}
+            {selectedConversationId && messages.length < messagesPagination.total ? <div className="fc-wa-history-actions"><button type="button" className="fc-wa-secondary" disabled={loadingMessages || loadingHistory}
+              onClick={() => void loadMessages(selectedConversationId, historyPageRef.current + 1)}>{loadingHistory ? "Carregando histórico..." : "Carregar mensagens anteriores"}</button><small>{messages.length} de {messagesPagination.total} mensagens</small></div> : null}
+            <div ref={messageStreamRef} className="fc-wa-message-stream" onScroll={(event) => {
+              const stream = event.currentTarget;
+              followMessagesRef.current = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 80;
+              setShowLatestButton(!followMessagesRef.current);
+            }}>{!selectedConversationId ? <div className="fc-wa-empty"><MessageSquare className="h-8 w-8" /><strong>Selecione uma conversa</strong></div> : loadingMessages ?
               <div className="fc-wa-empty">Carregando mensagens...</div> : messages.length === 0 ? <div className="fc-wa-empty"><MessageSquare className="h-8 w-8" /><strong>A conversa ainda não tem mensagens</strong></div> :
               <div className="space-y-3">{messages.map((message, index) => {
                 const previous = messages[index - 1]; const showDay = !previous || new Date(previous.created_at).toDateString() !== new Date(message.created_at).toDateString();
@@ -1022,12 +1214,16 @@ export default function WhatsAppStagePage() {
                     {selectedConversationId ? <WhatsAppMediaViewer conversationId={selectedConversationId} message={message} /> : null}
                     <footer><time>{formatMessageTime(message.created_at)}</time><span className={`fc-wa-delivery fc-wa-delivery-${message.status}`}>{messageStatusIcon(message.status)} {messageStatusLabel(message.status)}</span>
                       {shouldOfferMessageResend(message) ? <button type="button" className="fc-wa-resend-button"
-                        onClick={() => void handleResendMessage(message)} disabled={resendingMessageId === message.id}>
+                        onClick={() => void handleResendMessage(message)} disabled={resendingMessageId !== null || !windowState.isOpen}>
                         <RefreshCw className={`h-3.5 w-3.5 ${resendingMessageId === message.id ? "animate-spin" : ""}`} /> Reenviar
                       </button> : null}</footer>
                     <details><summary>Detalhes técnicos</summary><span>Tipo: {message.type}</span>{message.wa_message_id ? <span>ID Meta: {message.wa_message_id}</span> : null}</details></article></Fragment>;
               })}</div>}</div>
 
+            {showLatestButton ? <div className="fc-wa-history-actions"><button type="button" className="fc-wa-secondary" onClick={() => {
+              if (messageStreamRef.current) messageStreamRef.current.scrollTop = messageStreamRef.current.scrollHeight;
+              followMessagesRef.current = true; setShowLatestButton(false);
+            }}>Ir para última mensagem</button></div> : null}
             {botConversationState?.rascunho_pendente ? <section className="fc-wa-bot-draft" aria-label="Rascunho sugerido pelo bot">
               <div className="fc-wa-bot-draft-heading"><span><Sparkles className="h-4 w-4" /> Sugestão do bot</span>
                 <small>{formatDateTime(botConversationState.rascunho_pendente.criado_em)}</small></div>
@@ -1074,18 +1270,18 @@ export default function WhatsAppStagePage() {
               <button type="button" role="tab" aria-selected={composerMode === "message"} className={composerMode === "message" ? "active" : ""} onClick={() => setComposerMode("message")}><MessageSquare className="h-4 w-4" /> Mensagem</button>
               <button type="button" role="tab" aria-selected={composerMode === "template"} className={composerMode === "template" ? "active" : ""} onClick={() => setComposerMode("template")}><Sparkles className="h-4 w-4" /> Modelos configurados</button></div>
               {composerMode === "message" ? <form onSubmit={handleSendMessage}><div className="fc-wa-quick-responses" aria-label="Respostas rápidas">
-                {QUICK_RESPONSES.map((response) => <button key={response} type="button" onClick={() => setSendMessageBody(response)} disabled={!selectedConversationId || !windowState.isOpen}>{response}</button>)}</div>
+                {QUICK_RESPONSES.map((response) => <button key={response} type="button" onClick={() => { setSendMessageBody(sendMessageBody.trim() ? `${sendMessageBody}\n\n${response}` : response); composerRef.current?.focus(); }} disabled={!selectedConversationId || !windowState.isOpen}>{response}</button>)}</div>
                 <input ref={fileInputRef} type="file" className="sr-only" accept={ATTACHMENT_ACCEPT} aria-label="Selecionar arquivo para anexar" onChange={handleAttachmentChange} />
                 {attachmentFile ? <div className="fc-wa-attachment-chip"><FileText className="h-3.5 w-3.5" /><span>{attachmentFile.name}</span>
                   <button type="button" onClick={clearAttachment} aria-label="Remover anexo"><X className="h-3.5 w-3.5" /></button></div> : null}
                 <div className="fc-wa-compose-row">
                   <button type="button" className="fc-wa-icon-button" onClick={handleAttachmentButtonClick} disabled={!selectedConversationId || !windowState.isOpen}
                     aria-label="Anexar arquivo" title="Anexar PDF, Word, Excel, PowerPoint, CSV ou texto (até 8 MB)"><Paperclip className="h-4 w-4" /></button>
-                  <textarea placeholder="Digite sua resposta" aria-label="Digite sua resposta" value={sendMessageBody} onChange={(event) => setSendMessageBody(event.target.value)}
+                  <textarea ref={composerRef} placeholder="Digite sua resposta" aria-label="Digite sua resposta" value={sendMessageBody} onChange={(event) => setSendMessageBody(event.target.value)}
                   onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}
                   disabled={!selectedConversationId || !windowState.isOpen} rows={3} />
-                  <button type="submit" className="fc-wa-send" disabled={!selectedConversationId || !windowState.isOpen || (!sendMessageBody.trim() && !attachmentFile)}><Send className="h-4 w-4" /> Enviar</button></div>
-                <p className="fc-wa-composer-hint">{windowState.isOpen ? "Ctrl/Cmd + Enter para enviar" : "Texto livre indisponível. Consulte os modelos e use o fluxo correspondente."}</p></form> :
+                  <button type="submit" className="fc-wa-send" disabled={sendingMessage || !selectedConversationId || !windowState.isOpen || (!sendMessageBody.trim() && !attachmentFile)}><Send className="h-4 w-4" /> {sendingMessage ? "Enviando…" : "Enviar"}</button></div>
+                <p className="fc-wa-composer-hint">{windowState.isOpen ? "Ctrl/Cmd + Enter para enviar · Rascunhos mantidos ao trocar conversa, até sair desta página" : "Texto livre indisponível. Consulte os modelos e use o fluxo correspondente."}</p></form> :
                 <div className="fc-wa-template-composer"><div className="fc-wa-template-notice"><Info className="h-4 w-4" /><span>Catálogo configurado no Fort Cordis. A aprovação atual na Meta não é consultada nesta tela.</span></div>
                   {loadingTemplates ? <div className="fc-wa-empty">Carregando modelos...</div> : templateCatalogError ? <div className="fc-wa-template-error">{templateCatalogError}</div> : templates.length === 0 ? <div className="fc-wa-empty">Nenhum modelo configurado.</div> : <>
                     <label className="fc-wa-field"><span>Modelo</span><select value={selectedTemplateKey} onChange={(event) => handleTemplateSelection(event.target.value)}>
@@ -1128,8 +1324,8 @@ export default function WhatsAppStagePage() {
                   {(selectedAgent?.email || selectedConversation.assigned_agent_email) ? <small>{selectedAgent?.email || selectedConversation.assigned_agent_email}</small> : null}</p>
                 <label className="fc-wa-field"><span>{selectedConversation.last_agent_id ? "Transferir para" : "Atribuir para"}</span><select value={agentActionId} onChange={(event) => setAgentActionId(event.target.value)}>
                   <option value="">Selecione um atendente</option>{agents.filter((agent) => agent.active).map((agent) => <option key={agent.id} value={agent.id}>{agent.name || agent.email || `Atendente ${agent.id}`}</option>)}</select></label>
-                <div className="fc-wa-owner-actions"><button type="button" className="fc-wa-secondary" onClick={() => void handleClaimToggle("claim")} disabled={!agentActionId}>{selectedConversation.last_agent_id ? "Transferir" : "Assumir conversa"}</button>
-                  {selectedConversation.last_agent_id ? <button type="button" className="fc-wa-ghost-danger" onClick={() => void handleClaimToggle("unclaim", selectedConversation.last_agent_id || undefined)}>Liberar</button> : null}</div></section>
+                <div className="fc-wa-owner-actions"><button type="button" className="fc-wa-secondary" onClick={() => void handleClaimToggle("claim")} disabled={savingAssignment || !agentActionId || agentActionId === selectedConversation.last_agent_id}>{selectedConversation.last_agent_id ? "Transferir" : "Assumir conversa"}</button>
+                  {selectedConversation.last_agent_id ? <button type="button" className="fc-wa-ghost-danger" disabled={savingAssignment} onClick={() => void handleClaimToggle("unclaim", selectedConversation.last_agent_id || undefined)}>Liberar</button> : null}</div></section>
               <section className="fc-wa-context-section"><div className="fc-wa-context-section-title"><Clock3 className="h-4 w-4" /><h3>Atividade</h3></div><dl className="fc-wa-context-list">
                 <div><dt>Última atividade</dt><dd>{formatDateTime(selectedConversation.last_activity_at)}</dd></div><div><dt>Última mensagem recebida</dt><dd>{formatDateTime(selectedConversation.last_inbound_at)}</dd></div><div><dt>Canal</dt><dd>WhatsApp Business</dd></div></dl></section>
               <DomainContextPanel context={domainContext} loading={loadingDomainContext} error={domainContextError} />

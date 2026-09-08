@@ -11,7 +11,7 @@ import {
   describeCustomerServiceWindow
 } from "../services/customerServiceWindow";
 import { logger } from "../utils/logger";
-import { whatsappGraphRecipient } from "../utils/phoneNumber";
+import { canonicalWhatsAppIdentity, digitsOnly, whatsappGraphRecipient } from "../utils/phoneNumber";
 
 const whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 const phoneNumberId = process.env.PHONE_NUMBER_ID;
@@ -71,6 +71,32 @@ function parsePositiveInt(input: string | undefined, fallback: number): number {
   return parsed;
 }
 
+const UNREAD_CONVERSATION_SQL = `(
+  c.last_inbound_at IS NOT NULL
+  AND (c.last_seen_at IS NULL OR c.last_inbound_at > c.last_seen_at)
+)`;
+
+function isPositiveBigInt(value: unknown): value is string {
+  return typeof value === "string"
+    && /^[1-9]\d*$/.test(value)
+    && value.length <= 19
+    && BigInt(value) <= 9223372036854775807n;
+}
+
+/** Search variants affect lookup only; never rewrite the stored identity or send destination. */
+function phoneSearchVariants(search: string): string[] {
+  if (!/^[+\d\s().-]+$/.test(search)) return [];
+  const digits = digitsOnly(search);
+  if (digits.length < 3) return [];
+
+  const variants = new Set([digits, canonicalWhatsAppIdentity(digits)]);
+  // Accept a Brazilian DDD + local number pasted without the country code.
+  if (/^\d{10,11}$/.test(digits)) {
+    variants.add(canonicalWhatsAppIdentity(`55${digits}`));
+  }
+  return [...variants];
+}
+
 async function touchConversation(conversationId: string): Promise<void> {
   await query(
     `
@@ -92,6 +118,21 @@ export async function listConversations(req: Request, res: Response): Promise<vo
   const assigned = req.query.assigned as string | undefined;
   const phone = req.query.phone as string | undefined;
   const search = (req.query.search as string | undefined) || phone;
+  const agentId = req.query.agent_id;
+  const unread = req.query.unread;
+
+  if (agentId !== undefined && !isPositiveBigInt(agentId)) {
+    res.status(422).json({ error: "agent_id must be a positive integer" });
+    return;
+  }
+  if (unread !== undefined && unread !== "true" && unread !== "false") {
+    res.status(422).json({ error: "unread must be true or false" });
+    return;
+  }
+  if (search !== undefined && typeof search !== "string") {
+    res.status(422).json({ error: "search must be a string" });
+    return;
+  }
 
   const whereClauses: string[] = [];
   const params: unknown[] = [];
@@ -109,13 +150,27 @@ export async function listConversations(req: Request, res: Response): Promise<vo
     whereClauses.push("c.last_agent_id IS NULL");
   }
 
-  if (search) {
+  if (agentId !== undefined) {
+    params.push(agentId);
+    whereClauses.push(`c.last_agent_id = $${params.length}`);
+  }
+
+  if (unread !== undefined) {
+    whereClauses.push(`${UNREAD_CONVERSATION_SQL} = ${unread === "true" ? "TRUE" : "FALSE"}`);
+  }
+
+  if (search?.trim()) {
     params.push(`%${search.trim()}%`);
-    whereClauses.push(`(
+    const searchConditions = [`
       c.wa_phone_number ILIKE $${params.length}
       OR COALESCE(c.subject, '') ILIKE $${params.length}
       OR COALESCE(last_message.body, '') ILIKE $${params.length}
-    )`);
+    `];
+    for (const variant of phoneSearchVariants(search.trim())) {
+      params.push(`%${variant}%`);
+      searchConditions.push(`c.wa_phone_number ILIKE $${params.length}`);
+    }
+    whereClauses.push(`(${searchConditions.join(" OR ")})`);
   }
 
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
@@ -130,20 +185,17 @@ export async function listConversations(req: Request, res: Response): Promise<vo
     ) last_message ON true
   `;
 
-  const totalResult = await query<{ total: string }>(
-    `SELECT COUNT(*)::text AS total FROM conversations c ${joinsSql} ${whereSql}`,
-    params
-  );
-
   const dataParams = [...params, limit, offset];
-  const dataResult = await query<ConversationRow>(
+  const [totalResult, dataResult, summaryResult] = await Promise.all([
+    query<{ total: string }>(
+      `SELECT COUNT(*)::text AS total FROM conversations c ${search?.trim() ? joinsSql : ""} ${whereSql}`,
+      params
+    ),
+    query<ConversationRow>(
     `
       SELECT
         c.*,
-        (
-          c.last_inbound_at IS NOT NULL
-          AND (c.last_seen_at IS NULL OR c.last_inbound_at > c.last_seen_at)
-        ) AS unread,
+        ${UNREAD_CONVERSATION_SQL} AS unread,
         assigned_agent.name AS assigned_agent_name,
         assigned_agent.email AS assigned_agent_email,
         last_message.body AS last_message_body,
@@ -155,17 +207,27 @@ export async function listConversations(req: Request, res: Response): Promise<vo
       ${whereSql}
       ORDER BY
         unread DESC,
-        CASE WHEN (
-          c.last_inbound_at IS NOT NULL
-          AND (c.last_seen_at IS NULL OR c.last_inbound_at > c.last_seen_at)
-        ) THEN c.last_inbound_at END ASC NULLS LAST,
+        CASE WHEN ${UNREAD_CONVERSATION_SQL} THEN c.last_inbound_at END ASC NULLS LAST,
         c.last_activity_at DESC,
         c.id DESC
       LIMIT $${dataParams.length - 1}
       OFFSET $${dataParams.length}
     `,
     dataParams
-  );
+    ),
+    query<Record<string, string>>(
+      `SELECT
+        COUNT(*)::text AS total,
+        COUNT(*) FILTER (WHERE ${UNREAD_CONVERSATION_SQL})::text AS unread,
+        COUNT(*) FILTER (WHERE c.last_agent_id IS NULL)::text AS unassigned,
+        COUNT(*) FILTER (WHERE c.status = 'open')::text AS open,
+        COUNT(*) FILTER (WHERE c.status = 'pending')::text AS pending,
+        COUNT(*) FILTER (WHERE c.status = 'closed')::text AS closed
+        ${agentId === undefined ? "" : ", COUNT(*) FILTER (WHERE c.last_agent_id = $1)::text AS mine"}
+       FROM conversations c`,
+      agentId === undefined ? [] : [agentId]
+    )
+  ]);
 
   res.json({
     data: dataResult.rows.map((conversation) => ({
@@ -176,7 +238,11 @@ export async function listConversations(req: Request, res: Response): Promise<vo
       page,
       limit,
       total: Number.parseInt(totalResult.rows[0]?.total ?? "0", 10)
-    }
+    },
+    // Queue totals intentionally ignore list filters and pagination.
+    summary: Object.fromEntries(
+      Object.entries(summaryResult.rows[0]).map(([key, value]) => [key, Number.parseInt(value, 10)])
+    )
   });
 }
 
@@ -266,6 +332,13 @@ export async function listConversationMessages(req: Request, res: Response): Pro
   const page = parsePositiveInt(req.query.page as string | undefined, 1);
   const limit = Math.min(parsePositiveInt(req.query.limit as string | undefined, 50), 200);
   const offset = (page - 1) * limit;
+  const order = req.query.order;
+  if (order !== undefined && order !== "latest" && order !== "oldest") {
+    res.status(422).json({ error: "order must be latest or oldest" });
+    return;
+  }
+  const latestFirst = order === "latest";
+  const sortDirection = latestFirst ? "DESC" : "ASC";
 
   const conversation = await query<{ id: string; last_inbound_at: Date | string | null }>(
     `SELECT id, last_inbound_at FROM conversations WHERE id = $1`,
@@ -286,7 +359,7 @@ export async function listConversationMessages(req: Request, res: Response): Pro
       SELECT *
       FROM messages
       WHERE conversation_id = $1
-      ORDER BY created_at ASC, id ASC
+      ORDER BY created_at ${sortDirection}, id ${sortDirection}
       LIMIT $2
       OFFSET $3
     `,
@@ -294,7 +367,7 @@ export async function listConversationMessages(req: Request, res: Response): Pro
   );
 
   res.json({
-    data: dataResult.rows,
+    data: latestFirst ? dataResult.rows.reverse() : dataResult.rows,
     last_inbound_at: conversation.rows[0]?.last_inbound_at ?? null,
     customer_service_window: describeCustomerServiceWindow(
       conversation.rows[0]?.last_inbound_at ?? null

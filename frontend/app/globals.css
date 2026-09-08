@@ -4113,6 +4113,48 @@ body {
     @apply border-cordis-200 bg-white text-cordis-700 shadow-sm;
   }
 
+  .fc-wa-queue-tools {
+    @apply flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-3 text-xs text-ink-600;
+  }
+
+  .fc-wa-queue-tools label {
+    @apply flex cursor-pointer items-center gap-2 font-semibold;
+  }
+
+  .fc-wa-page .fc-wa-queue-tools input[type="checkbox"] {
+    @apply h-4 min-h-0 w-4 rounded accent-vital-600;
+  }
+
+  .fc-wa-queue-tools button,
+  .fc-wa-queue-error button {
+    @apply rounded px-2 py-1 font-bold text-vital-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-vital-600;
+  }
+
+  .fc-wa-queue-tools small {
+    @apply w-full text-[11px] text-ink-500;
+  }
+
+  .fc-wa-queue-error {
+    @apply flex flex-col items-start gap-1 border-b border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900;
+  }
+
+  .fc-wa-draft-label {
+    @apply rounded bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-800;
+  }
+
+  .fc-wa-history-actions {
+    @apply flex flex-wrap items-center justify-center gap-2 border-b border-ink-100 px-3 py-2;
+  }
+
+  .fc-wa-history-actions small,
+  .fc-wa-selection-note {
+    @apply text-xs text-ink-500;
+  }
+
+  .fc-wa-selection-note {
+    @apply border-b border-ink-100 px-4 py-2;
+  }
+
   .fc-wa-assignment-filter {
     @apply flex items-center gap-2 border-b border-ink-100 px-3 py-2 text-ink-400;
   }
