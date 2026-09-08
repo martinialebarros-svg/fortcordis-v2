@@ -2142,3 +2142,90 @@ institucionais 1, clinica parceira 2, tool nova sem caso 1.
 ### Suite
 
 **1179 passaram, 2 skipped** (eram 1171). 8 casos novos.
+
+## Verificacao operacional — 2026-09-08
+
+Base: `origin/stage` em `0cc3a85d`, worktree isolado
+`/private/tmp/fortcordis-bot-operacao`, branch `codex/whatsapp-bot-operacao`.
+Checkout original preservado. Nenhum segredo copiado para o worktree.
+
+Evidencia inicial: 305 testes do bot e 237 subcasos passaram antes das
+mudancas (2 skips existentes). Ambiente Python 3.11 com requirements do
+repositorio; o venv legado Python 3.9 nao era compativel.
+
+Contratos adicionados cobrem: emergencia durante pausa; visitante sem
+acesso a dados; controles alterados durante geracao; mensagem mais recente;
+origem bot sem pausa humana; persistencia antes de envio; repeticao sem
+nova geracao; timeout/202/502 com handoff; recuperacao de job antigo;
+separacao entre envio automatico e aceite humano. Teste PostgreSQL prova
+que outra conexao nao consegue adquirir o lock durante commits do worker,
+e que o lock e liberado ao final.
+
+`whatsapp-stage-backend/scripts/test-bot-auto.ts` usa banco PostgreSQL
+exclusivamente local e simula a Graph API. Prova autenticacao interna,
+reserva concorrente unica, bloqueio de revisao antiga/janela fechada,
+interruptor desligado e uma unica chamada externa simulada mesmo apos timeout
+e repeticao da requisicao. Nao envia mensagem real.
+
+### Ativacao posterior (ainda nao realizada)
+
+- Publicar e verificar stage antes de promover producao. Manter interruptores
+  de envio falso ate a revisao da fonte institucional e do destinatario de teste.
+- Verificar presenca/injecao dos segredos existentes sem mostrar valores;
+  validar a identidade Meta do ambiente e saude dos dois servicos.
+- Em teste autorizado, habilitar `WHATSAPP_BOT_AUTO_SEND_ENABLED=true` em
+  Python e Node; manter bot global habilitado e usar `auto` somente no
+  escopo aprovado. Participacao `piloto` exige override explicito por
+  conversa/clinica. Nao trocar automaticamente participacao para `todos`.
+- Ajustar `WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS=0` no ambiente se existir
+  override antigo. Nao remover pausas manuais ou claims em massa.
+- Validar mensagem recebida -> resposta auditada -> confirmacao Node/Meta,
+  handoff para equipe e ausencia de repeticao antes de expandir o piloto.
+- Rollback: desligar flag de envio no Python e Node e voltar as conversas
+  piloto para `suggest`. Conferir reservas `sending`/pendentes e alertas de
+  entrega incerta antes de qualquer reenvio manual.
+
+Sem publicacao, ativacao, mudanca de callback ou teste pago do provider nesta
+etapa. Os testes comprovam contratos de codigo; qualidade do modelo e
+completude da base institucional real ainda exigem observacao no ambiente.
+
+### Resultado final local
+
+- Suite usada pelo CI (`unittest discover -s backend/tests -p 'test_*.py'`):
+  **1.230 testes executados, 1.227 aprovados e 3 skips**, sem falhas.
+- Suite focada do bot com PostgreSQL local habilitado: **325 testes,
+  323 aprovados e 2 skips**. Inclui lock distribuido real e contratos de envio.
+- Frontend WhatsApp: **95 testes aprovados** em 7 arquivos; lint completo,
+  TypeScript e build Next.js aprovados.
+- Node: build, contratos da inbox, retry existente e `test:bot-auto`
+  aprovados; Graph substituida por simulacao (zero mensagens reais).
+- Guardrail SDD, parse dos workflows YAML e `git diff --check`: aprovados.
+
+A coleta indiscriminada por pytest na raiz do backend incluiu scripts de
+diagnostico que exigem banco preparado. A suite oficial e `backend/tests`.
+Na suite completa, o papel local `all` iniciava workers durante testes de
+API e disputava locks dos testes unitarios (falhas intermitentes de push/bot).
+Os passos de teste dos workflows stage/main agora usam
+`FORTCORDIS_PROCESS_ROLE=api`; o teste de observabilidade declara `all`
+explicitamente quando precisa verificar avisos de workers. Isso isola os
+testes sem alterar o papel de execucao dos servicos publicados.
+
+Comandos principais, a partir da raiz do worktree:
+
+```sh
+FORTCORDIS_PROCESS_ROLE=api DATABASE_URL=sqlite:// python -m unittest discover -s backend/tests -p 'test_*.py'
+```
+
+Usar Python 3.11 e dependencias de `backend/requirements.txt`. O teste
+PostgreSQL opcional exige `WHATSAPP_BOT_TEST_DATABASE_URL` apontando para
+`127.0.0.1` e banco cujo nome contenha `test`. Para Node, `npm run test:bot-auto`
+exige `DATABASE_URL` local de teste ja migrado, `WHATSAPP_ACCESS_TOKEN` e
+`PHONE_NUMBER_ID` **ficticios**: a chamada Graph e substituida no proprio teste.
+
+### Publicacao autorizada — 2026-09-08
+
+Usuario autorizou publicacao stage -> producao e forneceu destinatario proprio
+para teste (final 8899). A ativacao inicial sera restrita ao destinatario de
+teste, preservando participacao e modos das demais conversas. Nao substituir
+credenciais de um ambiente pelas do outro. Exigir prova de stage antes da
+promocao e conferir entrega antes de repetir qualquer mensagem de teste.

@@ -5,13 +5,8 @@ Fluxo de um turno:
   -> executa tools escopadas -> gera resposta final -> guardrail -> decide
   (draft | blocked | suppressed)
 
-O que este modulo NAO faz nesta fase: enviar ao cliente. O envio (RF-027)
-depende de o servico Node aceitar `metadata` do chamador, o que hoje ele NAO
-faz (`sendConversationMessage` crava `{source: "agent_api"}`) - decisao
-registrada em verify.md. Alem disso o endpoint de envio nao tem idempotencia
-e o caminho de texto reclassifica para `failed` quando o banco falha DEPOIS
-de o Meta aceitar, o que combinado com o retry do worker poderia entregar a
-mesma resposta duas vezes. Por isso `decisao="sent"` nao e alcancavel aqui.
+O gerador nao envia. Retorna a elegibilidade depois dos guardrails; o worker
+persiste a resposta e o servico de entrega revalida os controles operacionais.
 """
 from __future__ import annotations
 
@@ -50,6 +45,7 @@ from app.services.whatsapp_bot_providers import (
 )
 from app.services.whatsapp_bot_tools import (
     TOOL_SCHEMAS,
+    TOOLS_POR_PERSONA,
     WhatsAppBotToolContext,
     WhatsAppBotToolError,
     execute_bot_tool,
@@ -75,6 +71,7 @@ class ResultadoGeracao:
     resolution: Optional[str] = None
     match_type: Optional[str] = None
     clinica_id: Optional[int] = None
+    auto_elegivel: bool = False
 
 
 def _max_tokens_per_day() -> int:
@@ -359,10 +356,10 @@ def _resolver_contexto(db: Session, wa_identity: str) -> dict[str, Any]:
     try:
         return resolve_whatsapp_context(db, wa_identity)
     except HTTPException:
-        return {"resolution": "not_found", "match_type": None}
+        return {"resolution": "unavailable", "match_type": None}
     except Exception:
         logger.exception("Falha ao resolver contexto do WhatsApp para o bot.")
-        return {"resolution": "not_found", "match_type": None}
+        return {"resolution": "unavailable", "match_type": None}
 
 
 def _escopo_da_persona(contexto: dict[str, Any]) -> tuple[Optional[str], Optional[int], Optional[int]]:
@@ -403,6 +400,10 @@ def gerar_resposta(
     contexto = _resolver_contexto(db, wa_identity)
     resolution = str(contexto.get("resolution") or "not_found")
     match_type, tutor_id, clinica_id = _escopo_da_persona(contexto)
+    if resolution != "matched":
+        match_type, tutor_id, clinica_id = None, None, None
+    if resolution == "not_found":
+        match_type = "visitante"
 
     if persona_forcada in ("tutor", "clinica"):
         match_type = persona_forcada
@@ -517,7 +518,7 @@ def gerar_resposta(
             gerado = provider.generate(
                 instructions=instructions,
                 payload=payload,
-                tools=list(TOOL_SCHEMAS),
+                tools=[t for t in TOOL_SCHEMAS if t["name"] in TOOLS_POR_PERSONA[match_type]],
                 safety_scope=wa_identity,
                 continuation_input=continuation_input,
             )
@@ -640,9 +641,8 @@ def gerar_resposta(
         base.motivo = str(veredito.motivo or "intent_fora_allowlist")
         return base
 
-    # Aprovado. Em `auto` o envio entraria aqui - mas RF-027 depende de
-    # mudanca no servico Node (ver docstring do modulo), entao ate a Fase 6
-    # toda resposta aprovada e rascunho para a equipe.
+    # Aprovado: o worker decide o envio apos persistir e revalidar o estado.
     base.decisao = "draft"
-    base.motivo = "aprovado_aguardando_envio_fase6" if modo == "auto" else "modo_suggest"
+    base.auto_elegivel = modo == "auto" and veredito.auto_elegivel
+    base.motivo = "aprovado_auto" if base.auto_elegivel else "modo_suggest"
     return base

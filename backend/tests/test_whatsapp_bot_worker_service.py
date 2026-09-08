@@ -182,7 +182,7 @@ class WhatsAppBotWorkerServiceTest(unittest.TestCase):
 
                 with patch.object(worker, "SessionLocal", SessionFactory):
                     with patch.object(worker, "_distributed_lock_enabled", return_value=False):
-                        with patch.object(worker, "_max_attempts", return_value=2):
+                        with patch.object(worker, "_max_attempts", return_value=2), patch.object(worker, "_handoff_operacional"):
                             # poll_seconds=0 simula a passagem de um ciclo entre cada
                             # chamada, sem depender do relogio real do teste.
                             with patch.object(worker, "_worker_poll_seconds", return_value=0):

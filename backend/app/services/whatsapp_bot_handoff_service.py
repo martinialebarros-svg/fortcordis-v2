@@ -12,7 +12,7 @@ from app.core.agenda_config import NOMES_DIA_SEMANA
 from app.services.alerta_interno_service import criar_alerta_interno
 from app.services.assistente_ia_tools import LOCAL_TZ, _agenda_configuration_rules, _agenda_day_window
 from app.services.push_notifications import send_whatsapp_message_push_notification
-from app.services.whatsapp_bot_gates import set_handoff_motivo
+from app.services.whatsapp_bot_gates import set_handoff_motivo, pause_conversation
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ def build_handoff_message(db: Session, *, now: Optional[datetime] = None) -> str
     horario de atendimento (fonte: janela operacional da agenda).
     """
     if is_within_operating_window(db, now=now):
-        return "Sua conversa foi passada para a nossa equipe. Em instantes alguem vai te responder."
+        return "Sua conversa foi passada para a nossa equipe, que dara continuidade ao atendimento."
 
     proxima_abertura = _describe_next_opening(db, now=now)
     if proxima_abertura:
@@ -152,6 +152,8 @@ def trigger_active_handoff(
     do alerta e o `motivo` registrado).
     """
     set_handoff_motivo(db, wa_identity, motivo, atualizado_por_id=atualizado_por_id)
+    db.flush()
+    pause_conversation(db, wa_identity, atualizado_por_id=atualizado_por_id)
     criar_alerta_interno(
         db,
         tipo=f"whatsapp_bot_{motivo}",

@@ -504,8 +504,7 @@ class WhatsAppBotEndpointsTest(unittest.TestCase):
                     estado = db.query(WhatsAppBotConversaEstado).filter_by(
                         wa_identity=resposta.wa_identity
                     ).first()
-                    self.assertIsNotNone(estado)
-                    self.assertIsNotNone(estado.pausado_ate)
+                    self.assertIsNone(estado)  # Aprovar resposta nao assume a conversa.
                 finally:
                     db.close()
             finally:

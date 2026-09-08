@@ -20,6 +20,7 @@ export function shouldOfferMessageResend(
   if (!message.from_me || message.status !== "failed" || message.type !== "text") return false;
   if (!message.metadata || typeof message.metadata !== "object" || Array.isArray(message.metadata)) return true;
   const metadata = message.metadata as Record<string, unknown>;
+  if (metadata.source === "bot_auto") return false;
   return typeof metadata.superseded_by_message_id !== "string";
 }
 

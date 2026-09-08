@@ -56,6 +56,7 @@ jobs:
 
       - name: Run backend test suite
         env:
+          FORTCORDIS_PROCESS_ROLE: api
           DATABASE_URL: sqlite:///./fortcordis-ci.db
           SECRET_KEY: deploy-stage-quality-gate-secret-key-1234567890
         run: |

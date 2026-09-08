@@ -12,6 +12,7 @@
     "start": "node dist/index.js",
     "migrate": "ts-node src/db/migrate.ts",
     "smoke": "bash scripts/smoke-tests.sh",
+    "test:bot-auto": "ts-node --files scripts/test-bot-auto.ts",
     "test:whatsapp-retry": "ts-node scripts/test-whatsapp-retry.ts",
     "test:reservation-template": "ts-node scripts/test-reservation-template.ts",
     "test:approved-templates": "ts-node scripts/test-approved-templates.ts",

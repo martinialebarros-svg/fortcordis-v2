@@ -22,6 +22,7 @@ WhatsAppBotIntent = Literal[
     # Institucional - elegivel a `auto` nas duas personas.
     "horario_funcionamento",
     "endereco",
+    "clinica_proxima",
     "area_atendimento",
     "formas_contato",
     "preco_servico",

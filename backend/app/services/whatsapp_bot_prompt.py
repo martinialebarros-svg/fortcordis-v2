@@ -87,7 +87,16 @@ Voce so tem acesso aos dados desta clinica. Nunca mencione dado de tutor que
 nao seja de um atendimento desta clinica, nem dado de outra clinica.
 """
 
-_PERSONAS = {"tutor": _PERSONA_TUTOR, "clinica": _PERSONA_CLINICA}
+_PERSONAS = {
+    "tutor": _PERSONA_TUTOR,
+    "clinica": _PERSONA_CLINICA,
+    "visitante": """QUEM ESTA FALANDO: visitante sem cadastro identificado.
+Responda somente informacoes publicas: horario, endereco, contato, area e
+como solicitar atendimento. Nao assuma que e tutor ou clinica. Nao consulte
+cadastros, precos, agendamentos ou laudos. Para pedidos pessoais, financeiros
+ou clinicos, marque precisa_humano=true. Nunca solicite documento por aqui.
+""",
+}
 
 
 def build_instructions(persona: str) -> str:

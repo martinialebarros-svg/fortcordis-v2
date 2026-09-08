@@ -33,6 +33,12 @@ function notFoundDomainContextResponse(): Response {
 }
 
 describe("WhatsAppStagePage", () => {
+  it("não oferece reenvio genérico de uma resposta automática com falha", () => {
+    expect(shouldOfferMessageResend({
+      type: "text", from_me: true, status: "failed",
+      metadata: { source: "bot_auto", origem: "bot", resposta_id: "18" },
+    })).toBe(false);
+  });
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-14T03:00:00.000Z"));

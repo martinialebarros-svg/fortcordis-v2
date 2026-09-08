@@ -27,6 +27,7 @@ from app.services.whatsapp_bot_gates import (
     resolve_conversation_state,
 )
 from app.services.whatsapp_bot_generation import gerar_resposta
+from app.services.whatsapp_bot_delivery_service import deliver_automatic_reply
 from app.services.whatsapp_bot_handoff_service import (
     EMERGENCY_FIXED_MESSAGE,
     build_handoff_message,
@@ -151,35 +152,39 @@ def _record_resposta(
     resolution: Optional[str] = None,
     match_type: Optional[str] = None,
     clinica_id: Optional[int] = None,
-) -> None:
-    db.add(
-        WhatsAppBotResposta(
-            job_id=job.id,
-            wa_identity=job.wa_identity,
-            conversation_id=job.conversation_id,
-            decisao=decisao,
-            motivo=motivo,
-            texto_gerado=texto_gerado,
-            modelo=modelo,
-            prompt_version=prompt_version,
-            tools_usadas=tools_usadas,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            latencia_ms=latencia_ms,
-            resolution=resolution,
-            match_type=match_type,
-            clinica_id=clinica_id,
-        )
+) -> WhatsAppBotResposta:
+    resposta = WhatsAppBotResposta(
+        job_id=job.id,
+        wa_identity=job.wa_identity,
+        conversation_id=job.conversation_id,
+        decisao=decisao,
+        motivo=motivo,
+        texto_gerado=texto_gerado,
+        modelo=modelo,
+        prompt_version=prompt_version,
+        tools_usadas=tools_usadas,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        latencia_ms=latencia_ms,
+        resolution=resolution,
+        match_type=match_type,
+        clinica_id=clinica_id,
     )
+    db.add(resposta)
+    return resposta
 
 
 def _process_job(db: Session, job: WhatsAppBotJob) -> str:
-    """Portoes de decisao (Fase 3) + geracao com guardrails (Fase 4).
+    """Decide, persiste e entrega apenas respostas elegiveis e liberadas."""
+    anterior = db.query(WhatsAppBotResposta).filter(
+        WhatsAppBotResposta.job_id == job.id
+    ).order_by(WhatsAppBotResposta.id.desc()).first()
+    if anterior is not None:
+        if anterior.decisao in ("auto_pending", "sending"):
+            deliver_automatic_reply(db, job, anterior)
+        job.status = "done"
+        return "done"
 
-    Toda mensagem real termina em `suppressed`, `handoff`, `blocked` ou
-    `draft`. `sent` NAO e alcancavel: o envio ao cliente e da Fase 6, e a
-    RF-027 (metadata.origem) ainda depende de mudanca no servico Node.
-    """
     if not is_whatsapp_bot_enabled():
         _record_resposta(db, job, decisao="suppressed", motivo="bot_desabilitado")
         job.status = "done"
@@ -189,11 +194,6 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
     modo = resolve_conversation_mode(db, job.wa_identity, estado=estado)
     if modo == "off":
         _record_resposta(db, job, decisao="suppressed", motivo="modo_off")
-        job.status = "done"
-        return "done"
-
-    if is_locally_paused(estado):
-        _record_resposta(db, job, decisao="suppressed", motivo="pausado")
         job.status = "done"
         return "done"
 
@@ -226,7 +226,7 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
 
     # RF-023 (emergencia): prioridade maxima, nao passa pelo gerador e ignora
     # pausa/janela - e o unico handoff que se mantem em qualquer horario.
-    if detecta_emergencia(corpo):
+    if not last_message.get("from_me") and detecta_emergencia(corpo):
         trigger_active_handoff(
             db,
             wa_identity=job.wa_identity,
@@ -245,16 +245,33 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         job.status = "done"
         return "done"
 
+    if is_locally_paused(estado):
+        _record_resposta(db, job, decisao="suppressed", motivo="pausado")
+        job.status = "done"
+        return "done"
+
     # RF-010: mensagem humana (from_me=true) ou claim de atendente pausa o
     # bot - reavaliado a cada job, entao uma pausa comecada depois deste job
     # ter sido enfileirado ainda e pega antes de qualquer resposta.
+    if last_message.get("from_me") and last_message.get("origem") == "bot":
+        _record_resposta(db, job, decisao="suppressed", motivo="conversa_atualizada")
+        job.status = "done"
+        return "done"
+
     if conversation.get("last_agent_id") or last_message.get("from_me"):
         pause_conversation(db, job.wa_identity)
         _record_resposta(db, job, decisao="suppressed", motivo="pausado")
         job.status = "done"
         return "done"
 
+    mensagem_id = last_message.get("wa_message_id")
+    if mensagem_id and mensagem_id != job.wa_message_id:
+        _record_resposta(db, job, decisao="suppressed", motivo="conversa_atualizada")
+        job.status = "done"
+        return "done"
+
     if not is_supported_message_type(last_message.get("type")):
+        _handoff_operacional(db, job, "tipo_nao_suportado")
         _record_resposta(db, job, decisao="handoff", motivo="tipo_nao_suportado")
         job.status = "done"
         return "done"
@@ -310,7 +327,7 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         estado=estado,
         historico=historico,
     )
-    _record_resposta(
+    resposta = _record_resposta(
         db,
         job,
         decisao=resultado.decisao,
@@ -326,8 +343,37 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         match_type=resultado.match_type,
         clinica_id=resultado.clinica_id,
     )
+    if resultado.decisao in ("handoff", "blocked"):
+        _handoff_operacional(db, job, resultado.motivo)
+    if resultado.decisao == "draft" and resultado.auto_elegivel and settings.WHATSAPP_BOT_AUTO_SEND_ENABLED:
+        resposta.decisao = "auto_pending"
+        db.commit()
+        deliver_automatic_reply(db, job, resposta)
     job.status = "done"
     return "done"
+
+
+def _handoff_operacional(db: Session, job: WhatsAppBotJob, motivo: str) -> None:
+    trigger_active_handoff(
+        db, wa_identity=job.wa_identity, conversation_id=job.conversation_id,
+        motivo=motivo[:50], nivel="aviso", titulo="Atendimento WhatsApp precisa da equipe",
+        mensagem_alerta=f"Continue o atendimento na conversa {job.conversation_id}.",
+    )
+
+
+def _recover_interrupted_jobs(db: Session) -> None:
+    cutoff = _utc_now() - timedelta(seconds=max(300, settings.WHATSAPP_BOT_PROCESSING_LEASE_SECONDS))
+    rows = db.query(WhatsAppBotJob).filter(
+        WhatsAppBotJob.status == "processing", WhatsAppBotJob.updated_at < cutoff,
+    ).all()
+    for job in rows:
+        job.attempts = int(job.attempts or 0) + 1
+        job.status = "pending" if job.attempts < _max_attempts() else "error"
+        job.scheduled_for = _utc_now()
+        job.last_error = "Processamento interrompido; recuperado pelo worker."
+        if job.status == "error":
+            _handoff_operacional(db, job, "processamento_interrompido")
+    db.commit()
 
 
 def run_whatsapp_bot_worker_due_once(*, limit: int = 50) -> dict[str, int]:
@@ -335,6 +381,8 @@ def run_whatsapp_bot_worker_due_once(*, limit: int = 50) -> dict[str, int]:
         return {"processed": 0, "done": 0, "errors": 0}
 
     db = SessionLocal()
+    lock_connection = None
+    lock_db = db
     pg_lock_key: Optional[int] = None
     pg_lock_acquired = False
     done = 0
@@ -342,8 +390,13 @@ def run_whatsapp_bot_worker_due_once(*, limit: int = 50) -> dict[str, int]:
     processed = 0
     try:
         if _distributed_lock_enabled() and _is_postgres(db):
+            # O lock de sessao precisa da MESMA conexao ate a liberacao.
+            # Session.commit() pode devolver a conexao ao pool.
+            lock_connection = db.get_bind().connect()
+            lock_db = Session(bind=lock_connection)
             pg_lock_key = _distributed_lock_key()
-            pg_lock_acquired = _try_acquire_pg_lock(db, lock_key=pg_lock_key)
+            pg_lock_acquired = _try_acquire_pg_lock(lock_db, lock_key=pg_lock_key)
+            lock_db.commit()  # Mantem o lock de sessao sem transacao ociosa.
             if not pg_lock_acquired:
                 logger.info(
                     "Worker do bot de atendimento WhatsApp ignorou ciclo: lock distribuido ocupado (key=%s).",
@@ -351,6 +404,7 @@ def run_whatsapp_bot_worker_due_once(*, limit: int = 50) -> dict[str, int]:
                 )
                 return {"processed": 0, "done": 0, "errors": 0}
 
+        _recover_interrupted_jobs(db)
         max_rows = max(1, int(limit))
         while processed < max_rows:
             job = _fetch_next_due_job(db, now=_utc_now())
@@ -363,6 +417,7 @@ def run_whatsapp_bot_worker_due_once(*, limit: int = 50) -> dict[str, int]:
             try:
                 result = _process_job(db, job)
             except Exception as exc:
+                db.rollback()
                 safe_error = _safe_job_error(exc)
                 # Nao use `logger.exception`: o traceback de HTTPStatusError
                 # inclui a URL completa com `phone=` e vazaria o numero.
@@ -375,6 +430,7 @@ def run_whatsapp_bot_worker_due_once(*, limit: int = 50) -> dict[str, int]:
                 job.last_error = safe_error
                 if job.attempts >= _max_attempts():
                     job.status = "error"
+                    _handoff_operacional(db, job, "falha_processamento")
                 else:
                     # Retry no proximo ciclo do worker, nao dentro desta mesma
                     # chamada - senao o job devido reentraria no `while` e
@@ -394,9 +450,12 @@ def run_whatsapp_bot_worker_due_once(*, limit: int = 50) -> dict[str, int]:
     finally:
         if pg_lock_key is not None and pg_lock_acquired:
             try:
-                _release_pg_lock(db, lock_key=pg_lock_key)
+                _release_pg_lock(lock_db, lock_key=pg_lock_key)
             except Exception:
                 logger.exception("Falha ao liberar lock distribuido do worker do bot de atendimento WhatsApp.")
+        if lock_connection is not None:
+            lock_db.close()
+            lock_connection.close()
         db.close()
         _WORKER_RUN_LOCK.release()
 
@@ -504,6 +563,8 @@ def _last_message_from_conversation(conversation: dict[str, Any]) -> Optional[di
         return None
     return {
         "body": conversation.get("last_message_body"),
+        "wa_message_id": conversation.get("last_message_wa_message_id"),
+        "origem": conversation.get("last_message_origem"),
         "from_me": conversation.get("last_message_from_me"),
         "type": conversation.get("last_message_type"),
         "created_at": conversation.get("last_message_at"),

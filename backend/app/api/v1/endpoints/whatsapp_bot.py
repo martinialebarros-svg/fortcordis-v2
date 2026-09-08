@@ -138,6 +138,7 @@ def _estado_payload(db: Session, wa_identity: str) -> dict:
     )
     return {
         "wa_identity": wa_identity,
+        "envio_automatico_liberado": settings.WHATSAPP_BOT_AUTO_SEND_ENABLED,
         "modo": modo,
         "modo_origem": "conversa" if estado is not None and estado.modo else "institucional",
         "pausado_ate": estado.pausado_ate.isoformat() if estado and estado.pausado_ate else None,
@@ -335,14 +336,14 @@ def enviar_rascunho(
     resposta.texto_enviado = texto
     resposta.feedback = "positivo"
     resposta.enviado_por_id = current_user.id
-    # Pausa CURTA: um atendente respondeu esta mensagem, nao assumiu a
-    # conversa. A de 12h e semantica de handoff.
-    pause_conversation(
-        db,
-        resposta.wa_identity,
-        atualizado_por_id=current_user.id,
-        horas=_assisted_send_pause_hours(),
-    )
+    # Aprovar resposta nao assume a conversa. Pausa apenas quando configurada.
+    if _assisted_send_pause_hours() > 0:
+        pause_conversation(
+            db,
+            resposta.wa_identity,
+            atualizado_por_id=current_user.id,
+            horas=_assisted_send_pause_hours(),
+        )
     db.commit()
     db.refresh(resposta)
     registrar_auditoria(

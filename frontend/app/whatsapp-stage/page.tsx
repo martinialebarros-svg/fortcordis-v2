@@ -160,6 +160,7 @@ interface WhatsAppBotConversationState {
   modo_origem: "conversa" | "institucional";
   pausado_ate: string | null;
   pausado: boolean;
+  envio_automatico_liberado?: boolean;
   handoff_motivo: string | null;
   rascunho_pendente: WhatsAppBotDraft | null;
   ultima_recusa: WhatsAppBotRecusa | null;
@@ -169,6 +170,8 @@ interface WhatsAppBotConversationState {
 /** Motivos que o guardrail grava, em portugues de atendente. Chave
  *  desconhecida cai no proprio motivo bruto, que e melhor que sumir. */
 const BOT_RECUSA_MOTIVOS: Record<string, string> = {
+  envio_auto_incerto: "a entrega automática não foi confirmada; confira a conversa antes de responder novamente",
+  auto_interrompido: "a automação foi interrompida por uma alteração nos controles da conversa",
   diagnostico: "a resposta continha diagnóstico",
   dose_medicacao: "a resposta continha medicação ou dose",
   prognostico: "a resposta continha prognóstico",
@@ -1450,7 +1453,7 @@ export default function WhatsAppStagePage() {
                 {loadingBotState ? <p className="fc-wa-bot-state-note">Carregando estado...</p> : botConversationState ? <>
                   <label className="fc-wa-field"><span>Modo nesta conversa</span><select value={botConversationState.modo}
                     onChange={(event) => void handleBotModeChange(event.target.value as WhatsAppBotMode)} disabled={savingBotAction}>
-                    <option value="off">Desligado</option><option value="suggest">Copiloto (sugerir)</option><option value="auto" disabled>Automático (aguarda rollout)</option>
+                    <option value="off">Desligado</option><option value="suggest">Copiloto (sugerir)</option><option value="auto" disabled={!botConversationState.envio_automatico_liberado}>Automático{botConversationState.envio_automatico_liberado ? "" : " (aguarda ativação)"}</option>
                   </select></label>
                   <p className="fc-wa-bot-state-note">Origem: {botConversationState.modo_origem === "institucional" ? "padrão institucional" : "definido nesta conversa"}.</p>
                   <button type="button" className={botConversationState.pausado ? "fc-wa-secondary" : "fc-wa-ghost-danger"}

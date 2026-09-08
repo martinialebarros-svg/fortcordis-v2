@@ -277,3 +277,16 @@ uma mensagem gerada chegue a um cliente.
 - [ ] Perguntas abertas respondidas.
 - [ ] Fases e rollback revisados.
 - [ ] Ambiente de teste definido (local + stage antes de produção).
+
+## Entrega operacional — 2026-09-08
+
+1. Corrigir prioridade de emergencia, continuidade apos envio assistido e
+   transferencia ativa para a equipe.
+2. Liberar persona visitante com ferramentas exclusivamente publicas.
+3. Implementar envio automatico com duas barreiras operacionais (Python e
+   Node), ID duravel, revalidacao de conversa e tratamento de resultado incerto.
+4. Recuperar processamento interrompido preservando exclusao distribuida.
+5. Validar com mocks e PostgreSQL local; alinhar interface e metricas.
+6. Publicar primeiro em stage, comprovar runtime e um ciclo autorizado com
+   destinatario de teste; so entao promover o mesmo snapshot e ativar o
+   escopo de producao autorizado. Esta etapa nao foi executada nesta entrega.

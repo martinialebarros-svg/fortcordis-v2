@@ -15,6 +15,7 @@ from app.core import runtime_checks
 
 
 class RuntimeChecksObservabilityTest(unittest.TestCase):
+    @patch.object(runtime_checks.settings, "FORTCORDIS_PROCESS_ROLE", "all")
     def test_runtime_report_includes_observability_and_warnings(self) -> None:
         with patch.object(runtime_checks, "_check_database", return_value={"connected": True, "status": "connected", "error": None}):
             with patch.object(

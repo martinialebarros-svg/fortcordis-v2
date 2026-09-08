@@ -115,29 +115,30 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
 
     # --- caminhos que NAO chamam o provider ------------------------------
 
-    def test_identidade_nao_resolvida_nao_chama_provider(self) -> None:
-        """RF-016/CA-013: sem identidade, nenhum dado e nenhuma geracao."""
+    def test_visitante_responde_informacao_publica_sem_acesso_a_cadastros(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             Factory, engine = self._factory(tmpdir)
             try:
-                db = Factory()
-                try:
-                    provider = SimpleNamespace(
-                        generate=Mock(side_effect=AssertionError("provider nao deve ser chamado"))
+                with Factory() as db:
+                    db.add(Configuracao(telefone="8533334444"))
+                    db.commit()
+                    provider = fake_provider(
+                        texto="Atendimento automatico: para falar com uma pessoa, e so pedir.",
+                        intent="formas_contato",
                     )
                     resultado = generation.gerar_resposta(
-                        db,
-                        wa_identity="5585900000000",
-                        corpo_mensagem="qual o horario?",
-                        modo="suggest",
-                        provider=provider,
+                        db, wa_identity="5585900000000", corpo_mensagem="como falo com voces?",
+                        modo="suggest", provider=provider,
                     )
-                finally:
-                    db.close()
-
-                self.assertEqual(resultado.decisao, "handoff")
-                self.assertEqual(resultado.motivo, "identidade_nao_resolvida")
-                provider.generate.assert_not_called()
+                    self.assertEqual(resultado.match_type, "visitante")
+                    self.assertEqual(resultado.decisao, "draft")
+                    self.assertEqual(provider.generate.call_count, 2)
+                    call = provider.generate.call_args_list[0].kwargs
+                    self.assertFalse(call["payload"]["contexto"]["tem_dados_do_cliente"])
+                    self.assertEqual({t["name"] for t in call["tools"]}, {
+                        "consultar_horario_funcionamento", "consultar_dados_institucionais",
+                        "buscar_conhecimento_institucional",
+                    })
             finally:
                 engine.dispose()
 
@@ -363,7 +364,7 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
-    def test_aprovada_em_auto_ainda_nao_envia_nesta_fase(self) -> None:
+    def test_aprovada_em_auto_e_elegivel_sem_enviar_no_gerador(self) -> None:
         """RF-027 depende de mudanca no servico Node - envio e Fase 6."""
         with tempfile.TemporaryDirectory() as tmpdir:
             Factory, engine = self._factory(tmpdir)
@@ -386,7 +387,8 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
                     db.close()
 
                 self.assertEqual(resultado.decisao, "draft")
-                self.assertEqual(resultado.motivo, "aprovado_aguardando_envio_fase6")
+                self.assertEqual(resultado.motivo, "aprovado_auto")
+                self.assertTrue(resultado.auto_elegivel)
                 self.assertIsNone(resultado.texto_enviado)
             finally:
                 engine.dispose()

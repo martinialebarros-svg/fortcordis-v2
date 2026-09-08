@@ -785,3 +785,66 @@ custo, em vez de exibir zero como se o uso fosse gratuito.
 - Correção da colisão de `DISTRIBUTED_LOCK_KEY` entre o worker de lembrete e o
   do assistente IA (registrada no `intent.md`, corrigir em spec própria).
 - Unificação de identidade entre múltiplos números do mesmo cliente.
+
+## Operacao assistida e automatica — 2026-09-08
+
+Este adendo substitui as limitacoes anteriores de envio da Fase 6 e a pausa
+padrao de duas horas apos aprovacao de rascunho.
+
+- RF-OP01: aprovar uma resposta mantem o copiloto disponivel. O default de
+  `WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS` passa a zero; valor positivo
+  explicitamente configurado continua sendo respeitado. Pausa manual, claim
+  e transferencia para equipe continuam valendo. Mensagem com origem `bot`
+  nao e interpretada como intervencao humana pelo worker.
+- RF-OP02: com o bot habilitado e a conversa diferente de `off`, a deteccao
+  de emergencia em mensagem recebida antecede a pausa local. Nao considera
+  texto enviado pela propria equipe. Mantem alerta critico, push e handoff;
+  nao gera nem envia aconselhamento clinico automaticamente.
+- RF-OP03: audio/outros formatos, bloqueio de resposta e handoff do gerador
+  acionam o mesmo fluxo operacional: alerta interno, tentativa de marcar
+  conversa pendente no Node, push e pausa para a equipe continuar. Falhas
+  de push/Node nao apagam o alerta persistido. A mensagem institucional de
+  transferencia nao promete resposta "em instantes".
+- RF-OP04: telefone `not_found` usa persona `visitante`, sem IDs de tutor ou
+  clinica. Pode consultar horario, contato/endereco e conhecimento publico;
+  nao pode chamar preco, status de laudo ou busca de clinicas. Conhecimento
+  para visitante aceita categorias genericas `institucional`/`atendimento`
+  e suas variantes `publico`; categorias especificas de clinica/tutor nao
+  entram. Identidade ambigua ou falha na consulta de identidade continua
+  exigindo humano, sem expor candidatos. Nao ha alteracao no modelo de IA.
+- RF-OP05: o gerador retorna elegibilidade apos todos os guardrails. O
+  worker envia somente uma decisao `draft` elegivel ao modo efetivo `auto`
+  e com `WHATSAPP_BOT_AUTO_SEND_ENABLED=true`. Default falso. `suggest`
+  continua exclusivamente revisado por pessoa. Precos e assuntos fora da
+  allowlist nao sao enviados automaticamente.
+- RF-OP06: antes do POST, resposta e ID sao persistidos em `auto_pending` e
+  `sending`; a mesma resposta sempre usa `whatsapp-bot-resposta-{id}`.
+  Controles global/conversa/clinica/piloto e pausa sao reavaliados. No Node,
+  `bot_auto` exige token interno, ID de resposta e ID da mensagem recebida;
+  janela aberta, ausencia de claim e ultima mensagem inalterada sao
+  verificados sob lock da conversa antes de reservar. O Node tambem exige
+  seu proprio `WHATSAPP_BOT_AUTO_SEND_ENABLED=true`.
+- RF-OP07: o POST automatico para a Meta tem uma unica tentativa. Resultado
+  incerto (timeout, 202 sem confirmacao, falha de servico) gera handoff para
+  conferir entrega, sem reenvio cego. Uma reserva automatica ja existente,
+  inclusive `failed`, nunca e reutilizada para disparar novamente. A UI
+  nao oferece reenvio generico dessas mensagens. Resposta `sent` nao recebe
+  feedback humano ficticio; metricas contabilizam `enviados_auto` separado
+  de aceite de rascunhos. Entrega aceita pela API nao prova leitura pelo cliente.
+- RF-OP08: jobs em `processing` ha mais de
+  `WHATSAPP_BOT_PROCESSING_LEASE_SECONDS` (default 900, piso 300) sao
+  recuperados com limite de tentativas. Resposta ja persistida e reutilizada
+  na retomada, sem nova geracao. O lock distribuido usa uma conexao dedicada
+  ate sua liberacao, sobrevivendo aos commits da sessao de processamento.
+- RF-OP09: API de estado expoe `envio_automatico_liberado`; a opcao de modo
+  automatico na conversa so fica selecionavel apos liberacao no backend.
+  A liberacao do Node permanece uma segunda barreira. Nenhuma migration e
+  necessaria para esta entrega; os novos estados cabem nas colunas existentes.
+
+### Limite de operacao inicial
+
+O bot automatiza informacoes institucionais com fonte e, para identidade
+resolvida, apenas os assuntos ja aprovados pela allowlist existente, incluindo
+status de laudo sem conteudo clinico. Agendar, cobrar, negociar, diagnosticar,
+interpretar sintomas e prescrever continuam fora desta automacao. Novos
+contatos nao adquirem acesso a registros por se apresentarem como clinica.

@@ -180,16 +180,13 @@ def _pause_hours() -> int:
 
 
 def _assisted_send_pause_hours() -> int:
-    """Pausa do envio assistido - curta de proposito.
+    """Zero mantem o copiloto ativo; pausa positiva preserva configuracao legada.
 
-    Separada de `_pause_hours` porque as semanticas sao diferentes: handoff
-    significa "a equipe assumiu"; envio assistido significa apenas "um
-    atendente respondeu esta mensagem". Medido em producao: uma resposta
-    assistida silenciava o bot por 12h e as mensagens seguintes do cliente
-    viravam `suppressed/pausado` sem sinal nenhum na central.
+    Aprovar uma resposta nao significa assumir a conversa. A pausa explicita
+    e o handoff continuam usando a duracao propria.
     """
-    parsed = _safe_int(settings.WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS, 2)
-    return parsed if parsed > 0 else 2
+    parsed = _safe_int(settings.WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS, 0)
+    return max(0, parsed)
 
 
 def is_locally_paused(

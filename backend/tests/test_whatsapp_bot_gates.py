@@ -247,7 +247,7 @@ class WhatsAppBotPausaAssistidaTest(unittest.TestCase):
         for invalido in (0, -1, "nao-numero", None):
             with self.subTest(valor=invalido):
                 with patch.object(gates.settings, "WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS", invalido):
-                    self.assertEqual(gates._assisted_send_pause_hours(), 2)
+                    self.assertEqual(gates._assisted_send_pause_hours(), 0)
 
     def test_pausa_assistida_e_menor_que_a_de_handoff_por_default(self) -> None:
         """Se um dia os defaults se igualarem, a separacao perdeu o sentido."""

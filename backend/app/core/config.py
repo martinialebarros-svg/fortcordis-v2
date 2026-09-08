@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     WHATSAPP_REMINDER_MAX_ATTEMPTS: int = 3
     WHATSAPP_REMINDER_RECIPIENT_TYPE: str = "clinica"
     WHATSAPP_BOT_ENABLED: bool = False
+    # Liberacao operacional independente do modo escolhido na interface.
+    WHATSAPP_BOT_AUTO_SEND_ENABLED: bool = False
+    WHATSAPP_BOT_PROCESSING_LEASE_SECONDS: int = 900
     WHATSAPP_BOT_MODEL: str = "gpt-5.6-sol"
     WHATSAPP_BOT_PROMPT_VERSION: str = "whatsapp-bot-v1"
     WHATSAPP_BOT_DEBOUNCE_SECONDS: int = 12
@@ -105,7 +108,7 @@ class Settings(BaseSettings):
     # equipe vai ligar, o bot sai da frente"; envio assistido significa
     # apenas "um atendente respondeu esta mensagem". Usar 12h para o
     # segundo deixa o cliente sem bot por meio dia depois de UMA resposta.
-    WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS: int = 2
+    WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS: int = 0
     # Memoria de conversa: quantas mensagens anteriores vao ao prompt.
     # `0` desliga sem deploy. Teto real em `whatsapp_bot_prompt`.
     WHATSAPP_BOT_HISTORICO_MENSAGENS: int = 8

@@ -131,11 +131,15 @@ class WhatsAppBotToolContext:
     """
 
     db: Session
-    match_type: Literal["tutor", "clinica"]
+    match_type: Literal["tutor", "clinica", "visitante"]
     tutor_id: Optional[int] = None
     clinica_id: Optional[int] = None
 
     def __post_init__(self) -> None:
+        if self.match_type == "visitante":
+            if self.tutor_id is not None or self.clinica_id is not None:
+                raise WhatsAppBotToolError("Visitante nao pode carregar dados de cadastro.")
+            return
         if self.match_type not in ("tutor", "clinica"):
             raise WhatsAppBotToolError(f"match_type invalido: {self.match_type!r}")
         if self.match_type == "tutor":
@@ -647,6 +651,12 @@ def buscar_conhecimento_institucional(
     for item in resultado.get("items") or []:
         if not isinstance(item, dict):
             continue
+        if ctx.match_type == "visitante" and _normalizar(item.get("category")) not in (
+            "institucional", "atendimento", "institucional publico", "atendimento publico",
+            "institucional_publico", "atendimento_publico",
+        ):
+            descartados["categoria"] += 1
+            continue
         if not _categoria_e_institucional(item.get("category")):
             descartados["categoria"] += 1
             continue
@@ -885,6 +895,11 @@ _TOOLS_COMUNS: dict[str, Callable[..., dict[str, Any]]] = {
 # classificacao poder ser testada sem chamar o modelo e para uma tool nova
 # nao entrar por descuido numa persona.
 TOOLS_POR_PERSONA: dict[str, dict[str, Callable[..., dict[str, Any]]]] = {
+    "visitante": {
+        "consultar_horario_funcionamento": consultar_horario_funcionamento,
+        "consultar_dados_institucionais": consultar_dados_institucionais,
+        "buscar_conhecimento_institucional": buscar_conhecimento_institucional,
+    },
     # `buscar_clinica_parceira` so na persona tutor: dar a uma clinica
     # parceira o endereco das outras seria entregar a rede a um concorrente.
     "tutor": {**_TOOLS_COMUNS, "buscar_clinica_parceira": buscar_clinica_parceira},

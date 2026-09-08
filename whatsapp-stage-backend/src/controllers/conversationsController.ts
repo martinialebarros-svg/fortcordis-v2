@@ -240,7 +240,7 @@ export async function listConversations(req: Request, res: Response): Promise<vo
       FROM messages m WHERE m.conversation_id = c.id
     ) message_revision ON true
     LEFT JOIN LATERAL (
-      SELECT m.body, m.created_at, m.from_me, m.type
+      SELECT m.body, m.created_at, m.from_me, m.type, m.wa_message_id, m.metadata
       FROM messages m
       WHERE m.conversation_id = c.id
       ORDER BY m.created_at DESC, m.id DESC
@@ -268,7 +268,9 @@ export async function listConversations(req: Request, res: Response): Promise<vo
         last_message.body AS last_message_body,
         last_message.created_at AS last_message_at,
         last_message.from_me AS last_message_from_me,
-        last_message.type AS last_message_type
+        last_message.type AS last_message_type,
+        last_message.wa_message_id AS last_message_wa_message_id,
+        last_message.metadata->>'origem' AS last_message_origem
       FROM conversations c
       ${joinsSql}
       ${whereSql}
@@ -571,7 +573,7 @@ async function insertPendingMessage(
   return inserted.rows[0].id;
 }
 
-async function reservePendingTextMessage(
+export async function reservePendingTextMessage(
   conversationId: string,
   body: string,
   type: string,
@@ -601,8 +603,29 @@ async function reservePendingTextMessage(
       [idempotencyKey]
     );
     const row = existing.rows[0];
-    if (row && row.status !== "failed") {
+    if (row && (row.status !== "failed" || metadata.source === "bot_auto")) {
       return { ...row, idempotent: true };
+    }
+    if (metadata.source === "bot_auto") {
+      const current = await client.query<{
+        last_agent_id: string | null; last_inbound_at: Date | string | null;
+        wa_message_id: string | null; from_me: boolean | null;
+      }>(`
+        SELECT c.last_agent_id, c.last_inbound_at, m.wa_message_id, m.from_me
+        FROM conversations c
+        LEFT JOIN LATERAL (
+          SELECT wa_message_id, from_me FROM messages WHERE conversation_id = c.id
+          ORDER BY created_at DESC, id DESC LIMIT 1
+        ) m ON true
+        WHERE c.id = $1 FOR UPDATE OF c
+      `, [conversationId]);
+      const latest = current.rows[0];
+      if (process.env.WHATSAPP_BOT_AUTO_SEND_ENABLED !== "true" || !latest
+          || latest.last_agent_id || latest.from_me !== false
+          || latest.wa_message_id !== metadata.inbound_wa_message_id
+          || !describeCustomerServiceWindow(latest.last_inbound_at).is_open) {
+        return { id: "", wa_message_id: null, status: "bot_conversation_changed", idempotent: true };
+      }
     }
     if (row) {
       const retried = await client.query<{ id: string; wa_message_id: string | null; status: string }>(
@@ -655,13 +678,19 @@ export function resolveTextMessageMetadata(req: Request): Record<string, unknown
   const respostaId = requested.resposta_id;
   const idempotencyKey = requested.idempotency_key;
   if (
-    source !== "bot_suggest_reviewed" ||
+    !["bot_suggest_reviewed", "bot_auto"].includes(source) ||
     origem !== "bot" ||
     typeof respostaId !== "string" || !/^\d{1,20}$/.test(respostaId) ||
     typeof idempotencyKey !== "string" ||
     idempotencyKey !== `whatsapp-bot-resposta-${respostaId}`
   ) {
     return null;
+  }
+  if (source === "bot_auto") {
+    if (typeof requested.inbound_wa_message_id !== "string"
+        || !requested.inbound_wa_message_id.trim() || requested.inbound_wa_message_id.length > 160) return null;
+    return { source, origem, resposta_id: respostaId, idempotency_key: idempotencyKey,
+      inbound_wa_message_id: requested.inbound_wa_message_id };
   }
   return { source, origem, resposta_id: respostaId, idempotency_key: idempotencyKey };
 }
@@ -900,6 +929,10 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
     messageMetadata
   );
   const localMessageId = reservation.id;
+  if (reservation.status === "bot_conversation_changed") {
+    res.status(409).json({ code: "BOT_CONVERSATION_CHANGED", error: "Automatic reply is no longer eligible" });
+    return;
+  }
   if (reservation.idempotent) {
     if (["sent", "delivered", "read"].includes(reservation.status)) {
       res.status(200).json({
@@ -925,7 +958,8 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
       accessToken: whatsappAccessToken,
       to: whatsappGraphRecipient(conversation.wa_phone_number),
       body: caption,
-      type
+      type,
+      maxAttempts: messageMetadata.source === "bot_auto" ? 1 : undefined
     });
   } catch (error: any) {
     logger.error("Graph API send failed", {
