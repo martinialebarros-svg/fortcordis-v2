@@ -802,3 +802,12 @@ def atualizar_solicitacao(
 ):
     from app.services.whatsapp_bot_fila import atualizar
     return atualizar(db, pedido_id, payload, current_user)
+
+
+@router.get('/solicitacoes/{pedido_id}/preparar-agendamento')
+def preparar_agendamento_pedido(
+    pedido_id: int, db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    from app.services.whatsapp_bot_pedido_agenda import preparar
+    return preparar(db, pedido_id, current_user)

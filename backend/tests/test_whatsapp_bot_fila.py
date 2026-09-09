@@ -69,11 +69,11 @@ class FilaTests(unittest.TestCase):
     def test_terminal_requires_result_and_preserves_history(self):
         p=self.pedido();atualizar(self.db,p.id,Update(acao='assumir',versao=1),self.user)
         with self.assertRaises(HTTPException): atualizar(self.db,p.id,Update(acao='atualizar',versao=2,status='agendado'),self.user)
-        result=atualizar(self.db,p.id,Update(acao='atualizar',versao=2,status='agendado',observacao='Confirmado pela equipe na agenda'),self.user)
+        result=atualizar(self.db,p.id,Update(acao='atualizar',versao=2,status='cancelado',observacao='Solicitante desistiu'),self.user)
         self.assertFalse(result['atrasada']);self.assertEqual(result['historico'][-1]['usuario_nome'],'Ana')
         with self.assertRaises(HTTPException): atualizar(self.db,p.id,Update(acao='assumir',versao=3),self.user)
         self.assertEqual(listar(self.db,1,'abertas',False,1)['total'],0)
-        self.assertEqual(listar(self.db,1,'agendado',True,1)['total'],1)
+        self.assertEqual(listar(self.db,1,'cancelado',True,1)['total'],1)
 
     def test_deadline_filters_and_validation(self):
         p=self.pedido();p.prazo_em=datetime.now(timezone.utc)-timedelta(minutes=1);self.db.commit()
@@ -149,6 +149,7 @@ class FilaPostgresTests(unittest.TestCase):
             migration=importlib.import_module('migrations.versions.20260909_81_whatsapp_bot_solicitacoes')
             with engine.begin() as c:
                 migration.upgrade(c,'postgresql');migration.upgrade(c,'postgresql')
+                importlib.import_module('migrations.versions.20260909_82_whatsapp_pedido_agendamento').upgrade(c,'postgresql')
             state={'clinica_id':9,'status':'encaminhada','dados':{'paciente':'Rex'}}
             with Session(engine) as db:
                 r=Resposta(job_id=1,wa_identity='phone',conversation_id='1',clinica_id=9,decisao='sent')
@@ -178,6 +179,7 @@ class FilaPostgresTests(unittest.TestCase):
                 db.commit()
             with engine.begin() as c:
                 migration.upgrade(c,'postgresql');migration.upgrade(c,'postgresql')
+                importlib.import_module('migrations.versions.20260909_82_whatsapp_pedido_agendamento').upgrade(c,'postgresql')
                 self.assertEqual(c.execute(text('SELECT count(*) FROM whatsapp_bot_solicitacoes')).scalar(),2)
         finally:
             engine.dispose()

@@ -73,6 +73,7 @@ import {
   Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign, MapPin, Wallet, TimerReset
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
+import type { PedidoAgenda } from "@/lib/whatsapp-pedido-agenda";
 import ClienteInfoModal from "./ClienteInfoModal";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 
@@ -382,6 +383,7 @@ export default function AgendaPage() {
   const [filtroClinicaId, setFiltroClinicaId] = useState<string>("todos");
   const [filtroServicoId, setFiltroServicoId] = useState<string>("todos");
   const [busca, setBusca] = useState("");
+  const [pedidoWhatsApp, setPedidoWhatsApp] = useState<PedidoAgenda | null>(null);
   const [modalAberto, setModalAberto] = useState(false);
   const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
   const [slotSelecionado, setSlotSelecionado] = useState<{ data: string; hora: string } | null>(null);
@@ -440,6 +442,22 @@ export default function AgendaPage() {
   const router = useRouter();
   const fortinho = useFortinho();
   const filtrosIniciaisAplicadosRef = useRef(false);
+
+  useEffect(() => {
+    if (!authChecked) return;
+    const id = new URLSearchParams(window.location.search).get("pedido_whatsapp");
+    if (!id || !/^[1-9][0-9]*$/.test(id)) return;
+    let active = true;
+    const controller = new AbortController();
+    api.get<PedidoAgenda>(`/whatsapp/bot/solicitacoes/${id}/preparar-agendamento`, { signal: controller.signal })
+      .then(({ data }) => {
+        if (!active) return;
+        setPedidoWhatsApp(data); setAgendamentoEditando(null); setSlotSelecionado(null); setModalAberto(true);
+      }).catch((error) => {
+        if (active) setErro(error?.response?.data?.detail || "Não foi possível preparar o pedido. Volte à fila e tente novamente.");
+      });
+    return () => { active = false; controller.abort(); };
+  }, [authChecked]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -3560,7 +3578,12 @@ export default function AgendaPage() {
         <NovoAgendamentoModal
           isOpen={modalAberto}
           agendamento={agendamentoEditando}
-          onClose={() => { setModalAberto(false); setAgendamentoEditando(null); setSlotSelecionado(null); }}
+          pedidoWhatsApp={pedidoWhatsApp}
+          onClose={() => {
+            setModalAberto(false); setAgendamentoEditando(null); setSlotSelecionado(null); setPedidoWhatsApp(null);
+            const url = new URL(window.location.href); url.searchParams.delete("pedido_whatsapp");
+            window.history.replaceState(null, "", url.toString());
+          }}
           onSuccess={handleAgendamentoSuccess}
           defaultDate={slotSelecionado?.data || filtroData || hojeLocal()}
           defaultTime={slotSelecionado?.hora}

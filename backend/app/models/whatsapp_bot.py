@@ -118,6 +118,7 @@ class WhatsAppBotSolicitacao(Base):
     __tablename__ = 'whatsapp_bot_solicitacoes'
     id = Column(Integer, primary_key=True)
     resposta_id = Column(Integer, nullable=False, unique=True)
+    agendamento_id = Column(Integer, nullable=True, unique=True)
     wa_identity = Column(String(30), nullable=False, index=True)
     conversation_id = Column(String(64), nullable=False)
     clinica_id = Column(Integer, nullable=False, index=True)

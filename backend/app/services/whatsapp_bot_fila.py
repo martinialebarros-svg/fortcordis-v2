@@ -46,7 +46,7 @@ def contexto(pedido):
 
 
 def payload(row, user_id):
-    return {'id':row.id, 'conversation_id':row.conversation_id, 'wa_identity':row.wa_identity, 'clinica_id':row.clinica_id,
+    return {'id':row.id, 'agendamento_id':row.agendamento_id, 'conversation_id':row.conversation_id, 'wa_identity':row.wa_identity, 'clinica_id':row.clinica_id,
         'resumo':row.resumo, 'status':row.status, 'responsavel_nome':row.responsavel_nome,
         'minha':row.responsavel_id == user_id, 'sem_responsavel':row.responsavel_id is None,
         'prazo_em':utc(row.prazo_em).isoformat(), 'atrasada':row.status in ABERTOS and utc(row.prazo_em) < datetime.now(timezone.utc),
@@ -96,6 +96,8 @@ def atualizar(db, pedido_id, req, user):
         if req.acao == 'liberar':
             values.update(responsavel_id=None, responsavel_nome=None, status='aguardando_equipe')
         else:
+            if req.status == 'agendado':
+                raise HTTPException(422, 'Use Agendar pedido para salvar e vincular um agendamento real.')
             if req.status:
                 if req.status == 'aguardando_equipe':
                     raise HTTPException(422, 'Use liberar para devolver o pedido à equipe.')

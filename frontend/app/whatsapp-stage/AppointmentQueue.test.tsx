@@ -31,7 +31,9 @@ describe("Fila de agendamento", () => {
     render(<AppointmentQueue onOpen={() => {}} />);
     fireEvent.click(screen.getByRole("button", {name:/Solicitações de agendamento/}));
     await screen.findByText("Salvar pedido");
-    fireEvent.change(screen.getByLabelText("Status do pedido 1"),{target:{value:"agendado"}});
+    expect(screen.getByRole("link", { name: "Agendar pedido" })).toHaveAttribute("href", "/agenda?pedido_whatsapp=1");
+    expect(screen.getByLabelText("Status do pedido 1").querySelector('option[value="agendado"]')).toBeNull();
+    fireEvent.change(screen.getByLabelText("Status do pedido 1"),{target:{value:"cancelado"}});
     expect(screen.getByText("Salvar pedido")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Resultado / observação"),{target:{value:"Confirmado na agenda"}});
     expect(screen.getByText("Salvar pedido")).not.toBeDisabled();

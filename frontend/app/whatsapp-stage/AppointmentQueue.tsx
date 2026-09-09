@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Item = {
-  id: number; conversation_id: string; wa_identity: string; clinica_id: number; clinica_nome?: string; resumo: string; status: string;
+  id: number; agendamento_id?: number | null; conversation_id: string; wa_identity: string; clinica_id: number; clinica_nome?: string; resumo: string; status: string;
   responsavel_nome: string | null; minha: boolean; sem_responsavel: boolean;
   prazo_em: string; atrasada: boolean; versao: number;
   historico: { acao: string; em: string; usuario_nome?: string; status?: string; observacao?: string }[];
@@ -63,7 +64,7 @@ export default function AppointmentQueue({ onOpen }: { onOpen: (conversationId: 
   return <section className="rounded-xl border border-slate-200 bg-white p-4" aria-label="Fila de solicitações de agendamento">
     <button type="button" className="font-semibold text-slate-900" aria-expanded={open} onClick={() => setOpen(!open)}>Solicitações de agendamento {open ? "▴" : "▾"}</button>
     {open && <div className="mt-3 space-y-3">
-      <p className="text-sm text-slate-600">Prazo inicial: 2 horas corridas para resposta, ajustável pelo responsável. Marcar “Agendado” registra o resultado; a equipe deve confirmar o horário na agenda.</p>
+      <p className="text-sm text-slate-600">Prazo inicial: 2 horas corridas para resposta, ajustável pelo responsável. Use “Agendar pedido” para escolher o horário na agenda e vincular o registro.</p>
       <div className="flex flex-wrap items-center gap-3">
         <select aria-label="Filtrar solicitações" value={filtro} onChange={e => { setFiltro(e.target.value); setPage(1); setData(null); }}>
           <option value="abertas">Em aberto</option><option value="atrasadas">Prazo vencido</option><option value="todas">Todas</option>
@@ -94,9 +95,11 @@ function QueueItem({ item, disabled, onUpdate, onOpen }: { item: Item; disabled:
     <p className={item.atrasada ? "font-semibold text-amber-900" : "text-sm"}>{item.atrasada ? "Prazo vencido · " : "Prazo: "}{date(item.prazo_em)}</p>
     <pre className="my-2 whitespace-pre-wrap font-sans text-sm">{item.resumo}</pre>
     <button type="button" onClick={onOpen}>Abrir conversa</button>
+    {item.agendamento_id && <p>Agendamento vinculado #{item.agendamento_id}. Consulte a agenda para o horário e eventuais alterações.</p>}
+    {!closed && item.minha && <Link className="ml-4 font-semibold text-emerald-700" href={`/agenda?pedido_whatsapp=${item.id}`}>Agendar pedido</Link>}
     {!closed && item.sem_responsavel && <button type="button" className="ml-4 font-semibold" disabled={disabled} onClick={() => onUpdate({ acao: "assumir" })}>Assumir pedido</button>}
     {!closed && item.minha && <div className="mt-3 flex flex-wrap items-end gap-3">
-      <label>Status<select className="block" aria-label={`Status do pedido ${item.id}`} value={status} onChange={e => setStatus(e.target.value)}>{Object.entries(labels).filter(([k]) => k !== "aguardando_equipe").map(([k,v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+      <label>Status<select className="block" aria-label={`Status do pedido ${item.id}`} value={status} onChange={e => setStatus(e.target.value)}>{Object.entries(labels).filter(([k]) => k !== "aguardando_equipe" && k !== "agendado").map(([k,v]) => <option key={k} value={k}>{v}</option>)}</select></label>
       <label>Novo prazo (opcional)<input className="block" type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)} /></label>
       <label>Resultado / observação<input className="block border" maxLength={500} value={note} onChange={e => setNote(e.target.value)} /></label>
       <button type="button" disabled={disabled || (terminal && !note.trim())} onClick={() => onUpdate({ acao: "atualizar", status, observacao: note, ...(deadline ? { prazo_em: new Date(deadline).toISOString() } : {}) })}>Salvar pedido</button>

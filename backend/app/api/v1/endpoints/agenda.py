@@ -5726,6 +5726,10 @@ def criar_agendamento(
     """Cria novo agendamento"""
     _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
+    from app.services.whatsapp_bot_pedido_agenda import iniciar, vincular
+    pedido, existente = iniciar(db, agendamento, current_user)
+    if existente is not None:
+        return _serialize_agendamento(existente, **_fetch_related_names(db, existente))
 
     override_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
     confirmou_slot_reserva_expirada = bool(
@@ -5760,6 +5764,7 @@ def criar_agendamento(
     db_agendamento = Agendamento(
         **agendamento.model_dump(
             exclude={
+                "pedido_whatsapp_id", "pedido_whatsapp_versao",
                 "confirmar_conflito_deslocamento",
                 "confirmar_slot_reserva_expirada",
                 "confirmar_agenda_fechada",
@@ -5818,6 +5823,7 @@ def criar_agendamento(
     )
 
     db.add(db_agendamento)
+    vincular(db, pedido, db_agendamento, current_user)
     _commit_agenda_write(db)
     db.refresh(db_agendamento)
     contexto = _contexto_agendamento_auditoria(db_agendamento, related)

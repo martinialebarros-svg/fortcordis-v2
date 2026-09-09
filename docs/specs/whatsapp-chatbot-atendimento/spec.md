@@ -926,3 +926,39 @@ seguranca clinica e idempotencia existentes continuam precedendo a coleta.
   conversa revalida a identidade antes de mostrar o acompanhamento.
 - Reversao: retornar o codigo anterior e preservar a nova tabela aditiva.
   Nao ha exclusao, migracao destrutiva nem alteracao de credenciais ou modos.
+
+## Converter pedido em agendamento (2026-09-09)
+
+- Pedido aberto e assumido oferece `Agendar pedido` na central, levando a
+  `/agenda?pedido_whatsapp={id}`. GET autenticado
+  `/api/v1/whatsapp/bot/solicitacoes/{id}/preparar-agendamento` exige papel
+  operacional e propriedade do pedido, sem alterar dados.
+- Preenchimento usa clinica registrada, resumo/preferencia e apenas par
+  paciente/tutor ativo, de correspondencia unica no contexto da clinica
+  atualmente resolvida. Servico exige nome normalizado unico e ativo no
+  catalogo. Ambiguidade ou falta de correspondencia deixa campo vazio com
+  orientacao de selecao. Nao cria cadastros nem interpreta preferencia como slot.
+- Modal existente da agenda recebe os dados e preserva IDs selecionados mesmo
+  fora da pagina inicial dos catalogos. Exibe resumo, mantem hora vazia e usa
+  o assistente e as validacoes existentes. Clinica/origem permanecem as do
+  pedido; reserva sem paciente nao e conversao deste fluxo.
+- POST `/api/v1/agenda` aceita `pedido_whatsapp_id` + `pedido_whatsapp_versao`.
+  Depois do lock global da agenda, adquire lock do pedido. Revalida papel,
+  proprietario, versao, estado aberto, clinica, par paciente/tutor e cadastros
+  ativos. Verifica conflitos, funcionamento e deslocamento pelo fluxo existente.
+- Criacao do agendamento e vinculo/status/historico do pedido sao uma unica
+  transacao. Falha em validacao ou commit nao conclui o pedido nem deixa
+  agendamento isolado. Duas tentativas concorrentes do mesmo pedido retornam
+  o mesmo agendamento; replay com dados diferentes ou registro indisponivel
+  retorna 409 para revisao na agenda.
+- Migracao aditiva `20260909_82` cria `agendamento_id` anulavel e unico na fila,
+  sem inventar vinculos para pedidos historicos. Resultado manual `agendado`
+  deixa de ser aceito pelo PATCH da fila: deve passar pela criacao na agenda.
+  Cancelamento manual de pedido aberto continua disponivel com justificativa.
+- Ao salvar, o modal existente prepara a mensagem com paciente, destinatario
+  e horario para revisao, copia, abertura manual do WhatsApp ou envio explicito
+  pelo fluxo de modelos aprovados. Esta integracao nao efetua envio automatico.
+- A fila mostra o ID vinculado. Alteracoes posteriores de horario/status devem
+  ser consultadas na agenda; o estado da fila registra o resultado da conversao.
+- Reversao preserva a coluna aditiva e historico; nao remover registros da agenda
+  nem executar desvinculacao automatica. Deploy deve aplicar a migracao antes do runtime.

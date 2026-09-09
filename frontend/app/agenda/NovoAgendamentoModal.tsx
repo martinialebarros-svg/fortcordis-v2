@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle, Pencil, Plus, Trash2, Send, Loader2 } from "lucide-react";
 import api from "@/lib/axios";
+import { camposPedidoAgenda, type PedidoAgenda } from "@/lib/whatsapp-pedido-agenda";
 import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import {
@@ -63,6 +64,7 @@ interface NovoAgendamentoModalProps {
     opcoes?: { manterModalAberto?: boolean }
   ) => void | Promise<void>;
   agendamento?: any;
+  pedidoWhatsApp?: PedidoAgenda | null;
   defaultDate?: string;
   defaultTime?: string;
   agendaSemanal: AgendaSemanalConfig;
@@ -840,6 +842,7 @@ export default function NovoAgendamentoModal({
   onClose, 
   onSuccess,
   agendamento,
+  pedidoWhatsApp,
   defaultDate,
   defaultTime,
   agendaSemanal,
@@ -1079,9 +1082,9 @@ export default function NovoAgendamentoModal({
   // Inicializa formulario ao abrir no modo "novo" sem resetar quando pacientes/tutores atualizam.
   useEffect(() => {
     if (!isOpen || isEditando) return;
-    setFormData(buildInitialFormData(defaultDate, defaultTime));
+    setFormData({ ...buildInitialFormData(defaultDate, defaultTime), ...(pedidoWhatsApp ? camposPedidoAgenda(pedidoWhatsApp) : {}) });
     setDataContatoAssistente((atual) => atual || hojeLocalIso());
-    setTutorSelecionado("");
+    setTutorSelecionado(pedidoWhatsApp?.tutor?.nome || "");
     setSugestoesHorario([]);
     setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
@@ -1097,7 +1100,7 @@ export default function NovoAgendamentoModal({
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
     sequenciaConsultaProximidadeRef.current = 0;
-  }, [defaultDate, defaultTime, isEditando, isOpen]);
+  }, [defaultDate, defaultTime, isEditando, isOpen, pedidoWhatsApp]);
 
   // Preenche formulario ao abrir/atualizar no modo de edicao.
   useEffect(() => {
@@ -1292,7 +1295,8 @@ export default function NovoAgendamentoModal({
 
     const pacientesResp = resultados[0];
     if (pacientesResp.status === "fulfilled") {
-      setPacientes(extrairItems(pacientesResp.value?.data) as PacienteOption[]);
+      const items = extrairItems(pacientesResp.value?.data) as PacienteOption[];
+      setPacientes(pedidoWhatsApp?.paciente && !items.some(p => p.id === pedidoWhatsApp.paciente?.id) ? [...items, pedidoWhatsApp.paciente] : items);
     } else {
       setPacientes([]);
       falhas.push("pacientes");
@@ -1300,7 +1304,8 @@ export default function NovoAgendamentoModal({
 
     const tutoresResp = resultados[1];
     if (tutoresResp.status === "fulfilled") {
-      setTutores(extrairItems(tutoresResp.value?.data) as TutorOption[]);
+      const items = extrairItems(tutoresResp.value?.data) as TutorOption[];
+      setTutores(pedidoWhatsApp?.tutor && !items.some(t => t.id === pedidoWhatsApp.tutor?.id) ? [...items, pedidoWhatsApp.tutor] : items);
     } else {
       setTutores([]);
       falhas.push("tutores");
@@ -3251,7 +3256,9 @@ export default function NovoAgendamentoModal({
         if (isEditando) {
           return api.put(`/agenda/${agendamento.id}`, payload);
         }
-        return api.post("/agenda", payload);
+        return api.post("/agenda", { ...payload, ...(pedidoWhatsApp ? {
+          pedido_whatsapp_id: pedidoWhatsApp.pedido_id, pedido_whatsapp_versao: pedidoWhatsApp.versao,
+        } : {}) });
       };
 
       let response;
@@ -3629,6 +3636,12 @@ export default function NovoAgendamentoModal({
         </div>
 
         <form onSubmit={handleSubmit} className="fc-appointment-form space-y-4">
+          {pedidoWhatsApp && !isEditando && <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-3" aria-label="Pedido recebido pelo WhatsApp">
+            <strong>Agendar pedido #{pedidoWhatsApp.pedido_id}</strong>
+            <p className="whitespace-pre-line text-sm">{pedidoWhatsApp.resumo}</p>
+            {pedidoWhatsApp.avisos.map(aviso => <p key={aviso} className="text-sm text-amber-900">{aviso}</p>)}
+            <p className="text-sm">Escolha e confira o horário. Ao salvar, o pedido será vinculado à agenda e a confirmação ficará disponível para revisão e envio.</p>
+          </section>}
           {erroCarregamento && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {erroCarregamento}
@@ -3651,6 +3664,7 @@ export default function NovoAgendamentoModal({
               </button>
               <button
                 type="button"
+                disabled={Boolean(pedidoWhatsApp) && !isEditando}
                 onClick={() => handleOrigemAtendimentoChange("domiciliar")}
                 className={`fc-appointment-origin-option ${
                   atendimentoDomiciliar
@@ -3825,6 +3839,7 @@ export default function NovoAgendamentoModal({
               </label>
               <SearchableSelect
                 value={formData.clinica_id}
+                disabled={Boolean(pedidoWhatsApp) && !isEditando}
                 onChange={handleClinicaChange}
                 options={clinicaOptions}
                 placeholder="Selecione..."
@@ -4216,7 +4231,7 @@ export default function NovoAgendamentoModal({
             )}
           </div>
 
-          {(!isEditando || formData.marcar_como_reserva) && (
+          {!pedidoWhatsApp && (!isEditando || formData.marcar_como_reserva) && (
             <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
               {!isEditando && (
                 <label className="flex items-start gap-2">

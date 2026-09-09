@@ -2312,3 +2312,24 @@ alerta e o historico ficam registrados para o atendimento humano.
 - Publicacao permanece pendente; requer migracao 20260909_81 antes do novo
   runtime, deploy terminal e smoke de API autenticada + arquivos servidos.
 - Reversao de codigo preserva tabela e historico; nao executar DROP em ambiente real.
+
+## Conversao assistida para agenda — validacao local
+
+- Suite completa backend: 1.253 testes executados, 1.249 aprovados, 4 skips,
+  antes da adicao do caso exclusivo de concorrencia PostgreSQL desta entrega.
+- Suite de conversao com PostgreSQL local isolado: 7 testes, incluindo duas
+  tentativas simultaneas retornando o mesmo ID e apenas um agendamento,
+  rollback de ambas as escritas, conflito real de slot, dono/papel/versao,
+  correspondencia unica, dados ambiguos e migracao idempotente sem backfill inventado.
+- Frontend: 29 testes de fila/pagina/helper mais 1 teste do modal real. Valida
+  acesso a Agendar pedido, ausencia da conclusao manual sem agenda, IDs seguros,
+  preferencia como texto, hora vazia e cadastros fora da primeira pagina.
+- Lint e build Next.js/TypeScript aprovados. `git diff --check` aprovado.
+- Evidencias locais: `/private/tmp/bot-pedido-agenda-full.log`,
+  `/private/tmp/bot-pedido-agenda-postgres.log`, `/private/tmp/bot-pedido-agenda-front-tests.log`,
+  `/private/tmp/bot-pedido-agenda-modal-test.log`, `/private/tmp/bot-pedido-agenda-lint.log`,
+  `/private/tmp/bot-pedido-agenda-build.log`.
+- Nenhum envio real de mensagem, chamada paga de IA, alteracao de piloto ou
+  acesso de escrita a stage/producao. Testes usam dados sinteticos e banco local.
+- Pronto para publicacao posterior, com migracao 82, deploy terminal e smoke
+  da fila/agenda; esta verificacao local nao afirma disponibilidade em producao.

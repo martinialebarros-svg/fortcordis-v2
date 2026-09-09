@@ -1,4 +1,4 @@
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, Field, validator
 from datetime import datetime
 from typing import Optional, List
 
@@ -43,7 +43,8 @@ class AgendamentoBase(BaseModel):
         return parse_datetime(v) if v else None
 
 class AgendamentoCreate(AgendamentoBase):
-    pass
+    pedido_whatsapp_id: Optional[int] = Field(default=None, gt=0)
+    pedido_whatsapp_versao: Optional[int] = Field(default=None, gt=0)
 
 class AgendamentoUpdate(BaseModel):
     paciente_id: Optional[int] = None

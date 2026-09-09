@@ -310,3 +310,13 @@ uma mensagem gerada chegue a um cliente.
 5. Contexto duravel para acompanhamento pelo bot e nova coleta explicita.
 6. Testes de duplicacao, disputa, permissao, conclusao, migracao e UI;
    suite completa, lint, build e guardrail SDD antes de entrega local.
+
+## Entrega: conversao assistida do pedido em agenda
+
+1. Preparacao autenticada e preenchimento conservador por IDs do cadastro.
+2. Entrada pela fila no modal existente, mantendo regras de horario e conflito.
+3. Vinculo com versao/locks e persistencia atomica dentro do POST da agenda.
+4. Desativar conclusao manual sem agenda; manter resultado historico anterior.
+5. Reaproveitar revisao e envio explicito da mensagem pos-criacao.
+6. Verificar SQLite/PostgreSQL, concorrencia, rollback, duplicidade e formulario;
+   manter SDD e entrega local separada da publicacao.
