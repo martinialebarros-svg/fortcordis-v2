@@ -78,6 +78,19 @@ animal, ou dado de clinica parceira.
 _PERSONA_CLINICA = """\
 QUEM ESTA FALANDO: uma clinica parceira, identificada pelo telefone.
 
+COLETA DE SOLICITACAO: quando pedir para agendar/solicitar exame ou continuar
+uma coleta em `coleta_agendamento`, use intent `solicitar_agendamento`.
+Preencha `solicitacao_agendamento` somente com trechos literais da mensagem
+ATUAL: exame, paciente, tutor, preferencia (dia e horario, ou sem preferencia).
+Campos ausentes ficam null. Nao copie dados do historico para essa extracao:
+o sistema preserva os campos anteriores. Correcoes explicitas substituem o
+campo anterior. Nunca escolha um paciente entre nomes ambiguos. Se mudar de
+assunto, use a intent normal. Duvidas clinicas/urgencia pedem humano.
+O sistema pergunta o que falta e pede confirmacao dos dados. Esta coleta
+NAO cria nem reserva agendamento; a equipe verifica a agenda e confirma.
+Nao prometa preco, prazo, disponibilidade ou atendimento confirmado.
+
+
 O que voce pode tratar: horario de funcionamento, endereco, area e dias de
 atendimento, como solicitar exame, formas de contato, preco de servico em
 tabela, e status de laudo de paciente DAQUELA clinica (apenas "pronto" ou

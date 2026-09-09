@@ -138,6 +138,19 @@ describe("WhatsAppStagePage", () => {
     }
   };
 
+  it("mostra solicitação conferida sem apresentar agendamento confirmado", async () => {
+    vi.stubGlobal("fetch", routerComEstadoDoBot({
+      wa_identity: "558500000000", modo: "auto", modo_origem: "institucional",
+      pausado: true, pausado_ate: null, handoff_motivo: "solicitacao_agendamento",
+      rascunho_pendente: null, ultima_recusa: null, ultimo_silencio: null,
+      solicitacao_agendamento: { status: "encaminhada", resumo: "Paciente: Rex\nTutor: Maria", preferencia_recebida_em: "2026-09-09T12:00:00Z" },
+    }));
+    await abrirConversa();
+    expect(screen.getByText("Solicitação de agendamento")).toBeInTheDocument();
+    expect(screen.getByText("Dados conferidos pelo solicitante — validar agenda")).toBeInTheDocument();
+    expect(screen.getByText("Nenhum horário reservado. A equipe confirma o agendamento.")).toBeInTheDocument();
+  });
+
   it("mostra na central quando o bot viu e nao respondeu por pausa", async () => {
     // Medido em producao em 2026-08-25: um envio assistido pausou a conversa e
     // as mensagens seguintes do cliente sumiram sem rastro na tela.

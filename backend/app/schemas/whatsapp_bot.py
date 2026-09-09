@@ -28,6 +28,7 @@ WhatsAppBotIntent = Literal[
     "preco_servico",
     "status_laudo",
     # Especificas de persona.
+    "solicitar_agendamento",
     "como_agendar",           # tutor
     "como_solicitar_exame",   # clinica
     # Bloco comum que SEMPRE vira rascunho (RF-019), mesmo com o dado
@@ -47,6 +48,13 @@ class WhatsAppBotStrictSchema(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+class WhatsAppBotColetaAgendamento(WhatsAppBotStrictSchema):
+    exame: str | None = Field(default=None, max_length=120)
+    paciente: str | None = Field(default=None, max_length=120)
+    tutor: str | None = Field(default=None, max_length=120)
+    preferencia: str | None = Field(default=None, max_length=160)
+
+
 class WhatsAppBotReplyOutput(WhatsAppBotStrictSchema):
     """Saida estruturada exigida do provider.
 
@@ -59,3 +67,4 @@ class WhatsAppBotReplyOutput(WhatsAppBotStrictSchema):
     texto: str = Field(min_length=1, max_length=REPLY_HARD_MAX_CHARS)
     fontes: list[str] = Field(default_factory=list)
     precisa_humano: bool = False
+    solicitacao_agendamento: WhatsAppBotColetaAgendamento | None = None

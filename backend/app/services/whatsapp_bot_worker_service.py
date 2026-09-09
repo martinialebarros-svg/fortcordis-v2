@@ -182,6 +182,8 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
     if anterior is not None:
         if anterior.decisao in ("auto_pending", "sending"):
             deliver_automatic_reply(db, job, anterior)
+        from app.services.whatsapp_bot_agendamento import encaminhar
+        encaminhar(db, anterior)
         job.status = "done"
         return "done"
 
@@ -302,7 +304,8 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
     # vencendo. Um "obrigada" nao pode consumir LLM para depois ser barrado por
     # `sem_fonte`: alem do custo, isso poluiria a taxa de bloqueio, que existe
     # para medir problema de qualidade e e insumo da decisao de `auto`.
-    if detecta_cortesia(corpo):
+    from app.services.whatsapp_bot_agendamento import confirmacao_de_coleta_ativa
+    if detecta_cortesia(corpo) and not confirmacao_de_coleta_ativa(db, job.wa_identity, corpo):
         _record_resposta(db, job, decisao="suppressed", motivo="sem_pergunta")
         job.status = "done"
         return "done"
@@ -349,6 +352,8 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         resposta.decisao = "auto_pending"
         db.commit()
         deliver_automatic_reply(db, job, resposta)
+    from app.services.whatsapp_bot_agendamento import encaminhar
+    encaminhar(db, resposta)
     job.status = "done"
     return "done"
 

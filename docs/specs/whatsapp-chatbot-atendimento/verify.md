@@ -2262,3 +2262,29 @@ promocao e conferir entrega antes de repetir qualquer mensagem de teste.
   apenas para o destinatario autorizado. Ativacao Python em producao deve
   ocorrer somente com o codigo compativel instalado; a versao anterior
   rejeita a chave nova no arquivo `.env`.
+
+### Coleta administrativa de agendamento — validacao local 2026-09-09
+
+Implementada coleta para clinicas identificadas/habilitadas: exame, paciente,
+tutor e preferencia; perguntas apenas sobre dados ausentes; resumo conferido
+pelo solicitante antes de encaminhar para validacao humana da agenda.
+
+- Backend completo: **1.239 testes executados, 1.236 aprovados e 3 skips**.
+- Nove testes novos cobrem mensagens separadas, resumo ainda nao enviado,
+  conferencia explicita, correcao de paciente, tutor unico/ambiguo, valores
+  inventados ou desconhecidos, cancelamento, nova solicitacao, expiracao,
+  isolamento por telefone/clinica e handoff idempotente apos envio.
+- Integracao com provider simulado percorre quatro turnos pela geracao real,
+  demonstra persistencia exclusiva pelo chamador e nenhuma criacao na agenda.
+- Central: resumo preservado apos mensagem suprimida por pausa, ocultado
+  quando a identidade deixa de corresponder a clinica.
+- Frontend da central: **23 testes aprovados**, incluindo o cartao de resumo;
+  lint completo e build Next.js (com verificacao de tipos) aprovados.
+- `git diff --check` aprovado. SDD revisado no snapshot completo da alteracao.
+
+Nenhuma chamada paga ao modelo, mensagem externa, migracao de banco ou
+alteracao em producao nesta implementacao. O piloto publicado continua na
+versao anterior ate publicacao autorizada. A classificacao/extracao em
+linguagem natural ainda exige observacao com o provider real em stage.
+A coleta dura 48 horas, sem constituir fila permanente de agendamentos; o
+alerta e o historico ficam registrados para o atendimento humano.

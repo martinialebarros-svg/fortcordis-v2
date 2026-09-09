@@ -290,3 +290,13 @@ uma mensagem gerada chegue a um cliente.
 6. Publicar primeiro em stage, comprovar runtime e um ciclo autorizado com
    destinatario de teste; so entao promover o mesmo snapshot e ativar o
    escopo de producao autorizado. Esta etapa nao foi executada nesta entrega.
+
+## Coleta administrativa — setembro de 2026
+
+1. Acrescentar extracao estruturada de campos para clinicas ao provider.
+2. Renderizar perguntas/resumo no servidor e persistir snapshots na auditoria.
+3. Validar conferencia explicita de resumo enviado e encaminhar uma vez.
+4. Exibir resumo e referencia temporal da preferencia na central.
+5. Testar continuidade, escopo, ambiguidades, correcoes, cancelamento,
+   expiracao, rascunho nao enviado e recuperacao idempotente.
+6. Publicacao e validacao com clinicas reais permanecem etapa posterior.

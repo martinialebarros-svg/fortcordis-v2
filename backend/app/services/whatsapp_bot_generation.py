@@ -492,6 +492,8 @@ def gerar_resposta(
             clinica_id=clinica_id,
         )
 
+    from app.services.whatsapp_bot_agendamento import carregar
+    coleta_anterior = carregar(db, wa_identity, clinica_id) if match_type == "clinica" else None
     contexto_seguro = build_safe_context(
         contexto, match_type=match_type, tutor_id=tutor_id, clinica_id=clinica_id
     )
@@ -505,6 +507,8 @@ def gerar_resposta(
         historico=montar_historico(historico),
     )
 
+    if match_type == "clinica":
+        payload["coleta_agendamento"] = coleta_anterior
     provider = provider or get_whatsapp_bot_reply_provider()
     iniciado = time.perf_counter()
     resultados: list[tuple[str, dict[str, Any]]] = []
@@ -589,6 +593,30 @@ def gerar_resposta(
         )
     latencia_ms = int((time.perf_counter() - iniciado) * 1000)
     assert gerado is not None and gerado.output is not None
+
+    if (match_type == "clinica" and clinica_id and not gerado.output.precisa_humano
+            and (gerado.output.intent == "solicitar_agendamento" or
+                 (coleta_anterior and coleta_anterior.get("status") in ("coletando", "aguardando_confirmacao")
+                  and gerado.output.intent == "outro"))):
+        from app.services.whatsapp_bot_agendamento import preparar, validar_texto, KEY
+        coleta, texto = preparar(coleta_anterior, gerado.output.solicitacao_agendamento,
+                                corpo_mensagem, clinica_id, contexto)
+        # O texto vem do renderizador, nao do modelo. Guardas clinicas e teto
+        # de tamanho continuam aplicados; nenhum dado declara disponibilidade.
+        check = validar_texto(coleta, texto)
+        if check.aprovado:
+            audit = json.loads(_tools_usadas_json(match_type, resultados, fontes_declaradas=[]))
+            audit[KEY] = coleta
+            return ResultadoGeracao(decisao="draft", motivo="coleta_agendamento",
+                texto_gerado=texto, auto_elegivel=modo == "auto", modelo=gerado.model,
+                prompt_version=prompt_version, tools_usadas=json.dumps(audit, ensure_ascii=False),
+                input_tokens=input_tokens, output_tokens=output_tokens, latencia_ms=latencia_ms,
+                resolution=resolution, match_type=match_type, clinica_id=clinica_id)
+
+        return ResultadoGeracao(decisao="blocked", motivo=str(check.motivo or "coleta_invalida"),
+            modelo=gerado.model, prompt_version=prompt_version, input_tokens=input_tokens,
+            output_tokens=output_tokens, latencia_ms=latencia_ms, resolution=resolution,
+            match_type=match_type, clinica_id=clinica_id)
 
     texto_final = _texto_deterministico_para_dado_sensivel(
         intent=gerado.output.intent,

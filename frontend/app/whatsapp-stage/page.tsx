@@ -161,6 +161,7 @@ interface WhatsAppBotConversationState {
   pausado_ate: string | null;
   pausado: boolean;
   envio_automatico_liberado?: boolean;
+  solicitacao_agendamento?: { status: string; resumo: string; preferencia_recebida_em?: string | null } | null;
   handoff_motivo: string | null;
   rascunho_pendente: WhatsAppBotDraft | null;
   ultima_recusa: WhatsAppBotRecusa | null;
@@ -1472,6 +1473,13 @@ export default function WhatsAppStagePage() {
                   {selectedConversation.last_agent_id ? <button type="button" className="fc-wa-ghost-danger" disabled={savingAssignment} onClick={() => void handleClaimToggle("unclaim", selectedConversation.last_agent_id || undefined)}>Liberar</button> : null}</div></section>
               <section className="fc-wa-context-section"><div className="fc-wa-context-section-title"><Clock3 className="h-4 w-4" /><h3>Atividade</h3></div><dl className="fc-wa-context-list">
                 <div><dt>Última atividade</dt><dd>{formatDateTime(selectedConversation.last_activity_at)}</dd></div><div><dt>Última mensagem recebida</dt><dd>{formatDateTime(selectedConversation.last_inbound_at)}</dd></div><div><dt>Canal</dt><dd>WhatsApp Business</dd></div></dl></section>
+              {botConversationState?.solicitacao_agendamento ? <section className="fc-wa-context-section">
+                <h3>Solicitação de agendamento</h3>
+                <p>{botConversationState.solicitacao_agendamento.status === "encaminhada" ? "Dados conferidos pelo solicitante — validar agenda" : botConversationState.solicitacao_agendamento.status === "cancelada" ? "Coleta cancelada" : "Coleta em andamento"}</p>
+                <p style={{ whiteSpace: "pre-line" }}>{botConversationState.solicitacao_agendamento.resumo}</p>
+                {botConversationState.solicitacao_agendamento.preferencia_recebida_em ? <p>Preferência informada em {formatDateTime(botConversationState.solicitacao_agendamento.preferencia_recebida_em)}</p> : null}
+                <p>Nenhum horário reservado. A equipe confirma o agendamento.</p>
+              </section> : null}
               <DomainContextPanel context={domainContext} loading={loadingDomainContext} error={domainContextError} />
               <details className="fc-wa-technical-details"><summary>Dados técnicos</summary><span>Conversa #{selectedConversation.id}</span><span>PSID: {selectedConversation.wa_psid || "não informado"}</span></details>
             </div> : <div className="fc-wa-empty"><UserRound className="h-8 w-8" /><strong>Selecione uma conversa</strong><span>Os dados do atendimento aparecerão aqui.</span></div>}</aside>

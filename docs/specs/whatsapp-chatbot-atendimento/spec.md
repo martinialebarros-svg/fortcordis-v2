@@ -856,3 +856,32 @@ no lockfile, para incorporar as correcoes de seguranca do parser multipart.
 A atualizacao preserva upload em memoria, limite de 8 MiB, um anexo por
 requisicao e autenticacao anterior ao parser. A auditoria de dependencias
 continua obrigatoria em stage e producao, sem excecao para vulnerabilidades.
+
+## Coleta de solicitacao de agendamento por clinica
+
+Clinicas identificadas e habilitadas no piloto podem solicitar exames em
+mensagens separadas. A coleta registra exame, paciente, tutor e preferencia
+de dia/horario; pergunta somente campos ausentes e exige conferencia do
+resumo antes de encaminhar para a equipe. Nao cria cadastros, reservas ou
+agendamentos, nem afirma disponibilidade. Precos mantem as regras anteriores.
+
+O modelo extrai apenas trechos literais da mensagem atual. A resposta da
+coleta e renderizada pelo sistema. Dados desconhecidos nao completam o
+pedido; nomes ambiguos nao selecionam automaticamente cadastro. Reaproveitar
+tutor exige paciente escolhido explicitamente e unico no contexto de
+atendimentos da clinica. Mudanca do paciente invalida o tutor reaproveitado.
+
+Snapshots administrativos ficam em `whatsapp_bot_respostas.tools_usadas`,
+chave `solicitacao_agendamento`, atomicos com a auditoria existente, sem
+nova migracao. Escopo: telefone + clinica; validade 48 horas. Simular nao
+persiste. O resumo precisa ter sido enviado para `sim`/`confirmar dados`
+concluir a coleta. Correcoes exigem nova conferencia. `cancelar solicitacao`
+encerra a coleta; `nova solicitacao` reinicia os dados.
+
+Depois do envio da confirmacao de dados, um alerta unico entrega o resumo
+para a equipe e pausa a automacao para conferencia da agenda. A central exibe
+os campos e o instante em que a preferencia foi informada, para interpretar
+expressoes relativas como "amanha". O resumo continua visivel durante pausas,
+mas e ocultado se a identidade atual nao corresponder mais a clinica.
+Emergencias, pedido humano, claims, janela de 24 horas, participacao, tetos,
+seguranca clinica e idempotencia existentes continuam precedendo a coleta.

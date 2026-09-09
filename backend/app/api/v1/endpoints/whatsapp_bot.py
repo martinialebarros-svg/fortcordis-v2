@@ -136,7 +136,20 @@ def _estado_payload(db: Session, wa_identity: str) -> dict:
         and str(ultima.motivo or "") in _SUPRESSOES_VISIVEIS
         else None
     )
+    from app.services.whatsapp_bot_generation import _resolver_contexto, _escopo_da_persona
+    from app.services.whatsapp_bot_agendamento import carregar, resumo
+    ultima_clinica = db.query(WhatsAppBotResposta).filter(
+        WhatsAppBotResposta.wa_identity == wa_identity,
+        WhatsAppBotResposta.clinica_id.is_not(None),
+    ).order_by(WhatsAppBotResposta.id.desc()).first()
+    coleta = carregar(db, wa_identity, ultima_clinica.clinica_id) if ultima_clinica else None
+    if coleta:
+        contexto = _resolver_contexto(db, wa_identity)
+        _, _, clinic_id = _escopo_da_persona(contexto) if contexto.get("resolution") == "matched" else (None, None, None)
+        if coleta.get("clinica_id") != clinic_id:
+            coleta = None
     return {
+        "solicitacao_agendamento": {"status": coleta["status"], "resumo": resumo(coleta), "preferencia_recebida_em": coleta.get("preferencia_recebida_em")} if coleta else None,
         "wa_identity": wa_identity,
         "envio_automatico_liberado": settings.WHATSAPP_BOT_AUTO_SEND_ENABLED,
         "modo": modo,
@@ -344,6 +357,8 @@ def enviar_rascunho(
             atualizado_por_id=current_user.id,
             horas=_assisted_send_pause_hours(),
         )
+    from app.services.whatsapp_bot_agendamento import encaminhar
+    encaminhar(db, resposta)
     db.commit()
     db.refresh(resposta)
     registrar_auditoria(
