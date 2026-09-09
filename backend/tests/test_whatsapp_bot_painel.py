@@ -28,6 +28,7 @@ from app.models.configuracao import Configuracao
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
 from app.models.servico import Servico
+from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import WhatsAppBotResposta
 from app.services import whatsapp_bot_readiness_service as readiness
 
@@ -50,7 +51,7 @@ class WhatsAppBotPainelTest(unittest.TestCase):
             Configuracao.__table__, Servico.__table__, Paciente.__table__,
             Clinica.__table__,
             Laudo.__table__, Exame.__table__, AtendimentoClinico.__table__,
-            AssistenteIAConhecimentoDocumento.__table__, WhatsAppBotResposta.__table__,
+            AssistenteIAConhecimentoDocumento.__table__, WhatsAppBotResposta.__table__, WhatsAppBotSolicitacao.__table__,
         ):
             table.create(engine, checkfirst=True)
         return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine

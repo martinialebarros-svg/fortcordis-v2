@@ -300,3 +300,13 @@ uma mensagem gerada chegue a um cliente.
 5. Testar continuidade, escopo, ambiguidades, correcoes, cancelamento,
    expiracao, rascunho nao enviado e recuperacao idempotente.
 6. Publicacao e validacao com clinicas reais permanecem etapa posterior.
+
+## Entrega: fila operacional de solicitacoes (2026-09-09)
+
+1. Tabela aditiva e migracao idempotente dos pedidos ja enviados.
+2. Criacao na confirmacao entregue, sem efeitos externos adicionais.
+3. API com papel, responsabilidade, controle de versao e historico atomico.
+4. Fila expansivel na central, filtros e prazo inicial explicito de 2 horas corridas.
+5. Contexto duravel para acompanhamento pelo bot e nova coleta explicita.
+6. Testes de duplicacao, disputa, permissao, conclusao, migracao e UI;
+   suite completa, lint, build e guardrail SDD antes de entrega local.

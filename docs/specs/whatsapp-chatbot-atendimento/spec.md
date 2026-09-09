@@ -885,3 +885,44 @@ expressoes relativas como "amanha". O resumo continua visivel durante pausas,
 mas e ocultado se a identidade atual nao corresponder mais a clinica.
 Emergencias, pedido humano, claims, janela de 24 horas, participacao, tetos,
 seguranca clinica e idempotencia existentes continuam precedendo a coleta.
+
+## Fila de solicitacoes com responsavel e prazo (2026-09-09)
+
+- A confirmacao administrativa efetivamente enviada cria um pedido duravel em
+  `whatsapp_bot_solicitacoes`. `resposta_id` unico e lock da resposta impedem
+  duplicacao no retry. A criacao integra a transacao do handoff, sem enviar outra mensagem.
+- Migracao `20260909_81` importa confirmacoes anteriores enviadas para triagem,
+  preservando o resumo e a referencia temporal da preferencia, sem inferir que
+  elas ainda precisam ser agendadas. Reexecucao nao duplica pedidos.
+- Estados: `aguardando_equipe`, `em_atendimento`, `aguardando_cliente`,
+  `agendado`, `cancelado`. Assumir atribui ao usuario autenticado; liberar
+  devolve a fila. Apenas o responsavel altera prazo/status; admin tambem pode
+  liberar um pedido de outro responsavel. Estados finais preservam historico
+  e nao podem ser reabertos nesta versao.
+- Prazo inicial: duas horas corridas desde entrada na fila (inclui fora do
+  expediente), indicadas na interface. Responsavel pode ajustar para uma data
+  futura, com fuso explicito e ate 30 dias. Atraso e calculado no servidor
+  para estados abertos; nao dispara mensagem ou promessa ao solicitante.
+- API autenticada GET `/api/v1/whatsapp/bot/solicitacoes` suporta filtro de
+  estado, abertas, atrasadas, todas, minhas e paginacao de 20. Contagens gerais
+  de resultados permanecem separadas do filtro. PATCH `/{id}` exige versao,
+  acao e propriedade do pedido. Versao divergente retorna 409 sem sobrescrever.
+- Papéis permitidos: admin, recepcao, veterinario, cardiologista. Historico
+  inclui ator, acao, status, prazo, observacao e horario na mesma atualizacao
+  atomica. Concluir como agendado/cancelado exige resultado em texto (500 caracteres).
+- Central WhatsApp apresenta fila expansivel, nome da clinica, resumo,
+  responsavel, atraso, filtros, paginacao, abertura de conversa, controles de
+  atendimento e historico. Atualizacao a cada 30 segundos enquanto aberta;
+  timeout, erro recuperavel e protecao contra leituras antigas preservam o estado.
+- Bot recebe o ultimo pedido apenas da identidade e clinica resolvidas. Para
+  acompanhamento, texto deterministico informa o estado registrado, sem
+  solicitar novamente os campos. `nova solicitacao` inicia outra coleta;
+  a coleta posterior guarda referencia ao pedido anterior para continuar.
+  Pausas, piloto, janela e guardrails existentes continuam vigentes.
+- A fila nao cria agendamento, nao reserva horario nem envia confirmacao ao
+  cliente. "Agendado" e registro manual do resultado; a equipe usa a agenda
+  e a conversa existentes para confirmar os detalhes.
+- Pedidos e historico sobrevivem aos 48h do contexto de coleta. O painel da
+  conversa revalida a identidade antes de mostrar o acompanhamento.
+- Reversao: retornar o codigo anterior e preservar a nova tabela aditiva.
+  Nao ha exclusao, migracao destrutiva nem alteracao de credenciais ou modos.

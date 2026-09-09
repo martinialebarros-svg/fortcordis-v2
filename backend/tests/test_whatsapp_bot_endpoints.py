@@ -21,6 +21,7 @@ os.environ.setdefault("SECRET_KEY", "whatsapp-bot-endpoints-test-secret-key-1234
 
 from app.api.v1.endpoints import whatsapp_bot
 from app.models.configuracao import Configuracao
+from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import WhatsAppBotConversaEstado, WhatsAppBotJob, WhatsAppBotResposta
 
 
@@ -32,7 +33,7 @@ class WhatsAppBotEndpointsTest(unittest.TestCase):
             Configuracao.__table__,
             WhatsAppBotConversaEstado.__table__,
             WhatsAppBotJob.__table__,
-            WhatsAppBotResposta.__table__,
+            WhatsAppBotResposta.__table__, WhatsAppBotSolicitacao.__table__,
         ):
             table.create(engine, checkfirst=True)
         return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine

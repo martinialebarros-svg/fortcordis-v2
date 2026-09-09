@@ -507,7 +507,10 @@ def gerar_resposta(
         historico=montar_historico(historico),
     )
 
+    from app.services.whatsapp_bot_fila import ultimo, contexto as contexto_fila
+    pedido = ultimo(db, wa_identity, clinica_id) if match_type == "clinica" and clinica_id else None
     if match_type == "clinica":
+        payload["pedido_em_acompanhamento"] = contexto_fila(pedido)
         payload["coleta_agendamento"] = coleta_anterior
     provider = provider or get_whatsapp_bot_reply_provider()
     iniciado = time.perf_counter()
@@ -599,8 +602,22 @@ def gerar_resposta(
                  (coleta_anterior and coleta_anterior.get("status") in ("coletando", "aguardando_confirmacao")
                   and gerado.output.intent == "outro"))):
         from app.services.whatsapp_bot_agendamento import preparar, validar_texto, KEY
-        coleta, texto = preparar(coleta_anterior, gerado.output.solicitacao_agendamento,
-                                corpo_mensagem, clinica_id, contexto)
+        from app.services.whatsapp_bot_agendamento import normalizar
+        from app.services.whatsapp_bot_fila import LABELS
+        # So o comando explicito inicia outro pedido quando ja ha acompanhamento.
+        # Nunca copiar o snapshot encaminhado: isso criaria outra linha na fila.
+        if pedido and normalizar(corpo_mensagem).strip(' .!?') != 'nova solicitacao' and not (
+                coleta_anterior and coleta_anterior.get('status') in ('coletando', 'aguardando_confirmacao')
+                and coleta_anterior.get('fila_anterior_id') == pedido.id):
+            coleta = {'clinica_id':clinica_id, 'status':'acompanhamento', 'pedido_id':pedido.id, 'dados':{}}
+            texto = ('Atendimento automático FortCordis: sua última solicitação está com o status “'
+                     + LABELS[pedido.status] + '” registrado pela equipe. Para ajustes, fale com a equipe. '
+                     'Para iniciar outro pedido, escreva “nova solicitação”.')
+        else:
+            coleta, texto = preparar(coleta_anterior, gerado.output.solicitacao_agendamento,
+                                    corpo_mensagem, clinica_id, contexto)
+            if pedido:
+                coleta['fila_anterior_id'] = pedido.id
         # O texto vem do renderizador, nao do modelo. Guardas clinicas e teto
         # de tamanho continuam aplicados; nenhum dado declara disponibilidade.
         check = validar_texto(coleta, texto)

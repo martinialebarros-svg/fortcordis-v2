@@ -9,6 +9,7 @@ import {
   ShieldAlert, Sparkles, UserCheck, UserRound, Users, X,
 } from "lucide-react";
 import DashboardLayout from "../layout-dashboard";
+import AppointmentQueue from "./AppointmentQueue";
 import {
   CustomerServiceWindow,
   evaluateCustomerServiceWindow,
@@ -161,7 +162,7 @@ interface WhatsAppBotConversationState {
   pausado_ate: string | null;
   pausado: boolean;
   envio_automatico_liberado?: boolean;
-  solicitacao_agendamento?: { status: string; resumo: string; preferencia_recebida_em?: string | null } | null;
+  solicitacao_agendamento?: { status: string; status_equipe?: string; resumo: string; preferencia_recebida_em?: string | null } | null;
   handoff_motivo: string | null;
   rascunho_pendente: WhatsAppBotDraft | null;
   ultima_recusa: WhatsAppBotRecusa | null;
@@ -1228,6 +1229,18 @@ export default function WhatsAppStagePage() {
           </span></div>
         </header>
 
+        <AppointmentQueue onOpen={async (id, identity) => {
+          const conversation = conversations.find(c => c.id === id);
+          if (conversation) selectConversation(conversation);
+          else {
+            try {
+              const result = await requestJson<{ data: Conversation[] }>(`/whatsapp/conversations?search=${encodeURIComponent(identity)}&limit=100`);
+              const found = result.data?.data.find(c => c.id === id);
+              if (found) selectConversation(found);
+              else setErrorMessage("Conversa não encontrada. Atualize a central.");
+            } catch { setErrorMessage("Não foi possível abrir a conversa. Tente novamente."); }
+          }
+        }} />
         <section className="fc-wa-metrics" aria-label="Resumo do atendimento WhatsApp">
           <button type="button" className="fc-wa-metric fc-wa-metric-amber fc-wa-metric-action" aria-label="Ver conversas que precisam de resposta" onClick={() => {
             setFollowUpFilter(""); setMyFollowUps(false); setNeedsReplyFilter(true); setUnreadFilter(false); setStatusFilter(""); setSearchFilter(""); setAssignedFilter("all");
@@ -1475,10 +1488,10 @@ export default function WhatsAppStagePage() {
                 <div><dt>Última atividade</dt><dd>{formatDateTime(selectedConversation.last_activity_at)}</dd></div><div><dt>Última mensagem recebida</dt><dd>{formatDateTime(selectedConversation.last_inbound_at)}</dd></div><div><dt>Canal</dt><dd>WhatsApp Business</dd></div></dl></section>
               {botConversationState?.solicitacao_agendamento ? <section className="fc-wa-context-section">
                 <h3>Solicitação de agendamento</h3>
-                <p>{botConversationState.solicitacao_agendamento.status === "encaminhada" ? "Dados conferidos pelo solicitante — validar agenda" : botConversationState.solicitacao_agendamento.status === "cancelada" ? "Coleta cancelada" : "Coleta em andamento"}</p>
+                <p>{botConversationState.solicitacao_agendamento.status_equipe ? `Acompanhamento: ${botConversationState.solicitacao_agendamento.status_equipe}` : botConversationState.solicitacao_agendamento.status === "encaminhada" ? "Dados conferidos pelo solicitante — validar agenda" : botConversationState.solicitacao_agendamento.status === "cancelada" ? "Coleta cancelada" : "Coleta em andamento"}</p>
                 <p style={{ whiteSpace: "pre-line" }}>{botConversationState.solicitacao_agendamento.resumo}</p>
                 {botConversationState.solicitacao_agendamento.preferencia_recebida_em ? <p>Preferência informada em {formatDateTime(botConversationState.solicitacao_agendamento.preferencia_recebida_em)}</p> : null}
-                <p>Nenhum horário reservado. A equipe confirma o agendamento.</p>
+                <p>{botConversationState.solicitacao_agendamento.status_equipe ? "Consulte a equipe para os detalhes do horário na agenda." : "Nenhum horário reservado. A equipe confirma o agendamento."}</p>
               </section> : null}
               <DomainContextPanel context={domainContext} loading={loadingDomainContext} error={domainContextError} />
               <details className="fc-wa-technical-details"><summary>Dados técnicos</summary><span>Conversa #{selectedConversation.id}</span><span>PSID: {selectedConversation.wa_psid || "não informado"}</span></details>

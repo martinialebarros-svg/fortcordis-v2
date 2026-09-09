@@ -110,3 +110,25 @@ class WhatsAppBotClinicaEstado(Base):
     updated_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+
+class WhatsAppBotSolicitacao(Base):
+    """Fila administrativa duravel, independente da validade do contexto do bot."""
+
+    __tablename__ = 'whatsapp_bot_solicitacoes'
+    id = Column(Integer, primary_key=True)
+    resposta_id = Column(Integer, nullable=False, unique=True)
+    wa_identity = Column(String(30), nullable=False, index=True)
+    conversation_id = Column(String(64), nullable=False)
+    clinica_id = Column(Integer, nullable=False, index=True)
+    resumo = Column(Text, nullable=False)
+    status = Column(String(30), nullable=False, default='aguardando_equipe', index=True)
+    responsavel_id = Column(Integer, nullable=True)
+    responsavel_nome = Column(String(160), nullable=True)
+    prazo_em = Column(DateTime(timezone=True), nullable=False, index=True)
+    assumida_em = Column(DateTime(timezone=True), nullable=True)
+    concluida_em = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+    versao = Column(Integer, nullable=False, default=1)
+    historico = Column(Text, nullable=False, default='[]')

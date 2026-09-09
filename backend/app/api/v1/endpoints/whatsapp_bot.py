@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Literal
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -143,13 +143,20 @@ def _estado_payload(db: Session, wa_identity: str) -> dict:
         WhatsAppBotResposta.clinica_id.is_not(None),
     ).order_by(WhatsAppBotResposta.id.desc()).first()
     coleta = carregar(db, wa_identity, ultima_clinica.clinica_id) if ultima_clinica else None
-    if coleta:
+    from app.services.whatsapp_bot_fila import ultimo as ultimo_pedido, LABELS
+    pedido = ultimo_pedido(db, wa_identity, ultima_clinica.clinica_id) if ultima_clinica else None
+    if coleta or pedido:
         contexto = _resolver_contexto(db, wa_identity)
         _, _, clinic_id = _escopo_da_persona(contexto) if contexto.get("resolution") == "matched" else (None, None, None)
-        if coleta.get("clinica_id") != clinic_id:
+        if coleta and coleta.get("clinica_id") != clinic_id:
             coleta = None
+        if pedido and pedido.clinica_id != clinic_id:
+            pedido = None
+    acompanhamento = ({"status":"acompanhamento", "resumo":pedido.resumo,
+        "status_equipe":LABELS[pedido.status], "preferencia_recebida_em":None}
+        if pedido and (not coleta or coleta.get("status") not in ("coletando", "aguardando_confirmacao")) else None)
     return {
-        "solicitacao_agendamento": {"status": coleta["status"], "resumo": resumo(coleta), "preferencia_recebida_em": coleta.get("preferencia_recebida_em")} if coleta else None,
+        "solicitacao_agendamento": acompanhamento or ({"status": coleta["status"], "resumo": resumo(coleta), "preferencia_recebida_em": coleta.get("preferencia_recebida_em")} if coleta else None),
         "wa_identity": wa_identity,
         "envio_automatico_liberado": settings.WHATSAPP_BOT_AUTO_SEND_ENABLED,
         "modo": modo,
@@ -765,3 +772,33 @@ def remover_participacao_da_clinica(
         descricao=f"Marcacao de participacao da clinica {clinica_id} removida.",
     )
     return {"clinica_id": clinica_id, "modo": None, "participacao": resolve_participacao(db)}
+
+
+class WhatsAppBotSolicitacaoUpdate(BaseModel):
+    versao: int = Field(ge=1)
+    acao: Literal['assumir', 'liberar', 'atualizar']
+    status: Optional[Literal['aguardando_equipe', 'em_atendimento', 'aguardando_cliente', 'agendado', 'cancelado']] = None
+    prazo_em: Optional[datetime] = None
+    observacao: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.get('/solicitacoes')
+def listar_solicitacoes(
+    filtro: Literal['abertas','atrasadas','todas','aguardando_equipe','em_atendimento','aguardando_cliente','agendado','cancelado'] = 'abertas',
+    minhas: bool = False,
+    page: int = Query(default=1, ge=1, le=10000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    from app.services.whatsapp_bot_fila import listar
+    return listar(db, current_user.id, filtro, minhas, page)
+
+
+@router.patch('/solicitacoes/{pedido_id}')
+def atualizar_solicitacao(
+    pedido_id: int, payload: WhatsAppBotSolicitacaoUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    from app.services.whatsapp_bot_fila import atualizar
+    return atualizar(db, pedido_id, payload, current_user)

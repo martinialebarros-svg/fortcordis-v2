@@ -11,6 +11,7 @@ os.environ.setdefault('DATABASE_URL', 'sqlite://')
 os.environ.setdefault('SECRET_KEY', 'teste-coleta-agendamento-chave-local')
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import WhatsAppBotResposta
 from app.schemas.whatsapp_bot import WhatsAppBotColetaAgendamento as Update
 from app.services.whatsapp_bot_agendamento import preparar, carregar, validar_texto, encaminhar, KEY
@@ -57,6 +58,7 @@ class ColetaTests(unittest.TestCase):
 
     def test_persistence_scope_expiry_and_unsent_confirmation(self):
         e=create_engine('sqlite://')
+        WhatsAppBotSolicitacao.__table__.create(e)
         WhatsAppBotResposta.__table__.create(e)
         with Session(e) as db:
             state={'clinica_id':9,'status':'coletando','dados':{'exame':'eco'}}
@@ -70,7 +72,7 @@ class ColetaTests(unittest.TestCase):
 
     def test_handoff_once_after_sent(self):
         r=SimpleNamespace(decisao='draft',tools_usadas=json.dumps({KEY:{'status':'encaminhada','dados':{}}}),wa_identity='phone',conversation_id='1')
-        with patch('app.services.whatsapp_bot_handoff_service.trigger_active_handoff') as handoff:
+        with patch('app.services.whatsapp_bot_handoff_service.trigger_active_handoff') as handoff, patch('app.services.whatsapp_bot_fila.registrar'):
             encaminhar(None,r);handoff.assert_not_called()
             r.decisao='sent';encaminhar(None,r);encaminhar(None,r)
             self.assertEqual(handoff.call_count,1)
@@ -80,7 +82,7 @@ class ColetaTests(unittest.TestCase):
         from app.models.whatsapp_bot import WhatsAppBotConversaEstado
         from app.api.v1.endpoints.whatsapp_bot import _estado_payload
         engine=create_engine('sqlite://')
-        for model in (Configuracao, WhatsAppBotConversaEstado, WhatsAppBotResposta):
+        for model in (Configuracao, WhatsAppBotConversaEstado, WhatsAppBotResposta, WhatsAppBotSolicitacao):
             model.__table__.create(engine)
         with Session(engine) as db:
             db.add(WhatsAppBotResposta(job_id=1,wa_identity='phone',conversation_id='1',clinica_id=9,decisao='sent',tools_usadas=json.dumps({KEY:{'clinica_id':9,'status':'encaminhada','dados':{'paciente':'Rex'}}})))
@@ -105,6 +107,7 @@ class GenerationIntegrationTests(unittest.TestCase):
         from app.services.whatsapp_bot_providers import GeneratedReply
         from app.services.whatsapp_bot_generation import gerar_resposta
         engine = create_engine('sqlite://')
+        WhatsAppBotSolicitacao.__table__.create(engine, checkfirst=True)
         WhatsAppBotResposta.__table__.create(engine)
         context = {'resolution':'matched','match_type':'clinica','clinicas':[{'id':9,'nome':'Clinica teste'}]}
         provider=Mock()

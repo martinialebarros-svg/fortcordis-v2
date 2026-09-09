@@ -18,6 +18,7 @@ os.environ.setdefault("SECRET_KEY", "whatsapp-bot-process-job-test-secret-key-12
 
 from app.models.alerta_interno import AlertaInterno
 from app.models.configuracao import Configuracao
+from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import WhatsAppBotConversaEstado, WhatsAppBotJob, WhatsAppBotResposta
 from app.services import whatsapp_bot_gates as gates
 from app.services import whatsapp_bot_handoff_service as handoff_service
@@ -38,7 +39,7 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
         engine = create_engine(f"sqlite:///{db_path}")
         for table in (
             WhatsAppBotJob.__table__,
-            WhatsAppBotResposta.__table__,
+            WhatsAppBotResposta.__table__, WhatsAppBotSolicitacao.__table__,
             WhatsAppBotConversaEstado.__table__,
             Configuracao.__table__,
             AlertaInterno.__table__,

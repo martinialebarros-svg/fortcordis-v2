@@ -17,6 +17,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "whatsapp-bot-worker-test-secret-key-1234567890")
 
 from app.models.configuracao import Configuracao
+from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import WhatsAppBotJob, WhatsAppBotResposta
 from app.services import whatsapp_bot_queue_service as queue_service
 from app.services import whatsapp_bot_worker_service as worker
@@ -27,6 +28,7 @@ class WhatsAppBotWorkerServiceTest(unittest.TestCase):
         db_path = Path(tmpdir) / "whatsapp-bot-worker-test.db"
         engine = create_engine(f"sqlite:///{db_path}")
         WhatsAppBotJob.__table__.create(engine, checkfirst=True)
+        WhatsAppBotSolicitacao.__table__.create(engine, checkfirst=True)
         WhatsAppBotResposta.__table__.create(engine, checkfirst=True)
         Configuracao.__table__.create(engine, checkfirst=True)
         return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine

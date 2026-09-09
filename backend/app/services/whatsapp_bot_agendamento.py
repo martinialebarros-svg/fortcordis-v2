@@ -118,7 +118,11 @@ def encaminhar(db, resposta):
     except (ValueError, TypeError):
         return
     state = audit.get(KEY)
-    if resposta.decisao != 'sent' or not isinstance(state, dict) or state.get('status') != 'encaminhada' or state.get('notificada'):
+    if resposta.decisao != 'sent' or not isinstance(state, dict) or state.get('status') != 'encaminhada':
+        return
+    from app.services.whatsapp_bot_fila import registrar
+    registrar(db, resposta, state)
+    if state.get('notificada'):
         return
     trigger_active_handoff(db, wa_identity=resposta.wa_identity, conversation_id=resposta.conversation_id,
         motivo='solicitacao_agendamento', nivel='aviso', titulo='Solicitação de agendamento para conferir',

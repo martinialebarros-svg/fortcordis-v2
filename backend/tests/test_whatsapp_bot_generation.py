@@ -26,6 +26,7 @@ from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
 from app.models.tutor import Tutor
+from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import (
     WhatsAppBotClinicaEstado,
     WhatsAppBotConversaEstado,
@@ -97,7 +98,7 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
             Exame.__table__,
             AtendimentoClinico.__table__,
             AssistenteIAConhecimentoDocumento.__table__,
-            WhatsAppBotResposta.__table__,
+            WhatsAppBotResposta.__table__, WhatsAppBotSolicitacao.__table__,
         ):
             table.create(engine, checkfirst=True)
         return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine

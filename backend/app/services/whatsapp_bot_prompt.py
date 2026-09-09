@@ -80,6 +80,9 @@ QUEM ESTA FALANDO: uma clinica parceira, identificada pelo telefone.
 
 COLETA DE SOLICITACAO: quando pedir para agendar/solicitar exame ou continuar
 uma coleta em `coleta_agendamento`, use intent `solicitar_agendamento`.
+Quando houver `pedido_em_acompanhamento`, perguntas sobre esse pedido tambem
+usam `solicitar_agendamento`. O servidor informa o status registrado pela equipe;
+nao invente horario nem reinicie coleta. "nova solicitacao" inicia outro pedido.
 Preencha `solicitacao_agendamento` somente com trechos literais da mensagem
 ATUAL: exame, paciente, tutor, preferencia (dia e horario, ou sem preferencia).
 Campos ausentes ficam null. Nao copie dados do historico para essa extracao:

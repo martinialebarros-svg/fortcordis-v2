@@ -2288,3 +2288,27 @@ versao anterior ate publicacao autorizada. A classificacao/extracao em
 linguagem natural ainda exige observacao com o provider real em stage.
 A coleta dura 48 horas, sem constituir fila permanente de agendamentos; o
 alerta e o historico ficam registrados para o atendimento humano.
+
+## Fila operacional de solicitacoes — validacao local (2026-09-09)
+
+- Backend completo: 1.246 testes executados, 1.243 aprovados e 3 skips;
+  comando `python -m unittest discover -s backend/tests -p 'test_*.py'`.
+- Suite adicional da fila: 8 testes aprovados com PostgreSQL LOCAL isolado
+  em schema descartavel e SQLite. Cobertura: entrega enviada vs rascunho,
+  retry sem duplicacao, durabilidade, identidade/clinica, propriedade,
+  concorrencia real (uma atribuicao 200, outra 409), historico atomico,
+  conclusao com resultado obrigatorio, filtros, prazo/fuso, autenticacao e
+  papeis, migracao/backfill idempotente nos dois dialetos e acompanhamento
+  pelo gerador para todos os estados operacionais sem escrita da simulacao.
+- Frontend: 27 testes aprovados (pagina existente + AppointmentQueue),
+  cobrindo carga sob demanda, abrir conversa, prazo vencido, assumir com
+  versao, conflito visivel, resultado obrigatorio e recuperar falha de leitura.
+- Lint frontend e build Next.js/TypeScript aprovados; `git diff --check` limpo.
+- Logs locais: `/private/tmp/bot-fila-backend-full.log`,
+  `/private/tmp/bot-fila-postgres-tests.log`, `/private/tmp/bot-fila-front-tests.log`,
+  `/private/tmp/bot-fila-front-lint.log`, `/private/tmp/bot-fila-front-build.log`.
+- Nenhuma chamada paga ao provedor, envio WhatsApp, alteracao em producao,
+  credencial, callback ou modo do piloto nesta entrega.
+- Publicacao permanece pendente; requer migracao 20260909_81 antes do novo
+  runtime, deploy terminal e smoke de API autenticada + arquivos servidos.
+- Reversao de codigo preserva tabela e historico; nao executar DROP em ambiente real.
