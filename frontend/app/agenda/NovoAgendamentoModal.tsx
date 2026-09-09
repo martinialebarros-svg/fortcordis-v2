@@ -13,6 +13,10 @@ import {
   normalizarCep,
 } from "@/lib/atendimento-cadastro";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
+import {
+  deveResetarAssistentePorTrocaDeData,
+  excecaoManualEstaLiberada,
+} from "@/lib/agenda-assistente-excecao";
 import { coordenadasSaoConfiaveis, normalizarCoordenadaOpcional } from "@/lib/coordinates";
 import {
   AgendaExcecaoConfig,
@@ -944,6 +948,13 @@ export default function NovoAgendamentoModal({
     : (formData.marcar_como_reserva ? "Reservado" : "Agendado");
   const permiteSemPacienteTutor = statusFormulario === "Reservado";
   const atendimentoDomiciliar = formData.origem_atendimento === "domiciliar";
+  const estadoExcecaoManual = {
+    isEditando,
+    isAdmin,
+    decisaoAssistente,
+    excecaoConcedida,
+  };
+  const excecaoManualAtiva = excecaoManualEstaLiberada(estadoExcecaoManual);
 
   const parseApiDateTime = (value?: string): Date | null => {
     if (!value) return null;
@@ -1724,6 +1735,12 @@ export default function NovoAgendamentoModal({
       const mensagemFinal = mensagem || mensagemAssistente;
       setMensagemProximidade(mensagemFinal);
 
+      // Com a excecao concedida o admin ja decidiu por data/hora manual: manter
+      // o texto informativo, mas sem interromper com o popup de aplicar horario.
+      if (excecaoManualAtiva) {
+        return;
+      }
+
       if (politicaDistanteBaixa && !dataPreferencial) {
         return;
       }
@@ -1877,10 +1894,25 @@ export default function NovoAgendamentoModal({
     }));
   };
 
+  // Sob excecao concedida a data manual e o objetivo do fluxo: manter desfecho,
+  // motivo e excecao, descartando apenas o panorama que era daquela outra data.
+  const invalidarPanoramaMantendoExcecao = () => {
+    setSugestoesHorario([]);
+    setOfertasPanoramicasConsultadas(false);
+    setIndiceSugestaoAtual(0);
+    setItensIgnoradosJanela(0);
+    setErroSugestoes("");
+    setMensagemSugestoes(
+      "Data ajustada sob excecao concedida. Motivo e excecao seguem registrados; ajuste a hora e salve, ou gere nova oferta para recomecar o assistente."
+    );
+  };
+
   const handleDataChange = (data: string) => {
     setInteracaoProximidade((prev) => ({ ...prev, data: true }));
-    if (!isEditando) {
+    if (deveResetarAssistentePorTrocaDeData(estadoExcecaoManual)) {
       resetFluxoAssistente();
+    } else if (!isEditando) {
+      invalidarPanoramaMantendoExcecao();
     }
     setFormData((prev) => ({
       ...prev,
@@ -3381,11 +3413,10 @@ export default function NovoAgendamentoModal({
     decisaoAssistente
   );
   const etapaWizardAtual = !isEditando ? ETAPAS_WIZARD_NOVO[indiceEtapaWizardNovo] : null;
-  const excecaoManualLiberada = !isEditando && decisaoAssistente === "sem_opcao" && isAdmin && excecaoConcedida;
-  const bloqueioManualAssistenteAtivo = !isEditando && !excecaoManualLiberada;
+  const bloqueioManualAssistenteAtivo = !isEditando && !excecaoManualAtiva;
   const bloquearDataManual = bloqueioManualAssistenteAtivo && assistenteProntoParaSugerir;
   const bloquearHoraManual = bloqueioManualAssistenteAtivo;
-  const semOpcaoSemExcecao = !isEditando && decisaoAssistente === "sem_opcao" && !excecaoManualLiberada;
+  const semOpcaoSemExcecao = !isEditando && decisaoAssistente === "sem_opcao" && !excecaoManualAtiva;
   const dataSelecionadaPassada = !isEditando && isDataPassada(formData.data);
   const clienteComCredito = !isEditando && saldoCreditoCliente > 0;
   const destinatarioMensagemNome = formData.reserva_destinatario_manual === "clinica"
