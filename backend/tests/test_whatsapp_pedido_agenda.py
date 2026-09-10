@@ -112,12 +112,26 @@ class PedidoAgendaTests(unittest.TestCase):
         self.assertIsNone(self.pedido.agendamento_id);self.assertEqual(self.pedido.versao,1)
         self.assertEqual(self.db.query(Agendamento).count(),0)
 
+    def test_different_pet_requires_explicit_confirmation_and_is_audited(self):
+        self.db.add(Paciente(id=2,nome='Galhofa',tutor_id=1,ativo=1));self.db.commit()
+        self.body['paciente_id'] = 2
+        with self.assertRaises(HTTPException) as exc:
+            self.create()
+        self.assertEqual(exc.exception.status_code, 422)
+        self.assertEqual(self.db.query(Agendamento).count(), 0)
+        self.body['pedido_whatsapp_divergencia_confirmada'] = True
+        self.create()
+        self.db.refresh(self.pedido)
+        evento = json.loads(self.pedido.historico)[-1]
+        self.assertEqual(evento['divergencias_confirmadas']['paciente'], {'informado':'Rex', 'selecionado':'Galhofa'})
+
     def test_prefill_unique_active_pair_and_service_only(self):
         ctx={'resolution':'matched','match_type':'clinica','clinicas':[{'id':9}],'pets':[{'id':1}]}
         with patch('app.services.whatsapp_bot_generation._resolver_contexto',return_value=ctx):
             result=preparar(self.db,self.pedido.id,self.user)
             self.assertEqual(result['paciente']['id'],1);self.assertEqual(result['tutor']['id'],1);self.assertEqual(result['servico_id'],1)
             self.assertNotIn('inicio',result)
+            self.assertEqual(result['dados_coletados'], {'paciente':'Rex', 'tutor':'Maria'})
             self.db.add(Paciente(id=2,nome='Rex',tutor_id=1,ativo=1));self.db.commit();ctx['pets'].append({'id':2})
             self.assertIsNone(preparar(self.db,self.pedido.id,self.user)['paciente'])
         with patch('app.services.whatsapp_bot_generation._resolver_contexto',return_value={'resolution':'ambiguous'}):

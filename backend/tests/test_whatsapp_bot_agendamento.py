@@ -33,6 +33,29 @@ class ColetaTests(unittest.TestCase):
         self.assertEqual(done['status'], 'encaminhada')
         self.assertIn('Nenhum horário foi reservado', t)
 
+    def test_greeting_only_once_per_session(self):
+        from app.services.whatsapp_bot_agendamento import saudacao_inicial
+        engine = create_engine('sqlite://')
+        WhatsAppBotResposta.__table__.create(engine)
+        with Session(engine) as db:
+            self.assertTrue(saudacao_inicial(db, 'phone', 'Boa noite'))
+            self.assertFalse(saudacao_inicial(db, 'phone', 'Obrigado'))
+            db.add(WhatsAppBotResposta(job_id=1, wa_identity='phone', conversation_id='1', decisao='sent', created_at=datetime.now(timezone.utc)))
+            db.flush()
+            self.assertFalse(saudacao_inicial(db, 'phone', 'Boa noite'))
+            self.assertTrue(saudacao_inicial(db, 'other', 'Boa noite'))
+        engine.dispose()
+
+    def test_natural_confirmation_rejects_negation_and_correction(self):
+        state = {'dados': {'exame': 'eco', 'paciente': 'Rex', 'tutor': 'Maria', 'preferencia': 'manhã'}, 'status': 'aguardando_confirmacao', 'resumo_enviado': True}
+        for message in ('Confirmo os dados', 'Está correto!', 'Pode seguir', 'Tudo certo'):
+            self.assertEqual(preparar(state, None, message, 9, {})[0]['status'], 'encaminhada')
+        for message in ('Não confirmo os dados', 'Está correto?', 'Confirmo, mas o tutor é João'):
+            self.assertEqual(preparar(state, None, message, 9, {})[0]['status'], 'aguardando_confirmacao')
+        changed, _ = preparar(state, Update(tutor='João'), 'Confirmo, mas o tutor é João', 9, {})
+        self.assertEqual(changed['status'], 'aguardando_confirmacao')
+        self.assertEqual(changed['dados']['tutor'], 'João')
+
     def test_untrusted_extraction_and_corrections(self):
         s,_ = preparar(None, Update(paciente='Inventado'), 'Quero agendar', 9, {})
         self.assertNotIn('paciente', s['dados'])

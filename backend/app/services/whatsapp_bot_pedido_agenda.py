@@ -28,6 +28,22 @@ def obter(db, pedido_id, user, lock=False):
     return row
 
 
+def dados_coletados(db, row):
+    response=db.get(WhatsAppBotResposta,row.resposta_id)
+    try:
+        state=json.loads(response.tools_usadas or '{}').get('solicitacao_agendamento',{}) if response else {}
+    except (ValueError,TypeError):
+        state={}
+    return state.get('dados',{}) if isinstance(state,dict) and state.get('clinica_id') == row.clinica_id else {}
+
+
+def divergencias(db, row, pet, tutor):
+    dados = dados_coletados(db, row)
+    return {k: {"informado": dados[k], "selecionado": nome}
+            for k, nome in (("paciente", pet.nome), ("tutor", tutor.nome))
+            if dados.get(k) and normalizar(dados[k]) != normalizar(nome)}
+
+
 def preparar(db, pedido_id, user):
     row=obter(db,pedido_id,user)
     if row.agendamento_id or row.status not in ABERTOS:
@@ -35,12 +51,7 @@ def preparar(db, pedido_id, user):
     clinic=db.get(Clinica,row.clinica_id)
     if not clinic or not clinic.ativo:
         raise HTTPException(409, 'Clínica indisponível; revise o cadastro antes de agendar.')
-    response=db.get(WhatsAppBotResposta,row.resposta_id)
-    try:
-        state=json.loads(response.tools_usadas or '{}').get('solicitacao_agendamento',{}) if response else {}
-    except (ValueError,TypeError):
-        state={}
-    dados=state.get('dados',{}) if isinstance(state,dict) and state.get('clinica_id') == row.clinica_id else {}
+    dados=dados_coletados(db, row)
     # Nomes nunca viram cadastro automaticamente. O par paciente/tutor precisa
     # ser unico, ativo e constar do contexto da clinica atualmente resolvida.
     from app.services.whatsapp_bot_generation import _resolver_contexto, _escopo_da_persona
@@ -56,6 +67,7 @@ def preparar(db, pedido_id, user):
     services=[s for s in db.query(Servico).filter(Servico.ativo.is_(True)).all() if dados.get('exame') and normalizar(s.nome)==normalizar(dados['exame'])]
     service=services[0] if len(services)==1 else None
     return {'pedido_id':row.id,'versao':row.versao,'clinica_id':row.clinica_id,'resumo':row.resumo,
+        'dados_coletados': {k: dados.get(k) for k in ('paciente', 'tutor')},
         'paciente':{'id':pet.id,'nome':pet.nome,'tutor_id':tutor.id,'tutor':tutor.nome} if pet else None,
         'tutor':{'id':tutor.id,'nome':tutor.nome} if tutor else None,
         'servico_id':service.id if service else None,
@@ -88,6 +100,9 @@ def iniciar(db, request, user):
     clinic=db.get(Clinica,request.clinica_id);service=db.get(Servico,request.servico_id)
     if not pet or pet.ativo!=1 or not tutor or tutor.ativo!=1 or pet.tutor_id!=tutor.id or not clinic or not clinic.ativo or not service or not service.ativo:
         raise HTTPException(422, 'Cadastro inativo ou paciente/tutor incompatíveis. Revise os dados.')
+    differences = divergencias(db, row, pet, tutor)
+    if differences and not request.pedido_whatsapp_divergencia_confirmada:
+        raise HTTPException(422, 'Pet ou tutor diferente do pedido do WhatsApp. Confira a divergência e confirme os cadastros selecionados antes de salvar.')
     return row,None
 
 
@@ -98,5 +113,8 @@ def vincular(db, pedido, agendamento, user):
     events=json.loads(pedido.historico)
     events.append({'acao':'agendamento_criado','em':now.isoformat(),'usuario_id':user.id,'usuario_nome':user.nome,
         'status':'agendado','agendamento_id':agendamento.id,'observacao':f'Vinculado ao agendamento #{agendamento.id}.'})
+    differences = divergencias(db, pedido, db.get(Paciente, agendamento.paciente_id), db.get(Tutor, agendamento.tutor_id))
+    if differences:
+        events[-1]['divergencias_confirmadas'] = differences
     pedido.agendamento_id=agendamento.id;pedido.status='agendado';pedido.concluida_em=now
     pedido.updated_at=now;pedido.versao+=1;pedido.historico=json.dumps(events,ensure_ascii=False)

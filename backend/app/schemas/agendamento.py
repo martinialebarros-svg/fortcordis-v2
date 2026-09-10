@@ -45,6 +45,7 @@ class AgendamentoBase(BaseModel):
 class AgendamentoCreate(AgendamentoBase):
     pedido_whatsapp_id: Optional[int] = Field(default=None, gt=0)
     pedido_whatsapp_versao: Optional[int] = Field(default=None, gt=0)
+    pedido_whatsapp_divergencia_confirmada: bool = False
 
 class AgendamentoUpdate(BaseModel):
     paciente_id: Optional[int] = None

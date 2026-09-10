@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle, Pencil, Plus, Trash2, Send, Loader2 } from "lucide-react";
 import api from "@/lib/axios";
-import { camposPedidoAgenda, type PedidoAgenda } from "@/lib/whatsapp-pedido-agenda";
+import { divergenciasPedido, camposPedidoAgenda, type PedidoAgenda } from "@/lib/whatsapp-pedido-agenda";
 import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import {
@@ -1093,6 +1093,7 @@ export default function NovoAgendamentoModal({
   // Inicializa formulario ao abrir no modo "novo" sem resetar quando pacientes/tutores atualizam.
   useEffect(() => {
     if (!isOpen || isEditando) return;
+    setDivergenciaAceita("");
     setFormData({ ...buildInitialFormData(defaultDate, defaultTime), ...(pedidoWhatsApp ? camposPedidoAgenda(pedidoWhatsApp) : {}) });
     setDataContatoAssistente((atual) => atual || hojeLocalIso());
     setTutorSelecionado(pedidoWhatsApp?.tutor?.nome || "");
@@ -3051,8 +3052,17 @@ export default function NovoAgendamentoModal({
     }
   };
 
+  const divergenciasWhatsApp = pedidoWhatsApp ? divergenciasPedido(pedidoWhatsApp, pacienteSelecionadoMensagem?.nome || "", tutorSelecionadoOption?.nome || tutorSelecionado || "") : [];
+  const chaveDivergencia = JSON.stringify([pedidoWhatsApp?.pedido_id, formData.paciente_id, formData.tutor_id, divergenciasWhatsApp]);
+  const [divergenciaAceita, setDivergenciaAceita] = useState("");
+  useEffect(() => { setDivergenciaAceita(""); }, [chaveDivergencia]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isEditando && divergenciasWhatsApp.length && divergenciaAceita !== chaveDivergencia) {
+      fortinho.notify({ title: "Confira o pedido do WhatsApp", message: "Confirme a divergência de pet/tutor antes de salvar.", mood: "alert", gesture: "idle", sticky: true });
+      return;
+    }
     setLoading(true);
 
     try {
@@ -3290,6 +3300,7 @@ export default function NovoAgendamentoModal({
         }
         return api.post("/agenda", { ...payload, ...(pedidoWhatsApp ? {
           pedido_whatsapp_id: pedidoWhatsApp.pedido_id, pedido_whatsapp_versao: pedidoWhatsApp.versao,
+          pedido_whatsapp_divergencia_confirmada: divergenciasWhatsApp.length > 0 && divergenciaAceita === chaveDivergencia,
         } : {}) });
       };
 
@@ -3670,6 +3681,11 @@ export default function NovoAgendamentoModal({
           {pedidoWhatsApp && !isEditando && <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-3" aria-label="Pedido recebido pelo WhatsApp">
             <strong>Agendar pedido #{pedidoWhatsApp.pedido_id}</strong>
             <p className="whitespace-pre-line text-sm">{pedidoWhatsApp.resumo}</p>
+            {divergenciasWhatsApp.length > 0 && <div role="alert" className="my-2 rounded border border-amber-500 p-3">
+              <strong>Pet ou tutor diferente do informado no WhatsApp</strong>
+              {divergenciasWhatsApp.map(texto => <p key={texto}>{texto}</p>)}
+              <label><input type="checkbox" checked={divergenciaAceita === chaveDivergencia} onChange={e => setDivergenciaAceita(e.target.checked ? chaveDivergencia : "")} /> Conferi a divergência e confirmo o agendamento com os cadastros selecionados.</label>
+            </div>}
             {pedidoWhatsApp.avisos.map(aviso => <p key={aviso} className="text-sm text-amber-900">{aviso}</p>)}
             <p className="text-sm">Escolha e confira o horário. Ao salvar, o pedido será vinculado à agenda e a confirmação ficará disponível para revisão e envio.</p>
           </section>}

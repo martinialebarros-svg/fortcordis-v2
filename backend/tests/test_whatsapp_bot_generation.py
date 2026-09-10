@@ -635,7 +635,7 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
                     generation.gerar_resposta(
                         db,
                         wa_identity="5585999990001",
-                        corpo_mensagem="oi",
+                        corpo_mensagem="Qual é o telefone de contato?",
                         modo="suggest",
                         provider=provider,
                     )

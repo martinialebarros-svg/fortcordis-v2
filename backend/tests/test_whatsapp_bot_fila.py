@@ -54,6 +54,11 @@ class FilaTests(unittest.TestCase):
         p.created_at=datetime.now(timezone.utc)-timedelta(days=10);self.db.commit()
         self.assertEqual(ultimo(self.db,'phone',9).id,p.id)
 
+    def test_list_scoped_to_selected_conversation(self):
+        self.pedido()
+        self.assertEqual(listar(self.db, 1, 'abertas', False, 1, '1')['total'], 1)
+        self.assertEqual(listar(self.db, 1, 'abertas', False, 1, 'other')['total'], 0)
+
     def test_claim_conflict_release_and_owner_only(self):
         p=self.pedido()
         a=atualizar(self.db,p.id,Update(acao='assumir',versao=1),self.user)

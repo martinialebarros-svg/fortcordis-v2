@@ -13,12 +13,29 @@ from datetime import datetime, timedelta, timezone
 from app.models.whatsapp_bot import WhatsAppBotResposta
 
 KEY = 'solicitacao_agendamento'
+CONFIRMACOES = {'sim', 'confirmo', 'confirmo os dados', 'confirmo dados', 'confirmar dados', 'dados corretos', 'os dados estao corretos', 'esta correto', 'esta certo', 'tudo certo', 'pode seguir'}
+
 FIELDS = {'exame': 'exame solicitado', 'paciente': 'nome do paciente',
           'tutor': 'nome do tutor', 'preferencia': 'preferência de dia e horário (ou sem preferência)'}
 
 
 def normalizar(value):
     return ' '.join(unicodedata.normalize('NFKD', str(value)).encode('ascii', 'ignore').decode().lower().split())
+
+
+def confirma_dados(message):
+    # Perguntas e frases com ressalvas nunca confirmam implicitamente.
+    return '?' not in message and normalizar(message).strip(' .!') in CONFIRMACOES
+
+
+def saudacao_inicial(db, identity, message):
+    if normalizar(message).strip(' .!?') not in ('oi', 'ola', 'bom dia', 'boa tarde', 'boa noite'):
+        return False
+    return not db.query(WhatsAppBotResposta.id).filter(
+        WhatsAppBotResposta.wa_identity == identity,
+        WhatsAppBotResposta.decisao.in_(['sent', 'draft', 'auto_pending', 'sending']),
+        WhatsAppBotResposta.created_at >= datetime.now(timezone.utc) - timedelta(hours=6),
+    ).first()
 
 
 def carregar(db, identity, clinic_id):
@@ -88,13 +105,13 @@ def preparar(previous, update, message, clinic_id, contexto):
                 state['origens']['tutor'] = 'cadastro'
     missing = [label for key, label in FIELDS.items() if not state['dados'].get(key)]
     if missing:
-        text = 'Atendimento automático FortCordis: para organizar a solicitação, informe ' + ', '.join(missing) + '. Ainda não há horário reservado. Para falar com a equipe, peça atendimento humano.'
-    elif previous and previous.get('status') == 'aguardando_confirmacao' and previous.get('resumo_enviado') and not changed and command in ('sim', 'confirmo', 'dados corretos', 'confirmar dados'):
+        text = 'Para organizar a solicitação, informe ' + ', '.join(missing) + '.'
+    elif previous and previous.get('status') == 'aguardando_confirmacao' and previous.get('resumo_enviado') and not changed and confirma_dados(message):
         state['status'] = 'encaminhada'
         text = 'Atendimento automático FortCordis: dados conferidos. A solicitação está disponível para a equipe validar disponibilidade e confirmar o agendamento. Nenhum horário foi reservado. Para falar com uma pessoa, peça atendimento humano.'
     else:
         state['status'] = 'aguardando_confirmacao'
-        text = 'Atendimento automático FortCordis — confira a solicitação:\n' + resumo(state) + '\nResponda “confirmar dados” ou envie uma correção. São preferências, sem reserva ou agendamento confirmado. Para falar com a equipe, peça atendimento humano.'
+        text = 'Confira os dados da solicitação:\n' + resumo(state) + '\nEstá correto? Responda “confirmo os dados” ou envie uma correção. A equipe verificará a disponibilidade; ainda não há horário reservado.'
     return state, text
 
 
@@ -132,7 +149,7 @@ def encaminhar(db, resposta):
 
 
 def confirmacao_de_coleta_ativa(db, identity, message):
-    if normalizar(message).strip(' .!?') not in ('sim', 'confirmo'):
+    if not confirma_dados(message):
         return False
     row = db.query(WhatsAppBotResposta).filter(
         WhatsAppBotResposta.wa_identity == identity,

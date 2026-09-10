@@ -304,8 +304,8 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
     # vencendo. Um "obrigada" nao pode consumir LLM para depois ser barrado por
     # `sem_fonte`: alem do custo, isso poluiria a taxa de bloqueio, que existe
     # para medir problema de qualidade e e insumo da decisao de `auto`.
-    from app.services.whatsapp_bot_agendamento import confirmacao_de_coleta_ativa
-    if detecta_cortesia(corpo) and not confirmacao_de_coleta_ativa(db, job.wa_identity, corpo):
+    from app.services.whatsapp_bot_agendamento import confirmacao_de_coleta_ativa, saudacao_inicial
+    if detecta_cortesia(corpo) and not confirmacao_de_coleta_ativa(db, job.wa_identity, corpo) and not saudacao_inicial(db, job.wa_identity, corpo):
         _record_resposta(db, job, decisao="suppressed", motivo="sem_pergunta")
         job.status = "done"
         return "done"

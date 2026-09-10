@@ -962,3 +962,14 @@ seguranca clinica e idempotencia existentes continuam precedendo a coleta.
   ser consultadas na agenda; o estado da fila registra o resultado da conversao.
 - Reversao preserva a coluna aditiva e historico; nao remover registros da agenda
   nem executar desvinculacao automatica. Deploy deve aplicar a migracao antes do runtime.
+
+
+## Revisão do fluxo após teste real — 2026-09-09
+
+- Confirmações administrativas aceitam “confirmo os dados”, “está correto”, “tudo certo” e “pode seguir”, além dos comandos anteriores. Perguntas, negações e frases com correção não confirmam. Exige resumo enviado, dados completos e nenhuma alteração no turno; fila idempotente e estado encaminhado evitam duplicação.
+- Saudação simples de abertura recebe identificação automática e convite para atendimento humano, sem provider. Exige seis horas sem resposta enviada, em envio ou rascunho. Participação, modo, identidade, limites, janela e pausa humana prevalecem. Agradecimentos continuam sem resposta.
+- Textos da coleta e revisão mais curtos; resumo mantém ausência de reserva e verificação de disponibilidade pela equipe.
+- A conversa selecionada mostra painel aberto de pedidos, filtrado por `conversation_id` no servidor antes da paginação. Troca de conversa desmonta o painel anterior. Assumir pedido/agendar obedecem responsabilidade e estado; atribuições de conversa e pedido permanecem distintas.
+- Preparação da agenda retorna `dados_coletados` da auditoria original. Divergências de nomes normalizados exigem aceite visual e `pedido_whatsapp_divergencia_confirmada=true`. O servidor verifica antes de gravar e retorna 422 sem aceite. Vínculo paciente/tutor, clínica, permissões e conflitos continuam obrigatórios.
+- Aceite invalidado ao mudar seleção ou reabrir modal. Histórico de conversão registra nomes informados/selecionados em `divergencias_confirmadas` e responsável; resumo original preservado.
+- Sem migração. Pausa de handoff e intervalos de processamento mantidos. Unificação de responsáveis e botões interativos do WhatsApp ficam fora desta entrega.

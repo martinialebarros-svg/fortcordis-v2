@@ -5,6 +5,14 @@ const item = { id: 1, conversation_id: "77", wa_identity: "phone", clinica_id: 9
 const response = (itens = [item]) => new Response(JSON.stringify({ itens, total: itens.length, contagens: {} }), { headers: {"Content-Type":"application/json"} });
 afterEach(() => { vi.unstubAllGlobals(); });
 describe("Fila de agendamento", () => {
+  it("mostra os pedidos da conversa sem precisar expandir a fila global", async () => {
+    const fetch = vi.fn().mockImplementation(async () => response());
+    vi.stubGlobal("fetch", fetch);
+    render(<AppointmentQueue conversationId="77" onOpen={() => {}} />);
+    expect(await screen.findByText("Assumir pedido")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining("conversation_id=77"), expect.anything());
+    expect(screen.queryByText("Abrir conversa")).not.toBeInTheDocument();
+  });
   it("carrega sob demanda, destaca atraso e assume com versão", async () => {
     const fetch = vi.fn().mockImplementation(async (_url, init) => init?.method === "PATCH" ? new Response("{}") : response());
     vi.stubGlobal("fetch",fetch);

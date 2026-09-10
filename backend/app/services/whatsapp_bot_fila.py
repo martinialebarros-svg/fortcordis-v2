@@ -54,8 +54,10 @@ def payload(row, user_id):
         'historico':json.loads(row.historico)}
 
 
-def listar(db, user_id, filtro, minhas, page):
+def listar(db, user_id, filtro, minhas, page, conversation_id=None):
     query = db.query(Pedido)
+    if conversation_id is not None:
+        query = query.filter(Pedido.conversation_id == conversation_id)
     if filtro == 'abertas':
         query = query.filter(Pedido.status.in_(ABERTOS))
     elif filtro == 'atrasadas':

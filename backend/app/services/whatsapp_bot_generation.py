@@ -492,7 +492,12 @@ def gerar_resposta(
             clinica_id=clinica_id,
         )
 
-    from app.services.whatsapp_bot_agendamento import carregar
+    from app.services.whatsapp_bot_agendamento import carregar, saudacao_inicial
+    if saudacao_inicial(db, wa_identity, corpo_mensagem):
+        return ResultadoGeracao(decisao="draft", motivo="saudacao_inicial",
+            texto_gerado="Olá! Sou o atendimento automático da FortCordis. Como posso ajudar? Para falar com a equipe, é só pedir.",
+            auto_elegivel=modo == "auto", prompt_version=resolve_prompt_version(match_type),
+            resolution=resolution, match_type=match_type, clinica_id=clinica_id)
     coleta_anterior = carregar(db, wa_identity, clinica_id) if match_type == "clinica" else None
     contexto_seguro = build_safe_context(
         contexto, match_type=match_type, tutor_id=tutor_id, clinica_id=clinica_id

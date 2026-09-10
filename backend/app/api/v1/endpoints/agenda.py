@@ -5764,7 +5764,7 @@ def criar_agendamento(
     db_agendamento = Agendamento(
         **agendamento.model_dump(
             exclude={
-                "pedido_whatsapp_id", "pedido_whatsapp_versao",
+                "pedido_whatsapp_id", "pedido_whatsapp_versao", "pedido_whatsapp_divergencia_confirmada",
                 "confirmar_conflito_deslocamento",
                 "confirmar_slot_reserva_expirada",
                 "confirmar_agenda_fechada",

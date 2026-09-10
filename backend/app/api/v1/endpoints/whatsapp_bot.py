@@ -787,11 +787,12 @@ def listar_solicitacoes(
     filtro: Literal['abertas','atrasadas','todas','aguardando_equipe','em_atendimento','aguardando_cliente','agendado','cancelado'] = 'abertas',
     minhas: bool = False,
     page: int = Query(default=1, ge=1, le=10000),
+    conversation_id: Optional[str] = Query(default=None, min_length=1, max_length=64),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
 ):
     from app.services.whatsapp_bot_fila import listar
-    return listar(db, current_user.id, filtro, minhas, page)
+    return listar(db, current_user.id, filtro, minhas, page, conversation_id)
 
 
 @router.patch('/solicitacoes/{pedido_id}')

@@ -1348,6 +1348,7 @@ export default function WhatsAppStagePage() {
                 disabled={savingStatus || loadingMessages || sendingMessage || selectedConversation.status === "closed"} title="Resolve esta conversa e abre a pendência mais antiga nos filtros atuais. O rascunho será preservado.">
                 <Check className="h-4 w-4" />{savingStatus ? "Atualizando..." : "Resolver e abrir próxima"}</button>
             </div> : null}
+            {selectedConversationId && <AppointmentQueue key={selectedConversationId} conversationId={selectedConversationId} onOpen={() => {}} />}
             {selectedConversation ? <div className={`fc-wa-window ${windowState.isOpen ? "fc-wa-window-open" : "fc-wa-window-closed"}`} role="status" aria-live="polite">
               <Clock3 className="h-4 w-4" /><span>{windowState.isOpen ? `Resposta livre disponível até ${formatDateTime(windowState.expiresAt)}` : windowState.hasInboundMessage ?
                 `Janela encerrada em ${formatDateTime(windowState.expiresAt)}. Use o fluxo de modelo correspondente.` : "Aguardando uma mensagem da clínica para liberar respostas em texto livre."}</span></div> : null}
