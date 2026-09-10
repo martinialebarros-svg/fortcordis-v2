@@ -923,8 +923,9 @@ export default function WhatsAppStagePage() {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 15_000);
     try {
-      const result = await requestJson<{ message: string; code?: string }>(`/whatsapp/conversations/${requestConversationId}/${mode}`, {
-        method: "POST", signal: controller.signal, body: JSON.stringify({ agent_id: Number(targetAgentId), ...(onlyIfUnassigned ? { only_if_unassigned: true } : {}) }),
+      const integrado = mode === "claim" && targetAgentId === myAgentId;
+      const result = await requestJson<{ message: string; code?: string }>(integrado ? "/api/v1/whatsapp/bot/atendimentos/assumir" : `/whatsapp/conversations/${requestConversationId}/${mode}`, {
+        method: "POST", signal: controller.signal, body: JSON.stringify(integrado ? {conversation_id: requestConversationId, telefone: selectedConversation?.wa_phone_number} : { agent_id: Number(targetAgentId), ...(onlyIfUnassigned ? { only_if_unassigned: true } : {}) }),
       });
       if (result.status === 409 && result.data?.code === "CONVERSATION_ALREADY_ASSIGNED") {
         latestQueueRefreshRef.current();
@@ -938,9 +939,11 @@ export default function WhatsAppStagePage() {
       } : conversation;
       setConversations((items) => items.map(update));
       setSelectedConversationSnapshot((item) => item ? update(item) : null);
-      if (selectedConversationIdRef.current === requestConversationId) setInfoMessage(mode === "claim" ? "Responsável atualizado." : "Conversa liberada para a equipe.");
+      if (selectedConversationIdRef.current === requestConversationId) setInfoMessage(integrado ? "Conversa e pedidos assumidos. O bot aguarda a equipe." : mode === "claim" ? "Responsável atualizado." : "Conversa liberada para a equipe.");
+      window.dispatchEvent(new Event("whatsapp-pedidos-atualizados"));
       latestQueueRefreshRef.current();
     } catch (error) {
+      latestQueueRefreshRef.current();
       if (selectedConversationIdRef.current === requestConversationId) setErrorMessage(error instanceof Error ? error.message : "Não foi possível atualizar o responsável. Tente novamente.");
     } finally { window.clearTimeout(timeout); assignmentActionRef.current = false; setSavingAssignment(false); }
   };
@@ -1187,8 +1190,10 @@ export default function WhatsAppStagePage() {
     }, QUEUE_REFRESH_INTERVAL_MS);
     const onVisible = () => { if (document.visibilityState !== "hidden") latestQueueRefreshRef.current(); };
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("whatsapp-pedidos-atualizados", onVisible);
     return () => {
       window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("whatsapp-pedidos-atualizados", onVisible);
       queueRequestRef.current += 1; queueAbortRef.current?.abort();
     };
   }, []);
@@ -1342,8 +1347,8 @@ export default function WhatsAppStagePage() {
               <div><h2>Nenhuma conversa selecionada</h2><p>Escolha um contato na caixa de entrada.</p></div>}</div>
             {selectedConversation ? <div className="fc-wa-work-actions" aria-label="Ações do atendimento">
               {selectedConversation.needs_reply ? <span className="fc-wa-waiting">{formatWaitingTime(selectedConversation.waiting_since, customerServiceWindowClock)}</span> : <span />}
-              {!selectedConversation.last_agent_id ? <button type="button" className="fc-wa-secondary" onClick={() => myAgentId && void handleClaimToggle("claim", myAgentId, true)} disabled={savingAssignment || !myAgentId}
-                title={!myAgentId ? "Seu usuário precisa estar vinculado a um atendente ativo pelo email." : undefined}><UserCheck className="h-4 w-4" />Assumir para mim</button> : null}
+              {(!selectedConversation.last_agent_id || selectedConversation.last_agent_id === myAgentId) ? <button type="button" className="fc-wa-secondary" onClick={() => myAgentId && void handleClaimToggle("claim", myAgentId, true)} disabled={savingAssignment || !myAgentId}
+                title={!myAgentId ? "Seu usuário precisa estar vinculado a um atendente ativo pelo email." : undefined}><UserCheck className="h-4 w-4" />{selectedConversation.last_agent_id === myAgentId ? "Sincronizar pedidos" : "Assumir atendimento"}</button> : null}
               <button type="button" className="fc-wa-secondary" onClick={() => void handleStatusChange("closed", true)}
                 disabled={savingStatus || loadingMessages || sendingMessage || selectedConversation.status === "closed"} title="Resolve esta conversa e abre a pendência mais antiga nos filtros atuais. O rascunho será preservado.">
                 <Check className="h-4 w-4" />{savingStatus ? "Atualizando..." : "Resolver e abrir próxima"}</button>

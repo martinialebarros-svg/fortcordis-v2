@@ -55,9 +55,13 @@ export default function AppointmentQueue({ onOpen, conversationId }: { onOpen: (
     const timer = window.setInterval(refresh, 30000);
     return () => window.clearInterval(timer);
   }, [open, busy, refresh]);
+  useEffect(() => {
+    window.addEventListener("whatsapp-pedidos-atualizados", refresh);
+    return () => window.removeEventListener("whatsapp-pedidos-atualizados", refresh);
+  }, [refresh]);
   const update = async (item: Item, body: object) => {
     setBusy(item.id); setError("");
-    try { await request(`/api/v1/whatsapp/bot/solicitacoes/${item.id}`, { method: "PATCH", body: JSON.stringify({ versao: item.versao, ...body }) }); refresh(); }
+    try { await request(`/api/v1/whatsapp/bot/solicitacoes/${item.id}`, { method: "PATCH", body: JSON.stringify({ versao: item.versao, ...body }) }); refresh(); window.dispatchEvent(new Event("whatsapp-pedidos-atualizados")); }
     catch (e) { setError(e instanceof Error ? e.message : "Falha ao salvar. Atualize antes de repetir."); }
     finally { setBusy(null); }
   };
@@ -97,7 +101,7 @@ function QueueItem({ item, disabled, onUpdate, onOpen }: { item: Item; disabled:
     {onOpen && <button type="button" onClick={onOpen}>Abrir conversa</button>}
     {item.agendamento_id && <p>Agendamento vinculado #{item.agendamento_id}. Consulte a agenda para o horário e eventuais alterações.</p>}
     {!closed && item.minha && <Link className="ml-4 font-semibold text-emerald-700" href={`/agenda?pedido_whatsapp=${item.id}`}>Agendar pedido</Link>}
-    {!closed && item.sem_responsavel && <button type="button" className="ml-4 font-semibold" disabled={disabled} onClick={() => onUpdate({ acao: "assumir" })}>Assumir pedido</button>}
+    {!closed && item.sem_responsavel && <button type="button" className="ml-4 font-semibold" disabled={disabled} onClick={() => onUpdate({ acao: "assumir" })}>Assumir atendimento</button>}
     {!closed && item.minha && <div className="mt-3 flex flex-wrap items-end gap-3">
       <label>Status<select className="block" aria-label={`Status do pedido ${item.id}`} value={status} onChange={e => setStatus(e.target.value)}>{Object.entries(labels).filter(([k]) => k !== "aguardando_equipe" && k !== "agendado").map(([k,v]) => <option key={k} value={k}>{v}</option>)}</select></label>
       <label>Novo prazo (opcional)<input className="block" type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)} /></label>

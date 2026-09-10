@@ -514,6 +514,28 @@ def gerar_resposta(
 
     from app.services.whatsapp_bot_fila import ultimo, contexto as contexto_fila
     pedido = ultimo(db, wa_identity, clinica_id) if match_type == "clinica" and clinica_id else None
+    from app.services.whatsapp_bot_continuidade import resposta_pedido, novo_pedido, KEY as CONTINUIDADE_KEY
+    from app.services.whatsapp_bot_agendamento import preparar, validar_texto, confirma_dados, KEY as COLETA_KEY
+    administrative = None
+    if pedido and novo_pedido(corpo_mensagem):
+        coleta, texto = preparar(None, None, 'nova solicitação', clinica_id, contexto)
+        coleta['fila_anterior_id'] = pedido.id
+        administrative = (texto, {COLETA_KEY: coleta})
+    elif pedido:
+        followup = resposta_pedido(db, pedido, corpo_mensagem, coleta_anterior)
+        if followup:
+            administrative = (followup[0], {CONTINUIDADE_KEY: followup[1]})
+    if administrative is None and coleta_anterior and confirma_dados(corpo_mensagem) and (not pedido or coleta_anterior.get('fila_anterior_id') == pedido.id):
+        coleta, texto = preparar(coleta_anterior, None, corpo_mensagem, clinica_id, contexto)
+        if pedido:
+            coleta['fila_anterior_id'] = pedido.id
+        if validar_texto(coleta, texto).aprovado:
+            administrative = (texto, {COLETA_KEY: coleta})
+    if administrative:
+        return ResultadoGeracao(decisao="draft", motivo="continuidade_administrativa",
+            texto_gerado=administrative[0], auto_elegivel=modo == "auto",
+            prompt_version=prompt_version, tools_usadas=json.dumps(administrative[1], ensure_ascii=False),
+            resolution=resolution, match_type=match_type, clinica_id=clinica_id)
     if match_type == "clinica":
         payload["pedido_em_acompanhamento"] = contexto_fila(pedido)
         payload["coleta_agendamento"] = coleta_anterior

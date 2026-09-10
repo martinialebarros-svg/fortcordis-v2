@@ -79,6 +79,13 @@ function installApi(options: {
       { id: "11", name: "Atendente atual", email: "atual@example.com", role: "agent", active: true, created_at: now },
     ] });
     if (path.endsWith("/templates")) return jsonResponse({ data: [] });
+    if (path === "/api/v1/whatsapp/bot/atendimentos/assumir") {
+      const id = JSON.parse(String(init?.body)).conversation_id;
+      const response = await (options.claim?.(id, init!) ?? jsonResponse({message:"Conversa e pedidos assumidos"}));
+      const record = records.find(item => item.id === id);
+      if (response.ok && record) record.last_agent_id = "11";
+      return response;
+    }
     const action = path.match(/^\/whatsapp\/conversations\/(\d+)\/(messages|seen|status|claim)$/);
     if (action) {
       const [, id, name] = action;
@@ -221,16 +228,16 @@ describe("fila de resposta e conclusão de atendimento WhatsApp", () => {
     const pendingClaim = deferred<Response>();
     const fetchMock = installApi({ conversations: [conversation("1", "Clínica Azul", null)], claim: () => pendingClaim.promise });
     await openPage();
-    const button = screen.getByRole("button", { name: "Assumir para mim" });
+    const button = screen.getByRole("button", { name: "Assumir atendimento" });
     await act(async () => { fireEvent.click(button); fireEvent.click(button); });
-    const claims = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/claim"));
+    const claims = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/atendimentos/assumir"));
     expect(claims).toHaveLength(1);
     expect(claims[0][1]?.method).toBe("POST");
-    expect(JSON.parse(String(claims[0][1]?.body))).toEqual({ agent_id: 11, only_if_unassigned: true });
+    expect(JSON.parse(String(claims[0][1]?.body))).toEqual({ conversation_id: "1", telefone: "558599999001" });
     expect(button).toBeDisabled();
     await act(async () => { pendingClaim.resolve(jsonResponse({ message: "Responsável atualizado" })); });
     await settle();
-    expect(screen.queryByRole("button", { name: "Assumir para mim" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Assumir atendimento" })).not.toBeInTheDocument();
   });
 
   it("preserva o novo responsável quando outro atendente assume antes da confirmação", async () => {
@@ -242,20 +249,20 @@ describe("fila de resposta e conclusão de atendimento WhatsApp", () => {
       return jsonResponse({ code: "CONVERSATION_ALREADY_ASSIGNED" }, 409);
     } });
     await openPage();
-    fireEvent.click(screen.getByRole("button", { name: "Assumir para mim" }));
+    fireEvent.click(screen.getByRole("button", { name: "Assumir atendimento" }));
     await settle();
     expect(screen.getByText("Esta conversa já foi assumida por outra pessoa. O responsável foi mantido.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Assumir para mim" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Assumir atendimento" })).not.toBeInTheDocument();
     expect(records[0].last_agent_id).toBe("22");
-    const claims = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/claim"));
+    const claims = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/atendimentos/assumir"));
     expect(claims).toHaveLength(1);
   });
 
   it.each(["11", "22"])("não oferece assumir silenciosamente uma conversa com responsável %s", async (owner) => {
     const fetchMock = installApi({ conversations: [conversation("1", "Clínica Azul", owner)] });
     await openPage();
-    expect(screen.queryByRole("button", { name: "Assumir para mim" })).not.toBeInTheDocument();
-    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/claim"))).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Assumir atendimento" })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/atendimentos/assumir"))).toHaveLength(0);
   });
 
   it("resolve usando a última mensagem vista e consulta no servidor a próxima pendência com os filtros atuais", async () => {

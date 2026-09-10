@@ -9,7 +9,7 @@ describe("Fila de agendamento", () => {
     const fetch = vi.fn().mockImplementation(async () => response());
     vi.stubGlobal("fetch", fetch);
     render(<AppointmentQueue conversationId="77" onOpen={() => {}} />);
-    expect(await screen.findByText("Assumir pedido")).toBeInTheDocument();
+    expect(await screen.findByText("Assumir atendimento")).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining("conversation_id=77"), expect.anything());
     expect(screen.queryByText("Abrir conversa")).not.toBeInTheDocument();
   });
@@ -24,14 +24,14 @@ describe("Fila de agendamento", () => {
     expect(screen.getByText(/Prazo vencido ·/)).toBeInTheDocument();
     fireEvent.click(screen.getByText("Abrir conversa"));
     expect(onOpen).toHaveBeenCalledWith("77","phone");
-    fireEvent.click(screen.getByText("Assumir pedido"));
+    fireEvent.click(screen.getByText("Assumir atendimento"));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/v1/whatsapp/bot/solicitacoes/1", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ versao:1, acao:"assumir" }) })));
   });
   it("exibe conflito sem alegar sucesso", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async (_url,init) => init?.method === "PATCH" ? new Response(JSON.stringify({detail:"Outro atendente já assumiu esta solicitação."}), {status:409}) : response()));
     render(<AppointmentQueue onOpen={() => {}} />);
     fireEvent.click(screen.getByRole("button", {name:/Solicitações de agendamento/}));
-    fireEvent.click(await screen.findByText("Assumir pedido"));
+    fireEvent.click(await screen.findByText("Assumir atendimento"));
     expect(await screen.findByRole("alert")).toHaveTextContent("Outro atendente");
   });
   it("exige resultado para concluir", async () => {
