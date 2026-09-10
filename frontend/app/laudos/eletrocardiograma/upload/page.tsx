@@ -199,8 +199,12 @@ export default function UploadEletrocardiogramaPage() {
       router.push("/");
       return;
     }
-    setContexto(readInitialContext());
-    setDataExame((current) => current || getTodayDateInput());
+    const contextoInicial = readInitialContext();
+    setContexto(contextoInicial);
+    // Com agendamento o default vem da data agendada; so entao cai para hoje.
+    if (!contextoInicial.agendamento_id) {
+      setDataExame((current) => current || getTodayDateInput());
+    }
   }, [router]);
 
   useEffect(() => {
@@ -266,7 +270,7 @@ export default function UploadEletrocardiogramaPage() {
         if (!ativo) return;
         const item = response.data || {};
         setAgendamento(item);
-        setDataExame((current) => current || toDateInput(item.inicio || item.data) || getTodayDateInput());
+        setDataExame((current) => current || toDateInput(item.data || item.inicio) || getTodayDateInput());
         setContexto((current) => ({
           ...current,
           paciente_id: current.paciente_id || (item.paciente_id ? String(item.paciente_id) : undefined),
@@ -274,6 +278,7 @@ export default function UploadEletrocardiogramaPage() {
         }));
       } catch (error) {
         if (!ativo) return;
+        setDataExame((current) => current || getTodayDateInput());
         setErro("Nao foi possivel carregar o contexto do agendamento.");
       } finally {
         if (ativo) {
