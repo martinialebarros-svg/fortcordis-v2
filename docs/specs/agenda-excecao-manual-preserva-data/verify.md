@@ -2,7 +2,7 @@
 
 Data: 2026-09-09  
 Responsavel: Martiniano Barros  
-Status: in-progress
+Status: in-progress (em producao, validacao manual pendente)
 
 ## 1) Matriz de rastreabilidade
 
@@ -37,7 +37,8 @@ Resumo dos resultados:
 
 ## 3) Testes manuais
 
-Pendentes de execucao em stage pelo responsavel:
+Ainda pendentes. A correcao chegou a producao antes de eles serem executados
+(ver secao 6), entao seguem pendentes agora em producao:
 
 - Cenario 1: novo agendamento em clinica georreferenciada, gerar melhor oferta,
   recusar todas, registrar motivo, conceder excecao, trocar a data e conferir
@@ -67,6 +68,31 @@ Pendentes de execucao em stage pelo responsavel:
 
 ## 6) Decisao de release
 
-- [ ] Aprovado para stage.
+- [x] Aprovado para stage.
 - [ ] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
+
+Observacao: "aprovado para producao" segue desmarcado de proposito. O codigo ja
+esta em producao (ver secao 7), mas sem a validacao manual da secao 3, que era
+o gate dessa aprovacao.
+
+## 7) Registro de promocao
+
+| Etapa | Commit | Data (local) | Como |
+| --- | --- | --- | --- |
+| Merge em `stage` | `0434ff36` | 2026-09-09 21:41 | squash do PR #101, com `sdd-guardrail` e `migration-tests` verdes |
+| Chegada em `main` | `04863ec2` | 2026-09-09 21:55 | push direto de `04863ec2` para `main` e `stage`, que carregou junto o `0434ff36` |
+
+Detalhes:
+
+- `origin/main` e `origin/stage` ficaram no mesmo commit (`04863ec2`), com zero
+  commits de diferenca nos dois sentidos.
+- A promocao nao passou pelo PR `stage -> main` nem por
+  `scripts/promote_stage_to_main.sh`. O commit `04863ec2`
+  (`feat(whatsapp): simplify request flow and verify appointment identities`)
+  foi para as duas branches 14 minutos depois do merge do PR #101 e levou esta
+  correcao junto.
+- Como `main` faz deploy automatico, a correcao entrou em producao nesse push,
+  sem a validacao manual da secao 3.
+- Acao pendente: rodar os cenarios da secao 3 direto em producao e, se passarem,
+  marcar "Aprovado para producao" acima.
