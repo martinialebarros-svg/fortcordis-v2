@@ -2,7 +2,7 @@
 
 Data: 2026-09-10  
 Responsavel: Martiniano Barros  
-Status: draft
+Status: approved
 
 ## 1) Problema atual
 
