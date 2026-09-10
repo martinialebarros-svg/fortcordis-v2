@@ -164,7 +164,7 @@ describe("WhatsAppStagePage", () => {
     await abrirConversa();
 
     const aviso = screen.getByText(/O bot viu esta mensagem e não respondeu/i);
-    expect(aviso.textContent).toMatch(/pausada porque um atendente respondeu/i);
+    expect(aviso.textContent).toMatch(/atendimento automático desta conversa está pausado/i);
     // E informacao, nao tarefa: nada de acao dentro do aviso.
     const caixa = aviso.closest(".fc-wa-bot-silencio");
     expect(caixa).not.toBeNull();

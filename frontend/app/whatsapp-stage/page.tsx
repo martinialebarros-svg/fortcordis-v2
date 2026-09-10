@@ -198,7 +198,7 @@ const BOT_RECUSA_MOTIVOS: Record<string, string> = {
  *  seja recusa do guardrail. Só entram aqui os acionaveis - o backend ja
  *  filtra o ruido (`bot_desabilitado`, `modo_off`, cortesia). */
 const BOT_SILENCIO_MOTIVOS: Record<string, string> = {
-  pausado: "a conversa está pausada porque um atendente respondeu",
+  pausado: "o atendimento automático desta conversa está pausado",
   janela_fechada: "a janela de 24 horas do WhatsApp está fechada",
   teto_diario: "o limite diário de respostas desta conversa foi atingido",
   conversa_divergente: "a mensagem não confere com a conversa registrada",

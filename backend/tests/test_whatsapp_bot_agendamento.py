@@ -32,6 +32,7 @@ class ColetaTests(unittest.TestCase):
         done,t = preparar(s, None, 'confirmar dados', 9, {})
         self.assertEqual(done['status'], 'encaminhada')
         self.assertIn('Nenhum horário foi reservado', t)
+        self.assertTrue(validar_texto(done, t).aprovado)
 
     def test_greeting_only_once_per_session(self):
         from app.services.whatsapp_bot_agendamento import saudacao_inicial

@@ -108,7 +108,7 @@ def preparar(previous, update, message, clinic_id, contexto):
         text = 'Para organizar a solicitação, informe ' + ', '.join(missing) + '.'
     elif previous and previous.get('status') == 'aguardando_confirmacao' and previous.get('resumo_enviado') and not changed and confirma_dados(message):
         state['status'] = 'encaminhada'
-        text = 'Atendimento automático FortCordis: dados conferidos. A solicitação está disponível para a equipe validar disponibilidade e confirmar o agendamento. Nenhum horário foi reservado. Para falar com uma pessoa, peça atendimento humano.'
+        text = 'Dados confirmados. A equipe vai verificar a disponibilidade e confirmar o agendamento. Nenhum horário foi reservado.'
     else:
         state['status'] = 'aguardando_confirmacao'
         text = 'Confira os dados da solicitação:\n' + resumo(state) + '\nEstá correto? Responda “confirmo os dados” ou envie uma correção. A equipe verificará a disponibilidade; ainda não há horário reservado.'

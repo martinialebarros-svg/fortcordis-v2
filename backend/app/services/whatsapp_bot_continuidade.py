@@ -23,7 +23,7 @@ def resposta_pedido(db, pedido, message, coleta):
     if not status and not correction:
         return None
     if correction:
-        return (f'Recebi sua atualização para o pedido #{pedido.id}. A equipe vai conferir antes de alterar ou cancelar qualquer agendamento.',
+        return (f'Recebi sua atualização para o pedido #{pedido.id}. A equipe vai revisar a mudança solicitada antes de confirmá-la.',
                 {'pedido_id':pedido.id, 'complemento':message[:2000]})
     body = f'O pedido #{pedido.id} está como “{LABELS[pedido.status]}”. '
     if pedido.agendamento_id:
