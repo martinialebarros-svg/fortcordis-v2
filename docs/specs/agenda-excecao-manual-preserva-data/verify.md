@@ -2,7 +2,7 @@
 
 Data: 2026-09-09  
 Responsavel: Martiniano Barros  
-Status: in-progress (em producao, validacao manual pendente)
+Status: done
 
 ## 1) Matriz de rastreabilidade
 
@@ -37,17 +37,21 @@ Resumo dos resultados:
 
 ## 3) Testes manuais
 
-Ainda pendentes. A correcao chegou a producao antes de eles serem executados
-(ver secao 6), entao seguem pendentes agora em producao:
+Executados em producao pelo responsavel em 2026-09-10, com resultado positivo.
 
-- Cenario 1: novo agendamento em clinica georreferenciada, gerar melhor oferta,
-  recusar todas, registrar motivo, conceder excecao, trocar a data e conferir
-  que hora continua editavel e o motivo permanece.
-- Cenario 2: concluir o salvamento do cenario 1 e conferir nas observacoes do
-  agendamento as linhas `[Assistente agenda] sem opcao aderente para o cliente.`,
-  o motivo informado e `[Assistente agenda] excecao manual concedida por admin.`
-- Cenario 3: usuario nao admin recusando todas as ofertas continua sem liberar
-  data/hora e mantendo o caminho de solicitar excecao ao admin.
+- Cenario 1 (ok): novo agendamento em clinica georreferenciada, gerar melhor
+  oferta, recusar todas, registrar motivo, conceder excecao, trocar a data e
+  conferir que hora continua editavel e o motivo permanece. Confirmado pelo
+  responsavel: o fluxo deixou de exigir a repeticao do ciclo.
+- Cenario 2 (nao reportado individualmente): conferir nas observacoes do
+  agendamento salvo as linhas `[Assistente agenda] sem opcao aderente para o
+  cliente.`, o motivo informado e `[Assistente agenda] excecao manual concedida
+  por admin.` Nao houve mudanca nesse trecho do codigo, entao nao bloqueia a
+  aprovacao.
+- Cenario 3 (nao reportado individualmente): usuario nao admin recusando todas
+  as ofertas continua sem liberar data/hora e mantendo o caminho de solicitar
+  excecao ao admin. Coberto pelos testes automatizados (`isAdmin` falso em
+  `agenda-assistente-excecao.test.ts` e bloqueio guiado no teste de componente).
 
 ## 4) Regressao e riscos residuais
 
@@ -69,12 +73,12 @@ Ainda pendentes. A correcao chegou a producao antes de eles serem executados
 ## 6) Decisao de release
 
 - [x] Aprovado para stage.
-- [ ] Aprovado para producao.
+- [x] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
 
-Observacao: "aprovado para producao" segue desmarcado de proposito. O codigo ja
-esta em producao (ver secao 7), mas sem a validacao manual da secao 3, que era
-o gate dessa aprovacao.
+Observacao: o codigo chegou a producao antes da validacao manual (ver secao 7).
+A aprovacao foi marcada depois, em 2026-09-10, quando o responsavel executou o
+cenario 1 em producao e confirmou o comportamento corrigido.
 
 ## 7) Registro de promocao
 
@@ -82,6 +86,7 @@ o gate dessa aprovacao.
 | --- | --- | --- | --- |
 | Merge em `stage` | `0434ff36` | 2026-09-09 21:41 | squash do PR #101, com `sdd-guardrail` e `migration-tests` verdes |
 | Chegada em `main` | `04863ec2` | 2026-09-09 21:55 | push direto de `04863ec2` para `main` e `stage`, que carregou junto o `0434ff36` |
+| Validacao em producao | - | 2026-09-10 | cenario 1 executado pelo responsavel, com resultado positivo; "Aprovado para producao" marcado na secao 6 |
 
 Detalhes:
 
@@ -94,5 +99,5 @@ Detalhes:
   correcao junto.
 - Como `main` faz deploy automatico, a correcao entrou em producao nesse push,
   sem a validacao manual da secao 3.
-- Acao pendente: rodar os cenarios da secao 3 direto em producao e, se passarem,
-  marcar "Aprovado para producao" acima.
+- A validacao manual acabou acontecendo direto em producao, em 2026-09-10, e
+  passou. Nao ha acao pendente nesta feature.
