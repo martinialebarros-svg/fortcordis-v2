@@ -12,7 +12,7 @@ import unittest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.models.configuracao import Configuracao
-from app.models.whatsapp_bot import WhatsAppBotJob, WhatsAppBotResposta, WhatsAppBotConversaEstado, WhatsAppBotClinicaEstado
+from app.models.whatsapp_bot import WhatsAppBotJob, WhatsAppBotResposta, WhatsAppBotConversaEstado, WhatsAppBotClinicaEstado, WhatsAppBotSolicitacao
 from app.models.alerta_interno import AlertaInterno
 from app.services import whatsapp_bot_worker_service as worker, whatsapp_bot_delivery_service as delivery, whatsapp_bot_handoff_service as handoff
 from app.services.whatsapp_bot_generation import ResultadoGeracao
@@ -21,7 +21,7 @@ from app.services.whatsapp_bot_tools import WhatsAppBotToolContext, WhatsAppBotT
 @contextmanager
 def build_context():
     engine = create_engine("sqlite://")
-    for model in (Configuracao, WhatsAppBotJob, WhatsAppBotResposta, WhatsAppBotConversaEstado, WhatsAppBotClinicaEstado, AlertaInterno):
+    for model in (Configuracao, WhatsAppBotJob, WhatsAppBotResposta, WhatsAppBotConversaEstado, WhatsAppBotClinicaEstado, WhatsAppBotSolicitacao, AlertaInterno):
         model.__table__.create(engine)
     factory = sessionmaker(bind=engine, autoflush=False)
     with factory() as db, ExitStack() as stack:
@@ -146,6 +146,45 @@ class WhatsAppBotOperacaoTest(unittest.TestCase):
         send.assert_not_called()
         db.flush()
         assert db.query(WhatsAppBotResposta).one().motivo == "auto_interrompido"
+
+    def test_collection_notification_does_not_pause_without_attendant(self):
+        db, job, _, _ = self.context
+        handoff.trigger_active_handoff(db, wa_identity=job.wa_identity, conversation_id=job.conversation_id,
+            motivo='solicitacao_agendamento', nivel='aviso', titulo='Pedido', mensagem_alerta='Conferir dados', pausar=False)
+        db.flush()
+        self.assertIsNone(db.query(WhatsAppBotConversaEstado).one().pausado_ate)
+        self.assertEqual(db.query(AlertaInterno).count(),1)
+
+    def test_emergency_in_previous_fragment_prevents_generation(self):
+        db, job, conversation, generate = self.context
+        now = datetime.now(timezone.utc)
+        db.add(WhatsAppBotConversaEstado(wa_identity=job.wa_identity, pausado_ate=now+timedelta(hours=1)))
+        db.commit()
+        conversation['last_message_body'] = 'me ajude'
+        conversation['last_message_at'] = now.isoformat()
+        history = [{'body':'meu cachorro está sem respirar', 'from_me':False,'type':'text','created_at':(now-timedelta(seconds=5)).isoformat()}, {'body':'me ajude','from_me':False,'type':'text','created_at':now.isoformat()}]
+        with patch.object(worker, '_fetch_historico', return_value=history):
+            worker._process_job(db, job)
+        generate.assert_not_called()
+        db.flush()
+        self.assertEqual(db.query(WhatsAppBotResposta).one().motivo,'emergencia')
+
+    def test_pedido_assumido_durante_geracao_impede_envio(self):
+        db, job, _, generate = self.context
+        original = generate.return_value
+        def generating(*args, **kwargs):
+            now = datetime.now(timezone.utc)
+            db.add(WhatsAppBotSolicitacao(resposta_id=99, wa_identity=job.wa_identity,
+                conversation_id=job.conversation_id, clinica_id=9, resumo='Pedido',
+                status='em_atendimento', responsavel_id=3, prazo_em=now, created_at=now,
+                updated_at=now, versao=1, historico='[]'))
+            db.commit()
+            return original
+        generate.side_effect = generating
+        with patch.object(delivery.httpx, "post") as send:
+            worker._process_job(db, job)
+        send.assert_not_called()
+        self.assertEqual(db.query(WhatsAppBotResposta).one().motivo, 'auto_interrompido')
 
     def test_emergencia_alerta_mesmo_durante_pausa(self):
         context = self.context

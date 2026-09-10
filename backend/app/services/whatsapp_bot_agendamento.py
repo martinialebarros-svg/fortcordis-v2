@@ -142,7 +142,7 @@ def encaminhar(db, resposta):
     if state.get('notificada'):
         return
     trigger_active_handoff(db, wa_identity=resposta.wa_identity, conversation_id=resposta.conversation_id,
-        motivo='solicitacao_agendamento', nivel='aviso', titulo='Solicitação de agendamento para conferir',
+        motivo='solicitacao_agendamento', pausar=False, nivel='aviso', titulo='Solicitação de agendamento para conferir',
         mensagem_alerta='Dados conferidos pelo solicitante. Valide disponibilidade na agenda.\n' + resumo(state))
     state['notificada'] = True
     resposta.tools_usadas = json.dumps(audit, ensure_ascii=False)

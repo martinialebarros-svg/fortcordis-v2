@@ -224,7 +224,12 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
     if last_message is None:
         raise RuntimeError(f"Nenhuma mensagem encontrada no servico WhatsApp para o job {job.id}.")
 
-    corpo = str(last_message.get("body") or "")
+    # Usa apenas textos recentes e contíguos. Emergência de um fragmento
+    # anterior deve continuar prioritária mesmo com o bot pausado.
+    historico = _fetch_historico(base_url=base_url, headers=headers, timeout=timeout,
+        conversation_id=job.conversation_id, quantidade=_historico_mensagens() + 1)[:-1]
+    from app.services.whatsapp_bot_continuidade import agrupar_fragmentos
+    corpo, historico = agrupar_fragmentos(historico, last_message)
 
     # RF-023 (emergencia): prioridade maxima, nao passa pelo gerador e ignora
     # pausa/janela - e o unico handoff que se mantem em qualquer horario.
@@ -247,7 +252,8 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         job.status = "done"
         return "done"
 
-    if is_locally_paused(estado):
+    from app.services.whatsapp_bot_continuidade import pedido_assumido
+    if is_locally_paused(estado) or pedido_assumido(db, job.wa_identity, job.conversation_id):
         _record_resposta(db, job, decisao="suppressed", motivo="pausado")
         job.status = "done"
         return "done"
@@ -310,18 +316,6 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         job.status = "done"
         return "done"
 
-    # Todos os portoes abertos: agora gera (Fase 4). O gerador aplica os
-    # guardrails de saida e nunca envia - o resultado e draft/blocked/handoff.
-    # A ultima mensagem do historico e exatamente a que estamos respondendo:
-    # `[:-1]` evita duplica-la no prompt como se fossem dois turnos.
-    historico = _fetch_historico(
-        base_url=base_url,
-        headers=headers,
-        timeout=timeout,
-        conversation_id=job.conversation_id,
-        quantidade=_historico_mensagens() + 1,
-    )[:-1]
-
     resultado = gerar_resposta(
         db,
         wa_identity=job.wa_identity,
@@ -346,6 +340,8 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         match_type=resultado.match_type,
         clinica_id=resultado.clinica_id,
     )
+    from app.services.whatsapp_bot_continuidade import registrar_complemento
+    registrar_complemento(db, resposta)
     if resultado.decisao in ("handoff", "blocked"):
         _handoff_operacional(db, job, resultado.motivo)
     if resultado.decisao == "draft" and resultado.auto_elegivel and settings.WHATSAPP_BOT_AUTO_SEND_ENABLED:

@@ -144,6 +144,7 @@ def trigger_active_handoff(
     titulo: str,
     mensagem_alerta: str,
     atualizado_por_id: Optional[int] = None,
+    pausar: bool = True,
 ) -> None:
     """RF-011/RF-023: handoff ativo - conversa vai para `pending` no Node,
 
@@ -153,7 +154,8 @@ def trigger_active_handoff(
     """
     set_handoff_motivo(db, wa_identity, motivo, atualizado_por_id=atualizado_por_id)
     db.flush()
-    pause_conversation(db, wa_identity, atualizado_por_id=atualizado_por_id)
+    if pausar:
+        pause_conversation(db, wa_identity, atualizado_por_id=atualizado_por_id)
     criar_alerta_interno(
         db,
         tipo=f"whatsapp_bot_{motivo}",

@@ -782,6 +782,18 @@ class WhatsAppBotSolicitacaoUpdate(BaseModel):
     observacao: Optional[str] = Field(default=None, max_length=500)
 
 
+class WhatsAppAssumirAtendimento(BaseModel):
+    conversation_id: str = Field(min_length=1, max_length=64, pattern=r"^[0-9]+$")
+    telefone: str = Field(min_length=8, max_length=30, pattern=r"^[0-9]+$")
+
+
+@router.post('/atendimentos/assumir')
+def assumir_atendimento(payload: WhatsAppAssumirAtendimento, db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS))):
+    from app.services.whatsapp_bot_atendimento import assumir
+    return assumir(db, payload.conversation_id, payload.telefone, current_user)
+
+
 @router.get('/solicitacoes')
 def listar_solicitacoes(
     filtro: Literal['abertas','atrasadas','todas','aguardando_equipe','em_atendimento','aguardando_cliente','agendado','cancelado'] = 'abertas',
@@ -802,6 +814,13 @@ def atualizar_solicitacao(
     current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
 ):
     from app.services.whatsapp_bot_fila import atualizar
+    if payload.acao == 'assumir':
+        from app.models.whatsapp_bot import WhatsAppBotSolicitacao
+        from app.services.whatsapp_bot_atendimento import assumir
+        row = db.get(WhatsAppBotSolicitacao, pedido_id)
+        if not row:
+            raise HTTPException(404, 'Solicitação não encontrada.')
+        return assumir(db, row.conversation_id, row.wa_identity, current_user, row.id, payload.versao)
     return atualizar(db, pedido_id, payload, current_user)
 
 

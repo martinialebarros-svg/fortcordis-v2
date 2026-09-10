@@ -973,3 +973,7 @@ seguranca clinica e idempotencia existentes continuam precedendo a coleta.
 - Preparação da agenda retorna `dados_coletados` da auditoria original. Divergências de nomes normalizados exigem aceite visual e `pedido_whatsapp_divergencia_confirmada=true`. O servidor verifica antes de gravar e retorna 422 sem aceite. Vínculo paciente/tutor, clínica, permissões e conflitos continuam obrigatórios.
 - Aceite invalidado ao mudar seleção ou reabrir modal. Histórico de conversão registra nomes informados/selecionados em `divergencias_confirmadas` e responsável; resumo original preservado.
 - Sem migração. Pausa de handoff e intervalos de processamento mantidos. Unificação de responsáveis e botões interativos do WhatsApp ficam fora desta entrega.
+
+
+## Continuidade e passagem para equipe — 2026-09-10
+Contrato e evidências complementares em `docs/specs/whatsapp-continuidade-atendimento/`. O encaminhamento de novas coletas deixa de aplicar pausa sem atendente; controles humanos existentes continuam prioritários.

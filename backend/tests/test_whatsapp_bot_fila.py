@@ -31,7 +31,7 @@ class FilaTests(unittest.TestCase):
         Resposta.__table__.create(self.engine)
         Pedido.__table__.create(self.engine)
         self.db = Session(self.engine)
-        self.user = SimpleNamespace(id=1,nome='Ana',tem_papel=lambda p:p=='recepcao')
+        self.user = SimpleNamespace(id=1,nome='Ana',email='ana@example.test',tem_papel=lambda p:p=='recepcao')
         self.state={'clinica_id':9,'status':'encaminhada','dados':{'paciente':'Rex','tutor':'Maria','exame':'eco','preferencia':'amanhã'}}
         self.response = Resposta(job_id=1,wa_identity='phone',conversation_id='1',clinica_id=9,decisao='sent',tools_usadas=json.dumps({'solicitacao_agendamento':self.state}))
         self.db.add(self.response);self.db.commit()
@@ -100,7 +100,14 @@ class FilaTests(unittest.TestCase):
             app.dependency_overrides[get_current_user]=lambda:self.user
             self.assertEqual(client.get('/bot/solicitacoes?page=0').status_code,422)
             p=self.pedido()
-            self.assertEqual(client.patch(f'/bot/solicitacoes/{p.id}',json={'acao':'assumir','versao':1}).status_code,200)
+            from app.models.whatsapp_bot import WhatsAppBotConversaEstado
+            WhatsAppBotConversaEstado.__table__.create(self.engine, checkfirst=True)
+            def remote(method,path,**kwargs):
+                if path == '/agents': return {'data':[{'id':7,'active':True,'email':self.user.email}]}
+                if path == '/conversations': return {'data':[{'id':'1','wa_phone_number':'phone'}]}
+                return {}
+            with patch('app.services.whatsapp_bot_atendimento.node', side_effect=remote):
+                self.assertEqual(client.patch(f'/bot/solicitacoes/{p.id}',json={'acao':'assumir','versao':1}).status_code,200)
             self.assertEqual(client.get('/bot/solicitacoes?minhas=true').json()['total'],1)
 
     def test_migration_backfills_sent_only_and_is_idempotent(self):
@@ -122,12 +129,12 @@ class FilaTests(unittest.TestCase):
             result=gerar_resposta(self.db,wa_identity='phone',corpo_mensagem='Como está meu pedido?',modo='auto',provider=provider)
             self.assertTrue(result.auto_elegivel,result.motivo)
             self.assertIn('Aguardando equipe',result.texto_gerado)
-            self.assertEqual(json.loads(result.tools_usadas)['solicitacao_agendamento']['status'],'acompanhamento')
+            self.assertEqual(json.loads(result.tools_usadas)['continuidade_pedido']['pedido_id'],p.id)
             for status in ('em_atendimento', 'aguardando_cliente', 'agendado', 'cancelado'):
                 p.status=status;self.db.commit()
                 follow=gerar_resposta(self.db,wa_identity='phone',corpo_mensagem='Como está meu pedido?',modo='auto',provider=provider)
                 self.assertTrue(follow.auto_elegivel,follow.motivo)
-                self.assertEqual(json.loads(follow.tools_usadas)['solicitacao_agendamento']['status'],'acompanhamento')
+                self.assertEqual(json.loads(follow.tools_usadas)['continuidade_pedido']['pedido_id'],p.id)
             result=gerar_resposta(self.db,wa_identity='phone',corpo_mensagem='nova solicitação',modo='auto',provider=provider)
             state=json.loads(result.tools_usadas)['solicitacao_agendamento']
             self.assertEqual(state['status'],'coletando');self.assertEqual(state['fila_anterior_id'],p.id)
