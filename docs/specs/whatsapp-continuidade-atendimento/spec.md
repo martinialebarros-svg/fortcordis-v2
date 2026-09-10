@@ -21,3 +21,7 @@
 ## Limites e operação
 
 Sem migração, credenciais ou alteração de configuração. Rollback por reversão do código preserva histórico já gravado. Atribuições humanas e pausas existentes permanecem. Para devolver um atendimento completo ao bot, equipe deve liberar pedido/conversa e retomar explicitamente o bot. Acompanhamento não envia preços/horários inventados nem orientação clínica. Simulação do gerador permanece sem efeitos colaterais.
+
+## Clareza dos textos após teste real
+
+A confirmação dos dados é breve, mantém a verificação de disponibilidade pela equipe e deixa explícito que não há reserva. O reconhecimento de um complemento informa revisão da mudança solicitada, sem introduzir cancelamento quando o cliente apenas corrige uma preferência. O aviso de silêncio informa que o atendimento automático está pausado, sem afirmar que houve resposta humana quando a origem pode ser uma atribuição ou pausa manual. As regras de transição, revisão humana e persistência permanecem iguais.
