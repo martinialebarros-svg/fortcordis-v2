@@ -118,7 +118,8 @@ status do agendamento.
   devolve a receita ao conteudo do servidor. O descarte fica em botao
   proprio, e nao no cancelamento do dialogo: Escape e clique fora resolvem
   como cancelar, e descartar texto clinico por Escape seria perda de dado
-  silenciosa.
+  silenciosa. Apos o descarte, o indicador de sincronizacao volta a
+  "Sincronizado": o formulario passa a ser exatamente o que esta no servidor.
 - RF-025: um adendo de tipo `receita_complementar` sem receita vinculada
   oferece "Emitir receita deste adendo", que cria a receita complementar
   ligada aquele adendo; com receita vinculada, exibe o estado em vez da acao.

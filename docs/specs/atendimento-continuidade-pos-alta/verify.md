@@ -36,7 +36,7 @@ salvo indicacao contraria.
 | CA-010 / RF-026 | aceitacao | `atendimento-receitas.test.ts` - `montarSnapshotDoAtendimento` muda quando a receita complementar muda, mesmo com o payload identico. Revalidado em stage: `PUT /prescricoes/12` 200 pelo autosave, sem salvamento manual | ok |
 | CA-011 / RF-027 | aceitacao | revalidado em stage: um clique em "Confirmar e salvar" aplicou a edicao (receita 1 para "3/4 de comprimido") e o aviso sumiu | ok |
 | CA-012 / RF-028 | aceitacao | `selecionarReceita` abre confirmacao quando o save previo falha com o guard de receita emitida; cancelar mantem o vet na receita atual | ok (revisao de codigo; sem teste de render da pagina) |
-| RF-029 | funcional | `AtendimentoReceitasBar.test.tsx` - "oferece descartar a alteracao ao lado de confirmar" e "nao mostra descartar quando nao ha alteracao pendente" | ok |
+| RF-029 | funcional | `AtendimentoReceitasBar.test.tsx` - "oferece descartar a alteracao ao lado de confirmar" e "nao mostra descartar quando nao ha alteracao pendente". Verificado em stage: o editor voltou ao conteudo do servidor e o aviso sumiu | ok |
 | RF-025 | funcional | `AtendimentoAdendosSection.test.tsx` - "emite receita a partir de um adendo de receita complementar" e "mostra que o adendo ja tem receita vinculada" | ok |
 | Alvo de receita | funcional | `atendimento-receitas.test.ts` - alvo inexistente volta para a receita do dia; a receita do dia nunca e tratada como alvo complementar | ok |
 
@@ -153,6 +153,22 @@ arquivo ja usa com `formRef` e `selecionadoRef`.
 | 4 - editar receita complementar sem salvar manualmente | ok - `PUT /atendimentos/16/prescricoes/12` 200 disparado pelo autosave; receita 2 gravada, receita do dia intacta |
 | 6 - confirmar edicao de receita emitida | ok - um unico clique aplicou a alteracao e o aviso sumiu |
 | auditoria | ok - `EDITAR_RECEITA_EMITIDA`, `CRIAR_RECEITA_COMPLEMENTAR` e `CRIAR_ADENDO_POS_CONCLUSAO` registrados |
+
+Verificacao do PR de D-3 em stage, apos o deploy:
+
+| Item | Resultado |
+| --- | --- |
+| CA-012 - trocar de receita com alteracao pendente | ok - dialogo "Receita emitida com alteracao nao salva", com "Ficar nesta receita" e "Confirmar alteracao e trocar" |
+| CA-012 - cancelar | ok - permaneceu na receita do dia, alteracao intacta, aviso ainda aberto |
+| RF-029 - descartar | ok - editor voltou a "3/4 de comprimido" (valor do servidor) e o aviso sumiu |
+
+Nessa passada apareceu um quarto item, cosmetico: depois do descarte o
+indicador ficava preso em "Alteracoes pendentes" mesmo com o formulario
+identico ao servidor. O aviso de receita emitida marca o autosave como sujo,
+e o efeito de autosave sai cedo durante a hidratacao sem reavaliar depois,
+porque `form` nao muda de novo. Corrigido no mesmo lote. Nao havia risco de
+dado, mas indicador enganoso foi exatamente o que escondeu D-1 nesta
+verificacao.
 
 Nota: a primeira tentativa de revalidacao parecia indicar que as correcoes
 nao tinham funcionado. Era D-3 - o alvo da receita nao trocava e o texto ia
