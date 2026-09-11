@@ -5,6 +5,18 @@ const item = { id: 1, conversation_id: "77", wa_identity: "phone", clinica_id: 9
 const response = (itens = [item]) => new Response(JSON.stringify({ itens, total: itens.length, contagens: {} }), { headers: {"Content-Type":"application/json"} });
 afterEach(() => { vi.unstubAllGlobals(); });
 describe("Fila de agendamento", () => {
+  it("mostra horário escolhido como preferência sem reserva", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response([{...item, historico:[{acao:"complemento_cliente",em:"2099-05-20T07:00:00-03:00",horario_preferido:"2099-05-20T09:00:00-03:00"}]}])));
+    render(<AppointmentQueue conversationId="77" onOpen={() => {}} />);
+    expect(await screen.findByText(/Horário escolhido pelo cliente:/)).toHaveTextContent("09:00");
+    expect(screen.getByText(/Horário escolhido pelo cliente:/)).toHaveTextContent("Sem reserva");
+  });
+  it("retira destaque de horário quando chega nova correção", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response([{...item, historico:[{acao:"complemento_cliente",em:"2099-05-20T07:00:00-03:00",horario_preferido:"2099-05-20T09:00:00-03:00"},{acao:"complemento_cliente",em:"2099-05-20T07:01:00-03:00",observacao:"Trocar dia"}]}])));
+    render(<AppointmentQueue conversationId="77" onOpen={() => {}} />);
+    await screen.findByText(/Pedido #1/);
+    expect(screen.queryByText(/Horário escolhido pelo cliente:/)).not.toBeInTheDocument();
+  });
   it("mostra os pedidos da conversa sem precisar expandir a fila global", async () => {
     const fetch = vi.fn().mockImplementation(async () => response());
     vi.stubGlobal("fetch", fetch);

@@ -25,9 +25,10 @@ def deliver_automatic_reply(db: Session, job: WhatsAppBotJob, resposta: WhatsApp
         modo_atual=resolve_conversation_mode(db, job.wa_identity, estado=estado),
     )
     from app.services.whatsapp_bot_continuidade import pedido_assumido
+    from app.services.whatsapp_bot_opcoes_agenda import envio_vigente
     if (not settings.WHATSAPP_BOT_AUTO_SEND_ENABLED or not is_whatsapp_bot_enabled()
             or modo != "auto" or bloqueio or is_locally_paused(estado)
-            or pedido_assumido(db, job.wa_identity, job.conversation_id)):
+            or pedido_assumido(db, job.wa_identity, job.conversation_id) or not envio_vigente(resposta)):
         # Um envio que ja comecou nao volta a ser um rascunho editavel.
         resposta.decisao = "handoff" if resposta.decisao == "sending" else "draft"
         resposta.motivo = "auto_interrompido"

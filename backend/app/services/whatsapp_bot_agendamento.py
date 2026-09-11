@@ -38,7 +38,7 @@ def saudacao_inicial(db, identity, message):
     ).first()
 
 
-def carregar(db, identity, clinic_id):
+def carregar(db, identity, clinic_id, conversation_id=None):
     if not clinic_id:
         return None
     rows = db.query(WhatsAppBotResposta).filter(
@@ -48,6 +48,8 @@ def carregar(db, identity, clinic_id):
         WhatsAppBotResposta.decisao.in_(['sent', 'draft', 'auto_pending', 'sending']),
     ).order_by(WhatsAppBotResposta.id.desc()).limit(100).all()
     for row in rows:
+        if conversation_id is not None and str(row.conversation_id) != str(conversation_id):
+            continue
         try:
             state = json.loads(row.tools_usadas or '{}').get(KEY)
         except (ValueError, TypeError):
