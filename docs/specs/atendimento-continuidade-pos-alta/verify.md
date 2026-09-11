@@ -245,3 +245,42 @@ aba ativa antes de concluir qualquer coisa sobre o salvamento.
   linhas, com `dynamic()` e roteador) exigiria um arranjo de mocks
   desproporcional. Fica coberto por revisao de codigo e pelo cenario 2 do
   teste manual em stage.
+
+## 7) Verificacao em producao (2026-09-11, apos a promocao)
+
+Release promovida pelo PR #113 (merge `f454af55`); `Deploy to VPS` concluiu com
+sucesso e as rotas publicas responderam 200.
+
+O risco residual que mais pesava era a migracao `20260910_83` sobre dado real:
+ela foi validada em instancia limpa, e a duvida era se producao teria formas que
+a instancia nao reproduzia. Varri os 61 atendimentos existentes pelo
+`GET /atendimentos/{id}`:
+
+| Item | Resultado |
+| --- | --- |
+| Detalhe carrega | 61/61 em 200, nenhum erro |
+| `sequencia` materializada | nenhuma nula; todas as 61 receitas em `sequencia = 1` |
+| Indice unico | nenhuma duplicata de `sequencia` dentro do mesmo atendimento |
+| Contrato legado | `prescricao` presente e apontando para a `sequencia = 1` em todos |
+
+Producao nao tinha nenhum caso historico de duas receitas no mesmo atendimento -
+o caso que a migracao renumera para 1 e 2 existia so no teste. Por isso o
+caminho de renumeracao segue coberto apenas pela validacao em Postgres
+descartavel, e nao por dado real.
+
+UI sobre prontuario real (atendimento #61, concluido em 05/09):
+
+| Item | Resultado |
+| --- | --- |
+| CA-007 - banner de concluido | ok - "ATENDIMENTO CONCLUIDO #61 - ENCONTRO EM 05/09/2026, 09:30:00", com "Adicionar adendo" |
+| RF-021 - barra de receitas | ok - "Receita do dia / Rascunho" (o atendimento nunca teve PDF emitido) e "Nova receita complementar" |
+| Console | sem erro |
+| Aviso de receita emitida | ausente, como esperado para receita nao emitida |
+
+Nota de metodo: abrir um prontuario real so vale como verificacao se nao
+escrever nele. A visita foi feita vigiando a rede - todas as requisicoes foram
+`GET`, nenhum `PUT`/`POST` - e confirmada depois pelo `updated_at` do
+atendimento #61, que seguiu em `2026-09-05T13:13:38`, anterior a visita.
+
+Fora de escopo desta verificacao, por gerarem registro real: os passos 4.3 do
+runbook que criam agendamento e laudo.
