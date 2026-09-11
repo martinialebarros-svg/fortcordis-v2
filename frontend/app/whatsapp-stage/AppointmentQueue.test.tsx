@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import AppointmentQueue from "./AppointmentQueue";
-const item = { id: 1, conversation_id: "77", wa_identity: "phone", clinica_id: 9, clinica_nome: "Vet World", resumo: "Paciente: Rex", status: "aguardando_equipe", sem_responsavel: true, minha: false, responsavel_nome: null, prazo_em: "2026-09-09T10:00:00Z", atrasada: true, versao: 1, historico: [] };
-const response = (itens = [item]) => new Response(JSON.stringify({ itens, total: itens.length, contagens: {} }), { headers: {"Content-Type":"application/json"} });
+import AppointmentQueue, { type Item } from "./AppointmentQueue";
+const item: Item = { id: 1, conversation_id: "77", wa_identity: "phone", clinica_id: 9, clinica_nome: "Vet World", resumo: "Paciente: Rex", status: "aguardando_equipe", sem_responsavel: true, minha: false, responsavel_nome: null, prazo_em: "2026-09-09T10:00:00Z", atrasada: true, versao: 1, historico: [] };
+const response = (itens: Item[] = [item]) => new Response(JSON.stringify({ itens, total: itens.length, contagens: {} }), { headers: {"Content-Type":"application/json"} });
 afterEach(() => { vi.unstubAllGlobals(); });
 describe("Fila de agendamento", () => {
   it("mostra horário escolhido como preferência sem reserva", async () => {
