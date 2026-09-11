@@ -120,6 +120,10 @@ status do agendamento.
   como cancelar, e descartar texto clinico por Escape seria perda de dado
   silenciosa. Apos o descarte, o indicador de sincronizacao volta a
   "Sincronizado": o formulario passa a ser exatamente o que esta no servidor.
+- RF-030: trocar de receita e descartar alteracao mantem o backup local do
+  atendimento alinhado com o formulario. Sem isso o rascunho guarda o
+  conteudo anterior e o traz de volta no proximo carregamento, desfazendo na
+  pratica o descarte e a troca.
 - RF-025: um adendo de tipo `receita_complementar` sem receita vinculada
   oferece "Emitir receita deste adendo", que cria a receita complementar
   ligada aquele adendo; com receita vinculada, exibe o estado em vez da acao.
@@ -238,6 +242,8 @@ registro historico.
   alteracao, sem depender de salvamento manual.
 - CA-011: clicar em "Confirmar e salvar" no aviso de receita emitida aplica a
   edicao na primeira tentativa.
+- CA-013: descartar a alteracao e recarregar a pagina nao traz o texto
+  descartado de volta.
 - CA-012: com alteracao nao confirmada numa receita emitida, clicar em outra
   receita abre confirmacao; cancelando, o vet permanece na receita atual e
   nada e perdido.

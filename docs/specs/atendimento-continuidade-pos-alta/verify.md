@@ -161,8 +161,20 @@ Verificacao do PR de D-3 em stage, apos o deploy:
 | CA-012 - trocar de receita com alteracao pendente | ok - dialogo "Receita emitida com alteracao nao salva", com "Ficar nesta receita" e "Confirmar alteracao e trocar" |
 | CA-012 - cancelar | ok - permaneceu na receita do dia, alteracao intacta, aviso ainda aberto |
 | RF-029 - descartar | ok - editor voltou a "3/4 de comprimido" (valor do servidor) e o aviso sumiu |
+| Indicador apos descarte | ok apos a correcao - badge volta para "Sincronizado" e permanece |
+| CA-013 - descartar e recarregar | a verificar apos o deploy da correcao de D-5 |
 
-Nessa passada apareceu um quarto item, cosmetico: depois do descarte o
+**D-5: o backup local nao acompanhava a troca de receita nem o descarte.**
+Encontrado ao revalidar o indicador: depois de descartar, recarregar a pagina
+trazia o texto descartado de volta. O efeito que grava o backup sai cedo
+quando `hydratingFormRef` esta ligado, que e exatamente o estado em que
+`aplicarReceitaNoFormulario` roda - entao nem o descarte nem a troca de
+receita atualizavam o rascunho. O impacto vai alem do descarte: trocar de
+receita tambem deixava o backup com o conteudo da receita anterior.
+Correcao: `aplicarReceitaNoFormulario` alinha o backup junto com o snapshot,
+cobrindo os dois caminhos.
+
+Nessa passada apareceu tambem um item cosmetico: depois do descarte o
 indicador ficava preso em "Alteracoes pendentes" mesmo com o formulario
 identico ao servidor. O aviso de receita emitida marca o autosave como sujo,
 e o efeito de autosave sai cedo durante a hidratacao sem reavaliar depois,

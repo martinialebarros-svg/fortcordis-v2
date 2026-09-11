@@ -1924,6 +1924,24 @@ export default function AtendimentoPage() {
     }
   };
 
+  /**
+   * Grava o backup local do atendimento.
+   *
+   * Trocar de receita e descartar alteracao mexem no formulario com
+   * `hydratingFormRef` ligado, e o efeito de backup sai cedo nesse estado -
+   * sem gravar aqui, o rascunho continuaria com o conteudo da receita
+   * anterior e o traria de volta no proximo carregamento.
+   */
+  const gravarBackupLocalAtendimento = (formAtual: AtendimentoForm) => {
+    if (typeof window === "undefined") return;
+    const atendimentoId = selecionadoRef.current;
+    if (!atendimentoId) return;
+    localStorage.setItem(
+      getAtendimentoDraftBackupKey(atendimentoId),
+      JSON.stringify({ form: formAtual, updated_at: new Date().toISOString() })
+    );
+  };
+
   const clearExamUploadDrafts = () => {
     setExamUploadDrafts((prev) => {
       Object.values(prev).forEach((entry) => {
@@ -5260,6 +5278,7 @@ export default function AtendimentoPage() {
     // Trocar de receita nao e edicao: sem realinhar o snapshot, o autosave
     // dispararia um save so por causa da troca.
     lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(proximo);
+    gravarBackupLocalAtendimento(proximo);
     setPrescricaoValidationErrors({});
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
