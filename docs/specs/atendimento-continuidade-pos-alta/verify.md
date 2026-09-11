@@ -25,7 +25,7 @@ salvo indicacao contraria.
 | RF-019 | funcional | `test_exclusao_remove_todas_as_receitas_e_adendos` - 2 receitas antes, 0 receitas / 0 itens / 0 adendos depois | ok |
 | NFR-001 | nao funcional | nenhum caminho remove item de receita emitida sem confirmacao - coberto por CA-004 | ok |
 | NFR-004 | nao funcional | `test_detalhe_carrega_varias_receitas_sem_n_mais_1` - contagem de queries por tabela com 1 e com 4 receitas e identica; `prescricoes_itens` fica em 1 consulta | ok |
-| NFR-005 | nao funcional | migracao `20260910_83` executada duas vezes seguidas em SQLite sobre o schema antigo: idempotente, `sequencia = 1` nos registros existentes, indice unico ativo, e caso historico de duas receitas no mesmo atendimento renumerado para 1 e 2 | ok (SQLite); Postgres pendente |
+| NFR-005 | nao funcional | migracao `20260910_83` executada duas vezes seguidas sobre o schema antigo, em SQLite e em PostgreSQL 16: idempotente, `sequencia` NOT NULL com default 1 materializado nos registros existentes, indice unico ativo (duplicata rejeitada), e caso historico de duas receitas no mesmo atendimento renumerado para 1 e 2 | ok |
 | Regressao | teste negativo | com `_sync_prescricao` sem o alvo explicito, CA-002 e CA-003 falham: o PDF da receita 1 passa a imprimir `(1, 'Conduta nova.', [('Furosemida', '3 mg/kg', '8/8h')])` no lugar de `(1, 'Repouso ate o resultado.', [('Furosemida', '2 mg/kg', '12/12h')])` - mesma receita, conteudo trocado | ok |
 | RF-020 a RF-024 | funcional | frontend - fase 3 | pendente |
 
@@ -70,10 +70,12 @@ interface:
 
 ## 4) Regressao e riscos residuais
 
-- A migracao foi validada em SQLite sobre o schema antigo, incluindo o caso de
-  duas receitas para o mesmo atendimento. Falta rodar contra uma copia de
-  Postgres de stage antes da promocao - o drift conhecido do SQLite local nao
-  cobre esse risco.
+- A migracao foi validada sobre o schema antigo em SQLite e em PostgreSQL 16
+  (instancia descartavel, duas execucoes seguidas), incluindo o caso de duas
+  receitas para o mesmo atendimento. O `migration-tests` do CI roda apenas em
+  SQLite (`DATABASE_URL: sqlite:///./fortcordis-ci.db`), entao a verificacao em
+  Postgres foi feita fora dele. Risco residual: o dado real de stage pode ter
+  formas que a instancia limpa nao reproduz.
 - `_sync_prescricao` passou a aceitar o alvo explicito, mas o caminho legado do
   `PUT /atendimentos/{id}` continua resolvendo para `sequencia = 1`. Coberto por
   RF-018 e pela suite de prescricao que ja existia.
