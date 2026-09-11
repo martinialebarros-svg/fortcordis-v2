@@ -103,6 +103,13 @@ status do agendamento.
   partida fica no adendo, e nao no card do exame, para nao espalhar a
   mudanca por `AtendimentoExamesSection.tsx` - o adendo ja e o lugar onde o
   vet registra o que chegou depois.
+- RF-026: o autosave do prontuario detecta e persiste alteracao feita numa
+  receita complementar. O snapshot de deteccao de alteracao inclui a receita
+  mesmo quando ela sai do payload do atendimento - sao decisoes distintas: o
+  payload define o que vai para `PUT /atendimentos/{id}`, o snapshot define se
+  ha algo a salvar.
+- RF-027: confirmar a edicao de uma receita emitida reenvia o save ja com a
+  confirmacao, sem depender de um novo ciclo de renderizacao.
 - RF-025: um adendo de tipo `receita_complementar` sem receita vinculada
   oferece "Emitir receita deste adendo", que cria a receita complementar
   ligada aquele adendo; com receita vinculada, exibe o estado em vez da acao.
@@ -217,6 +224,10 @@ registro historico.
 - CA-009: com uma receita complementar aberta no editor, o `PUT` do
   atendimento nao carrega `prescricao` - o autosave do prontuario nao pode
   alcancar a receita do dia enquanto o vet edita a complementar.
+- CA-010: editar uma receita complementar e esperar o autosave grava a
+  alteracao, sem depender de salvamento manual.
+- CA-011: clicar em "Confirmar e salvar" no aviso de receita emitida aplica a
+  edicao na primeira tentativa.
 - CA-008: um cliente que chama `GET /atendimentos/{id}/prescricao/pdf` e le
   apenas a chave `prescricao` continua funcionando sem alteracao.
 

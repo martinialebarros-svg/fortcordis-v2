@@ -42,3 +42,23 @@ export const resolverPrescricaoDoForm = (
     alvoId: alvo && Number(alvo.sequencia || 1) > 1 ? Number(alvo.id) : null,
   };
 };
+
+/**
+ * Monta o snapshot que o autosave usa para decidir se ha algo a salvar.
+ *
+ * A receita entra sempre, inclusive quando sai do payload do atendimento por
+ * haver uma complementar aberta no editor. Sao decisoes diferentes: o payload
+ * diz o que vai para `PUT /atendimentos/{id}`; o snapshot diz se mudou
+ * alguma coisa. Juntar as duas faz o autosave ficar cego a edicao da
+ * complementar, que so seria gravada num salvamento manual.
+ */
+export const montarSnapshotDoAtendimento = (
+  payloadAtendimento: Record<string, unknown>,
+  form: { prescricao_alvo_id?: number | null } | null | undefined,
+  prescricao: unknown
+): string =>
+  JSON.stringify({
+    ...payloadAtendimento,
+    _receita_alvo: form?.prescricao_alvo_id ?? null,
+    _receita: prescricao,
+  });

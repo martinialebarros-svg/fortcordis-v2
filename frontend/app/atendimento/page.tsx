@@ -15,6 +15,7 @@ import {
   reconcileExamsDuringSave,
 } from "@/lib/atendimento-form-merge";
 import {
+  montarSnapshotDoAtendimento,
   prescricaoEntraNoPayloadDoAtendimento,
   resolverPrescricaoDoForm,
 } from "@/lib/atendimento-receitas";
@@ -1488,7 +1489,18 @@ const buildPrescricaoPayload = (form: AtendimentoForm) => ({
         .filter((item) => item.medicamento_id || (item.medicamento_nome || "").trim()),
 });
 
-const serializeAtendimentoSnapshot = (form: AtendimentoForm) => JSON.stringify(buildAtendimentoPayload(form));
+/**
+ * Snapshot para deteccao de alteracao do autosave.
+ *
+ * A receita entra aqui SEMPRE, inclusive quando sai do payload do atendimento
+ * por haver uma complementar aberta no editor. Sao coisas diferentes: o
+ * payload define o que vai para `PUT /atendimentos/{id}`, o snapshot define se
+ * ha algo a salvar. Sem a receita no snapshot, editar uma complementar nao
+ * muda nada comparavel e o autosave nunca dispara - o texto so seria gravado
+ * num salvamento manual.
+ */
+const serializeAtendimentoSnapshot = (form: AtendimentoForm) =>
+  montarSnapshotDoAtendimento(buildAtendimentoPayload(form), form, buildPrescricaoPayload(form));
 
 export default function AtendimentoPage() {
   const router = useRouter();
@@ -1537,6 +1549,10 @@ export default function AtendimentoPage() {
   // Receitas emitidas cuja edicao ja foi confirmada nesta sessao: sem isso, o
   // autosave pediria confirmacao a cada digitacao depois do PDF gerado.
   const [receitasEdicaoConfirmada, setReceitasEdicaoConfirmada] = useState<number[]>([]);
+  // Lido dentro do save, que roda no mesmo tick do clique em "Confirmar e
+  // salvar": o estado ainda nao teria sido aplicado e a confirmacao se
+  // perderia, devolvendo 409 de novo.
+  const receitasEdicaoConfirmadaRef = useRef<number[]>([]);
   const [receitaEmitidaPendente, setReceitaEmitidaPendente] = useState<
     { prescricao_id: number; mensagem: string } | null
   >(null);
@@ -1711,6 +1727,10 @@ export default function AtendimentoPage() {
   useEffect(() => {
     formRef.current = form;
   }, [form]);
+
+  useEffect(() => {
+    receitasEdicaoConfirmadaRef.current = receitasEdicaoConfirmada;
+  }, [receitasEdicaoConfirmada]);
 
   useEffect(() => {
     const catalogosNoFormulario = new Set(
@@ -3140,6 +3160,7 @@ export default function AtendimentoPage() {
     setAdendos([]);
     setReceitas([]);
     setReceitasEdicaoConfirmada([]);
+    receitasEdicaoConfirmadaRef.current = [];
     setAdendoFormAberto(false);
     setAdendoForm({ tipo: "resultado_exame", titulo: "", descricao: "" });
     setExameDoAdendo({});
@@ -3260,6 +3281,7 @@ export default function AtendimentoPage() {
     setAdendos([]);
     setReceitas([]);
     setReceitasEdicaoConfirmada([]);
+    receitasEdicaoConfirmadaRef.current = [];
     setAdendoFormAberto(false);
     setAdendoForm({ tipo: "resultado_exame", titulo: "", descricao: "" });
     setExameDoAdendo({});
@@ -4595,7 +4617,7 @@ export default function AtendimentoPage() {
       if (
         !currentForm.prescricao_alvo_id &&
         receitaDoDiaId &&
-        receitasEdicaoConfirmada.includes(receitaDoDiaId)
+        receitasEdicaoConfirmadaRef.current.includes(receitaDoDiaId)
       ) {
         corpoAtendimento.confirmar_edicao_receita_emitida = true;
       }
@@ -4620,7 +4642,7 @@ export default function AtendimentoPage() {
       // editor nao voltar ao estado anterior ao PUT.
       if (currentForm.prescricao_alvo_id && atendimentoIdSalvo) {
         const corpoReceita: Record<string, any> = buildPrescricaoPayload(currentForm);
-        if (receitasEdicaoConfirmada.includes(currentForm.prescricao_alvo_id)) {
+        if (receitasEdicaoConfirmadaRef.current.includes(currentForm.prescricao_alvo_id)) {
           corpoReceita.confirmar_edicao_receita_emitida = true;
         }
         const respostaReceita = await api.put(
@@ -5259,11 +5281,14 @@ export default function AtendimentoPage() {
 
   const confirmarEdicaoReceitaEmitida = async () => {
     if (!receitaEmitidaPendente) return;
-    setReceitasEdicaoConfirmada((prev) =>
-      prev.includes(receitaEmitidaPendente.prescricao_id)
-        ? prev
-        : [...prev, receitaEmitidaPendente.prescricao_id]
-    );
+    const confirmadas = receitasEdicaoConfirmadaRef.current.includes(
+      receitaEmitidaPendente.prescricao_id
+    )
+      ? receitasEdicaoConfirmadaRef.current
+      : [...receitasEdicaoConfirmadaRef.current, receitaEmitidaPendente.prescricao_id];
+    // Ref primeiro: o save abaixo roda antes de o estado ser aplicado.
+    receitasEdicaoConfirmadaRef.current = confirmadas;
+    setReceitasEdicaoConfirmada(confirmadas);
     setReceitaEmitidaPendente(null);
     setErro("");
     await saveAtendimento("manual");

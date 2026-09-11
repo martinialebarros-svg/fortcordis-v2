@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  montarSnapshotDoAtendimento,
   prescricaoEntraNoPayloadDoAtendimento,
   resolverPrescricaoDoForm,
 } from "./atendimento-receitas";
@@ -52,5 +53,38 @@ describe("resolverPrescricaoDoForm", () => {
     const resultado = resolverPrescricaoDoForm({ prescricao: receitaDoDia }, 11);
     expect(resultado.prescricao.id).toBe(10);
     expect(resultado.alvoId).toBeNull();
+  });
+});
+
+describe("montarSnapshotDoAtendimento", () => {
+  // Defeito encontrado em stage: com a complementar aberta, `prescricao` sai
+  // do payload do atendimento; se o snapshot fosse so o payload, editar a
+  // complementar nao mudaria nada comparavel e o autosave nunca dispararia -
+  // o texto so era gravado com "Salvar atendimento".
+  const payloadSemPrescricao = { paciente_id: 1, status: "Concluido" };
+  const form = { prescricao_alvo_id: 12 };
+
+  it("muda quando a receita complementar muda, mesmo com o payload igual", () => {
+    const antes = montarSnapshotDoAtendimento(payloadSemPrescricao, form, {
+      itens: [{ id: 9, dose: "1/2 comprimido" }],
+    });
+    const depois = montarSnapshotDoAtendimento(payloadSemPrescricao, form, {
+      itens: [{ id: 9, dose: "1 comprimido" }],
+    });
+    expect(antes).not.toBe(depois);
+  });
+
+  it("nao muda quando nada mudou", () => {
+    const receita = { itens: [{ id: 9, dose: "1/2 comprimido" }] };
+    expect(montarSnapshotDoAtendimento(payloadSemPrescricao, form, receita)).toBe(
+      montarSnapshotDoAtendimento(payloadSemPrescricao, form, receita)
+    );
+  });
+
+  it("distingue trocar de receita alvo", () => {
+    const receita = { itens: [{ id: 9, dose: "1/2 comprimido" }] };
+    expect(montarSnapshotDoAtendimento(payloadSemPrescricao, { prescricao_alvo_id: null }, receita)).not.toBe(
+      montarSnapshotDoAtendimento(payloadSemPrescricao, form, receita)
+    );
   });
 });
