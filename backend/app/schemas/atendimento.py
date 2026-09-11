@@ -65,6 +65,28 @@ class PrescricaoPayload(BaseModel):
     itens: List[PrescricaoItemPayload] = Field(default_factory=list)
 
 
+class PrescricaoSyncPayload(PrescricaoPayload):
+    """Edicao de uma receita especifica do atendimento.
+
+    `confirmar_edicao_receita_emitida` libera a alteracao de uma receita que
+    ja virou PDF - o backend so exige a confirmacao quando o payload de fato
+    muda o conteudo da receita emitida.
+    """
+
+    confirmar_edicao_receita_emitida: Optional[bool] = None
+
+
+class PrescricaoComplementarPayload(BaseModel):
+    """Criacao da proxima receita do atendimento.
+
+    `copiar_de_prescricao_id` duplica os itens da receita indicada como
+    registros novos; a receita de origem nao e alterada.
+    """
+
+    adendo_id: Optional[int] = None
+    copiar_de_prescricao_id: Optional[int] = None
+
+
 class TriagemPayload(BaseModel):
     peso: Optional[float] = None
     temperatura: Optional[float] = None
@@ -90,6 +112,31 @@ class EvolucaoPayload(BaseModel):
     sinais_vitais: Optional[str] = ""
 
 
+class AdendoPayload(BaseModel):
+    """Adendo clinico: o que chega depois do encontro, no mesmo episodio.
+
+    `pos_conclusao` nao entra aqui de proposito - e derivado no backend a
+    partir do status do atendimento no momento da criacao.
+    """
+
+    tipo: Literal[
+        "evolucao",
+        "resultado_exame",
+        "receita_complementar",
+        "orientacao",
+    ] = "evolucao"
+    titulo: Optional[str] = Field(default="", max_length=255)
+    descricao: str
+    data_evolucao: Optional[str] = None
+    sinais_vitais: Optional[str] = ""
+
+    @model_validator(mode="after")
+    def _exigir_descricao(self) -> "AdendoPayload":
+        if len((self.descricao or "").strip()) < 2:
+            raise ValueError("Descreva o adendo com pelo menos 2 caracteres.")
+        return self
+
+
 class AnexoPayload(BaseModel):
     tipo: str = Field(..., max_length=50)
     descricao: Optional[str] = ""
@@ -98,6 +145,7 @@ class AnexoPayload(BaseModel):
     tamanho: Optional[int] = None
     mime_type: Optional[str] = ""
     exame_id: Optional[int] = None
+    evolucao_id: Optional[int] = None
 
 
 class DocumentoTemplatePayload(BaseModel):
@@ -173,6 +221,7 @@ class AtendimentoUpdatePayload(BaseModel):
     prescricao: Optional[PrescricaoPayload] = None
     confirmar_desvinculo_agendamento: Optional[bool] = None
     confirmar_conclusao_pendencias: Optional[bool] = None
+    confirmar_edicao_receita_emitida: Optional[bool] = None
 
 
 class AtendimentoFinalizarPayload(BaseModel):
