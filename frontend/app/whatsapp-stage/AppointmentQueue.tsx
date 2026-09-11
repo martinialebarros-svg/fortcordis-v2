@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type Item = {
+export type Item = {
   id: number; agendamento_id?: number | null; conversation_id: string; wa_identity: string; clinica_id: number; clinica_nome?: string; resumo: string; status: string;
   responsavel_nome: string | null; minha: boolean; sem_responsavel: boolean;
   prazo_em: string; atrasada: boolean; versao: number;
