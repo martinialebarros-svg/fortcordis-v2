@@ -15,6 +15,11 @@ import {
   reconcileExamsDuringSave,
 } from "@/lib/atendimento-form-merge";
 import {
+  montarSnapshotDoAtendimento,
+  prescricaoEntraNoPayloadDoAtendimento,
+  resolverPrescricaoDoForm,
+} from "@/lib/atendimento-receitas";
+import {
   ordenarCatalogoExames,
   removeCatalogoExame,
   upsertCatalogoExame,
@@ -113,6 +118,8 @@ const AtendimentoCadastroComplementarSection = dynamic(() => import("./component
 const AtendimentoConsultaOverviewSection = dynamic(() => import("./components/AtendimentoConsultaOverviewSection"));
 const AtendimentoConsultaEditorSection = dynamic(() => import("./components/AtendimentoConsultaEditorSection"));
 const AtendimentoClinicalRadarAside = dynamic(() => import("./components/AtendimentoClinicalRadarAside"));
+const AtendimentoAdendosSection = dynamic(() => import("./components/AtendimentoAdendosSection"));
+const AtendimentoReceitasBar = dynamic(() => import("./components/AtendimentoReceitasBar"));
 const AtendimentoDocumentosSection = dynamic(() => import("./components/AtendimentoDocumentosSection"));
 const AtendimentoExamesSection = dynamic(() => import("./components/AtendimentoExamesSection"));
 const AtendimentoPrescricaoAside = dynamic(() => import("./components/AtendimentoPrescricaoAside"));
@@ -157,6 +164,7 @@ type Evolucao = {
 type Anexo = {
   id: number;
   exame_id?: number | null;
+  evolucao_id?: number | null;
   tipo: string;
   descricao: string;
   url: string;
@@ -168,6 +176,54 @@ type Anexo = {
   preview_disponivel?: boolean;
   created_at?: string;
 };
+
+type ReceitaResumo = {
+  id: number;
+  sequencia: number;
+  emitida_em: string | null;
+  adendo_id?: number | null;
+  orientacoes_gerais: string;
+  retorno_dias: number | null;
+  itens: PrescricaoItem[];
+};
+
+type AdendoTipo = "evolucao" | "resultado_exame" | "receita_complementar" | "orientacao";
+
+// Adendo: o que chega depois do encontro (exame que o tutor mandou dias
+// depois, receita complementar, orientacao) sem virar atendimento novo.
+type Adendo = {
+  id: number;
+  atendimento_id: number;
+  tipo: AdendoTipo;
+  titulo: string;
+  descricao: string;
+  sinais_vitais?: string;
+  data_evolucao: string;
+  pos_conclusao: number;
+  responsavel_nome: string;
+  anexos: Anexo[];
+  prescricao_id?: number | null;
+  created_at?: string;
+};
+
+const ADENDO_TIPO_OPCOES: Array<{ value: AdendoTipo; label: string; ajuda: string }> = [
+  {
+    value: "resultado_exame",
+    label: "Resultado de exame",
+    ajuda: "O tutor enviou o exame solicitado na consulta.",
+  },
+  {
+    value: "receita_complementar",
+    label: "Receita complementar",
+    ajuda: "Ajuste de tratamento depois da alta.",
+  },
+  {
+    value: "orientacao",
+    label: "Orientacao ao tutor",
+    ajuda: "Contato, retorno por telefone ou WhatsApp.",
+  },
+  { value: "evolucao", label: "Evolucao clinica", ajuda: "Acompanhamento do quadro." },
+];
 
 type DocumentoAtendimentoTemplate = {
   id: number;
@@ -608,6 +664,11 @@ export type AtendimentoForm = {
   motivo_retorno: string;
   observacoes: string;
   exames: ExameSolicitacao[];
+  // Qual receita do atendimento o editor de prescricao esta editando.
+  // `null` = a receita do dia (sequencia 1), que segue no autosave do
+  // prontuario. Com um id, o editor esta numa receita complementar e o
+  // payload do atendimento deixa de carregar `prescricao`.
+  prescricao_alvo_id: number | null;
   prescricao_orientacoes: string;
   prescricao_retorno_dias: string;
   prescricao_itens: PrescricaoItem[];
@@ -1161,6 +1222,7 @@ const emptyForm = (): AtendimentoForm => ({
   motivo_retorno: "",
   observacoes: "",
   exames: [emptyExam()],
+  prescricao_alvo_id: null,
   prescricao_orientacoes: "",
   prescricao_retorno_dias: "",
   prescricao_itens: [emptyPrescriptionItem()],
@@ -1270,7 +1332,9 @@ const AUTOSAVE_DELAY_MS = 1800;
 const getAtendimentoDraftBackupKey = (atendimentoId: number | string) =>
   `${ATENDIMENTO_DRAFT_KEY}:${atendimentoId}`;
 
-const hydrateFormFromDetail = (d: any): AtendimentoForm => ({
+const hydrateFormFromDetail = (d: any, alvoId?: number | null): AtendimentoForm => {
+  const { prescricao: prescricaoDoForm, alvoId: alvoResolvido } = resolverPrescricaoDoForm(d, alvoId);
+  return {
   id: d.id,
   paciente_id: String(d.paciente_id || ""),
   especie: d.especie || "",
@@ -1307,13 +1371,17 @@ const hydrateFormFromDetail = (d: any): AtendimentoForm => ({
   motivo_retorno: d.motivo_retorno || "",
   observacoes: d.observacoes || "",
   exames: d.exames?.length ? d.exames.map((item: any) => hydrateExam(item)) : [emptyExam()],
-  prescricao_orientacoes: d.prescricao?.orientacoes_gerais || "",
-  prescricao_retorno_dias: d.prescricao?.retorno_dias ? String(d.prescricao.retorno_dias) : "",
-  prescricao_itens: d.prescricao?.itens?.length ? d.prescricao.itens.map(hydratePrescriptionItem) : [emptyPrescriptionItem()],
+  prescricao_alvo_id: alvoResolvido,
+  prescricao_orientacoes: prescricaoDoForm?.orientacoes_gerais || "",
+  prescricao_retorno_dias: prescricaoDoForm?.retorno_dias ? String(prescricaoDoForm.retorno_dias) : "",
+  prescricao_itens: prescricaoDoForm?.itens?.length
+    ? prescricaoDoForm.itens.map(hydratePrescriptionItem)
+    : [emptyPrescriptionItem()],
   evolucoes: d.evolucoes || [],
   anexos: d.anexos || [],
   documentos: d.documentos || [],
-});
+  };
+};
 
 const sanitizeDraftForm = (raw: Partial<AtendimentoForm> | null | undefined): AtendimentoForm => ({
   ...emptyForm(),
@@ -1390,7 +1458,15 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
           data_resultado: localInputToOperationalIso(item.data_resultado),
         };
       }),
-    prescricao: {
+    // Com uma receita complementar aberta no editor, `prescricao` sai do
+    // payload: o backend so sincroniza a receita do dia por esta rota, e
+    // enviar o conteudo da complementar aqui sobrescreveria a receita que ja
+    // foi entregue ao tutor. A complementar tem endpoint proprio.
+    ...(prescricaoEntraNoPayloadDoAtendimento(form) ? { prescricao: buildPrescricaoPayload(form) } : {}),
+  };
+};
+
+const buildPrescricaoPayload = (form: AtendimentoForm) => ({
       orientacoes_gerais: form.prescricao_orientacoes,
       retorno_dias: form.prescricao_retorno_dias ? Number(form.prescricao_retorno_dias) : null,
       itens: form.prescricao_itens
@@ -1411,11 +1487,20 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
           concentracao_personalizada: item.concentracao_personalizada || "",
         }))
         .filter((item) => item.medicamento_id || (item.medicamento_nome || "").trim()),
-    },
-  };
-};
+});
 
-const serializeAtendimentoSnapshot = (form: AtendimentoForm) => JSON.stringify(buildAtendimentoPayload(form));
+/**
+ * Snapshot para deteccao de alteracao do autosave.
+ *
+ * A receita entra aqui SEMPRE, inclusive quando sai do payload do atendimento
+ * por haver uma complementar aberta no editor. Sao coisas diferentes: o
+ * payload define o que vai para `PUT /atendimentos/{id}`, o snapshot define se
+ * ha algo a salvar. Sem a receita no snapshot, editar uma complementar nao
+ * muda nada comparavel e o autosave nunca dispara - o texto so seria gravado
+ * num salvamento manual.
+ */
+const serializeAtendimentoSnapshot = (form: AtendimentoForm) =>
+  montarSnapshotDoAtendimento(buildAtendimentoPayload(form), form, buildPrescricaoPayload(form));
 
 export default function AtendimentoPage() {
   const router = useRouter();
@@ -1447,6 +1532,36 @@ export default function AtendimentoPage() {
   const [contextoAplicado, setContextoAplicado] = useState(false);
   const [autosaveState, setAutosaveState] = useState<"idle" | "local" | "dirty" | "saving" | "saved" | "error">("idle");
   const [autosaveAt, setAutosaveAt] = useState("");
+
+  // Continuidade pos-alta. Fica fora de `form` de proposito: o autosave do
+  // prontuario serializa `form` inteiro, e adendo nao e campo de formulario -
+  // e registro proprio, com endpoint proprio.
+  const [adendos, setAdendos] = useState<Adendo[]>([]);
+  const [adendoFormAberto, setAdendoFormAberto] = useState(false);
+  const [adendoForm, setAdendoForm] = useState<{ tipo: AdendoTipo; titulo: string; descricao: string }>({
+    tipo: "resultado_exame",
+    titulo: "",
+    descricao: "",
+  });
+  const [criandoAdendo, setCriandoAdendo] = useState(false);
+  const [receitas, setReceitas] = useState<ReceitaResumo[]>([]);
+  const [criandoReceita, setCriandoReceita] = useState(false);
+  // Receitas emitidas cuja edicao ja foi confirmada nesta sessao: sem isso, o
+  // autosave pediria confirmacao a cada digitacao depois do PDF gerado.
+  const [receitasEdicaoConfirmada, setReceitasEdicaoConfirmada] = useState<number[]>([]);
+  // Lido dentro do save, que roda no mesmo tick do clique em "Confirmar e
+  // salvar": o estado ainda nao teria sido aplicado e a confirmacao se
+  // perderia, devolvendo 409 de novo.
+  const receitasEdicaoConfirmadaRef = useRef<number[]>([]);
+  const [receitaEmitidaPendente, setReceitaEmitidaPendente] = useState<
+    { prescricao_id: number; mensagem: string } | null
+  >(null);
+  const receitaEmitidaPendenteRef = useRef<{ prescricao_id: number; mensagem: string } | null>(null);
+  // `receitaAtiva` e derivada mais abaixo; o descarte roda em handler e
+  // precisa do valor corrente sem depender da ordem de declaracao.
+  const receitaAtivaRef = useRef<ReceitaResumo | null>(null);
+  // Exame escolhido no card de cada adendo na hora de anexar o arquivo.
+  const [exameDoAdendo, setExameDoAdendo] = useState<Record<number, string>>({});
 
   const [lista, setLista] = useState<AtendimentoResumo[]>([]);
   const [clinicaFiltroAplicado, setClinicaFiltroAplicado] = useState("");
@@ -1616,6 +1731,10 @@ export default function AtendimentoPage() {
   useEffect(() => {
     formRef.current = form;
   }, [form]);
+
+  useEffect(() => {
+    receitasEdicaoConfirmadaRef.current = receitasEdicaoConfirmada;
+  }, [receitasEdicaoConfirmada]);
 
   useEffect(() => {
     const catalogosNoFormulario = new Set(
@@ -1803,6 +1922,24 @@ export default function AtendimentoPage() {
     if (atendimentoId) {
       localStorage.removeItem(getAtendimentoDraftBackupKey(atendimentoId));
     }
+  };
+
+  /**
+   * Grava o backup local do atendimento.
+   *
+   * Trocar de receita e descartar alteracao mexem no formulario com
+   * `hydratingFormRef` ligado, e o efeito de backup sai cedo nesse estado -
+   * sem gravar aqui, o rascunho continuaria com o conteudo da receita
+   * anterior e o traria de volta no proximo carregamento.
+   */
+  const gravarBackupLocalAtendimento = (formAtual: AtendimentoForm) => {
+    if (typeof window === "undefined") return;
+    const atendimentoId = selecionadoRef.current;
+    if (!atendimentoId) return;
+    localStorage.setItem(
+      getAtendimentoDraftBackupKey(atendimentoId),
+      JSON.stringify({ form: formAtual, updated_at: new Date().toISOString() })
+    );
   };
 
   const clearExamUploadDrafts = () => {
@@ -2446,8 +2583,10 @@ export default function AtendimentoPage() {
     return paineisExames.find((item) => String(item.id) === painelExameSelecionado) || null;
   }, [paineisExames, painelExameSelecionado]);
 
+  // Anexo que pertence a um adendo e mostrado dentro do adendo; aqui ficam so
+  // os anexos soltos do atendimento, para nao aparecer duas vezes na tela.
   const anexosGerais = useMemo(() => {
-    return form.anexos.filter((item) => !item.exame_id);
+    return form.anexos.filter((item) => !item.exame_id && !item.evolucao_id);
   }, [form.anexos]);
 
   const anexosPorExame = useMemo(() => {
@@ -2923,6 +3062,8 @@ export default function AtendimentoPage() {
       if (requestId !== abrirAtendimentoRequestIdRef.current) return;
       const d = response.data;
       const hydrated = hydrateFormFromDetail(d);
+      setAdendos(Array.isArray(d?.adendos) ? d.adendos : []);
+      setReceitas(Array.isArray(d?.prescricoes) ? d.prescricoes : []);
 
       // Se um autosave anterior falhou (aba fechada, rede fora do ar), pode
       // existir um backup local mais recente do que o servidor - recuperar em
@@ -3038,6 +3179,13 @@ export default function AtendimentoPage() {
     setTriagemExpandida(false);
     setDocumentoTemplateSelecionado("");
     setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
+    setAdendos([]);
+    setReceitas([]);
+    setReceitasEdicaoConfirmada([]);
+    receitasEdicaoConfirmadaRef.current = [];
+    setAdendoFormAberto(false);
+    setAdendoForm({ tipo: "resultado_exame", titulo: "", descricao: "" });
+    setExameDoAdendo({});
     setAnexoArquivos([]);
     clearExamUploadDrafts();
     setHistoricoPaciente(null);
@@ -3152,6 +3300,13 @@ export default function AtendimentoPage() {
     );
     setDocumentoTemplateSelecionado("");
     setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
+    setAdendos([]);
+    setReceitas([]);
+    setReceitasEdicaoConfirmada([]);
+    receitasEdicaoConfirmadaRef.current = [];
+    setAdendoFormAberto(false);
+    setAdendoForm({ tipo: "resultado_exame", titulo: "", descricao: "" });
+    setExameDoAdendo({});
     setAnexoArquivos([]);
     clearExamUploadDrafts();
     setAutosaveState("idle");
@@ -4476,6 +4631,18 @@ export default function AtendimentoPage() {
       }
 
       const payload = buildAtendimentoPayload(currentForm);
+      // Corpo da requisicao a parte do payload tipado: a confirmacao de edicao
+      // de receita emitida e decisao da sessao, nao conteudo do formulario, e
+      // por isso fica fora do snapshot de autosave.
+      const corpoAtendimento: Record<string, any> = { ...payload };
+      const receitaDoDiaId = receitas.find((item) => item.sequencia === 1)?.id;
+      if (
+        !currentForm.prescricao_alvo_id &&
+        receitaDoDiaId &&
+        receitasEdicaoConfirmadaRef.current.includes(receitaDoDiaId)
+      ) {
+        corpoAtendimento.confirmar_edicao_receita_emitida = true;
+      }
       const idsExclusaoEnviados = new Set(
         payload.exames
           .filter((item) => item._destroy && item.id != null)
@@ -4485,11 +4652,38 @@ export default function AtendimentoPage() {
       let response;
 
       if (selecionadoRef.current) {
-        response = await api.put(`/atendimentos/${selecionadoRef.current}`, payload);
+        response = await api.put(`/atendimentos/${selecionadoRef.current}`, corpoAtendimento);
       } else {
-        response = await api.post("/atendimentos", payload);
+        response = await api.post("/atendimentos", corpoAtendimento);
       }
-      const hydrated = hydrateFormFromDetail(response.data || {});
+      const detalheSalvo: Record<string, any> = response.data || {};
+      const atendimentoIdSalvo = detalheSalvo.id || selecionadoRef.current;
+
+      // A receita complementar nao viaja no payload do atendimento; salva
+      // aqui, pelo endpoint dela, e o resultado entra na hidratacao para o
+      // editor nao voltar ao estado anterior ao PUT.
+      if (currentForm.prescricao_alvo_id && atendimentoIdSalvo) {
+        const corpoReceita: Record<string, any> = buildPrescricaoPayload(currentForm);
+        if (receitasEdicaoConfirmadaRef.current.includes(currentForm.prescricao_alvo_id)) {
+          corpoReceita.confirmar_edicao_receita_emitida = true;
+        }
+        const respostaReceita = await api.put(
+          `/atendimentos/${atendimentoIdSalvo}/prescricoes/${currentForm.prescricao_alvo_id}`,
+          corpoReceita
+        );
+        const receitaAtualizada = respostaReceita.data?.prescricao;
+        if (receitaAtualizada) {
+          detalheSalvo.prescricoes = (detalheSalvo.prescricoes || []).map((item: any) =>
+            Number(item?.id) === Number(receitaAtualizada.id) ? receitaAtualizada : item
+          );
+        }
+      }
+
+      const hydrated = hydrateFormFromDetail(detalheSalvo, currentForm.prescricao_alvo_id);
+      setAdendos(Array.isArray(detalheSalvo.adendos) ? detalheSalvo.adendos : []);
+      setReceitas(Array.isArray(detalheSalvo.prescricoes) ? detalheSalvo.prescricoes : []);
+      receitaEmitidaPendenteRef.current = null;
+      setReceitaEmitidaPendente(null);
       lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(hydrated);
 
       if (mode === "manual") {
@@ -4547,6 +4741,10 @@ export default function AtendimentoPage() {
             }
           : current
       );
+      if (ehErroConfirmacaoReceitaEmitida(e)) {
+        registrarPendenciaReceitaEmitida(e);
+        return null;
+      }
       if (mode === "autosave") {
         setAutosaveState("error");
         setErro(extractApiErrorMessageSync(e, "Nao foi possivel sincronizar o atendimento."));
@@ -4615,7 +4813,9 @@ export default function AtendimentoPage() {
         confirmar_conclusao_pendencias: confirmarConclusaoPendencias,
       });
       const detalhe = response.data?.atendimento || {};
-      const hydrated = hydrateFormFromDetail(detalhe);
+      const hydrated = hydrateFormFromDetail(detalhe, formRef.current.prescricao_alvo_id);
+      setAdendos(Array.isArray(detalhe?.adendos) ? detalhe.adendos : []);
+      setReceitas(Array.isArray(detalhe?.prescricoes) ? detalhe.prescricoes : []);
 
       hydratingFormRef.current = true;
       setSelecionado(Number(atendimentoId));
@@ -5002,6 +5202,263 @@ export default function AtendimentoPage() {
     }
   };
 
+  // === CONTINUIDADE POS-ALTA ===
+
+  const ehErroConfirmacaoReceitaEmitida = (erro: any) => {
+    const detalhe = erro?.response?.data?.detail;
+    return (
+      erro?.response?.status === 409 &&
+      detalhe &&
+      typeof detalhe === "object" &&
+      detalhe.codigo === "CONFIRMACAO_EDICAO_RECEITA_EMITIDA"
+    );
+  };
+
+  /**
+   * Receita ja emitida so muda com confirmacao explicita. O aviso e
+   * nao-bloqueante de proposito: o autosave reenvia a receita a cada save, e
+   * um modal no meio da digitacao pararia o prontuario. O texto vem do
+   * backend, que e quem sabe quando e qual receita foi emitida.
+   */
+  const registrarPendenciaReceitaEmitida = (erro: any) => {
+    const detalhe = erro?.response?.data?.detail;
+    const pendencia = {
+      prescricao_id: Number(detalhe?.prescricao_id || 0),
+      mensagem: String(detalhe?.mensagem || "Esta receita ja foi emitida."),
+    };
+    // Ref junto do estado: quem chamou o save decide o que fazer ainda neste
+    // tick, antes de o estado ser aplicado.
+    receitaEmitidaPendenteRef.current = pendencia;
+    setReceitaEmitidaPendente(pendencia);
+    setAutosaveState("dirty");
+  };
+
+  // Leitura por funcao: atribuir `null` ao ref logo antes faria o TypeScript
+  // estreitar a variavel para `null` e perder o tipo da pendencia que o save
+  // pode ter registrado no meio do caminho.
+  const lerPendenciaReceitaEmitida = () => receitaEmitidaPendenteRef.current;
+
+  const limparPendenciaReceitaEmitida = () => {
+    receitaEmitidaPendenteRef.current = null;
+    setReceitaEmitidaPendente(null);
+  };
+
+  /**
+   * Volta a receita ao conteudo que esta no servidor.
+   *
+   * Fica num botao proprio, e nao no "cancelar" do dialogo: Escape e clique
+   * fora resolvem como cancelamento, e descartar texto clinico por um Escape
+   * acidental seria perda de dado silenciosa.
+   */
+  const descartarEdicaoReceitaEmitida = () => {
+    limparPendenciaReceitaEmitida();
+    aplicarReceitaNoFormulario(receitaAtivaRef.current);
+    // O aviso de receita emitida marcou o autosave como sujo; depois do
+    // descarte o formulario volta a ser exatamente o que esta no servidor.
+    // Sem isto o indicador fica preso em "Alteracoes pendentes": o efeito de
+    // autosave sai cedo enquanto a hidratacao esta em curso e nao reavalia
+    // depois, porque `form` nao muda de novo.
+    setAutosaveState("saved");
+    setErro("");
+    setSucesso("Alteracao descartada. A receita voltou ao conteudo ja emitido.");
+  };
+
+  const aplicarReceitaNoFormulario = (receita: ReceitaResumo | null) => {
+    const proximo: AtendimentoForm = {
+      ...formRef.current,
+      prescricao_alvo_id: receita && receita.sequencia > 1 ? receita.id : null,
+      prescricao_orientacoes: receita?.orientacoes_gerais || "",
+      prescricao_retorno_dias: receita?.retorno_dias ? String(receita.retorno_dias) : "",
+      prescricao_itens: receita?.itens?.length
+        ? receita.itens.map(hydratePrescriptionItem)
+        : [emptyPrescriptionItem()],
+    };
+    hydratingFormRef.current = true;
+    setForm(proximo);
+    // Trocar de receita nao e edicao: sem realinhar o snapshot, o autosave
+    // dispararia um save so por causa da troca.
+    lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(proximo);
+    gravarBackupLocalAtendimento(proximo);
+    setPrescricaoValidationErrors({});
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        hydratingFormRef.current = false;
+      });
+    }
+  };
+
+  const selecionarReceita = async (prescricaoId: number | null) => {
+    const alvoAtual = formRef.current.prescricao_alvo_id || null;
+    if (alvoAtual === (prescricaoId || null)) return;
+
+    // Troca sem salvar perderia o que foi digitado na receita anterior.
+    receitaEmitidaPendenteRef.current = null;
+    let salvou = await saveAtendimento("manual");
+    const pendenciaAposSalvar = lerPendenciaReceitaEmitida();
+
+    if (!salvou && pendenciaAposSalvar) {
+      // A receita aberta foi emitida e tem alteracao nao confirmada. Sem
+      // perguntar aqui, o clique de troca nao fazia nada visivel e o vet
+      // ficava preso - inclusive digitando na receita errada sem perceber.
+      const pendencia = pendenciaAposSalvar;
+      const confirmado = await confirmarAcao({
+        titulo: "Receita emitida com alteracao nao salva",
+        descricao:
+          `${pendencia.mensagem} Confirmar grava a alteracao e segue para a outra receita. ` +
+          "Ficar nesta receita mantem a alteracao em aberto - da para descartar pelo aviso.",
+        confirmLabel: "Confirmar alteracao e trocar",
+        cancelLabel: "Ficar nesta receita",
+      });
+      if (!confirmado) return;
+
+      const confirmadas = receitasEdicaoConfirmadaRef.current.includes(pendencia.prescricao_id)
+        ? receitasEdicaoConfirmadaRef.current
+        : [...receitasEdicaoConfirmadaRef.current, pendencia.prescricao_id];
+      receitasEdicaoConfirmadaRef.current = confirmadas;
+      setReceitasEdicaoConfirmada(confirmadas);
+      limparPendenciaReceitaEmitida();
+      salvou = await saveAtendimento("manual");
+    }
+
+    if (!salvou) return;
+
+    const alvo =
+      (prescricaoId
+        ? receitas.find((item) => item.id === prescricaoId)
+        : receitas.find((item) => item.sequencia === 1)) || null;
+    aplicarReceitaNoFormulario(alvo);
+  };
+
+  const criarReceitaComplementar = async (adendoId?: number | null) => {
+    if (!selecionado) {
+      setErro("Salve o atendimento antes de emitir uma receita complementar.");
+      return;
+    }
+    const salvou = await saveAtendimento("manual");
+    if (!salvou) return;
+
+    setCriandoReceita(true);
+    try {
+      const origemId =
+        formRef.current.prescricao_alvo_id || receitas.find((item) => item.sequencia === 1)?.id || null;
+      const response = await api.post(`/atendimentos/${salvou}/prescricoes`, {
+        adendo_id: adendoId || null,
+        copiar_de_prescricao_id: origemId,
+      });
+      const nova: ReceitaResumo | null = response.data?.prescricao || null;
+      if (!nova) return;
+
+      setReceitas((prev) => [...prev.filter((item) => item.id !== nova.id), nova]);
+      aplicarReceitaNoFormulario(nova);
+      setWorkspacePainel("prescricao");
+      setErro("");
+      setSucesso(
+        origemId
+          ? `Receita ${nova.sequencia} criada a partir da anterior. A receita ja emitida continua intacta.`
+          : `Receita ${nova.sequencia} criada.`
+      );
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Nao foi possivel criar a receita complementar."));
+    } finally {
+      setCriandoReceita(false);
+    }
+  };
+
+  const confirmarEdicaoReceitaEmitida = async () => {
+    if (!receitaEmitidaPendente) return;
+    const confirmadas = receitasEdicaoConfirmadaRef.current.includes(
+      receitaEmitidaPendente.prescricao_id
+    )
+      ? receitasEdicaoConfirmadaRef.current
+      : [...receitasEdicaoConfirmadaRef.current, receitaEmitidaPendente.prescricao_id];
+    // Ref primeiro: o save abaixo roda antes de o estado ser aplicado.
+    receitasEdicaoConfirmadaRef.current = confirmadas;
+    setReceitasEdicaoConfirmada(confirmadas);
+    limparPendenciaReceitaEmitida();
+    setErro("");
+    await saveAtendimento("manual");
+  };
+
+
+  const carregarAdendos = async (atendimentoId?: number | null) => {
+    const alvo = atendimentoId ?? selecionadoRef.current;
+    if (!alvo) return;
+    try {
+      const response = await api.get(`/atendimentos/${alvo}/adendos`);
+      setAdendos(Array.isArray(response.data?.items) ? response.data.items : []);
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Nao foi possivel carregar os adendos."));
+    }
+  };
+
+  const criarAdendo = async (): Promise<Adendo | null> => {
+    if (!selecionado) {
+      setErro("Salve o atendimento antes de registrar um adendo.");
+      return null;
+    }
+    const descricao = adendoForm.descricao.trim();
+    if (descricao.length < 2) {
+      setErro("Descreva o que esta sendo acrescentado ao atendimento.");
+      return null;
+    }
+
+    setCriandoAdendo(true);
+    try {
+      const response = await api.post(`/atendimentos/${selecionado}/adendos`, {
+        tipo: adendoForm.tipo,
+        titulo: adendoForm.titulo.trim(),
+        descricao,
+      });
+      const criado: Adendo | null = response.data?.adendo || null;
+      if (criado) {
+        setAdendos((prev) => [criado, ...prev]);
+      }
+      setAdendoForm((current) => ({ ...current, titulo: "", descricao: "" }));
+      setAdendoFormAberto(false);
+      setErro("");
+      setSucesso(
+        criado?.pos_conclusao
+          ? "Adendo registrado no atendimento. O registro original permanece intacto."
+          : "Adendo registrado no atendimento."
+      );
+      return criado;
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Nao foi possivel registrar o adendo."));
+      return null;
+    } finally {
+      setCriandoAdendo(false);
+    }
+  };
+
+  const anexarArquivoNoAdendo = async (adendo: Adendo, files: File[]) => {
+    const arquivos = files.filter(Boolean);
+    if (arquivos.length === 0) return;
+    const exameIdBruto = exameDoAdendo[adendo.id];
+    const exameId = exameIdBruto ? Number(exameIdBruto) : null;
+
+    let algumEnviado = false;
+    for (const arquivo of arquivos) {
+      const enviado = await uploadAnexoArquivo(arquivo, {
+        evolucaoId: adendo.id,
+        exameId,
+        tipo: "documento",
+        descricao: adendo.titulo || "Adendo",
+        skipReset: true,
+      });
+      if (!enviado) break;
+      algumEnviado = true;
+    }
+
+    if (algumEnviado) {
+      // Recarrega do servidor em vez de remontar na mao: o vinculo com o exame
+      // muda o status dele, e o adendo passa a ter anexo proprio.
+      await carregarAdendos();
+      if (selecionadoRef.current) {
+        await abrirAtendimento(selecionadoRef.current);
+      }
+    }
+  };
+
   const cancelarUploadAnexo = (uploadKey: string) => {
     const controller = uploadAbortControllersRef.current[uploadKey];
     if (!controller) return;
@@ -5013,7 +5470,14 @@ export default function AtendimentoPage() {
 
   const uploadAnexoArquivo = async (
     file: File,
-    options?: { exameId?: number | null; tipo?: string; descricao?: string; uploadKey?: string; skipReset?: boolean }
+    options?: {
+      exameId?: number | null;
+      evolucaoId?: number | null;
+      tipo?: string;
+      descricao?: string;
+      uploadKey?: string;
+      skipReset?: boolean;
+    }
   ): Promise<boolean> => {
     if (!selecionado) {
       setErro("Salve o atendimento antes de enviar arquivos.");
@@ -5028,7 +5492,13 @@ export default function AtendimentoPage() {
       return false;
     }
 
-    const uploadKey = options?.uploadKey || (options?.exameId ? `exame-${options.exameId}` : "geral");
+    const uploadKey =
+      options?.uploadKey ||
+      (options?.exameId
+        ? `exame-${options.exameId}`
+        : options?.evolucaoId
+          ? `adendo-${options.evolucaoId}`
+          : "geral");
     const uploadSignature = buildUploadSignature(selecionado, uploadKey, file);
     if (activeUploadSignaturesRef.current.has(uploadSignature)) {
       setSucesso("Upload ja esta em andamento para este arquivo.");
@@ -5043,6 +5513,9 @@ export default function AtendimentoPage() {
     formData.append("descricao", options?.descricao || anexoForm.descricao || "");
     if (options?.exameId) {
       formData.append("exame_id", String(options.exameId));
+    }
+    if (options?.evolucaoId) {
+      formData.append("evolucao_id", String(options.evolucaoId));
     }
 
     try {
@@ -6017,10 +6490,30 @@ export default function AtendimentoPage() {
         if (!atendimentoId) return;
       }
 
-      const response = await api.get(`/atendimentos/${atendimentoId}/${tipo}/pdf`, {
+      // Com uma receita complementar aberta, o PDF e o dela - o endpoint
+      // legado continua servindo a receita do dia.
+      const alvoReceitaPdf = formRef.current.prescricao_alvo_id;
+      const rotaPdf =
+        tipo === "prescricao" && alvoReceitaPdf ? `prescricoes/${alvoReceitaPdf}/pdf` : `${tipo}/pdf`;
+      const response = await api.get(`/atendimentos/${atendimentoId}/${rotaPdf}`, {
         responseType: "blob",
         params: { impressao: Date.now() },
       });
+
+      if (tipo === "prescricao") {
+        // A primeira geracao marca a receita como emitida no servidor; espelha
+        // isso no badge sem recarregar o atendimento inteiro.
+        const idEmitida = alvoReceitaPdf || receitas.find((item) => item.sequencia === 1)?.id || null;
+        if (idEmitida) {
+          setReceitas((prev) =>
+            prev.map((item) =>
+              item.id === idEmitida && !item.emitida_em
+                ? { ...item, emitida_em: new Date().toISOString() }
+                : item
+            )
+          );
+        }
+      }
 
       const fallbackFilename =
         tipo === "prescricao"
@@ -6109,6 +6602,33 @@ export default function AtendimentoPage() {
       badge: `${totalAnexosDocumento}`,
     },
   ];
+  const atendimentoConcluido = form.status === "Concluido";
+  const receitaAtiva = useMemo(() => {
+    if (receitas.length === 0) return null;
+    if (form.prescricao_alvo_id) {
+      return receitas.find((item) => item.id === form.prescricao_alvo_id) || null;
+    }
+    return receitas.find((item) => item.sequencia === 1) || null;
+  }, [receitas, form.prescricao_alvo_id]);
+  receitaAtivaRef.current = receitaAtiva;
+  // Exames que ainda esperam arquivo: sao o alvo natural de um adendo de
+  // resultado recebido depois da alta.
+  const examesAguardandoArquivo = useMemo(
+    () =>
+      form.exames.filter(
+        (exame) =>
+          exame.id &&
+          !exame._destroy &&
+          (exame.tipo_exame || "").trim() &&
+          !(anexosPorExame[exame.id] || []).length
+      ),
+    [form.exames, anexosPorExame]
+  );
+  const abrirRegistroDeAdendo = () => {
+    setWorkspacePainel("documentos");
+    setAdendoFormAberto(true);
+  };
+
   const isConsultaWorkspace = workspacePainel === "consulta";
   const isExamesWorkspace = workspacePainel === "exames";
   const isPrescricaoWorkspace = workspacePainel === "prescricao";
@@ -7181,7 +7701,39 @@ export default function AtendimentoPage() {
           </div>
         </section>
 
-        {selecionado ? (
+        {selecionado && atendimentoConcluido ? (
+          <section className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-600">
+                  Atendimento concluido #{selecionado}
+                  {form.data_atendimento ? ` - encontro em ${formatDate(form.data_atendimento)}` : ""}
+                </p>
+                <p className="mt-1 text-sm text-slate-800">
+                  O registro deste encontro permanece como foi fechado. Exame que chegou depois, receita
+                  complementar ou orientacao entram como adendo, no mesmo atendimento - sem abrir uma consulta nova.
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={abrirRegistroDeAdendo}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-900"
+                >
+                  <Plus className="h-4 w-4" />
+                  Adicionar adendo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => iniciarNovoAtendimentoPaciente()}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                >
+                  Novo atendimento
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : selecionado ? (
           <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
@@ -7783,6 +8335,33 @@ export default function AtendimentoPage() {
                 ) : null}
 
                 {isDocumentosWorkspace ? (
+                  <AtendimentoAdendosSection
+                    ADENDO_TIPO_OPCOES={ADENDO_TIPO_OPCOES}
+                    ATENDIMENTO_ATTACHMENT_ACCEPT={ATENDIMENTO_ATTACHMENT_ACCEPT}
+                    abrirAnexo={abrirAnexo}
+                    adendoForm={adendoForm}
+                    adendoFormAberto={adendoFormAberto}
+                    adendos={adendos}
+                    anexarArquivoNoAdendo={anexarArquivoNoAdendo}
+                    atendimentoConcluido={atendimentoConcluido}
+                    cancelarUploadAnexo={cancelarUploadAnexo}
+                    criandoAdendo={criandoAdendo}
+                    criandoReceita={criandoReceita}
+                    criarAdendo={criarAdendo}
+                    criarReceitaComplementar={criarReceitaComplementar}
+                    exameDoAdendo={exameDoAdendo}
+                    examesAguardandoArquivo={examesAguardandoArquivo}
+                    formatDate={formatDate}
+                    selecionado={selecionado}
+                    setAdendoForm={setAdendoForm}
+                    setAdendoFormAberto={setAdendoFormAberto}
+                    setExameDoAdendo={setExameDoAdendo}
+                    uploadProgressByKey={uploadProgressByKey}
+                    uploadingAttachmentKey={uploadingAttachmentKey}
+                  />
+                ) : null}
+
+                {isDocumentosWorkspace ? (
                   <AtendimentoDocumentosSection
                     ATENDIMENTO_ATTACHMENT_ACCEPT={ATENDIMENTO_ATTACHMENT_ACCEPT}
                     adicionarLinkAnexo={adicionarLinkAnexo}
@@ -7843,6 +8422,19 @@ export default function AtendimentoPage() {
                       historicoPaciente={historicoPaciente}
                       prescricaoOrigem={prescricaoOrigem}
                       selecionado={selecionado}
+                    />
+                    <AtendimentoReceitasBar
+                      atendimentoConcluido={atendimentoConcluido}
+                      confirmarEdicaoReceitaEmitida={confirmarEdicaoReceitaEmitida}
+                      criandoReceita={criandoReceita}
+                      descartarEdicaoReceitaEmitida={descartarEdicaoReceitaEmitida}
+                      criarReceitaComplementar={criarReceitaComplementar}
+                      formatDate={formatDate}
+                      receitaAtiva={receitaAtiva}
+                      receitaEmitidaPendente={receitaEmitidaPendente}
+                      receitas={receitas}
+                      selecionado={selecionado}
+                      selecionarReceita={selecionarReceita}
                     />
                     <AtendimentoPrescricaoWorkspace
                       abrirMedicamentoBuscaRapida={abrirMedicamentoBuscaRapida}

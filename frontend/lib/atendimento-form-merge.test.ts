@@ -43,6 +43,7 @@ const baseForm = (): AtendimentoForm => ({
   motivo_retorno: "",
   observacoes: "",
   exames: [],
+  prescricao_alvo_id: null,
   prescricao_orientacoes: "",
   prescricao_retorno_dias: "",
   prescricao_itens: [],
