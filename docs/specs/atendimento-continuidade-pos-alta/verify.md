@@ -2,7 +2,7 @@
 
 Data: 2026-09-10  
 Responsavel: Martiniano Barros  
-Status: fases 1 a 3 implementadas; verificacao manual em stage pendente
+Status: verificado em stage; dois defeitos encontrados e corrigidos, cenarios 4 e 6 em revalidacao
 
 ## 1) Matriz de rastreabilidade
 
@@ -33,6 +33,8 @@ salvo indicacao contraria.
 | RF-022 | funcional | `AtendimentoReceitasBar.test.tsx` - "cria receita complementar pelo botao dedicado"; `criarReceitaComplementar` copia da receita ativa | ok |
 | RF-023 | funcional | `AtendimentoReceitasBar.test.tsx` - "oferece confirmar a edicao pendente com o texto vindo do backend" | ok |
 | RF-024 | funcional | `AtendimentoAdendosSection.test.tsx` - "anexa arquivo ao adendo vinculando o exame escolhido" e "nao oferece vinculo de exame quando nao ha exame aguardando arquivo" | ok |
+| CA-010 / RF-026 | aceitacao | `atendimento-receitas.test.ts` - `montarSnapshotDoAtendimento` muda quando a receita complementar muda, mesmo com o payload do atendimento identico | ok (revalidacao em stage pendente) |
+| CA-011 / RF-027 | aceitacao | confirmacao passa a ser lida de `receitasEdicaoConfirmadaRef`, aplicada antes do save no mesmo tick | ok (revisao de codigo; revalidacao em stage pendente) |
 | RF-025 | funcional | `AtendimentoAdendosSection.test.tsx` - "emite receita a partir de um adendo de receita complementar" e "mostra que o adendo ja tem receita vinculada" | ok |
 | Alvo de receita | funcional | `atendimento-receitas.test.ts` - alvo inexistente volta para a receita do dia; a receita do dia nunca e tratada como alvo complementar | ok |
 
@@ -62,8 +64,30 @@ framework, nao como `None`.
 
 ## 3) Testes manuais
 
-A executar em stage depois da fase 3. O fluxo de API ja pode ser conferido sem
-interface:
+Executados em stage em 2026-09-10, pelo navegador, sobre o atendimento #16
+(paciente Aberaldo, agendamento #83). Os sete cenarios passaram; dois defeitos
+foram encontrados no caminho e corrigidos (secao 4).
+
+| Cenario | Resultado |
+| --- | --- |
+| 1 - atender, solicitar exame, finalizar | ok - "Agenda #83 realizada e OS OS2026090001 gerada" |
+| 2 - reabrir dias depois | ok - banner "ATENDIMENTO CONCLUIDO #16 - ENCONTRO EM 01/04/2026" |
+| 3 - adendo + anexo do exame | ok - adendo com `pos_conclusao: 1`, anexo com `evolucao_id` e `exame_id`, exame de "Solicitado" para "Em andamento" |
+| 4 - receita complementar | ok - item copiado com id novo (9), sem reaproveitar o id 8 da receita do dia |
+| 5 - receita do dia preservada | ok - segue "1/2 comprimido" apos a complementar virar "1 comprimido" |
+| 6 - editar receita emitida | ok - 409 com aviso do backend; servidor nao aplicou a edicao |
+| 7 - Financeiro | ok - uma unica OS (OS2026090001, R$ 230,00) para o agendamento 83 |
+
+Nota de metodo sobre o cenario 5: comparar o hash do PDF nao serve como
+criterio. Duas geracoes seguidas do mesmo PDF ja produzem hashes diferentes
+(o arquivo carrega timestamp), o que daria falso positivo. A comparacao foi
+feita sobre o conteudo persistido que alimenta o PDF.
+
+Nota de metodo sobre o cenario 3: o navegador interno nao dirige o seletor
+nativo de arquivo, entao o PDF foi injetado no input com um evento `change`.
+Do `onChange` em diante o caminho foi o real da aplicacao.
+
+Roteiro original, para repeticao:
 
 - Cenario 1: atender um paciente agendado, solicitar um exame, finalizar o
   atendimento. Esperado: OS gerada, agendamento "Realizado", exame solicitado
@@ -81,7 +105,41 @@ interface:
 - Cenario 6: `PUT` na receita 1 ja emitida. Esperado: 409 confirmavel.
 - Cenario 7: conferir Financeiro. Esperado: uma unica OS para o agendamento.
 
-## 4) Regressao e riscos residuais
+## 4) Defeitos encontrados na verificacao em stage
+
+Os dois passaram pelos testes automatizados porque a cobertura era de
+componente isolado e de regra pura - nenhum dos dois exercita o ciclo real de
+autosave da pagina.
+
+**D-1: o autosave ficava cego a edicao da receita complementar.** A tela
+informava "Sincronizado" e o servidor nao mudava; a alteracao so era gravada
+com o "Salvar atendimento" manual, o que faria o vet perder o que digitou ao
+sair da tela. Causa: `serializeAtendimentoSnapshot` era o proprio
+`buildAtendimentoPayload`, de onde `prescricao` e removida enquanto ha uma
+complementar aberta - sem a receita no snapshot, nada mudava e a deteccao de
+alteracao nunca disparava. Correcao: `montarSnapshotDoAtendimento`
+(`frontend/lib/atendimento-receitas.ts`) separa as duas decisoes e tem teste
+de regressao proprio.
+
+**D-2: "Confirmar e salvar" nao aplicava a edicao.** O segundo `PUT` voltava
+409 igual ao primeiro. Causa: `confirmarEdicaoReceitaEmitida` atualizava o
+estado e chamava o save no mesmo tick, e o save lia a lista de confirmacoes
+pela closure anterior, sem o id. Correcao: a confirmacao passa por
+`receitasEdicaoConfirmadaRef`, atualizado antes do save - mesmo padrao que o
+arquivo ja usa com `formRef` e `selecionadoRef`.
+
+## 5) Observacoes fora do escopo desta entrega
+
+- Ao finalizar, o `status` retornado pelo backend nao chega ao formulario:
+  `mergeAutoSavedFormState` mescla apenas `id`, `exames` e
+  `prescricao_itens`, e o resto vem de `...current`. Por isso o banner de
+  concluido so aparece ao reabrir o atendimento. E anterior a esta entrega e
+  afeta tambem o rotulo "Confirmar sincronizacao", que ja existia.
+- `emitida_em` chega ao frontend sem fuso e e exibido em UTC: o aviso mostrou
+  "11/09/2026 01:48" para uma emissao feita as 22:48 locais. Os demais
+  horarios do modulo passam por `_to_operational_iso`.
+
+## 6) Regressao e riscos residuais
 
 - A migracao foi validada sobre o schema antigo em SQLite e em PostgreSQL 16
   (instancia descartavel, duas execucoes seguidas), incluindo o caso de duas
