@@ -1,8 +1,8 @@
 # Verify - atendimento-continuidade-pos-alta
 
-Data: 2026-09-10  
+Data: 2026-09-10 (CA-013 fechado em 2026-09-11)  
 Responsavel: Martiniano Barros  
-Status: verificado em stage; tres defeitos encontrados e corrigidos, cenarios 4 e 6 revalidados
+Status: verificado em stage; cinco defeitos encontrados e corrigidos, todos revalidados apos o deploy. Nenhum item em aberto
 
 ## 1) Matriz de rastreabilidade
 
@@ -37,6 +37,7 @@ salvo indicacao contraria.
 | CA-011 / RF-027 | aceitacao | revalidado em stage: um clique em "Confirmar e salvar" aplicou a edicao (receita 1 para "3/4 de comprimido") e o aviso sumiu | ok |
 | CA-012 / RF-028 | aceitacao | `selecionarReceita` abre confirmacao quando o save previo falha com o guard de receita emitida; cancelar mantem o vet na receita atual | ok (revisao de codigo; sem teste de render da pagina) |
 | RF-029 | funcional | `AtendimentoReceitasBar.test.tsx` - "oferece descartar a alteracao ao lado de confirmar" e "nao mostra descartar quando nao ha alteracao pendente". Verificado em stage: o editor voltou ao conteudo do servidor e o aviso sumiu | ok |
+| CA-013 / RF-030 | aceitacao | `aplicarReceitaNoFormulario` grava o backup local junto com o snapshot, entao descarte e troca de receita deixam de reviver o conteudo anterior. Verificado em stage: descartar e recarregar devolve "3/4 de comprimido" no editor e no `localStorage` | ok (verificacao manual em stage; sem teste automatizado) |
 | RF-025 | funcional | `AtendimentoAdendosSection.test.tsx` - "emite receita a partir de um adendo de receita complementar" e "mostra que o adendo ja tem receita vinculada" | ok |
 | Alvo de receita | funcional | `atendimento-receitas.test.ts` - alvo inexistente volta para a receita do dia; a receita do dia nunca e tratada como alvo complementar | ok |
 
@@ -162,7 +163,8 @@ Verificacao do PR de D-3 em stage, apos o deploy:
 | CA-012 - cancelar | ok - permaneceu na receita do dia, alteracao intacta, aviso ainda aberto |
 | RF-029 - descartar | ok - editor voltou a "3/4 de comprimido" (valor do servidor) e o aviso sumiu |
 | Indicador apos descarte | ok apos a correcao - badge volta para "Sincronizado" e permanece |
-| CA-013 - descartar e recarregar | a verificar apos o deploy da correcao de D-5 |
+| CA-013 - descartar e recarregar | ok apos a correcao - dose alterada para "1 comprimido inteiro CA-013", descartada, pagina recarregada: editor e backup local voltaram a "3/4 de comprimido", sem vestigio do texto descartado |
+| D-5 - trocar de receita | ok apos a correcao - ao abrir a complementar, o backup passou a `prescricao_alvo_id: 12` com "1/4 comprimido"; recarregando, a receita 2 voltou com o proprio conteudo, sem herdar o da receita do dia |
 
 **D-5: o backup local nao acompanhava a troca de receita nem o descarte.**
 Encontrado ao revalidar o indicador: depois de descartar, recarregar a pagina
@@ -173,6 +175,14 @@ receita atualizavam o rascunho. O impacto vai alem do descarte: trocar de
 receita tambem deixava o backup com o conteudo da receita anterior.
 Correcao: `aplicarReceitaNoFormulario` alinha o backup junto com o snapshot,
 cobrindo os dois caminhos.
+
+Nota de metodo sobre CA-013: so olhar o editor depois do reload nao fecha o
+caso. O que trazia o texto de volta era o backup em
+`fortcordis:atendimento:draft:v1:16`, entao a conferencia foi feita nos dois
+lugares - editor e `localStorage` - alem do `GET /atendimentos/16`, para
+confirmar que o descarte nunca tocou o servidor (`emitida_em` da receita 1
+segue `2026-09-11T01:48:52`). Os dois caminhos do D-5 foram exercitados na
+mesma passada, porque a troca de receita usa a mesma funcao do descarte.
 
 Nessa passada apareceu tambem um item cosmetico: depois do descarte o
 indicador ficava preso em "Alteracoes pendentes" mesmo com o formulario
