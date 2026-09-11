@@ -7,7 +7,7 @@ type Item = {
   id: number; agendamento_id?: number | null; conversation_id: string; wa_identity: string; clinica_id: number; clinica_nome?: string; resumo: string; status: string;
   responsavel_nome: string | null; minha: boolean; sem_responsavel: boolean;
   prazo_em: string; atrasada: boolean; versao: number;
-  historico: { acao: string; em: string; usuario_nome?: string; status?: string; observacao?: string; divergencias_confirmadas?: Record<string, { informado: string; selecionado: string }> }[];
+  historico: { acao: string; em: string; usuario_nome?: string; status?: string; observacao?: string; horario_preferido?: string; divergencias_confirmadas?: Record<string, { informado: string; selecionado: string }> }[];
 };
 type Queue = { itens: Item[]; total: number; contagens: Record<string, number> };
 const labels: Record<string, string> = { aguardando_equipe: "Aguardando equipe", em_atendimento: "Em atendimento", aguardando_cliente: "Aguardando cliente", agendado: "Agendado", cancelado: "Cancelado" };
@@ -92,12 +92,14 @@ function QueueItem({ item, disabled, onUpdate, onOpen }: { item: Item; disabled:
   const [note, setNote] = useState("");
   const [deadline, setDeadline] = useState("");
   const closed = ["agendado", "cancelado"].includes(item.status);
+  const complemento = [...item.historico].reverse().find(h => h.acao === 'complemento_cliente');
   const terminal = ["agendado", "cancelado"].includes(status);
   return <article className={`rounded-lg border p-3 ${item.atrasada ? "border-amber-500 bg-amber-50" : "border-slate-200"}`}>
     <div className="flex flex-wrap justify-between gap-2"><strong>Pedido #{item.id} · {item.clinica_nome || `Clínica #${item.clinica_id}`}</strong><span>{labels[item.status]}</span></div>
     <p>Responsável: {item.responsavel_nome || "Ainda não atribuído"}</p>
     <p className={item.atrasada ? "font-semibold text-amber-900" : "text-sm"}>{item.atrasada ? "Prazo vencido · " : "Prazo: "}{date(item.prazo_em)}</p>
     <pre className="my-2 whitespace-pre-wrap font-sans text-sm">{item.resumo}</pre>
+    {complemento?.horario_preferido && <p className="my-2 rounded bg-sky-50 p-2 text-sm">Horário escolhido pelo cliente: {new Date(complemento.horario_preferido).toLocaleString("pt-BR", { timeZone: "America/Fortaleza" })} (Fortaleza). Sem reserva; confira a disponibilidade antes de agendar.</p>}
     {onOpen && <button type="button" onClick={onOpen}>Abrir conversa</button>}
     {item.agendamento_id && <p>Agendamento vinculado #{item.agendamento_id}. Consulte a agenda para o horário e eventuais alterações.</p>}
     {!closed && item.minha && <Link className="ml-4 font-semibold text-emerald-700" href={`/agenda?pedido_whatsapp=${item.id}`}>Agendar pedido</Link>}

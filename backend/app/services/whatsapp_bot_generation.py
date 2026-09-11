@@ -380,6 +380,7 @@ def gerar_resposta(
     *,
     wa_identity: str,
     corpo_mensagem: str,
+    conversation_id: Optional[str] = None,
     modo: str,
     provider: Any = None,
     persona_forcada: Optional[str] = None,
@@ -498,7 +499,7 @@ def gerar_resposta(
             texto_gerado="Olá! Sou o atendimento automático da FortCordis. Como posso ajudar? Para falar com a equipe, é só pedir.",
             auto_elegivel=modo == "auto", prompt_version=resolve_prompt_version(match_type),
             resolution=resolution, match_type=match_type, clinica_id=clinica_id)
-    coleta_anterior = carregar(db, wa_identity, clinica_id) if match_type == "clinica" else None
+    coleta_anterior = carregar(db, wa_identity, clinica_id, conversation_id=conversation_id) if match_type == "clinica" else None
     contexto_seguro = build_safe_context(
         contexto, match_type=match_type, tutor_id=tutor_id, clinica_id=clinica_id
     )
@@ -516,12 +517,13 @@ def gerar_resposta(
     pedido = ultimo(db, wa_identity, clinica_id) if match_type == "clinica" and clinica_id else None
     from app.services.whatsapp_bot_continuidade import resposta_pedido, novo_pedido, KEY as CONTINUIDADE_KEY
     from app.services.whatsapp_bot_agendamento import preparar, validar_texto, confirma_dados, KEY as COLETA_KEY
-    administrative = None
+    from app.services.whatsapp_bot_opcoes_agenda import responder as responder_opcoes, apos_confirmacao, validar_renderizado, KEY as OPCOES_KEY
+    administrative = responder_opcoes(db, pedido, coleta_anterior, corpo_mensagem, wa_identity, conversation_id) if match_type == 'clinica' and conversation_id else None
     if pedido and novo_pedido(corpo_mensagem):
         coleta, texto = preparar(None, None, 'nova solicitação', clinica_id, contexto)
         coleta['fila_anterior_id'] = pedido.id
         administrative = (texto, {COLETA_KEY: coleta})
-    elif pedido:
+    elif pedido and administrative is None:
         followup = resposta_pedido(db, pedido, corpo_mensagem, coleta_anterior)
         if followup:
             administrative = (followup[0], {CONTINUIDADE_KEY: followup[1]})
@@ -531,6 +533,11 @@ def gerar_resposta(
             coleta['fila_anterior_id'] = pedido.id
         if validar_texto(coleta, texto).aprovado:
             administrative = (texto, {COLETA_KEY: coleta})
+    if administrative and COLETA_KEY in administrative[1] and conversation_id:
+        texto, extra = apos_confirmacao(db, clinica_id, administrative[1][COLETA_KEY], administrative[0])
+        administrative = (texto, {**administrative[1], **extra})
+    if administrative and OPCOES_KEY in administrative[1] and not validar_renderizado(*administrative):
+        return ResultadoGeracao(decisao="blocked", motivo="opcoes_agenda_invalidas", clinica_id=clinica_id, match_type=match_type)
     if administrative:
         return ResultadoGeracao(decisao="draft", motivo="continuidade_administrativa",
             texto_gerado=administrative[0], auto_elegivel=modo == "auto",
@@ -651,6 +658,11 @@ def gerar_resposta(
         if check.aprovado:
             audit = json.loads(_tools_usadas_json(match_type, resultados, fontes_declaradas=[]))
             audit[KEY] = coleta
+            if conversation_id:
+                texto, extra = apos_confirmacao(db, clinica_id, coleta, texto)
+                audit.update(extra)
+                if extra and not validar_renderizado(texto, audit):
+                    return ResultadoGeracao(decisao="blocked", motivo="opcoes_agenda_invalidas", clinica_id=clinica_id, match_type=match_type)
             return ResultadoGeracao(decisao="draft", motivo="coleta_agendamento",
                 texto_gerado=texto, auto_elegivel=modo == "auto", modelo=gerado.model,
                 prompt_version=prompt_version, tools_usadas=json.dumps(audit, ensure_ascii=False),

@@ -25,3 +25,7 @@ Sem migração, credenciais ou alteração de configuração. Rollback por rever
 ## Clareza dos textos após teste real
 
 A confirmação dos dados é breve, mantém a verificação de disponibilidade pela equipe e deixa explícito que não há reserva. O reconhecimento de um complemento informa revisão da mudança solicitada, sem introduzir cancelamento quando o cliente apenas corrige uma preferência. O aviso de silêncio informa que o atendimento automático está pausado, sem afirmar que houve resposta humana quando a origem pode ser uma atribuição ou pausa manual. As regras de transição, revisão humana e persistência permanecem iguais.
+
+## Consulta de opções operacionais
+
+A confirmação no fluxo real passa a consultar opções da agenda, conforme `../whatsapp-opcoes-agenda/spec.md`. A escolha válida é um complemento auditável do pedido; continua dependendo de confirmação humana e não cria reserva.

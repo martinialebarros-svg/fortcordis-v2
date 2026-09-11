@@ -15,3 +15,5 @@ Nenhuma mensagem real enviada ou mudança de produção nesta entrega. A confirm
 ## Ajustes de comunicação após teste real de 10/09/2026
 
 Mudanças restritas aos textos da confirmação, reconhecimento de complemento e explicação de pausa. Validação local concluída: 43 testes backend aprovados (3 ignorados por dependerem de PostgreSQL), 46 testes de interface aprovados, build frontend com lint/tipos aprovado, diff sem erros e guardrail SDD aprovado. O teste de confirmação também valida que a nova resposta passa pelos guardrails. Logs locais: `/private/tmp/fortcordis-textos-tests.log`, `/private/tmp/fortcordis-textos-ui.log` e `/private/tmp/fortcordis-textos-build.log`. Sem publicação nesta etapa.
+
+A evolução de consulta e escolha de horários tem contrato e evidências em `../whatsapp-opcoes-agenda/verify.md`.

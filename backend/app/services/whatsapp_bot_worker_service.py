@@ -318,6 +318,7 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
 
     resultado = gerar_resposta(
         db,
+        conversation_id=str(job.conversation_id),
         wa_identity=job.wa_identity,
         corpo_mensagem=corpo,
         modo=modo,

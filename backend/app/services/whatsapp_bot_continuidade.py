@@ -58,9 +58,19 @@ def registrar_complemento(db, resposta):
     events = json.loads(row.historico)
     if any(e.get('job_id') == resposta.job_id and e.get('acao') == 'complemento_cliente' for e in events):
         return
+    if data.get('horario_preferido') and (row.versao != data.get('pedido_versao') or row.status != 'aguardando_equipe' or row.responsavel_id is not None):
+        # A escolha chegou, mas não pode sobrescrever uma atualização concorrente.
+        data['complemento'] = 'Escolha recebida após alteração do pedido; a equipe precisa revisar: ' + data['horario_preferido']
+        data['horario_preferido'] = None
+        resposta.texto_gerado = 'O pedido mudou durante a consulta. A equipe vai conferir sua escolha; nenhum horário foi reservado.'
+        audit = json.loads(resposta.tools_usadas or '{}')
+        audit[KEY] = data
+        audit['opcoes_agenda'] = {'estado':'equipe', 'pedido_id':row.id}
+        resposta.tools_usadas = json.dumps(audit, ensure_ascii=False)
     now = datetime.now(timezone.utc)
     events.append({'acao':'complemento_cliente', 'em':now.isoformat(), 'job_id':resposta.job_id,
-        'observacao':data['complemento'], 'usuario_nome':'Cliente pelo WhatsApp'})
+        'observacao':data['complemento'], 'usuario_nome':'Cliente pelo WhatsApp',
+        'horario_preferido':data.get('horario_preferido')})
     row.historico=json.dumps(events, ensure_ascii=False);row.updated_at=now;row.versao+=1
     # Complemento vira pendência para a equipe, inclusive após conclusão do
     # pedido; não reabre/cancela o agendamento nem troca dados confirmados.
