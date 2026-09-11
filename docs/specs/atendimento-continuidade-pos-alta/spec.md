@@ -83,10 +83,13 @@ status do agendamento.
 
 ### Frontend
 
-- RF-020: abrir um atendimento com status `Concluido` exibe banner informando a
-  data de conclusao e que acrescimos devem entrar como adendo, com acao
-  primaria "Adicionar adendo". O formulario permanece editavel (decisao
-  "avisar e permitir").
+- RF-020: abrir um atendimento com status `Concluido` troca o aviso de
+  "registro historico" por um banner que identifica o encontro pela data do
+  atendimento e diz que acrescimos entram como adendo, com acao primaria
+  "Adicionar adendo". O formulario permanece editavel (decisao "avisar e
+  permitir"). O banner usa a data do atendimento, e nao a data da conclusao:
+  o sistema nao armazena quando o atendimento foi concluido, e inventar esse
+  dado seria pior do que identificar o encontro pela data que existe.
 - RF-021: a secao de prescricao lista todas as receitas do atendimento com
   numero de sequencia e badge de estado (rascunho / emitida em dd/mm/aaaa),
   seguindo o padrao visual ja usado em documentos emitidos.
@@ -94,9 +97,15 @@ status do agendamento.
   pre-preenchida a partir da selecionada e abre o editor nela.
 - RF-023: editar uma receita ja emitida exige confirmacao explicita no
   frontend, com o texto vindo do 409 do backend.
-- RF-024: o fluxo "anexar resultado de exame" a partir de um atendimento
-  concluido cria o adendo de tipo `resultado_exame` e envia o anexo com
-  `evolucao_id` e `exame_id` na mesma acao.
+- RF-024: anexar um resultado a um exame solicitado, depois da conclusao,
+  acontece pelo card do adendo: o seletor "Vincular ao exame" lista os exames
+  sem arquivo e o upload envia `evolucao_id` e `exame_id` juntos. O ponto de
+  partida fica no adendo, e nao no card do exame, para nao espalhar a
+  mudanca por `AtendimentoExamesSection.tsx` - o adendo ja e o lugar onde o
+  vet registra o que chegou depois.
+- RF-025: um adendo de tipo `receita_complementar` sem receita vinculada
+  oferece "Emitir receita deste adendo", que cria a receita complementar
+  ligada aquele adendo; com receita vinculada, exibe o estado em vez da acao.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -169,11 +178,20 @@ registro historico.
 
 - `frontend/app/atendimento/page.tsx`: banner de atendimento concluido, acao
   "Adicionar adendo", estado das receitas.
-- `frontend/app/atendimento/components/AtendimentoPrescricaoWorkspace.tsx` e
-  `AtendimentoPrescricaoAside.tsx`: seletor de receitas, badges, acao de nova
-  receita complementar, confirmacao de edicao de receita emitida.
+- `frontend/app/atendimento/page.tsx`: `prescricao_alvo_id` no formulario,
+  hidratacao e roteamento do save por receita alvo. O editor de prescricao e
+  reaproveitado inteiro - a receita aberta alimenta os mesmos campos, entao
+  calculo de dose, busca de medicamento e protocolos valem tambem para a
+  complementar.
 - `frontend/app/atendimento/components/AtendimentoAdendosSection.tsx` (novo):
   lista e criacao de adendos, com upload de anexo por adendo.
+- `frontend/app/atendimento/components/AtendimentoReceitasBar.tsx` (novo):
+  seletor de receitas, badges, criacao de complementar e o aviso acionavel de
+  receita emitida.
+- `frontend/lib/atendimento-receitas.ts` (novo): as duas regras que nao podem
+  errar - se `prescricao` entra no payload do atendimento e qual receita
+  alimenta o editor - ficam fora da pagina para poderem ser testadas
+  isoladamente.
 
 ## 5) Criterios de aceitacao (CA)
 
@@ -194,8 +212,11 @@ registro historico.
   agendamento continua "Realizado".
 - CA-006: a timeline do paciente mostra o adendo com sua propria data, dentro
   do mesmo episodio, e nao como um atendimento novo.
-- CA-007: abrir um atendimento concluido mostra o banner com a data de
-  conclusao e a acao "Adicionar adendo"; o formulario segue editavel.
+- CA-007: abrir um atendimento concluido mostra o banner identificando o
+  encontro e a acao "Adicionar adendo"; o formulario segue editavel.
+- CA-009: com uma receita complementar aberta no editor, o `PUT` do
+  atendimento nao carrega `prescricao` - o autosave do prontuario nao pode
+  alcancar a receita do dia enquanto o vet edita a complementar.
 - CA-008: um cliente que chama `GET /atendimentos/{id}/prescricao/pdf` e le
   apenas a chave `prescricao` continua funcionando sem alteracao.
 
