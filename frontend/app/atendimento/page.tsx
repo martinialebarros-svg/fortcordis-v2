@@ -5235,6 +5235,12 @@ export default function AtendimentoPage() {
   const descartarEdicaoReceitaEmitida = () => {
     limparPendenciaReceitaEmitida();
     aplicarReceitaNoFormulario(receitaAtivaRef.current);
+    // O aviso de receita emitida marcou o autosave como sujo; depois do
+    // descarte o formulario volta a ser exatamente o que esta no servidor.
+    // Sem isto o indicador fica preso em "Alteracoes pendentes": o efeito de
+    // autosave sai cedo enquanto a hidratacao esta em curso e nao reavalia
+    // depois, porque `form` nao muda de novo.
+    setAutosaveState("saved");
     setErro("");
     setSucesso("Alteracao descartada. A receita voltou ao conteudo ja emitido.");
   };
