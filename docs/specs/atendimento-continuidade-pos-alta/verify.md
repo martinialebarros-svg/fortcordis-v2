@@ -207,10 +207,14 @@ aba ativa antes de concluir qualquer coisa sobre o salvamento.
 - `emitida_em` chega ao frontend sem fuso e e exibido em UTC: o aviso mostrou
   "11/09/2026 01:48" para uma emissao feita as 22:48 locais. Os demais
   horarios do modulo passam por `_to_operational_iso`.
-- O atendimento #16 (paciente Aberaldo, agendamento #83) ficou em stage como
-  evidencia da verificacao: receita do dia em "3/4 de comprimido", receita
+- O atendimento #16 (paciente Aberaldo, agendamento #83) serviu de evidencia
+  desta verificacao em stage: receita do dia em "3/4 de comprimido", receita
   complementar em "1/4 comprimido", um adendo com PDF anexado e a
-  OS2026090001 pendente.
+  OS2026090001 pendente. **Removido de stage em 2026-09-11**, depois da
+  promocao e da verificacao em producao (secao 7) - junto com o agendamento
+  #83 e a OS, para nao deixar agendamento "Confirmado" nem OS orfa no
+  Financeiro de stage. O paciente e o tutor ficaram, por serem cadastro
+  anterior ao teste. Para repetir o roteiro, refaca o cenario 1 da secao 3.
 
 ## 6) Regressao e riscos residuais
 
