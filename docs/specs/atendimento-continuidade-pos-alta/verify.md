@@ -2,7 +2,7 @@
 
 Data: 2026-09-10  
 Responsavel: Martiniano Barros  
-Status: fases 1 e 2 implementadas; fase 3 (frontend) e verificacao em stage pendentes
+Status: fases 1 a 3 implementadas; verificacao manual em stage pendente
 
 ## 1) Matriz de rastreabilidade
 
@@ -27,7 +27,14 @@ salvo indicacao contraria.
 | NFR-004 | nao funcional | `test_detalhe_carrega_varias_receitas_sem_n_mais_1` - contagem de queries por tabela com 1 e com 4 receitas e identica; `prescricoes_itens` fica em 1 consulta | ok |
 | NFR-005 | nao funcional | migracao `20260910_83` executada duas vezes seguidas sobre o schema antigo, em SQLite e em PostgreSQL 16: idempotente, `sequencia` NOT NULL com default 1 materializado nos registros existentes, indice unico ativo (duplicata rejeitada), e caso historico de duas receitas no mesmo atendimento renumerado para 1 e 2 | ok |
 | Regressao | teste negativo | com `_sync_prescricao` sem o alvo explicito, CA-002 e CA-003 falham: o PDF da receita 1 passa a imprimir `(1, 'Conduta nova.', [('Furosemida', '3 mg/kg', '8/8h')])` no lugar de `(1, 'Repouso ate o resultado.', [('Furosemida', '2 mg/kg', '12/12h')])` - mesma receita, conteudo trocado | ok |
-| RF-020 a RF-024 | funcional | frontend - fase 3 | pendente |
+| CA-007 / RF-020 | aceitacao | banner de concluido em `page.tsx` substitui o aviso de registro historico, identifica o encontro pela data e oferece "Adicionar adendo"; formulario segue editavel | ok (revisao de codigo; sem teste de render da pagina) |
+| CA-009 | aceitacao | `atendimento-receitas.test.ts` - `prescricaoEntraNoPayloadDoAtendimento({prescricao_alvo_id: 11})` e `false`, entao o PUT do atendimento nao carrega `prescricao` enquanto a complementar esta aberta | ok |
+| RF-021 | funcional | `AtendimentoReceitasBar.test.tsx` - "distingue receita emitida de rascunho" | ok |
+| RF-022 | funcional | `AtendimentoReceitasBar.test.tsx` - "cria receita complementar pelo botao dedicado"; `criarReceitaComplementar` copia da receita ativa | ok |
+| RF-023 | funcional | `AtendimentoReceitasBar.test.tsx` - "oferece confirmar a edicao pendente com o texto vindo do backend" | ok |
+| RF-024 | funcional | `AtendimentoAdendosSection.test.tsx` - "anexa arquivo ao adendo vinculando o exame escolhido" e "nao oferece vinculo de exame quando nao ha exame aguardando arquivo" | ok |
+| RF-025 | funcional | `AtendimentoAdendosSection.test.tsx` - "emite receita a partir de um adendo de receita complementar" e "mostra que o adendo ja tem receita vinculada" | ok |
+| Alvo de receita | funcional | `atendimento-receitas.test.ts` - alvo inexistente volta para a receita do dia; a receita do dia nunca e tratada como alvo complementar | ok |
 
 ## 2) Testes automatizados executados
 
@@ -35,12 +42,18 @@ salvo indicacao contraria.
 cd backend && venv/bin/python -m pytest tests/ -q
 ```
 
+```bash
+cd frontend && npx tsc --noEmit -p tsconfig.json && npm run lint && npx vitest run && npm run build
+```
+
 Resumo dos resultados:
 - Backend: 1266 passed, 5 skipped, 278 subtests passed. Sao 13 testes novos; a
   suite estava em 1253 passed antes da entrega.
-- Frontend: nao aplicavel nesta fase (nenhum arquivo de `frontend/` alterado).
-- Teste negativo: descrito na ultima linha da matriz, executado removendo
-  temporariamente o alvo explicito de `_sync_prescricao`.
+- Frontend: `tsc` sem erros, `eslint --max-warnings=0` limpo, `vitest run` com
+  41 arquivos e 277 testes passando (a suite estava em 38 arquivos e 255
+  testes), e `next build` concluido.
+- Teste negativo: descrito na linha de regressao da matriz, executado
+  removendo temporariamente o alvo explicito de `_sync_prescricao`.
 
 Ajuste em teste existente: `tests/test_atendimento_upload_endpoint.py` passou a
 informar `evolucao_id=None` nas 9 chamadas diretas a `upload_anexo`. Chamando o
@@ -55,8 +68,8 @@ interface:
 - Cenario 1: atender um paciente agendado, solicitar um exame, finalizar o
   atendimento. Esperado: OS gerada, agendamento "Realizado", exame solicitado
   sem arquivo.
-- Cenario 2 (fase 3): dias depois, abrir o mesmo atendimento. Esperado: banner
-  de concluido com a data e acao "Adicionar adendo".
+- Cenario 2: dias depois, abrir o mesmo atendimento. Esperado: banner de
+  concluido identificando o encontro e acao "Adicionar adendo".
 - Cenario 3: `POST /atendimentos/{id}/adendos` com tipo `resultado_exame` e
   upload do PDF com `exame_id` e `evolucao_id`. Esperado: exame em "Em
   andamento", anexo dentro do adendo, nenhum atendimento novo.
@@ -86,6 +99,18 @@ interface:
 - O dedupe de upload continua com escopo (atendimento, exame, bytes). Quando o
   mesmo arquivo ja existia solto e chega de novo por um adendo, o anexo
   existente e adotado pelo adendo em vez de o adendo ficar vazio.
-- Fase 3 pendente: enquanto a UI nao expoe adendo e receita complementar, o
-  caminho novo so existe via API. Nada do comportamento atual mudou para quem
-  usa a tela - `prescricao` e o PDF legado seguem identicos.
+- O ponto mais sensivel da fase 3 e o alvo da receita: com uma complementar
+  aberta, `prescricao` sai do payload do atendimento e o editor passa a salvar
+  pelo endpoint da receita. A regra esta isolada em
+  `frontend/lib/atendimento-receitas.ts` com teste proprio justamente por ser
+  a que, se errar, sobrescreve documento ja entregue.
+- Trocar de receita salva antes de trocar e realinha
+  `lastPersistedSnapshotRef`, para a troca em si nao marcar o formulario como
+  sujo nem disparar save extra.
+- O aviso de receita emitida e nao-bloqueante: o autosave reenvia a receita a
+  cada save, e um modal no meio da digitacao pararia o prontuario. O 409 vira
+  banner com acao "Confirmar e salvar", com o texto vindo do backend.
+- CA-007 nao tem teste automatizado: renderizar `page.tsx` (mais de 8.000
+  linhas, com `dynamic()` e roteador) exigiria um arranjo de mocks
+  desproporcional. Fica coberto por revisao de codigo e pelo cenario 2 do
+  teste manual em stage.

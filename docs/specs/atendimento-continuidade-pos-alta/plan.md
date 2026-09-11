@@ -2,7 +2,7 @@
 
 Data: 2026-09-10  
 Responsavel: Martiniano Barros  
-Status: fases 1 e 2 concluidas
+Status: fases 1 a 3 concluidas; verificacao em stage pendente
 
 ## 1) Sequencia de fases
 
@@ -66,16 +66,16 @@ compatibilidade), o que reduz o tamanho da revisao.
 
 ### Fase 3
 
-- [ ] T3.1 banner de atendimento concluido em `page.tsx`, com data de
+- [x] T3.1 banner de atendimento concluido em `page.tsx`, com data de
   conclusao e acao "Adicionar adendo".
-- [ ] T3.2 componente `AtendimentoAdendosSection.tsx` com lista, criacao e
+- [x] T3.2 componente `AtendimentoAdendosSection.tsx` com lista, criacao e
   upload de anexo por adendo.
-- [ ] T3.3 seletor de receitas com badge rascunho/emitida no workspace de
+- [x] T3.3 seletor de receitas com badge rascunho/emitida no workspace de
   prescricao, seguindo o visual de documento emitido.
-- [ ] T3.4 acao "Nova receita complementar" com pre-preenchimento.
-- [ ] T3.5 dialogo de confirmacao para editar receita emitida, consumindo o
+- [x] T3.4 acao "Nova receita complementar" com pre-preenchimento.
+- [x] T3.5 dialogo de confirmacao para editar receita emitida, consumindo o
   texto do 409.
-- [ ] T3.6 atalho "anexar resultado" em exame sem arquivo de atendimento
+- [x] T3.6 atalho "anexar resultado" em exame sem arquivo de atendimento
   concluido, criando o adendo e enviando o anexo na mesma acao.
 - Criterio de conclusao: `npx tsc --noEmit` e `npm run lint` limpos, suite
   `vitest` verde.
