@@ -2,7 +2,7 @@
 
 Data: 2026-09-10  
 Responsavel: Martiniano Barros  
-Status: verificado em stage; dois defeitos encontrados e corrigidos, cenarios 4 e 6 em revalidacao
+Status: verificado em stage; tres defeitos encontrados e corrigidos, cenarios 4 e 6 revalidados
 
 ## 1) Matriz de rastreabilidade
 
@@ -33,8 +33,10 @@ salvo indicacao contraria.
 | RF-022 | funcional | `AtendimentoReceitasBar.test.tsx` - "cria receita complementar pelo botao dedicado"; `criarReceitaComplementar` copia da receita ativa | ok |
 | RF-023 | funcional | `AtendimentoReceitasBar.test.tsx` - "oferece confirmar a edicao pendente com o texto vindo do backend" | ok |
 | RF-024 | funcional | `AtendimentoAdendosSection.test.tsx` - "anexa arquivo ao adendo vinculando o exame escolhido" e "nao oferece vinculo de exame quando nao ha exame aguardando arquivo" | ok |
-| CA-010 / RF-026 | aceitacao | `atendimento-receitas.test.ts` - `montarSnapshotDoAtendimento` muda quando a receita complementar muda, mesmo com o payload do atendimento identico | ok (revalidacao em stage pendente) |
-| CA-011 / RF-027 | aceitacao | confirmacao passa a ser lida de `receitasEdicaoConfirmadaRef`, aplicada antes do save no mesmo tick | ok (revisao de codigo; revalidacao em stage pendente) |
+| CA-010 / RF-026 | aceitacao | `atendimento-receitas.test.ts` - `montarSnapshotDoAtendimento` muda quando a receita complementar muda, mesmo com o payload identico. Revalidado em stage: `PUT /prescricoes/12` 200 pelo autosave, sem salvamento manual | ok |
+| CA-011 / RF-027 | aceitacao | revalidado em stage: um clique em "Confirmar e salvar" aplicou a edicao (receita 1 para "3/4 de comprimido") e o aviso sumiu | ok |
+| CA-012 / RF-028 | aceitacao | `selecionarReceita` abre confirmacao quando o save previo falha com o guard de receita emitida; cancelar mantem o vet na receita atual | ok (revisao de codigo; sem teste de render da pagina) |
+| RF-029 | funcional | `AtendimentoReceitasBar.test.tsx` - "oferece descartar a alteracao ao lado de confirmar" e "nao mostra descartar quando nao ha alteracao pendente" | ok |
 | RF-025 | funcional | `AtendimentoAdendosSection.test.tsx` - "emite receita a partir de um adendo de receita complementar" e "mostra que o adendo ja tem receita vinculada" | ok |
 | Alvo de receita | funcional | `atendimento-receitas.test.ts` - alvo inexistente volta para a receita do dia; a receita do dia nunca e tratada como alvo complementar | ok |
 
@@ -121,12 +123,41 @@ alteracao nunca disparava. Correcao: `montarSnapshotDoAtendimento`
 (`frontend/lib/atendimento-receitas.ts`) separa as duas decisoes e tem teste
 de regressao proprio.
 
+**D-3: trocar de receita nao fazia nada quando a receita aberta estava
+emitida e com alteracao nao confirmada.** Encontrado durante a revalidacao de
+D-1 e D-2, e foi o que quase me fez reportar que as correcoes nao tinham
+funcionado. `selecionarReceita` salva antes de trocar e abortava em silencio
+quando esse save falhava - e com receita emitida alterada ele falha sempre,
+com 409. Como a alteracao pendente fica no rascunho local, ela sobrevivia ao
+reload: o vet ficava num ciclo em que todo autosave dava 409, nenhuma troca
+funcionava, e o texto digitado ia para a receita errada sem aviso.
+
+Correcao (opcao escolhida pelo responsavel): a troca abre confirmacao
+explicita. Confirmar grava e troca; cancelar mantem o vet na receita atual com
+o aviso em aberto. O descarte ganhou botao proprio no aviso, e nao o
+cancelamento do dialogo - `ConfirmDialog` resolve Escape e clique fora como
+cancelamento, e descartar texto clinico por um Escape acidental seria perda de
+dado silenciosa.
+
 **D-2: "Confirmar e salvar" nao aplicava a edicao.** O segundo `PUT` voltava
 409 igual ao primeiro. Causa: `confirmarEdicaoReceitaEmitida` atualizava o
 estado e chamava o save no mesmo tick, e o save lia a lista de confirmacoes
 pela closure anterior, sem o id. Correcao: a confirmacao passa por
 `receitasEdicaoConfirmadaRef`, atualizado antes do save - mesmo padrao que o
 arquivo ja usa com `formRef` e `selecionadoRef`.
+
+### Revalidacao em stage apos as correcoes
+
+| Cenario | Resultado |
+| --- | --- |
+| 4 - editar receita complementar sem salvar manualmente | ok - `PUT /atendimentos/16/prescricoes/12` 200 disparado pelo autosave; receita 2 gravada, receita do dia intacta |
+| 6 - confirmar edicao de receita emitida | ok - um unico clique aplicou a alteracao e o aviso sumiu |
+| auditoria | ok - `EDITAR_RECEITA_EMITIDA`, `CRIAR_RECEITA_COMPLEMENTAR` e `CRIAR_ADENDO_POS_CONCLUSAO` registrados |
+
+Nota: a primeira tentativa de revalidacao parecia indicar que as correcoes
+nao tinham funcionado. Era D-3 - o alvo da receita nao trocava e o texto ia
+para a receita errada. Vale registrar como armadilha de metodo: conferir a
+aba ativa antes de concluir qualquer coisa sobre o salvamento.
 
 ## 5) Observacoes fora do escopo desta entrega
 
@@ -138,6 +169,10 @@ arquivo ja usa com `formRef` e `selecionadoRef`.
 - `emitida_em` chega ao frontend sem fuso e e exibido em UTC: o aviso mostrou
   "11/09/2026 01:48" para uma emissao feita as 22:48 locais. Os demais
   horarios do modulo passam por `_to_operational_iso`.
+- O atendimento #16 (paciente Aberaldo, agendamento #83) ficou em stage como
+  evidencia da verificacao: receita do dia em "3/4 de comprimido", receita
+  complementar em "1/4 comprimido", um adendo com PDF anexado e a
+  OS2026090001 pendente.
 
 ## 6) Regressao e riscos residuais
 

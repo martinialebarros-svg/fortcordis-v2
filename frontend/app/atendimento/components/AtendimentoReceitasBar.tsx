@@ -19,6 +19,7 @@ export default function AtendimentoReceitasBar(props: AtendimentoReceitasBarProp
     confirmarEdicaoReceitaEmitida,
     criandoReceita,
     criarReceitaComplementar,
+    descartarEdicaoReceitaEmitida,
     formatDate,
     receitaAtiva,
     receitaEmitidaPendente,
@@ -99,13 +100,22 @@ export default function AtendimentoReceitasBar(props: AtendimentoReceitasBarProp
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{receitaEmitidaPendente.mensagem}</span>
           </p>
-          <button
-            type="button"
-            onClick={() => void confirmarEdicaoReceitaEmitida()}
-            className="inline-flex shrink-0 items-center justify-center rounded-2xl bg-amber-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-800"
-          >
-            Confirmar e salvar
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void descartarEdicaoReceitaEmitida()}
+              className="inline-flex items-center justify-center rounded-2xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 transition hover:bg-amber-100"
+            >
+              Descartar alteracao
+            </button>
+            <button
+              type="button"
+              onClick={() => void confirmarEdicaoReceitaEmitida()}
+              className="inline-flex items-center justify-center rounded-2xl bg-amber-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-800"
+            >
+              Confirmar e salvar
+            </button>
+          </div>
         </div>
       ) : null}
     </section>
