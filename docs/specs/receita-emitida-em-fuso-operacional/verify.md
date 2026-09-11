@@ -2,71 +2,97 @@
 
 Data: 2026-09-11  
 Responsavel: Martiniano Barros  
-Status: **nao verificado** - implementacao nao iniciada
+Status: implementado e verificado localmente, inclusive contra Postgres real.
+Verificacao manual em stage e a conferencia da prescricao #42 em producao
+seguem pendentes.
 
 ## 1) Matriz de rastreabilidade
 
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
-| RF-001 | funcional | serializacao com offset nos 4 pontos | pendente |
-| RF-002 | funcional | aviso mostra a hora local da emissao | pendente |
-| RF-003 | aceitacao | mesma hora antes e depois do reload | pendente |
-| RF-004 | aceitacao | registro existente exibido corretamente | pendente |
-| RF-005 | funcional | rotulo "Emitida"/"Rascunho" inalterado | pendente |
-| CA-001 | aceitacao | emissao as HH:MM devolve HH:MM com `-03:00` | pendente |
-| CA-002 | aceitacao | hora estavel entre render otimista e servidor | pendente |
-| CA-003 | aceitacao | prescricao #42 de producao passa a exibir 00:44 de 11/09/2026 | pendente |
-| CA-004 | nao funcional | migracao idempotente em SQLite e Postgres | pendente |
-| CA-005 | funcional | receita nao emitida segue nula e "Rascunho" | pendente |
-| CA-006 | funcional | guard de receita emitida sem 409 novo | pendente |
+| RF-001 / CA-001 | aceitacao | `test_emitida_em_e_servido_em_horario_operacional` - valor aware `2026-09-11T03:44:46+00:00` sai da API como `2026-09-11T00:44:46-03:00` | ok |
+| RF-006 | aceitacao | `test_aviso_de_receita_emitida_usa_hora_local` - a mensagem do 409 traz "11/09/2026 00:44" e nao contem "03:44" | ok |
+| RF-004 / CA-003 | aceitacao | migracao validada em Postgres 16: registro gravado pelo schema antigo passa a representar o instante correto (secao 3) | ok local; falta conferir #42 em producao |
+| CA-004 | nao funcional | migracao executada duas vezes seguidas em Postgres: segunda vira no-op pelo teste de tipo; chamada com `dialect="sqlite"` nao altera nada | ok |
+| RF-005 / CA-005 | funcional | `AtendimentoReceitasBar.test.tsx` - "distingue receita emitida de rascunho" segue passando; o teste de flag usa nulo, nao o formato | ok |
+| CA-006 | funcional | suite completa do backend sem regressao (1290 passed) | ok |
+| RF-002, RF-003 / CA-002 | aceitacao | depende de tela: verificar em stage | pendente |
+| Regressao | teste negativo | com a correcao revertida, os dois testes falham com exatamente o defeito relatado (secao 4) | ok |
 
-## 2) Evidencia do defeito, coletada antes da correcao
+## 2) Testes automatizados executados
 
-Serve de linha de base: depois da correcao, os mesmos pontos devem mudar.
+```bash
+cd backend && venv/bin/python -m pytest tests/ -q
+```
 
-- **Producao, 2026-09-11.** Varredura pela API nos 61 atendimentos: uma unica
-  receita com `emitida_em` preenchido - atendimento #42, prescricao #42,
-  valor `"2026-09-11T03:44:46.116954"`, sem offset. Emitida por volta das 00:44
-  locais, logo apos o deploy do dia. Desvio de +3h confirmado.
-- **Contrato do frontend.** `parseOperationalDate`
-  (`frontend/lib/atendimento-utils.ts:23`) anexa o offset operacional a toda
-  string sem fuso. Logo, `"...T03:44:46"` e renderizado como 03:44 local.
-- **Divergencia entre dialetos.** Reproduzido em 2026-09-11 com SQLAlchemy
-  sobre SQLite descartavel: gravando `datetime.now(ATENDIMENTO_LOCAL_TZ)` as
-  10:45 locais, o SQLite guarda `2026-09-11 10:45:22.612942` (numeros locais,
-  offset descartado) e le de volta naive. O Postgres guarda o equivalente em
-  UTC. Mesmo codigo, resultado diferente.
+```bash
+cd frontend && npm run lint && npx vitest run && npm run build
+```
 
-## 3) Roteiro de verificacao planejado
+- Backend: **1290 passed, 7 skipped, 278 subtests**. Dois testes novos.
+- Frontend: `eslint --max-warnings=0` limpo, **284 testes em 41 arquivos**,
+  `next build` concluido.
 
-Backend/automatizado:
+**`tsc --noEmit` acusa 3 erros em `app/whatsapp-stage/AppointmentQueue.test.tsx`
+(TS2322), anteriores a esta entrega e fora do seu diff** - ultimo commit a
+tocar o arquivo foi `31e1bb30`. Filtrando esse arquivo, o typecheck fica limpo.
+Vale registrar que o `quality-gate` do CI roda apenas `npm run lint` no
+frontend, sem `tsc`, e por isso nao sinaliza esse erro - foi o que permitiu a
+quebra chegar ate aqui.
 
-1. Emitir receita com o relogio em hora local conhecida; conferir que a API
-   devolve offset `-03:00` e a hora certa.
-2. Regressao: valor gravado no schema antigo (UTC naive) e servido como o
-   instante local correto depois da migracao.
-3. Migracao rodada duas vezes seguidas, em SQLite e em Postgres.
+## 3) Migracao verificada contra Postgres real
 
-**A suite de fuso precisa rodar contra Postgres.** Em SQLite ela passa mesmo
-com o defeito vivo - ver secao 3 da `spec.md`. O `migration-tests` do CI roda
-so em SQLite, entao esta parte fica fora dele, como ja aconteceu com a NFR-005
-da entrega anterior.
+Instancia Postgres 16.13 descartavel, sessao em `TimeZone='UTC'` para
+reproduzir producao. Roteiro em
+`scratchpad/testa_migracao_84.py` (nao versionado).
 
-Manual em stage:
+| Etapa | Resultado |
+| --- | --- |
+| Schema antigo (`TIMESTAMP`) + gravacao aware de 22:48-03:00 | guarda `2026-09-11 01:48:52.278245`, sem fuso - defeito reproduzido |
+| Migracao, 1a execucao | tipo vira `timestamp with time zone`; valor passa a representar `2026-09-10T22:48:52-03:00` |
+| Migracao, 2a execucao | valor inalterado - o teste de tipo faz virar no-op |
+| Chamada com `dialect="sqlite"` | nenhuma alteracao |
 
-4. Emitir uma receita anotando a hora do relogio; conferir o aviso na hora e
-   depois de recarregar (RF-003 so aparece com o reload).
-5. Conferir `emitida_em` na API e no `localStorage`, como no CA-013 da entrega
-   anterior.
+Por que o teste de tipo importa para a idempotencia: `AT TIME ZONE 'UTC'`
+aplicado a um `timestamptz` produz `timestamp` naive. Sem a guarda, reexecutar
+a migracao deslocaria os valores em vez de ser inofensivo.
 
-Producao, apos a promocao:
+**Atencao ao `TimeZone` da sessao.** A instancia local subiu com
+`TimeZone=America/Fortaleza`; foi preciso forcar `UTC` para reproduzir o
+defeito. O `USING ... AT TIME ZONE 'UTC'` so esta correto porque os valores de
+producao foram gravados sob sessao UTC - o que a propria prescricao #42
+comprova (03:44 gravado para uma emissao das 00:44 locais). Se em alguma base
+isso nao valer, a migracao corrige para o fuso errado.
 
-6. Conferir a prescricao #42 - deve exibir 00:44 de 11/09/2026.
+## 4) Teste negativo
 
-## 4) Riscos a observar na verificacao
+Revertendo a correcao (voltando `_to_iso` e `_formatar_data_hora` sem
+`_to_local_naive`), os dois testes novos falham:
 
-- Se o `TimeZone` da sessao do Postgres em producao nao for UTC, o `USING ...
-  AT TIME ZONE 'UTC'` da migracao corrige para o fuso errado. Conferir o
-  registro #42 antes e depois e a trava contra isso.
-- O ambiente local nao reproduz o defeito; concluir a partir dele daria falso
-  positivo.
+```
+AssertionError: '2026-09-11T03:44:46+00:00' != '2026-09-11T00:44:46-03:00'
+AssertionError: '11/09/2026 00:44' not found in 'A receita 1 deste atendimento
+foi emitida em 11/09/2026 03:44. ...'
+```
+
+A segunda linha e literalmente o texto que aparecia na tela. Confirma que os
+testes cobrem o defeito relatado, e nao so a funcao auxiliar.
+
+## 5) Por que os testes injetam o valor direto
+
+Os dois testes atribuem um `datetime` aware em UTC ao objeto, sem ida ao banco.
+E proposital: em SQLite a gravacao descarta o offset e guarda os numeros
+locais, entao um teste que dependesse do round trip passaria **mesmo com o
+defeito vivo**. Injetando o aware, o teste exercita exatamente o que o Postgres
+devolve depois da migracao, e vale nos dois dialetos.
+
+## 6) Pendente
+
+- Verificacao manual em stage (RF-002, RF-003 / CA-002): emitir uma receita
+  anotando a hora do relogio e conferir o aviso na hora e **depois de
+  recarregar** - o valor otimista do frontend usa `toISOString()` e sempre
+  mostrou a hora certa; o defeito so aparecia apos o reload.
+- Producao, apos a promocao: conferir a prescricao #42, hoje em
+  `2026-09-11T03:44:46.116954`, que deve passar a exibir 00:44 de 11/09/2026.
+- Stage nao tem receita emitida no momento: o atendimento #16, que servia de
+  evidencia, foi removido em 2026-09-11. O roteiro precisa recriar o cenario.

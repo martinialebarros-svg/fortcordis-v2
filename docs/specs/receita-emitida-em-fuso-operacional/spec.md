@@ -2,7 +2,7 @@
 
 Data: 2026-09-11  
 Responsavel: Martiniano Barros  
-Status: draft - decisao de armazenamento tomada (secao 3: Opcao A)
+Status: implementado; verificacao em stage pendente
 
 ## 1) Escopo
 
@@ -15,6 +15,10 @@ real da emissao. Inclui o unico registro ja gravado com desvio.
 - RF-001: a API entrega `emitida_em` em horario operacional (UTC-3),
   explicitamente marcado com offset, em todos os 4 pontos de serializacao
   (`atendimento.py` linhas 2087, 2114, 2437 e 6074).
+- RF-006: o texto do aviso de receita emitida, que vem pronto do backend via
+  `_formatar_data_hora` (linhas 2080 e 2108), tambem mostra hora local. Achado
+  durante a implementacao: sao 2 pontos alem dos 4 de serializacao, e sao
+  justamente os que produzem a string que o vet le na tela.
 - RF-002: o aviso "Esta receita foi emitida em ..." mostra a hora local da
   emissao.
 - RF-003: a hora exibida e a mesma antes e depois de recarregar a pagina - o

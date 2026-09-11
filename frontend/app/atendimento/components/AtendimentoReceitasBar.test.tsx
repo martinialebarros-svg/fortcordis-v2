@@ -10,7 +10,7 @@ afterEach(() => {
 const receitaDoDia = {
   id: 10,
   sequencia: 1,
-  emitida_em: "2026-09-01T15:00:00",
+  emitida_em: "2026-09-01T15:00:00-03:00",
   orientacoes_gerais: "Repouso",
   retorno_dias: 7,
   itens: [],
