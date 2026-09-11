@@ -1556,6 +1556,10 @@ export default function AtendimentoPage() {
   const [receitaEmitidaPendente, setReceitaEmitidaPendente] = useState<
     { prescricao_id: number; mensagem: string } | null
   >(null);
+  const receitaEmitidaPendenteRef = useRef<{ prescricao_id: number; mensagem: string } | null>(null);
+  // `receitaAtiva` e derivada mais abaixo; o descarte roda em handler e
+  // precisa do valor corrente sem depender da ordem de declaracao.
+  const receitaAtivaRef = useRef<ReceitaResumo | null>(null);
   // Exame escolhido no card de cada adendo na hora de anexar o arquivo.
   const [exameDoAdendo, setExameDoAdendo] = useState<Record<number, string>>({});
 
@@ -4660,6 +4664,7 @@ export default function AtendimentoPage() {
       const hydrated = hydrateFormFromDetail(detalheSalvo, currentForm.prescricao_alvo_id);
       setAdendos(Array.isArray(detalheSalvo.adendos) ? detalheSalvo.adendos : []);
       setReceitas(Array.isArray(detalheSalvo.prescricoes) ? detalheSalvo.prescricoes : []);
+      receitaEmitidaPendenteRef.current = null;
       setReceitaEmitidaPendente(null);
       lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(hydrated);
 
@@ -5199,11 +5204,39 @@ export default function AtendimentoPage() {
    */
   const registrarPendenciaReceitaEmitida = (erro: any) => {
     const detalhe = erro?.response?.data?.detail;
-    setReceitaEmitidaPendente({
+    const pendencia = {
       prescricao_id: Number(detalhe?.prescricao_id || 0),
       mensagem: String(detalhe?.mensagem || "Esta receita ja foi emitida."),
-    });
+    };
+    // Ref junto do estado: quem chamou o save decide o que fazer ainda neste
+    // tick, antes de o estado ser aplicado.
+    receitaEmitidaPendenteRef.current = pendencia;
+    setReceitaEmitidaPendente(pendencia);
     setAutosaveState("dirty");
+  };
+
+  // Leitura por funcao: atribuir `null` ao ref logo antes faria o TypeScript
+  // estreitar a variavel para `null` e perder o tipo da pendencia que o save
+  // pode ter registrado no meio do caminho.
+  const lerPendenciaReceitaEmitida = () => receitaEmitidaPendenteRef.current;
+
+  const limparPendenciaReceitaEmitida = () => {
+    receitaEmitidaPendenteRef.current = null;
+    setReceitaEmitidaPendente(null);
+  };
+
+  /**
+   * Volta a receita ao conteudo que esta no servidor.
+   *
+   * Fica num botao proprio, e nao no "cancelar" do dialogo: Escape e clique
+   * fora resolvem como cancelamento, e descartar texto clinico por um Escape
+   * acidental seria perda de dado silenciosa.
+   */
+  const descartarEdicaoReceitaEmitida = () => {
+    limparPendenciaReceitaEmitida();
+    aplicarReceitaNoFormulario(receitaAtivaRef.current);
+    setErro("");
+    setSucesso("Alteracao descartada. A receita voltou ao conteudo ja emitido.");
   };
 
   const aplicarReceitaNoFormulario = (receita: ReceitaResumo | null) => {
@@ -5234,7 +5267,34 @@ export default function AtendimentoPage() {
     if (alvoAtual === (prescricaoId || null)) return;
 
     // Troca sem salvar perderia o que foi digitado na receita anterior.
-    const salvou = await saveAtendimento("manual");
+    receitaEmitidaPendenteRef.current = null;
+    let salvou = await saveAtendimento("manual");
+    const pendenciaAposSalvar = lerPendenciaReceitaEmitida();
+
+    if (!salvou && pendenciaAposSalvar) {
+      // A receita aberta foi emitida e tem alteracao nao confirmada. Sem
+      // perguntar aqui, o clique de troca nao fazia nada visivel e o vet
+      // ficava preso - inclusive digitando na receita errada sem perceber.
+      const pendencia = pendenciaAposSalvar;
+      const confirmado = await confirmarAcao({
+        titulo: "Receita emitida com alteracao nao salva",
+        descricao:
+          `${pendencia.mensagem} Confirmar grava a alteracao e segue para a outra receita. ` +
+          "Ficar nesta receita mantem a alteracao em aberto - da para descartar pelo aviso.",
+        confirmLabel: "Confirmar alteracao e trocar",
+        cancelLabel: "Ficar nesta receita",
+      });
+      if (!confirmado) return;
+
+      const confirmadas = receitasEdicaoConfirmadaRef.current.includes(pendencia.prescricao_id)
+        ? receitasEdicaoConfirmadaRef.current
+        : [...receitasEdicaoConfirmadaRef.current, pendencia.prescricao_id];
+      receitasEdicaoConfirmadaRef.current = confirmadas;
+      setReceitasEdicaoConfirmada(confirmadas);
+      limparPendenciaReceitaEmitida();
+      salvou = await saveAtendimento("manual");
+    }
+
     if (!salvou) return;
 
     const alvo =
@@ -5289,7 +5349,7 @@ export default function AtendimentoPage() {
     // Ref primeiro: o save abaixo roda antes de o estado ser aplicado.
     receitasEdicaoConfirmadaRef.current = confirmadas;
     setReceitasEdicaoConfirmada(confirmadas);
-    setReceitaEmitidaPendente(null);
+    limparPendenciaReceitaEmitida();
     setErro("");
     await saveAtendimento("manual");
   };
@@ -6525,6 +6585,7 @@ export default function AtendimentoPage() {
     }
     return receitas.find((item) => item.sequencia === 1) || null;
   }, [receitas, form.prescricao_alvo_id]);
+  receitaAtivaRef.current = receitaAtiva;
   // Exames que ainda esperam arquivo: sao o alvo natural de um adendo de
   // resultado recebido depois da alta.
   const examesAguardandoArquivo = useMemo(
@@ -8341,6 +8402,7 @@ export default function AtendimentoPage() {
                       atendimentoConcluido={atendimentoConcluido}
                       confirmarEdicaoReceitaEmitida={confirmarEdicaoReceitaEmitida}
                       criandoReceita={criandoReceita}
+                      descartarEdicaoReceitaEmitida={descartarEdicaoReceitaEmitida}
                       criarReceitaComplementar={criarReceitaComplementar}
                       formatDate={formatDate}
                       receitaAtiva={receitaAtiva}

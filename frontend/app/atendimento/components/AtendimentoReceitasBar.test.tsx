@@ -33,6 +33,7 @@ type HarnessProps = {
   selecionarReceita?: (id: number | null) => void;
   criarReceitaComplementar?: () => void;
   confirmarEdicaoReceitaEmitida?: () => void;
+  descartarEdicaoReceitaEmitida?: () => void;
 };
 
 function Harness(props: HarnessProps) {
@@ -42,6 +43,7 @@ function Harness(props: HarnessProps) {
       confirmarEdicaoReceitaEmitida={props.confirmarEdicaoReceitaEmitida ?? (() => {})}
       criandoReceita={false}
       criarReceitaComplementar={props.criarReceitaComplementar ?? (() => {})}
+      descartarEdicaoReceitaEmitida={props.descartarEdicaoReceitaEmitida ?? (() => {})}
       formatDate={(valor: string) => valor}
       receitaAtiva={props.receitaAtiva === undefined ? receitaDoDia : props.receitaAtiva}
       receitaEmitidaPendente={props.receitaEmitidaPendente ?? null}
@@ -102,6 +104,27 @@ describe("AtendimentoReceitasBar", () => {
     expect(screen.getByText(/A receita 1 foi emitida em 01\/09\/2026\./)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Confirmar e salvar/i }));
     await waitFor(() => expect(confirmar).toHaveBeenCalledTimes(1));
+  });
+
+  it("oferece descartar a alteracao ao lado de confirmar", async () => {
+    // O descarte tem botao proprio de proposito: no dialogo booleano do
+    // projeto, Escape e clique fora resolvem como cancelar, e descartar
+    // texto clinico por Escape seria perda de dado silenciosa.
+    const descartar = vi.fn();
+    render(
+      <Harness
+        descartarEdicaoReceitaEmitida={descartar}
+        receitaEmitidaPendente={{ prescricao_id: 10, mensagem: "A receita 1 foi emitida." }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Descartar alteracao/i }));
+    await waitFor(() => expect(descartar).toHaveBeenCalledTimes(1));
+  });
+
+  it("nao mostra descartar quando nao ha alteracao pendente", () => {
+    render(<Harness />);
+    expect(screen.queryByRole("button", { name: /Descartar alteracao/i })).toBeNull();
   });
 
   it("cria receita complementar pelo botao dedicado", () => {

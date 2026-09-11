@@ -110,6 +110,15 @@ status do agendamento.
   ha algo a salvar.
 - RF-027: confirmar a edicao de uma receita emitida reenvia o save ja com a
   confirmacao, sem depender de um novo ciclo de renderizacao.
+- RF-028: trocar de receita com alteracao nao confirmada numa receita ja
+  emitida abre confirmacao explicita, em vez de o clique nao produzir efeito
+  visivel. Confirmar grava a alteracao e troca; cancelar mantem o vet na
+  receita atual, com o aviso em aberto.
+- RF-029: o aviso de receita emitida oferece "Descartar alteracao", que
+  devolve a receita ao conteudo do servidor. O descarte fica em botao
+  proprio, e nao no cancelamento do dialogo: Escape e clique fora resolvem
+  como cancelar, e descartar texto clinico por Escape seria perda de dado
+  silenciosa.
 - RF-025: um adendo de tipo `receita_complementar` sem receita vinculada
   oferece "Emitir receita deste adendo", que cria a receita complementar
   ligada aquele adendo; com receita vinculada, exibe o estado em vez da acao.
@@ -228,6 +237,9 @@ registro historico.
   alteracao, sem depender de salvamento manual.
 - CA-011: clicar em "Confirmar e salvar" no aviso de receita emitida aplica a
   edicao na primeira tentativa.
+- CA-012: com alteracao nao confirmada numa receita emitida, clicar em outra
+  receita abre confirmacao; cancelando, o vet permanece na receita atual e
+  nada e perdido.
 - CA-008: um cliente que chama `GET /atendimentos/{id}/prescricao/pdf` e le
   apenas a chave `prescricao` continua funcionando sem alteracao.
 
