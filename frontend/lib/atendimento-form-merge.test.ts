@@ -3,6 +3,7 @@ import type { AtendimentoForm, ExameSolicitacao } from "@/app/atendimento/page";
 import {
   getExamStateKey,
   isClearedPersistedExamEligibleForRemoval,
+  mergeAtendimentoFinalizado,
   mergeAutoSavedFormState,
   reconcileExamsDuringSave,
 } from "./atendimento-form-merge";
@@ -259,5 +260,43 @@ describe("mergeAutoSavedFormState (finalizarAtendimento)", () => {
         catalogo_exame_id: 12,
       })
     ).toBe(false);
+  });
+});
+
+describe("mergeAtendimentoFinalizado", () => {
+  // Defeito visto em producao em 2026-09-11, no atendimento #62: depois de
+  // finalizar, todo autosave voltava 409 "nao pode ser reaberto isoladamente"
+  // e o botao de emitir receita morria em silencio, porque ele salva antes de
+  // gerar o PDF. A causa era o status antigo sobrevivendo no formulario.
+  it("adota o status Concluido devolvido pelo finalizar", () => {
+    const current = { ...baseForm(), status: "Em atendimento" };
+    const persisted = { ...baseForm(), status: "Concluido" };
+
+    const merged = mergeAtendimentoFinalizado(current, persisted);
+
+    expect(merged.status).toBe("Concluido");
+  });
+
+  it("continua preservando a edicao de texto feita durante o round-trip", () => {
+    const current = {
+      ...baseForm(),
+      status: "Em atendimento",
+      queixa_principal: "digitado enquanto o finalizar respondia",
+    };
+    const persisted = { ...baseForm(), status: "Concluido", queixa_principal: "" };
+
+    const merged = mergeAtendimentoFinalizado(current, persisted);
+
+    expect(merged.queixa_principal).toBe("digitado enquanto o finalizar respondia");
+    expect(merged.status).toBe("Concluido");
+  });
+
+  it("mantem o status local quando o servidor nao devolve um", () => {
+    const current = { ...baseForm(), status: "Em atendimento" };
+    const persisted = { ...baseForm(), status: "" };
+
+    const merged = mergeAtendimentoFinalizado(current, persisted);
+
+    expect(merged.status).toBe("Em atendimento");
   });
 });
