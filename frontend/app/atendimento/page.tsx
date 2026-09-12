@@ -11,6 +11,7 @@ import {
   buildExamMergeKey,
   getExamStateKey,
   isClearedPersistedExamEligibleForRemoval,
+  mergeAtendimentoFinalizado,
   mergeAutoSavedFormState,
   reconcileExamsDuringSave,
 } from "@/lib/atendimento-form-merge";
@@ -4824,7 +4825,7 @@ export default function AtendimentoPage() {
       // round-trip nao pode ser apagada pela resposta do servidor.
       setForm((current) => {
         const semExcluidos = current.exames.filter((item) => !item._destroy);
-        return mergeAutoSavedFormState(
+        return mergeAtendimentoFinalizado(
           { ...current, exames: semExcluidos.length > 0 ? semExcluidos : [emptyExam()] },
           hydrated
         );
@@ -6487,7 +6488,17 @@ export default function AtendimentoPage() {
 
       if (precisaSalvarAntesDoPdf) {
         atendimentoId = await saveAtendimento("manual");
-        if (!atendimentoId) return;
+        if (!atendimentoId) {
+          // Sair calado daqui foi o que travou a emissao no atendimento #62:
+          // o save falhava, o clique nao produzia nada visivel e o aviso na
+          // tela era o do save, sem ligacao aparente com o botao apertado.
+          setErro((atual) =>
+            atual
+              ? `${atual} O documento nao foi gerado: ele exige salvar o atendimento antes.`
+              : "Nao foi possivel salvar o atendimento, entao o documento nao foi gerado."
+          );
+          return;
+        }
       }
 
       // Com uma receita complementar aberta, o PDF e o dela - o endpoint
