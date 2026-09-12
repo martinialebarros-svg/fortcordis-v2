@@ -1,0 +1,93 @@
+name: Deploy Discard Guard
+
+# Os deploys da VPS compartilham `concurrency.group: fortcordis-vps-deploy`
+# (prod e stage moram na mesma maquina e disputam apt, nginx e o backup dir;
+# nenhum dos scripts tem lock proprio, entao o grupo e a unica serializacao).
+# O GitHub so mantem um run pendente por grupo: quando outro run entra na fila,
+# um dos pendentes e descartado. Ele termina com `conclusion: cancelled` e
+# `total_count: 0` em /actions/runs/<id>/jobs -- nenhum job chegou a rodar --
+# e nada no `gh run list` avisa que aquilo era um deploy de produção perdido.
+#
+# Este guard existe para que esse descarte nao passe em silencio. Ele roda
+# FORA do grupo de concorrencia de proposito: um detector que entrasse no grupo
+# poderia ser descartado pelo mesmo mecanismo que deveria denunciar. Pelo mesmo
+# motivo a checagem nao pode viver dentro do deploy.yml -- o run descartado nao
+# executa job nenhum.
+#
+# Atencao: `workflow_run` so dispara com o arquivo presente na branch default
+# (`main`). Enquanto este workflow estiver so em `stage`, ele fica inerte; a
+# vigilancia comeca na promocao `stage -> main`.
+
+on:
+  workflow_run:
+    workflows: ["Deploy to VPS"]
+    types: [completed]
+
+permissions:
+  actions: read
+  issues: write
+
+jobs:
+  denunciar-deploy-descartado:
+    # Um deploy que rodou e falhou ja aparece vermelho sozinho; aqui so
+    # interessa o cancelamento, que e o caso que some sem deixar rastro.
+    if: ${{ github.event.workflow_run.conclusion == 'cancelled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verificar se o deploy de produção foi descartado sem rodar
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          # Sem `set -e` na chamada: uma falha transitoria da API nao pode virar
+          # um alarme dizendo que produção esta desatualizada quando talvez nao esteja.
+          TOTAL="$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" --jq '.total_count' || true)"
+          echo "run_id=${RUN_ID} head_sha=${HEAD_SHA} jobs_total_count=${TOTAL:-<falha>}"
+
+          if ! [[ "${TOTAL}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Nao foi possivel consultar os jobs do run ${RUN_ID} (${RUN_URL})."
+            echo "::error::Confira manualmente se o deploy de produção do commit ${HEAD_SHA} chegou a rodar."
+            exit 1
+          fi
+
+          if [[ "${TOTAL}" -gt 0 ]]; then
+            echo "Deploy de produção cancelado depois de iniciar (${TOTAL} job(s))."
+            echo "Cancelamento manual ou falha no meio do caminho: fora do escopo deste guard."
+            exit 0
+          fi
+
+          {
+            echo "## Deploy de produção descartado sem rodar"
+            echo
+            echo "- Commit: \`${HEAD_SHA}\`"
+            echo "- Run descartado: ${RUN_URL}"
+            echo
+            echo "O run terminou como \`cancelled\` com **zero jobs**: ele foi expulso da fila"
+            echo "do grupo \`fortcordis-vps-deploy\` por outro run e nunca chegou a deployar."
+            echo "**Produção NAO recebeu este commit.**"
+            echo
+            echo "Para corrigir: re-execute o deploy em ${RUN_URL} (Re-run all jobs)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          gh issue create \
+            --repo "${REPO}" \
+            --title "Deploy de produção descartado sem rodar (run ${RUN_ID})" \
+            --body "$(printf '%s\n' \
+              "O deploy de produção do commit \`${HEAD_SHA}\` foi descartado da fila de concorrencia e **nao chegou a rodar**." \
+              "" \
+              "- Run: ${RUN_URL}" \
+              "- \`conclusion: cancelled\`, \`total_count: 0\` em \`/actions/runs/${RUN_ID}/jobs\`" \
+              "" \
+              "Produção continua na versao anterior. Re-execute o deploy pelo link acima (Re-run all jobs)." \
+              "" \
+              "Contexto do mecanismo: \`.github/workflows/deploy-discard-guard.yml\`.")" \
+            || echo "::warning::Nao foi possivel abrir a issue; o erro abaixo ainda marca o incidente."
+
+          echo "::error::Deploy de produção do commit ${HEAD_SHA} foi descartado sem rodar nenhum job. Produção NAO recebeu este commit. Re-execute: ${RUN_URL}"
+          exit 1
