@@ -112,6 +112,42 @@ export const APPROVED_UTILITY_TEMPLATES = {
       "Detalhamento: {{4}}. Se o pagamento já foi realizado, desconsidere esta mensagem.",
     quickReplies: ["Já paguei", "Falar com financeiro"],
     buttonActions: ["ja_paguei", "falar_financeiro"]
+  },
+  portalClinicInviteActivation: {
+    name: "convite_portal_clinica_v2",
+    // Aprovado pela Meta em 30/08/2026 (categoria Utilidade) - ver docs/specs/whatsapp-portal-clinic-invite-template/.
+    // Nome mudou de "convite_portal_clinica" para "_v2": a primeira submissao foi rejeitada por
+    // categoria (a Meta sugeriu Autenticacao) e nomes de modelo excluidos/rejeitados ficam bloqueados
+    // por 30 dias no WhatsApp Manager.
+    metaId: "1402681525155612",
+    body:
+      "Olá, equipe {{1}}. A Fort Cordis liberou o acesso da unidade ao Portal Fort Cordis, onde é " +
+      "possível acompanhar exames e laudos dos pacientes atendidos. Para começar a usar, abra o link " +
+      "a seguir: {{2}} (disponível por {{3}}).",
+    quickReplies: [],
+    buttonActions: []
+  },
+  portalClinicInviteLoginAccess: {
+    name: "acesso_portal_clinica",
+    // Aprovado pela Meta em 30/08/2026 (categoria Utilidade) - ver docs/specs/whatsapp-portal-clinic-invite-template/.
+    metaId: "1758345232162346",
+    body:
+      "Olá, equipe {{1}}. A Fort Cordis atualizou o cadastro da unidade no Portal Fort Cordis. " +
+      "Continue consultando exames e laudos pelo link {{2}}. Referência: {{3}}. Qualquer dúvida, " +
+      "fale com a equipe Fort Cordis.",
+    quickReplies: [],
+    buttonActions: []
+  },
+  portalClinicInviteTemporaryPassword: {
+    name: "senha_temporaria_portal_clinica",
+    // Aprovado pela Meta em 30/08/2026 (categoria Utilidade) - ver docs/specs/whatsapp-portal-clinic-invite-template/.
+    metaId: "1087880320425546",
+    body:
+      "Olá, equipe {{1}}. Concluímos o cadastro da unidade no Portal Fort Cordis. Continue " +
+      "consultando exames e laudos pelo link {{2}}. Dados do cadastro: {{3}} / {{4}}. Qualquer " +
+      "dúvida, fale com a equipe Fort Cordis.",
+    quickReplies: [],
+    buttonActions: []
   }
 } as const;
 

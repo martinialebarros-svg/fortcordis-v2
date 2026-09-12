@@ -16,7 +16,7 @@ import { logger } from "../utils/logger";
 import { canonicalWhatsAppIdentity } from "../utils/phoneNumber";
 
 type UtilityTemplateKey = Exclude<ApprovedUtilityTemplateKey, "reservation">;
-type SubjectType = "agendamento" | "exame" | "ordem_servico";
+type SubjectType = "agendamento" | "exame" | "ordem_servico" | "clinica";
 
 interface UtilityTemplateRequest {
   template_key: UtilityTemplateKey;
@@ -47,7 +47,10 @@ const SUBJECT_BY_TEMPLATE: Record<UtilityTemplateKey, SubjectType> = {
   receiptPdf: "ordem_servico",
   receiptPdfBulk: "ordem_servico",
   pendingPaymentReminder: "ordem_servico",
-  pendingPaymentReminderBulk: "ordem_servico"
+  pendingPaymentReminderBulk: "ordem_servico",
+  portalClinicInviteActivation: "clinica",
+  portalClinicInviteLoginAccess: "clinica",
+  portalClinicInviteTemporaryPassword: "clinica"
 };
 
 function cleanText(value: unknown, field: string, maxLength: number): string {

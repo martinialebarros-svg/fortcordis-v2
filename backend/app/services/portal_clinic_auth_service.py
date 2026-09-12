@@ -22,11 +22,9 @@ from app.models.portal_clinic_auth import (
     PortalClinicSession,
     PortalPasswordResetToken,
 )
-from app.services.portal_delivery_service import (
-    PortalDeliveryResult,
-    send_portal_email_message,
-    send_portal_whatsapp_message,
-)
+from app.services.portal_delivery_service import PortalDeliveryResult, send_portal_email_message
+from app.services.whatsapp_agenda_service import normalize_whatsapp_number
+from app.services.whatsapp_template_delivery_service import send_approved_utility_template
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 _BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$", "$2$")
@@ -586,74 +584,63 @@ def send_password_reset_email(
 def send_whatsapp_invite(
     *,
     destination: str,
+    clinica_id: int,
     clinica_nome: str,
     activation_url: str,
     expires_in_hours: int,
+    idempotency_key: str,
 ) -> PortalDeliveryResult:
-    return send_portal_whatsapp_message(
-        destination=destination,
-        message=(
-            f"Fort Cordis: sua clinica ja pode ativar o portal seguro para consultar exames e laudos liberados. "
-            f"Use este link individual para criar a senha da unidade: {activation_url} . "
-            f"Este convite expira em {expires_in_hours} hora(s) e nao deve ser compartilhado com pessoas nao autorizadas."
-        ),
-        metadata={
-            "invite_kind": "portal_clinic_activation",
-            "activation_url": activation_url,
-            "expires_in_hours": expires_in_hours,
-            "clinica_nome": clinica_nome,
-        },
+    expira_em = f"{max(1, int(expires_in_hours))} hora(s)"
+    send_approved_utility_template(
+        template_key="portalClinicInviteActivation",
+        subject_type="clinica",
+        subject_id=clinica_id,
+        destination=normalize_whatsapp_number(destination),
+        parameters=[clinica_nome, activation_url, expira_em],
+        idempotency_key=idempotency_key,
     )
+    return PortalDeliveryResult(provider="whatsapp_business_template", channel="whatsapp")
 
 
 def send_whatsapp_login_access(
     *,
     destination: str,
+    clinica_id: int,
     clinica_nome: str,
     portal_url: str,
     account_email: str,
+    idempotency_key: str,
 ) -> PortalDeliveryResult:
-    return send_portal_whatsapp_message(
-        destination=destination,
-        message=(
-            f"Fort Cordis: a clinica {clinica_nome} ja tem acesso ativo ao portal seguro para consultar exames e laudos liberados. "
-            f"Use este link para entrar no portal: {portal_url} . "
-            f"Email de acesso: {account_email}. Se a senha tiver sido esquecida, use a opcao 'Esqueci minha senha' na propria tela de entrada. "
-            "Nao compartilhe este acesso fora da equipe autorizada."
-        ),
-        metadata={
-            "invite_kind": "portal_clinic_login_access",
-            "portal_url": portal_url,
-            "account_email": account_email,
-            "clinica_nome": clinica_nome,
-        },
+    send_approved_utility_template(
+        template_key="portalClinicInviteLoginAccess",
+        subject_type="clinica",
+        subject_id=clinica_id,
+        destination=normalize_whatsapp_number(destination),
+        parameters=[clinica_nome, portal_url, account_email],
+        idempotency_key=idempotency_key,
     )
+    return PortalDeliveryResult(provider="whatsapp_business_template", channel="whatsapp")
 
 
 def send_whatsapp_temporary_password(
     *,
     destination: str,
+    clinica_id: int,
     clinica_nome: str,
     portal_url: str,
     account_email: str,
     senha_temporaria: str,
+    idempotency_key: str,
 ) -> PortalDeliveryResult:
-    return send_portal_whatsapp_message(
-        destination=destination,
-        message=(
-            f"Fort Cordis: liberamos o acesso da clinica {clinica_nome} ao portal seguro para consultar exames e laudos liberados. "
-            f"Use este link para entrar: {portal_url} . "
-            f"Email de acesso: {account_email}. Senha temporaria: {senha_temporaria} . "
-            "No primeiro acesso vamos pedir um codigo extra por email e vamos te lembrar de trocar essa senha por uma so sua. "
-            "Nao compartilhe este acesso fora da equipe autorizada."
-        ),
-        metadata={
-            "invite_kind": "portal_clinic_temporary_password",
-            "portal_url": portal_url,
-            "account_email": account_email,
-            "clinica_nome": clinica_nome,
-        },
+    send_approved_utility_template(
+        template_key="portalClinicInviteTemporaryPassword",
+        subject_type="clinica",
+        subject_id=clinica_id,
+        destination=normalize_whatsapp_number(destination),
+        parameters=[clinica_nome, portal_url, account_email, senha_temporaria],
+        idempotency_key=idempotency_key,
     )
+    return PortalDeliveryResult(provider="whatsapp_business_template", channel="whatsapp")
 
 
 def create_refresh_session(

@@ -22,8 +22,11 @@ ApprovedUtilityTemplateKey = Literal[
     "receiptPdfBulk",
     "pendingPaymentReminder",
     "pendingPaymentReminderBulk",
+    "portalClinicInviteActivation",
+    "portalClinicInviteLoginAccess",
+    "portalClinicInviteTemporaryPassword",
 ]
-ApprovedTemplateSubject = Literal["agendamento", "exame", "ordem_servico"]
+ApprovedTemplateSubject = Literal["agendamento", "exame", "ordem_servico", "clinica"]
 
 
 class WhatsAppTemplateDeliveryError(RuntimeError):

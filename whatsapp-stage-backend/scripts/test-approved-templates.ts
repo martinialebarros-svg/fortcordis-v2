@@ -21,10 +21,13 @@ async function run(): Promise<void> {
     receiptPdf: ["recibo_pagamento_pdf", "1025876410335393", 7, 1],
     receiptPdfBulk: ["recibo_pagamento_pdf_multiplas_os", "940165775772306", 3, 1],
     pendingPaymentReminder: ["lembrete_pagamento_pendente_detalhado", "1265598002271332", 7, 2],
-    pendingPaymentReminderBulk: ["lembrete_pagamento_pendente_multiplas_os", "1574210064240409", 4, 2]
+    pendingPaymentReminderBulk: ["lembrete_pagamento_pendente_multiplas_os", "1574210064240409", 4, 2],
+    portalClinicInviteActivation: ["convite_portal_clinica_v2", "1402681525155612", 3, 0],
+    portalClinicInviteLoginAccess: ["acesso_portal_clinica", "1758345232162346", 3, 0],
+    portalClinicInviteTemporaryPassword: ["senha_temporaria_portal_clinica", "1087880320425546", 4, 0]
   } as const;
 
-  assert.strictEqual(Object.keys(APPROVED_UTILITY_TEMPLATES).length, 12);
+  assert.strictEqual(Object.keys(APPROVED_UTILITY_TEMPLATES).length, 15);
   assert.strictEqual(APPROVED_TEMPLATE_LANGUAGE, "pt_BR");
   for (const [templateKey, definition] of Object.entries(APPROVED_UTILITY_TEMPLATES)) {
     const expected = expectedCatalog[templateKey as keyof typeof expectedCatalog];

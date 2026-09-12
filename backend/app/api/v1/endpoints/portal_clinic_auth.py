@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -994,29 +995,35 @@ def criar_convite_clinica(
     delivery_status = "manual_copy"
     delivery_provider = None
 
-    if settings.PORTAL_WHATSAPP_ENABLED:
+    if settings.WHATSAPP_AGENDA_ENABLED:
         try:
             if access_mode == "login":
                 result = send_whatsapp_login_access(
                     destination=payload.delivery_target,
+                    clinica_id=clinica.id,
                     clinica_nome=clinica.nome,
                     portal_url=access_url,
                     account_email=normalize_email(existing_account.email_normalized),
+                    idempotency_key=f"portal-clinic-login-{existing_account.id}-{secrets.token_hex(6)}",
                 )
             elif access_mode == "temporary_password":
                 result = send_whatsapp_temporary_password(
                     destination=payload.delivery_target,
+                    clinica_id=clinica.id,
                     clinica_nome=clinica.nome,
                     portal_url=access_url,
                     account_email=normalized_payload_email,
                     senha_temporaria=senha_temporaria_gerada or "",
+                    idempotency_key=f"portal-clinic-temp-password-{temp_password_account_id}-{secrets.token_hex(6)}",
                 )
             else:
                 result = send_whatsapp_invite(
                     destination=payload.delivery_target,
+                    clinica_id=clinica.id,
                     clinica_nome=clinica.nome,
                     activation_url=access_url,
                     expires_in_hours=payload.expires_in_hours,
+                    idempotency_key=f"portal-clinic-invite-{invite.id if invite is not None else secrets.token_hex(6)}",
                 )
             if invite is not None:
                 invite.delivered_at = utcnow()
