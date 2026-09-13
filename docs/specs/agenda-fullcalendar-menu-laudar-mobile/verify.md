@@ -65,12 +65,39 @@ Confirmada pelo responsavel em 2026-09-13, em celular proprio, sobre o commit
 detalhes e as opcoes ficam legiveis. Aparelho e navegador nao foram
 registrados.
 
-Nao coberto: o desktop no app real. RF-004 (dropdown saindo pela esquerda do
-botao) segue apoiado na medicao do repro - borda esquerda do painel coincidindo
-com a do `<summary>` em 1200x800, secao 1.
+O desktop no app real nao estava coberto, e RF-004 ficou apoiado na medicao do
+repro. Fechado depois, em producao - secao 7.
 
 ## 6) Origem
 
 Veio da observacao fora de escopo registrada na secao 6 do `verify.md` de
 `agenda-lista-menu-laudar-mobile`, e fecha aquele item. O relato original do
 usuario era so sobre o modo lista.
+
+## 7) Conferencia em producao (2026-09-13)
+
+Feita apos a promocao `24479dc3`, em `app.fortcordis.com.br`. Um evento foi
+aberto no calendario de setembro/2026 (113 eventos no periodo) para materializar
+o card "Detalhes do evento selecionado", e o menu foi aberto a partir dele.
+
+Somente navegacao e leitura; **nenhum dos tres tipos de laudo foi clicado**.
+
+| Verificacao | 375x812 (celular) | 1440x900 (desktop) |
+| --- | --- | --- |
+| `position` do painel | `fixed` | `absolute` |
+| `left` / `right` computados | `12px` / `12px` | - |
+| Painel na viewport | 664 a 800, viewport 812 - inteiro | - |
+| Ancoragem | rodape da viewport | borda esquerda coincide com a do `<summary>` |
+| Largura | - | 240px, o `w-60` compartilhado (secao 6 do `spec.md`) |
+| Tres itens | dentro da tela e clicaveis | clicaveis |
+| Tocar fora | fecha o `<details>` | - |
+| `overflow` de `.fc-calendar-detail-card` | `visible` | `visible` |
+
+A linha de `left`/`right` e a que mais importa aqui. O risco registrado em
+`plan.md` secao 3 era a ordem entre `.fc-agenda-row-menu-panel-start` e o bloco
+`@media`: se a variante viesse depois, o `left: 0` venceria no celular e a folha
+de rodape encostaria no canto esquerdo com largura de dropdown. Os `12px` dos
+dois lados confirmam, no ambiente publicado, que a ordem esta correta - ate aqui
+isso so tinha sido conferido lendo o CSS compilado.
+
+RF-004 passa a ter evidencia no app real.
