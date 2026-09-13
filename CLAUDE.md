@@ -35,6 +35,29 @@ pulando a verificacao.
 
 Detalhes e passos manuais de configuracao: `docs/RUNBOOK-STAGE-PROD.md`.
 
+## Uma worktree por sessao
+
+Mais de um agente trabalha neste repo ao mesmo tempo. Um clone git tem **um**
+HEAD e **um** index: duas sessoes no mesmo diretorio se atropelam sempre —
+`git checkout` de uma troca a branch da outra, `git add` de uma leva arquivo da
+outra para o commit errado.
+
+Por isso: **trabalhe em worktree propria, nunca no clone principal**. O clone
+principal nao e workspace de ninguem.
+
+- Claude Code: `EnterWorktree` no inicio da sessao.
+- Codex e afins: `git worktree add` antes de comecar.
+
+Cuidado com o ponto de partida: o default do `EnterWorktree` ramifica de
+`origin/main`, que neste fluxo esta atras de `stage`. Feature e fix saem de
+`stage` — depois de criar a worktree, `git reset --hard origin/stage`, ou
+configure `worktree.baseRef: head` em `.claude/settings.json` com a sessao
+partindo de `stage`.
+
+Se ainda assim aparecer no seu diff arquivo que voce nao editou, e sinal de
+tree compartilhada: nao commite por cima. Confira `git worktree list` e
+`git log` antes.
+
 ## Mudanca de codigo exige artefatos SDD
 
 Alteracao em `backend/`, `frontend/` ou `scripts/` precisa vir acompanhada de
