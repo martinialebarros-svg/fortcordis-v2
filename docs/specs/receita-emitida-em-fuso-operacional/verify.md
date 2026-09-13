@@ -2,9 +2,9 @@
 
 Data: 2026-09-11  
 Responsavel: Martiniano Barros  
-Status: implementado e verificado localmente, inclusive contra Postgres real.
-Verificacao manual em stage e a conferencia da prescricao #42 em producao
-seguem pendentes.
+Status: implementado e verificado localmente, contra Postgres real e em
+producao (prescricao #42, secao 7). A verificacao manual de tela em stage
+(RF-002, RF-003 / CA-002) segue pendente.
 
 ## 1) Matriz de rastreabilidade
 
@@ -12,7 +12,7 @@ seguem pendentes.
 | --- | --- | --- | --- |
 | RF-001 / CA-001 | aceitacao | `test_emitida_em_e_servido_em_horario_operacional` - valor aware `2026-09-11T03:44:46+00:00` sai da API como `2026-09-11T00:44:46-03:00` | ok |
 | RF-006 | aceitacao | `test_aviso_de_receita_emitida_usa_hora_local` - a mensagem do 409 traz "11/09/2026 00:44" e nao contem "03:44" | ok |
-| RF-004 / CA-003 | aceitacao | migracao validada em Postgres 16: registro gravado pelo schema antigo passa a representar o instante correto (secao 3) | ok local; falta conferir #42 em producao |
+| RF-004 / CA-003 | aceitacao | migracao validada em Postgres 16 (secao 3) e conferida em producao: a prescricao #42 passou a exibir 11/09/2026 00:44 (secao 7) | ok |
 | CA-004 | nao funcional | migracao executada duas vezes seguidas em Postgres: segunda vira no-op pelo teste de tipo; chamada com `dialect="sqlite"` nao altera nada | ok |
 | RF-005 / CA-005 | funcional | `AtendimentoReceitasBar.test.tsx` - "distingue receita emitida de rascunho" segue passando; o teste de flag usa nulo, nao o formato | ok |
 | CA-006 | funcional | suite completa do backend sem regressao (1290 passed) | ok |
@@ -92,7 +92,25 @@ devolve depois da migracao, e vale nos dois dialetos.
   anotando a hora do relogio e conferir o aviso na hora e **depois de
   recarregar** - o valor otimista do frontend usa `toISOString()` e sempre
   mostrou a hora certa; o defeito so aparecia apos o reload.
-- Producao, apos a promocao: conferir a prescricao #42, hoje em
-  `2026-09-11T03:44:46.116954`, que deve passar a exibir 00:44 de 11/09/2026.
 - Stage nao tem receita emitida no momento: o atendimento #16, que servia de
   evidencia, foi removido em 2026-09-11. O roteiro precisa recriar o cenario.
+
+## 7) Conferencia em producao (2026-09-13)
+
+Feita apos a promocao `c88df7a6`, que aplicou a migracao `20260911_84`
+(`[Migrations] OK 20260911_84` no run 34734702767).
+
+| Checagem | Resultado |
+| --- | --- |
+| Tipo da coluna `prescricoes_clinicas.emitida_em` | `timestamp with time zone` |
+| Migracao registrada em `schema_migrations` | `20260911_84` |
+| Valor armazenado da prescricao #42 | `2026-09-11 03:44:46.116954+00` |
+| `to_char(... AT TIME ZONE 'America/Fortaleza')` | `11/09/2026 00:44` |
+| `_to_operational_iso` sobre o valor lido do banco | `2026-09-11T00:44:46.116954-03:00` |
+| `_formatar_data_hora(_to_local_naive(...))` (texto do aviso 409) | `11/09/2026 00:44` |
+
+O valor gravado continua sendo o mesmo instante; o que mudou e que a coluna
+agora carrega o fuso, entao o `03:44` deixou de ser servido como se fosse hora
+local. Os dois ultimos itens exercitam o caminho real da API contra o dado de
+producao, nao um valor injetado -- e batem com o esperado pelos testes
+(`2026-09-11T00:44:46-03:00` e `11/09/2026 00:44`, sem `03:44`).
