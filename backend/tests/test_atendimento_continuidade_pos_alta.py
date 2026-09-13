@@ -11,7 +11,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from decimal import Decimal
 from pathlib import Path
@@ -774,6 +774,69 @@ class AtendimentoContinuidadePosAltaTest(unittest.TestCase):
         # O custo das receitas nao acompanha a quantidade delas.
         self.assertEqual(queries_uma, queries_varias)
         self.assertEqual(queries_varias["prescricoes_itens"], 1)
+
+    # === Spec receita-emitida-em-fuso-operacional ===
+    #
+    # A coluna nasceu como TIMESTAMP naive enquanto o modelo declarava
+    # timezone=True. Em Postgres isso fazia o valor aware virar UTC na
+    # gravacao, e `_to_iso` entregava sem offset - o frontend, que le string
+    # sem fuso como horario operacional, mostrava 3h a frente.
+    #
+    # Os dois testes injetam um datetime aware em UTC, que e o que o Postgres
+    # devolve depois da migracao 20260911_84. Injetar direto e proposital: em
+    # SQLite a ida ao banco descarta o offset e guarda os numeros locais, entao
+    # um teste que dependesse do round trip passaria mesmo com o defeito vivo.
+
+    def test_emitida_em_e_servido_em_horario_operacional(self) -> None:
+        ctx = self._seed_atendimento_finalizado()
+        # Mesmo instante do registro que ficou torto em producao: 03:44 UTC,
+        # ou seja 00:44 no horario operacional.
+        ctx.prescricao.emitida_em = datetime(
+            2026, 9, 11, 3, 44, 46, tzinfo=timezone.utc
+        )
+
+        detalhe = atendimento._montar_detalhe_atendimento(self.db, ctx.atendimento)
+        receita_do_dia = next(p for p in detalhe["prescricoes"] if p["sequencia"] == 1)
+
+        self.assertEqual(receita_do_dia["emitida_em"], "2026-09-11T00:44:46-03:00")
+
+    def test_aviso_de_receita_emitida_usa_hora_local(self) -> None:
+        ctx = self._seed_atendimento_finalizado()
+        ctx.prescricao.emitida_em = datetime(
+            2026, 9, 11, 3, 44, 46, tzinfo=timezone.utc
+        )
+        item = self._itens_da_receita(ctx.prescricao.id)[0]
+
+        with self.assertRaises(HTTPException) as ctx_erro:
+            atendimento.atualizar_prescricao(
+                ctx.atendimento.id,
+                ctx.prescricao.id,
+                PrescricaoSyncPayload(
+                    orientacoes_gerais="Conduta nova.",
+                    retorno_dias=7,
+                    itens=[
+                        PrescricaoItemPayload(
+                            id=item.id,
+                            medicamento_nome="Furosemida",
+                            dose="4 mg/kg",
+                            frequencia="12/12h",
+                            duracao="7 dias",
+                            via="Oral",
+                            ordem=0,
+                        )
+                    ],
+                ),
+                self.request,
+                db=self.db,
+                current_user=self.user,
+            )
+
+        detalhe = ctx_erro.exception.detail
+        # O texto vai inteiro para a tela, vindo do backend.
+        self.assertIn("11/09/2026 00:44", detalhe["mensagem"])
+        self.assertNotIn("03:44", detalhe["mensagem"])
+        self.assertEqual(detalhe["emitida_em"], "2026-09-11T00:44:46-03:00")
+
 
 
 if __name__ == "__main__":

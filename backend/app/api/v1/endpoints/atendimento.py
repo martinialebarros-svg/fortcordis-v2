@@ -2077,14 +2077,14 @@ def _validar_edicao_receita_emitida(
                 "codigo": "CONFIRMACAO_EDICAO_RECEITA_EMITIDA",
                 "mensagem": (
                     f"A receita {_sequencia_prescricao(prescricao)} deste atendimento foi "
-                    f"emitida em {_formatar_data_hora(prescricao.emitida_em)}. Editar cria "
+                    f"emitida em {_formatar_data_hora(_to_local_naive(prescricao.emitida_em))}. Editar cria "
                     "uma nova versao do documento oficial. Para acrescentar tratamento sem "
                     "alterar o que ja foi entregue ao tutor, emita uma receita complementar."
                 ),
                 "confirmavel": True,
                 "prescricao_id": prescricao.id,
                 "sequencia": _sequencia_prescricao(prescricao),
-                "emitida_em": _to_iso(prescricao.emitida_em),
+                "emitida_em": _to_operational_iso(prescricao.emitida_em),
             },
         )
     return True
@@ -2105,13 +2105,13 @@ def _auditar_edicao_receita_emitida(
         acao="EDITAR_RECEITA_EMITIDA",
         descricao=(
             f"Receita {_sequencia_prescricao(prescricao)} do atendimento #{atendimento.id} "
-            f"editada apos emissao em {_formatar_data_hora(prescricao.emitida_em)}."
+            f"editada apos emissao em {_formatar_data_hora(_to_local_naive(prescricao.emitida_em))}."
         ),
         detalhes={
             "atendimento_id": atendimento.id,
             "prescricao_id": prescricao.id,
             "sequencia": _sequencia_prescricao(prescricao),
-            "emitida_em": _to_iso(prescricao.emitida_em),
+            "emitida_em": _to_operational_iso(prescricao.emitida_em),
         },
         request=request,
     )
@@ -2434,7 +2434,7 @@ def _montar_prescricao_dict(
     return {
         "id": prescricao.id,
         "sequencia": _sequencia_prescricao(prescricao),
-        "emitida_em": _to_iso(prescricao.emitida_em),
+        "emitida_em": _to_operational_iso(prescricao.emitida_em),
         "adendo_id": getattr(prescricao, "adendo_id", None),
         "orientacoes_gerais": prescricao.orientacoes_gerais or "",
         "retorno_dias": prescricao.retorno_dias,
@@ -6071,7 +6071,7 @@ def historico_paciente(
         return {
             "id": prescricao.id,
             "sequencia": _sequencia_prescricao(prescricao),
-            "emitida_em": _to_iso(prescricao.emitida_em),
+            "emitida_em": _to_operational_iso(prescricao.emitida_em),
             "total_receitas": total_receitas_por_atendimento.get(atendimento_id, 1),
             "orientacoes_gerais": prescricao.orientacoes_gerais or "",
             "retorno_dias": prescricao.retorno_dias,
