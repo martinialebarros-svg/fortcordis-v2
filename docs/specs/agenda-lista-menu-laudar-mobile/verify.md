@@ -66,11 +66,14 @@ de uma viewport de 812.
   rodape, legivel inteira, e tocar fora fecha.
 - Conferir de passagem que o dropdown no desktop nao mudou de lugar.
 
-## 6) Observacao fora de escopo
+## 6) Observacao fora de escopo - resolvida
 
 `app/agenda/fullcalendar/page.tsx:2654` tem o mesmo menu "Laudar" com a mesma
 marcacao (`<details class="relative">` + painel `absolute`). La ele nao esta
 dentro de `.fc-agenda-list`, entao nao sofre o recorte deste relato - mas
-tambem abre sempre para baixo e pode cair fora da tela no celular. Ficou de
-fora por nao ter sido relatado; as classes novas ja servem para ele quando
-alguem quiser padronizar.
+tambem abre sempre para baixo e pode cair fora da tela no celular.
+
+Ficou de fora desta spec por nao ter sido relatado, e foi pedido logo em
+seguida. Tratado em `docs/specs/agenda-fullcalendar-menu-laudar-mobile/`, que
+reaproveita as classes criadas aqui e entra no mesmo PR - sozinha ela dependeria
+de CSS que ainda nao existe em `stage`.

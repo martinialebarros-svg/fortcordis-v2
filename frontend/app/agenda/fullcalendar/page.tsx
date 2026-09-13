@@ -2651,13 +2651,13 @@ export default function AgendaFullCalendarPage() {
                     Atender
                   </button>
 
-                  <details className="relative">
+                  <details className="fc-agenda-row-menu">
                     <summary className="list-none inline-flex cursor-pointer items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100">
                       <FileText className="h-3.5 w-3.5" />
                       Laudar
                       <ChevronDown className="h-3.5 w-3.5" />
                     </summary>
-                    <div className="absolute left-0 top-full z-20 mt-2 w-56 overflow-hidden rounded-xl border bg-white shadow-lg">
+                    <div className="fc-agenda-row-menu-panel fc-agenda-row-menu-panel-start">
                       <button
                         type="button"
                         onClick={() => laudarSelecionado(TIPO_LAUDO_ECOCARDIOGRAMA)}
