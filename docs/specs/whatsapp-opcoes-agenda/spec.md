@@ -29,3 +29,9 @@ A preferência revalidada é persistida pelo worker como complemento do cliente,
 Resposta determinística passa pelos guardrails com horários ancorados no retorno da agenda. Oferta expirada enquanto aguardava envio não é enviada automaticamente. Se não houver serviço único, preferência interpretável ou opções seguras, o pedido continua com a equipe, sem afirmar que a agenda inteira está indisponível. Falhas de consulta HTTP/timeout seguem o mesmo caminho. Falha de banco continua sendo tratada pelo mecanismo operacional existente.
 
 Nenhuma migração, segredo ou integração externa nova. A oferta não é um bloqueio transacional da agenda; a reserva permanece exclusivamente no fluxo humano existente.
+
+## Contrato de teste (13/09/2026)
+
+O histórico sintético de `AppointmentQueue.test.tsx` possui tipo explícito com
+ação, instante e campos opcionais de preferência/observação. Isso evita inferência
+`never[]` para o histórico vazio; não altera o componente, o contrato HTTP ou o bot.

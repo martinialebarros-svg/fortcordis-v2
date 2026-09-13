@@ -1,5 +1,13 @@
 # Verificação
 
+## Preparação local de 13/09/2026
+
+Tipagem explícita do histórico sintético em `AppointmentQueue.test.tsx` para
+corrigir TS2322 na checagem completa de tipos. Sem alteração de código de runtime,
+envios externos ou configuração. Revalidação aprovada: `npx tsc --noEmit`,
+`npm test` (293 Vitest, incluindo os 7 testes de AppointmentQueue, e 9 Node),
+lint, build e guardrail SDD. Nenhuma publicação nesta etapa.
+
 Validação local concluída em 10/09/2026, sem mensagens reais, mudança de produção ou criação de agendamento real.
 
 - Backend completo: 1275 testes e 278 subtestes aprovados; 7 ignorados conforme condições do ambiente. Log: `/private/tmp/fortcordis-opcoes-full-final.log`.
