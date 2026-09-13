@@ -2,7 +2,7 @@
 
 Data: 2026-09-13  
 Responsavel: Martiniano Barros  
-Status: concluido; verificacao manual em stage pendente
+Status: concluido e verificado em stage
 
 ## 1) Tarefas
 
@@ -17,7 +17,7 @@ Status: concluido; verificacao manual em stage pendente
 - [x] T5 aplicar as classes no menu "Laudar" de `app/agenda/page.tsx`.
 - [x] T6 verificar com o CSS compilado do `next build` contra a marcacao real
       da pagina, em 375x812 e em 1200x800.
-- [ ] T7 verificacao manual em stage, no celular.
+- [x] T7 verificacao manual em stage, no celular - confirmada em 2026-09-13.
 
 ## 2) Ordem e dependencias
 

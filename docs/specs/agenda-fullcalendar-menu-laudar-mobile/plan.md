@@ -2,7 +2,7 @@
 
 Data: 2026-09-13  
 Responsavel: Martiniano Barros  
-Status: concluido; verificacao manual em stage pendente
+Status: concluido e verificado em stage
 
 ## 1) Tarefas
 
@@ -15,7 +15,7 @@ Status: concluido; verificacao manual em stage pendente
 - [x] T4 aplicar as classes no menu de `app/agenda/fullcalendar/page.tsx`.
 - [x] T5 verificar com o CSS compilado contra a marcacao real do card de
       detalhes, em 375x812 e 1200x800.
-- [ ] T6 verificacao manual em stage, no celular.
+- [x] T6 verificacao manual em stage, no celular - confirmada em 2026-09-13.
 
 ## 2) Ordem e dependencias
 

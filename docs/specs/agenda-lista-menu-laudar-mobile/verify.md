@@ -2,7 +2,7 @@
 
 Data: 2026-09-13  
 Responsavel: Martiniano Barros  
-Status: verificado em repro com o CSS compilado; verificacao manual em stage pendente
+Status: verificado
 
 ## 1) Matriz de rastreabilidade
 
@@ -16,7 +16,7 @@ Status: verificado em repro com o CSS compilado; verificacao manual em stage pen
 | RF-006 | visual | captura em 375x812 e 1200x800: cantos do primeiro e do ultimo card acompanham a borda da lista | ok |
 | RT-001..RT-005 | tecnico | CSS compilado em `.next/static/css/`: `.fc-agenda-list` sem `overflow`, e a variante dentro de `@media (max-width:639px)` com `z-index` 40/50 | ok |
 | CA-005 | tecnico | secao 2 | ok |
-| RF-002 em aparelho real | aceitacao | stage, no celular | pendente |
+| RF-002 em aparelho real | aceitacao | stage, em celular do responsavel, 2026-09-13: menu aberto no ultimo card da lista, opcoes legiveis | ok |
 
 ## 2) Testes executados
 
@@ -59,12 +59,18 @@ Reproduz o relato exato: os itens ficam ocultos e a barra de rolagem nao os
 exibe. Com a correcao, os mesmos numeros viram `top` 664 / `bottom` 800 dentro
 de uma viewport de 812.
 
-## 5) Pendente
+## 5) Verificacao em stage
 
-- Stage, no celular: Agenda em modo lista, rolar ate o ultimo card do dia e
-  tocar em "Laudar". Esperado: folha com os tres tipos de laudo colada no
-  rodape, legivel inteira, e tocar fora fecha.
-- Conferir de passagem que o dropdown no desktop nao mudou de lugar.
+Confirmada pelo responsavel em 2026-09-13, em celular proprio, sobre o commit
+`afd78a40` em stage: o menu abre e as opcoes ficam legiveis no modo lista.
+Aparelho e navegador nao foram registrados - se aparecer diferenca de
+comportamento em algum, e o primeiro dado a coletar, porque a folha usa `svh` e
+`env(safe-area-inset-bottom)`.
+
+Nao coberto por essa confirmacao: o desktop no app real. RF-004 e RF-005 seguem
+apoiados na medicao do repro (secao 3), que usou o CSS compilado e a marcacao
+real - no desktop o caminho continua sendo o mesmo dropdown `absolute` de
+antes, e o que mudou foi so deixar de recortar.
 
 ## 6) Observacao fora de escopo - resolvida
 

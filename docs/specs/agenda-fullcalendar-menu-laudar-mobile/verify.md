@@ -2,7 +2,7 @@
 
 Data: 2026-09-13  
 Responsavel: Martiniano Barros  
-Status: verificado em repro com o CSS compilado; verificacao manual em stage pendente
+Status: verificado
 
 ## 1) Matriz de rastreabilidade
 
@@ -16,7 +16,7 @@ Status: verificado em repro com o CSS compilado; verificacao manual em stage pen
 | RT-002 | tecnico | CSS compilado: `.fc-agenda-row-menu-panel-start{left:0;right:auto}` aparece **antes** do `@media (max-width:639px)`; comparacao de indices no arquivo confirma | ok |
 | RT-003 | tecnico | o `@media` nao mudou nesta entrega - diff toca so a declaracao da variante | ok |
 | CA-005 | tecnico | secao 2 | ok |
-| RF-001 em aparelho real | aceitacao | stage, no celular | pendente |
+| RF-001 em aparelho real | aceitacao | stage, em celular do responsavel, 2026-09-13: menu aberto pelo card de detalhes, opcoes legiveis | ok |
 
 ## 2) Testes executados
 
@@ -58,12 +58,16 @@ registrado na matriz. O que a matriz afirma e so o estado depois: o painel cabe
 na tela, os itens sao clicaveis e tocar fora fecha - o que torna a posicao de
 rolagem irrelevante.
 
-## 5) Pendente
+## 5) Verificacao em stage
 
-- Stage, no celular: Agenda FullCalendar, tocar em um evento para abrir
-  "Detalhes do evento selecionado" e entao em "Laudar". Esperado: folha com os
-  tres tipos colada no rodape, legivel inteira, e tocar fora fecha.
-- No desktop, conferir que o dropdown continua saindo pela esquerda do botao.
+Confirmada pelo responsavel em 2026-09-13, em celular proprio, sobre o commit
+`afd78a40` em stage, junto com a tela de lista: o menu abre pelo card de
+detalhes e as opcoes ficam legiveis. Aparelho e navegador nao foram
+registrados.
+
+Nao coberto: o desktop no app real. RF-004 (dropdown saindo pela esquerda do
+botao) segue apoiado na medicao do repro - borda esquerda do painel coincidindo
+com a do `<summary>` em 1200x800, secao 1.
 
 ## 6) Origem
 
