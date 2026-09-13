@@ -67,10 +67,9 @@ Aparelho e navegador nao foram registrados - se aparecer diferenca de
 comportamento em algum, e o primeiro dado a coletar, porque a folha usa `svh` e
 `env(safe-area-inset-bottom)`.
 
-Nao coberto por essa confirmacao: o desktop no app real. RF-004 e RF-005 seguem
-apoiados na medicao do repro (secao 3), que usou o CSS compilado e a marcacao
-real - no desktop o caminho continua sendo o mesmo dropdown `absolute` de
-antes, e o que mudou foi so deixar de recortar.
+O desktop no app real nao estava coberto por essa confirmacao, e RF-004/RF-005
+ficaram apoiados na medicao do repro (secao 3). Fechado depois, em producao -
+secao 7.
 
 ## 6) Observacao fora de escopo - resolvida
 
@@ -83,3 +82,29 @@ Ficou de fora desta spec por nao ter sido relatado, e foi pedido logo em
 seguida. Tratado em `docs/specs/agenda-fullcalendar-menu-laudar-mobile/`, que
 reaproveita as classes criadas aqui e entra no mesmo PR - sozinha ela dependeria
 de CSS que ainda nao existe em `stage`.
+
+## 7) Conferencia em producao (2026-09-13)
+
+Feita apos a promocao `24479dc3`, em `app.fortcordis.com.br`, sobre um dia com
+11 agendamentos (`2026-09-04`) - lista longa o bastante para o ultimo card cair
+no fim da pagina, que e o cenario do relato original.
+
+Somente navegacao e leitura. Abrir o menu nao dispara requisicao: e um
+`<details>`. **Nenhum dos tres tipos de laudo foi clicado** - sao acao clinica.
+
+| Verificacao | 375x812 (celular) | 1440x900 (desktop) |
+| --- | --- | --- |
+| `position` do painel | `fixed` | `absolute` |
+| Painel na viewport | 664 a 800, viewport 812 - inteiro | - |
+| Ancoragem | rodape da viewport | borda direita coincide com a do `<summary>` |
+| Tres itens | dentro da tela e clicaveis | clicaveis |
+| Tocar fora | fecha o `<details>` | - |
+| `overflow` de `.fc-agenda-list` | `visible` | `visible` |
+| Recorte | - | painel termina em 881, lista em 876: **passa da lista sem ser cortado** |
+
+Os 5px em que o painel ultrapassa a lista no desktop sao a correcao em si: com
+`overflow: hidden`, seriam recortados sem nada revelar o painel.
+
+RF-004 e RF-005, que ate aqui se apoiavam no repro, passam a ter evidencia no
+app real. Nenhum criterio desta spec depende mais de medicao fora do ambiente
+publicado.
