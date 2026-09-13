@@ -1,9 +1,10 @@
 # Verify — Paginação de Transações
 
 Data: 2026-09-13
-Status: publicado em stage (`c1d42304`, deploy com success em 13/09/2026) e
-roteiro de aceite executado — **parcialmente**, por falta de massa de dados.
-Ver seção "Aceite em stage". Produção continua exigindo aprovação separada.
+Status: aceite concluído. Publicado em stage (`c1d42304`) e promovido em
+`24479dc3`. O roteiro rodou em stage, e o único passo que a massa de dados de
+stage não permitia foi fechado em produção — ver "Navegação de páginas, fechada
+em produção".
 
 ## Evidências
 
@@ -29,8 +30,9 @@ Ver seção "Aceite em stage". Produção continua exigindo aprovação separada
 ## Pendências de aceite
 
 - Paginação de Ordens/Cobranças não faz parte deste incremento.
-- Navegação entre páginas **na tela** segue sem exercício no ambiente publicado.
-  Detalhe e risco residual na seção "Aceite em stage".
+
+O risco residual anterior — navegação de páginas na tela sem exercício em
+ambiente publicado — deixou de existir. Fechado em produção, seção abaixo.
 
 ## Roteiro de aceite em stage
 
@@ -54,7 +56,7 @@ exclusão.
 | --- | --- | --- |
 | 1. Publicar backend e frontend juntos em stage | merge de #123 e `Deploy to Stage (VPS)` com success; não promovido em seguida | ok |
 | 2. Até 100 por página e total do servidor | requisição da propria tela: `GET /financeiro/transacoes?limit=100&skip=0`; resposta `{total, items}`; contador da aba e lista mostram 23, igual ao `total` | ok |
-| 3. Avançar/voltar e mudar filtros a partir da página 2 | ver "O que não foi possível" | parcial |
+| 3. Avançar/voltar e mudar filtros a partir da página 2 | inexecutável em stage (23 registros); fechado em produção com 1064 — ver seção própria | ok |
 | 4. Resumo não muda só por navegar | `/financeiro/resumo` chamado apenas nas 2 cargas de tela, nunca em busca ou filtro; cards inalterados enquanto a lista ia de 23 para 1 e voltava | ok |
 | 5. Tempos por requisição | 24 chamadas medidas por Resource Timing: 111–889 ms, mediana em torno de 160 ms; a de 889 ms e a primeira, com conexao fria | ok, com ressalva |
 | 6. Ordens e Cobranças sem mutação | Cobranças (9 destinatários) e Ordens de Serviço (21) carregam sem erro; só `GET` no log de rede | ok |
@@ -73,21 +75,17 @@ exclusão.
 | Filtro trocado com busca ativa | `?limit=100&skip=0&search=Freder&tipo=entrada` — combinados no servidor, `skip` resetado |
 | Limpar busca | volta a 23 com requisição nova sem `search` |
 
-### O que não foi possível, e por quê
+### Por que o passo 3 não coube em stage
 
 **Stage tem 23 transações.** Com página de 100, existe uma única página: os
 botões "Anterior" e "Próxima" ficam corretamente desabilitados, e não há página
-2 para navegar nem para mudar filtro a partir dela. O passo 3 do roteiro é
-inexecutável neste ambiente sem criar massa de dados — e criar transações
-financeiras em stage só para o teste não pareceu troca justa.
+2 para navegar nem para mudar filtro a partir dela. O passo era inexecutável ali
+sem criar massa de dados — e criar transações financeiras em stage só para o
+teste não pareceu troca justa.
 
-A paginação foi exercitada pela API, com `limit=10` para forçar três páginas
-sobre os mesmos 23 registros (tabela acima). Isso cobre o backend. **Não cobre a
-navegação de páginas na interface**, que segue apoiada nos 6 testes de
-`frontend/app/financeiro/page.test.tsx`.
-
-**Risco residual:** um defeito que só aparecesse no controle de página da tela —
-e não no backend nem nos testes — não teria sido pego por este aceite.
+Na ocasião, a paginação foi exercitada pela API com `limit=10`, forçando três
+páginas sobre os mesmos 23 registros (tabela acima). Isso cobria o backend, mas
+não a navegação na interface, e o passo ficou registrado como `parcial`.
 
 ### Sobre os tempos
 
@@ -96,3 +94,43 @@ em stage, então não existe um "antes" no ambiente publicado. Os números acima
 são absolutos e valem como ordem de grandeza, não como ganho. CA-5 desta spec
 proíbe atribuir redução de latência sem medição no ambiente publicado, e essa
 medição não foi feita.
+
+## Navegação de páginas, fechada em produção (2026-09-13)
+
+O que stage não permitia por falta de dados foi exercitado em produção, onde há
+**1064 transações** — 11 páginas de 100, e mais que o limite antigo de 500.
+
+Sessão autenticada em `app.fortcordis.com.br`. **Somente `GET` e navegação**:
+35 chamadas de API, nenhuma mutação — nenhum pagamento, baixa, envio, exclusão
+ou edição. A tela foi devolvida ao estado inicial, sem filtro.
+
+| Verificação | Resultado |
+| --- | --- |
+| Página 1 | exatamente 100 itens; contador em 1064, igual ao `total` do servidor; "Anterior" desabilitado e "Próxima" habilitada |
+| Avançar | `?limit=100&skip=100`, 100 itens, **zero sobreposição** com a página 1 |
+| Voltar | `?limit=100&skip=0`, conteúdo idêntico ao da primeira visita, "Anterior" desabilitado de novo |
+| Mudar filtro estando na página 2 | `?limit=100&skip=0&tipo=entrada` — volta à página 1 e o filtro vai ao servidor; contador passa a 1057 |
+| Resumo ao navegar | inalterado |
+| Registro na posição 700, além do limite antigo de 500 | alcançável por busca, `total` 1 — fecha o critério 1 da spec |
+
+O defeito clássico de paginação — a página 2 repetir a página 1 — **não ocorre**.
+Era exatamente o risco residual registrado antes.
+
+### Método, por ser produção
+
+As páginas foram comparadas por hash do texto renderizado de cada linha, não por
+leitura de conteúdo: nenhuma descrição, nome de tutor, paciente ou valor foi
+extraído do ambiente. Os números desta seção são contagens e parâmetros de query.
+
+### Desvio declarado
+
+O roteiro dizia "aceite em stage". Este passo foi feito em **produção**, porque é
+o único ambiente onde existe massa suficiente. A mudança já estava publicada lá
+(`24479dc3`), e o teste é de leitura — mas fica o registro de que o ambiente não
+foi o previsto.
+
+### Observação, não defeito
+
+`/financeiro/resumo` foi refeito uma vez durante a navegação (2 para 3 chamadas).
+O valor não mudou, que é o que o critério exige, e continua vindo do endpoint
+próprio em vez da soma da página. É uma requisição a mais do que o necessário.
