@@ -17,6 +17,17 @@ on:
       - main
     types: [opened, reopened, synchronize, labeled, unlabeled]
 
+permissions:
+  contents: read
+  pull-requests: read
+
+# Abrir o PR ja com a label dispara dois eventos quase juntos (`opened` e
+# `labeled`). Sem isto, os dois rodam e o mais antigo pode terminar depois,
+# deixando o resultado errado como conclusao do check.
+concurrency:
+  group: promotion-verify-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   criterios-devem-estar-fechados:
     runs-on: ubuntu-latest
@@ -34,9 +45,17 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          # As labels sao lidas pela API, nao pelo payload do evento. `gh pr
+          # create --label` cria o PR e so depois anexa a label, entao o payload
+          # do `opened` chega sem ela e o gate reprovava uma promocao que tinha
+          # a excecao aplicada. A API responde o estado atual.
+          LABELS="$(gh pr view "${PR_NUMBER}" --json labels --jq '[.labels[].name] | join(",")')"
+          echo "Labels no momento da checagem: ${LABELS:-<nenhuma>}"
 
           ALLOW=""
           if [[ ",${LABELS}," == *,promocao-com-pendencia,* ]]; then
