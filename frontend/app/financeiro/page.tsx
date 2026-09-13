@@ -374,6 +374,26 @@ export default function FinanceiroPage() {
   const [filtroDataInicio, setFiltroDataInicio] = useState("");
   const [filtroDataFim, setFiltroDataFim] = useState("");
   const [busca, setBusca] = useState("");
+  const [buscaTransacoes, setBuscaTransacoes] = useState("");
+  const [totalTransacoes, setTotalTransacoes] = useState(0);
+  const [paginaTransacoes, setPaginaTransacoes] = useState({ chave: "", numero: 0 });
+  const chaveTransacoes = JSON.stringify([
+    filtroTipo, filtroCategoria, filtroFormaPagamento, filtroStatusTransacao,
+    filtroDataInicio, filtroDataFim, buscaTransacoes,
+  ]);
+  const paginaAtualTransacoes = paginaTransacoes.chave === chaveTransacoes ? paginaTransacoes.numero : 0;
+  const [chaveResultadoTransacoes, setChaveResultadoTransacoes] = useState("");
+  const chavePedidoTransacoes = `${chaveTransacoes}:${paginaAtualTransacoes}`;
+  const buscaTransacoesPendente = busca.trim() !== buscaTransacoes;
+
+  useEffect(() => {
+    setPaginaTransacoes((current) => current.chave === chaveTransacoes ? current : { chave: chaveTransacoes, numero: 0 });
+  }, [chaveTransacoes]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setBuscaTransacoes(busca.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [busca]);
   const [abaAtiva, setAbaAtiva] = useState<FinanceiroActiveTab>("transacoes");
   const [rotaFinanceiroResolvida, setRotaFinanceiroResolvida] = useState(false);
   const [modalReceberOS, setModalReceberOS] = useState<OrdemServico | null>(null);
@@ -461,6 +481,8 @@ export default function FinanceiroPage() {
     filtroTipoHorarioOS,
     filtroDataInicio,
     filtroDataFim,
+    paginaAtualTransacoes,
+    abaAtiva === "transacoes" ? buscaTransacoes : "",
   ]);
 
   useEffect(() => {
@@ -575,7 +597,9 @@ export default function FinanceiroPage() {
 
     try {
       const queryTransacoes = montarQueryString({
-        limit: 500,
+        limit: 100,
+        skip: paginaAtualTransacoes * 100,
+        search: buscaTransacoes || undefined,
         tipo: filtroTipo !== "todos" ? filtroTipo : undefined,
         categoria: filtroCategoria !== "todos" ? filtroCategoria : undefined,
         forma_pagamento: filtroFormaPagamento !== "todos" ? filtroFormaPagamento : undefined,
@@ -599,10 +623,16 @@ export default function FinanceiroPage() {
         ? registrarCarga(
             "Transacoes",
             api
-              .get<{ items?: Transacao[] }>(`/financeiro/transacoes${queryTransacoes}`, { signal })
+              .get<{ items?: Transacao[]; total: number }>(`/financeiro/transacoes${queryTransacoes}`, { signal })
               .then((response) => response.data),
             (data) => {
               setTransacoes(data.items || []);
+              setTotalTransacoes(data.total);
+              setChaveResultadoTransacoes(chavePedidoTransacoes);
+              // A deletion or concurrent update can remove the last page.
+              if (paginaAtualTransacoes > 0 && !data.items?.length) {
+                setPaginaTransacoes({ chave: chaveTransacoes, numero: Math.max(0, Math.ceil(data.total / 100) - 1) });
+              }
               setTransacoesCarregadas(true);
             },
             () => setLoadingTransacoes(false)
@@ -1439,20 +1469,9 @@ export default function FinanceiroPage() {
     }
   };
 
-  // Filtrar transacoes
-  const transacoesFiltradas = transacoes.filter((t) => {
-    const matchTipo = filtroTipo === "todos" || t.tipo === filtroTipo;
-    const matchCategoria = filtroCategoria === "todos" || t.categoria === filtroCategoria;
-    const matchFormaPagamento = filtroFormaPagamento === "todos" || t.forma_pagamento === filtroFormaPagamento;
-    const matchStatus = filtroStatusTransacao === "todos" || t.status === filtroStatusTransacao;
-    const matchData = estaNoPeriodo(t.data_transacao);
-    const termo = busca.toLowerCase();
-    const matchBusca = !busca || 
-      t.descricao?.toLowerCase().includes(termo) ||
-      t.paciente_nome?.toLowerCase().includes(termo) ||
-      getCategoriaNome(t.categoria).toLowerCase().includes(termo);
-    return matchTipo && matchCategoria && matchFormaPagamento && matchStatus && matchData && matchBusca;
-  });
+  // All transaction filters and counts are authoritative on the server.
+  const transacoesFiltradas = transacoes;
+  const transacoesDesatualizadas = chaveResultadoTransacoes !== chavePedidoTransacoes || buscaTransacoesPendente;
 
   // Filtrar OS
   const osFiltradas = ordensServico.filter((os) => {
@@ -2460,7 +2479,7 @@ export default function FinanceiroPage() {
             <Receipt className="w-4 h-4" />
             Transacoes
             <span className="fc-finance-tab-count">
-              {transacoesCarregadas ? transacoes.length : "—"}
+              {transacoesCarregadas && !transacoesDesatualizadas ? totalTransacoes : "—"}
             </span>
           </button>
           <button
@@ -2661,12 +2680,17 @@ export default function FinanceiroPage() {
               <h2 className="text-lg font-semibold text-gray-900">
                 Transacoes 
                 <span className="text-sm font-normal text-gray-500 ml-2">
-                  ({transacoesFiltradas.length})
+                  ({transacoesDesatualizadas ? "—" : totalTransacoes})
                 </span>
               </h2>
             </div>
             
-            {loadingTransacoes ? (
+            {falhasCarregamento.includes("Transacoes") ? (
+              <div role="alert" className="p-8 text-center">
+                <p>Nao foi possivel carregar as transacoes.</p>
+                <button className="fc-finance-secondary" onClick={carregarDados}>Recarregar transacoes</button>
+              </div>
+            ) : loadingTransacoes || transacoesDesatualizadas ? (
               <div className="p-8 text-center text-gray-500">Carregando...</div>
             ) : transacoesFiltradas.length === 0 ? (
               <div className="p-12 text-center">
@@ -2756,6 +2780,18 @@ export default function FinanceiroPage() {
               </div>
             )}
           </div>
+        )}
+
+        {abaAtiva === "transacoes" && (
+          <nav aria-label="Paginacao de transacoes" className="flex items-center justify-between gap-3 p-4">
+            <button className="fc-finance-secondary" disabled={loadingTransacoes || transacoesDesatualizadas || paginaAtualTransacoes === 0}
+              onClick={() => setPaginaTransacoes({ chave: chaveTransacoes, numero: paginaAtualTransacoes - 1 })}>Anterior</button>
+            <span aria-live="polite">
+              Pagina {paginaAtualTransacoes + 1} de {Math.max(1, Math.ceil(totalTransacoes / 100))} — ate 100 por pagina
+            </span>
+            <button className="fc-finance-secondary" disabled={loadingTransacoes || transacoesDesatualizadas || falhasCarregamento.includes("Transacoes") || (paginaAtualTransacoes + 1) * 100 >= totalTransacoes}
+              onClick={() => setPaginaTransacoes({ chave: chaveTransacoes, numero: paginaAtualTransacoes + 1 })}>Proxima</button>
+          </nav>
         )}
 
         {/* Conteudo - Cobrancas */}
