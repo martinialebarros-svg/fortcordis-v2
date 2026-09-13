@@ -2806,7 +2806,7 @@ export default function AgendaPage() {
                           Maps
                         </button>
 
-                        <details className="relative">
+                        <details className="fc-agenda-row-menu">
                           <summary
                             className="list-none px-3 py-1.5 text-sm text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                             title="Escolher tipo de laudo"
@@ -2815,7 +2815,7 @@ export default function AgendaPage() {
                             Laudar
                             <ChevronDown className="w-4 h-4" />
                           </summary>
-                          <div className="absolute right-0 top-full z-20 mt-2 w-60 overflow-hidden rounded-xl border bg-white shadow-lg">
+                          <div className="fc-agenda-row-menu-panel">
                             <button
                               type="button"
                               onClick={() => abrirFluxoLaudo(ag, TIPO_LAUDO_ECOCARDIOGRAMA)}

@@ -1808,16 +1808,65 @@ body {
     @apply whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-bold transition;
   }
 
+  /* Sem overflow-hidden aqui: o menu "Laudar" do ultimo card abre para fora da
+     lista e era recortado sem deixar rolagem para alcancar os itens. O
+     arredondamento fica nas pontas do conteudo. */
   .fc-agenda-list {
-    @apply overflow-hidden rounded-lg border border-ink-100 bg-white shadow-fort-card;
+    @apply rounded-lg border border-ink-100 bg-white shadow-fort-card;
   }
 
   .fc-agenda-list-row {
     @apply border-l-4 border-l-transparent p-5 transition hover:border-l-vital-500 hover:bg-ink-50;
   }
 
+  .fc-agenda-list-row:first-child {
+    @apply rounded-t-lg;
+  }
+
+  .fc-agenda-list-row:last-child {
+    @apply rounded-b-lg;
+  }
+
+  /* Menu suspenso de acoes dentro de um card da lista (ex.: "Laudar"). */
+  .fc-agenda-row-menu {
+    @apply relative;
+  }
+
+  .fc-agenda-row-menu-panel {
+    @apply absolute right-0 top-full z-20 mt-2 w-60 overflow-hidden rounded-xl border border-ink-100 bg-white shadow-lg;
+  }
+
+  /* Variante para quando sobra espaco a direita do botao e nao a esquerda.
+     Precisa vir antes do @media abaixo, que reposiciona o painel no celular. */
+  .fc-agenda-row-menu-panel-start {
+    @apply left-0 right-auto;
+  }
+
+  /* No celular o card costuma estar no fim da pagina e nao sobra espaco abaixo
+     do botao, entao o menu vira uma folha ancorada no rodape da viewport.
+     O backdrop e o ::before do proprio summary: tocar fora fecha o details. */
+  @media (max-width: 639px) {
+    .fc-agenda-row-menu[open] > summary::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      background: rgba(10, 18, 16, 0.45);
+    }
+
+    .fc-agenda-row-menu-panel {
+      position: fixed;
+      inset: auto 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+      z-index: 50;
+      width: auto;
+      margin-top: 0;
+      max-height: 70svh;
+      overflow-y: auto;
+    }
+  }
+
   .fc-agenda-empty {
-    @apply flex min-h-72 flex-col items-center justify-center px-6 py-12 text-center;
+    @apply flex min-h-72 flex-col items-center justify-center rounded-lg px-6 py-12 text-center;
     background:
       linear-gradient(90deg, rgba(190, 18, 60, 0.04), rgba(13, 148, 136, 0.06)),
       repeating-linear-gradient(90deg, transparent 0 47px, rgba(68, 82, 76, 0.045) 47px 48px),
