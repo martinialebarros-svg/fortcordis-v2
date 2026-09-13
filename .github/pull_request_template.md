@@ -1,7 +1,8 @@
 ## Fluxo de entrega (stage-first)
 
 - Base deste PR: `stage` (feature/fix). Produção (`main`) recebe depois, pelo
-  PR de promocao `stage -> main` ou por `bash scripts/promote_stage_to_main.sh`.
+  PR de promocao `stage -> main` — nao por `scripts/promote_stage_to_main.sh`,
+  que da push direto e pula os guards (ver CLAUDE.md).
 - Excecao: hotfix urgente de produção pode mirar `main` direto, usando branch
   `hotfix/<slug>` ou a label `hotfix` (ver `.github/workflows/branch-flow-guard.yml`).
 

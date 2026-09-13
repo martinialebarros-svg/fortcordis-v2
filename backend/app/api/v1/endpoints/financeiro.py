@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_, extract
+from sqlalchemy import func, and_, or_, extract, case
 from typing import List, Optional
 from datetime import datetime, date, timedelta
 from calendar import monthrange
@@ -103,7 +103,8 @@ def listar_transacoes(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    search: Optional[str] = None,
 ):
     """Lista transações financeiras com filtros avançados"""
     query = db.query(Transacao)
@@ -125,8 +126,21 @@ def listar_transacoes(
     if data_fim:
         query = query.filter(Transacao.data_transacao <= data_fim)
     
+    if search and search.strip():
+        # Literal substring search: user-provided % and _ are not wildcards.
+        termo = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{termo}%"
+        query = query.filter(or_(
+            Transacao.descricao.ilike(pattern, escape="\\"),
+            Transacao.paciente_nome.ilike(pattern, escape="\\"),
+            case(
+                (Transacao.categoria == "banho_tosa", "Banho e Tosa"),
+                else_=func.replace(Transacao.categoria, "_", " "),
+            ).ilike(pattern, escape="\\"),
+        ))
+
     total = query.count()
-    items = query.order_by(Transacao.data_transacao.desc()).offset(skip).limit(limit).all()
+    items = query.order_by(Transacao.data_transacao.desc(), Transacao.id.desc()).offset(skip).limit(limit).all()
     
     return {"total": total, "items": items}
 
