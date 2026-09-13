@@ -6,16 +6,34 @@
 feature entra direto em `main`**:
 
 - PR de feature/fix: base `stage`.
-- Produção recebe depois, pelo PR de promocao `stage -> main`
-  (`chore(release): promover <resumo>`) ou por `bash scripts/promote_stage_to_main.sh`.
+- Produção recebe depois, pelo **PR de promocao** `stage -> main`
+  (titulo `chore(release): promover <resumo>`), mergeado com merge commit —
+  squash faria `main` divergir de `stage` e criaria conflito na promocao
+  seguinte.
 - Hotfix urgente de produção e a unica excecao: branch `hotfix/<slug>` ou label
   `hotfix` no PR, mirando `main`. Depois de mergear o hotfix, faca o backport
   para `stage` na hora: a promocao seguinte resolve conflito em favor de `stage`
   por default e pode desfazer a correcao sem avisar.
 
-`.github/workflows/branch-flow-guard.yml` sinaliza com falha qualquer PR que
-mire `main` fora dessas condicoes. Detalhes e passos manuais de configuracao:
-`docs/RUNBOOK-STAGE-PROD.md`.
+### Promova pelo PR, nao pelo script
+
+`scripts/promote_stage_to_main.sh` termina em `git push origin HEAD:main`, e
+`main` nao tem protecao de branch. Os dois guards de promocao rodam em
+`on: pull_request`, entao **o script nao dispara nenhum dos dois**:
+
+- `.github/workflows/branch-flow-guard.yml` sinaliza com falha qualquer PR que
+  mire `main` fora das condicoes acima.
+- `.github/workflows/promotion-verify-guard.yml` barra promocao que leve
+  criterio de aceitacao ainda `pendente` na matriz do `verify.md` das features
+  no diff. Tem label de excecao (`promocao-com-pendencia`) para quando a
+  promocao com pendencia for consciente.
+
+Na pratica o script e um bypass silencioso do segundo gate: ele empurra para
+produção sem que ninguem seja avisado da pendencia. Promova pelo PR. O script
+segue no repo como escape hatch, e de quem o usa se espera saber que esta
+pulando a verificacao.
+
+Detalhes e passos manuais de configuracao: `docs/RUNBOOK-STAGE-PROD.md`.
 
 ## Mudanca de codigo exige artefatos SDD
 
