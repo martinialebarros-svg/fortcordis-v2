@@ -17,6 +17,14 @@ mudanca de comportamento do app.
 - RF-002: o gate roda `npm test`, cobrindo vitest **e** o runner do Node.
 - RF-003: roda tambem em `push` para `stage` e `main`.
 - RF-004: PR que nao toca `frontend/` nem o workflow nao dispara os checks.
+
+> **Revisado em 2026-09-14.** Este requisito valia enquanto os checks eram
+> informativos. Com eles virando obrigatorios, o filtro `paths` passou a ser
+> armadilha: check obrigatorio que nao roda deixa o PR parado em "Expected --
+> waiting for status to be reported". O filtro foi removido em
+> `docs/specs/ci-frontend-gates-sem-paths/`, e os checks passam a rodar em todo
+> PR para `stage` e `main`.
+
 - RF-005: o gate de tipos segue existindo, com o mesmo nome de job
   (`tipos-devem-compilar`), para nao trocar o nome de um check ja em uso.
 - RF-006: falha de tipo e falha de teste aparecem como checks distintos.
