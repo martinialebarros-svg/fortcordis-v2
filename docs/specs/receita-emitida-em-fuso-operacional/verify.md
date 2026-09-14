@@ -155,8 +155,32 @@ navegacao.
 Fica o registro de que recarregar um atendimento aberto pela agenda derruba o
 contexto. Nao e desta spec, e nao foi investigado alem disso.
 
-### Fora de escopo, observado de passagem
+### Observacao retratada (2026-09-13)
 
-`created_at` da prescricao volta como `2026-09-13T12:06:18.775212+00:00`, em UTC,
-sem a conversao operacional que o `emitida_em` recebeu. Se alguma tela exibir
-`created_at` de prescricao, mostrara 3 horas a mais. Nao foi tocado aqui.
+Esta secao afirmava que `created_at` da prescricao, por voltar como
+`2026-09-13T12:06:18.775212+00:00`, faria alguma tela mostrar 3 horas a mais.
+**A afirmacao estava errada e fica retratada aqui.**
+
+`created_at` e `DateTime(timezone=True)` no modelo, igual ao `emitida_em`, e e
+serializado por `_to_iso`, que preserva o offset. No frontend,
+`parseOperationalDate` (`atendimento-utils.ts:28`) testa se a string traz fuso
+explicito -- `Z` ou `+-HH:MM` -- e so aplica o offset operacional quando **nao**
+traz. Com offset presente, converte pelo instante:
+
+```
+2026-09-13T12:06:18.775212+00:00  ->  13/09/2026, 09:06:18
+```
+
+Todos os pontos que exibem `created_at` no modulo passam por `formatDate`:
+anexos (`AtendimentoExamesSection`, `AtendimentoDocumentosSection`,
+`AttachmentPreviewModal`), historico de ajustes (`page.tsx:7469`) e o rotulo de
+autosave (`page.tsx:6905`/`6908`, alimentado por `updated_at || created_at`).
+
+Por que o erro passou: o defeito real desta spec era a **ausencia** de offset --
+`2026-09-11T03:44:46`, sem fuso, que o JS le como hora local e exibia 03:44 no
+lugar de 00:44. Um timestamp **com** offset e inequivoco, e foi confundido com o
+primeiro caso so por estar em UTC. Havia inclusive evidencia contraria na
+propria tela: o rotulo "Sincronizado" mostrava a hora local certa em stage.
+
+Conferido com o responsavel em 2026-09-13: nenhuma hora errada foi observada em
+tela alguma.
