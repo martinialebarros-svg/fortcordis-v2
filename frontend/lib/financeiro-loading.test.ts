@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   appendUniqueLoadFailure,
+  deveRecarregarResumo,
   getFinanceiroLoadingPlan,
   loadFinanceiroSection,
 } from "./financeiro-loading";
@@ -24,6 +25,33 @@ describe("getFinanceiroLoadingPlan", () => {
       });
     }
   );
+});
+
+describe("deveRecarregarResumo", () => {
+  it("nao refaz o resumo ao navegar entre paginas no mesmo periodo", () => {
+    expect(
+      deveRecarregarResumo({ origem: "efeito", periodoAtual: "mes", periodoCarregado: "mes" })
+    ).toBe(false);
+  });
+
+  it("refaz quando o periodo muda", () => {
+    expect(
+      deveRecarregarResumo({ origem: "efeito", periodoAtual: "ano", periodoCarregado: "mes" })
+    ).toBe(true);
+  });
+
+  it("refaz na primeira carga, quando nada foi aplicado ainda", () => {
+    expect(
+      deveRecarregarResumo({ origem: "efeito", periodoAtual: "mes", periodoCarregado: null })
+    ).toBe(true);
+  });
+
+  it("recarga manual sempre refaz, mesmo no mesmo periodo", () => {
+    // Pos-mutacao: receber pagamento muda o dinheiro sem mudar o periodo.
+    expect(
+      deveRecarregarResumo({ origem: "manual", periodoAtual: "mes", periodoCarregado: "mes" })
+    ).toBe(true);
+  });
 });
 
 describe("loadFinanceiroSection", () => {
