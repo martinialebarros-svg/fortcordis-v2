@@ -69,12 +69,18 @@ nenhum pode quebrar tipo de frontend.
   e decisao do responsavel.
 - **Nao roda `vitest`.** Ver secao 6.
 
-## 6) Buraco maior, anotado e nao fechado
+## 6) Buraco maior, anotado aqui e fechado depois
 
-Os testes do frontend -- 297 em 42 arquivos -- **nao rodam em CI nenhum**. Rodam
-so na maquina de quem implementa. O `quality-gate` roda a suite do backend
-(`python -m unittest discover`), mas nunca o `vitest`.
+Os testes do frontend -- 297 vitest em 42 arquivos, mais 9 do runner do Node --
+**nao rodavam em CI nenhum**. Rodavam so na maquina de quem implementa. O
+`quality-gate` roda a suite do backend (`python -m unittest discover`), mas
+nunca rodou o `npm test`.
 
-Nao foi tratado aqui porque o pedido foi o gate de `tsc`, e porque ligar a suite
-de frontend no CI e uma decisao com custo de tempo de pipeline que merece ser
-tomada de proposito, nao de carona.
+Nao foi tratado nesta entrega porque o pedido era o gate de `tsc`, e porque
+ligar a suite de frontend tem custo de tempo de pipeline que merecia decisao
+propria, nao de carona.
+
+Fechado em seguida por `docs/specs/ci-frontend-testes-gate/`, que acrescenta o
+job `testes-devem-passar` e renomeia este workflow para `frontend-ci.yml` -- o
+nome antigo passaria a mentir sobre o conteudo. O job de tipos manteve o nome,
+entao o check criado aqui continua o mesmo.
