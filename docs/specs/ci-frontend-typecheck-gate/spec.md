@@ -38,6 +38,14 @@ CI. Workflow novo `.github/workflows/frontend-typecheck.yml`. Nenhuma mudanca em
 - CA-003: `tsc --noEmit` reprova quando ha erro de tipo (teste negativo local).
 - CA-004: PR que nao toca `frontend/` nem este workflow nao dispara o check.
 
+> **Revisado em 2026-09-14.** Este requisito valia enquanto os checks eram
+> informativos. Com eles virando obrigatorios, o filtro `paths` passou a ser
+> armadilha: check obrigatorio que nao roda deixa o PR parado em "Expected --
+> waiting for status to be reported". O filtro foi removido em
+> `docs/specs/ci-frontend-gates-sem-paths/`, e os checks passam a rodar em todo
+> PR para `stage` e `main`.
+
+
 ## 5) Fora de escopo
 
 - `vitest` no CI.
