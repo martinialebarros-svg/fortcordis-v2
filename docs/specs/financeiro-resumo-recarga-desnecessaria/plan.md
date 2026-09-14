@@ -2,7 +2,7 @@
 
 Data: 2026-09-13  
 Responsavel: Martiniano Barros  
-Status: concluido; verificacao manual em stage pendente
+Status: concluido e verificado em stage
 
 ## 1) Tarefas
 
@@ -16,7 +16,7 @@ Status: concluido; verificacao manual em stage pendente
       ref do periodo gravado no `onSuccess`, efeito passando `"efeito"`.
 - [x] T6 corrigir os `onClick={carregarDados}` que passavam o handler direto.
 - [x] T7 teste negativo.
-- [ ] T8 verificacao manual em stage (CA-006).
+- [x] T8 verificacao manual em stage (CA-006) - executada em 2026-09-13.
 
 ## 2) Ordem e dependencias
 

@@ -2,7 +2,7 @@
 
 Data: 2026-09-13  
 Responsavel: Martiniano Barros  
-Status: verificado por teste automatizado; verificacao manual em stage pendente
+Status: verificado. Teste automatizado e conferencia manual em stage (secao 7).
 
 ## 1) Matriz de rastreabilidade
 
@@ -18,7 +18,7 @@ Status: verificado por teste automatizado; verificacao manual em stage pendente
 | RT-003 | tecnico | `periodoResumoCarregadoRef.current = periodo` dentro do `onSuccess` | ok |
 | RT-004 | tecnico | os dois `onClick={carregarDados}` viraram `onClick={() => void carregarDados()}`; `tsc` limpo | ok |
 | CA-005 | tecnico | secao 2 | ok |
-| CA-006 | aceitacao | stage, contagem de chamadas ao trocar filtro e ao trocar periodo | pendente |
+| CA-006 | aceitacao | stage sobre `44809a4f`, secao 7: dois filtros trocados sem recarregar o resumo; periodo trocado recarregando | ok |
 
 ## 2) Testes executados
 
@@ -74,17 +74,45 @@ assignable to type 'MouseEventHandler<HTMLButtonElement>'.
 Registrado como RT-004 para que a regra sobreviva a esta entrega: passar
 `carregarDados` direto para um `onClick` volta a quebrar isto.
 
-## 5) Pendente
+## 5) Nada pendente
 
-- Stage: abrir Financeiro > Transacoes, contar as chamadas a
-  `/financeiro/resumo`, trocar um filtro e conferir que a contagem **nao** sobe;
-  depois trocar o periodo (Dia/Semana/Mes/Ano) e conferir que **sobe**.
-- Paginacao nao serve para essa checagem em stage: sao 23 transacoes para uma
-  pagina de 100, entao nao existe pagina 2. Trocar filtro exercita o mesmo
-  caminho -- o efeito reexecutando.
+A checagem em stage prevista aqui foi executada; registro na secao 7.
+
+Paginacao nao serviu para essa checagem em stage: sao 23 transacoes para uma
+pagina de 100, entao nao existe pagina 2. Trocar filtro exercita o mesmo caminho
+-- o efeito reexecutando -- e foi o que se usou.
 
 ## 6) Origem
 
 Observado de passagem durante o aceite de `financeiro-transacoes-pagination` em
 producao, e registrado la como "observacao, nao defeito". Continua nao sendo
 defeito de correcao: nenhum valor errado aparecia. E requisicao desperdicada.
+
+## 7) Conferencia em stage (2026-09-13)
+
+Sobre `44809a4f`, em `app.stage.fortcordis.com.br`, aba Financeiro > Transacoes.
+Contagem lida do Resource Timing do proprio navegador. Somente leitura e troca
+de filtro; nenhuma mutacao.
+
+| Acao | `/financeiro/transacoes` | `/financeiro/resumo` |
+| --- | --- | --- |
+| Carga inicial | 1 | 1 |
+| Trocar filtro de tipo | 2 | **1** |
+| Trocar filtro de status | 3 | **1** |
+| Trocar periodo `Mes` -> `dia` | 4 | **2** (`?periodo=dia`) |
+| Botao "Atualizar" | 5 | **3** |
+
+As duas metades de CA-006 batem: filtro nao recarrega o resumo, periodo
+recarrega. A lista de transacoes refaz em todas as trocas, como deve -- se ela
+tivesse parado de refazer, a guarda teria pegado a carga errada.
+
+### A linha que mais importava
+
+O botao "Atualizar" era um dos dois `onClick={carregarDados}` corrigidos em T6.
+Sem essa correcao, o `MouseEvent` ocuparia `origem`, a decisao cairia na
+comparacao de periodo e o botao teria **parado de recarregar o resumo** em
+silencio. No app real ele recarregou (3 apos 2, com o periodo inalterado), o que
+fecha RF-005 fora do teste unitario e confirma que a correcao que o `tsc`
+forcou esta certa.
+
+A tela foi devolvida ao estado inicial: filtros em "todos", periodo em "Mes".
