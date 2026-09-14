@@ -7,9 +7,11 @@ import api from "@/lib/axios";
 import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import {
   appendUniqueLoadFailure,
+  deveRecarregarResumo,
   getFinanceiroLoadingPlan,
   loadFinanceiroSection,
   type FinanceiroActiveTab,
+  type FinanceiroLoadOrigin,
 } from "@/lib/financeiro-loading";
 import TransacaoModal from "./TransacaoModal";
 import { calendarDateInput, formatCalendarDate, operationalTodayDateInput } from "@/lib/calendar-date";
@@ -444,6 +446,9 @@ export default function FinanceiroPage() {
   const [enviandoWhatsAppOficialGrupoKey, setEnviandoWhatsAppOficialGrupoKey] = useState<string | null>(null);
   const highlightedRowRef = useRef<HTMLDivElement | null>(null);
   const carregarDadosControllerRef = useRef<AbortController | null>(null);
+  /** Periodo do ultimo resumo aplicado com sucesso. Evita refazer a chamada a
+   *  cada troca de pagina, filtro ou aba, que nao mudam o resumo. */
+  const periodoResumoCarregadoRef = useRef<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -461,7 +466,7 @@ export default function FinanceiroPage() {
       router.push("/");
       return;
     }
-    carregarDados();
+    carregarDados("efeito");
     return () => {
       carregarDadosControllerRef.current?.abort();
     };
@@ -562,7 +567,7 @@ export default function FinanceiroPage() {
     return encoded ? `?${encoded}` : "";
   };
 
-  const carregarDados = async () => {
+  const carregarDados = async (origem: FinanceiroLoadOrigin = "manual") => {
     carregarDadosControllerRef.current?.abort();
     const controller = new AbortController();
     carregarDadosControllerRef.current = controller;
@@ -638,11 +643,24 @@ export default function FinanceiroPage() {
             () => setLoadingTransacoes(false)
           )
         : Promise.resolve();
-      const cargaResumo = registrarCarga(
-        "Resumo financeiro",
-        api.get<Resumo>(`/financeiro/resumo?periodo=${periodo}`, { signal }).then((response) => response.data),
-        setResumo
-      );
+      // O resumo so varia com `periodo`. Sem esta guarda ele era refeito a cada
+      // troca de pagina, filtro ou aba, sempre devolvendo o mesmo valor.
+      const cargaResumo = deveRecarregarResumo({
+        origem,
+        periodoAtual: periodo,
+        periodoCarregado: periodoResumoCarregadoRef.current,
+      })
+        ? registrarCarga(
+            "Resumo financeiro",
+            api.get<Resumo>(`/financeiro/resumo?periodo=${periodo}`, { signal }).then((response) => response.data),
+            (data) => {
+              setResumo(data);
+              // So marca depois do sucesso: falha ou cancelamento deixa o
+              // proximo carregamento tentar de novo.
+              periodoResumoCarregadoRef.current = periodo;
+            }
+          )
+        : Promise.resolve();
       const cargaOrdens = loadingPlan.ordens
         ? registrarCarga(
             "Ordens de servico",
@@ -2659,7 +2677,7 @@ export default function FinanceiroPage() {
 
           <div className="flex flex-wrap gap-2 mt-3">
             <button
-              onClick={carregarDados}
+              onClick={() => void carregarDados()}
               className="fc-finance-secondary"
             >
               Atualizar
@@ -2688,7 +2706,7 @@ export default function FinanceiroPage() {
             {falhasCarregamento.includes("Transacoes") ? (
               <div role="alert" className="p-8 text-center">
                 <p>Nao foi possivel carregar as transacoes.</p>
-                <button className="fc-finance-secondary" onClick={carregarDados}>Recarregar transacoes</button>
+                <button className="fc-finance-secondary" onClick={() => void carregarDados()}>Recarregar transacoes</button>
               </div>
             ) : loadingTransacoes || transacoesDesatualizadas ? (
               <div className="p-8 text-center text-gray-500">Carregando...</div>
