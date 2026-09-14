@@ -16,22 +16,22 @@ name: Frontend CI
 # Os dois rodam em `pull_request` de proposito: gate que so roda depois do merge
 # nao e gate. Jobs separados para que falha de tipo e falha de teste apareçam
 # como checks distintos.
+#
+# Sem filtro `paths`, de proposito. Havia um (`frontend/**`), que poupava rodar
+# em PR so de documentacao -- mas check obrigatorio que **nao roda** deixa o PR
+# parado para sempre em "Expected -- waiting for status to be reported". Como
+# estes dois sao os candidatos naturais a obrigatorios, rodar sempre vale mais
+# que economizar ~1 min em PR de docs.
 
 on:
   pull_request:
     branches:
       - stage
       - main
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-ci.yml"
   push:
     branches:
       - stage
       - main
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-ci.yml"
   workflow_dispatch:
 
 permissions:
