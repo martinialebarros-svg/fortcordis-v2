@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 from datetime import date, datetime, timedelta, timezone
 
@@ -114,6 +115,8 @@ from app.services.portal_clinic_auth_service import (
     verify_auth_challenge_code,
     verify_password,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 PORTAL_DOWNLOAD_AUDIT_ACTION = "PORTAL_DOWNLOAD_ARQUIVO"
@@ -1030,12 +1033,32 @@ def criar_convite_clinica(
                 db.commit()
             delivery_status = "sent"
             delivery_provider = result.provider
-        except Exception:
+        except HTTPException as exc:
+            # O servico de entrega usa HTTPException para condicao de ambiente
+            # (integracao nao configurada, envio desabilitado). O `detail` dele
+            # e a informacao util -- sem isso, a falha vira "nao chegou e
+            # ninguem sabe por que".
+            motivo = str(exc.detail or "").strip() or "Falha ao enviar o convite por WhatsApp."
+            logger.warning(
+                "Convite da clinica %s nao foi enviado por WhatsApp: %s",
+                clinica.id,
+                motivo,
+            )
+            if not payload.allow_manual_copy:
+                raise HTTPException(status_code=502, detail=motivo) from exc
+        except Exception as exc:
+            motivo = str(exc).strip() or exc.__class__.__name__
+            logger.warning(
+                "Convite da clinica %s nao foi enviado por WhatsApp: %s",
+                clinica.id,
+                motivo,
+                exc_info=True,
+            )
             if not payload.allow_manual_copy:
                 raise HTTPException(
                     status_code=502,
-                    detail="Nao foi possivel enviar o convite por WhatsApp.",
-                )
+                    detail=f"Nao foi possivel enviar o convite por WhatsApp: {motivo}",
+                ) from exc
     elif not payload.allow_manual_copy:
         raise HTTPException(
             status_code=400,

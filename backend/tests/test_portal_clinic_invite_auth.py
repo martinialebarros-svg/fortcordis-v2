@@ -397,6 +397,68 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
         self.assertIsNone(payload["delivery_provider"])
         self.assertTrue(payload["activation_url"])
 
+    def test_convite_sem_copia_manual_propaga_o_motivo_da_falha(self) -> None:
+        """Sem `allow_manual_copy`, o 502 tem de dizer POR QUE o envio falhou.
+
+        Antes, o `except` engolia a excecao e devolvia um texto generico: quem
+        estava na tela tentava de novo sem nenhuma informacao nova.
+        """
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", True))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_SERVICE_URL", "http://127.0.0.1:3010"))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_INTERNAL_TOKEN", "internal-secret"))
+            stack.enter_context(
+                patch(
+                    "app.services.whatsapp_template_delivery_service.httpx.post",
+                    return_value=SimpleNamespace(status_code=400, json=lambda: {"error": "template not approved"}),
+                )
+            )
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+            with TestClient(self._app) as client:
+                response = client.post(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/convites",
+                    json={
+                        "delivery_channel": "whatsapp",
+                        "delivery_target": "85999990000",
+                        "expires_in_hours": 48,
+                        "allow_manual_copy": False,
+                    },
+                )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("template not approved", response.json()["detail"])
+
+    def test_convite_sem_token_interno_diz_que_a_integracao_nao_esta_configurada(self) -> None:
+        """Token interno vazio e a causa mais provavel de falha silenciosa em um
+        ambiente onde WHATSAPP_AGENDA_ENABLED esta ligado mas nada mais exercita
+        o envio. O motivo tem de chegar a quem chamou."""
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", True))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_SERVICE_URL", "http://127.0.0.1:3010"))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_INTERNAL_TOKEN", ""))
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+            with TestClient(self._app) as client:
+                response = client.post(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/convites",
+                    json={
+                        "delivery_channel": "whatsapp",
+                        "delivery_target": "85999990000",
+                        "expires_in_hours": 48,
+                        "allow_manual_copy": False,
+                    },
+                )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("nao configurada", response.json()["detail"])
+
     def test_secretaria_e_recepcao_podem_gerar_convite_sem_poder_revogar(self) -> None:
         seed = self._seed_portal_data()
 
