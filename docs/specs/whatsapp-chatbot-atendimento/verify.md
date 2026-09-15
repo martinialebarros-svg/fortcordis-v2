@@ -2142,3 +2142,203 @@ institucionais 1, clinica parceira 2, tool nova sem caso 1.
 ### Suite
 
 **1179 passaram, 2 skipped** (eram 1171). 8 casos novos.
+
+## Verificacao operacional — 2026-09-08
+
+Base: `origin/stage` em `0cc3a85d`, worktree isolado
+`/private/tmp/fortcordis-bot-operacao`, branch `codex/whatsapp-bot-operacao`.
+Checkout original preservado. Nenhum segredo copiado para o worktree.
+
+Evidencia inicial: 305 testes do bot e 237 subcasos passaram antes das
+mudancas (2 skips existentes). Ambiente Python 3.11 com requirements do
+repositorio; o venv legado Python 3.9 nao era compativel.
+
+Contratos adicionados cobrem: emergencia durante pausa; visitante sem
+acesso a dados; controles alterados durante geracao; mensagem mais recente;
+origem bot sem pausa humana; persistencia antes de envio; repeticao sem
+nova geracao; timeout/202/502 com handoff; recuperacao de job antigo;
+separacao entre envio automatico e aceite humano. Teste PostgreSQL prova
+que outra conexao nao consegue adquirir o lock durante commits do worker,
+e que o lock e liberado ao final.
+
+`whatsapp-stage-backend/scripts/test-bot-auto.ts` usa banco PostgreSQL
+exclusivamente local e simula a Graph API. Prova autenticacao interna,
+reserva concorrente unica, bloqueio de revisao antiga/janela fechada,
+interruptor desligado e uma unica chamada externa simulada mesmo apos timeout
+e repeticao da requisicao. Nao envia mensagem real.
+
+### Ativacao posterior (ainda nao realizada)
+
+- Publicar e verificar stage antes de promover producao. Manter interruptores
+  de envio falso ate a revisao da fonte institucional e do destinatario de teste.
+- Verificar presenca/injecao dos segredos existentes sem mostrar valores;
+  validar a identidade Meta do ambiente e saude dos dois servicos.
+- Em teste autorizado, habilitar `WHATSAPP_BOT_AUTO_SEND_ENABLED=true` em
+  Python e Node; manter bot global habilitado e usar `auto` somente no
+  escopo aprovado. Participacao `piloto` exige override explicito por
+  conversa/clinica. Nao trocar automaticamente participacao para `todos`.
+- Ajustar `WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS=0` no ambiente se existir
+  override antigo. Nao remover pausas manuais ou claims em massa.
+- Validar mensagem recebida -> resposta auditada -> confirmacao Node/Meta,
+  handoff para equipe e ausencia de repeticao antes de expandir o piloto.
+- Rollback: desligar flag de envio no Python e Node e voltar as conversas
+  piloto para `suggest`. Conferir reservas `sending`/pendentes e alertas de
+  entrega incerta antes de qualquer reenvio manual.
+
+Sem publicacao, ativacao, mudanca de callback ou teste pago do provider nesta
+etapa. Os testes comprovam contratos de codigo; qualidade do modelo e
+completude da base institucional real ainda exigem observacao no ambiente.
+
+### Resultado final local
+
+- Suite usada pelo CI (`unittest discover -s backend/tests -p 'test_*.py'`):
+  **1.230 testes executados, 1.227 aprovados e 3 skips**, sem falhas.
+- Suite focada do bot com PostgreSQL local habilitado: **325 testes,
+  323 aprovados e 2 skips**. Inclui lock distribuido real e contratos de envio.
+- Frontend WhatsApp: **95 testes aprovados** em 7 arquivos; lint completo,
+  TypeScript e build Next.js aprovados.
+- Node: build, contratos da inbox, retry existente e `test:bot-auto`
+  aprovados; Graph substituida por simulacao (zero mensagens reais).
+- Guardrail SDD, parse dos workflows YAML e `git diff --check`: aprovados.
+
+A coleta indiscriminada por pytest na raiz do backend incluiu scripts de
+diagnostico que exigem banco preparado. A suite oficial e `backend/tests`.
+Na suite completa, o papel local `all` iniciava workers durante testes de
+API e disputava locks dos testes unitarios (falhas intermitentes de push/bot).
+Os passos de teste dos workflows stage/main agora usam
+`FORTCORDIS_PROCESS_ROLE=api`; o teste de observabilidade declara `all`
+explicitamente quando precisa verificar avisos de workers. Isso isola os
+testes sem alterar o papel de execucao dos servicos publicados.
+
+Comandos principais, a partir da raiz do worktree:
+
+```sh
+FORTCORDIS_PROCESS_ROLE=api DATABASE_URL=sqlite:// python -m unittest discover -s backend/tests -p 'test_*.py'
+```
+
+Usar Python 3.11 e dependencias de `backend/requirements.txt`. O teste
+PostgreSQL opcional exige `WHATSAPP_BOT_TEST_DATABASE_URL` apontando para
+`127.0.0.1` e banco cujo nome contenha `test`. Para Node, `npm run test:bot-auto`
+exige `DATABASE_URL` local de teste ja migrado, `WHATSAPP_ACCESS_TOKEN` e
+`PHONE_NUMBER_ID` **ficticios**: a chamada Graph e substituida no proprio teste.
+
+### Publicacao autorizada — 2026-09-08
+
+Usuario autorizou publicacao stage -> producao e forneceu destinatario proprio
+para teste (final 8899). A ativacao inicial sera restrita ao destinatario de
+teste, preservando participacao e modos das demais conversas. Nao substituir
+credenciais de um ambiente pelas do outro. Exigir prova de stage antes da
+promocao e conferir entrega antes de repetir qualquer mensagem de teste.
+
+### Publicacao autorizada e correcao de dependencia — 2026-09-08
+
+- Commit funcional `5df0caea520f654503669407b48ff2099f74e989`: stage run
+  `34285225417` concluido com sucesso, inclusive segunda execucao do deploy
+  para carregar a configuracao operacional. Migration CI `34285225425`
+  aprovada. Preflight Meta passou sem expor segredos.
+- Stage e alias retornaram 200 em `/whatsapp-stage`; conversas anonimas e
+  preview do bot retornaram 401. Os 14 chunks da tela responderam 200 e o
+  bundle continha `envio_automatico_liberado`.
+- Simulacao real em stage para o destinatario autorizado final 8899 produziu
+  `aprovado_auto`, com fonte `consultar_horario_funcionamento`. Nenhuma
+  mensagem nova desse destinatario foi recebida durante esta verificacao.
+- Em producao, a Graph API confirmou `CONNECTED`, `CLOUD_API`, qualidade
+  `GREEN` e assinatura do aplicativo esperado. A tentativa unica autorizada
+  do template padrao `hello_world` foi recusada (HTTP 400, codigo 131058);
+  nao houve mensagem aceita. A janela real permanece necessaria para o
+  teste ponta a ponta; nao foi simulada por alteracao de dados.
+- A primeira promocao para main disparou `34286851978`, bloqueada **antes
+  do deploy** por `npm audit`: multer 2.2.0 vulneravel. Migration CI
+  `34286851915` passou. Nao considerar esse run prova de producao publicada.
+- Correcao: `multer ^2.3.0`, lockfile em 2.3.0. Fonte primaria:
+  https://github.com/advisories/GHSA-wc9g-mqfw-jrwm (corrigido em 2.3.0).
+- Validacao local da correcao: build TypeScript, contratos de anexos e
+  autenticacao aprovados; `npm audit --omit=dev --audit-level=high` sem
+  vulnerabilidades. Ensaio HTTP multipart local comprovou arquivo valido
+  (200), limite de 8 MiB (413) e campo de arquivo inesperado (422), sem
+  trafego para a Meta. Repassar o snapshot corrigido por stage antes de main.
+- Escopo operacional preparado: modo institucional preservado em `suggest`,
+  participacao de producao preservada em `piloto`, override automatico
+  apenas para o destinatario autorizado. Ativacao Python em producao deve
+  ocorrer somente com o codigo compativel instalado; a versao anterior
+  rejeita a chave nova no arquivo `.env`.
+
+### Coleta administrativa de agendamento — validacao local 2026-09-09
+
+Implementada coleta para clinicas identificadas/habilitadas: exame, paciente,
+tutor e preferencia; perguntas apenas sobre dados ausentes; resumo conferido
+pelo solicitante antes de encaminhar para validacao humana da agenda.
+
+- Backend completo: **1.239 testes executados, 1.236 aprovados e 3 skips**.
+- Nove testes novos cobrem mensagens separadas, resumo ainda nao enviado,
+  conferencia explicita, correcao de paciente, tutor unico/ambiguo, valores
+  inventados ou desconhecidos, cancelamento, nova solicitacao, expiracao,
+  isolamento por telefone/clinica e handoff idempotente apos envio.
+- Integracao com provider simulado percorre quatro turnos pela geracao real,
+  demonstra persistencia exclusiva pelo chamador e nenhuma criacao na agenda.
+- Central: resumo preservado apos mensagem suprimida por pausa, ocultado
+  quando a identidade deixa de corresponder a clinica.
+- Frontend da central: **23 testes aprovados**, incluindo o cartao de resumo;
+  lint completo e build Next.js (com verificacao de tipos) aprovados.
+- `git diff --check` aprovado. SDD revisado no snapshot completo da alteracao.
+
+Nenhuma chamada paga ao modelo, mensagem externa, migracao de banco ou
+alteracao em producao nesta implementacao. O piloto publicado continua na
+versao anterior ate publicacao autorizada. A classificacao/extracao em
+linguagem natural ainda exige observacao com o provider real em stage.
+A coleta dura 48 horas, sem constituir fila permanente de agendamentos; o
+alerta e o historico ficam registrados para o atendimento humano.
+
+## Fila operacional de solicitacoes — validacao local (2026-09-09)
+
+- Backend completo: 1.246 testes executados, 1.243 aprovados e 3 skips;
+  comando `python -m unittest discover -s backend/tests -p 'test_*.py'`.
+- Suite adicional da fila: 8 testes aprovados com PostgreSQL LOCAL isolado
+  em schema descartavel e SQLite. Cobertura: entrega enviada vs rascunho,
+  retry sem duplicacao, durabilidade, identidade/clinica, propriedade,
+  concorrencia real (uma atribuicao 200, outra 409), historico atomico,
+  conclusao com resultado obrigatorio, filtros, prazo/fuso, autenticacao e
+  papeis, migracao/backfill idempotente nos dois dialetos e acompanhamento
+  pelo gerador para todos os estados operacionais sem escrita da simulacao.
+- Frontend: 27 testes aprovados (pagina existente + AppointmentQueue),
+  cobrindo carga sob demanda, abrir conversa, prazo vencido, assumir com
+  versao, conflito visivel, resultado obrigatorio e recuperar falha de leitura.
+- Lint frontend e build Next.js/TypeScript aprovados; `git diff --check` limpo.
+- Logs locais: `/private/tmp/bot-fila-backend-full.log`,
+  `/private/tmp/bot-fila-postgres-tests.log`, `/private/tmp/bot-fila-front-tests.log`,
+  `/private/tmp/bot-fila-front-lint.log`, `/private/tmp/bot-fila-front-build.log`.
+- Nenhuma chamada paga ao provedor, envio WhatsApp, alteracao em producao,
+  credencial, callback ou modo do piloto nesta entrega.
+- Publicacao permanece pendente; requer migracao 20260909_81 antes do novo
+  runtime, deploy terminal e smoke de API autenticada + arquivos servidos.
+- Reversao de codigo preserva tabela e historico; nao executar DROP em ambiente real.
+
+## Conversao assistida para agenda — validacao local
+
+- Suite completa backend: 1.253 testes executados, 1.249 aprovados, 4 skips,
+  antes da adicao do caso exclusivo de concorrencia PostgreSQL desta entrega.
+- Suite de conversao com PostgreSQL local isolado: 7 testes, incluindo duas
+  tentativas simultaneas retornando o mesmo ID e apenas um agendamento,
+  rollback de ambas as escritas, conflito real de slot, dono/papel/versao,
+  correspondencia unica, dados ambiguos e migracao idempotente sem backfill inventado.
+- Frontend: 29 testes de fila/pagina/helper mais 1 teste do modal real. Valida
+  acesso a Agendar pedido, ausencia da conclusao manual sem agenda, IDs seguros,
+  preferencia como texto, hora vazia e cadastros fora da primeira pagina.
+- Lint e build Next.js/TypeScript aprovados. `git diff --check` aprovado.
+- Evidencias locais: `/private/tmp/bot-pedido-agenda-full.log`,
+  `/private/tmp/bot-pedido-agenda-postgres.log`, `/private/tmp/bot-pedido-agenda-front-tests.log`,
+  `/private/tmp/bot-pedido-agenda-modal-test.log`, `/private/tmp/bot-pedido-agenda-lint.log`,
+  `/private/tmp/bot-pedido-agenda-build.log`.
+- Nenhum envio real de mensagem, chamada paga de IA, alteracao de piloto ou
+  acesso de escrita a stage/producao. Testes usam dados sinteticos e banco local.
+- Pronto para publicacao posterior, com migracao 82, deploy terminal e smoke
+  da fila/agenda; esta verificacao local nao afirma disponibilidade em producao.
+
+
+## Verificação local — revisão do fluxo 2026-09-09
+
+Cobertura acrescentada para confirmação natural e rejeição de pergunta/negação/correção, saudação por sessão, filtro de conversa, painel aberto, divergência com aceite invalidado ao reabrir, bloqueio e auditoria da conversão. Backend completo: 1253 testes aprovados, 278 subtestes aprovados e 5 testes ignorados pelo ambiente da suíte. Interface: 76 testes aprovados na central, modal do pedido e utilitários. Build Next.js (incluindo lint e tipos) e guardrail SDD aprovados. Sem publicação nem mensagens reais nesta entrega.
+
+
+## Continuidade e passagem para equipe — 2026-09-10
+Contrato e evidências complementares em `docs/specs/whatsapp-continuidade-atendimento/`. O encaminhamento de novas coletas deixa de aplicar pausa sem atendente; controles humanos existentes continuam prioritários.

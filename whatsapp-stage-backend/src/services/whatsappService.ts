@@ -124,6 +124,7 @@ function normalizeAxiosError(error: AxiosError, attempt: number): WhatsAppGraphA
 }
 
 interface SendTextMessageParams {
+  maxAttempts?: number;
   phoneNumberId: string;
   accessToken: string;
   to: string;
@@ -175,12 +176,13 @@ export interface UploadWhatsAppPdfParams {
 }
 
 async function sendPayloadWithRetry(params: {
+  maxAttempts?: number;
   phoneNumberId: string;
   accessToken: string;
   payload: Record<string, unknown>;
 }): Promise<GraphMessageResponse> {
   const url = `${GRAPH_API_BASE_URL}/${params.phoneNumberId}/messages`;
-  const maxAttempts = 3;
+  const maxAttempts = Math.max(1, Math.min(3, params.maxAttempts ?? 3));
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -236,7 +238,7 @@ export async function sendWhatsAppMessageWithRetry(
     }
   };
 
-  return sendPayloadWithRetry({ phoneNumberId, accessToken, payload });
+  return sendPayloadWithRetry({ phoneNumberId, accessToken, payload, maxAttempts: params.maxAttempts });
 }
 
 export interface SendDocumentMessageParams {

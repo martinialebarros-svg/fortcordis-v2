@@ -35,7 +35,7 @@ import {
   LV_M_MODE_KEYS,
 } from "@/lib/echo-derived-measurements";
 import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
-import { operationalTodayDateInput } from "@/lib/calendar-date";
+import { calendarDateInput, operationalTodayDateInput } from "@/lib/calendar-date";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -606,7 +606,10 @@ export default function NovoLaudoPage() {
         idade: extrairIdadePaciente(dadosPaciente || {}) || prev.idade,
         sexo: normalizarSexoPaciente(dadosPaciente?.sexo || prev.sexo || "Macho") || "Macho",
         telefone: agendamento.telefone || prev.telefone,
-        data_exame: agendamento.data || prev.data_exame || operationalTodayDateInput(),
+        data_exame:
+          calendarDateInput(agendamento.data || agendamento.inicio) ||
+          prev.data_exame ||
+          operationalTodayDateInput(),
       }));
 
       if (agendamento.clinica_id) {

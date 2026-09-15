@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -11,7 +12,18 @@ ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 class Settings(BaseSettings):
     DATABASE_URL: str
+    # Limites por processo da API. Em PostgreSQL, evitam que conexoes degradadas
+    # acumulem espera indefinida e respeitam o teto do pooler gerenciado.
+    DATABASE_POOL_SIZE: int = Field(default=5, ge=1)
+    DATABASE_MAX_OVERFLOW: int = Field(default=5, ge=0)
+    DATABASE_POOL_TIMEOUT_SECONDS: int = Field(default=15, ge=1)
+    DATABASE_POOL_RECYCLE_SECONDS: int = Field(default=1800, ge=1)
+    DATABASE_CONNECT_TIMEOUT_SECONDS: int = Field(default=10, ge=1)
+    DATABASE_POOL_PRE_PING: bool = True
     APP_ENV: str = "development"
+    # `all` mantem o comportamento local legado. Em producao, o systemd
+    # executa a API como `api` e os trabalhos assincronos como `worker`.
+    FORTCORDIS_PROCESS_ROLE: Literal["all", "api", "worker"] = "all"
     SECRET_KEY: str = "change-me"
     ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION: bool = True
     ALGORITHM: str = "HS256"
@@ -50,6 +62,13 @@ class Settings(BaseSettings):
     RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS: str = (
         "/api/v1/agenda,/api/v1/atendimentos,/api/v1/relatorios,/api/v1/fiscal,/api/v1/logistica"
     )
+    # PERF-17: historico administrativo sem URL, payload ou identificadores clinicos.
+    # A escrita e tolerante a falhas para nunca bloquear uma resposta da aplicacao.
+    RUNTIME_HTTP_LATENCY_PERSIST_ENABLED: bool = True
+    RUNTIME_HTTP_LATENCY_RETENTION_DAYS: int = Field(default=14, ge=1, le=90)
+    RUNTIME_HTTP_LATENCY_CLEANUP_INTERVAL_SECONDS: int = Field(default=21600, ge=60, le=86400)
+    RUNTIME_HTTP_LATENCY_QUERY_MAX_SAMPLES: int = Field(default=20000, ge=100, le=100000)
+    RUNTIME_HTTP_LATENCY_RELEASE_ID: str = ""
     WEB_PUSH_VAPID_PUBLIC_KEY: str = ""
     WEB_PUSH_VAPID_PRIVATE_KEY: str = ""
     WEB_PUSH_VAPID_CLAIMS_SUB: str = "mailto:suporte@fortcordis.local"
@@ -73,6 +92,9 @@ class Settings(BaseSettings):
     WHATSAPP_REMINDER_MAX_ATTEMPTS: int = 3
     WHATSAPP_REMINDER_RECIPIENT_TYPE: str = "clinica"
     WHATSAPP_BOT_ENABLED: bool = False
+    # Liberacao operacional independente do modo escolhido na interface.
+    WHATSAPP_BOT_AUTO_SEND_ENABLED: bool = False
+    WHATSAPP_BOT_PROCESSING_LEASE_SECONDS: int = 900
     WHATSAPP_BOT_MODEL: str = "gpt-5.6-sol"
     WHATSAPP_BOT_PROMPT_VERSION: str = "whatsapp-bot-v1"
     WHATSAPP_BOT_DEBOUNCE_SECONDS: int = 12
@@ -86,7 +108,7 @@ class Settings(BaseSettings):
     # equipe vai ligar, o bot sai da frente"; envio assistido significa
     # apenas "um atendente respondeu esta mensagem". Usar 12h para o
     # segundo deixa o cliente sem bot por meio dia depois de UMA resposta.
-    WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS: int = 2
+    WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS: int = 0
     # Memoria de conversa: quantas mensagens anteriores vao ao prompt.
     # `0` desliga sem deploy. Teto real em `whatsapp_bot_prompt`.
     WHATSAPP_BOT_HISTORICO_MENSAGENS: int = 8

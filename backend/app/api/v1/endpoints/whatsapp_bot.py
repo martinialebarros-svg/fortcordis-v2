@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Literal
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -136,8 +136,29 @@ def _estado_payload(db: Session, wa_identity: str) -> dict:
         and str(ultima.motivo or "") in _SUPRESSOES_VISIVEIS
         else None
     )
+    from app.services.whatsapp_bot_generation import _resolver_contexto, _escopo_da_persona
+    from app.services.whatsapp_bot_agendamento import carregar, resumo
+    ultima_clinica = db.query(WhatsAppBotResposta).filter(
+        WhatsAppBotResposta.wa_identity == wa_identity,
+        WhatsAppBotResposta.clinica_id.is_not(None),
+    ).order_by(WhatsAppBotResposta.id.desc()).first()
+    coleta = carregar(db, wa_identity, ultima_clinica.clinica_id) if ultima_clinica else None
+    from app.services.whatsapp_bot_fila import ultimo as ultimo_pedido, LABELS
+    pedido = ultimo_pedido(db, wa_identity, ultima_clinica.clinica_id) if ultima_clinica else None
+    if coleta or pedido:
+        contexto = _resolver_contexto(db, wa_identity)
+        _, _, clinic_id = _escopo_da_persona(contexto) if contexto.get("resolution") == "matched" else (None, None, None)
+        if coleta and coleta.get("clinica_id") != clinic_id:
+            coleta = None
+        if pedido and pedido.clinica_id != clinic_id:
+            pedido = None
+    acompanhamento = ({"status":"acompanhamento", "resumo":pedido.resumo,
+        "status_equipe":LABELS[pedido.status], "preferencia_recebida_em":None}
+        if pedido and (not coleta or coleta.get("status") not in ("coletando", "aguardando_confirmacao")) else None)
     return {
+        "solicitacao_agendamento": acompanhamento or ({"status": coleta["status"], "resumo": resumo(coleta), "preferencia_recebida_em": coleta.get("preferencia_recebida_em")} if coleta else None),
         "wa_identity": wa_identity,
+        "envio_automatico_liberado": settings.WHATSAPP_BOT_AUTO_SEND_ENABLED,
         "modo": modo,
         "modo_origem": "conversa" if estado is not None and estado.modo else "institucional",
         "pausado_ate": estado.pausado_ate.isoformat() if estado and estado.pausado_ate else None,
@@ -335,14 +356,16 @@ def enviar_rascunho(
     resposta.texto_enviado = texto
     resposta.feedback = "positivo"
     resposta.enviado_por_id = current_user.id
-    # Pausa CURTA: um atendente respondeu esta mensagem, nao assumiu a
-    # conversa. A de 12h e semantica de handoff.
-    pause_conversation(
-        db,
-        resposta.wa_identity,
-        atualizado_por_id=current_user.id,
-        horas=_assisted_send_pause_hours(),
-    )
+    # Aprovar resposta nao assume a conversa. Pausa apenas quando configurada.
+    if _assisted_send_pause_hours() > 0:
+        pause_conversation(
+            db,
+            resposta.wa_identity,
+            atualizado_por_id=current_user.id,
+            horas=_assisted_send_pause_hours(),
+        )
+    from app.services.whatsapp_bot_agendamento import encaminhar
+    encaminhar(db, resposta)
     db.commit()
     db.refresh(resposta)
     registrar_auditoria(
@@ -749,3 +772,62 @@ def remover_participacao_da_clinica(
         descricao=f"Marcacao de participacao da clinica {clinica_id} removida.",
     )
     return {"clinica_id": clinica_id, "modo": None, "participacao": resolve_participacao(db)}
+
+
+class WhatsAppBotSolicitacaoUpdate(BaseModel):
+    versao: int = Field(ge=1)
+    acao: Literal['assumir', 'liberar', 'atualizar']
+    status: Optional[Literal['aguardando_equipe', 'em_atendimento', 'aguardando_cliente', 'agendado', 'cancelado']] = None
+    prazo_em: Optional[datetime] = None
+    observacao: Optional[str] = Field(default=None, max_length=500)
+
+
+class WhatsAppAssumirAtendimento(BaseModel):
+    conversation_id: str = Field(min_length=1, max_length=64, pattern=r"^[0-9]+$")
+    telefone: str = Field(min_length=8, max_length=30, pattern=r"^[0-9]+$")
+
+
+@router.post('/atendimentos/assumir')
+def assumir_atendimento(payload: WhatsAppAssumirAtendimento, db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS))):
+    from app.services.whatsapp_bot_atendimento import assumir
+    return assumir(db, payload.conversation_id, payload.telefone, current_user)
+
+
+@router.get('/solicitacoes')
+def listar_solicitacoes(
+    filtro: Literal['abertas','atrasadas','todas','aguardando_equipe','em_atendimento','aguardando_cliente','agendado','cancelado'] = 'abertas',
+    minhas: bool = False,
+    page: int = Query(default=1, ge=1, le=10000),
+    conversation_id: Optional[str] = Query(default=None, min_length=1, max_length=64),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    from app.services.whatsapp_bot_fila import listar
+    return listar(db, current_user.id, filtro, minhas, page, conversation_id)
+
+
+@router.patch('/solicitacoes/{pedido_id}')
+def atualizar_solicitacao(
+    pedido_id: int, payload: WhatsAppBotSolicitacaoUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    from app.services.whatsapp_bot_fila import atualizar
+    if payload.acao == 'assumir':
+        from app.models.whatsapp_bot import WhatsAppBotSolicitacao
+        from app.services.whatsapp_bot_atendimento import assumir
+        row = db.get(WhatsAppBotSolicitacao, pedido_id)
+        if not row:
+            raise HTTPException(404, 'Solicitação não encontrada.')
+        return assumir(db, row.conversation_id, row.wa_identity, current_user, row.id, payload.versao)
+    return atualizar(db, pedido_id, payload, current_user)
+
+
+@router.get('/solicitacoes/{pedido_id}/preparar-agendamento')
+def preparar_agendamento_pedido(
+    pedido_id: int, db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_papel(*_WHATSAPP_BOT_PAPEIS)),
+):
+    from app.services.whatsapp_bot_pedido_agenda import preparar
+    return preparar(db, pedido_id, current_user)

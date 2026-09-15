@@ -17,6 +17,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "whatsapp-bot-worker-test-secret-key-1234567890")
 
 from app.models.configuracao import Configuracao
+from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import WhatsAppBotJob, WhatsAppBotResposta
 from app.services import whatsapp_bot_queue_service as queue_service
 from app.services import whatsapp_bot_worker_service as worker
@@ -27,6 +28,7 @@ class WhatsAppBotWorkerServiceTest(unittest.TestCase):
         db_path = Path(tmpdir) / "whatsapp-bot-worker-test.db"
         engine = create_engine(f"sqlite:///{db_path}")
         WhatsAppBotJob.__table__.create(engine, checkfirst=True)
+        WhatsAppBotSolicitacao.__table__.create(engine, checkfirst=True)
         WhatsAppBotResposta.__table__.create(engine, checkfirst=True)
         Configuracao.__table__.create(engine, checkfirst=True)
         return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine
@@ -182,7 +184,7 @@ class WhatsAppBotWorkerServiceTest(unittest.TestCase):
 
                 with patch.object(worker, "SessionLocal", SessionFactory):
                     with patch.object(worker, "_distributed_lock_enabled", return_value=False):
-                        with patch.object(worker, "_max_attempts", return_value=2):
+                        with patch.object(worker, "_max_attempts", return_value=2), patch.object(worker, "_handoff_operacional"):
                             # poll_seconds=0 simula a passagem de um ciclo entre cada
                             # chamada, sem depender do relogio real do teste.
                             with patch.object(worker, "_worker_poll_seconds", return_value=0):

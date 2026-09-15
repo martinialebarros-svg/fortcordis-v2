@@ -19,6 +19,7 @@ os.environ.setdefault("SECRET_KEY", "whatsapp-bot-metrics-test-secret-key-123456
 
 from app.api.v1.endpoints import whatsapp_bot
 from app.models.configuracao import Configuracao
+from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import WhatsAppBotResposta
 from app.services import whatsapp_bot_metrics_service as metrics
 
@@ -27,7 +28,7 @@ class WhatsAppBotMetricsTest(unittest.TestCase):
     def _factory(self, tmpdir: str):
         db_path = Path(tmpdir) / "whatsapp-bot-metrics-test.db"
         engine = create_engine(f"sqlite:///{db_path}")
-        for table in (WhatsAppBotResposta.__table__, Configuracao.__table__):
+        for table in (WhatsAppBotResposta.__table__, WhatsAppBotSolicitacao.__table__, Configuracao.__table__):
             table.create(engine, checkfirst=True)
         return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine
 

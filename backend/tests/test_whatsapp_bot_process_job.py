@@ -18,6 +18,7 @@ os.environ.setdefault("SECRET_KEY", "whatsapp-bot-process-job-test-secret-key-12
 
 from app.models.alerta_interno import AlertaInterno
 from app.models.configuracao import Configuracao
+from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import WhatsAppBotConversaEstado, WhatsAppBotJob, WhatsAppBotResposta
 from app.services import whatsapp_bot_gates as gates
 from app.services import whatsapp_bot_handoff_service as handoff_service
@@ -38,7 +39,7 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
         engine = create_engine(f"sqlite:///{db_path}")
         for table in (
             WhatsAppBotJob.__table__,
-            WhatsAppBotResposta.__table__,
+            WhatsAppBotResposta.__table__, WhatsAppBotSolicitacao.__table__,
             WhatsAppBotConversaEstado.__table__,
             Configuracao.__table__,
             AlertaInterno.__table__,
@@ -122,7 +123,7 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
-    def test_pausa_local_ainda_vigente_suprime_sem_chamar_node(self) -> None:
+    def test_pausa_local_consulta_mensagem_antes_de_suprimir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             SessionFactory, engine = self._build_session_factory(tmpdir)
             try:
@@ -141,10 +142,13 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
                             db.commit()
                             job = self._make_job(db)
                             job_id = job.id
-                            with patch.object(worker.httpx, "get") as get_mock:
+                            with patch.object(worker.httpx, "get", side_effect=[_fake_response({"data": [{
+                                "id": "conv-1", "last_message_at": datetime.now(timezone.utc).isoformat(),
+                                "last_message_body": "oi", "last_message_from_me": False,
+                            }]}), _fake_response({"data": []})]) as get_mock, patch.object(worker, "_bot_internal_client_config", return_value=("http://node", {}, 1)):
                                 worker._process_job(db, job)
                                 db.commit()
-                            get_mock.assert_not_called()
+                            self.assertEqual(get_mock.call_count, 2)
                         finally:
                             db.close()
 
@@ -159,14 +163,7 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
                 engine.dispose()
 
     def _run_with_node_mocks(self, db, job, *, conversation_row, message_row):
-        """Uma unica chamada ao Node: a ultima mensagem vem no payload da conversa.
-
-        O Node monta `last_message_*` por LATERAL com `ORDER BY created_at DESC`
-        (`conversationsController.ts:128`), entao e sempre a mensagem certa. A
-        segunda chamada que existia aqui batia em `/conversations/:id/messages`,
-        que e ASC paginado: com `page=1&limit=200` devolvia a 200a mais ANTIGA em
-        conversa com mais de 200 mensagens.
-        """
+        """A mensagem atual vem da conversa; o histórico detecta alertas fragmentados."""
         conversation_row = {
             **conversation_row,
             "last_message_body": message_row.get("body"),
@@ -179,7 +176,7 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
             with patch.object(gates.settings, "WHATSAPP_AGENDA_INTERNAL_TOKEN", "segredo"):
                 with patch.object(handoff_service, "send_whatsapp_message_push_notification") as push_mock:
                     with patch.object(handoff_service.httpx, "patch", return_value=_fake_response({})) as patch_mock:
-                        with patch.object(worker.httpx, "get", side_effect=[conversations_response]) as get_mock:
+                        with patch.object(worker.httpx, "get", side_effect=[conversations_response, _fake_response({"data": [message_row]})]) as get_mock:
                             result = worker._process_job(db, job)
                             db.commit()
         return result, get_mock, patch_mock, push_mock
@@ -250,8 +247,8 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
                         finally:
                             db.close()
 
-                # Uma chamada, nao duas: a ultima mensagem vem junto da conversa.
-                self.assertEqual(get_mock.call_count, 1)
+                # Consulta também fragmentos anteriores antes de aplicar a pausa.
+                self.assertEqual(get_mock.call_count, 2)
                 patch_mock.assert_not_called()
                 push_mock.assert_not_called()
 
@@ -298,7 +295,7 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
-    def test_tipo_nao_suportado_vira_handoff_sem_alerta(self) -> None:
+    def test_tipo_nao_suportado_vira_handoff_com_alerta(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             SessionFactory, engine = self._build_session_factory(tmpdir)
             try:
@@ -318,8 +315,8 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
                         finally:
                             db.close()
 
-                patch_mock.assert_not_called()
-                push_mock.assert_not_called()
+                patch_mock.assert_called_once()
+                push_mock.assert_called_once()
 
                 verify = SessionFactory()
                 try:
@@ -327,7 +324,7 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
                     self.assertEqual(resposta.decisao, "handoff")
                     self.assertEqual(resposta.motivo, "tipo_nao_suportado")
                     alertas = verify.query(AlertaInterno).count()
-                    self.assertEqual(alertas, 0)
+                    self.assertEqual(alertas, 1)
                 finally:
                     verify.close()
             finally:
@@ -513,15 +510,15 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
                         finally:
                             db.close()
 
-                patch_mock.assert_not_called()
-                push_mock.assert_not_called()
+                patch_mock.assert_called_once()
+                push_mock.assert_called_once()
 
                 verify = SessionFactory()
                 try:
                     resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
                     self.assertEqual(resposta.decisao, "handoff")
                     self.assertEqual(resposta.motivo, "identidade_nao_resolvida")
-                    self.assertEqual(resposta.resolution, "not_found")
+                    self.assertEqual(resposta.resolution, "unavailable")
                     self.assertIsNone(resposta.texto_gerado)
                 finally:
                     verify.close()

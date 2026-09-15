@@ -57,7 +57,7 @@ from app.services.logistica_service import (
     obter_duracao_deslocamento,
     obter_duracao_deslocamento_entidades,
 )
-from app.services.precos_service import calcular_preco_servico, to_decimal
+from app.services.precos_service import calcular_preco_servico, calcular_precos_servicos_em_lote, to_decimal
 from app.services.auditoria_service import registrar_auditoria
 from app.services.push_notifications import (
     send_agenda_push_notification,
@@ -95,6 +95,7 @@ ASSISTENTE_AGENDA_MAX_WINDOW_ENV = "ASSISTENTE_AGENDA_MAX_WINDOW_DAYS"
 ASSISTENTE_AGENDA_DEFAULT_WINDOW_DAYS = 7
 ASSISTENTE_AGENDA_DEFAULT_MAX_WINDOW_DAYS = 14
 ASSISTENTE_AGENDA_HARD_MAX_WINDOW_DAYS = 31
+AGENDA_RELACIONADOS_MAX_IDS = 100
 DIAS_SEMANA_PT = [
     "segunda-feira",
     "terca-feira",
@@ -104,6 +105,33 @@ DIAS_SEMANA_PT = [
     "sabado",
     "domingo",
 ]
+
+
+def _parse_agendamento_ids_param(value: str) -> list[int]:
+    tokens = str(value or "").split(",")
+    if not tokens or any(not token.strip() for token in tokens):
+        raise HTTPException(status_code=400, detail="Informe agendamento_ids separados por virgula.")
+
+    ids: list[int] = []
+    vistos: set[int] = set()
+    for token in tokens:
+        normalizado = token.strip()
+        if not normalizado.isdigit():
+            raise HTTPException(status_code=400, detail="agendamento_ids deve conter apenas inteiros positivos.")
+        agendamento_id = int(normalizado)
+        if agendamento_id <= 0:
+            raise HTTPException(status_code=400, detail="agendamento_ids deve conter apenas inteiros positivos.")
+        if agendamento_id in vistos:
+            continue
+        vistos.add(agendamento_id)
+        ids.append(agendamento_id)
+
+    if len(ids) > AGENDA_RELACIONADOS_MAX_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"agendamento_ids aceita no maximo {AGENDA_RELACIONADOS_MAX_IDS} IDs unicos.",
+        )
+    return ids
 
 
 def _usuario_tem_papel(usuario: Any, papel: str) -> bool:
@@ -3604,37 +3632,188 @@ def listar_agendamentos(
     }
 
 
-def _calcular_previsao_agendamento(db: Session, agendamento: Agendamento) -> Decimal:
-    origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
-    if not agendamento.servico_id:
-        return Decimal("0.00")
-    if origem != ORIGEM_ATENDIMENTO_DOMICILIAR and not agendamento.clinica_id:
-        return Decimal("0.00")
+def _serialize_endereco_relacionado(entidade: Any) -> dict[str, Any]:
+    return {
+        "id": entidade.id,
+        "nome": entidade.nome,
+        "endereco": entidade.endereco,
+        "numero": entidade.numero,
+        "bairro": entidade.bairro,
+        "cidade": entidade.cidade,
+        "estado": entidade.estado,
+        "cep": entidade.cep,
+        "latitude": entidade.latitude,
+        "longitude": entidade.longitude,
+        "endereco_normalizado": entidade.endereco_normalizado,
+    }
+
+
+@router.get("/relacionados", response_model=dict)
+def listar_relacionados_agenda(
+    agendamento_ids: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Retorna apenas os resumos relacionados ao lote visivel da Agenda."""
+    del current_user
+    ids_solicitados = _parse_agendamento_ids_param(agendamento_ids)
+
+    relacoes = (
+        db.query(
+            Agendamento.id.label("agendamento_id"),
+            Agendamento.clinica_id.label("clinica_id"),
+            func.coalesce(Agendamento.tutor_id, Paciente.tutor_id).label("tutor_id"),
+        )
+        .outerjoin(Paciente, Paciente.id == Agendamento.paciente_id)
+        .filter(Agendamento.id.in_(ids_solicitados))
+        .all()
+    )
+    ids_validos = sorted({int(item.agendamento_id) for item in relacoes})
+    if not ids_validos:
+        return {
+            "agendamento_ids": [],
+            "laudos": [],
+            "ordens_servico": [],
+            "clinicas": [],
+            "tutores": [],
+        }
+
+    laudos_rows = (
+        db.query(
+            Laudo.id,
+            Laudo.agendamento_id,
+            Laudo.paciente_id,
+            Laudo.tipo,
+            Laudo.status,
+            Laudo.titulo,
+        )
+        .filter(Laudo.agendamento_id.in_(ids_validos))
+        .all()
+    )
+    laudos_por_chave: dict[tuple[int, str], dict[str, Any]] = {}
+    for laudo in laudos_rows:
+        agendamento_id = int(laudo.agendamento_id)
+        tipo = str(laudo.tipo or "")
+        if not tipo:
+            continue
+        chave = (agendamento_id, tipo)
+        anterior = laudos_por_chave.get(chave)
+        if anterior is None or int(laudo.id) > int(anterior["id"]):
+            laudos_por_chave[chave] = {
+                "id": int(laudo.id),
+                "agendamento_id": agendamento_id,
+                "paciente_id": int(laudo.paciente_id),
+                "tipo": tipo,
+                "status": str(laudo.status or ""),
+                "titulo": str(laudo.titulo or f"Laudo {laudo.id}"),
+            }
+
+    ordens_rows = (
+        db.query(
+            OrdemServico.id,
+            OrdemServico.agendamento_id,
+            OrdemServico.numero_os,
+            OrdemServico.status,
+            OrdemServico.valor_servico,
+            OrdemServico.desconto,
+            OrdemServico.valor_final,
+        )
+        .filter(OrdemServico.agendamento_id.in_(ids_validos))
+        .all()
+    )
+    ordens_por_agendamento: dict[int, dict[str, Any]] = {}
+    for ordem in ordens_rows:
+        agendamento_id = int(ordem.agendamento_id)
+        anterior = ordens_por_agendamento.get(agendamento_id)
+        if anterior is None or int(ordem.id) > int(anterior["id"]):
+            ordens_por_agendamento[agendamento_id] = {
+                "id": int(ordem.id),
+                "agendamento_id": agendamento_id,
+                "numero_os": str(ordem.numero_os or ""),
+                "status": str(ordem.status or ""),
+                "valor_servico": float(ordem.valor_servico or 0),
+                "desconto": float(ordem.desconto or 0),
+                "valor_final": float(ordem.valor_final or 0),
+            }
+
+    ids_clinica = sorted(
+        {
+            int(item.clinica_id)
+            for item in relacoes
+            if item.clinica_id is not None and int(item.clinica_id) > 0
+        }
+    )
+    ids_tutor = sorted(
+        {
+            int(item.tutor_id)
+            for item in relacoes
+            if item.tutor_id is not None and int(item.tutor_id) > 0
+        }
+    )
+    clinicas = db.query(Clinica).filter(Clinica.id.in_(ids_clinica)).all() if ids_clinica else []
+    tutores = db.query(Tutor).filter(Tutor.id.in_(ids_tutor)).all() if ids_tutor else []
+
+    return {
+        "agendamento_ids": ids_validos,
+        "laudos": sorted(
+            laudos_por_chave.values(),
+            key=lambda item: (item["agendamento_id"], item["tipo"], item["id"]),
+        ),
+        "ordens_servico": sorted(
+            ordens_por_agendamento.values(),
+            key=lambda item: (item["agendamento_id"], item["id"]),
+        ),
+        "clinicas": sorted(
+            (_serialize_endereco_relacionado(clinica) for clinica in clinicas),
+            key=lambda item: item["id"],
+        ),
+        "tutores": sorted(
+            (_serialize_endereco_relacionado(tutor) for tutor in tutores),
+            key=lambda item: item["id"],
+        ),
+    }
+
+
+def _calcular_previsoes_agendamentos_em_lote(
+    db: Session,
+    agendamentos: list[Agendamento],
+) -> dict[int, Decimal]:
+    """Calcula previsoes da Agenda sem repetir consultas de precificacao por item."""
+    previsoes = {int(agendamento.id): Decimal("0.00") for agendamento in agendamentos}
+    chaves_por_agendamento: dict[int, tuple[int | None, int, str]] = {}
+
+    for agendamento in agendamentos:
+        origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
+        if not agendamento.servico_id:
+            continue
+        if origem != ORIGEM_ATENDIMENTO_DOMICILIAR and not agendamento.clinica_id:
+            continue
+
+        try:
+            servico_id = int(agendamento.servico_id)
+            clinica_id = int(agendamento.clinica_id) if agendamento.clinica_id else None
+        except (TypeError, ValueError):
+            continue
+        chaves_por_agendamento[int(agendamento.id)] = (clinica_id, servico_id, origem)
+
+    if not chaves_por_agendamento:
+        return previsoes
 
     try:
-        return to_decimal(calcular_preco_servico(
-            db=db,
-            clinica_id=agendamento.clinica_id,
-            servico_id=agendamento.servico_id,
+        precos = calcular_precos_servicos_em_lote(
+            db,
+            chaves_por_agendamento.values(),
             tipo_horario="comercial",
             usar_preco_clinica=True,
-            origem_atendimento=origem,
-        ))
-    except HTTPException as exc:
-        logger.warning(
-            "Resumo financeiro da agenda sem preco para agendamento %s (clinica=%s, servico=%s): %s",
-            agendamento.id,
-            agendamento.clinica_id,
-            agendamento.servico_id,
-            exc.detail,
         )
-        return Decimal("0.00")
     except Exception:
-        logger.exception(
-            "Resumo financeiro da agenda falhou ao calcular previsao do agendamento %s",
-            agendamento.id,
-        )
-        return Decimal("0.00")
+        logger.exception("Resumo financeiro da agenda falhou ao carregar precificacao em lote")
+        return previsoes
+
+    for agendamento_id, chave in chaves_por_agendamento.items():
+        previsoes[agendamento_id] = to_decimal(precos.get(chave))
+
+    return previsoes
 
 
 @router.get("/resumo-financeiro")
@@ -3700,6 +3879,19 @@ def resumo_financeiro_agenda(
             if os_data.agendamento_id not in mapa_os:
                 mapa_os[os_data.agendamento_id] = os_data
 
+    agendamentos_sem_valor_na_os = [
+        agendamento
+        for agendamento in agendamentos
+        if not (
+            mapa_os.get(agendamento.id)
+            and mapa_os[agendamento.id].valor_final is not None
+        )
+    ]
+    previsoes_por_agendamento = _calcular_previsoes_agendamentos_em_lote(
+        db,
+        agendamentos_sem_valor_na_os,
+    )
+
     valor_realizado = Decimal("0.00")
     valor_agendado = Decimal("0.00")
     qtd_realizados = 0
@@ -3710,7 +3902,7 @@ def resumo_financeiro_agenda(
         valor_base = (
             to_decimal(os_vinculada.valor_final)
             if os_vinculada and os_vinculada.valor_final is not None
-            else _calcular_previsao_agendamento(db, ag)
+            else previsoes_por_agendamento.get(int(ag.id), Decimal("0.00"))
         )
 
         if ag.status == "Realizado":
@@ -5534,6 +5726,10 @@ def criar_agendamento(
     """Cria novo agendamento"""
     _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
+    from app.services.whatsapp_bot_pedido_agenda import iniciar, vincular
+    pedido, existente = iniciar(db, agendamento, current_user)
+    if existente is not None:
+        return _serialize_agendamento(existente, **_fetch_related_names(db, existente))
 
     override_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
     confirmou_slot_reserva_expirada = bool(
@@ -5568,6 +5764,7 @@ def criar_agendamento(
     db_agendamento = Agendamento(
         **agendamento.model_dump(
             exclude={
+                "pedido_whatsapp_id", "pedido_whatsapp_versao", "pedido_whatsapp_divergencia_confirmada",
                 "confirmar_conflito_deslocamento",
                 "confirmar_slot_reserva_expirada",
                 "confirmar_agenda_fechada",
@@ -5626,6 +5823,7 @@ def criar_agendamento(
     )
 
     db.add(db_agendamento)
+    vincular(db, pedido, db_agendamento, current_user)
     _commit_agenda_write(db)
     db.refresh(db_agendamento)
     contexto = _contexto_agendamento_auditoria(db_agendamento, related)
@@ -5760,6 +5958,10 @@ def atualizar_agendamento(
     excecao_operacional_concedida = bool(getattr(agendamento, "excecao_operacional_concedida", False))
     motivo_excecao_operacional = str(getattr(agendamento, "motivo_excecao_operacional", "") or "").strip()
     motivo_excecao_deslocamento = str(getattr(agendamento, "motivo_excecao_deslocamento", "") or "").strip()
+    # O nome do campo diz "hoje" por compatibilidade: e contrato com o frontend e
+    # renomear quebraria cliente antigo. O criterio que ele confirma e
+    # "atendimento ja iniciado", nao "agendado para hoje" -- ver
+    # `alterando_servico_ja_iniciado` abaixo.
     confirmar_alteracao_servico_hoje = bool(
         getattr(agendamento, "confirmar_alteracao_servico_hoje", False)
     )
@@ -5790,17 +5992,16 @@ def atualizar_agendamento(
     novo_servico_id = update_data.get("servico_id", servico_original)
     alterando_servico = novo_servico_id != servico_original
     inicio_original_local = _to_local_naive(inicio_original)
-    hoje_local = datetime.now(LOCAL_TZ).date()
-    alterando_servico_de_hoje = bool(
-        alterando_servico
-        and inicio_original_local is not None
-        and inicio_original_local.date() == hoje_local
+    agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None)
+    atendimento_ja_iniciado = bool(
+        inicio_original_local is not None and inicio_original_local <= agora_local
     )
-    if alterando_servico_de_hoje:
+    alterando_servico_ja_iniciado = bool(alterando_servico and atendimento_ja_iniciado)
+    if alterando_servico_ja_iniciado:
         if not _usuario_tem_papel(current_user, "admin"):
             raise HTTPException(
                 status_code=403,
-                detail="Somente administradores podem alterar o servico de um agendamento de hoje.",
+                detail="Somente administradores podem alterar o servico de um atendimento ja iniciado.",
             )
         if not confirmar_alteracao_servico_hoje:
             raise HTTPException(
@@ -5808,7 +6009,7 @@ def atualizar_agendamento(
                 detail={
                     "codigo": "CONFIRMACAO_ALTERACAO_SERVICO_HOJE",
                     "mensagem": (
-                        "Confirme a alteracao administrativa do servico deste agendamento de hoje."
+                        "Confirme a alteracao administrativa do servico deste atendimento ja iniciado."
                     ),
                     "confirmavel": True,
                 },
@@ -5846,7 +6047,7 @@ def atualizar_agendamento(
     reativando_inativo = reativando_cancelado or reativando_expirado
     inicio_atual_antes_duracao = _to_local_naive(_coerce_datetime(db_agendamento.inicio))
     preservar_intervalo_servico_iniciado = bool(
-        alterando_servico_de_hoje
+        alterando_servico_ja_iniciado
         and inicio_original_local is not None
         and inicio_atual_antes_duracao == inicio_original_local
         and inicio_original_local <= datetime.now(LOCAL_TZ).replace(tzinfo=None)
@@ -5964,7 +6165,7 @@ def atualizar_agendamento(
                 item.id for item in reservas_expiradas_revisadas
             ],
             "confirmou_alteracao_servico_hoje": (
-                alterando_servico_de_hoje and confirmar_alteracao_servico_hoje
+                alterando_servico_ja_iniciado and confirmar_alteracao_servico_hoje
             ),
             "intervalo_original_preservado": preservar_intervalo_servico_iniciado,
             "contexto_agendamento": contexto,

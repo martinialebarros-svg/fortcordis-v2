@@ -785,3 +785,8 @@ por acaso. Corrigido para patchear `worker.detecta_cortesia`.
 19 clinicas em `suggest`, nenhuma em `auto`. Placar: 1 `blocked`/`sem_fonte`
 (a Vet Plus, o caso que originou isto), 1 `suppressed`/`fora_do_piloto`,
 **zero rascunhos e zero envios**.
+
+
+## Verificação local — revisão do fluxo 2026-09-09
+
+Cobertura acrescentada para confirmação natural e rejeição de pergunta/negação/correção, saudação por sessão, filtro de conversa, painel aberto, divergência com aceite invalidado ao reabrir, bloqueio e auditoria da conversão. Backend completo: 1253 testes aprovados, 278 subtestes aprovados e 5 testes ignorados pelo ambiente da suíte. Interface: 76 testes aprovados na central, modal do pedido e utilitários. Build Next.js (incluindo lint e tipos) e guardrail SDD aprovados. Sem publicação nem mensagens reais nesta entrega.

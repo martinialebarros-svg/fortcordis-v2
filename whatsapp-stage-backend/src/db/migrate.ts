@@ -11,15 +11,17 @@ async function runMigration(): Promise<void> {
     throw new Error("DATABASE_URL is required");
   }
 
-  const sqlPath = path.resolve(__dirname, "../../migrations/init.sql");
-  const sql = await fs.readFile(sqlPath, "utf8");
+  const migrationFiles = ["init.sql", "quick-replies.sql"];
+  const migrations = await Promise.all(migrationFiles.map((file) =>
+    fs.readFile(path.resolve(__dirname, "../../migrations", file), "utf8")
+  ));
 
   const client = new Client(buildPostgresConfig(databaseUrl));
 
   await client.connect();
   try {
     await client.query("BEGIN");
-    await client.query(sql);
+    for (const sql of migrations) await client.query(sql);
     await client.query("COMMIT");
     console.log("Migration applied successfully.");
   } catch (error) {

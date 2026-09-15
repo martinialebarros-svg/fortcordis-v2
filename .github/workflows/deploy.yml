@@ -49,6 +49,7 @@ jobs:
 
       - name: Run backend test suite
         env:
+          FORTCORDIS_PROCESS_ROLE: api
           DATABASE_URL: sqlite:///./fortcordis-ci.db
           SECRET_KEY: deploy-main-quality-gate-secret-key-1234567890
         run: |
@@ -94,6 +95,7 @@ jobs:
           npm run test:approved-templates
           npm run test:document-templates
           npm run test:database-config
+          npm run test:express-http
           npm run test:inbox-ui
           npm run test:customer-service-window
           npm run test:phone-number
@@ -103,6 +105,29 @@ jobs:
           npm run test:webhook-cleanup-config
           npm run test:log-redaction
           npm audit --omit=dev
+
+      - name: Test WhatsApp productivity with isolated database
+        working-directory: whatsapp-stage-backend
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/fortcordis_whatsapp_test
+        run: |
+          node <<'JS'
+          const { Client } = require("pg");
+          const url = new URL(process.env.DATABASE_URL);
+          url.pathname = "/postgres";
+          const client = new Client({ connectionString: url.toString() });
+          (async () => {
+            await client.connect();
+            await client.query("CREATE DATABASE fortcordis_whatsapp_test");
+          })().catch(error => { console.error(error); process.exitCode = 1; })
+            .finally(() => client.end());
+          JS
+          npm run migrate
+          npm run test:conversation-productivity
+          npm run test:conversation-ordering
+          npm run test:conversation-reply-queue
+          npm run test:quick-replies
+          npm run test:follow-ups
 
   sdd-guardrail:
     runs-on: ubuntu-latest
@@ -267,14 +292,18 @@ jobs:
           cd "$APP_DIR"
           echo "Loading standardized production deploy script from origin/$BRANCH..."
           git fetch origin "$BRANCH"
-          DEPLOY_SCRIPT_PATH="$(mktemp)"
-          trap 'rm -f "$DEPLOY_SCRIPT_PATH"' EXIT
-          git show "origin/$BRANCH:scripts/deploy_prod_vps.sh" > "$DEPLOY_SCRIPT_PATH"
-          chmod 700 "$DEPLOY_SCRIPT_PATH"
+          DEPLOY_SCRIPT_DIR="$(mktemp -d)"
+          trap 'rm -rf "$DEPLOY_SCRIPT_DIR"' EXIT
+          git archive --format=tar "origin/$BRANCH" -- \
+            scripts/deploy_prod_vps.sh \
+            scripts/ensure_nginx_http2.sh | tar -xf - -C "$DEPLOY_SCRIPT_DIR"
+          chmod 700 "$DEPLOY_SCRIPT_DIR/scripts/deploy_prod_vps.sh" "$DEPLOY_SCRIPT_DIR/scripts/ensure_nginx_http2.sh"
           echo "Running standardized production deploy script..."
           SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' \
             APP_DIR="$APP_DIR" \
             BRANCH="$BRANCH" \
+            ENABLE_NGINX_HTTP2=1 \
+            NGINX_HTTP2_EXPECTED_HOSTS=app.stage.fortcordis.com.br,app.fortcordis.com.br,fortcordis.com.br,fortcordis.com \
             ENABLE_WHATSAPP_STAGE_BACKEND=1 \
             WHATSAPP_STAGE_BACKEND_SERVICE=fortcordis-whatsapp-backend \
             WHATSAPP_STAGE_BACKEND_PORT=3020 \
@@ -286,5 +315,5 @@ jobs:
             WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED=false \
             WHATSAPP_RUNTIME_LABEL=Production \
             ENABLE_WHATSAPP_STAGE_SMOKE=0 \
-            bash "$DEPLOY_SCRIPT_PATH"
+            bash "$DEPLOY_SCRIPT_DIR/scripts/deploy_prod_vps.sh"
         EOF

@@ -77,6 +77,8 @@ class AnexoAtendimento(Base):
     id = Column(Integer, primary_key=True, index=True)
     atendimento_id = Column(Integer, nullable=False, index=True)
     exame_id = Column(Integer, nullable=True, index=True)
+    # Adendo que trouxe o anexo (nulo quando anexado durante o atendimento).
+    evolucao_id = Column(Integer, nullable=True, index=True)
     tipo = Column(String, nullable=False)  # imagem, documento, radiografia, ultrassom, outro
     descricao = Column(String)
     url = Column(String, nullable=False)
@@ -153,11 +155,26 @@ class UploadDedupeCleanupRun(Base):
 
 
 class EvolucaoClinica(Base):
+    """Evolucao intra-atendimento ou adendo posterior a conclusao.
+
+    A mesma tabela cobre os dois casos: `pos_conclusao` marca o registro
+    criado depois que o atendimento foi concluido, e `tipo` diz o que o
+    adendo carrega (resultado de exame recebido depois, receita
+    complementar, orientacao). O episodio continua sendo o mesmo
+    atendimento - nao se cria encontro novo para registrar o que chega
+    depois da alta.
+    """
+
     __tablename__ = "evolucoes_clinicas"
 
     id = Column(Integer, primary_key=True, index=True)
     atendimento_id = Column(Integer, nullable=False, index=True)
     data_evolucao = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    tipo = Column(String(40), nullable=False, default="evolucao", server_default=text("'evolucao'"))
+    titulo = Column(String(255))
+    # Derivado no backend a partir do status do atendimento na criacao,
+    # nunca aceito do cliente.
+    pos_conclusao = Column(Integer, nullable=False, default=0, server_default=text("0"))
     descricao = Column(Text, nullable=False)
     sinais_vitais = Column(Text)  # JSON com FC, FR, Temp, etc
     responsavel_id = Column(Integer)
@@ -215,10 +232,32 @@ class Medicamento(Base):
 
 
 class PrescricaoClinica(Base):
+    """Receita de um atendimento.
+
+    Um atendimento pode ter mais de uma receita: `sequencia` 1 e a receita
+    emitida no dia da consulta, e as seguintes sao complementares, emitidas
+    em adendos posteriores a conclusao. Isso evita que uma receita
+    complementar sobrescreva a que ja foi entregue ao tutor.
+    """
+
     __tablename__ = "prescricoes_clinicas"
+    __table_args__ = (
+        Index(
+            "ux_prescricoes_clinicas_atendimento_sequencia",
+            "atendimento_id",
+            "sequencia",
+            unique=True,
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     atendimento_id = Column(Integer, nullable=False, index=True)
+    sequencia = Column(Integer, nullable=False, default=1, server_default=text("1"))
+    # Momento da primeira geracao do PDF. Preenchido uma unica vez: e o que
+    # marca a receita como documento oficial ja entregue.
+    emitida_em = Column(DateTime(timezone=True), nullable=True)
+    # Adendo que originou a receita complementar (nulo na receita do dia).
+    adendo_id = Column(Integer, nullable=True, index=True)
     orientacoes_gerais = Column(Text)
     retorno_dias = Column(Integer)
 

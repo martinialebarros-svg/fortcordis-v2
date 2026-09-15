@@ -412,12 +412,18 @@ def listar_pacientes(
         .filter(_filtro_paciente_ativo())
     )
 
+    # Mantém a métrica da carteira estável enquanto a busca retorna apenas
+    # os resultados daquele termo.
+    total_ativos = query.count()
+
     if search:
         termo = search.strip()
         termo_key = _gerar_nome_key(termo)
         filtros = [
             Paciente.nome.ilike(f"%{termo}%"),
             Tutor.nome.ilike(f"%{termo}%"),
+            cast(Paciente.id, String).ilike(f"%{termo}%"),
+            cast(Paciente.tutor_id, String).ilike(f"%{termo}%"),
         ]
         if termo_key:
             filtros.extend(
@@ -446,7 +452,7 @@ def listar_pacientes(
         for p in items
     ]
 
-    return {"total": total, "items": pacientes}
+    return {"total": total, "total_ativos": total_ativos, "items": pacientes}
 
 
 @router.post("", response_model=PacienteResponse, status_code=status.HTTP_201_CREATED)

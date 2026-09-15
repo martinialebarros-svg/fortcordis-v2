@@ -7,6 +7,7 @@ import { CarFront, Fuel, Plus, RefreshCw, Save, Settings2, Trash2, Waypoints } f
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { operationalTodayDateInput } from "@/lib/calendar-date";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 
 type FormaRateio = "por_km" | "por_atendimento" | "fixo_mensal" | "hibrido";
 type AbaFrota = "custos" | "veiculos" | "telemetria" | "config";
@@ -257,8 +258,12 @@ export default function CustosFrotaPage() {
 
   const carregarClinicas = async (silencioso = false) => {
     try {
-      const response = await api.get("/clinicas?limit=1000");
-      const items = Array.isArray(response.data?.items) ? response.data.items : [];
+      const payload = await loadStableCatalog({
+        catalog: "clinicas",
+        variant: "limit=1000",
+        load: () => api.get("/clinicas?limit=1000").then((response) => response.data),
+      });
+      const items = Array.isArray(payload?.items) ? payload.items : [];
       setClinicas(items.map((c: { id: number; nome?: string }) => ({ id: Number(c.id), nome: String(c.nome || `Clinica #${c.id}`) })));
     } catch {
       if (!silencioso) setErro("Falha ao carregar clinicas.");

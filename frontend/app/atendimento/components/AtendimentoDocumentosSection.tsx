@@ -70,7 +70,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
     ATENDIMENTO_ATTACHMENT_ACCEPT,
     adicionarLinkAnexo,
     anexosGerais,
-    anexoArquivo,
+    anexoArquivos,
     anexoForm,
     abrirAnexo,
     baixarPdfDocumentoClinico,
@@ -92,7 +92,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
     openingAttachmentId,
     progressoUploadGeral,
     selecionado,
-    setAnexoArquivo,
+    setAnexoArquivos,
     setAnexoForm,
     setDocumentoClinicoForm,
     setDocumentoTemplateForm,
@@ -108,7 +108,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
     salvarDocumentoTemplate,
     selecionarDocumentoClinico,
     toggleDocumentoTemplate,
-    uploadAnexoArquivo,
+    uploadArquivosAnexoGeral,
     uploadGeralEmAndamento,
     abrirAtendimento,
     api,
@@ -714,10 +714,15 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
             <div className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
               <FileUp className="h-4 w-4 text-slate-400" />
               <input
-                key={anexoArquivo ? `${anexoArquivo.name}-${anexoArquivo.lastModified}` : "anexo-vazio"}
+                key={
+                  anexoArquivos.length > 0
+                    ? anexoArquivos.map((file: File) => `${file.name}-${file.lastModified}`).join("|")
+                    : "anexo-vazio"
+                }
                 type="file"
+                multiple
                 accept={ATENDIMENTO_ATTACHMENT_ACCEPT}
-                onChange={(e) => setAnexoArquivo(e.target.files?.[0] || null)}
+                onChange={(e) => setAnexoArquivos(Array.from(e.target.files || []))}
                 className="w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:text-white"
               />
             </div>
@@ -725,13 +730,10 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
           <div className="flex flex-wrap gap-2">
             <button
               onClick={async () => {
-                if (!anexoArquivo) return;
-                await uploadAnexoArquivo(anexoArquivo, {
-                  tipo: anexoForm.tipo,
-                  descricao: anexoForm.descricao,
-                });
+                if (anexoArquivos.length === 0) return;
+                await uploadArquivosAnexoGeral(anexoArquivos);
               }}
-              disabled={!selecionado || !anexoArquivo || uploadGeralEmAndamento}
+              disabled={!selecionado || anexoArquivos.length === 0 || uploadGeralEmAndamento}
               className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2 text-sm text-white hover:bg-orange-700 disabled:opacity-50"
             >
               {uploadGeralEmAndamento ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
@@ -739,6 +741,8 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                 ? typeof progressoUploadGeral === "number"
                   ? `Enviando ${progressoUploadGeral}%`
                   : "Enviando..."
+                : anexoArquivos.length > 1
+                ? `Enviar ${anexoArquivos.length} arquivos`
                 : "Enviar arquivo"}
             </button>
             {uploadGeralEmAndamento ? (
@@ -751,12 +755,28 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                 Cancelar upload
               </button>
             ) : null}
-            {anexoArquivo ? (
-              <span className="inline-flex items-center rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-600">
-                {anexoArquivo.name} · {formatBytes(anexoArquivo.size)}
-              </span>
-            ) : null}
           </div>
+          {anexoArquivos.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {anexoArquivos.map((file: File, index: number) => (
+                <span
+                  key={`${file.name}-${file.lastModified}-${index}`}
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-600"
+                >
+                  {file.name} · {formatBytes(file.size)}
+                  <button
+                    type="button"
+                    onClick={() => setAnexoArquivos(anexoArquivos.filter((_: File, i: number) => i !== index))}
+                    disabled={uploadGeralEmAndamento}
+                    aria-label={`Remover ${file.name} da selecao`}
+                    className="text-slate-400 hover:text-slate-700 disabled:opacity-50"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
 
           {uploadGeralEmAndamento ? (
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">

@@ -198,3 +198,18 @@ export const mergeAutoSavedFormState = (current: AtendimentoForm, persisted: Ate
     })
   ),
 });
+
+/**
+ * Merge da resposta do POST /finalizar. Difere do save comum em um ponto: o
+ * `status` passa a ser do servidor, porque e esta chamada que move o
+ * atendimento para "Concluido". Mantendo o valor local, todo autosave seguinte
+ * reenviaria o status antigo e o backend recusaria com "nao pode ser reaberto
+ * isoladamente", travando o prontuario ate recarregar a pagina.
+ */
+export const mergeAtendimentoFinalizado = (
+  current: AtendimentoForm,
+  persisted: AtendimentoForm
+): AtendimentoForm => {
+  const merged = mergeAutoSavedFormState(current, persisted);
+  return { ...merged, status: persisted.status || merged.status };
+};

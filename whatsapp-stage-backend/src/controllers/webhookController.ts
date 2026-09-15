@@ -103,6 +103,10 @@ async function touchConversation(
       UPDATE conversations
       SET updated_at = now(),
           last_activity_at = now(),
+          status = CASE
+            WHEN $2::timestamptz IS NOT NULL AND status IN ('pending', 'closed') THEN 'open'
+            ELSE status
+          END,
           last_inbound_at = CASE
             WHEN $2::timestamptz IS NULL THEN last_inbound_at
             WHEN last_inbound_at IS NULL OR last_inbound_at < $2::timestamptz THEN $2::timestamptz
@@ -315,6 +319,11 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
     });
 
     if (inserted) {
+      // The conversation upsert already holds the same lock used by scheduling.
+      // Only a newly persisted inbound bumps the version; provider retries do not.
+      await client.query(`UPDATE conversation_follow_ups
+        SET inbound_received_at = COALESCE(inbound_received_at, now()), revision = revision + 1, updated_at = now()
+        WHERE conversation_id = $1 AND status = 'pending'`, [conversation.id]);
       await handleAgendaButtonReply(client, message);
       await handleApprovedTemplateButtonReply(client, message);
       await touchConversation(

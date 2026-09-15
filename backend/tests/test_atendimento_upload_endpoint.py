@@ -109,6 +109,7 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
                     tipo="documento",
                     descricao="Arquivo de resultado",
                     exame_id=None,
+                    evolucao_id=None,
                     db=db,
                     current_user=self.user,
                 )
@@ -126,6 +127,7 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
             id=7,
             atendimento_id=1,
             exame_id=None,
+            evolucao_id=None,
             tipo="documento",
             descricao="ja existente",
             url="/api/v1/atendimentos/anexos/7/arquivo",
@@ -151,6 +153,7 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
                     tipo="documento",
                     descricao="Arquivo duplicado",
                     exame_id=None,
+                    evolucao_id=None,
                     db=db,
                     current_user=self.user,
                 )
@@ -168,6 +171,7 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
             id=11,
             atendimento_id=1,
             exame_id=None,
+            evolucao_id=None,
             tipo="documento",
             descricao="concorrente",
             url="/api/v1/atendimentos/anexos/11/arquivo",
@@ -201,6 +205,7 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
                     tipo="documento",
                     descricao="Arquivo concorrente",
                     exame_id=None,
+                    evolucao_id=None,
                     db=db,
                     current_user=self.user,
                 )
@@ -232,6 +237,7 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
                         tipo="documento",
                         descricao="Arquivo invalido",
                         exame_id=None,
+                        evolucao_id=None,
                         db=db,
                         current_user=self.user,
                     )
@@ -258,6 +264,7 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
                         tipo="documento",
                         descricao="Arquivo grande",
                         exame_id=None,
+                        evolucao_id=None,
                         db=db,
                         current_user=self.user,
                     )
@@ -280,6 +287,7 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
                         tipo="documento",
                         descricao="",
                         exame_id=None,
+                        evolucao_id=None,
                         db=db,
                         current_user=self.user,
                     )
@@ -306,6 +314,7 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
                     tipo="documento",
                     descricao="Segundo arquivo do exame",
                     exame_id=exame.id,
+                    evolucao_id=None,
                     db=db,
                     current_user=self.user,
                 )

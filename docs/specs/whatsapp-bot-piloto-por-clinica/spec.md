@@ -217,3 +217,7 @@ habilitado fica de fora, em vez de herdar o padrao institucional.
   `suggest` por heranca; o que muda e que ela volta a respeitar o piloto. Erra
   para o lado de atender menos, como o resto dos portoes. `off` e `auto` sao
   preservados.
+
+
+### Ajuste RF-P11 — abertura de atendimento (2026-09-09)
+Saudações simples (oi, olá, bom dia, boa tarde, boa noite) recebem resposta determinística sem resposta/rascunho nas últimas seis horas. Silêncio permanece para agradecimentos e saudações repetidas na sessão. Emergência, pausa humana, janela e participação continuam prioritárias. Confirmações de coleta ativa não são descartadas como cortesia.

@@ -11,6 +11,7 @@ import {
   unclaimConversation
 } from "./controllers/conversationsController";
 import { createAgent, listAgents, updateAgent } from "./controllers/agentsController";
+import { createQuickReply, listQuickReplies, updateQuickReply } from "./controllers/quickRepliesController";
 import { receiveWebhook, verifyWebhook } from "./controllers/webhookController";
 import { getWebhookEventsCleanupRuntimeState } from "./services/webhookEventsCleanupService";
 import { logger } from "./utils/logger";
@@ -20,6 +21,8 @@ import { sendApprovedUtilityTemplate } from "./controllers/templateAutomationCon
 import { sendApprovedDocumentTemplate } from "./controllers/documentTemplateAutomationController";
 import { listApprovedTemplateCatalog } from "./controllers/templateCatalogController";
 import { executeSmokeCleanup, previewSmokeCleanup } from "./controllers/smokeCleanupController";
+
+import { getFollowUp, saveFollowUp } from "./controllers/followUpsController";
 
 const app = express();
 const uploadAttachment = multer({
@@ -50,6 +53,7 @@ app.post("/webhook", receiveWebhook);
 // Conversations/agents are protected: valid app token or internal automation token.
 app.use("/conversations", requireApiAuth);
 app.use("/agents", requireApiAuth);
+app.use("/quick-replies", requireApiAuth);
 app.use("/automation", requireApiAuth);
 app.use("/admin", requireApiAuth);
 
@@ -61,6 +65,8 @@ app.post(
   uploadAttachment.single("attachment"),
   asyncHandler(sendConversationMessage)
 );
+app.get("/conversations/:id/follow-up", asyncHandler(getFollowUp));
+app.patch("/conversations/:id/follow-up", asyncHandler(saveFollowUp));
 app.patch("/conversations/:id/status", asyncHandler(updateConversationStatus));
 app.patch("/conversations/:id/seen", asyncHandler(markConversationSeen));
 app.post("/conversations/:id/claim", asyncHandler(claimConversation));
@@ -69,6 +75,9 @@ app.post("/conversations/:id/unclaim", asyncHandler(unclaimConversation));
 app.get("/agents", asyncHandler(listAgents));
 app.post("/agents", asyncHandler(createAgent));
 app.patch("/agents/:id", asyncHandler(updateAgent));
+app.get("/quick-replies", asyncHandler(listQuickReplies));
+app.post("/quick-replies", asyncHandler(createQuickReply));
+app.patch("/quick-replies/:id", asyncHandler(updateQuickReply));
 app.post("/automation/agenda/reservations", asyncHandler(sendAgendaReservation));
 app.get("/automation/templates", asyncHandler(listApprovedTemplateCatalog));
 app.post("/automation/templates", asyncHandler(sendApprovedUtilityTemplate));

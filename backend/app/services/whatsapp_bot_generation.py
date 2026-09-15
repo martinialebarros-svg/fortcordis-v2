@@ -5,13 +5,8 @@ Fluxo de um turno:
   -> executa tools escopadas -> gera resposta final -> guardrail -> decide
   (draft | blocked | suppressed)
 
-O que este modulo NAO faz nesta fase: enviar ao cliente. O envio (RF-027)
-depende de o servico Node aceitar `metadata` do chamador, o que hoje ele NAO
-faz (`sendConversationMessage` crava `{source: "agent_api"}`) - decisao
-registrada em verify.md. Alem disso o endpoint de envio nao tem idempotencia
-e o caminho de texto reclassifica para `failed` quando o banco falha DEPOIS
-de o Meta aceitar, o que combinado com o retry do worker poderia entregar a
-mesma resposta duas vezes. Por isso `decisao="sent"` nao e alcancavel aqui.
+O gerador nao envia. Retorna a elegibilidade depois dos guardrails; o worker
+persiste a resposta e o servico de entrega revalida os controles operacionais.
 """
 from __future__ import annotations
 
@@ -50,6 +45,7 @@ from app.services.whatsapp_bot_providers import (
 )
 from app.services.whatsapp_bot_tools import (
     TOOL_SCHEMAS,
+    TOOLS_POR_PERSONA,
     WhatsAppBotToolContext,
     WhatsAppBotToolError,
     execute_bot_tool,
@@ -75,6 +71,7 @@ class ResultadoGeracao:
     resolution: Optional[str] = None
     match_type: Optional[str] = None
     clinica_id: Optional[int] = None
+    auto_elegivel: bool = False
 
 
 def _max_tokens_per_day() -> int:
@@ -359,10 +356,10 @@ def _resolver_contexto(db: Session, wa_identity: str) -> dict[str, Any]:
     try:
         return resolve_whatsapp_context(db, wa_identity)
     except HTTPException:
-        return {"resolution": "not_found", "match_type": None}
+        return {"resolution": "unavailable", "match_type": None}
     except Exception:
         logger.exception("Falha ao resolver contexto do WhatsApp para o bot.")
-        return {"resolution": "not_found", "match_type": None}
+        return {"resolution": "unavailable", "match_type": None}
 
 
 def _escopo_da_persona(contexto: dict[str, Any]) -> tuple[Optional[str], Optional[int], Optional[int]]:
@@ -383,6 +380,7 @@ def gerar_resposta(
     *,
     wa_identity: str,
     corpo_mensagem: str,
+    conversation_id: Optional[str] = None,
     modo: str,
     provider: Any = None,
     persona_forcada: Optional[str] = None,
@@ -403,6 +401,10 @@ def gerar_resposta(
     contexto = _resolver_contexto(db, wa_identity)
     resolution = str(contexto.get("resolution") or "not_found")
     match_type, tutor_id, clinica_id = _escopo_da_persona(contexto)
+    if resolution != "matched":
+        match_type, tutor_id, clinica_id = None, None, None
+    if resolution == "not_found":
+        match_type = "visitante"
 
     if persona_forcada in ("tutor", "clinica"):
         match_type = persona_forcada
@@ -491,6 +493,13 @@ def gerar_resposta(
             clinica_id=clinica_id,
         )
 
+    from app.services.whatsapp_bot_agendamento import carregar, saudacao_inicial
+    if saudacao_inicial(db, wa_identity, corpo_mensagem):
+        return ResultadoGeracao(decisao="draft", motivo="saudacao_inicial",
+            texto_gerado="Olá! Sou o atendimento automático da FortCordis. Como posso ajudar? Para falar com a equipe, é só pedir.",
+            auto_elegivel=modo == "auto", prompt_version=resolve_prompt_version(match_type),
+            resolution=resolution, match_type=match_type, clinica_id=clinica_id)
+    coleta_anterior = carregar(db, wa_identity, clinica_id, conversation_id=conversation_id) if match_type == "clinica" else None
     contexto_seguro = build_safe_context(
         contexto, match_type=match_type, tutor_id=tutor_id, clinica_id=clinica_id
     )
@@ -504,6 +513,39 @@ def gerar_resposta(
         historico=montar_historico(historico),
     )
 
+    from app.services.whatsapp_bot_fila import ultimo, contexto as contexto_fila
+    pedido = ultimo(db, wa_identity, clinica_id) if match_type == "clinica" and clinica_id else None
+    from app.services.whatsapp_bot_continuidade import resposta_pedido, novo_pedido, KEY as CONTINUIDADE_KEY
+    from app.services.whatsapp_bot_agendamento import preparar, validar_texto, confirma_dados, KEY as COLETA_KEY
+    from app.services.whatsapp_bot_opcoes_agenda import responder as responder_opcoes, apos_confirmacao, validar_renderizado, KEY as OPCOES_KEY
+    administrative = responder_opcoes(db, pedido, coleta_anterior, corpo_mensagem, wa_identity, conversation_id) if match_type == 'clinica' and conversation_id else None
+    if pedido and novo_pedido(corpo_mensagem):
+        coleta, texto = preparar(None, None, 'nova solicitação', clinica_id, contexto)
+        coleta['fila_anterior_id'] = pedido.id
+        administrative = (texto, {COLETA_KEY: coleta})
+    elif pedido and administrative is None:
+        followup = resposta_pedido(db, pedido, corpo_mensagem, coleta_anterior)
+        if followup:
+            administrative = (followup[0], {CONTINUIDADE_KEY: followup[1]})
+    if administrative is None and coleta_anterior and confirma_dados(corpo_mensagem) and (not pedido or coleta_anterior.get('fila_anterior_id') == pedido.id):
+        coleta, texto = preparar(coleta_anterior, None, corpo_mensagem, clinica_id, contexto)
+        if pedido:
+            coleta['fila_anterior_id'] = pedido.id
+        if validar_texto(coleta, texto).aprovado:
+            administrative = (texto, {COLETA_KEY: coleta})
+    if administrative and COLETA_KEY in administrative[1] and conversation_id:
+        texto, extra = apos_confirmacao(db, clinica_id, administrative[1][COLETA_KEY], administrative[0])
+        administrative = (texto, {**administrative[1], **extra})
+    if administrative and OPCOES_KEY in administrative[1] and not validar_renderizado(*administrative):
+        return ResultadoGeracao(decisao="blocked", motivo="opcoes_agenda_invalidas", clinica_id=clinica_id, match_type=match_type)
+    if administrative:
+        return ResultadoGeracao(decisao="draft", motivo="continuidade_administrativa",
+            texto_gerado=administrative[0], auto_elegivel=modo == "auto",
+            prompt_version=prompt_version, tools_usadas=json.dumps(administrative[1], ensure_ascii=False),
+            resolution=resolution, match_type=match_type, clinica_id=clinica_id)
+    if match_type == "clinica":
+        payload["pedido_em_acompanhamento"] = contexto_fila(pedido)
+        payload["coleta_agendamento"] = coleta_anterior
     provider = provider or get_whatsapp_bot_reply_provider()
     iniciado = time.perf_counter()
     resultados: list[tuple[str, dict[str, Any]]] = []
@@ -517,7 +559,7 @@ def gerar_resposta(
             gerado = provider.generate(
                 instructions=instructions,
                 payload=payload,
-                tools=list(TOOL_SCHEMAS),
+                tools=[t for t in TOOL_SCHEMAS if t["name"] in TOOLS_POR_PERSONA[match_type]],
                 safety_scope=wa_identity,
                 continuation_input=continuation_input,
             )
@@ -589,6 +631,49 @@ def gerar_resposta(
     latencia_ms = int((time.perf_counter() - iniciado) * 1000)
     assert gerado is not None and gerado.output is not None
 
+    if (match_type == "clinica" and clinica_id and not gerado.output.precisa_humano
+            and (gerado.output.intent == "solicitar_agendamento" or
+                 (coleta_anterior and coleta_anterior.get("status") in ("coletando", "aguardando_confirmacao")
+                  and gerado.output.intent == "outro"))):
+        from app.services.whatsapp_bot_agendamento import preparar, validar_texto, KEY
+        from app.services.whatsapp_bot_agendamento import normalizar
+        from app.services.whatsapp_bot_fila import LABELS
+        # So o comando explicito inicia outro pedido quando ja ha acompanhamento.
+        # Nunca copiar o snapshot encaminhado: isso criaria outra linha na fila.
+        if pedido and normalizar(corpo_mensagem).strip(' .!?') != 'nova solicitacao' and not (
+                coleta_anterior and coleta_anterior.get('status') in ('coletando', 'aguardando_confirmacao')
+                and coleta_anterior.get('fila_anterior_id') == pedido.id):
+            coleta = {'clinica_id':clinica_id, 'status':'acompanhamento', 'pedido_id':pedido.id, 'dados':{}}
+            texto = ('Atendimento automático FortCordis: sua última solicitação está com o status “'
+                     + LABELS[pedido.status] + '” registrado pela equipe. Para ajustes, fale com a equipe. '
+                     'Para iniciar outro pedido, escreva “nova solicitação”.')
+        else:
+            coleta, texto = preparar(coleta_anterior, gerado.output.solicitacao_agendamento,
+                                    corpo_mensagem, clinica_id, contexto)
+            if pedido:
+                coleta['fila_anterior_id'] = pedido.id
+        # O texto vem do renderizador, nao do modelo. Guardas clinicas e teto
+        # de tamanho continuam aplicados; nenhum dado declara disponibilidade.
+        check = validar_texto(coleta, texto)
+        if check.aprovado:
+            audit = json.loads(_tools_usadas_json(match_type, resultados, fontes_declaradas=[]))
+            audit[KEY] = coleta
+            if conversation_id:
+                texto, extra = apos_confirmacao(db, clinica_id, coleta, texto)
+                audit.update(extra)
+                if extra and not validar_renderizado(texto, audit):
+                    return ResultadoGeracao(decisao="blocked", motivo="opcoes_agenda_invalidas", clinica_id=clinica_id, match_type=match_type)
+            return ResultadoGeracao(decisao="draft", motivo="coleta_agendamento",
+                texto_gerado=texto, auto_elegivel=modo == "auto", modelo=gerado.model,
+                prompt_version=prompt_version, tools_usadas=json.dumps(audit, ensure_ascii=False),
+                input_tokens=input_tokens, output_tokens=output_tokens, latencia_ms=latencia_ms,
+                resolution=resolution, match_type=match_type, clinica_id=clinica_id)
+
+        return ResultadoGeracao(decisao="blocked", motivo=str(check.motivo or "coleta_invalida"),
+            modelo=gerado.model, prompt_version=prompt_version, input_tokens=input_tokens,
+            output_tokens=output_tokens, latencia_ms=latencia_ms, resolution=resolution,
+            match_type=match_type, clinica_id=clinica_id)
+
     texto_final = _texto_deterministico_para_dado_sensivel(
         intent=gerado.output.intent,
         texto_modelo=gerado.output.texto,
@@ -640,9 +725,8 @@ def gerar_resposta(
         base.motivo = str(veredito.motivo or "intent_fora_allowlist")
         return base
 
-    # Aprovado. Em `auto` o envio entraria aqui - mas RF-027 depende de
-    # mudanca no servico Node (ver docstring do modulo), entao ate a Fase 6
-    # toda resposta aprovada e rascunho para a equipe.
+    # Aprovado: o worker decide o envio apos persistir e revalidar o estado.
     base.decisao = "draft"
-    base.motivo = "aprovado_aguardando_envio_fase6" if modo == "auto" else "modo_suggest"
+    base.auto_elegivel = modo == "auto" and veredito.auto_elegivel
+    base.motivo = "aprovado_auto" if base.auto_elegivel else "modo_suggest"
     return base

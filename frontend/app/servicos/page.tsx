@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { Stethoscope, Search, Plus, Clock, Edit2, DollarSign, MapPin, Sun, Moon } from "lucide-react";
 
 interface Precos {
@@ -40,8 +41,12 @@ export default function ServicosPage() {
 
   const carregarServicos = async () => {
     try {
-      const response = await api.get("/servicos");
-      setServicos(response.data.items || []);
+      const payload = await loadStableCatalog<{ items?: Servico[] }>({
+        catalog: "servicos",
+        variant: "list",
+        load: () => api.get<{ items?: Servico[] }>("/servicos").then((response) => response.data),
+      });
+      setServicos(payload.items || []);
     } catch (error) {
       console.error("Erro ao carregar serviços:", error);
     } finally {

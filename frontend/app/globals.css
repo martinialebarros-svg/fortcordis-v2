@@ -1808,16 +1808,65 @@ body {
     @apply whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-bold transition;
   }
 
+  /* Sem overflow-hidden aqui: o menu "Laudar" do ultimo card abre para fora da
+     lista e era recortado sem deixar rolagem para alcancar os itens. O
+     arredondamento fica nas pontas do conteudo. */
   .fc-agenda-list {
-    @apply overflow-hidden rounded-lg border border-ink-100 bg-white shadow-fort-card;
+    @apply rounded-lg border border-ink-100 bg-white shadow-fort-card;
   }
 
   .fc-agenda-list-row {
     @apply border-l-4 border-l-transparent p-5 transition hover:border-l-vital-500 hover:bg-ink-50;
   }
 
+  .fc-agenda-list-row:first-child {
+    @apply rounded-t-lg;
+  }
+
+  .fc-agenda-list-row:last-child {
+    @apply rounded-b-lg;
+  }
+
+  /* Menu suspenso de acoes dentro de um card da lista (ex.: "Laudar"). */
+  .fc-agenda-row-menu {
+    @apply relative;
+  }
+
+  .fc-agenda-row-menu-panel {
+    @apply absolute right-0 top-full z-20 mt-2 w-60 overflow-hidden rounded-xl border border-ink-100 bg-white shadow-lg;
+  }
+
+  /* Variante para quando sobra espaco a direita do botao e nao a esquerda.
+     Precisa vir antes do @media abaixo, que reposiciona o painel no celular. */
+  .fc-agenda-row-menu-panel-start {
+    @apply left-0 right-auto;
+  }
+
+  /* No celular o card costuma estar no fim da pagina e nao sobra espaco abaixo
+     do botao, entao o menu vira uma folha ancorada no rodape da viewport.
+     O backdrop e o ::before do proprio summary: tocar fora fecha o details. */
+  @media (max-width: 639px) {
+    .fc-agenda-row-menu[open] > summary::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      background: rgba(10, 18, 16, 0.45);
+    }
+
+    .fc-agenda-row-menu-panel {
+      position: fixed;
+      inset: auto 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+      z-index: 50;
+      width: auto;
+      margin-top: 0;
+      max-height: 70svh;
+      overflow-y: auto;
+    }
+  }
+
   .fc-agenda-empty {
-    @apply flex min-h-72 flex-col items-center justify-center px-6 py-12 text-center;
+    @apply flex min-h-72 flex-col items-center justify-center rounded-lg px-6 py-12 text-center;
     background:
       linear-gradient(90deg, rgba(190, 18, 60, 0.04), rgba(13, 148, 136, 0.06)),
       repeating-linear-gradient(90deg, transparent 0 47px, rgba(68, 82, 76, 0.045) 47px 48px),
@@ -4111,6 +4160,48 @@ body {
 
   .fc-wa-queue-tabs button.active {
     @apply border-cordis-200 bg-white text-cordis-700 shadow-sm;
+  }
+
+  .fc-wa-queue-tools {
+    @apply flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-3 text-xs text-ink-600;
+  }
+
+  .fc-wa-queue-tools label {
+    @apply flex cursor-pointer items-center gap-2 font-semibold;
+  }
+
+  .fc-wa-page .fc-wa-queue-tools input[type="checkbox"] {
+    @apply h-4 min-h-0 w-4 rounded accent-vital-600;
+  }
+
+  .fc-wa-queue-tools button,
+  .fc-wa-queue-error button {
+    @apply rounded px-2 py-1 font-bold text-vital-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-vital-600;
+  }
+
+  .fc-wa-queue-tools small {
+    @apply w-full text-[11px] text-ink-500;
+  }
+
+  .fc-wa-queue-error {
+    @apply flex flex-col items-start gap-1 border-b border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900;
+  }
+
+  .fc-wa-draft-label {
+    @apply rounded bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-800;
+  }
+
+  .fc-wa-history-actions {
+    @apply flex flex-wrap items-center justify-center gap-2 border-b border-ink-100 px-3 py-2;
+  }
+
+  .fc-wa-history-actions small,
+  .fc-wa-selection-note {
+    @apply text-xs text-ink-500;
+  }
+
+  .fc-wa-selection-note {
+    @apply border-b border-ink-100 px-4 py-2;
   }
 
   .fc-wa-assignment-filter {
@@ -8726,3 +8817,26 @@ select.prescricao-select-dark option {
     transform: none !important;
   }
 }
+
+/* Fila de respostas e ações de atendimento WhatsApp. */
+.fc-wa-metrics { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.fc-wa-metric-action { text-align: left; cursor: pointer; font: inherit; }
+.fc-wa-metric-action:hover { border-color: #d97706; }
+.fc-wa-metric-action:focus-visible { outline: 2px solid #0f766e; outline-offset: 3px; }
+.fc-wa-waiting { display: inline-flex; align-items: center; gap: 0.3rem; color: #92400e; font-size: 0.72rem; font-weight: 600; }
+.fc-wa-work-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.65rem 1rem; border-bottom: 1px solid #e2e8f0; }
+.fc-wa-work-actions > span:first-child { margin-right: auto; }
+.fc-wa-work-actions button { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; }
+@media (max-width: 1100px) { .fc-wa-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .fc-wa-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fc-wa-work-actions > span:first-child { flex-basis: 100%; }
+}
+
+.fc-wa-follow-up-summary { display: flex; flex-wrap: wrap; gap: .65rem 1rem; align-items: center; padding: .8rem 1rem; border: 1px solid #fde68a; border-radius: .75rem; background: #fffbeb; font-size: .8rem; margin-bottom: 1rem; }
+.fc-wa-follow-up-summary button { color: #92400e; text-decoration: underline; text-underline-offset: 3px; }
+.fc-wa-follow-up-summary small { flex-basis: 100%; color: #64748b; }
+.fc-wa-follow-up-filter { display: grid; gap: .5rem; padding: .65rem 1rem; font-size: .75rem; border-bottom: 1px solid #e2e8f0; }
+.fc-wa-follow-up-filter label { display: flex; align-items: center; gap: .5rem; }
+.fc-wa-follow-up-filter select { min-width: 0; width: 100%; padding: .4rem; border: 1px solid #cbd5e1; border-radius: .4rem; background: white; }
+.fc-wa-follow-up-filter input { width: 1rem; height: 1rem; }

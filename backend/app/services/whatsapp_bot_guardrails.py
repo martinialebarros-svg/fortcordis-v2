@@ -56,6 +56,10 @@ MotivoBloqueio = Literal[
 # efeito colateral de tirar uma intent do `auto` e, sem querer, apaga-la do
 # painel de prontidao - o admin perderia a visibilidade da fonte.
 INTENTS_ATENDIDAS_POR_PERSONA: dict[str, frozenset[str]] = {
+    "visitante": frozenset({
+        "horario_funcionamento", "endereco", "area_atendimento",
+        "formas_contato", "como_agendar", "como_solicitar_exame",
+    }),
     "tutor": frozenset({
         "horario_funcionamento",
         "endereco",

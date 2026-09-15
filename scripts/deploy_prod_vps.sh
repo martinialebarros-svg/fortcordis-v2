@@ -13,6 +13,7 @@ set -euo pipefail
 #   APP_DIR=/var/www/fortcordis-v2
 #   BRANCH=main
 #   BACKEND_SERVICE=fortcordis-backend
+#   BACKGROUND_WORKER_SERVICE=fortcordis-backend-worker
 #   FRONTEND_SERVICE=fortcordis-frontend
 #   BACKEND_PORT=8000
 #   FRONTEND_PORT=3000
@@ -35,6 +36,8 @@ set -euo pipefail
 #   ENABLE_AUTH_CANARY=1
 #   AUTH_CANARY_TIMEOUT_SECONDS=8
 #   AUTH_CANARY_DISABLE_INTERNAL_TOKEN=0
+#   AUTH_CANARY_AGENDA_LATENCY_SAMPLES=5
+#   AUTH_CANARY_AGENDA_MAX_P95_MS=1200
 #   CANARY_BEARER_TOKEN=<token-opcional>
 #   CANARY_USERNAME=<usuario-opcional>
 #   CANARY_PASSWORD=<senha-opcional>
@@ -45,7 +48,12 @@ set -euo pipefail
 #   REQUIRE_ECO_STUDY_OCR=0
 #   RUNTIME_BACKUP_RETENTION_DAYS=30
 #   RUNTIME_BACKUP_MAX_ITEMS=200
+#   ENABLE_NGINX_HTTP2=0|1
+#   NGINX_HTTP2_EXPECTED_HOSTS=app.stage.fortcordis.com.br,app.fortcordis.com.br
+#   NGINX_HTTP2_SITE_ROOT=/etc/nginx/sites-available
+#   NGINX_HTTP2_ENABLED_ROOT=/etc/nginx/sites-enabled
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-/var/www/fortcordis-v2}"
 BRANCH="${BRANCH:-main}"
 SUDO_PASSWORD="${SUDO_PASSWORD:-${VPS_SUDO_PASSWORD:-}}"
@@ -54,6 +62,7 @@ BACKEND_DIR="${APP_DIR}/backend"
 FRONTEND_DIR="${APP_DIR}/frontend"
 
 BACKEND_SERVICE="${BACKEND_SERVICE:-fortcordis-backend}"
+BACKGROUND_WORKER_SERVICE="${BACKGROUND_WORKER_SERVICE:-${BACKEND_SERVICE}-worker}"
 FRONTEND_SERVICE="${FRONTEND_SERVICE:-fortcordis-frontend}"
 
 BACKEND_PORT="${BACKEND_PORT:-8000}"
@@ -92,11 +101,17 @@ AUTO_ROLLBACK_ON_FAILURE="${AUTO_ROLLBACK_ON_FAILURE:-1}"
 ENABLE_AUTH_CANARY="${ENABLE_AUTH_CANARY:-1}"
 AUTH_CANARY_TIMEOUT_SECONDS="${AUTH_CANARY_TIMEOUT_SECONDS:-8}"
 AUTH_CANARY_DISABLE_INTERNAL_TOKEN="${AUTH_CANARY_DISABLE_INTERNAL_TOKEN:-0}"
+AUTH_CANARY_AGENDA_LATENCY_SAMPLES="${AUTH_CANARY_AGENDA_LATENCY_SAMPLES:-5}"
+AUTH_CANARY_AGENDA_MAX_P95_MS="${AUTH_CANARY_AGENDA_MAX_P95_MS:-1200}"
 ENABLE_BACKUP_RESTORE_DRILL="${ENABLE_BACKUP_RESTORE_DRILL:-1}"
 BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK="${BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK:-0}"
 BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR="${BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR:-0}"
 ENABLE_ECO_STUDY_OCR="${ENABLE_ECO_STUDY_OCR:-1}"
 REQUIRE_ECO_STUDY_OCR="${REQUIRE_ECO_STUDY_OCR:-0}"
+ENABLE_NGINX_HTTP2="${ENABLE_NGINX_HTTP2:-0}"
+NGINX_HTTP2_EXPECTED_HOSTS="${NGINX_HTTP2_EXPECTED_HOSTS:-}"
+NGINX_HTTP2_SITE_ROOT="${NGINX_HTTP2_SITE_ROOT:-/etc/nginx/sites-available}"
+NGINX_HTTP2_ENABLED_ROOT="${NGINX_HTTP2_ENABLED_ROOT:-/etc/nginx/sites-enabled}"
 PRE_DEPLOY_HASH=""
 NEW_HASH=""
 CODE_UPDATED=0
@@ -261,6 +276,27 @@ reload_nginx_if_possible() {
   return 0
 }
 
+ensure_nginx_http2_if_enabled() {
+  if [[ "${ENABLE_NGINX_HTTP2}" != "1" ]]; then
+    log "HTTP/2 enablement disabled (ENABLE_NGINX_HTTP2=${ENABLE_NGINX_HTTP2}); skipping."
+    return 0
+  fi
+
+  local helper="${SCRIPT_DIR}/ensure_nginx_http2.sh"
+  if [[ ! -f "${helper}" ]]; then
+    echo "[ERROR] HTTP/2 helper is missing: ${helper}" >&2
+    return 1
+  fi
+
+  ENABLE_NGINX_HTTP2="${ENABLE_NGINX_HTTP2}" \
+    NGINX_HTTP2_EXPECTED_HOSTS="${NGINX_HTTP2_EXPECTED_HOSTS}" \
+    NGINX_HTTP2_SITE_ROOT="${NGINX_HTTP2_SITE_ROOT}" \
+    NGINX_HTTP2_ENABLED_ROOT="${NGINX_HTTP2_ENABLED_ROOT}" \
+    PUBLIC_URL="${PUBLIC_URL}" \
+    SUDO_PASSWORD="${SUDO_PASSWORD}" \
+    bash "${helper}"
+}
+
 run_systemctl_command() {
   local action="$1"
   shift
@@ -270,6 +306,15 @@ run_systemctl_command() {
   fi
 
   "$SYSTEMCTL_BIN" "$action" "$@"
+}
+
+read_backend_service_property() {
+  local property="$1"
+
+  if run_with_sudo "$SYSTEMCTL_BIN" show "$BACKEND_SERVICE" "--property=${property}" --value 2>/dev/null; then
+    return 0
+  fi
+  "$SYSTEMCTL_BIN" show "$BACKEND_SERVICE" "--property=${property}" --value 2>/dev/null || true
 }
 
 run_frontend_build() {
@@ -705,6 +750,83 @@ EOF
   run_systemctl_command enable "${WHATSAPP_STAGE_BACKEND_SERVICE}"
 }
 
+ensure_background_worker_service_units() {
+  local worker_unit_path="/etc/systemd/system/${BACKGROUND_WORKER_SERVICE}.service"
+  local api_dropin_dir="/etc/systemd/system/${BACKEND_SERVICE}.service.d"
+  local api_dropin_path="${api_dropin_dir}/fortcordis-process-role.conf"
+  local worker_unit_tmp="${APP_DIR}/.tmp.${BACKGROUND_WORKER_SERVICE}.service"
+  local api_dropin_tmp="${APP_DIR}/.tmp.${BACKEND_SERVICE}.process-role.conf"
+  local backend_service_user backend_service_group worker_account_lines
+  backend_service_user="$(read_backend_service_property User)"
+  backend_service_group="$(read_backend_service_property Group)"
+  worker_account_lines=""
+  if [[ -n "${backend_service_user}" ]]; then
+    worker_account_lines+="User=${backend_service_user}"$'\n'
+  fi
+  if [[ -n "${backend_service_group}" ]]; then
+    worker_account_lines+="Group=${backend_service_group}"$'\n'
+  fi
+
+  cat > "${worker_unit_tmp}" <<EOF
+[Unit]
+Description=FortCordis Background Workers (${BRANCH})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${BACKEND_DIR}
+EnvironmentFile=${BACKEND_DIR}/.env
+Environment=FORTCORDIS_PROCESS_ROLE=worker
+Environment=PYTHONPATH=${BACKEND_DIR}
+${worker_account_lines}ExecStart=${BACKEND_DIR}/venv/bin/python -m app.worker
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  cat > "${api_dropin_tmp}" <<EOF
+[Service]
+Environment=FORTCORDIS_PROCESS_ROLE=api
+EOF
+
+  if run_with_sudo install -m 0644 "${worker_unit_tmp}" "${worker_unit_path}"; then
+    :
+  else
+    install -m 0644 "${worker_unit_tmp}" "${worker_unit_path}"
+  fi
+  if run_with_sudo mkdir -p "${api_dropin_dir}"; then
+    :
+  else
+    mkdir -p "${api_dropin_dir}"
+  fi
+  if run_with_sudo install -m 0644 "${api_dropin_tmp}" "${api_dropin_path}"; then
+    :
+  else
+    install -m 0644 "${api_dropin_tmp}" "${api_dropin_path}"
+  fi
+  rm -f "${worker_unit_tmp}" "${api_dropin_tmp}"
+
+  run_systemctl_command daemon-reload
+  run_systemctl_command enable "${BACKGROUND_WORKER_SERVICE}"
+}
+
+remove_background_worker_service_units() {
+  local worker_unit_path="/etc/systemd/system/${BACKGROUND_WORKER_SERVICE}.service"
+  local api_dropin_path="/etc/systemd/system/${BACKEND_SERVICE}.service.d/fortcordis-process-role.conf"
+
+  run_systemctl_command disable --now "${BACKGROUND_WORKER_SERVICE}" || true
+  if run_with_sudo rm -f "${worker_unit_path}" "${api_dropin_path}"; then
+    :
+  else
+    rm -f "${worker_unit_path}" "${api_dropin_path}"
+  fi
+  run_systemctl_command daemon-reload
+}
+
 ensure_ffmpeg_static_binary() {
   local backend_dir="$1"
   local ffmpeg_bin
@@ -838,6 +960,16 @@ rollback_deploy() {
   local rollback_hash
   rollback_hash="$(git rev-parse --short HEAD)"
   log "Rollback HEAD: ${rollback_hash}"
+  if [[ -f "${BACKEND_DIR}/.env" ]]; then
+    upsert_env_key "${BACKEND_DIR}/.env" "RUNTIME_HTTP_LATENCY_RELEASE_ID" "${rollback_hash}"
+    log "Runtime latency release id restored for rollback."
+  fi
+
+  if [[ "${PREVIOUS_BACKGROUND_WORKER_SUPPORT}" != "1" ]]; then
+    # A versao anterior iniciava os workers dentro da API. Remover o drop-in
+    # antes de reinicia-la devolve exatamente esse comportamento no rollback.
+    remove_background_worker_service_units
+  fi
 
   cd "$BACKEND_DIR"
   if [[ ! -x "${BACKEND_DIR}/venv/bin/python" ]]; then
@@ -851,6 +983,15 @@ rollback_deploy() {
     echo "[ERROR] Rollback backend health check failed." >&2
     print_service_diagnostics "$BACKEND_SERVICE"
     return 1
+  fi
+
+  if [[ "${PREVIOUS_BACKGROUND_WORKER_SUPPORT}" == "1" ]]; then
+    restart_service "$BACKGROUND_WORKER_SERVICE"
+    if ! run_systemctl_command is-active --quiet "$BACKGROUND_WORKER_SERVICE"; then
+      echo "[ERROR] Rollback background worker service is not active." >&2
+      print_service_diagnostics "$BACKGROUND_WORKER_SERVICE"
+      return 1
+    fi
   fi
 
   cd "$FRONTEND_DIR"
@@ -937,8 +1078,12 @@ fi
 log "Starting deploy in ${APP_DIR} (branch=${BRANCH})"
 cd "$APP_DIR"
 PRE_DEPLOY_HASH="$(git rev-parse HEAD 2>/dev/null || true)"
+PREVIOUS_BACKGROUND_WORKER_SUPPORT=0
 if [[ -n "${PRE_DEPLOY_HASH}" ]]; then
   log "Pre-deploy HEAD: $(git rev-parse --short "${PRE_DEPLOY_HASH}")"
+  if git cat-file -e "${PRE_DEPLOY_HASH}:backend/app/worker.py" 2>/dev/null; then
+    PREVIOUS_BACKGROUND_WORKER_SUPPORT=1
+  fi
 fi
 
 mkdir -p "$RUNTIME_BACKUP_DIR"
@@ -967,6 +1112,16 @@ NEW_HASH="$(git rev-parse --short HEAD)"
 log "Current HEAD: ${NEW_HASH}"
 git log --oneline -n 1
 
+# PERF-17: permite comparar a latencia com o release realmente instalado, sem
+# expor hash pelo navegador. Nao cria arquivo de ambiente ausente, para manter
+# a configuracao existente de cada host como fonte de verdade.
+if [[ -f "${BACKEND_DIR}/.env" ]]; then
+  upsert_env_key "${BACKEND_DIR}/.env" "RUNTIME_HTTP_LATENCY_RELEASE_ID" "${NEW_HASH}"
+  log "Runtime latency release id updated."
+else
+  log "WARNING: backend .env not found; latency samples will use release_id=unknown."
+fi
+
 DEPLOY_STAGE="backend_setup"
 log "Backend: install deps + migrations"
 cd "$BACKEND_DIR"
@@ -994,6 +1149,9 @@ else
   log "No migration runner found; skipping migrations."
 fi
 
+DEPLOY_STAGE="background_worker_setup"
+ensure_background_worker_service_units
+
 DEPLOY_STAGE="backend_restart"
 restart_service "$BACKEND_SERVICE"
 sleep 3
@@ -1003,6 +1161,15 @@ if ! wait_http_ok "http://127.0.0.1:${BACKEND_PORT}/health" 25 1; then
   exit 1
 fi
 log "Backend health OK"
+
+DEPLOY_STAGE="background_worker_restart"
+restart_service "$BACKGROUND_WORKER_SERVICE"
+if ! run_systemctl_command is-active --quiet "$BACKGROUND_WORKER_SERVICE"; then
+  echo "[ERROR] Background worker service is not active." >&2
+  print_service_diagnostics "$BACKGROUND_WORKER_SERVICE"
+  exit 1
+fi
+log "Background worker service active"
 
 DEPLOY_STAGE="whatsapp_stage_backend"
 deploy_whatsapp_stage_backend
@@ -1030,6 +1197,7 @@ log "Frontend local check OK"
 
 DEPLOY_STAGE="public_check"
 log "Nginx reload + public check"
+ensure_nginx_http2_if_enabled
 reload_nginx_if_possible
 
 if ! wait_http_head_ok "$PUBLIC_URL" 15 1; then
@@ -1059,6 +1227,9 @@ if [[ "${ENABLE_AUTH_CANARY}" == "1" ]]; then
     --base-url "http://127.0.0.1:${BACKEND_PORT}"
     --timeout-seconds "${AUTH_CANARY_TIMEOUT_SECONDS}"
     --backend-dir "${BACKEND_DIR}"
+    --agenda-latency-samples "${AUTH_CANARY_AGENDA_LATENCY_SAMPLES}"
+    --agenda-max-p95-ms "${AUTH_CANARY_AGENDA_MAX_P95_MS}"
+    --expected-release-id "${NEW_HASH}"
   )
   if [[ "${AUTH_CANARY_DISABLE_INTERNAL_TOKEN}" == "1" ]]; then
     CANARY_CMD+=(--disable-internal-token)

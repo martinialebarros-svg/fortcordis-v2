@@ -17,6 +17,7 @@ os.environ.setdefault("SECRET_KEY", "whatsapp-bot-piloto-test-secret-key-1234567
 
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
+from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import WhatsAppBotClinicaEstado, WhatsAppBotConversaEstado
 from app.services import whatsapp_bot_gates as gates
 
@@ -631,7 +632,7 @@ class WhatsAppBotMetricaPorClinicaTest(unittest.TestCase):
             Configuracao.__table__,
             Clinica.__table__,
             WhatsAppBotJob.__table__,
-            WhatsAppBotResposta.__table__,
+            WhatsAppBotResposta.__table__, WhatsAppBotSolicitacao.__table__,
         ):
             table.create(engine, checkfirst=True)
         return sessionmaker(bind=engine, autocommit=False, autoflush=False), engine

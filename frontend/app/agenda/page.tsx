@@ -4,7 +4,14 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { normalizarCoordenadaOpcional } from "@/lib/coordinates";
+import {
+  createAgendaCatalogLoader,
+  extrairIdsAgendamentosVisiveis,
+  normalizarOpcoesFiltroAgenda,
+  type AgendaCatalogLoader,
+} from "@/lib/agenda-loading";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
 import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
 import {
@@ -66,6 +73,7 @@ import {
   Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign, MapPin, Wallet, TimerReset
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
+import type { PedidoAgenda } from "@/lib/whatsapp-pedido-agenda";
 import ClienteInfoModal from "./ClienteInfoModal";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 
@@ -375,6 +383,7 @@ export default function AgendaPage() {
   const [filtroClinicaId, setFiltroClinicaId] = useState<string>("todos");
   const [filtroServicoId, setFiltroServicoId] = useState<string>("todos");
   const [busca, setBusca] = useState("");
+  const [pedidoWhatsApp, setPedidoWhatsApp] = useState<PedidoAgenda | null>(null);
   const [modalAberto, setModalAberto] = useState(false);
   const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
   const [slotSelecionado, setSlotSelecionado] = useState<{ data: string; hora: string } | null>(null);
@@ -424,11 +433,31 @@ export default function AgendaPage() {
   const [toastRealtime, setToastRealtime] = useState<ToastRealtimeData | null>(null);
   const [opcoesClinicas, setOpcoesClinicas] = useState<FiltroOption[]>([]);
   const [opcoesServicos, setOpcoesServicos] = useState<FiltroOption[]>([]);
+  const [carregandoClinicasFiltro, setCarregandoClinicasFiltro] = useState(false);
+  const [carregandoServicosFiltro, setCarregandoServicosFiltro] = useState(false);
+  const clinicasFiltroLoaderRef = useRef<AgendaCatalogLoader | null>(null);
+  const servicosFiltroLoaderRef = useRef<AgendaCatalogLoader | null>(null);
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastRealtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
   const fortinho = useFortinho();
   const filtrosIniciaisAplicadosRef = useRef(false);
+
+  useEffect(() => {
+    if (!authChecked) return;
+    const id = new URLSearchParams(window.location.search).get("pedido_whatsapp");
+    if (!id || !/^[1-9][0-9]*$/.test(id)) return;
+    let active = true;
+    const controller = new AbortController();
+    api.get<PedidoAgenda>(`/whatsapp/bot/solicitacoes/${id}/preparar-agendamento`, { signal: controller.signal })
+      .then(({ data }) => {
+        if (!active) return;
+        setPedidoWhatsApp(data); setAgendamentoEditando(null); setSlotSelecionado(null); setModalAberto(true);
+      }).catch((error) => {
+        if (active) setErro(error?.response?.data?.detail || "Não foi possível preparar o pedido. Volte à fila e tente novamente.");
+      });
+    return () => { active = false; controller.abort(); };
+  }, [authChecked]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -716,39 +745,42 @@ export default function AgendaPage() {
     }
   };
 
-  const carregarOpcoesFiltros = async () => {
-    try {
-      const [respClinicas, respServicos] = await Promise.all([
-        api.get("/clinicas?limit=1000"),
-        api.get("/servicos?limit=1000"),
-      ]);
-
-      const clinicas = Array.isArray(respClinicas.data?.items) ? respClinicas.data.items : [];
-      const servicos = Array.isArray(respServicos.data?.items) ? respServicos.data.items : [];
-
-      const clinicasNormalizadas = clinicas
-        .map((item: any) => ({
-          id: Number(item?.id),
-          nome: String(item?.nome || "").trim(),
-        }))
-        .filter((item: FiltroOption) => Number.isFinite(item.id) && item.id > 0 && item.nome.length > 0)
-        .sort((a: FiltroOption, b: FiltroOption) => a.nome.localeCompare(b.nome, "pt-BR"));
-
-      const servicosNormalizados = servicos
-        .map((item: any) => ({
-          id: Number(item?.id),
-          nome: String(item?.nome || "").trim(),
-        }))
-        .filter((item: FiltroOption) => Number.isFinite(item.id) && item.id > 0 && item.nome.length > 0)
-        .sort((a: FiltroOption, b: FiltroOption) => a.nome.localeCompare(b.nome, "pt-BR"));
-
-      setOpcoesClinicas(clinicasNormalizadas);
-      setOpcoesServicos(servicosNormalizados);
-    } catch (error) {
-      console.error("Erro ao carregar opcoes de filtros da agenda:", error);
-      setOpcoesClinicas([]);
-      setOpcoesServicos([]);
+  const carregarOpcoesClinicasFiltro = () => {
+    if (!clinicasFiltroLoaderRef.current) {
+      clinicasFiltroLoaderRef.current = createAgendaCatalogLoader({
+        request: async () => {
+          const payload = await loadStableCatalog({
+            catalog: "clinicas",
+            variant: "limit=1000",
+            load: () => api.get("/clinicas?limit=1000").then((response) => response.data),
+          });
+          return normalizarOpcoesFiltroAgenda(payload);
+        },
+        onSuccess: setOpcoesClinicas,
+        onLoadingChange: setCarregandoClinicasFiltro,
+        onError: (error) => console.error("Erro ao carregar clinicas do filtro da agenda:", error),
+      });
     }
+    return clinicasFiltroLoaderRef.current.load();
+  };
+
+  const carregarOpcoesServicosFiltro = () => {
+    if (!servicosFiltroLoaderRef.current) {
+      servicosFiltroLoaderRef.current = createAgendaCatalogLoader({
+        request: async () => {
+          const payload = await loadStableCatalog({
+            catalog: "servicos",
+            variant: "limit=1000",
+            load: () => api.get("/servicos?limit=1000").then((response) => response.data),
+          });
+          return normalizarOpcoesFiltroAgenda(payload);
+        },
+        onSuccess: setOpcoesServicos,
+        onLoadingChange: setCarregandoServicosFiltro,
+        onError: (error) => console.error("Erro ao carregar servicos do filtro da agenda:", error),
+      });
+    }
+    return servicosFiltroLoaderRef.current.load();
   };
 
   useEffect(() => {
@@ -760,7 +792,6 @@ export default function AgendaPage() {
     setIsAdmin(usuarioEhAdmin());
     setAuthChecked(true);
     carregarAgendamentos();
-    carregarOpcoesFiltros();
   }, [router, periodoConsulta.inicio, periodoConsulta.fim]);
 
   useEffect(() => {
@@ -848,12 +879,7 @@ export default function AgendaPage() {
         setRenderingPolicy(regrasRota.rendering_policy);
       }
       if (includeRelated) {
-        await Promise.all([
-          carregarLaudosVinculados(items),
-          carregarOrdensServicoVinculadas(items),
-          carregarClinicasComEndereco(items),
-          carregarTutoresComEndereco(items),
-        ]);
+        await carregarRelacionadosVisiveis(items);
       }
       if (includeResumo) {
         await carregarResumoFinanceiro();
@@ -952,24 +978,40 @@ export default function AgendaPage() {
     [agendamentos]
   );
 
-  const carregarLaudosVinculados = async (items: Agendamento[]) => {
-    const idsAgendamento = new Set(items.map((item) => item.id));
-    const pacientePorAgendamento = new Map(
-      items.map((item) => [item.id, Number(item.paciente_id || 0)])
-    );
-    if (idsAgendamento.size === 0) {
+  const carregarRelacionadosVisiveis = async (items: Agendamento[]) => {
+    const idsVisiveis = extrairIdsAgendamentosVisiveis(items);
+    const limparRelacionados = () => {
       setLaudosVinculados({});
+      setOrdensServicoPorAgendamento({});
+      setClinicasEndereco({});
+      setTutoresEndereco({});
+    };
+
+    if (idsVisiveis.length === 0) {
+      limparRelacionados();
       return;
     }
 
-    try {
-      const respLaudos = await api.get("/laudos?limit=1000");
-      const listaLaudos = respLaudos.data?.items || [];
+    const idsAgendamento = new Set(idsVisiveis);
+    const pacientePorAgendamento = new Map(
+      items.map((item) => [item.id, Number(item.paciente_id || 0)])
+    );
 
-      const mapa: LaudosVinculadosPorAgendamento = {};
+    try {
+      const response = await api.get("/agenda/relacionados", {
+        params: { agendamento_ids: idsVisiveis.join(",") },
+      });
+      const listaLaudos = Array.isArray(response.data?.laudos) ? response.data.laudos : [];
+      const listaOrdens = Array.isArray(response.data?.ordens_servico)
+        ? response.data.ordens_servico
+        : [];
+      const listaClinicas = Array.isArray(response.data?.clinicas) ? response.data.clinicas : [];
+      const listaTutores = Array.isArray(response.data?.tutores) ? response.data.tutores : [];
+
+      const mapaLaudos: LaudosVinculadosPorAgendamento = {};
       for (const laudo of listaLaudos) {
         const agendamentoId = Number(laudo?.agendamento_id);
-        if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
+        if (!Number.isInteger(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
           continue;
         }
 
@@ -987,14 +1029,14 @@ export default function AgendaPage() {
 
         const tipo = String(laudo?.tipo || "");
         const laudoId = Number(laudo?.id);
-        if (!tipo || !Number.isFinite(laudoId)) {
+        if (!tipo || !Number.isInteger(laudoId)) {
           continue;
         }
 
-        const laudosDoAgendamento = mapa[agendamentoId] || {};
+        const laudosDoAgendamento = mapaLaudos[agendamentoId] || {};
         const anterior = laudosDoAgendamento[tipo];
         if (!anterior || laudoId > anterior.id) {
-          mapa[agendamentoId] = {
+          mapaLaudos[agendamentoId] = {
             ...laudosDoAgendamento,
             [tipo]: {
               id: laudoId,
@@ -1006,47 +1048,21 @@ export default function AgendaPage() {
         }
       }
 
-      setLaudosVinculados(mapa);
-    } catch (error) {
-      console.error("Erro ao carregar laudos vinculados aos agendamentos:", error);
-      setLaudosVinculados({});
-    }
-  };
-
-  const carregarOrdensServicoVinculadas = async (items: Agendamento[]) => {
-    const idsAgendamento = new Set(items.map((item) => item.id));
-    if (idsAgendamento.size === 0) {
-      setOrdensServicoPorAgendamento({});
-      return;
-    }
-
-    try {
-      const params = new URLSearchParams();
-      params.append("limit", "2000");
-
-      if (periodoConsulta.inicio && periodoConsulta.fim) {
-        params.append("data_inicio", periodoConsulta.inicio);
-        params.append("data_fim", periodoConsulta.fim);
-      }
-
-      const respOs = await api.get(`/ordens-servico?${params.toString()}`);
-      const listaOs = respOs.data?.items || [];
-
-      const mapa: Record<number, OrdemServicoResumo> = {};
-      for (const os of listaOs) {
+      const mapaOrdens: Record<number, OrdemServicoResumo> = {};
+      for (const os of listaOrdens) {
         const agendamentoId = Number(os?.agendamento_id);
-        if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
+        if (!Number.isInteger(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
           continue;
         }
 
         const osId = Number(os?.id);
-        if (!Number.isFinite(osId)) {
+        if (!Number.isInteger(osId)) {
           continue;
         }
 
-        const anterior = mapa[agendamentoId];
+        const anterior = mapaOrdens[agendamentoId];
         if (!anterior || osId > anterior.id) {
-          mapa[agendamentoId] = {
+          mapaOrdens[agendamentoId] = {
             id: osId,
             agendamento_id: agendamentoId,
             numero_os: String(os?.numero_os || ""),
@@ -1058,39 +1074,11 @@ export default function AgendaPage() {
         }
       }
 
-      setOrdensServicoPorAgendamento(mapa);
-    } catch (error) {
-      console.error("Erro ao carregar ordens de servico vinculadas aos agendamentos:", error);
-      setOrdensServicoPorAgendamento({});
-    }
-  };
-
-  const carregarClinicasComEndereco = async (items: Agendamento[]) => {
-    const idsClinica = Array.from(
-      new Set(
-        items
-          .map((item) => Number(item.clinica_id))
-          .filter((id) => Number.isFinite(id) && id > 0)
-      )
-    );
-
-    if (idsClinica.length === 0) {
-      setClinicasEndereco({});
-      return;
-    }
-
-    try {
-      const respClinicas = await api.get("/clinicas?limit=1000");
-      const listaClinicas = respClinicas.data?.items || [];
-
-      const mapa: Record<number, ClinicaEndereco> = {};
+      const mapaClinicas: Record<number, ClinicaEndereco> = {};
       for (const clinica of listaClinicas) {
         const clinicaId = Number(clinica?.id);
-        if (!Number.isFinite(clinicaId) || !idsClinica.includes(clinicaId)) {
-          continue;
-        }
-
-        mapa[clinicaId] = {
+        if (!Number.isInteger(clinicaId) || clinicaId <= 0) continue;
+        mapaClinicas[clinicaId] = {
           id: clinicaId,
           nome: clinica?.nome || null,
           endereco: clinica?.endereco || null,
@@ -1105,39 +1093,11 @@ export default function AgendaPage() {
         };
       }
 
-      setClinicasEndereco(mapa);
-    } catch (error) {
-      console.error("Erro ao carregar enderecos das clinicas:", error);
-      setClinicasEndereco({});
-    }
-  };
-
-  const carregarTutoresComEndereco = async (items: Agendamento[]) => {
-    const idsTutor = Array.from(
-      new Set(
-        items
-          .map((item) => Number(item.tutor_id))
-          .filter((id) => Number.isFinite(id) && id > 0)
-      )
-    );
-
-    if (idsTutor.length === 0) {
-      setTutoresEndereco({});
-      return;
-    }
-
-    try {
-      const respTutores = await api.get("/tutores?limit=2000");
-      const listaTutores = Array.isArray(respTutores.data?.items) ? respTutores.data.items : [];
-
-      const mapa: Record<number, TutorEndereco> = {};
+      const mapaTutores: Record<number, TutorEndereco> = {};
       for (const tutor of listaTutores) {
         const tutorId = Number(tutor?.id);
-        if (!Number.isFinite(tutorId) || !idsTutor.includes(tutorId)) {
-          continue;
-        }
-
-        mapa[tutorId] = {
+        if (!Number.isInteger(tutorId) || tutorId <= 0) continue;
+        mapaTutores[tutorId] = {
           id: tutorId,
           nome: tutor?.nome || null,
           endereco: tutor?.endereco || null,
@@ -1152,10 +1112,13 @@ export default function AgendaPage() {
         };
       }
 
-      setTutoresEndereco(mapa);
+      setLaudosVinculados(mapaLaudos);
+      setOrdensServicoPorAgendamento(mapaOrdens);
+      setClinicasEndereco(mapaClinicas);
+      setTutoresEndereco(mapaTutores);
     } catch (error) {
-      console.error("Erro ao carregar enderecos dos tutores:", error);
-      setTutoresEndereco({});
+      console.error("Erro ao carregar dados relacionados aos agendamentos visiveis:", error);
+      limparRelacionados();
     }
   };
 
@@ -2404,9 +2367,14 @@ export default function AgendaPage() {
                 <select
                   value={filtroClinicaId}
                   onChange={(e) => setFiltroClinicaId(e.target.value)}
+                  onFocus={() => void carregarOpcoesClinicasFiltro()}
+                  onPointerDown={() => void carregarOpcoesClinicasFiltro()}
+                  aria-busy={carregandoClinicasFiltro}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="todos">Todas as clinicas</option>
+                  <option value="todos">
+                    {carregandoClinicasFiltro ? "Carregando clinicas..." : "Todas as clinicas"}
+                  </option>
                   {opcoesClinicas.map((clinica) => (
                     <option key={clinica.id} value={String(clinica.id)}>
                       {clinica.nome}
@@ -2416,9 +2384,14 @@ export default function AgendaPage() {
                 <select
                   value={filtroServicoId}
                   onChange={(e) => setFiltroServicoId(e.target.value)}
+                  onFocus={() => void carregarOpcoesServicosFiltro()}
+                  onPointerDown={() => void carregarOpcoesServicosFiltro()}
+                  aria-busy={carregandoServicosFiltro}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="todos">Todos os servicos</option>
+                  <option value="todos">
+                    {carregandoServicosFiltro ? "Carregando servicos..." : "Todos os servicos"}
+                  </option>
                   {opcoesServicos.map((servico) => (
                     <option key={servico.id} value={String(servico.id)}>
                       {servico.nome}
@@ -2833,7 +2806,7 @@ export default function AgendaPage() {
                           Maps
                         </button>
 
-                        <details className="relative">
+                        <details className="fc-agenda-row-menu">
                           <summary
                             className="list-none px-3 py-1.5 text-sm text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                             title="Escolher tipo de laudo"
@@ -2842,7 +2815,7 @@ export default function AgendaPage() {
                             Laudar
                             <ChevronDown className="w-4 h-4" />
                           </summary>
-                          <div className="absolute right-0 top-full z-20 mt-2 w-60 overflow-hidden rounded-xl border bg-white shadow-lg">
+                          <div className="fc-agenda-row-menu-panel">
                             <button
                               type="button"
                               onClick={() => abrirFluxoLaudo(ag, TIPO_LAUDO_ECOCARDIOGRAMA)}
@@ -3605,7 +3578,12 @@ export default function AgendaPage() {
         <NovoAgendamentoModal
           isOpen={modalAberto}
           agendamento={agendamentoEditando}
-          onClose={() => { setModalAberto(false); setAgendamentoEditando(null); setSlotSelecionado(null); }}
+          pedidoWhatsApp={pedidoWhatsApp}
+          onClose={() => {
+            setModalAberto(false); setAgendamentoEditando(null); setSlotSelecionado(null); setPedidoWhatsApp(null);
+            const url = new URL(window.location.href); url.searchParams.delete("pedido_whatsapp");
+            window.history.replaceState(null, "", url.toString());
+          }}
           onSuccess={handleAgendamentoSuccess}
           defaultDate={slotSelecionado?.data || filtroData || hojeLocal()}
           defaultTime={slotSelecionado?.hora}

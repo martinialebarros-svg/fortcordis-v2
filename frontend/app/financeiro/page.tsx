@@ -4,7 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { appendUniqueLoadFailure, loadFinanceiroSection } from "@/lib/financeiro-loading";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
+import {
+  appendUniqueLoadFailure,
+  deveRecarregarResumo,
+  getFinanceiroLoadingPlan,
+  loadFinanceiroSection,
+  type FinanceiroActiveTab,
+  type FinanceiroLoadOrigin,
+} from "@/lib/financeiro-loading";
 import TransacaoModal from "./TransacaoModal";
 import { calendarDateInput, formatCalendarDate, operationalTodayDateInput } from "@/lib/calendar-date";
 import {
@@ -350,7 +358,9 @@ export default function FinanceiroPage() {
   });
   const [periodo, setPeriodo] = useState("mes");
   const [loadingTransacoes, setLoadingTransacoes] = useState(true);
-  const [loadingOrdens, setLoadingOrdens] = useState(true);
+  const [loadingOrdens, setLoadingOrdens] = useState(false);
+  const [transacoesCarregadas, setTransacoesCarregadas] = useState(false);
+  const [ordensCarregadas, setOrdensCarregadas] = useState(false);
   const [falhasCarregamento, setFalhasCarregamento] = useState<string[]>([]);
   const [modalAberto, setModalAberto] = useState(false);
   const [transacaoEditando, setTransacaoEditando] = useState<any>(null);
@@ -366,7 +376,28 @@ export default function FinanceiroPage() {
   const [filtroDataInicio, setFiltroDataInicio] = useState("");
   const [filtroDataFim, setFiltroDataFim] = useState("");
   const [busca, setBusca] = useState("");
-  const [abaAtiva, setAbaAtiva] = useState<"transacoes" | "cobrancas" | "ordens">("transacoes");
+  const [buscaTransacoes, setBuscaTransacoes] = useState("");
+  const [totalTransacoes, setTotalTransacoes] = useState(0);
+  const [paginaTransacoes, setPaginaTransacoes] = useState({ chave: "", numero: 0 });
+  const chaveTransacoes = JSON.stringify([
+    filtroTipo, filtroCategoria, filtroFormaPagamento, filtroStatusTransacao,
+    filtroDataInicio, filtroDataFim, buscaTransacoes,
+  ]);
+  const paginaAtualTransacoes = paginaTransacoes.chave === chaveTransacoes ? paginaTransacoes.numero : 0;
+  const [chaveResultadoTransacoes, setChaveResultadoTransacoes] = useState("");
+  const chavePedidoTransacoes = `${chaveTransacoes}:${paginaAtualTransacoes}`;
+  const buscaTransacoesPendente = busca.trim() !== buscaTransacoes;
+
+  useEffect(() => {
+    setPaginaTransacoes((current) => current.chave === chaveTransacoes ? current : { chave: chaveTransacoes, numero: 0 });
+  }, [chaveTransacoes]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setBuscaTransacoes(busca.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [busca]);
+  const [abaAtiva, setAbaAtiva] = useState<FinanceiroActiveTab>("transacoes");
+  const [rotaFinanceiroResolvida, setRotaFinanceiroResolvida] = useState(false);
   const [modalReceberOS, setModalReceberOS] = useState<OrdemServico | null>(null);
   const [modalReceberLoteOSIds, setModalReceberLoteOSIds] = useState<number[] | null>(null);
   const [modalEditarOS, setModalEditarOS] = useState<OrdemServico | null>(null);
@@ -415,6 +446,9 @@ export default function FinanceiroPage() {
   const [enviandoWhatsAppOficialGrupoKey, setEnviandoWhatsAppOficialGrupoKey] = useState<string | null>(null);
   const highlightedRowRef = useRef<HTMLDivElement | null>(null);
   const carregarDadosControllerRef = useRef<AbortController | null>(null);
+  /** Periodo do ultimo resumo aplicado com sucesso. Evita refazer a chamada a
+   *  cada troca de pagina, filtro ou aba, que nao mudam o resumo. */
+  const periodoResumoCarregadoRef = useRef<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -426,17 +460,20 @@ export default function FinanceiroPage() {
   }, [previewRecibo]);
 
   useEffect(() => {
+    if (!rotaFinanceiroResolvida) return;
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/");
       return;
     }
-    carregarDados();
+    carregarDados("efeito");
     return () => {
       carregarDadosControllerRef.current?.abort();
     };
   }, [
     router,
+    rotaFinanceiroResolvida,
+    abaAtiva,
     periodo,
     filtroTipo,
     filtroCategoria,
@@ -449,6 +486,8 @@ export default function FinanceiroPage() {
     filtroTipoHorarioOS,
     filtroDataInicio,
     filtroDataFim,
+    paginaAtualTransacoes,
+    abaAtiva === "transacoes" ? buscaTransacoes : "",
   ]);
 
   useEffect(() => {
@@ -456,7 +495,7 @@ export default function FinanceiroPage() {
     const searchParams = new URLSearchParams(window.location.search);
     const abaParam = String(searchParams.get("aba") || "").toLowerCase();
     if (abaParam === "transacoes" || abaParam === "cobrancas" || abaParam === "ordens") {
-      setAbaAtiva(abaParam as "transacoes" | "cobrancas" | "ordens");
+      setAbaAtiva(abaParam as FinanceiroActiveTab);
     }
 
     const osIdParam = Number(searchParams.get("os_id") || "");
@@ -473,6 +512,7 @@ export default function FinanceiroPage() {
       setOsHighlightId(osIdParam);
       setOsHighlightUntil(Date.now() + 25000);
     }
+    setRotaFinanceiroResolvida(true);
   }, []);
 
   useEffect(() => {
@@ -527,13 +567,14 @@ export default function FinanceiroPage() {
     return encoded ? `?${encoded}` : "";
   };
 
-  const carregarDados = async () => {
+  const carregarDados = async (origem: FinanceiroLoadOrigin = "manual") => {
     carregarDadosControllerRef.current?.abort();
     const controller = new AbortController();
     carregarDadosControllerRef.current = controller;
+    const loadingPlan = getFinanceiroLoadingPlan(abaAtiva);
 
-    setLoadingTransacoes(true);
-    setLoadingOrdens(true);
+    setLoadingTransacoes(loadingPlan.transacoes);
+    setLoadingOrdens(loadingPlan.ordens);
     setCarregandoFormasPagamento(true);
     setFalhasCarregamento([]);
 
@@ -561,7 +602,9 @@ export default function FinanceiroPage() {
 
     try {
       const queryTransacoes = montarQueryString({
-        limit: 500,
+        limit: 100,
+        skip: paginaAtualTransacoes * 100,
+        search: buscaTransacoes || undefined,
         tipo: filtroTipo !== "todos" ? filtroTipo : undefined,
         categoria: filtroCategoria !== "todos" ? filtroCategoria : undefined,
         forma_pagamento: filtroFormaPagamento !== "todos" ? filtroFormaPagamento : undefined,
@@ -581,35 +624,78 @@ export default function FinanceiroPage() {
       });
 
       const signal = controller.signal;
-      const cargaTransacoes = registrarCarga(
-        "Transacoes",
-        api
-          .get<{ items?: Transacao[] }>(`/financeiro/transacoes${queryTransacoes}`, { signal })
-          .then((response) => response.data),
-        (data) => setTransacoes(data.items || []),
-        () => setLoadingTransacoes(false)
-      );
-      const cargaResumo = registrarCarga(
-        "Resumo financeiro",
-        api.get<Resumo>(`/financeiro/resumo?periodo=${periodo}`, { signal }).then((response) => response.data),
-        setResumo
-      );
-      const cargaOrdens = registrarCarga(
-        "Ordens de servico",
-        api.get<{ items?: OrdemServico[] }>(`/ordens-servico${queryOS}`, { signal }).then((response) => response.data),
-        (data) => setOrdensServico(data.items || []),
-        () => setLoadingOrdens(false)
-      );
-      const cargaClinicas = registrarCarga(
-        "Clinicas",
-        api.get<{ items?: ClinicaOption[] }>("/clinicas?limit=1000", { signal }).then((response) => response.data),
-        (data) => setClinicas(data.items || [])
-      );
-      const cargaServicos = registrarCarga(
-        "Servicos",
-        api.get<{ items?: ServicoOption[] }>("/servicos?limit=1000", { signal }).then((response) => response.data),
-        (data) => setServicos(data.items || [])
-      );
+      const cargaTransacoes = loadingPlan.transacoes
+        ? registrarCarga(
+            "Transacoes",
+            api
+              .get<{ items?: Transacao[]; total: number }>(`/financeiro/transacoes${queryTransacoes}`, { signal })
+              .then((response) => response.data),
+            (data) => {
+              setTransacoes(data.items || []);
+              setTotalTransacoes(data.total);
+              setChaveResultadoTransacoes(chavePedidoTransacoes);
+              // A deletion or concurrent update can remove the last page.
+              if (paginaAtualTransacoes > 0 && !data.items?.length) {
+                setPaginaTransacoes({ chave: chaveTransacoes, numero: Math.max(0, Math.ceil(data.total / 100) - 1) });
+              }
+              setTransacoesCarregadas(true);
+            },
+            () => setLoadingTransacoes(false)
+          )
+        : Promise.resolve();
+      // O resumo so varia com `periodo`. Sem esta guarda ele era refeito a cada
+      // troca de pagina, filtro ou aba, sempre devolvendo o mesmo valor.
+      const cargaResumo = deveRecarregarResumo({
+        origem,
+        periodoAtual: periodo,
+        periodoCarregado: periodoResumoCarregadoRef.current,
+      })
+        ? registrarCarga(
+            "Resumo financeiro",
+            api.get<Resumo>(`/financeiro/resumo?periodo=${periodo}`, { signal }).then((response) => response.data),
+            (data) => {
+              setResumo(data);
+              // So marca depois do sucesso: falha ou cancelamento deixa o
+              // proximo carregamento tentar de novo.
+              periodoResumoCarregadoRef.current = periodo;
+            }
+          )
+        : Promise.resolve();
+      const cargaOrdens = loadingPlan.ordens
+        ? registrarCarga(
+            "Ordens de servico",
+            api
+              .get<{ items?: OrdemServico[] }>(`/ordens-servico${queryOS}`, { signal })
+              .then((response) => response.data),
+            (data) => {
+              setOrdensServico(data.items || []);
+              setOrdensCarregadas(true);
+            },
+            () => setLoadingOrdens(false)
+          )
+        : Promise.resolve();
+      const cargaClinicas = loadingPlan.catalogosOrdens
+        ? registrarCarga(
+            "Clinicas",
+            loadStableCatalog({
+              catalog: "clinicas",
+              variant: "limit=1000",
+              load: () => api.get<{ items?: ClinicaOption[] }>("/clinicas?limit=1000").then((response) => response.data),
+            }),
+            (data) => setClinicas(data.items || [])
+          )
+        : Promise.resolve();
+      const cargaServicos = loadingPlan.catalogosOrdens
+        ? registrarCarga(
+            "Servicos",
+            loadStableCatalog({
+              catalog: "servicos",
+              variant: "limit=1000",
+              load: () => api.get<{ items?: ServicoOption[] }>("/servicos?limit=1000").then((response) => response.data),
+            }),
+            (data) => setServicos(data.items || [])
+          )
+        : Promise.resolve();
       const cargaFormas = registrarCarga(
         "Formas de pagamento",
         api
@@ -1401,20 +1487,9 @@ export default function FinanceiroPage() {
     }
   };
 
-  // Filtrar transacoes
-  const transacoesFiltradas = transacoes.filter((t) => {
-    const matchTipo = filtroTipo === "todos" || t.tipo === filtroTipo;
-    const matchCategoria = filtroCategoria === "todos" || t.categoria === filtroCategoria;
-    const matchFormaPagamento = filtroFormaPagamento === "todos" || t.forma_pagamento === filtroFormaPagamento;
-    const matchStatus = filtroStatusTransacao === "todos" || t.status === filtroStatusTransacao;
-    const matchData = estaNoPeriodo(t.data_transacao);
-    const termo = busca.toLowerCase();
-    const matchBusca = !busca || 
-      t.descricao?.toLowerCase().includes(termo) ||
-      t.paciente_nome?.toLowerCase().includes(termo) ||
-      getCategoriaNome(t.categoria).toLowerCase().includes(termo);
-    return matchTipo && matchCategoria && matchFormaPagamento && matchStatus && matchData && matchBusca;
-  });
+  // All transaction filters and counts are authoritative on the server.
+  const transacoesFiltradas = transacoes;
+  const transacoesDesatualizadas = chaveResultadoTransacoes !== chavePedidoTransacoes || buscaTransacoesPendente;
 
   // Filtrar OS
   const osFiltradas = ordensServico.filter((os) => {
@@ -2175,8 +2250,6 @@ export default function FinanceiroPage() {
 
   // Calcular resumo de OS
   const osPendentes = ordensServico.filter(os => os.status === 'Pendente');
-  const osPagas = ordensServico.filter(os => os.status === 'Pago');
-  const valorTotalOS = osPagas.reduce((acc, os) => acc + os.valor_final, 0);
   const valorPendenteOS = osPendentes.reduce((acc, os) => acc + os.valor_final, 0);
 
   return (
@@ -2290,14 +2363,18 @@ export default function FinanceiroPage() {
 	            <div className="flex items-center justify-between">
 	              <div>
 	                <p className="text-sm text-gray-500">OS Pendentes</p>
-	                <p className="text-2xl font-bold text-yellow-600">{formatarValor(valorPendenteOS)}</p>
+	                <p className="text-2xl font-bold text-yellow-600">
+	                  {ordensCarregadas ? formatarValor(valorPendenteOS) : "—"}
+	                </p>
               </div>
               <div className="w-12 h-12 bg-yellow-50 rounded-lg flex items-center justify-center">
                 <FileText className="w-6 h-6 text-yellow-600" />
               </div>
             </div>
 	            <p className="text-xs text-gray-500 mt-2">
-	              {osPendentes.length} ordem(ns) pendente(s)
+	              {ordensCarregadas
+	                ? `${osPendentes.length} ordem(ns) pendente(s)`
+	                : "Disponivel ao abrir Cobrancas ou Ordens"}
 	            </p>
 	          </div>
 
@@ -2420,7 +2497,7 @@ export default function FinanceiroPage() {
             <Receipt className="w-4 h-4" />
             Transacoes
             <span className="fc-finance-tab-count">
-              {transacoes.length}
+              {transacoesCarregadas && !transacoesDesatualizadas ? totalTransacoes : "—"}
             </span>
           </button>
           <button
@@ -2432,7 +2509,7 @@ export default function FinanceiroPage() {
             <MessageCircle className="w-4 h-4" />
             Cobrancas
             <span className="fc-finance-tab-count fc-finance-tab-count-amber">
-              {gruposCobrancaDestinatario.length} destinatario(s)
+              {ordensCarregadas ? `${gruposCobrancaDestinatario.length} destinatario(s)` : "—"}
             </span>
           </button>
           <button
@@ -2444,7 +2521,7 @@ export default function FinanceiroPage() {
             <FileText className="w-4 h-4" />
             Ordens de Servico
             <span className="fc-finance-tab-count fc-finance-tab-count-amber">
-              {osFiltradas.length}
+              {ordensCarregadas ? osFiltradas.length : "—"}
             </span>
           </button>
         </div>
@@ -2600,7 +2677,7 @@ export default function FinanceiroPage() {
 
           <div className="flex flex-wrap gap-2 mt-3">
             <button
-              onClick={carregarDados}
+              onClick={() => void carregarDados()}
               className="fc-finance-secondary"
             >
               Atualizar
@@ -2621,12 +2698,17 @@ export default function FinanceiroPage() {
               <h2 className="text-lg font-semibold text-gray-900">
                 Transacoes 
                 <span className="text-sm font-normal text-gray-500 ml-2">
-                  ({transacoesFiltradas.length})
+                  ({transacoesDesatualizadas ? "—" : totalTransacoes})
                 </span>
               </h2>
             </div>
             
-            {loadingTransacoes ? (
+            {falhasCarregamento.includes("Transacoes") ? (
+              <div role="alert" className="p-8 text-center">
+                <p>Nao foi possivel carregar as transacoes.</p>
+                <button className="fc-finance-secondary" onClick={() => void carregarDados()}>Recarregar transacoes</button>
+              </div>
+            ) : loadingTransacoes || transacoesDesatualizadas ? (
               <div className="p-8 text-center text-gray-500">Carregando...</div>
             ) : transacoesFiltradas.length === 0 ? (
               <div className="p-12 text-center">
@@ -2716,6 +2798,18 @@ export default function FinanceiroPage() {
               </div>
             )}
           </div>
+        )}
+
+        {abaAtiva === "transacoes" && (
+          <nav aria-label="Paginacao de transacoes" className="flex items-center justify-between gap-3 p-4">
+            <button className="fc-finance-secondary" disabled={loadingTransacoes || transacoesDesatualizadas || paginaAtualTransacoes === 0}
+              onClick={() => setPaginaTransacoes({ chave: chaveTransacoes, numero: paginaAtualTransacoes - 1 })}>Anterior</button>
+            <span aria-live="polite">
+              Pagina {paginaAtualTransacoes + 1} de {Math.max(1, Math.ceil(totalTransacoes / 100))} — ate 100 por pagina
+            </span>
+            <button className="fc-finance-secondary" disabled={loadingTransacoes || transacoesDesatualizadas || falhasCarregamento.includes("Transacoes") || (paginaAtualTransacoes + 1) * 100 >= totalTransacoes}
+              onClick={() => setPaginaTransacoes({ chave: chaveTransacoes, numero: paginaAtualTransacoes + 1 })}>Proxima</button>
+          </nav>
         )}
 
         {/* Conteudo - Cobrancas */}

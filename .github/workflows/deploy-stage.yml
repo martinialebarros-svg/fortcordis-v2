@@ -34,6 +34,13 @@ jobs:
       - name: Test WhatsApp stage Meta isolation
         run: bash scripts/tests/test_whatsapp_stage_meta_isolation.sh
 
+      - name: Test VPS ingress diagnostics
+        run: |
+          bash scripts/tests/test_collect_vps_ingress_diagnostics.sh
+          bash scripts/tests/test_probe_public_https.sh
+          bash scripts/tests/test_monitor_vps_ingress_deltas.sh
+          bash scripts/tests/test_vps_ingress_diagnostics_stage_trigger.sh
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -49,6 +56,7 @@ jobs:
 
       - name: Run backend test suite
         env:
+          FORTCORDIS_PROCESS_ROLE: api
           DATABASE_URL: sqlite:///./fortcordis-ci.db
           SECRET_KEY: deploy-stage-quality-gate-secret-key-1234567890
         run: |
@@ -90,6 +98,7 @@ jobs:
           npm run test:approved-templates
           npm run test:document-templates
           npm run test:database-config
+          npm run test:express-http
           npm run test:inbox-ui
           npm run test:customer-service-window
           npm run test:phone-number
@@ -99,6 +108,29 @@ jobs:
           npm run test:webhook-cleanup-config
           npm run test:log-redaction
           npm audit --omit=dev
+
+      - name: Test WhatsApp productivity with isolated database
+        working-directory: whatsapp-stage-backend
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/fortcordis_whatsapp_test
+        run: |
+          node <<'JS'
+          const { Client } = require("pg");
+          const url = new URL(process.env.DATABASE_URL);
+          url.pathname = "/postgres";
+          const client = new Client({ connectionString: url.toString() });
+          (async () => {
+            await client.connect();
+            await client.query("CREATE DATABASE fortcordis_whatsapp_test");
+          })().catch(error => { console.error(error); process.exitCode = 1; })
+            .finally(() => client.end());
+          JS
+          npm run migrate
+          npm run test:conversation-productivity
+          npm run test:conversation-ordering
+          npm run test:conversation-reply-queue
+          npm run test:quick-replies
+          npm run test:follow-ups
 
   sdd-guardrail:
     runs-on: ubuntu-latest
@@ -408,7 +440,8 @@ jobs:
             trap cleanup_deploy_scripts EXIT
             git archive --format=tar "origin/${BRANCH}" -- \
               scripts/deploy_stage_vps.sh \
-              scripts/deploy_prod_vps.sh | tar -xf - -C "$deploy_scripts_dir"
+              scripts/deploy_prod_vps.sh \
+              scripts/ensure_nginx_http2.sh | tar -xf - -C "$deploy_scripts_dir"
 
             echo "Running standardized stage deploy script..."
             SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' \
@@ -416,6 +449,64 @@ jobs:
               BRANCH="$BRANCH" \
               bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"
           EOF
+
+      - name: Run one-shot Nginx TLS listener inventory on Stage
+        if: contains(github.event.head_commit.message, '[nginx-tls-inventory]')
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' INVENTORY_HOSTS='app.stage.fortcordis.com.br,stage.fortcordis.com.br,www.stage.fortcordis.com.br,app.fortcordis.com.br,fortcordis.com.br,www.fortcordis.com.br,fortcordis.com,www.fortcordis.com' bash -s" \
+            < scripts/inventory_nginx_tls_listeners.sh
+
+      - name: Run one-shot VPS ingress diagnostics on Stage
+        if: contains(github.event.head_commit.message, '[vps-ingress-diagnostics]')
+        run: |
+          PROBE_URL=https://app.stage.fortcordis.com.br/dashboard \
+            PROBE_LABEL=stage_dashboard_before_snapshot \
+            PROBE_ATTEMPTS=20 \
+            PROBE_INTERVAL_SECONDS=1 \
+            PROBE_CONNECT_TIMEOUT_SECONDS=4 \
+            PROBE_MAX_TIME_SECONDS=6 \
+            bash scripts/probe_public_https.sh
+
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            'bash -s --' < scripts/collect_vps_ingress_diagnostics.sh
+
+          PROBE_URL=https://app.stage.fortcordis.com.br/dashboard \
+            PROBE_LABEL=stage_dashboard_after_snapshot \
+            PROBE_ATTEMPTS=20 \
+            PROBE_INTERVAL_SECONDS=1 \
+            PROBE_CONNECT_TIMEOUT_SECONDS=4 \
+            PROBE_MAX_TIME_SECONDS=6 \
+            bash scripts/probe_public_https.sh
+
+      - name: Run bounded VPS ingress delta monitor on Stage
+        if: contains(github.event.head_commit.message, '[vps-ingress-monitor]')
+        timeout-minutes: 9
+        run: |
+          PROBE_URL=https://app.stage.fortcordis.com.br/dashboard \
+            PROBE_LABEL=stage_dashboard_monitor \
+            PROBE_ATTEMPTS=30 \
+            PROBE_INTERVAL_SECONDS=10 \
+            PROBE_CONNECT_TIMEOUT_SECONDS=4 \
+            PROBE_MAX_TIME_SECONDS=6 \
+            bash scripts/probe_public_https.sh &
+          probe_pid=$!
+
+          set +e
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=2 \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            'cd /var/www/fortcordis-stage && test "$(git rev-parse HEAD)" = "${{ github.sha }}" && INGRESS_MONITOR_SAMPLES=30 INGRESS_MONITOR_INTERVAL_SECONDS=10 timeout --kill-after=5 360 bash scripts/monitor_vps_ingress_deltas.sh'
+          monitor_exit=$?
+          wait "${probe_pid}"
+          probe_exit=$?
+          set -e
+
+          if (( monitor_exit != 0 || probe_exit != 0 )); then
+            echo "Bounded VPS ingress delta monitor could not complete."
+            exit 1
+          fi
 
       - name: Run one-shot AI echo canary on Stage
         if: contains(github.event.head_commit.message, '[ai-echo-canary]')

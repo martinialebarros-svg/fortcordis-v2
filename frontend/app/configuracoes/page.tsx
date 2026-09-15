@@ -47,7 +47,9 @@ import {
   X,
   Trash2,
   Users,
-  Shield
+  Shield,
+  Activity,
+  RefreshCw,
 } from "lucide-react";
 
 interface ConfiguracoesSistema {
@@ -275,9 +277,34 @@ interface ClinicaProntidaoWhatsapp {
   clinicas: ClinicaProntidaoItem[];
 }
 
+interface LatenciaRuntimeGrupo {
+  endpoint: string;
+  release_id: string;
+  request_count: number;
+  error_5xx_count: number;
+  avg_ms: number | null;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  p99_ms: number | null;
+  database_avg_ms: number | null;
+  database_p95_ms: number | null;
+  pool_wait_avg_ms: number | null;
+  pool_wait_p95_ms: number | null;
+  last_seen_at: string | null;
+}
+
+interface LatenciaRuntimeResumo {
+  available: boolean;
+  hours: number;
+  retention_days: number;
+  query_max_samples: number;
+  truncated: boolean;
+  groups: LatenciaRuntimeGrupo[];
+}
+
 export default function ConfiguracoesPage() {
   const router = useRouter();
-  const [aba, setAba] = useState<"empresa" | "usuario" | "usuarios">("empresa");
+  const [aba, setAba] = useState<"empresa" | "usuario" | "usuarios" | "observabilidade">("empresa");
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [prontidaoClinicas, setProntidaoClinicas] = useState<ClinicaProntidaoWhatsapp | null>(null);
@@ -343,6 +370,10 @@ export default function ConfiguracoesPage() {
   const [salvandoPermissoes, setSalvandoPermissoes] = useState(false);
   const [somenteLeituraAgenda, setSomenteLeituraAgenda] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [latenciaRuntime, setLatenciaRuntime] = useState<LatenciaRuntimeResumo | null>(null);
+  const [statusLatenciaRuntime, setStatusLatenciaRuntime] = useState<"idle" | "loading" | "error">("idle");
+  const [erroLatenciaRuntime, setErroLatenciaRuntime] = useState("");
+  const [janelaLatenciaRuntime, setJanelaLatenciaRuntime] = useState<6 | 24 | 168>(24);
   const [modulosPermissoes, setModulosPermissoes] = useState<ModuloPermissao[]>([]);
   const [matrizPermissoes, setMatrizPermissoes] = useState<MatrizPermissaoPapel[]>([]);
   const [auditoriaItens, setAuditoriaItens] = useState<AuditoriaEventoItem[]>([]);
@@ -662,6 +693,12 @@ export default function ConfiguracoesPage() {
     }
   }, [aba]);
 
+  useEffect(() => {
+    if (aba === "observabilidade" && isAdmin) {
+      carregarLatenciaRuntime();
+    }
+  }, [aba, isAdmin, janelaLatenciaRuntime]);
+
   const carregarImagem = async (url: string): Promise<string | null> => {
     try {
       const response = await api.get(url, { responseType: 'blob' });
@@ -677,6 +714,37 @@ export default function ConfiguracoesPage() {
     const data = new Date(valor);
     if (Number.isNaN(data.getTime())) return "-";
     return data.toLocaleString("pt-BR");
+  };
+
+  const formatarMilissegundos = (valor?: number | null) => {
+    if (typeof valor !== "number" || !Number.isFinite(valor)) return "-";
+    return `${valor.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} ms`;
+  };
+
+  const carregarLatenciaRuntime = async () => {
+    try {
+      setStatusLatenciaRuntime("loading");
+      setErroLatenciaRuntime("");
+      const response = await api.get("/admin/observability/http-latency", {
+        params: { hours: janelaLatenciaRuntime },
+      });
+      const payload = response?.data || {};
+      setLatenciaRuntime({
+        available: payload.available === true,
+        hours: Number(payload.hours) || janelaLatenciaRuntime,
+        retention_days: Number(payload.retention_days) || 14,
+        query_max_samples: Number(payload.query_max_samples) || 0,
+        truncated: payload.truncated === true,
+        groups: Array.isArray(payload.groups) ? payload.groups : [],
+      });
+      setStatusLatenciaRuntime("idle");
+    } catch (error: any) {
+      const detalhe = error?.response?.data?.detail;
+      setErroLatenciaRuntime(
+        typeof detalhe === "string" ? detalhe : "Não foi possível carregar a telemetria de desempenho."
+      );
+      setStatusLatenciaRuntime("error");
+    }
   };
 
   const formatarValorAuditoria = (valor: unknown): string => {
@@ -1529,7 +1597,15 @@ export default function ConfiguracoesPage() {
           <div className="fc-settings-context">
             <Shield className="h-5 w-5" />
             <span>Área atual</span>
-            <strong>{aba === "empresa" ? "Empresa" : aba === "usuario" ? "Minha conta" : "Usuários"}</strong>
+            <strong>
+              {aba === "empresa"
+                ? "Empresa"
+                : aba === "usuario"
+                  ? "Minha conta"
+                  : aba === "usuarios"
+                    ? "Usuários"
+                    : "Desempenho"}
+            </strong>
           </div>
         </div>
 
@@ -1564,6 +1640,18 @@ export default function ConfiguracoesPage() {
             <Users className="w-4 h-4" />
             Usuários
           </button>
+          {isAdmin ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={aba === "observabilidade"}
+              onClick={() => setAba("observabilidade")}
+              className={`fc-settings-tab ${aba === "observabilidade" ? "fc-settings-tab-active" : ""}`}
+            >
+              <Activity className="w-4 h-4" />
+              Desempenho
+            </button>
+          ) : null}
         </div>
 
         {aba === "empresa" && (
@@ -3423,6 +3511,108 @@ export default function ConfiguracoesPage() {
                   {salvando ? "Salvando..." : "Salvar Configurações"}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {aba === "observabilidade" && isAdmin && (
+          <div className="fc-settings-content space-y-6">
+            <div className="fc-settings-card">
+              <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-teal-600" />
+                    Latência por endpoint e release
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Histórico agregado das rotas prioritárias. Não inclui URL, paciente, usuário ou conteúdo clínico.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    aria-label="Janela de telemetria"
+                    value={janelaLatenciaRuntime}
+                    onChange={(event) => setJanelaLatenciaRuntime(Number(event.target.value) as 6 | 24 | 168)}
+                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white"
+                  >
+                    <option value={6}>Últimas 6 horas</option>
+                    <option value={24}>Últimas 24 horas</option>
+                    <option value={168}>Últimos 7 dias</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={carregarLatenciaRuntime}
+                    disabled={statusLatenciaRuntime === "loading"}
+                    className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    {statusLatenciaRuntime === "loading" ? "Atualizando..." : "Atualizar"}
+                  </button>
+                </div>
+              </div>
+
+              {erroLatenciaRuntime ? (
+                <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{erroLatenciaRuntime}</div>
+              ) : null}
+
+              {statusLatenciaRuntime === "loading" && !latenciaRuntime ? (
+                <div className="py-8 text-center text-gray-500">Carregando telemetria...</div>
+              ) : !latenciaRuntime?.available ? (
+                <div className="p-4 rounded-lg bg-amber-50 text-amber-800 text-sm">
+                  A telemetria persistida ainda não está disponível. Confirme a migração deste release antes de avaliar os números.
+                </div>
+              ) : latenciaRuntime.groups.length === 0 ? (
+                <div className="py-8 text-center text-gray-500">
+                  Nenhuma amostra nas últimas {latenciaRuntime.hours} horas. Navegue por uma rota prioritária e atualize este painel.
+                </div>
+              ) : (
+                <>
+                  <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                    <span>Retenção: {latenciaRuntime.retention_days} dias</span>
+                    {latenciaRuntime.truncated ? (
+                      <span className="text-amber-700">A consulta atingiu o limite de amostras; amplie a filtragem antes de concluir.</span>
+                    ) : null}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50 text-gray-600">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium">Endpoint</th>
+                          <th className="text-left px-3 py-2 font-medium">Release</th>
+                          <th className="text-right px-3 py-2 font-medium">Amostras</th>
+                          <th className="text-right px-3 py-2 font-medium">p50</th>
+                          <th className="text-right px-3 py-2 font-medium">p95</th>
+                          <th className="text-right px-3 py-2 font-medium">p99</th>
+                          <th className="text-right px-3 py-2 font-medium">Banco p95</th>
+                          <th className="text-right px-3 py-2 font-medium">Pool p95</th>
+                          <th className="text-right px-3 py-2 font-medium">5xx</th>
+                          <th className="text-left px-3 py-2 font-medium">Última amostra</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {latenciaRuntime.groups.map((grupo) => (
+                          <tr key={`${grupo.endpoint}-${grupo.release_id}`} className="border-t border-gray-100">
+                            <td className="px-3 py-2 font-mono text-xs text-gray-800">{grupo.endpoint}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-gray-700">{grupo.release_id}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{grupo.request_count}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.p50_ms)}</td>
+                            <td className="px-3 py-2 text-right font-medium text-gray-900">{formatarMilissegundos(grupo.p95_ms)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.p99_ms)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.database_p95_ms)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.pool_wait_p95_ms)}</td>
+                            <td className="px-3 py-2 text-right">
+                              <span className={grupo.error_5xx_count > 0 ? "text-red-700 font-medium" : "text-gray-700"}>
+                                {grupo.error_5xx_count}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-500">{formatarDataHora(grupo.last_seen_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

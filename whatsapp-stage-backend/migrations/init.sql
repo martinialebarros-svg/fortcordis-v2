@@ -49,6 +49,17 @@ WHERE c.id = inbound.conversation_id
 ALTER TABLE conversations
   ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
 
+-- Explicit resolution covers only messages already persisted at that moment.
+-- Zero represents an empty conversation and keeps this legacy backfill idempotent.
+ALTER TABLE conversations
+  ADD COLUMN IF NOT EXISTS resolved_through_message_id BIGINT;
+
+UPDATE conversations c
+SET resolved_through_message_id = COALESCE(
+  (SELECT MAX(m.id) FROM messages m WHERE m.conversation_id = c.id), 0
+)
+WHERE c.status = 'closed' AND c.resolved_through_message_id IS NULL;
+
 -- agents
 CREATE TABLE IF NOT EXISTS agents (
   id BIGSERIAL PRIMARY KEY,
@@ -551,6 +562,13 @@ CREATE INDEX IF NOT EXISTS idx_conversations_last_activity_desc ON conversations
 CREATE INDEX IF NOT EXISTS idx_conversations_last_inbound_desc ON conversations(last_inbound_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_id_desc ON messages(conversation_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_successful_reply
+  ON messages(conversation_id, created_at DESC, id DESC)
+  WHERE from_me = TRUE AND status IN ('sent', 'delivered', 'read');
+CREATE INDEX IF NOT EXISTS idx_messages_inbound_queue
+  ON messages(conversation_id, created_at ASC, id ASC)
+  WHERE from_me = FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_participants_conversation_agent ON conversation_participants(conversation_id, agent_id);
 CREATE INDEX IF NOT EXISTS idx_participants_conversation_left_at ON conversation_participants(conversation_id, left_at);
@@ -568,3 +586,19 @@ CREATE INDEX IF NOT EXISTS idx_webhook_event_cleanup_runs_created_at_desc
   ON webhook_event_cleanup_runs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_webhook_event_cleanup_runs_status_created_at
   ON webhook_event_cleanup_runs(status, created_at DESC);
+
+-- One versioned internal follow-up per conversation; terminal rows preserve CAS.
+CREATE TABLE IF NOT EXISTS conversation_follow_ups (
+  conversation_id BIGINT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+  due_at TIMESTAMPTZ NOT NULL,
+  note VARCHAR(1000) NOT NULL CHECK (length(trim(note)) > 0),
+  agent_id BIGINT NOT NULL REFERENCES agents(id),
+  status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'cancelled')),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+  inbound_received_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_follow_ups_pending_due
+  ON conversation_follow_ups (due_at, conversation_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS ix_follow_ups_agent_due
+  ON conversation_follow_ups (agent_id, due_at) WHERE status = 'pending';

@@ -1,8 +1,9 @@
 {
-  "version": 1,
+  "version": 2,
   "language": "pt-BR",
   "termos": [
     "nao esta respirando",
+    "sem respirar",
     "parou de respirar",
     "nao respira mais",
     "dificuldade para respirar",

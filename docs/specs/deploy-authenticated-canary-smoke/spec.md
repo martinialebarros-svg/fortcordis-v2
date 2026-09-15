@@ -11,6 +11,8 @@ Implementar smoke canary autenticado no deploy:
 - validar `GET /api/v1/admin/hardening-readiness`;
 - validar `GET /api/v1/agenda`;
 - validar `GET /api/v1/atendimentos/upload-metrics/dedupe/cleanup/status`.
+- executar cinco leituras autenticadas de `GET /api/v1/agenda`, calcular p95
+  localmente e falhar se superar o limite configurado.
 
 ## 2) Requisitos funcionais (RF)
 
@@ -18,6 +20,12 @@ Implementar smoke canary autenticado no deploy:
 - RF-002: suportar token direto, login com credenciais e fallback de token interno.
 - RF-003: falhar deploy se qualquer check canary falhar.
 - RF-004: permitir desativacao controlada por env (`ENABLE_AUTH_CANARY=0`).
+- RF-005: tratar qualquer HTTP diferente de 200, inclusive 401/403, como falha.
+- RF-006: aceitar apenas p95 igual ou inferior a
+  `AUTH_CANARY_AGENDA_MAX_P95_MS` (padrao 1200 ms) nas
+  `AUTH_CANARY_AGENDA_LATENCY_SAMPLES` leituras (padrao 5).
+- RF-007: registrar somente release curto, contagem e percentis; nunca payload,
+  token, URL com parametros ou dados clinicos.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -31,3 +39,5 @@ Implementar smoke canary autenticado no deploy:
 - CA-002: deploy falha se runtime.ready=false no endpoint admin.
 - CA-003: deploy falha se agenda ou endpoint tecnico de atendimento retornarem erro.
 - CA-004: rollback automatico e acionado em falha do canary.
+- CA-005: 401/403 nao sao interpretados como sucesso.
+- CA-006: p95 acima do limite interrompe o deploy e ativa o rollback existente.

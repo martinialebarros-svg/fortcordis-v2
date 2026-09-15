@@ -277,3 +277,46 @@ uma mensagem gerada chegue a um cliente.
 - [ ] Perguntas abertas respondidas.
 - [ ] Fases e rollback revisados.
 - [ ] Ambiente de teste definido (local + stage antes de produção).
+
+## Entrega operacional — 2026-09-08
+
+1. Corrigir prioridade de emergencia, continuidade apos envio assistido e
+   transferencia ativa para a equipe.
+2. Liberar persona visitante com ferramentas exclusivamente publicas.
+3. Implementar envio automatico com duas barreiras operacionais (Python e
+   Node), ID duravel, revalidacao de conversa e tratamento de resultado incerto.
+4. Recuperar processamento interrompido preservando exclusao distribuida.
+5. Validar com mocks e PostgreSQL local; alinhar interface e metricas.
+6. Publicar primeiro em stage, comprovar runtime e um ciclo autorizado com
+   destinatario de teste; so entao promover o mesmo snapshot e ativar o
+   escopo de producao autorizado. Esta etapa nao foi executada nesta entrega.
+
+## Coleta administrativa — setembro de 2026
+
+1. Acrescentar extracao estruturada de campos para clinicas ao provider.
+2. Renderizar perguntas/resumo no servidor e persistir snapshots na auditoria.
+3. Validar conferencia explicita de resumo enviado e encaminhar uma vez.
+4. Exibir resumo e referencia temporal da preferencia na central.
+5. Testar continuidade, escopo, ambiguidades, correcoes, cancelamento,
+   expiracao, rascunho nao enviado e recuperacao idempotente.
+6. Publicacao e validacao com clinicas reais permanecem etapa posterior.
+
+## Entrega: fila operacional de solicitacoes (2026-09-09)
+
+1. Tabela aditiva e migracao idempotente dos pedidos ja enviados.
+2. Criacao na confirmacao entregue, sem efeitos externos adicionais.
+3. API com papel, responsabilidade, controle de versao e historico atomico.
+4. Fila expansivel na central, filtros e prazo inicial explicito de 2 horas corridas.
+5. Contexto duravel para acompanhamento pelo bot e nova coleta explicita.
+6. Testes de duplicacao, disputa, permissao, conclusao, migracao e UI;
+   suite completa, lint, build e guardrail SDD antes de entrega local.
+
+## Entrega: conversao assistida do pedido em agenda
+
+1. Preparacao autenticada e preenchimento conservador por IDs do cadastro.
+2. Entrada pela fila no modal existente, mantendo regras de horario e conflito.
+3. Vinculo com versao/locks e persistencia atomica dentro do POST da agenda.
+4. Desativar conclusao manual sem agenda; manter resultado historico anterior.
+5. Reaproveitar revisao e envio explicito da mensagem pos-criacao.
+6. Verificar SQLite/PostgreSQL, concorrencia, rollback, duplicidade e formulario;
+   manter SDD e entrega local separada da publicacao.

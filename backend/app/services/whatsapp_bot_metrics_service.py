@@ -59,6 +59,8 @@ class _Classificacao:
 
 
 def _classificar(resposta: WhatsAppBotResposta) -> _Classificacao:
+    if resposta.motivo == "enviado_auto":
+        return _Classificacao(aceito=False, editado=False, descartado=False, pendente=False)
     if resposta.decisao == "sent":
         gerado = (resposta.texto_gerado or "").strip()
         enviado = (resposta.texto_enviado or "").strip()
@@ -92,6 +94,7 @@ def _taxa(numerador: int, denominador: int) -> Optional[float]:
 def _bucket_vazio() -> dict[str, Any]:
     return {
         "rascunhos_oferecidos": 0,
+        "enviados_auto": 0,
         "aceitos": 0,
         "aceitos_sem_edicao": 0,
         "aceitos_editados": 0,
@@ -112,7 +115,9 @@ def _bucket_vazio() -> dict[str, Any]:
 
 def _acumular(bucket: dict[str, Any], resposta: WhatsAppBotResposta) -> None:
     motivo = str(resposta.motivo or "sem_motivo")
-    if resposta.decisao in _DECISOES_RASCUNHO:
+    if resposta.decisao == "sent" and motivo == "enviado_auto":
+        bucket["enviados_auto"] += 1
+    elif resposta.decisao in _DECISOES_RASCUNHO:
         classificacao = _classificar(resposta)
         bucket["rascunhos_oferecidos"] += 1
         if classificacao.aceito:
@@ -155,7 +160,7 @@ def _finalizar(bucket: dict[str, Any]) -> dict[str, Any]:
 
     # Contencao (P6.5): respostas que resolveram sem jogar para humano.
     total_com_decisao_do_bot = (
-        bucket["rascunhos_oferecidos"] + bucket["bloqueados"] + bucket["handoffs"]
+        bucket["rascunhos_oferecidos"] + bucket["enviados_auto"] + bucket["bloqueados"] + bucket["handoffs"]
     )
 
     bucket["taxa_aceite"] = _taxa(bucket["aceitos"], decididos)
@@ -163,9 +168,9 @@ def _finalizar(bucket: dict[str, Any]) -> dict[str, Any]:
     bucket["taxa_edicao_entre_aceitos"] = _taxa(bucket["aceitos_editados"], bucket["aceitos"])
     bucket["taxa_descarte"] = _taxa(bucket["descartados"], decididos)
     bucket["taxa_bloqueio"] = _taxa(
-        bucket["bloqueados"], bucket["rascunhos_oferecidos"] + bucket["bloqueados"]
+        bucket["bloqueados"], bucket["rascunhos_oferecidos"] + bucket["enviados_auto"] + bucket["bloqueados"]
     )
-    bucket["taxa_contencao"] = _taxa(bucket["rascunhos_oferecidos"], total_com_decisao_do_bot)
+    bucket["taxa_contencao"] = _taxa(bucket["rascunhos_oferecidos"] + bucket["enviados_auto"], total_com_decisao_do_bot)
 
     bucket["latencia_p50_ms"] = _percentil(latencias, 0.50)
     bucket["latencia_p95_ms"] = _percentil(latencias, 0.95)

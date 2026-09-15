@@ -164,6 +164,15 @@ async function run(): Promise<void> {
     axios.post = originalPost;
   }
 
+  // Express 5 types route params as potentially array-shaped. Reject an
+  // unexpected value before any database or Graph API work is attempted.
+  const invalidRouteParamCall = fakeResponse();
+  await sendConversationMessage(
+    { params: { id: ["unexpected"] }, body: { body: "mensagem" } } as unknown as Request,
+    invalidRouteParamCall.response
+  );
+  assert.strictEqual(invalidRouteParamCall.status(), 400, "an invalid conversation id should be rejected with 400");
+
   // sendConversationMessage: an unsupported attachment mime type is rejected with 422
   // before any database lookup or Graph API call is attempted (no DB/network needed).
   const rejectedCall = fakeResponse();

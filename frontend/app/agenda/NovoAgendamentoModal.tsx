@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle, Pencil, Plus, Trash2, Send, Loader2 } from "lucide-react";
 import api from "@/lib/axios";
+import { divergenciasPedido, camposPedidoAgenda, type PedidoAgenda } from "@/lib/whatsapp-pedido-agenda";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import {
   formatarCepVisual,
@@ -11,6 +13,10 @@ import {
   normalizarCep,
 } from "@/lib/atendimento-cadastro";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
+import {
+  deveResetarAssistentePorTrocaDeData,
+  excecaoManualEstaLiberada,
+} from "@/lib/agenda-assistente-excecao";
 import { coordenadasSaoConfiaveis, normalizarCoordenadaOpcional } from "@/lib/coordinates";
 import {
   AgendaExcecaoConfig,
@@ -62,6 +68,7 @@ interface NovoAgendamentoModalProps {
     opcoes?: { manterModalAberto?: boolean }
   ) => void | Promise<void>;
   agendamento?: any;
+  pedidoWhatsApp?: PedidoAgenda | null;
   defaultDate?: string;
   defaultTime?: string;
   agendaSemanal: AgendaSemanalConfig;
@@ -839,6 +846,7 @@ export default function NovoAgendamentoModal({
   onClose, 
   onSuccess,
   agendamento,
+  pedidoWhatsApp,
   defaultDate,
   defaultTime,
   agendaSemanal,
@@ -940,6 +948,13 @@ export default function NovoAgendamentoModal({
     : (formData.marcar_como_reserva ? "Reservado" : "Agendado");
   const permiteSemPacienteTutor = statusFormulario === "Reservado";
   const atendimentoDomiciliar = formData.origem_atendimento === "domiciliar";
+  const estadoExcecaoManual = {
+    isEditando,
+    isAdmin,
+    decisaoAssistente,
+    excecaoConcedida,
+  };
+  const excecaoManualAtiva = excecaoManualEstaLiberada(estadoExcecaoManual);
 
   const parseApiDateTime = (value?: string): Date | null => {
     if (!value) return null;
@@ -999,6 +1014,21 @@ export default function NovoAgendamentoModal({
   const hojeLocalIso = (): string => {
     const agora = new Date();
     return toInputDate(agora);
+  };
+
+  const agoraFortalezaIso = (): string => {
+    const partes = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Fortaleza",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date());
+    const valor = Object.fromEntries(partes.map((parte) => [parte.type, parte.value]));
+    return `${valor.year}-${valor.month}-${valor.day}T${valor.hour}:${valor.minute}:${valor.second}`;
   };
 
   const toBrDate = (isoDate?: string): string => {
@@ -1078,9 +1108,10 @@ export default function NovoAgendamentoModal({
   // Inicializa formulario ao abrir no modo "novo" sem resetar quando pacientes/tutores atualizam.
   useEffect(() => {
     if (!isOpen || isEditando) return;
-    setFormData(buildInitialFormData(defaultDate, defaultTime));
+    setDivergenciaAceita("");
+    setFormData({ ...buildInitialFormData(defaultDate, defaultTime), ...(pedidoWhatsApp ? camposPedidoAgenda(pedidoWhatsApp) : {}) });
     setDataContatoAssistente((atual) => atual || hojeLocalIso());
-    setTutorSelecionado("");
+    setTutorSelecionado(pedidoWhatsApp?.tutor?.nome || "");
     setSugestoesHorario([]);
     setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
@@ -1096,7 +1127,7 @@ export default function NovoAgendamentoModal({
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
     sequenciaConsultaProximidadeRef.current = 0;
-  }, [defaultDate, defaultTime, isEditando, isOpen]);
+  }, [defaultDate, defaultTime, isEditando, isOpen, pedidoWhatsApp]);
 
   // Preenche formulario ao abrir/atualizar no modo de edicao.
   useEffect(() => {
@@ -1275,15 +1306,24 @@ export default function NovoAgendamentoModal({
     const resultados = await Promise.allSettled([
       api.get("/pacientes?limit=1000"),
       api.get("/tutores?limit=1000"),
-      api.get("/clinicas?limit=1000"),
-      api.get("/servicos?limit=1000"),
+      loadStableCatalog({
+        catalog: "clinicas",
+        variant: "limit=1000",
+        load: () => api.get("/clinicas?limit=1000").then((response) => response.data),
+      }),
+      loadStableCatalog({
+        catalog: "servicos",
+        variant: "limit=1000",
+        load: () => api.get("/servicos?limit=1000").then((response) => response.data),
+      }),
     ]);
 
     const falhas: string[] = [];
 
     const pacientesResp = resultados[0];
     if (pacientesResp.status === "fulfilled") {
-      setPacientes(extrairItems(pacientesResp.value?.data) as PacienteOption[]);
+      const items = extrairItems(pacientesResp.value?.data) as PacienteOption[];
+      setPacientes(pedidoWhatsApp?.paciente && !items.some(p => p.id === pedidoWhatsApp.paciente?.id) ? [...items, pedidoWhatsApp.paciente] : items);
     } else {
       setPacientes([]);
       falhas.push("pacientes");
@@ -1291,7 +1331,8 @@ export default function NovoAgendamentoModal({
 
     const tutoresResp = resultados[1];
     if (tutoresResp.status === "fulfilled") {
-      setTutores(extrairItems(tutoresResp.value?.data) as TutorOption[]);
+      const items = extrairItems(tutoresResp.value?.data) as TutorOption[];
+      setTutores(pedidoWhatsApp?.tutor && !items.some(t => t.id === pedidoWhatsApp.tutor?.id) ? [...items, pedidoWhatsApp.tutor] : items);
     } else {
       setTutores([]);
       falhas.push("tutores");
@@ -1299,7 +1340,7 @@ export default function NovoAgendamentoModal({
 
     const clinicasResp = resultados[2];
     if (clinicasResp.status === "fulfilled") {
-      setClinicas(extrairItems(clinicasResp.value?.data));
+      setClinicas(extrairItems(clinicasResp.value));
     } else {
       setClinicas([]);
       falhas.push("clinicas");
@@ -1307,7 +1348,7 @@ export default function NovoAgendamentoModal({
 
     const servicosResp = resultados[3];
     if (servicosResp.status === "fulfilled") {
-      setServicos(extrairItems(servicosResp.value?.data));
+      setServicos(extrairItems(servicosResp.value));
     } else {
       setServicos([]);
       falhas.push("servicos");
@@ -1710,6 +1751,12 @@ export default function NovoAgendamentoModal({
       const mensagemFinal = mensagem || mensagemAssistente;
       setMensagemProximidade(mensagemFinal);
 
+      // Com a excecao concedida o admin ja decidiu por data/hora manual: manter
+      // o texto informativo, mas sem interromper com o popup de aplicar horario.
+      if (excecaoManualAtiva) {
+        return;
+      }
+
       if (politicaDistanteBaixa && !dataPreferencial) {
         return;
       }
@@ -1863,10 +1910,25 @@ export default function NovoAgendamentoModal({
     }));
   };
 
+  // Sob excecao concedida a data manual e o objetivo do fluxo: manter desfecho,
+  // motivo e excecao, descartando apenas o panorama que era daquela outra data.
+  const invalidarPanoramaMantendoExcecao = () => {
+    setSugestoesHorario([]);
+    setOfertasPanoramicasConsultadas(false);
+    setIndiceSugestaoAtual(0);
+    setItensIgnoradosJanela(0);
+    setErroSugestoes("");
+    setMensagemSugestoes(
+      "Data ajustada sob excecao concedida. Motivo e excecao seguem registrados; ajuste a hora e salve, ou gere nova oferta para recomecar o assistente."
+    );
+  };
+
   const handleDataChange = (data: string) => {
     setInteracaoProximidade((prev) => ({ ...prev, data: true }));
-    if (!isEditando) {
+    if (deveResetarAssistentePorTrocaDeData(estadoExcecaoManual)) {
       resetFluxoAssistente();
+    } else if (!isEditando) {
+      invalidarPanoramaMantendoExcecao();
     }
     setFormData((prev) => ({
       ...prev,
@@ -3005,8 +3067,17 @@ export default function NovoAgendamentoModal({
     }
   };
 
+  const divergenciasWhatsApp = pedidoWhatsApp ? divergenciasPedido(pedidoWhatsApp, pacienteSelecionadoMensagem?.nome || "", tutorSelecionadoOption?.nome || tutorSelecionado || "") : [];
+  const chaveDivergencia = JSON.stringify([pedidoWhatsApp?.pedido_id, formData.paciente_id, formData.tutor_id, divergenciasWhatsApp]);
+  const [divergenciaAceita, setDivergenciaAceita] = useState("");
+  useEffect(() => { setDivergenciaAceita(""); }, [chaveDivergencia]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isEditando && divergenciasWhatsApp.length && divergenciaAceita !== chaveDivergencia) {
+      fortinho.notify({ title: "Confira o pedido do WhatsApp", message: "Confirme a divergência de pet/tutor antes de salvar.", mood: "alert", gesture: "idle", sticky: true });
+      return;
+    }
     setLoading(true);
 
     try {
@@ -3197,21 +3268,30 @@ export default function NovoAgendamentoModal({
       const dataOriginalAgendamento = String(
         agendamento?.data || String(agendamento?.inicio || "").slice(0, 10)
       );
+      const horaOriginalAgendamento = String(
+        agendamento?.hora || String(agendamento?.inicio || "").slice(11, 16)
+      );
+      const inicioOriginalIso =
+        dataOriginalAgendamento && horaOriginalAgendamento
+          ? `${dataOriginalAgendamento}T${horaOriginalAgendamento.padEnd(8, ":00")}`
+          : null;
+      const atendimentoJaIniciado =
+        !!inicioOriginalIso && inicioOriginalIso <= agoraFortalezaIso();
       const alterandoServicoDeHoje =
         isEditando &&
         servicoOriginalId !== String(formData.servico_id || "") &&
-        dataOriginalAgendamento === hojeLocalIso();
+        atendimentoJaIniciado;
 
       if (alterandoServicoDeHoje) {
         if (!isAdmin) {
           throw new Error(
-            "Somente administradores podem alterar o servico de um agendamento de hoje."
+            "Somente administradores podem alterar o servico de um atendimento ja iniciado."
           );
         }
         const confirmouAlteracao = await fortinho.confirm({
           title: "Confirmar alteração do serviço",
           message:
-            "Este agendamento é de hoje. Deseja confirmar a troca administrativa do serviço? Se o atendimento já tiver iniciado, o horário original será preservado.",
+            "Este atendimento já foi iniciado. Deseja confirmar a troca administrativa do serviço? O horário original será preservado.",
           mood: "alert",
           gesture: "open-arms",
           confirmLabel: "Confirmar alteração",
@@ -3242,7 +3322,10 @@ export default function NovoAgendamentoModal({
         if (isEditando) {
           return api.put(`/agenda/${agendamento.id}`, payload);
         }
-        return api.post("/agenda", payload);
+        return api.post("/agenda", { ...payload, ...(pedidoWhatsApp ? {
+          pedido_whatsapp_id: pedidoWhatsApp.pedido_id, pedido_whatsapp_versao: pedidoWhatsApp.versao,
+          pedido_whatsapp_divergencia_confirmada: divergenciasWhatsApp.length > 0 && divergenciaAceita === chaveDivergencia,
+        } : {}) });
       };
 
       let response;
@@ -3365,11 +3448,10 @@ export default function NovoAgendamentoModal({
     decisaoAssistente
   );
   const etapaWizardAtual = !isEditando ? ETAPAS_WIZARD_NOVO[indiceEtapaWizardNovo] : null;
-  const excecaoManualLiberada = !isEditando && decisaoAssistente === "sem_opcao" && isAdmin && excecaoConcedida;
-  const bloqueioManualAssistenteAtivo = !isEditando && !excecaoManualLiberada;
+  const bloqueioManualAssistenteAtivo = !isEditando && !excecaoManualAtiva;
   const bloquearDataManual = bloqueioManualAssistenteAtivo && assistenteProntoParaSugerir;
   const bloquearHoraManual = bloqueioManualAssistenteAtivo;
-  const semOpcaoSemExcecao = !isEditando && decisaoAssistente === "sem_opcao" && !excecaoManualLiberada;
+  const semOpcaoSemExcecao = !isEditando && decisaoAssistente === "sem_opcao" && !excecaoManualAtiva;
   const dataSelecionadaPassada = !isEditando && isDataPassada(formData.data);
   const clienteComCredito = !isEditando && saldoCreditoCliente > 0;
   const destinatarioMensagemNome = formData.reserva_destinatario_manual === "clinica"
@@ -3620,6 +3702,17 @@ export default function NovoAgendamentoModal({
         </div>
 
         <form onSubmit={handleSubmit} className="fc-appointment-form space-y-4">
+          {pedidoWhatsApp && !isEditando && <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-3" aria-label="Pedido recebido pelo WhatsApp">
+            <strong>Agendar pedido #{pedidoWhatsApp.pedido_id}</strong>
+            <p className="whitespace-pre-line text-sm">{pedidoWhatsApp.resumo}</p>
+            {divergenciasWhatsApp.length > 0 && <div role="alert" className="my-2 rounded border border-amber-500 p-3">
+              <strong>Pet ou tutor diferente do informado no WhatsApp</strong>
+              {divergenciasWhatsApp.map(texto => <p key={texto}>{texto}</p>)}
+              <label><input type="checkbox" checked={divergenciaAceita === chaveDivergencia} onChange={e => setDivergenciaAceita(e.target.checked ? chaveDivergencia : "")} /> Conferi a divergência e confirmo o agendamento com os cadastros selecionados.</label>
+            </div>}
+            {pedidoWhatsApp.avisos.map(aviso => <p key={aviso} className="text-sm text-amber-900">{aviso}</p>)}
+            <p className="text-sm">Escolha e confira o horário. Ao salvar, o pedido será vinculado à agenda e a confirmação ficará disponível para revisão e envio.</p>
+          </section>}
           {erroCarregamento && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {erroCarregamento}
@@ -3642,6 +3735,7 @@ export default function NovoAgendamentoModal({
               </button>
               <button
                 type="button"
+                disabled={Boolean(pedidoWhatsApp) && !isEditando}
                 onClick={() => handleOrigemAtendimentoChange("domiciliar")}
                 className={`fc-appointment-origin-option ${
                   atendimentoDomiciliar
@@ -3816,6 +3910,7 @@ export default function NovoAgendamentoModal({
               </label>
               <SearchableSelect
                 value={formData.clinica_id}
+                disabled={Boolean(pedidoWhatsApp) && !isEditando}
                 onChange={handleClinicaChange}
                 options={clinicaOptions}
                 placeholder="Selecione..."
@@ -4207,7 +4302,7 @@ export default function NovoAgendamentoModal({
             )}
           </div>
 
-          {(!isEditando || formData.marcar_como_reserva) && (
+          {!pedidoWhatsApp && (!isEditando || formData.marcar_como_reserva) && (
             <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
               {!isEditando && (
                 <label className="flex items-start gap-2">

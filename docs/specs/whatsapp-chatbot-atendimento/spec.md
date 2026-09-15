@@ -785,3 +785,195 @@ custo, em vez de exibir zero como se o uso fosse gratuito.
 - Correção da colisão de `DISTRIBUTED_LOCK_KEY` entre o worker de lembrete e o
   do assistente IA (registrada no `intent.md`, corrigir em spec própria).
 - Unificação de identidade entre múltiplos números do mesmo cliente.
+
+## Operacao assistida e automatica — 2026-09-08
+
+Este adendo substitui as limitacoes anteriores de envio da Fase 6 e a pausa
+padrao de duas horas apos aprovacao de rascunho.
+
+- RF-OP01: aprovar uma resposta mantem o copiloto disponivel. O default de
+  `WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS` passa a zero; valor positivo
+  explicitamente configurado continua sendo respeitado. Pausa manual, claim
+  e transferencia para equipe continuam valendo. Mensagem com origem `bot`
+  nao e interpretada como intervencao humana pelo worker.
+- RF-OP02: com o bot habilitado e a conversa diferente de `off`, a deteccao
+  de emergencia em mensagem recebida antecede a pausa local. Nao considera
+  texto enviado pela propria equipe. Mantem alerta critico, push e handoff;
+  nao gera nem envia aconselhamento clinico automaticamente.
+- RF-OP03: audio/outros formatos, bloqueio de resposta e handoff do gerador
+  acionam o mesmo fluxo operacional: alerta interno, tentativa de marcar
+  conversa pendente no Node, push e pausa para a equipe continuar. Falhas
+  de push/Node nao apagam o alerta persistido. A mensagem institucional de
+  transferencia nao promete resposta "em instantes".
+- RF-OP04: telefone `not_found` usa persona `visitante`, sem IDs de tutor ou
+  clinica. Pode consultar horario, contato/endereco e conhecimento publico;
+  nao pode chamar preco, status de laudo ou busca de clinicas. Conhecimento
+  para visitante aceita categorias genericas `institucional`/`atendimento`
+  e suas variantes `publico`; categorias especificas de clinica/tutor nao
+  entram. Identidade ambigua ou falha na consulta de identidade continua
+  exigindo humano, sem expor candidatos. Nao ha alteracao no modelo de IA.
+- RF-OP05: o gerador retorna elegibilidade apos todos os guardrails. O
+  worker envia somente uma decisao `draft` elegivel ao modo efetivo `auto`
+  e com `WHATSAPP_BOT_AUTO_SEND_ENABLED=true`. Default falso. `suggest`
+  continua exclusivamente revisado por pessoa. Precos e assuntos fora da
+  allowlist nao sao enviados automaticamente.
+- RF-OP06: antes do POST, resposta e ID sao persistidos em `auto_pending` e
+  `sending`; a mesma resposta sempre usa `whatsapp-bot-resposta-{id}`.
+  Controles global/conversa/clinica/piloto e pausa sao reavaliados. No Node,
+  `bot_auto` exige token interno, ID de resposta e ID da mensagem recebida;
+  janela aberta, ausencia de claim e ultima mensagem inalterada sao
+  verificados sob lock da conversa antes de reservar. O Node tambem exige
+  seu proprio `WHATSAPP_BOT_AUTO_SEND_ENABLED=true`.
+- RF-OP07: o POST automatico para a Meta tem uma unica tentativa. Resultado
+  incerto (timeout, 202 sem confirmacao, falha de servico) gera handoff para
+  conferir entrega, sem reenvio cego. Uma reserva automatica ja existente,
+  inclusive `failed`, nunca e reutilizada para disparar novamente. A UI
+  nao oferece reenvio generico dessas mensagens. Resposta `sent` nao recebe
+  feedback humano ficticio; metricas contabilizam `enviados_auto` separado
+  de aceite de rascunhos. Entrega aceita pela API nao prova leitura pelo cliente.
+- RF-OP08: jobs em `processing` ha mais de
+  `WHATSAPP_BOT_PROCESSING_LEASE_SECONDS` (default 900, piso 300) sao
+  recuperados com limite de tentativas. Resposta ja persistida e reutilizada
+  na retomada, sem nova geracao. O lock distribuido usa uma conexao dedicada
+  ate sua liberacao, sobrevivendo aos commits da sessao de processamento.
+- RF-OP09: API de estado expoe `envio_automatico_liberado`; a opcao de modo
+  automatico na conversa so fica selecionavel apos liberacao no backend.
+  A liberacao do Node permanece uma segunda barreira. Nenhuma migration e
+  necessaria para esta entrega; os novos estados cabem nas colunas existentes.
+
+### Limite de operacao inicial
+
+O bot automatiza informacoes institucionais com fonte e, para identidade
+resolvida, apenas os assuntos ja aprovados pela allowlist existente, incluindo
+status de laudo sem conteudo clinico. Agendar, cobrar, negociar, diagnosticar,
+interpretar sintomas e prescrever continuam fora desta automacao. Novos
+contatos nao adquirem acesso a registros por se apresentarem como clinica.
+
+### Dependencia de upload na publicacao de setembro de 2026
+
+O servico WhatsApp usa `multer` a partir de 2.3.0, com versao reproduzivel
+no lockfile, para incorporar as correcoes de seguranca do parser multipart.
+A atualizacao preserva upload em memoria, limite de 8 MiB, um anexo por
+requisicao e autenticacao anterior ao parser. A auditoria de dependencias
+continua obrigatoria em stage e producao, sem excecao para vulnerabilidades.
+
+## Coleta de solicitacao de agendamento por clinica
+
+Clinicas identificadas e habilitadas no piloto podem solicitar exames em
+mensagens separadas. A coleta registra exame, paciente, tutor e preferencia
+de dia/horario; pergunta somente campos ausentes e exige conferencia do
+resumo antes de encaminhar para a equipe. Nao cria cadastros, reservas ou
+agendamentos, nem afirma disponibilidade. Precos mantem as regras anteriores.
+
+O modelo extrai apenas trechos literais da mensagem atual. A resposta da
+coleta e renderizada pelo sistema. Dados desconhecidos nao completam o
+pedido; nomes ambiguos nao selecionam automaticamente cadastro. Reaproveitar
+tutor exige paciente escolhido explicitamente e unico no contexto de
+atendimentos da clinica. Mudanca do paciente invalida o tutor reaproveitado.
+
+Snapshots administrativos ficam em `whatsapp_bot_respostas.tools_usadas`,
+chave `solicitacao_agendamento`, atomicos com a auditoria existente, sem
+nova migracao. Escopo: telefone + clinica; validade 48 horas. Simular nao
+persiste. O resumo precisa ter sido enviado para `sim`/`confirmar dados`
+concluir a coleta. Correcoes exigem nova conferencia. `cancelar solicitacao`
+encerra a coleta; `nova solicitacao` reinicia os dados.
+
+Depois do envio da confirmacao de dados, um alerta unico entrega o resumo
+para a equipe e pausa a automacao para conferencia da agenda. A central exibe
+os campos e o instante em que a preferencia foi informada, para interpretar
+expressoes relativas como "amanha". O resumo continua visivel durante pausas,
+mas e ocultado se a identidade atual nao corresponder mais a clinica.
+Emergencias, pedido humano, claims, janela de 24 horas, participacao, tetos,
+seguranca clinica e idempotencia existentes continuam precedendo a coleta.
+
+## Fila de solicitacoes com responsavel e prazo (2026-09-09)
+
+- A confirmacao administrativa efetivamente enviada cria um pedido duravel em
+  `whatsapp_bot_solicitacoes`. `resposta_id` unico e lock da resposta impedem
+  duplicacao no retry. A criacao integra a transacao do handoff, sem enviar outra mensagem.
+- Migracao `20260909_81` importa confirmacoes anteriores enviadas para triagem,
+  preservando o resumo e a referencia temporal da preferencia, sem inferir que
+  elas ainda precisam ser agendadas. Reexecucao nao duplica pedidos.
+- Estados: `aguardando_equipe`, `em_atendimento`, `aguardando_cliente`,
+  `agendado`, `cancelado`. Assumir atribui ao usuario autenticado; liberar
+  devolve a fila. Apenas o responsavel altera prazo/status; admin tambem pode
+  liberar um pedido de outro responsavel. Estados finais preservam historico
+  e nao podem ser reabertos nesta versao.
+- Prazo inicial: duas horas corridas desde entrada na fila (inclui fora do
+  expediente), indicadas na interface. Responsavel pode ajustar para uma data
+  futura, com fuso explicito e ate 30 dias. Atraso e calculado no servidor
+  para estados abertos; nao dispara mensagem ou promessa ao solicitante.
+- API autenticada GET `/api/v1/whatsapp/bot/solicitacoes` suporta filtro de
+  estado, abertas, atrasadas, todas, minhas e paginacao de 20. Contagens gerais
+  de resultados permanecem separadas do filtro. PATCH `/{id}` exige versao,
+  acao e propriedade do pedido. Versao divergente retorna 409 sem sobrescrever.
+- Papéis permitidos: admin, recepcao, veterinario, cardiologista. Historico
+  inclui ator, acao, status, prazo, observacao e horario na mesma atualizacao
+  atomica. Concluir como agendado/cancelado exige resultado em texto (500 caracteres).
+- Central WhatsApp apresenta fila expansivel, nome da clinica, resumo,
+  responsavel, atraso, filtros, paginacao, abertura de conversa, controles de
+  atendimento e historico. Atualizacao a cada 30 segundos enquanto aberta;
+  timeout, erro recuperavel e protecao contra leituras antigas preservam o estado.
+- Bot recebe o ultimo pedido apenas da identidade e clinica resolvidas. Para
+  acompanhamento, texto deterministico informa o estado registrado, sem
+  solicitar novamente os campos. `nova solicitacao` inicia outra coleta;
+  a coleta posterior guarda referencia ao pedido anterior para continuar.
+  Pausas, piloto, janela e guardrails existentes continuam vigentes.
+- A fila nao cria agendamento, nao reserva horario nem envia confirmacao ao
+  cliente. "Agendado" e registro manual do resultado; a equipe usa a agenda
+  e a conversa existentes para confirmar os detalhes.
+- Pedidos e historico sobrevivem aos 48h do contexto de coleta. O painel da
+  conversa revalida a identidade antes de mostrar o acompanhamento.
+- Reversao: retornar o codigo anterior e preservar a nova tabela aditiva.
+  Nao ha exclusao, migracao destrutiva nem alteracao de credenciais ou modos.
+
+## Converter pedido em agendamento (2026-09-09)
+
+- Pedido aberto e assumido oferece `Agendar pedido` na central, levando a
+  `/agenda?pedido_whatsapp={id}`. GET autenticado
+  `/api/v1/whatsapp/bot/solicitacoes/{id}/preparar-agendamento` exige papel
+  operacional e propriedade do pedido, sem alterar dados.
+- Preenchimento usa clinica registrada, resumo/preferencia e apenas par
+  paciente/tutor ativo, de correspondencia unica no contexto da clinica
+  atualmente resolvida. Servico exige nome normalizado unico e ativo no
+  catalogo. Ambiguidade ou falta de correspondencia deixa campo vazio com
+  orientacao de selecao. Nao cria cadastros nem interpreta preferencia como slot.
+- Modal existente da agenda recebe os dados e preserva IDs selecionados mesmo
+  fora da pagina inicial dos catalogos. Exibe resumo, mantem hora vazia e usa
+  o assistente e as validacoes existentes. Clinica/origem permanecem as do
+  pedido; reserva sem paciente nao e conversao deste fluxo.
+- POST `/api/v1/agenda` aceita `pedido_whatsapp_id` + `pedido_whatsapp_versao`.
+  Depois do lock global da agenda, adquire lock do pedido. Revalida papel,
+  proprietario, versao, estado aberto, clinica, par paciente/tutor e cadastros
+  ativos. Verifica conflitos, funcionamento e deslocamento pelo fluxo existente.
+- Criacao do agendamento e vinculo/status/historico do pedido sao uma unica
+  transacao. Falha em validacao ou commit nao conclui o pedido nem deixa
+  agendamento isolado. Duas tentativas concorrentes do mesmo pedido retornam
+  o mesmo agendamento; replay com dados diferentes ou registro indisponivel
+  retorna 409 para revisao na agenda.
+- Migracao aditiva `20260909_82` cria `agendamento_id` anulavel e unico na fila,
+  sem inventar vinculos para pedidos historicos. Resultado manual `agendado`
+  deixa de ser aceito pelo PATCH da fila: deve passar pela criacao na agenda.
+  Cancelamento manual de pedido aberto continua disponivel com justificativa.
+- Ao salvar, o modal existente prepara a mensagem com paciente, destinatario
+  e horario para revisao, copia, abertura manual do WhatsApp ou envio explicito
+  pelo fluxo de modelos aprovados. Esta integracao nao efetua envio automatico.
+- A fila mostra o ID vinculado. Alteracoes posteriores de horario/status devem
+  ser consultadas na agenda; o estado da fila registra o resultado da conversao.
+- Reversao preserva a coluna aditiva e historico; nao remover registros da agenda
+  nem executar desvinculacao automatica. Deploy deve aplicar a migracao antes do runtime.
+
+
+## Revisão do fluxo após teste real — 2026-09-09
+
+- Confirmações administrativas aceitam “confirmo os dados”, “está correto”, “tudo certo” e “pode seguir”, além dos comandos anteriores. Perguntas, negações e frases com correção não confirmam. Exige resumo enviado, dados completos e nenhuma alteração no turno; fila idempotente e estado encaminhado evitam duplicação.
+- Saudação simples de abertura recebe identificação automática e convite para atendimento humano, sem provider. Exige seis horas sem resposta enviada, em envio ou rascunho. Participação, modo, identidade, limites, janela e pausa humana prevalecem. Agradecimentos continuam sem resposta.
+- Textos da coleta e revisão mais curtos; resumo mantém ausência de reserva e verificação de disponibilidade pela equipe.
+- A conversa selecionada mostra painel aberto de pedidos, filtrado por `conversation_id` no servidor antes da paginação. Troca de conversa desmonta o painel anterior. Assumir pedido/agendar obedecem responsabilidade e estado; atribuições de conversa e pedido permanecem distintas.
+- Preparação da agenda retorna `dados_coletados` da auditoria original. Divergências de nomes normalizados exigem aceite visual e `pedido_whatsapp_divergencia_confirmada=true`. O servidor verifica antes de gravar e retorna 422 sem aceite. Vínculo paciente/tutor, clínica, permissões e conflitos continuam obrigatórios.
+- Aceite invalidado ao mudar seleção ou reabrir modal. Histórico de conversão registra nomes informados/selecionados em `divergencias_confirmadas` e responsável; resumo original preservado.
+- Sem migração. Pausa de handoff e intervalos de processamento mantidos. Unificação de responsáveis e botões interativos do WhatsApp ficam fora desta entrega.
+
+
+## Continuidade e passagem para equipe — 2026-09-10
+Contrato e evidências complementares em `docs/specs/whatsapp-continuidade-atendimento/`. O encaminhamento de novas coletas deixa de aplicar pausa sem atendente; controles humanos existentes continuam prioritários.

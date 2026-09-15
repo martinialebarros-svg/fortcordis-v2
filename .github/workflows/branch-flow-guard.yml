@@ -47,7 +47,6 @@ jobs:
 
           echo "::error::Fluxo stage-first: PRs de feature devem mirar 'stage', nao 'main'."
           echo "Troque o base branch deste PR para 'stage' (Edit -> base: stage)."
-          echo "Produção recebe as mudancas depois, pelo PR de promocao 'stage -> main'"
-          echo "ou por 'bash scripts/promote_stage_to_main.sh'."
+          echo "Produção recebe as mudancas depois, pelo PR de promocao 'stage -> main'."
           echo "Se for hotfix urgente de produção: use branch 'hotfix/<slug>' ou adicione a label 'hotfix'."
           exit 1
