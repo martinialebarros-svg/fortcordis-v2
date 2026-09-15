@@ -61,15 +61,39 @@ de promover, pelo bloco acima. Nao ha atalho pela promocao: o
 tem de ser resolvido em `stage` de qualquer jeito. Com `stage` ja contendo
 `main`, o PR de promocao nao tem o que resolver em favor de ninguem.
 
-Passo manual pendente (precisa de admin do repositorio, nao da para automatizar
-por API nesta sessao):
+### Checks obrigatorios (feito em 2026-09-14)
+
+Existem duas rulesets ativas, uma por branch, criadas pela API:
+
+| ruleset | branch | checks obrigatorios |
+| --- | --- | --- |
+| `Checks obrigatorios - stage` | `refs/heads/stage` | `tipos-devem-compilar`, `testes-devem-passar`, `migration-tests`, `sdd-guardrail` |
+| `Checks obrigatorios - main` | `refs/heads/main` | os quatro acima, mais `base-deve-ser-promocao` e `criterios-devem-estar-fechados` |
+
+As duas tambem trazem `deletion` e `non_fast_forward`. Sem bypass actors: valem
+inclusive para quem administra o repositorio.
+
+**Por que duas e nao uma.** `base-deve-ser-promocao` e
+`criterios-devem-estar-fechados` rodam so em PR que mira `main`. Numa ruleset que
+cobrisse `stage`, seriam exigidos e nunca reportariam -- e check obrigatorio que
+nao roda deixa o PR parado em "Expected -- waiting for status to be reported",
+sem erro e sem vermelho. Por isso ficam so na ruleset de `main`.
+
+Pela mesma razao, o filtro `paths` foi removido de `frontend-ci.yml` antes de
+tornar os gates obrigatorios -- ver `docs/specs/ci-frontend-gates-sem-paths/`.
+Nao reintroduza o filtro sem tirar os checks da lista de obrigatorios.
+
+**Nao foi exigido PR antes do merge**, por decisao do responsavel. O gate de
+status ja barra push direto que nao tenha checks aprovados em outra ref, o que
+na pratica encerra o `promote_stage_to_main.sh` -- coerente com a secao "Promova
+pelo PR, nao pelo script" do `CLAUDE.md`.
+
+### Passo manual que segue pendente
 
 - **Default branch = `stage`** em Settings -> General -> Default branch. Sem
   isso, todo PR novo (inclusive os abertos por agentes) continua nascendo com
-  base `main` e o guard so avisa depois.
-- Opcional, para bloquear de fato: Settings -> Branches -> proteger `main`
-  exigindo PR + o check `Branch Flow Guard`. O guard sozinho sinaliza, mas nao
-  impede o merge nem cobre push direto em `main`.
+  base `main` e o guard so avisa depois. Muda o que todo mundo recebe ao clonar,
+  entao e decisao do responsavel.
 
 Workflow manual que aplique algo em produção precisa de duas travas, porque em
 `workflow_dispatch` o YAML executado vem do ref selecionado no dispatch (e esse
