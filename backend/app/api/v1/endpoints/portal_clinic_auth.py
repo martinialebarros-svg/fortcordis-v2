@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import secrets
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -113,6 +115,8 @@ from app.services.portal_clinic_auth_service import (
     verify_auth_challenge_code,
     verify_password,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 PORTAL_DOWNLOAD_AUDIT_ACTION = "PORTAL_DOWNLOAD_ARQUIVO"
@@ -994,41 +998,67 @@ def criar_convite_clinica(
     delivery_status = "manual_copy"
     delivery_provider = None
 
-    if settings.PORTAL_WHATSAPP_ENABLED:
+    if settings.WHATSAPP_AGENDA_ENABLED:
         try:
             if access_mode == "login":
                 result = send_whatsapp_login_access(
                     destination=payload.delivery_target,
+                    clinica_id=clinica.id,
                     clinica_nome=clinica.nome,
                     portal_url=access_url,
                     account_email=normalize_email(existing_account.email_normalized),
+                    idempotency_key=f"portal-clinic-login-{existing_account.id}-{secrets.token_hex(6)}",
                 )
             elif access_mode == "temporary_password":
                 result = send_whatsapp_temporary_password(
                     destination=payload.delivery_target,
+                    clinica_id=clinica.id,
                     clinica_nome=clinica.nome,
                     portal_url=access_url,
                     account_email=normalized_payload_email,
                     senha_temporaria=senha_temporaria_gerada or "",
+                    idempotency_key=f"portal-clinic-temp-password-{temp_password_account_id}-{secrets.token_hex(6)}",
                 )
             else:
                 result = send_whatsapp_invite(
                     destination=payload.delivery_target,
+                    clinica_id=clinica.id,
                     clinica_nome=clinica.nome,
                     activation_url=access_url,
                     expires_in_hours=payload.expires_in_hours,
+                    idempotency_key=f"portal-clinic-invite-{invite.id if invite is not None else secrets.token_hex(6)}",
                 )
             if invite is not None:
                 invite.delivered_at = utcnow()
                 db.commit()
             delivery_status = "sent"
             delivery_provider = result.provider
-        except Exception:
+        except HTTPException as exc:
+            # O servico de entrega usa HTTPException para condicao de ambiente
+            # (integracao nao configurada, envio desabilitado). O `detail` dele
+            # e a informacao util -- sem isso, a falha vira "nao chegou e
+            # ninguem sabe por que".
+            motivo = str(exc.detail or "").strip() or "Falha ao enviar o convite por WhatsApp."
+            logger.warning(
+                "Convite da clinica %s nao foi enviado por WhatsApp: %s",
+                clinica.id,
+                motivo,
+            )
+            if not payload.allow_manual_copy:
+                raise HTTPException(status_code=502, detail=motivo) from exc
+        except Exception as exc:
+            motivo = str(exc).strip() or exc.__class__.__name__
+            logger.warning(
+                "Convite da clinica %s nao foi enviado por WhatsApp: %s",
+                clinica.id,
+                motivo,
+                exc_info=True,
+            )
             if not payload.allow_manual_copy:
                 raise HTTPException(
                     status_code=502,
-                    detail="Nao foi possivel enviar o convite por WhatsApp.",
-                )
+                    detail=f"Nao foi possivel enviar o convite por WhatsApp: {motivo}",
+                ) from exc
     elif not payload.allow_manual_copy:
         raise HTTPException(
             status_code=400,
