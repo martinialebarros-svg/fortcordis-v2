@@ -17,4 +17,9 @@
 ## Regressão operacional
 
 - Em agendamento futuro do mesmo dia, confirmar que a duração do novo serviço continua sendo recalculada e conflitos de slot/deslocamento continuam bloqueados.
-- Em agendamento de outra data, confirmar que o fluxo de edição permanece inalterado.
+- Em agendamento de **data futura**, confirmar que o fluxo de edição permanece
+  inalterado.
+- Em agendamento de **data passada**, confirmar que a troca de serviço passou a
+  exigir admin e confirmação (RF-008). Antes desta revisão era livre — a linha
+  anterior desta seção dizia que outra data ficava "inalterada", o que deixou de
+  valer para o passado.

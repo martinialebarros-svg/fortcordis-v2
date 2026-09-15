@@ -13,6 +13,30 @@ Permitir que um administrador corrija o serviço de um agendamento cujo atendime
 - RF-005: se o horário original já tiver iniciado, a troca confirmada deve preservar início e fim originais.
 - RF-006: se o horário ainda não tiver iniciado, qualquer perfil com permissão de editar o agendamento pode trocar o serviço; a duração do novo serviço e as validações operacionais existentes continuam aplicáveis.
 - RF-007: a auditoria deve registrar a confirmação e se o intervalo original foi preservado.
+- RF-008: "já iniciado" é `inicio <= agora`, sem recorte de dia. **Agendamento de
+  data passada também exige admin e confirmação** — antes desta revisão ele era
+  livre para qualquer perfil, porque a regra olhava só se a data era hoje.
+
+### Sobre o RF-008, que é o efeito menos óbvio desta mudança
+
+A revisão foi pedida para afrouxar um caso: secretária trocar o serviço de um
+agendamento das 17h quando ainda são 9h da manhã. Trocar o critério de "é de
+hoje" para "já começou" resolve isso, mas **também aperta o retroativo**, que
+ninguém tinha pedido:
+
+| cenário | antes | depois |
+| --- | --- | --- |
+| Hoje 17h, agora 9h | exige admin | livre |
+| Hoje 8h, agora 9h | exige admin | exige admin |
+| Semana passada | livre | **exige admin** |
+
+O aperto é intencional e foi confirmado com o responsável em 2026-09-15: trocar o
+serviço de um atendimento que já aconteceu é exatamente a correção
+administrativa que esta feature existe para controlar, e deixar isso livre era um
+buraco maior que o caso de hoje-às-17h.
+
+Registrado aqui porque não se deduz do titulo nem do objetivo: quem vir uma
+secretária barrada num agendamento antigo vai achar que e defeito.
 
 ## Requisito de teste
 
