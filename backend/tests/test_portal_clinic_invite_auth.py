@@ -276,7 +276,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
 
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
-            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
             with TestClient(self._app) as client:
                 create_response = client.post(
@@ -315,12 +315,94 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 self.assertEqual(summary_after_revoke.status_code, 200)
                 self.assertEqual(summary_after_revoke.json()["invite"]["status"], "revoked")
 
+    def test_convite_envia_pelo_canal_whatsapp_do_atendimento_quando_habilitado(self) -> None:
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        captured_payloads: list[dict] = []
+
+        def fake_post(url, json=None, headers=None, timeout=None):
+            captured_payloads.append({"url": url, "json": json, "headers": headers})
+            return SimpleNamespace(
+                status_code=201,
+                json=lambda: {"message_id": "wamid.portal.invite.1", "idempotent": False},
+            )
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", True))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_SERVICE_URL", "http://127.0.0.1:3010"))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_INTERNAL_TOKEN", "internal-secret"))
+            stack.enter_context(
+                patch("app.services.whatsapp_template_delivery_service.httpx.post", side_effect=fake_post)
+            )
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+            with TestClient(self._app) as client:
+                response = client.post(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/convites",
+                    json={
+                        "delivery_channel": "whatsapp",
+                        "delivery_target": "85999990000",
+                        "expires_in_hours": 48,
+                        "allow_manual_copy": True,
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["delivery_status"], "sent")
+        self.assertEqual(payload["delivery_provider"], "whatsapp_business_template")
+
+        self.assertEqual(len(captured_payloads), 1)
+        sent = captured_payloads[0]["json"]
+        self.assertEqual(captured_payloads[0]["headers"]["X-WhatsApp-Internal-Token"], "internal-secret")
+        self.assertEqual(sent["template_key"], "portalClinicInviteActivation")
+        self.assertEqual(sent["subject_type"], "clinica")
+        self.assertEqual(sent["subject_id"], seed["clinica_id"])
+        self.assertEqual(sent["destination"], "5585999990000")
+        self.assertEqual(sent["parameters"][0], seed["clinica_nome"])
+        self.assertEqual(sent["parameters"][1], payload["activation_url"])
+        self.assertEqual(sent["parameters"][2], "48 hora(s)")
+
+    def test_convite_cai_para_copia_manual_quando_envio_pelo_whatsapp_falha(self) -> None:
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", True))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_SERVICE_URL", "http://127.0.0.1:3010"))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_INTERNAL_TOKEN", "internal-secret"))
+            stack.enter_context(
+                patch(
+                    "app.services.whatsapp_template_delivery_service.httpx.post",
+                    return_value=SimpleNamespace(status_code=400, json=lambda: {"error": "template not approved"}),
+                )
+            )
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+            with TestClient(self._app) as client:
+                response = client.post(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/convites",
+                    json={
+                        "delivery_channel": "whatsapp",
+                        "delivery_target": "85999990000",
+                        "expires_in_hours": 48,
+                        "allow_manual_copy": True,
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["delivery_status"], "manual_copy")
+        self.assertIsNone(payload["delivery_provider"])
+        self.assertTrue(payload["activation_url"])
+
     def test_secretaria_e_recepcao_podem_gerar_convite_sem_poder_revogar(self) -> None:
         seed = self._seed_portal_data()
 
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
-            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
 
             created_invite_id = None
@@ -381,7 +463,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
 
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
-            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
             with TestClient(self._app) as client:
                 response = client.post(
@@ -589,7 +671,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
-            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
             stack.enter_context(
                 patch(
@@ -718,7 +800,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
-            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
             stack.enter_context(
                 patch(
@@ -833,7 +915,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
-            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
             with TestClient(self._app) as client:
                 primeira_ativacao = self._ativar_convite(
@@ -919,7 +1001,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
 
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
-            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
             with TestClient(self._app) as client:
                 response = client.post(
@@ -940,7 +1022,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
 
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
-            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
             with TestClient(self._app) as client:
                 for indice in range(MAX_ACTIVE_CLINIC_MANAGERS):
@@ -975,7 +1057,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
-            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
             with TestClient(self._app) as client:
                 ativacao_a = self._ativar_convite(
@@ -1036,7 +1118,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
-            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
             stack.enter_context(
                 patch(
@@ -1108,7 +1190,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
-            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
             stack.enter_context(
                 patch(
@@ -1178,7 +1260,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
-            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch.object(settings, "WHATSAPP_AGENDA_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
             stack.enter_context(
                 patch(
