@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { validateOrderSelection } from "@/lib/ordens-selection";
+import { loadCompleteBillingGroup, type BillingGroup } from "@/lib/cobrancas-loading";
 import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import {
   appendUniqueLoadFailure,
@@ -345,6 +347,22 @@ function ReciboPdfPreview({
 export default function FinanceiroPage() {
   const [transacoes, setTransacoes] = useState<Transacao[]>([]);
   const [ordensServico, setOrdensServico] = useState<OrdemServico[]>([]);
+  const [ordensPagina, setOrdensPagina] = useState<OrdemServico[]>([]);
+  const [gruposRemotos, setGruposRemotos] = useState<BillingGroup[]>([]);
+  const [totalGrupos, setTotalGrupos] = useState(0);
+  const [grupoAberto, setGrupoAberto] = useState<string | null>(null);
+  const [carregandoGrupo, setCarregandoGrupo] = useState(false);
+  const [erroGrupo, setErroGrupo] = useState("");
+  const grupoControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => () => grupoControllerRef.current?.abort(), []);
+  const [osAlvoId, setOsAlvoId] = useState<number | null>(null);
+  const selecaoEpochRef = useRef(0);
+  useEffect(() => () => { selecaoEpochRef.current += 1; }, []);
+  const [erroSelecao, setErroSelecao] = useState("");
+  const [validandoSelecao, setValidandoSelecao] = useState(false);
+  const validandoSelecaoRef = useRef(false);
+  const [totalOrdens, setTotalOrdens] = useState(0);
+  const [resumoOrdens, setResumoOrdens] = useState({ pendentes: 0, valor_pendente: 0 });
   const [resumo, setResumo] = useState<Resumo>({
     entradas: 0,
     saidas: 0,
@@ -397,6 +415,24 @@ export default function FinanceiroPage() {
     return () => window.clearTimeout(timer);
   }, [busca]);
   const [abaAtiva, setAbaAtiva] = useState<FinanceiroActiveTab>("transacoes");
+  const [paginaOrdens, setPaginaOrdens] = useState({ chave: "", numero: 0 });
+  const chaveOrdens = JSON.stringify([filtroStatusOS, filtroOrigemAtendimentoOS,
+    filtroClinicaOS, filtroServicoOS, filtroTipoHorarioOS, filtroDataInicio, filtroDataFim, buscaTransacoes, osAlvoId]);
+  const paginaAtualOrdens = paginaOrdens.chave === chaveOrdens ? paginaOrdens.numero : 0;
+  const [chaveResultadoOrdens, setChaveResultadoOrdens] = useState("");
+  const chavePedidoOrdens = `${chaveOrdens}:${paginaAtualOrdens}`;
+  const [paginaCobrancas, setPaginaCobrancas] = useState({ chave: "", numero: 0 });
+  const paginaAtualCobrancas = paginaCobrancas.chave === chaveOrdens ? paginaCobrancas.numero : 0;
+  const chavePedidoCobrancas = `${chaveOrdens}:${paginaAtualCobrancas}`;
+  const [chaveResultadoCobrancas, setChaveResultadoCobrancas] = useState("");
+  const cobrancasDesatualizadas = abaAtiva === "cobrancas" && (chavePedidoCobrancas !== chaveResultadoCobrancas || buscaTransacoesPendente);
+  const ordensDesatualizadas = abaAtiva === "ordens" && (chaveResultadoOrdens !== chavePedidoOrdens || buscaTransacoesPendente);
+  useEffect(() => {
+    setPaginaOrdens((p) => p.chave === chaveOrdens ? p : { chave: chaveOrdens, numero: 0 });
+  }, [chaveOrdens]);
+  useEffect(() => {
+    setPaginaCobrancas((p) => p.chave === chaveOrdens ? p : { chave: chaveOrdens, numero: 0 });
+  }, [chaveOrdens]);
   const [rotaFinanceiroResolvida, setRotaFinanceiroResolvida] = useState(false);
   const [modalReceberOS, setModalReceberOS] = useState<OrdemServico | null>(null);
   const [modalReceberLoteOSIds, setModalReceberLoteOSIds] = useState<number[] | null>(null);
@@ -469,6 +505,7 @@ export default function FinanceiroPage() {
     carregarDados("efeito");
     return () => {
       carregarDadosControllerRef.current?.abort();
+      grupoControllerRef.current?.abort();
     };
   }, [
     router,
@@ -487,7 +524,10 @@ export default function FinanceiroPage() {
     filtroDataInicio,
     filtroDataFim,
     paginaAtualTransacoes,
-    abaAtiva === "transacoes" ? buscaTransacoes : "",
+    buscaTransacoes,
+    paginaAtualOrdens,
+    paginaAtualCobrancas,
+    osAlvoId,
   ]);
 
   useEffect(() => {
@@ -510,6 +550,7 @@ export default function FinanceiroPage() {
       setFiltroDataFim("");
       setBusca("");
       setOsHighlightId(osIdParam);
+      setOsAlvoId(osIdParam);
       setOsHighlightUntil(Date.now() + 25000);
     }
     setRotaFinanceiroResolvida(true);
@@ -567,11 +608,66 @@ export default function FinanceiroPage() {
     return encoded ? `?${encoded}` : "";
   };
 
+  const filtrosRemotosOS = () => ({
+    status: filtroStatusOS !== "todos" ? filtroStatusOS : undefined,
+    origem_atendimento: filtroOrigemAtendimentoOS !== "todos" ? filtroOrigemAtendimentoOS : undefined,
+    clinica_id: filtroClinicaOS !== "todos" ? filtroClinicaOS : undefined,
+    servico_id: filtroServicoOS !== "todos" ? filtroServicoOS : undefined,
+    tipo_horario: filtroTipoHorarioOS !== "todos" ? filtroTipoHorarioOS : undefined,
+    data_inicio: filtroDataInicio || undefined,
+    data_fim: filtroDataFim || undefined,
+    search: buscaTransacoes || undefined,
+  });
+
+  const fecharGrupo = () => {
+    grupoControllerRef.current?.abort();
+    grupoControllerRef.current = null;
+    selecaoEpochRef.current++;
+    setGrupoAberto(null);
+    setOrdensPagina([]);
+    setOrdensServico([]);
+    setOsSelecionadasBaixa([]);
+    setOsSelecionadasRecibo([]);
+    setCarregandoGrupo(false);
+    setErroGrupo("");
+  };
+
+  const abrirDetalhesGrupo = async (grupo: BillingGroup) => {
+    if (loadingOrdens || cobrancasDesatualizadas || validandoSelecao) return;
+    fecharGrupo();
+    const controller = new AbortController();
+    grupoControllerRef.current = controller;
+    setCarregandoGrupo(true);
+    let expirou = false;
+    const timer = window.setTimeout(() => { expirou = true; controller.abort(); }, 30000);
+    try {
+      const items = await loadCompleteBillingGroup<OrdemServico>(grupo, async (skip, limit) => {
+        const query = montarQueryString({ ...filtrosRemotosOS(), destinatario_chave: grupo.chave, skip, limit, incluir_resumo: "true" });
+        return (await api.get(`/ordens-servico${query}`, { signal: controller.signal })).data;
+      }, controller.signal);
+      if (controller.signal.aborted || grupoControllerRef.current !== controller) return;
+      if (items.some((os) => obterContatoDestinatarioDaOS(os).chave !== grupo.chave)) {
+        throw new Error("Destinatario inconsistente. Atualize a lista e tente novamente.");
+      }
+      setOrdensPagina(items);
+      setOrdensServico(items);
+      setGrupoAberto(grupo.chave);
+    } catch (error) {
+      if (grupoControllerRef.current === controller) setErroGrupo(expirou
+        ? "Tempo de leitura excedido. Restrinja os filtros ou tente abrir novamente."
+        : error instanceof Error ? error.message : "Falha ao abrir destinatario. Tente novamente.");
+    } finally {
+      window.clearTimeout(timer);
+      if (grupoControllerRef.current === controller) { setCarregandoGrupo(false); grupoControllerRef.current = null; }
+    }
+  };
+
   const carregarDados = async (origem: FinanceiroLoadOrigin = "manual") => {
     carregarDadosControllerRef.current?.abort();
     const controller = new AbortController();
     carregarDadosControllerRef.current = controller;
     const loadingPlan = getFinanceiroLoadingPlan(abaAtiva);
+    if (abaAtiva === "cobrancas") fecharGrupo();
 
     setLoadingTransacoes(loadingPlan.transacoes);
     setLoadingOrdens(loadingPlan.ordens);
@@ -613,7 +709,11 @@ export default function FinanceiroPage() {
         data_fim: filtroDataFim || undefined,
       });
       const queryOS = montarQueryString({
-        limit: 500,
+        limit: abaAtiva === "ordens" ? 100 : 500,
+        skip: abaAtiva === "ordens" ? paginaAtualOrdens * 100 : undefined,
+        search: abaAtiva === "ordens" ? buscaTransacoes || undefined : undefined,
+        incluir_resumo: abaAtiva === "ordens" ? "true" : undefined,
+        os_id: abaAtiva === "ordens" ? osAlvoId || undefined : undefined,
         status: filtroStatusOS !== "todos" ? filtroStatusOS : undefined,
         origem_atendimento: filtroOrigemAtendimentoOS !== "todos" ? filtroOrigemAtendimentoOS : undefined,
         clinica_id: filtroClinicaOS !== "todos" ? filtroClinicaOS : undefined,
@@ -661,19 +761,54 @@ export default function FinanceiroPage() {
             }
           )
         : Promise.resolve();
-      const cargaOrdens = loadingPlan.ordens
+      const cargaOrdens = loadingPlan.ordens && abaAtiva === "ordens"
         ? registrarCarga(
             "Ordens de servico",
             api
-              .get<{ items?: OrdemServico[] }>(`/ordens-servico${queryOS}`, { signal })
+              .get<{ items?: OrdemServico[]; total: number; resumo?: {pendentes: number; valor_pendente: number} }>(`/ordens-servico${queryOS}`, { signal })
               .then((response) => response.data),
             (data) => {
-              setOrdensServico(data.items || []);
+              if (abaAtiva === "ordens" && (!Number.isInteger(data.total) || data.total < 0 ||
+                  !data.resumo || !Number.isFinite(data.resumo.valor_pendente) || !Number.isInteger(data.resumo.pendentes))) {
+                throw new Error("Resposta de OS sem totais validos. Confira a versao do backend.");
+              }
+              const items = data.items || [];
+              setOrdensPagina(items);
+              // Retain selected snapshots outside this page; visible rows stay separate.
+              setOrdensServico((prev) => Array.from(new Map([
+                ...items,
+                ...prev.filter((os) => osSelecionadasBaixa.includes(os.id) || osSelecionadasRecibo.includes(os.id)),
+              ].map((os) => [os.id, os])).values()));
+              setTotalOrdens(data.total);
+              if (data.resumo) setResumoOrdens(data.resumo);
+              setChaveResultadoOrdens(chavePedidoOrdens);
+              if (abaAtiva === "ordens" && paginaAtualOrdens > 0 && !items.length) {
+                setPaginaOrdens({ chave: chaveOrdens, numero: Math.max(0, Math.ceil(data.total / 100) - 1) });
+              }
               setOrdensCarregadas(true);
             },
             () => setLoadingOrdens(false)
           )
         : Promise.resolve();
+      const cargaGrupos = abaAtiva === "cobrancas"
+        ? registrarCarga(
+            "Cobrancas",
+            api.get<{ items: BillingGroup[]; total: number; total_os: number; pendentes: number; total_pendente: number }>(
+              `/ordens-servico/cobrancas${montarQueryString({ ...filtrosRemotosOS(), limit: 50, skip: paginaAtualCobrancas * 50 })}`, { signal }
+            ).then((response) => response.data),
+            (data) => {
+              if (!Array.isArray(data.items) || !Number.isInteger(data.total) || data.total < 0 ||
+                !Number.isInteger(data.pendentes) || !Number.isFinite(data.total_pendente)) throw new Error("Resposta de cobrancas sem totais validos.");
+              setGruposRemotos(data.items);
+              setTotalGrupos(data.total);
+              setTotalOrdens(data.total_os);
+              setResumoOrdens({ pendentes: data.pendentes, valor_pendente: data.total_pendente });
+              setChaveResultadoCobrancas(chavePedidoCobrancas);
+              setOrdensCarregadas(true);
+              if (paginaAtualCobrancas > 0 && !data.items.length) setPaginaCobrancas({ chave: chaveOrdens, numero: Math.max(0, Math.ceil(data.total / 50) - 1) });
+            },
+            () => setLoadingOrdens(false)
+          ) : Promise.resolve();
       const cargaClinicas = loadingPlan.catalogosOrdens
         ? registrarCarga(
             "Clinicas",
@@ -746,6 +881,7 @@ export default function FinanceiroPage() {
         cargaTransacoes,
         cargaResumo,
         cargaOrdens,
+        cargaGrupos,
         cargaClinicas,
         cargaServicos,
         cargaMeiosPagamento,
@@ -1198,19 +1334,32 @@ export default function FinanceiroPage() {
     setEnviarReciboPdfWhatsAppAposRecebimento(false);
   };
 
-  const abrirRecebimentoLoteOS = (ids: number[]) => {
-    const idsPendentes = Array.from(
-      new Set(
-        ids.filter((id) => {
-          const os = ordensServico.find((item) => item.id === id);
-          return os?.status === "Pendente";
-        })
-      )
-    );
+  const validarSelecao = async (ids: number[], status: string, snapshots = ordensServico) => {
+    if (validandoSelecaoRef.current) return false;
+    validandoSelecaoRef.current = true;
+    setValidandoSelecao(true);
+    const epoch = selecaoEpochRef.current;
+    setErroSelecao("");
+    try {
+      await validateOrderSelection(ids, snapshots, status, async (id) =>
+        (await api.get<OrdemServico>(`/ordens-servico/${id}`)).data);
+      return epoch === selecaoEpochRef.current;
+    } catch (error) {
+      setErroSelecao(error instanceof Error ? error.message : "Nao foi possivel conferir a selecao. Tente novamente.");
+      return false;
+    } finally {
+      validandoSelecaoRef.current = false;
+      setValidandoSelecao(false);
+    }
+  };
+
+  const abrirRecebimentoLoteOS = async (ids: number[]) => {
+    const idsPendentes = Array.from(new Set(ids));
     if (idsPendentes.length === 0) {
       alert("Selecione ao menos uma OS pendente para receber em lote.");
       return;
     }
+    if (!(await validarSelecao(idsPendentes, "Pendente"))) return;
 
     const total = idsPendentes.reduce((acc, id) => {
       const os = ordensServico.find((item) => item.id === id);
@@ -1244,6 +1393,7 @@ export default function FinanceiroPage() {
   };
 
   const confirmarRecebimentoOS = async () => {
+    if (modalReceberOS && !(await validarSelecao([modalReceberOS.id], "Pendente", [modalReceberOS]))) return;
     if (!modalReceberOS) return;
 
     try {
@@ -1331,6 +1481,7 @@ export default function FinanceiroPage() {
   };
 
   const confirmarRecebimentoLoteOS = async () => {
+    if (!(await validarSelecao(modalReceberLoteOSIds || [], "Pendente", ordensRecebimentoLote))) return;
     if (ordensRecebimentoLote.length === 0) {
       alert("Nenhuma OS pendente selecionada.");
       return;
@@ -1492,24 +1643,7 @@ export default function FinanceiroPage() {
   const transacoesDesatualizadas = chaveResultadoTransacoes !== chavePedidoTransacoes || buscaTransacoesPendente;
 
   // Filtrar OS
-  const osFiltradas = ordensServico.filter((os) => {
-    const matchStatus = filtroStatusOS === "todos" || os.status === filtroStatusOS;
-    const origemAtual = String(os.origem_atendimento || "clinica_parceira").trim() || "clinica_parceira";
-    const matchOrigem =
-      filtroOrigemAtendimentoOS === "todos" || origemAtual === filtroOrigemAtendimentoOS;
-    const matchClinica = filtroClinicaOS === "todos" || String(os.clinica_id || "") === filtroClinicaOS;
-    const matchServico = filtroServicoOS === "todos" || String(os.servico_id || "") === filtroServicoOS;
-    const matchTipoHorario = filtroTipoHorarioOS === "todos" || os.tipo_horario === filtroTipoHorarioOS;
-    const matchData = estaNoPeriodo(os.data_atendimento);
-    const termo = busca.toLowerCase();
-    const matchBusca = !busca || 
-      os.numero_os?.toLowerCase().includes(termo) ||
-      os.paciente?.toLowerCase().includes(termo) ||
-      os.tutor?.toLowerCase().includes(termo) ||
-      os.servico?.toLowerCase().includes(termo) ||
-      os.clinica?.toLowerCase().includes(termo);
-    return matchStatus && matchOrigem && matchClinica && matchServico && matchTipoHorario && matchData && matchBusca;
-  });
+  const osFiltradas = ordensPagina;
 
   const osRecebidasFiltradas = useMemo(
     () => osFiltradas.filter((os) => os.status === "Pago"),
@@ -1528,14 +1662,11 @@ export default function FinanceiroPage() {
   );
 
   useEffect(() => {
-    const idsRecebidas = new Set(ordensServico.filter((os) => os.status === "Pago").map((os) => os.id));
-    setOsSelecionadasRecibo((prev) => prev.filter((id) => idsRecebidas.has(id)));
-  }, [ordensServico]);
-
-  useEffect(() => {
-    const idsPendentes = new Set(ordensServico.filter((os) => os.status === "Pendente").map((os) => os.id));
-    setOsSelecionadasBaixa((prev) => prev.filter((id) => idsPendentes.has(id)));
-  }, [ordensServico]);
+    // A filter/tab change starts a new selection scope, but page changes do not.
+    selecaoEpochRef.current += 1;
+    setOsSelecionadasRecibo([]);
+    setOsSelecionadasBaixa([]);
+  }, [chaveOrdens, abaAtiva]);
 
   useEffect(() => {
     if (osHighlightId == null) return;
@@ -1650,10 +1781,7 @@ export default function FinanceiroPage() {
       .sort((a, b) => b.total_pendente - a.total_pendente);
   }, [obterContatoDestinatarioDaOS, osCobrancaFiltradas]);
 
-  const totalPendenteAgrupado = gruposCobrancaDestinatario.reduce(
-    (acc, grupo) => acc + grupo.total_pendente,
-    0
-  );
+  const totalPendenteAgrupado = resumoOrdens.valor_pendente;
 
   const normalizarTelefoneWhatsApp = (telefone: string) => {
     let digitos = String(telefone || "").replace(/\D/g, "");
@@ -1850,7 +1978,7 @@ export default function FinanceiroPage() {
     return "";
   };
 
-  const abrirComposerCompartilhamentoRecibo = (
+  const abrirComposerCompartilhamentoRecibo = async (
     canal: "whatsapp" | "email",
     ids: number[],
     agrupar: boolean
@@ -1859,6 +1987,8 @@ export default function FinanceiroPage() {
       alert("Selecione ao menos uma OS recebida para compartilhar o recibo.");
       return;
     }
+
+    if (!(await validarSelecao(ids, "Pago"))) return;
 
     const contato = obterContatoCompartilhamento(ids);
     setModalCompartilharRecibo({
@@ -2016,42 +2146,25 @@ export default function FinanceiroPage() {
     }
   };
   const baixarRelatorioPendenciasPDF = async (grupo?: GrupoCobrancaDestinatario) => {
-    if (gruposCobrancaDestinatario.length === 0) {
+    if (loadingOrdens || cobrancasDesatualizadas || falhasCarregamento.includes("Cobrancas")) return;
+    if (totalGrupos === 0) {
       alert("Nao ha pendencias para gerar relatorio.");
       return;
     }
 
     try {
-      const tutorRelatorio =
-        grupo?.tipo_destinatario === "tutor" && grupo.tutor_id != null
-          ? String(grupo.tutor_id)
-          : undefined;
-      const tutorNomeRelatorio =
-        !tutorRelatorio && grupo?.tipo_destinatario === "tutor" ? grupo.nome_destinatario : undefined;
-      const clinicaRelatorio =
-        grupo?.tipo_destinatario !== "tutor" && grupo?.clinica_id != null
-          ? String(grupo.clinica_id)
-          : filtroClinicaOS !== "todos"
-            ? filtroClinicaOS
-            : undefined;
-      const clinicaNomeRelatorio =
-        !clinicaRelatorio && grupo?.tipo_destinatario !== "tutor" && grupo?.nome_destinatario
-          ? grupo.nome_destinatario
-          : undefined;
       const mensagemRelatorio = grupo ? preencherMensagemCobranca(grupo) : undefined;
 
       const query = montarQueryString({
         status: filtroStatusOS !== "todos" ? filtroStatusOS : "Pendente",
         origem_atendimento: filtroOrigemAtendimentoOS !== "todos" ? filtroOrigemAtendimentoOS : undefined,
-        tutor_id: tutorRelatorio,
-        tutor_nome: tutorNomeRelatorio,
-        clinica_id: clinicaRelatorio,
-        clinica_nome: clinicaNomeRelatorio,
+        destinatario_chave: grupo?.chave,
+        clinica_id: filtroClinicaOS !== "todos" ? filtroClinicaOS : undefined,
         servico_id: filtroServicoOS !== "todos" ? filtroServicoOS : undefined,
         tipo_horario: filtroTipoHorarioOS !== "todos" ? filtroTipoHorarioOS : undefined,
         data_inicio: filtroDataInicio || undefined,
         data_fim: filtroDataFim || undefined,
-        busca: busca || undefined,
+        search: buscaTransacoes || undefined,
         mensagem: mensagemRelatorio,
       });
 
@@ -2084,24 +2197,34 @@ export default function FinanceiroPage() {
     }
   };
 
+  const atualizarSnapshotsPagina = () => {
+    setOrdensServico((prev) => Array.from(new Map([
+      ...prev, ...ordensPagina.filter((os) => !osSelecionadasBaixa.includes(os.id) && !osSelecionadasRecibo.includes(os.id)),
+    ].map((os) => [os.id, os])).values()));
+  };
+
   const toggleSelecaoReciboOS = (osId: number) => {
+    atualizarSnapshotsPagina();
     setOsSelecionadasRecibo((prev) =>
       prev.includes(osId) ? prev.filter((id) => id !== osId) : [...prev, osId]
     );
   };
 
   const toggleSelecaoBaixaOS = (osId: number) => {
+    atualizarSnapshotsPagina();
     setOsSelecionadasBaixa((prev) =>
       prev.includes(osId) ? prev.filter((id) => id !== osId) : [...prev, osId]
     );
   };
 
   const selecionarTodasRecebidasVisiveis = () => {
-    setOsSelecionadasRecibo(osRecebidasFiltradas.map((os) => os.id));
+    atualizarSnapshotsPagina();
+    setOsSelecionadasRecibo((prev) => Array.from(new Set([...prev, ...osRecebidasFiltradas.map((os) => os.id)])));
   };
 
   const selecionarTodasPendentesVisiveis = () => {
-    setOsSelecionadasBaixa(osPendentesFiltradas.map((os) => os.id));
+    atualizarSnapshotsPagina();
+    setOsSelecionadasBaixa((prev) => Array.from(new Set([...prev, ...osPendentesFiltradas.map((os) => os.id)])));
   };
 
   const limparSelecaoRecibo = () => {
@@ -2117,6 +2240,7 @@ export default function FinanceiroPage() {
       alert("Selecione ao menos uma OS recebida para gerar o recibo.");
       return null;
     }
+    if (!(await validarSelecao(ids, "Pago"))) return null;
 
     try {
       const query = montarQueryString({
@@ -2249,8 +2373,8 @@ export default function FinanceiroPage() {
   };
 
   // Calcular resumo de OS
-  const osPendentes = ordensServico.filter(os => os.status === 'Pendente');
-  const valorPendenteOS = osPendentes.reduce((acc, os) => acc + os.valor_final, 0);
+  const osPendentes = ordensPagina.filter(os => os.status === 'Pendente');
+  const valorPendenteOS = resumoOrdens.valor_pendente;
 
   return (
     <DashboardLayout>
@@ -2364,7 +2488,7 @@ export default function FinanceiroPage() {
 	              <div>
 	                <p className="text-sm text-gray-500">OS Pendentes</p>
 	                <p className="text-2xl font-bold text-yellow-600">
-	                  {ordensCarregadas ? formatarValor(valorPendenteOS) : "—"}
+                  {ordensCarregadas && !ordensDesatualizadas ? formatarValor(valorPendenteOS) : "—"}
 	                </p>
               </div>
               <div className="w-12 h-12 bg-yellow-50 rounded-lg flex items-center justify-center">
@@ -2373,7 +2497,7 @@ export default function FinanceiroPage() {
             </div>
 	            <p className="text-xs text-gray-500 mt-2">
 	              {ordensCarregadas
-	                ? `${osPendentes.length} ordem(ns) pendente(s)`
+                ? `${resumoOrdens.pendentes} ordem(ns) pendente(s)`
 	                : "Disponivel ao abrir Cobrancas ou Ordens"}
 	            </p>
 	          </div>
@@ -2509,7 +2633,7 @@ export default function FinanceiroPage() {
             <MessageCircle className="w-4 h-4" />
             Cobrancas
             <span className="fc-finance-tab-count fc-finance-tab-count-amber">
-              {ordensCarregadas ? `${gruposCobrancaDestinatario.length} destinatario(s)` : "—"}
+              {ordensCarregadas ? `${totalGrupos} destinatario(s)` : "—"}
             </span>
           </button>
           <button
@@ -2521,7 +2645,7 @@ export default function FinanceiroPage() {
             <FileText className="w-4 h-4" />
             Ordens de Servico
             <span className="fc-finance-tab-count fc-finance-tab-count-amber">
-              {ordensCarregadas ? osFiltradas.length : "—"}
+              {ordensCarregadas && !ordensDesatualizadas ? totalOrdens : "—"}
             </span>
           </button>
         </div>
@@ -2820,7 +2944,7 @@ export default function FinanceiroPage() {
                 <h2 className="text-lg font-semibold text-gray-900">
                   Cobrancas por Destinatario
                   <span className="text-sm font-normal text-gray-500 ml-2">
-                    ({gruposCobrancaDestinatario.length})
+                    ({totalGrupos})
                   </span>
                 </h2>
                 <p className="text-xs text-amber-700 mt-1">
@@ -2829,6 +2953,7 @@ export default function FinanceiroPage() {
               </div>
               <button
                 onClick={() => baixarRelatorioPendenciasPDF()}
+                disabled={loadingOrdens || cobrancasDesatualizadas || falhasCarregamento.includes("Cobrancas")}
                 className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-white border border-amber-300 text-amber-800 rounded-lg hover:bg-amber-100"
               >
                 <Download className="w-4 h-4" />
@@ -2836,7 +2961,7 @@ export default function FinanceiroPage() {
               </button>
               <button
                 onClick={() => abrirRecebimentoLoteOS(osSelecionadasBaixa)}
-                disabled={osSelecionadasBaixa.length === 0}
+                disabled={osSelecionadasBaixa.length === 0 || loadingOrdens || cobrancasDesatualizadas || validandoSelecao || carregandoGrupo}
                 className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
               >
                 <CheckCircle className="w-4 h-4" />
@@ -2881,6 +3006,25 @@ export default function FinanceiroPage() {
               />
             </div>
 
+            <nav aria-label="Paginacao de cobrancas" className="flex items-center justify-between gap-3 p-4">
+              <button disabled={loadingOrdens || cobrancasDesatualizadas || validandoSelecao || paginaAtualCobrancas === 0}
+                onClick={() => setPaginaCobrancas({ chave: chaveOrdens, numero: paginaAtualCobrancas - 1 })}>Anterior</button>
+              <span>Pagina {paginaAtualCobrancas + 1} de {Math.max(1, Math.ceil(totalGrupos / 50))} — ate 50 destinatarios por pagina</span>
+              <button disabled={loadingOrdens || cobrancasDesatualizadas || validandoSelecao || falhasCarregamento.includes("Cobrancas") || (paginaAtualCobrancas + 1) * 50 >= totalGrupos}
+                onClick={() => setPaginaCobrancas({ chave: chaveOrdens, numero: paginaAtualCobrancas + 1 })}>Proxima</button>
+              <button disabled={loadingOrdens} onClick={() => carregarDados()}>Atualizar destinatarios</button>
+            </nav>
+            {falhasCarregamento.includes("Cobrancas") ? <p role="alert" className="p-4 text-red-700">Falha ao carregar destinatarios. Use Atualizar destinatarios para tentar novamente.</p> :
+              loadingOrdens || cobrancasDesatualizadas ? <p className="p-4">Carregando destinatarios...</p> :
+              gruposRemotos.length === 0 ? <p className="p-4">Nenhuma cobranca encontrada para os filtros atuais</p> :
+              <div className="p-4 space-y-2">{gruposRemotos.map((grupo) => <div key={grupo.chave} className="flex items-center justify-between gap-3 border rounded-lg p-3">
+                <span>{grupo.nome_destinatario} — {grupo.quantidade_os} pendente(s) de {grupo.quantidade_total} OS — {formatarValor(grupo.total_pendente)}</span>
+                <button disabled={validandoSelecao} onClick={() => abrirDetalhesGrupo(grupo)}>Abrir destinatario {grupo.nome_destinatario}</button>
+              </div>)}</div>}
+            {carregandoGrupo && <p role="status" className="p-4">Carregando todas as OS do destinatario; as acoes aguardam a conferencia.</p>}
+            {erroGrupo && <p role="alert" className="p-4 text-red-700">{erroGrupo}</p>}
+            {grupoAberto && !loadingOrdens && !cobrancasDesatualizadas && !falhasCarregamento.includes("Cobrancas") && <fieldset disabled={validandoSelecao}>
+              <button className="m-4" onClick={fecharGrupo}>Fechar destinatario</button>
             {loadingOrdens ? (
               <div className="p-8 text-center text-gray-500">Carregando...</div>
             ) : gruposCobrancaDestinatario.length === 0 ? (
@@ -2911,7 +3055,7 @@ export default function FinanceiroPage() {
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <button
-                            onClick={() => abrirRecebimentoLoteOS(grupo.ordens.map((os) => os.id))}
+                            onClick={() => abrirRecebimentoLoteOS(grupo.ordens.filter((os) => os.status === "Pendente").map((os) => os.id))}
                             disabled={grupo.quantidade_os === 0}
                             className="px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg flex items-center gap-1 disabled:opacity-50"
                           >
@@ -3045,18 +3189,36 @@ export default function FinanceiroPage() {
                 ))}
               </div>
             )}
+            </fieldset>}
           </div>
         )}
 
         {/* Conteudo - Ordens de Servico */}
+        {erroSelecao && <div role="alert" className="p-4 text-red-700">{erroSelecao}</div>}
         {abaAtiva === "ordens" && (
-          <div className="fc-finance-content">
+          <nav aria-label="Paginacao de ordens" className="flex flex-wrap items-center gap-3 p-4">
+            <button className="fc-finance-secondary" disabled={loadingOrdens || ordensDesatualizadas || validandoSelecao || paginaAtualOrdens === 0}
+              onClick={() => setPaginaOrdens({ chave: chaveOrdens, numero: paginaAtualOrdens - 1 })}>Anterior</button>
+            <span aria-live="polite">Pagina {paginaAtualOrdens + 1} de {Math.max(1, Math.ceil(totalOrdens / 100))} — ate 100 OS por pagina</span>
+            <button className="fc-finance-secondary" disabled={loadingOrdens || ordensDesatualizadas || validandoSelecao || (paginaAtualOrdens + 1) * 100 >= totalOrdens}
+              onClick={() => setPaginaOrdens({ chave: chaveOrdens, numero: paginaAtualOrdens + 1 })}>Proxima</button>
+            {osAlvoId && <button className="fc-finance-secondary" onClick={() => setOsAlvoId(null)}>Ver todas as ordens</button>}
+            <p className="w-full text-sm">Selecoes mantidas entre paginas. Alterar filtros ou aba limpa a selecao. Selecionar pendentes/recebidas inclui apenas a pagina visivel.</p>
+            {validandoSelecao && <p role="status">Conferindo OS selecionadas...</p>}
+            {falhasCarregamento.includes("Ordens de servico") && <div role="alert">
+              Nao foi possivel carregar as ordens.
+              <button onClick={() => carregarDados()}>Recarregar ordens</button>
+            </div>}
+          </nav>
+        )}
+        {abaAtiva === "ordens" && (
+          <fieldset className="fc-finance-content min-w-0" disabled={loadingOrdens || ordensDesatualizadas || validandoSelecao || falhasCarregamento.includes("Ordens de servico")}>
             <div className="p-5 border-b flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">
                   Ordens de Servico
                   <span className="text-sm font-normal text-gray-500 ml-2">
-                    ({osFiltradas.length})
+                    ({ordensDesatualizadas ? "—" : totalOrdens})
                   </span>
                 </h2>
                 <p className="text-sm text-gray-500">
@@ -3214,7 +3376,7 @@ export default function FinanceiroPage() {
               </div>
             </div>
 
-            {loadingOrdens ? (
+            {loadingOrdens || ordensDesatualizadas || falhasCarregamento.includes("Ordens de servico") ? (
               <div className="p-8 text-center text-gray-500">Carregando...</div>
             ) : osFiltradas.length === 0 ? (
               <div className="p-12 text-center">
@@ -3397,7 +3559,7 @@ export default function FinanceiroPage() {
                 ))}
               </div>
             )}
-          </div>
+          </fieldset>
         )}
 
         {/* Links para relatorios */}
