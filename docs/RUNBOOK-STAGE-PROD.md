@@ -88,12 +88,24 @@ status ja barra push direto que nao tenha checks aprovados em outra ref, o que
 na pratica encerra o `promote_stage_to_main.sh` -- coerente com a secao "Promova
 pelo PR, nao pelo script" do `CLAUDE.md`.
 
-### Passo manual que segue pendente
+### Default branch = `stage` (feito em 2026-09-15)
 
-- **Default branch = `stage`** em Settings -> General -> Default branch. Sem
-  isso, todo PR novo (inclusive os abertos por agentes) continua nascendo com
-  base `main` e o guard so avisa depois. Muda o que todo mundo recebe ao clonar,
-  entao e decisao do responsavel.
+Era o ultimo passo manual pendente desta secao. Aplicado por
+`PATCH /repos/{owner}/{repo}` com `default_branch=stage`.
+
+Com isso, PR novo nasce com base `stage` -- inclusive os abertos por agentes --
+em vez de nascer mirando `main` e depender do `base-deve-ser-promocao` para
+avisar depois. `git clone` passa a trazer `stage`.
+
+**Conferido antes de trocar**, porque o default branch muda o ref default do
+`workflow_dispatch`, e com ele o YAML que roda num disparo manual: os quatro
+workflows que aplicam algo em produção (`sync-portal-email-env`,
+`provision-institutional-host`, `recover-frases-prod` e `fix-database`) abortam
+quando `DISPATCH_REF != refs/heads/main`, e tres deles ainda fixam `ref: main`
+no checkout. A troca nao expoe produção por acidente.
+
+O limite ja registrado acima continua valendo: esses guards protegem contra
+acidente, nao contra edicao deliberada do workflow por quem tem push.
 
 Workflow manual que aplique algo em produção precisa de duas travas, porque em
 `workflow_dispatch` o YAML executado vem do ref selecionado no dispatch (e esse
