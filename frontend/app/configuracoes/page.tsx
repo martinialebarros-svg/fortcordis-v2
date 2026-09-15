@@ -1,11 +1,23 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { formatCalendarDate } from "@/lib/calendar-date";
+import {
+  PUBLICOS_CONHECIMENTO,
+  formatarCusto,
+  formatarInteiro,
+  formatarLatencia,
+  formatarTaxa,
+  linhasDoChecklist,
+  ordenarPorPendencia,
+  resumirProntidao,
+  validarConteudoBot,
+} from "@/lib/whatsapp-bot-painel";
 import { requestPushSync, syncPushNotificationsNow } from "@/lib/usePushNotifications";
+import { parseHistorico } from "@/lib/whatsapp-bot-historico";
 import {
   AgendaExcecaoConfig,
   AgendaFeriadoConfig,
@@ -35,7 +47,9 @@ import {
   X,
   Trash2,
   Users,
-  Shield
+  Shield,
+  Activity,
+  RefreshCw,
 } from "lucide-react";
 
 interface ConfiguracoesSistema {
@@ -52,6 +66,9 @@ interface ConfiguracoesSistema {
   mostrar_logomarca: boolean;
   mostrar_assinatura: boolean;
   fortinho_habilitado: boolean;
+  whatsapp_lembrete_automatico_habilitado: boolean;
+  whatsapp_bot_atendimento_habilitado: boolean;
+  whatsapp_bot_modo: "off" | "suggest" | "auto";
   agenda_semanal: AgendaSemanalConfig;
   agenda_feriados: AgendaFeriadoConfig[];
   agenda_excecoes: AgendaExcecaoConfig[];
@@ -85,6 +102,11 @@ const TIPOS_PUSH_AGENDA_OPCOES: Array<{ valor: string; label: string; descricao:
   { valor: "status_changed", label: "Mudanca de status", descricao: "Quando o status mudar (confirmado, realizado etc.)." },
   { valor: "cancelled", label: "Agendamento cancelado", descricao: "Quando o agendamento for marcado como cancelado." },
   { valor: "deleted", label: "Agendamento excluido", descricao: "Quando um agendamento for removido." },
+  {
+    valor: "whatsapp_reserva_resposta",
+    label: "Resposta do WhatsApp",
+    descricao: "Quando o paciente responder ao botao de confirmacao da reserva pelo WhatsApp.",
+  },
 ];
 
 const TIPOS_PUSH_FINANCEIRO_OPCOES: Array<{ valor: string; label: string; descricao: string }> = [
@@ -94,7 +116,11 @@ const TIPOS_PUSH_FINANCEIRO_OPCOES: Array<{ valor: string; label: string; descri
   { valor: "payment_pending", label: "Lembrete de pendencia", descricao: "Quando a OS segue pendente apos X horas." },
 ];
 
-const TIPOS_PUSH_OPCOES = [...TIPOS_PUSH_AGENDA_OPCOES, ...TIPOS_PUSH_FINANCEIRO_OPCOES];
+const TIPOS_PUSH_WHATSAPP_OPCOES: Array<{ valor: string; label: string; descricao: string }> = [
+  { valor: "mensagem_recebida", label: "Mensagem recebida", descricao: "Quando chegar uma nova mensagem de um contato no WhatsApp." },
+];
+
+const TIPOS_PUSH_OPCOES = [...TIPOS_PUSH_AGENDA_OPCOES, ...TIPOS_PUSH_FINANCEIRO_OPCOES, ...TIPOS_PUSH_WHATSAPP_OPCOES];
 const TIPOS_PUSH_VALIDOS = new Set(TIPOS_PUSH_OPCOES.map((item) => item.valor));
 const TIPOS_PUSH_PRIORIDADE_ALTA_PADRAO = ["os_deleted", "payment_pending"];
 
@@ -114,7 +140,7 @@ const PERFIS_PUSH_PRESETS: PerfilPushPreset[] = [
     perfil: "recepcao",
     titulo: "Recepcao",
     descricao: "Foco em agenda e fluxo geral de atendimento.",
-    tipos: ["created", "updated", "status_changed", "cancelled", "deleted", "os_generated"],
+    tipos: ["created", "updated", "status_changed", "cancelled", "deleted", "os_generated", "mensagem_recebida"],
     alta_prioridade: ["status_changed", "cancelled", "deleted"],
     agrupar: true,
     lembrete_pendencias: false,
@@ -235,11 +261,54 @@ interface AuditoriaEventoItem {
   metodo?: string | null;
 }
 
+interface ClinicaProntidaoItem {
+  clinica_id: number;
+  clinica_nome: string;
+  motivo: "sem_numero" | "numero_invalido" | null;
+  valor_cadastrado?: string | null;
+  agendamentos_60_dias: number;
+}
+
+interface ClinicaProntidaoWhatsapp {
+  janela_dias: number;
+  total_clinicas_ativas: number;
+  total_prontas: number;
+  total_com_problema: number;
+  clinicas: ClinicaProntidaoItem[];
+}
+
+interface LatenciaRuntimeGrupo {
+  endpoint: string;
+  release_id: string;
+  request_count: number;
+  error_5xx_count: number;
+  avg_ms: number | null;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  p99_ms: number | null;
+  database_avg_ms: number | null;
+  database_p95_ms: number | null;
+  pool_wait_avg_ms: number | null;
+  pool_wait_p95_ms: number | null;
+  last_seen_at: string | null;
+}
+
+interface LatenciaRuntimeResumo {
+  available: boolean;
+  hours: number;
+  retention_days: number;
+  query_max_samples: number;
+  truncated: boolean;
+  groups: LatenciaRuntimeGrupo[];
+}
+
 export default function ConfiguracoesPage() {
   const router = useRouter();
-  const [aba, setAba] = useState<"empresa" | "usuario" | "usuarios">("empresa");
+  const [aba, setAba] = useState<"empresa" | "usuario" | "usuarios" | "observabilidade">("empresa");
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
+  const [prontidaoClinicas, setProntidaoClinicas] = useState<ClinicaProntidaoWhatsapp | null>(null);
+  const [prontidaoClinicasStatus, setProntidaoClinicasStatus] = useState<"idle" | "loading" | "error">("idle");
 
   // Configurações da empresa
   const [configEmpresa, setConfigEmpresa] = useState<ConfiguracoesSistema>({
@@ -256,6 +325,9 @@ export default function ConfiguracoesPage() {
     mostrar_logomarca: true,
     mostrar_assinatura: true,
     fortinho_habilitado: false,
+    whatsapp_lembrete_automatico_habilitado: false,
+    whatsapp_bot_atendimento_habilitado: false,
+    whatsapp_bot_modo: "suggest",
     agenda_semanal: normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL),
     agenda_feriados: [],
     agenda_excecoes: [],
@@ -298,6 +370,10 @@ export default function ConfiguracoesPage() {
   const [salvandoPermissoes, setSalvandoPermissoes] = useState(false);
   const [somenteLeituraAgenda, setSomenteLeituraAgenda] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [latenciaRuntime, setLatenciaRuntime] = useState<LatenciaRuntimeResumo | null>(null);
+  const [statusLatenciaRuntime, setStatusLatenciaRuntime] = useState<"idle" | "loading" | "error">("idle");
+  const [erroLatenciaRuntime, setErroLatenciaRuntime] = useState("");
+  const [janelaLatenciaRuntime, setJanelaLatenciaRuntime] = useState<6 | 24 | 168>(24);
   const [modulosPermissoes, setModulosPermissoes] = useState<ModuloPermissao[]>([]);
   const [matrizPermissoes, setMatrizPermissoes] = useState<MatrizPermissaoPapel[]>([]);
   const [auditoriaItens, setAuditoriaItens] = useState<AuditoriaEventoItem[]>([]);
@@ -311,6 +387,7 @@ export default function ConfiguracoesPage() {
   const [filtroAuditoriaBusca, setFiltroAuditoriaBusca] = useState("");
   const [filtroAuditoriaDataInicio, setFiltroAuditoriaDataInicio] = useState("");
   const [filtroAuditoriaDataFim, setFiltroAuditoriaDataFim] = useState("");
+  const [auditoriaExpandida, setAuditoriaExpandida] = useState<Record<number, boolean>>({});
   const [modoEdicaoUsuario, setModoEdicaoUsuario] = useState(false);
   const [novoFeriadoData, setNovoFeriadoData] = useState("");
   const [novoFeriadoTipo, setNovoFeriadoTipo] = useState<"local" | "nacional">("local");
@@ -320,6 +397,20 @@ export default function ConfiguracoesPage() {
   const [novaExcecaoInicio, setNovaExcecaoInicio] = useState("08:00");
   const [novaExcecaoFim, setNovaExcecaoFim] = useState("18:00");
   const [novaExcecaoMotivo, setNovaExcecaoMotivo] = useState("");
+  // Painel do bot de atendimento (Fase 6)
+  const [botProntidao, setBotProntidao] = useState<any>(null);
+  const [botMetricas, setBotMetricas] = useState<any>(null);
+  const [botConteudo, setBotConteudo] = useState<any>(null);
+  const [botCarregando, setBotCarregando] = useState<string | null>(null);
+  const [botErro, setBotErro] = useState<string | null>(null);
+  const [botForm, setBotForm] = useState({ titulo: "", conteudo: "", fonte: "", publico: "ambos", indexar_semanticamente: false });
+  const [botFormErros, setBotFormErros] = useState<string[]>([]);
+  const [botSimulacao, setBotSimulacao] = useState<any>(null);
+  const [botSimHistorico, setBotSimHistorico] = useState("");
+  const [botSimPersona, setBotSimPersona] = useState("tutor");
+  const [botSimMensagem, setBotSimMensagem] = useState("");
+  const [botClinicas, setBotClinicas] = useState<any>(null);
+  const [botClinicaBusca, setBotClinicaBusca] = useState("");
   const [usuarioForm, setUsuarioForm] = useState<UsuarioForm>({
     id: null,
     nome: "",
@@ -602,6 +693,12 @@ export default function ConfiguracoesPage() {
     }
   }, [aba]);
 
+  useEffect(() => {
+    if (aba === "observabilidade" && isAdmin) {
+      carregarLatenciaRuntime();
+    }
+  }, [aba, isAdmin, janelaLatenciaRuntime]);
+
   const carregarImagem = async (url: string): Promise<string | null> => {
     try {
       const response = await api.get(url, { responseType: 'blob' });
@@ -617,6 +714,86 @@ export default function ConfiguracoesPage() {
     const data = new Date(valor);
     if (Number.isNaN(data.getTime())) return "-";
     return data.toLocaleString("pt-BR");
+  };
+
+  const formatarMilissegundos = (valor?: number | null) => {
+    if (typeof valor !== "number" || !Number.isFinite(valor)) return "-";
+    return `${valor.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} ms`;
+  };
+
+  const carregarLatenciaRuntime = async () => {
+    try {
+      setStatusLatenciaRuntime("loading");
+      setErroLatenciaRuntime("");
+      const response = await api.get("/admin/observability/http-latency", {
+        params: { hours: janelaLatenciaRuntime },
+      });
+      const payload = response?.data || {};
+      setLatenciaRuntime({
+        available: payload.available === true,
+        hours: Number(payload.hours) || janelaLatenciaRuntime,
+        retention_days: Number(payload.retention_days) || 14,
+        query_max_samples: Number(payload.query_max_samples) || 0,
+        truncated: payload.truncated === true,
+        groups: Array.isArray(payload.groups) ? payload.groups : [],
+      });
+      setStatusLatenciaRuntime("idle");
+    } catch (error: any) {
+      const detalhe = error?.response?.data?.detail;
+      setErroLatenciaRuntime(
+        typeof detalhe === "string" ? detalhe : "Não foi possível carregar a telemetria de desempenho."
+      );
+      setStatusLatenciaRuntime("error");
+    }
+  };
+
+  const formatarValorAuditoria = (valor: unknown): string => {
+    if (valor === null || valor === undefined || valor === "") return "(vazio)";
+    if (typeof valor === "object") return JSON.stringify(valor);
+    return String(valor);
+  };
+
+  // registrar_auditoria segue 2 formatos: {alteracoes: {campo: {antes, depois}}}
+  // para updates, ou chave-valor simples para criacao/exclusao/estado pontual.
+  const renderizarDetalhesAuditoria = (detalhes?: Record<string, any>) => {
+    if (!detalhes || Object.keys(detalhes).length === 0) return null;
+    const { alteracoes, ...outrosCampos } = detalhes;
+    const temAlteracoes = alteracoes && typeof alteracoes === "object" && !Array.isArray(alteracoes);
+
+    return (
+      <div className="space-y-3">
+        {temAlteracoes ? (
+          <table className="min-w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
+            <thead className="bg-gray-100 text-gray-500">
+              <tr>
+                <th className="text-left px-2 py-1 font-medium">Campo</th>
+                <th className="text-left px-2 py-1 font-medium">Antes</th>
+                <th className="text-left px-2 py-1 font-medium">Depois</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(alteracoes as Record<string, any>).map(([campo, valores]) => (
+                <tr key={campo} className="border-t border-gray-200">
+                  <td className="px-2 py-1 font-medium text-gray-700">{campo}</td>
+                  <td className="px-2 py-1 text-gray-500">{formatarValorAuditoria((valores as any)?.antes)}</td>
+                  <td className="px-2 py-1 text-gray-700">{formatarValorAuditoria((valores as any)?.depois)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+        {Object.keys(outrosCampos).length > 0 ? (
+          <div className="space-y-1 text-xs">
+            {Object.entries(outrosCampos).map(([chave, valor]) => (
+              <div key={chave} className="flex gap-2">
+                <span className="font-medium text-gray-500">{chave}:</span>
+                <span className="text-gray-700 break-all">{formatarValorAuditoria(valor)}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   const limparFormularioUsuario = () => {
@@ -908,6 +1085,146 @@ export default function ConfiguracoesPage() {
     }
   };
 
+  const verificarProntidaoClinicas = async () => {
+    try {
+      setProntidaoClinicasStatus("loading");
+      const resp = await api.get("/agenda/whatsapp/lembrete-clinicas-prontidao");
+      setProntidaoClinicas(resp?.data || null);
+      setProntidaoClinicasStatus("idle");
+    } catch {
+      setProntidaoClinicas(null);
+      setProntidaoClinicasStatus("error");
+    }
+  };
+
+  const carregarBotProntidao = async () => {
+    try {
+      setBotCarregando("prontidao");
+      setBotErro(null);
+      const { data } = await api.get("/whatsapp/bot/prontidao");
+      setBotProntidao(data);
+    } catch {
+      setBotErro("Não foi possível carregar a prontidão do bot.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const carregarBotClinicas = async () => {
+    try {
+      setBotCarregando("clinicas");
+      setBotErro(null);
+      const { data } = await api.get("/whatsapp/bot/clinicas");
+      setBotClinicas(data);
+    } catch {
+      setBotErro("Não foi possível carregar a participação das clínicas.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const alterarModoDaClinica = async (clinicaId: number, modo: string) => {
+    try {
+      setBotCarregando(`clinica-${clinicaId}`);
+      setBotErro(null);
+      await api.put(`/whatsapp/bot/clinicas/${clinicaId}`, { modo });
+      await carregarBotClinicas();
+    } catch {
+      setBotErro("Não foi possível alterar a participação desta clínica.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const removerMarcacaoDaClinica = async (clinicaId: number) => {
+    try {
+      setBotCarregando(`clinica-${clinicaId}`);
+      setBotErro(null);
+      await api.delete(`/whatsapp/bot/clinicas/${clinicaId}`);
+      await carregarBotClinicas();
+    } catch {
+      setBotErro("Não foi possível remover a marcação desta clínica.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const alterarParticipacao = async (participacao: string) => {
+    try {
+      setBotCarregando("participacao");
+      setBotErro(null);
+      await api.put("/configuracoes", { whatsapp_bot_participacao: participacao });
+      await carregarBotClinicas();
+    } catch {
+      setBotErro("Não foi possível alterar a postura de participação. Só admin pode.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const carregarBotMetricas = async () => {
+    try {
+      setBotCarregando("metricas");
+      setBotErro(null);
+      const { data } = await api.get("/whatsapp/bot/metricas", { params: { dias: 7 } });
+      setBotMetricas(data);
+    } catch {
+      setBotErro("Não foi possível carregar as métricas do bot.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const carregarBotConteudo = async () => {
+    try {
+      setBotCarregando("conteudo");
+      setBotErro(null);
+      const { data } = await api.get("/whatsapp/bot/conhecimento");
+      setBotConteudo(data);
+    } catch {
+      setBotErro("Não foi possível carregar o conteúdo do bot.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const salvarBotConteudo = async () => {
+    const validacao = validarConteudoBot(botForm);
+    setBotFormErros(validacao.erros);
+    if (!validacao.valido) return;
+    try {
+      setBotCarregando("salvar-conteudo");
+      setBotErro(null);
+      await api.post("/whatsapp/bot/conhecimento", botForm);
+      setBotForm({ titulo: "", conteudo: "", fonte: "", publico: "ambos", indexar_semanticamente: false });
+      await carregarBotConteudo();
+      await carregarBotProntidao();
+    } catch {
+      setBotErro("Não foi possível salvar o conteúdo. Conteúdo idêntico a outro já cadastrado é recusado.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
+  const simularBot = async () => {
+    if (botSimMensagem.trim().length < 3) return;
+    try {
+      setBotCarregando("simular");
+      setBotErro(null);
+      setBotSimulacao(null);
+      const { data } = await api.post("/whatsapp/bot/simular", {
+        mensagem: botSimMensagem,
+        persona: botSimPersona,
+        historico: parseHistorico(botSimHistorico),
+      });
+      setBotSimulacao(data);
+    } catch {
+      setBotErro("Não foi possível simular. A simulação faz chamada real de IA e pode ter falhado no provedor.");
+    } finally {
+      setBotCarregando(null);
+    }
+  };
+
   const salvarConfigEmpresa = async () => {
     try {
       setSalvando(true);
@@ -920,6 +1237,9 @@ export default function ConfiguracoesPage() {
       };
       if (!isAdmin) {
         delete payload.fortinho_habilitado;
+        delete payload.whatsapp_lembrete_automatico_habilitado;
+        delete payload.whatsapp_bot_atendimento_habilitado;
+        delete payload.whatsapp_bot_modo;
       }
       await api.put("/configuracoes", payload);
       setConfigEmpresa((prev) => ({
@@ -1034,9 +1354,13 @@ export default function ConfiguracoesPage() {
         .map((item) => item.valor)
         .filter((item) => atualizados.includes(item));
 
+      const ordenadosWhatsApp = TIPOS_PUSH_WHATSAPP_OPCOES
+        .map((item) => item.valor)
+        .filter((item) => atualizados.includes(item));
+
       return {
         ...prev,
-        notificacoes_push_tipos: [...ordenados, ...ordenadosFinanceiro],
+        notificacoes_push_tipos: [...ordenados, ...ordenadosFinanceiro, ...ordenadosWhatsApp],
         notificacoes_push_perfil: "custom",
       };
     });
@@ -1273,7 +1597,15 @@ export default function ConfiguracoesPage() {
           <div className="fc-settings-context">
             <Shield className="h-5 w-5" />
             <span>Área atual</span>
-            <strong>{aba === "empresa" ? "Empresa" : aba === "usuario" ? "Minha conta" : "Usuários"}</strong>
+            <strong>
+              {aba === "empresa"
+                ? "Empresa"
+                : aba === "usuario"
+                  ? "Minha conta"
+                  : aba === "usuarios"
+                    ? "Usuários"
+                    : "Desempenho"}
+            </strong>
           </div>
         </div>
 
@@ -1308,6 +1640,18 @@ export default function ConfiguracoesPage() {
             <Users className="w-4 h-4" />
             Usuários
           </button>
+          {isAdmin ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={aba === "observabilidade"}
+              onClick={() => setAba("observabilidade")}
+              className={`fc-settings-tab ${aba === "observabilidade" ? "fc-settings-tab-active" : ""}`}
+            >
+              <Activity className="w-4 h-4" />
+              Desempenho
+            </button>
+          ) : null}
         </div>
 
         {aba === "empresa" && (
@@ -2376,6 +2720,461 @@ export default function ConfiguracoesPage() {
               )}
             </div>
 
+            {/* Lembrete automatico WhatsApp */}
+            <div className="fc-settings-card">
+              <h2 className="text-lg font-semibold mb-2">Lembrete automático de consulta (WhatsApp)</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Quando ativo, envia automaticamente o lembrete de consulta para a clínica
+                parceira, 24h antes do horário agendado — sem precisar clicar manualmente
+                na Agenda.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="whatsapp_lembrete_automatico_habilitado"
+                  checked={configEmpresa.whatsapp_lembrete_automatico_habilitado}
+                  disabled={!isAdmin}
+                  onChange={(e) => setConfigEmpresa({ ...configEmpresa, whatsapp_lembrete_automatico_habilitado: e.target.checked })}
+                  className="w-4 h-4 text-teal-600 disabled:opacity-50"
+                />
+                <label htmlFor="whatsapp_lembrete_automatico_habilitado" className="text-sm text-gray-700">
+                  Ativar lembrete automático de consulta
+                </label>
+              </div>
+              {!isAdmin && (
+                <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                  Somente administradores podem ativar ou desativar o lembrete automático.
+                </p>
+              )}
+
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => void verificarProntidaoClinicas()}
+                  disabled={prontidaoClinicasStatus === "loading"}
+                  className="text-sm text-teal-700 hover:text-teal-800 underline disabled:opacity-50"
+                >
+                  {prontidaoClinicasStatus === "loading"
+                    ? "Verificando clínicas..."
+                    : "Verificar números de WhatsApp das clínicas antes de habilitar"}
+                </button>
+
+                {prontidaoClinicasStatus === "error" && (
+                  <p className="mt-2 text-xs text-red-700">Erro ao verificar. Tentar de novo.</p>
+                )}
+
+                {prontidaoClinicas && (
+                  <div className="mt-3">
+                    <p className="text-sm text-gray-700">
+                      {prontidaoClinicas.total_prontas} de {prontidaoClinicas.total_clinicas_ativas} clínicas ativas
+                      prontas para o lembrete automático. Ordenadas por quantidade de agendamentos solicitados nos
+                      últimos {prontidaoClinicas.janela_dias} dias, da maior para a menor — priorize a revisão pelo topo.
+                    </p>
+                    {prontidaoClinicas.clinicas.length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {prontidaoClinicas.clinicas.map((clinica) => (
+                          <li
+                            key={clinica.clinica_id}
+                            className={`text-xs rounded px-3 py-2 flex items-center justify-between gap-2 border ${
+                              clinica.motivo ? "text-amber-800 bg-amber-50 border-amber-200" : "text-emerald-800 bg-emerald-50 border-emerald-200"
+                            }`}
+                          >
+                            <span>
+                              <strong>{clinica.agendamentos_60_dias}</strong> agendamento(s) —{" "}
+                              <strong>{clinica.clinica_nome}</strong>
+                              {" — "}
+                              {clinica.motivo === "sem_numero"
+                                ? "sem WhatsApp cadastrado"
+                                : clinica.motivo === "numero_invalido"
+                                  ? `número inválido (${clinica.valor_cadastrado})`
+                                  : "pronta"}
+                            </span>
+                            {clinica.motivo && (
+                              <a href={`/clinicas/${clinica.clinica_id}`} className="text-teal-700 underline whitespace-nowrap">
+                                Corrigir
+                              </a>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Atendimento automatico WhatsApp */}
+            <div className="fc-settings-card">
+              <h2 className="text-lg font-semibold mb-2">Atendimento automático (WhatsApp)</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Controla o copiloto da Central de WhatsApp. Em modo sugerir, as respostas ficam
+                como rascunho e só chegam ao contato depois da revisão de um atendente.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="whatsapp_bot_atendimento_habilitado"
+                  checked={configEmpresa.whatsapp_bot_atendimento_habilitado}
+                  disabled={!isAdmin}
+                  onChange={(e) => setConfigEmpresa({ ...configEmpresa, whatsapp_bot_atendimento_habilitado: e.target.checked })}
+                  className="w-4 h-4 text-teal-600 disabled:opacity-50"
+                />
+                <label htmlFor="whatsapp_bot_atendimento_habilitado" className="text-sm text-gray-700">
+                  Ativar copiloto de atendimento
+                </label>
+              </div>
+              <label className="mt-4 block text-sm text-gray-700">
+                <span className="mb-1 block font-medium">Modo padrão</span>
+                <select
+                  value={configEmpresa.whatsapp_bot_modo}
+                  disabled={!isAdmin}
+                  onChange={(e) => setConfigEmpresa({ ...configEmpresa, whatsapp_bot_modo: e.target.value as "off" | "suggest" | "auto" })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white disabled:opacity-50"
+                >
+                  <option value="off">Desligado</option>
+                  <option value="suggest">Sugerir rascunho para revisão</option>
+                  <option value="auto" disabled>Automático (aguarda rollout)</option>
+                </select>
+              </label>
+              <p className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                O modo automático permanece bloqueado até a fase de observação em stage. Use “Sugerir” durante a validação.
+              </p>
+              {!isAdmin ? (
+                <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                  Somente administradores podem alterar o controle institucional.
+                </p>
+              ) : (
+                <button type="button" onClick={salvarConfigEmpresa} disabled={salvando}
+                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50">
+                  <Save className="w-4 h-4" /> {salvando ? "Salvando..." : "Salvar atendimento automático"}
+                </button>
+              )}
+            </div>
+
+            {/* Painel do bot de atendimento (Fase 6) */}
+            <div className="fc-settings-card">
+              <h2 className="text-lg font-semibold mb-1">Painel do atendimento automático</h2>
+              <p className="text-xs text-gray-500 mb-4">
+                Prontidão, conteúdo, observação e teste. Tudo aqui é leitura ou cadastro:
+                nada envia mensagem a cliente.
+              </p>
+
+              {botErro ? (
+                <p className="mb-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{botErro}</p>
+              ) : null}
+
+              {/* Participação por clínica (piloto) */}
+              <div className="mb-6">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">Quem o bot atende</h3>
+                  <button type="button" onClick={carregarBotClinicas} disabled={botCarregando === "clinicas"}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                    {botCarregando === "clinicas" ? "Carregando..." : "Listar clínicas"}
+                  </button>
+                </div>
+
+                {!botClinicas ? (
+                  <p className="text-xs text-gray-400">
+                    Clique em Listar para liberar o bot clínica por clínica.
+                  </p>
+                ) : (
+                  <>
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-gray-600">Postura:</span>
+                      {["todos", "piloto"].map((opcao) => (
+                        <button key={opcao} type="button"
+                          onClick={() => void alterarParticipacao(opcao)}
+                          disabled={botCarregando === "participacao" || botClinicas.participacao === opcao}
+                          className={`text-xs px-3 py-1.5 rounded-lg border ${botClinicas.participacao === opcao ? "border-vital-400 bg-vital-50 font-semibold text-vital-800" : "border-gray-300 hover:bg-gray-50"} disabled:opacity-60`}>
+                          {opcao === "todos" ? "Todos" : "Só o piloto"}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mb-3 text-[11px] text-gray-500">
+                      {botClinicas.participacao === "piloto"
+                        ? "No piloto, só quem foi habilitado aqui é atendido — inclusive tutor, que entra apenas por conversa. Alterar a postura exige admin."
+                        : "Em Todos, quem não tem marcação segue o modo padrão. Marcar uma clínica como Desligado vale mesmo aqui."}
+                    </p>
+
+                    <input type="text" value={botClinicaBusca}
+                      onChange={(e) => setBotClinicaBusca(e.target.value)}
+                      placeholder="Filtrar por nome da clínica"
+                      className="mb-2 w-full text-xs border border-gray-300 rounded-lg px-3 py-2" />
+
+                    <div className="max-h-64 overflow-y-auto divide-y divide-gray-100 border border-gray-200 rounded-lg">
+                      {(botClinicas.clinicas || [])
+                        .filter((c: any) => !botClinicaBusca.trim() || String(c.nome || "").toLowerCase().includes(botClinicaBusca.trim().toLowerCase()))
+                        .map((c: any) => (
+                        <div key={c.clinica_id} className="flex items-center justify-between gap-3 px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-gray-800 truncate">{c.nome}</p>
+                            <p className="text-[10px] text-gray-500">
+                              {c.participa ? "atendida pelo bot" : "fora do atendimento"}
+                              {c.modo ? ` · marcada como ${c.modo}` : " · sem marcação"}
+                            </p>
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            {["off", "suggest"].map((m) => (
+                              <button key={m} type="button"
+                                onClick={() => void alterarModoDaClinica(c.clinica_id, m)}
+                                disabled={botCarregando === `clinica-${c.clinica_id}` || c.modo === m}
+                                className={`text-[11px] px-2 py-1 rounded border ${c.modo === m ? "border-vital-400 bg-vital-50 font-semibold text-vital-800" : "border-gray-300 hover:bg-gray-50"} disabled:opacity-60`}>
+                                {m === "off" ? "Desligado" : "Sugerir"}
+                              </button>
+                            ))}
+                            {/* So aparece quando ha o que desfazer. "Sem marcacao"
+                                nao e um terceiro modo: e a ausencia dos dois, e em
+                                `todos` ela INCLUI a clinica, ao contrario de Desligado. */}
+                            {c.modo ? (
+                              <button type="button"
+                                onClick={() => void removerMarcacaoDaClinica(c.clinica_id)}
+                                disabled={botCarregando === `clinica-${c.clinica_id}`}
+                                title="Volta ao padrão: em Todos a clínica é atendida; no piloto, fica de fora"
+                                className="text-[11px] px-2 py-1 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-60">
+                                Sem marcação
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                      {(botClinicas.clinicas || []).length === 0 ? (
+                        <p className="px-3 py-3 text-xs text-gray-400">Nenhuma clínica ativa cadastrada.</p>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-[10px] text-gray-400">
+                      &quot;Automático&quot; não aparece aqui de propósito: o envio automático ainda não existe.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              {/* Prontidão */}
+              <div className="mb-6">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">O bot consegue responder?</h3>
+                  <button type="button" onClick={carregarBotProntidao} disabled={botCarregando === "prontidao"}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                    {botCarregando === "prontidao" ? "Verificando..." : "Verificar"}
+                  </button>
+                </div>
+                {!botProntidao ? (
+                  <p className="text-xs text-gray-400">Clique em Verificar. A checagem não usa IA e não custa nada.</p>
+                ) : (
+                  <>
+                    {(() => {
+                      const r = resumirProntidao(botProntidao.personas);
+                      return (
+                        <p className="text-xs text-gray-600 mb-3">
+                          {r.prontos} de {r.total} prontos
+                          {r.acionaveis > 0 ? ` · ${r.acionaveis} dependem de configuração sua` : " · nada pendente de configuração"}
+                        </p>
+                      );
+                    })()}
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {(["tutor", "clinica"] as const).map((persona) => (
+                        <div key={persona}>
+                          <p className="text-xs font-semibold text-gray-700 mb-1 capitalize">
+                            {persona === "tutor" ? "Tutor" : "Clínica parceira"}
+                          </p>
+                          <ul className="space-y-1">
+                            {ordenarPorPendencia(botProntidao.personas?.[persona]?.itens ?? []).map((item) => (
+                              <li key={item.intent} className="text-xs">
+                                <span className={item.pronto ? "text-emerald-700" : item.depende_da_conversa ? "text-gray-500" : "text-amber-700"}>
+                                  {item.pronto ? "✓" : item.depende_da_conversa ? "•" : "!"} {item.rotulo}
+                                </span>
+                                {item.diagnostico ? (
+                                  <span className="block text-gray-500 pl-4">{item.diagnostico}</span>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-[11px] text-gray-400">{botProntidao.resumo?.observacao}</p>
+                  </>
+                )}
+              </div>
+
+              {/* Conteúdo */}
+              <div className="mb-6 border-t border-gray-100 pt-4">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">Conteúdo que o bot usa</h3>
+                  <button type="button" onClick={carregarBotConteudo} disabled={botCarregando === "conteudo"}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                    {botCarregando === "conteudo" ? "Carregando..." : "Listar"}
+                  </button>
+                </div>
+                {botConteudo ? (
+                  <p className="text-xs text-gray-600 mb-3">
+                    {botConteudo.total_visiveis} visível(is) para o bot
+                    {botConteudo.total_ignorados > 0
+                      ? ` · ${botConteudo.total_ignorados} na base que o bot ignora (categoria fora da audiência dele)`
+                      : ""}
+                  </p>
+                ) : null}
+                {isAdmin ? (
+                  <div className="space-y-2">
+                    <input value={botForm.titulo} onChange={(e) => setBotForm({ ...botForm, titulo: e.target.value })}
+                      placeholder="Título (ex.: Como agendar na FortCordis)"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <select value={botForm.publico} onChange={(e) => setBotForm({ ...botForm, publico: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                        {PUBLICOS_CONHECIMENTO.map((p) => (
+                          <option key={p.valor} value={p.valor}>{p.rotulo}</option>
+                        ))}
+                      </select>
+                      <input value={botForm.fonte} onChange={(e) => setBotForm({ ...botForm, fonte: e.target.value })}
+                        placeholder="Fonte (obrigatória)"
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                    </div>
+                    <textarea value={botForm.conteudo} onChange={(e) => setBotForm({ ...botForm, conteudo: e.target.value })}
+                      rows={5} placeholder="O que o bot deve saber. Escreva como você responderia ao cliente."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                    <label className="flex items-start gap-2 text-xs text-gray-600">
+                      <input type="checkbox" checked={botForm.indexar_semanticamente}
+                        onChange={(e) => setBotForm({ ...botForm, indexar_semanticamente: e.target.checked })}
+                        className="mt-0.5" />
+                      <span>Ativar busca semântica (o texto vai à OpenAI só para gerar vetores)</span>
+                    </label>
+                    {botFormErros.length > 0 ? (
+                      <ul className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                        {botFormErros.map((erro) => <li key={erro}>• {erro}</li>)}
+                      </ul>
+                    ) : null}
+                    <button type="button" onClick={salvarBotConteudo} disabled={botCarregando === "salvar-conteudo"}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm">
+                      <Save className="w-4 h-4" /> {botCarregando === "salvar-conteudo" ? "Salvando..." : "Adicionar conteúdo"}
+                    </button>
+                    <p className="text-[11px] text-gray-400">
+                      A categoria é definida pelo público escolhido, e a fonte é obrigatória — as duas coisas
+                      que antes tornavam um documento invisível para o bot sem avisar.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                    Somente administradores podem cadastrar conteúdo do bot.
+                  </p>
+                )}
+              </div>
+
+              {/* Observação */}
+              <div className="mb-6 border-t border-gray-100 pt-4">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">Observação (últimos 7 dias)</h3>
+                  <button type="button" onClick={carregarBotMetricas} disabled={botCarregando === "metricas"}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                    {botCarregando === "metricas" ? "Carregando..." : "Carregar"}
+                  </button>
+                </div>
+                {!botMetricas ? (
+                  <p className="text-xs text-gray-400">Sem dados carregados.</p>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-gray-500 text-left">
+                            <th className="py-1 pr-3">Recorte</th>
+                            <th className="py-1 pr-3">Aceite</th>
+                            <th className="py-1 pr-3">Sem edição</th>
+                            <th className="py-1 pr-3">Descarte</th>
+                            <th className="py-1 pr-3">Bloqueio</th>
+                            <th className="py-1 pr-3">p95</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[
+                            ["Geral", botMetricas.geral],
+                            ...Object.entries(botMetricas.por_persona ?? {}),
+                            ...Object.entries(botMetricas.por_faixa_horario ?? {}),
+                          ].map(([rotulo, b]: any) => (
+                            <tr key={rotulo} className="border-t border-gray-100">
+                              <td className="py-1 pr-3 capitalize">{String(rotulo).replace(/_/g, " ")}</td>
+                              <td className="py-1 pr-3">{formatarTaxa(b?.taxa_aceite)}</td>
+                              <td className="py-1 pr-3">{formatarTaxa(b?.taxa_aceite_sem_edicao)}</td>
+                              <td className="py-1 pr-3">{formatarTaxa(b?.taxa_descarte)}</td>
+                              <td className="py-1 pr-3">{formatarTaxa(b?.taxa_bloqueio)}</td>
+                              <td className="py-1 pr-3">{formatarLatencia(b?.latencia_p95_ms)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-600">
+                      Custo: {formatarCusto(botMetricas.geral?.custo_total, botMetricas.geral?.custo_configurado)}
+                      {" · "}rascunhos decididos: {formatarInteiro(botMetricas.geral?.decididos)}
+                    </p>
+                    {Object.keys(botMetricas.geral?.bloqueios_por_motivo ?? {}).length > 0 ? (
+                      <p className="mt-1 text-xs text-gray-600">
+                        Bloqueios: {Object.entries(botMetricas.geral.bloqueios_por_motivo)
+                          .map(([m, n]) => `${m} ${n}`).join(" · ")}
+                      </p>
+                    ) : null}
+                    <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-3">
+                      <p className="text-xs font-semibold text-gray-700 mb-1">Amostra para decidir o modo automático</p>
+                      <ul className="space-y-0.5">
+                        {linhasDoChecklist(botMetricas.pronto_para_decidir_auto).map((linha) => (
+                          <li key={linha.rotulo} className="text-xs text-gray-600">
+                            {linha.atendido ? "✓" : "○"} {linha.rotulo}
+                            {linha.detalhe ? <span className="text-gray-400"> — {linha.detalhe}</span> : null}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-2 text-[11px] text-gray-500">
+                        {botMetricas.pronto_para_decidir_auto?.observacao}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Teste */}
+              <div className="border-t border-gray-100 pt-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">Testar sem enviar</h3>
+                <div className="grid gap-2 sm:grid-cols-[160px_minmax(0,1fr)]">
+                  <select value={botSimPersona} onChange={(e) => setBotSimPersona(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="tutor">Como tutor</option>
+                    <option value="clinica">Como clínica</option>
+                  </select>
+                  <input value={botSimMensagem} onChange={(e) => setBotSimMensagem(e.target.value)}
+                    placeholder="Digite a pergunta de um cliente"
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                </div>
+                <textarea value={botSimHistorico} onChange={(e) => setBotSimHistorico(e.target.value)}
+                  rows={3}
+                  placeholder={"Conversa anterior (opcional), uma mensagem por linha:\ncliente: quanto custa o eco?\nnos: Ecocardiograma custa R$ 180,00."}
+                  className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono" />
+                <p className="mt-1 text-[11px] text-gray-400">
+                  Sem prefixo, a linha conta como mensagem do cliente. Serve para testar se o bot
+                  entende &quot;e domiciliar?&quot; ou &quot;quanto fica entao?&quot; sem repetir o assunto.
+                </p>
+                <button type="button" onClick={simularBot}
+                  disabled={botCarregando === "simular" || botSimMensagem.trim().length < 3}
+                  className="mt-2 text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                  {botCarregando === "simular" ? "Simulando..." : "Ver o que o bot responderia"}
+                </button>
+                <p className="mt-1 text-[11px] text-gray-400">
+                  Faz chamada real de IA, então consome tokens. Nada é enviado ao cliente e nada entra nas métricas.
+                </p>
+                {botSimulacao ? (
+                  <div className="mt-3 rounded border border-gray-200 p-3 text-xs space-y-1">
+                    <p><span className="text-gray-500">decisão:</span> {botSimulacao.decisao} · <span className="text-gray-500">motivo:</span> {botSimulacao.motivo || "—"}</p>
+                    {botSimulacao.texto_gerado ? (
+                      <p className="whitespace-pre-wrap text-gray-800 bg-gray-50 rounded p-2">{botSimulacao.texto_gerado}</p>
+                    ) : (
+                      <p className="text-gray-500">Nenhum texto gerado — veja o motivo acima.</p>
+                    )}
+                    <p className="text-gray-400">
+                      {formatarInteiro(botSimulacao.input_tokens)} tokens entrada · {formatarInteiro(botSimulacao.output_tokens)} saída · {formatarLatencia(botSimulacao.latencia_ms)}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
             {/* Texto do Rodapé */}
             <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4">Texto do Rodapé do Laudo</h2>
@@ -2584,6 +3383,34 @@ export default function ConfiguracoesPage() {
 
                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-gray-600">
+                    Eventos do WhatsApp para push
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {TIPOS_PUSH_WHATSAPP_OPCOES.map((opcao) => (
+                      <label
+                        key={opcao.valor}
+                        className={`flex items-start gap-2 rounded-md px-2 py-1 ${
+                          configUsuario.notificacoes_push ? "cursor-pointer" : "cursor-not-allowed opacity-60"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={normalizarTiposPushAgenda(configUsuario.notificacoes_push_tipos).includes(opcao.valor)}
+                          disabled={!configUsuario.notificacoes_push}
+                          onChange={() => alternarTipoPushAgenda(opcao.valor)}
+                          className="mt-0.5 h-4 w-4 text-teal-600"
+                        />
+                        <span>
+                          <span className="block text-sm text-gray-800">{opcao.label}</span>
+                          <span className="block text-xs text-gray-500">{opcao.descricao}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-600">
                     Prioridade alta (item 1)
                   </p>
                   <p className="mt-1 text-xs text-gray-500">
@@ -2684,6 +3511,108 @@ export default function ConfiguracoesPage() {
                   {salvando ? "Salvando..." : "Salvar Configurações"}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {aba === "observabilidade" && isAdmin && (
+          <div className="fc-settings-content space-y-6">
+            <div className="fc-settings-card">
+              <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-teal-600" />
+                    Latência por endpoint e release
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Histórico agregado das rotas prioritárias. Não inclui URL, paciente, usuário ou conteúdo clínico.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    aria-label="Janela de telemetria"
+                    value={janelaLatenciaRuntime}
+                    onChange={(event) => setJanelaLatenciaRuntime(Number(event.target.value) as 6 | 24 | 168)}
+                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white"
+                  >
+                    <option value={6}>Últimas 6 horas</option>
+                    <option value={24}>Últimas 24 horas</option>
+                    <option value={168}>Últimos 7 dias</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={carregarLatenciaRuntime}
+                    disabled={statusLatenciaRuntime === "loading"}
+                    className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    {statusLatenciaRuntime === "loading" ? "Atualizando..." : "Atualizar"}
+                  </button>
+                </div>
+              </div>
+
+              {erroLatenciaRuntime ? (
+                <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{erroLatenciaRuntime}</div>
+              ) : null}
+
+              {statusLatenciaRuntime === "loading" && !latenciaRuntime ? (
+                <div className="py-8 text-center text-gray-500">Carregando telemetria...</div>
+              ) : !latenciaRuntime?.available ? (
+                <div className="p-4 rounded-lg bg-amber-50 text-amber-800 text-sm">
+                  A telemetria persistida ainda não está disponível. Confirme a migração deste release antes de avaliar os números.
+                </div>
+              ) : latenciaRuntime.groups.length === 0 ? (
+                <div className="py-8 text-center text-gray-500">
+                  Nenhuma amostra nas últimas {latenciaRuntime.hours} horas. Navegue por uma rota prioritária e atualize este painel.
+                </div>
+              ) : (
+                <>
+                  <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                    <span>Retenção: {latenciaRuntime.retention_days} dias</span>
+                    {latenciaRuntime.truncated ? (
+                      <span className="text-amber-700">A consulta atingiu o limite de amostras; amplie a filtragem antes de concluir.</span>
+                    ) : null}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50 text-gray-600">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium">Endpoint</th>
+                          <th className="text-left px-3 py-2 font-medium">Release</th>
+                          <th className="text-right px-3 py-2 font-medium">Amostras</th>
+                          <th className="text-right px-3 py-2 font-medium">p50</th>
+                          <th className="text-right px-3 py-2 font-medium">p95</th>
+                          <th className="text-right px-3 py-2 font-medium">p99</th>
+                          <th className="text-right px-3 py-2 font-medium">Banco p95</th>
+                          <th className="text-right px-3 py-2 font-medium">Pool p95</th>
+                          <th className="text-right px-3 py-2 font-medium">5xx</th>
+                          <th className="text-left px-3 py-2 font-medium">Última amostra</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {latenciaRuntime.groups.map((grupo) => (
+                          <tr key={`${grupo.endpoint}-${grupo.release_id}`} className="border-t border-gray-100">
+                            <td className="px-3 py-2 font-mono text-xs text-gray-800">{grupo.endpoint}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-gray-700">{grupo.release_id}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{grupo.request_count}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.p50_ms)}</td>
+                            <td className="px-3 py-2 text-right font-medium text-gray-900">{formatarMilissegundos(grupo.p95_ms)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.p99_ms)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.database_p95_ms)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.pool_wait_p95_ms)}</td>
+                            <td className="px-3 py-2 text-right">
+                              <span className={grupo.error_5xx_count > 0 ? "text-red-700 font-medium" : "text-gray-700"}>
+                                {grupo.error_5xx_count}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-500">{formatarDataHora(grupo.last_seen_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -3105,38 +4034,69 @@ export default function ConfiguracoesPage() {
                         <th className="text-left px-3 py-2 font-medium">Acao</th>
                         <th className="text-left px-3 py-2 font-medium">Modulo</th>
                         <th className="text-left px-3 py-2 font-medium">Descricao</th>
+                        <th className="text-left px-3 py-2 font-medium">Detalhes</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {auditoriaItens.map((item) => (
-                        <tr key={item.id} className="border-t border-gray-100">
-                          <td className="px-3 py-2 text-gray-700">{formatarDataHora(item.created_at)}</td>
-                          <td className="px-3 py-2 text-gray-700">
-                            <div className="font-medium text-gray-900">{item.usuario_nome || "-"}</div>
-                            <div className="text-xs text-gray-500">{item.usuario_email || "-"}</div>
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
-                              {item.acao}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-gray-700">
-                            <div>{item.modulo}</div>
-                            <div className="text-xs text-gray-500">
-                              {item.entidade}
-                              {item.entidade_id ? ` #${item.entidade_id}` : ""}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-gray-700">
-                            <div>{item.descricao || "-"}</div>
-                            {item.rota ? (
-                              <div className="text-xs text-gray-500">
-                                {item.metodo || "-"} {item.rota}
-                              </div>
+                      {auditoriaItens.map((item) => {
+                        const temDetalhes = !!item.detalhes && Object.keys(item.detalhes).length > 0;
+                        const expandido = !!auditoriaExpandida[item.id];
+                        return (
+                          <Fragment key={item.id}>
+                            <tr className="border-t border-gray-100">
+                              <td className="px-3 py-2 text-gray-700">{formatarDataHora(item.created_at)}</td>
+                              <td className="px-3 py-2 text-gray-700">
+                                <div className="font-medium text-gray-900">{item.usuario_nome || "-"}</div>
+                                <div className="text-xs text-gray-500">{item.usuario_email || "-"}</div>
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+                                  {item.acao}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-gray-700">
+                                <div>{item.modulo}</div>
+                                <div className="text-xs text-gray-500">
+                                  {item.entidade}
+                                  {item.entidade_id ? ` #${item.entidade_id}` : ""}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-gray-700">
+                                <div>{item.descricao || "-"}</div>
+                                {item.rota ? (
+                                  <div className="text-xs text-gray-500">
+                                    {item.metodo || "-"} {item.rota}
+                                  </div>
+                                ) : null}
+                              </td>
+                              <td className="px-3 py-2">
+                                {temDetalhes ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setAuditoriaExpandida((atual) => ({ ...atual, [item.id]: !atual[item.id] }))
+                                    }
+                                    className="text-xs font-medium text-blue-600 hover:underline"
+                                  >
+                                    {expandido ? "Ocultar" : "Ver detalhes"}
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-gray-400">-</span>
+                                )}
+                              </td>
+                            </tr>
+                            {temDetalhes && expandido ? (
+                              <tr className="border-t border-gray-100 bg-gray-50">
+                                <td colSpan={6} className="py-3">
+                                  <div className="sticky left-0 w-fit max-w-[90vw] px-3">
+                                    {renderizarDetalhesAuditoria(item.detalhes)}
+                                  </div>
+                                </td>
+                              </tr>
                             ) : null}
-                          </td>
-                        </tr>
-                      ))}
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

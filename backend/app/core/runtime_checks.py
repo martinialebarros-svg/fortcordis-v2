@@ -18,6 +18,10 @@ from app.services.upload_dedupe_cleanup_service import (
     get_upload_dedupe_cleanup_worker_runtime_state,
 )
 from app.services.push_scheduler_service import get_push_scheduler_worker_runtime_state
+from app.services.whatsapp_reminder_scheduler_service import (
+    get_whatsapp_reminder_scheduler_worker_runtime_state,
+)
+from app.services.whatsapp_bot_worker_service import get_whatsapp_bot_worker_runtime_state
 from app.services.assistente_ia_autonomy import get_assistant_scheduler_worker_runtime_state
 from app.services.tesseract_runtime import resolve_tesseract_command
 from migrations.runner import get_migration_status
@@ -176,8 +180,11 @@ def build_runtime_report() -> dict[str, Any]:
     http_latency_monitor = get_http_latency_monitor_status()
     upload_cleanup_worker = get_upload_dedupe_cleanup_worker_runtime_state()
     push_scheduler_worker = get_push_scheduler_worker_runtime_state()
+    whatsapp_reminder_scheduler_worker = get_whatsapp_reminder_scheduler_worker_runtime_state()
+    whatsapp_bot_worker = get_whatsapp_bot_worker_runtime_state()
     assistant_scheduler_worker = get_assistant_scheduler_worker_runtime_state()
     eco_study_ocr = _check_eco_study_ocr()
+    workers_run_in_this_process = settings.FORTCORDIS_PROCESS_ROLE != "api"
 
     warnings: list[str] = []
     if not database["connected"]:
@@ -195,17 +202,22 @@ def build_runtime_report() -> dict[str, Any]:
             f"{http_5xx_monitor.get('recent_5xx_count', 0)} erro(s) HTTP 5xx "
             f"nos ultimos {http_5xx_monitor.get('window_minutes')} minuto(s)."
         )
-    if upload_cleanup_worker.get("status") == "invalid_config":
-        warnings.append(
-            "Worker de auto-cleanup dedupe com configuracao invalida: "
-            f"{upload_cleanup_worker.get('config_error')}"
-        )
-    elif upload_cleanup_worker.get("enabled") and not upload_cleanup_worker.get("thread_alive"):
-        warnings.append("Worker de auto-cleanup dedupe habilitado, mas inativo.")
-    if push_scheduler_worker.get("enabled") and not push_scheduler_worker.get("thread_alive"):
-        warnings.append("Worker de push agendado habilitado, mas inativo.")
-    if assistant_scheduler_worker.get("enabled") and not assistant_scheduler_worker.get("thread_alive"):
-        warnings.append("Worker de missoes da Mente habilitado, mas inativo.")
+    if workers_run_in_this_process:
+        if upload_cleanup_worker.get("status") == "invalid_config":
+            warnings.append(
+                "Worker de auto-cleanup dedupe com configuracao invalida: "
+                f"{upload_cleanup_worker.get('config_error')}"
+            )
+        elif upload_cleanup_worker.get("enabled") and not upload_cleanup_worker.get("thread_alive"):
+            warnings.append("Worker de auto-cleanup dedupe habilitado, mas inativo.")
+        if push_scheduler_worker.get("enabled") and not push_scheduler_worker.get("thread_alive"):
+            warnings.append("Worker de push agendado habilitado, mas inativo.")
+        if whatsapp_reminder_scheduler_worker.get("enabled") and not whatsapp_reminder_scheduler_worker.get("thread_alive"):
+            warnings.append("Worker de lembrete automatico do WhatsApp habilitado, mas inativo.")
+        if whatsapp_bot_worker.get("enabled") and not whatsapp_bot_worker.get("thread_alive"):
+            warnings.append("Worker do bot de atendimento do WhatsApp habilitado, mas inativo.")
+        if assistant_scheduler_worker.get("enabled") and not assistant_scheduler_worker.get("thread_alive"):
+            warnings.append("Worker de missoes da Mente habilitado, mas inativo.")
     if not eco_study_ocr.get("available"):
         warnings.append("OCR de estudos indisponivel: Tesseract nao encontrado ou inacessivel.")
     elif eco_study_ocr.get("missing_languages"):
@@ -263,6 +275,8 @@ def build_runtime_report() -> dict[str, Any]:
         "environment": {
             "app_env": str(settings.APP_ENV or "").strip() or "development",
             "is_production": _is_production_environment(),
+            "process_role": settings.FORTCORDIS_PROCESS_ROLE,
+            "background_workers_managed_externally": not workers_run_in_this_process,
             "enforce_strong_secret_key_in_production": bool(
                 settings.ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION
             ),
@@ -282,6 +296,8 @@ def build_runtime_report() -> dict[str, Any]:
             "http_latency_monitor": http_latency_monitor,
             "upload_dedupe_cleanup_worker": upload_cleanup_worker,
             "push_scheduler_worker": push_scheduler_worker,
+            "whatsapp_reminder_scheduler_worker": whatsapp_reminder_scheduler_worker,
+            "whatsapp_bot_worker": whatsapp_bot_worker,
             "assistant_scheduler_worker": assistant_scheduler_worker,
         },
         "warnings": warnings,

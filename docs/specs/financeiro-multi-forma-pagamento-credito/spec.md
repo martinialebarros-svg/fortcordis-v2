@@ -29,6 +29,7 @@ Evoluir o recebimento financeiro de Ordem de Servico (OS) para suportar pagament
 - NFR-001 (consistencia): desfazer recebimento deve cancelar todas as transacoes do recebimento multiplo e invalidar creditos gerados daquele evento.
 - NFR-002 (governanca): criacao/edicao de cadastro de bandeiras/formas deve ser restrita a perfil `admin`.
 - NFR-003 (observabilidade operacional): payloads de retorno devem expor totais (bruto/taxa/liquido/excedente) para rastreabilidade.
+- NFR-004 (acessibilidade operacional): no modal de recebimento individual do Financeiro, o formulario deve rolar dentro da viewport e manter as acoes de cancelar e confirmar acessiveis, mesmo com varias formas de pagamento.
 
 ## 4) Contratos tecnicos
 
@@ -94,6 +95,7 @@ Evoluir o recebimento financeiro de Ordem de Servico (OS) para suportar pagament
 - CA-007: cadastro de bandeira/forma via API rejeita usuario sem papel admin.
 - CA-008: secretaria pode informar desconto no modal de recebimento da agenda e o backend deve validar `desconto <= valor_servico`, recalculando o valor da OS para cobertura.
 - CA-009: admin consegue editar `taxa_percentual` e `taxa_fixa` de forma de pagamento existente e a alteracao reflete nos proximos recebimentos.
+- CA-010: com duas ou mais formas de pagamento no recebimento individual do Financeiro, a area do formulario pode ser rolada e o botao `Confirmar Recebimento` permanece visivel e acionavel.
 
 ## 7) Casos de borda
 

@@ -34,6 +34,27 @@
 - RF-022: quando o importador detectar somente uma tecnica do VE, a aplicacao das
   sugestoes deve registrar automaticamente `VE_tecnica_relatorio`; a escolha
   manual continua obrigatoria apenas quando Modo M e Modo 2D coexistirem.
+- RF-023: a analise de referencias deve incluir FE de Teicholz e Delta D/FS do
+  Modo 2D, reutilizando respectivamente os mesmos intervalos `ef` e `fs` do
+  Modo M, sem criar uma segunda tabela clinica para a mesma medida.
+- RF-024: na aba Referencias, quando FE ou Delta D/FS do VE nao vierem como
+  campo proprio, calcular esses valores a partir de VDF/VSF e DIVEd/DIVES da
+  mesma tecnica apenas para a comparacao, sem modificar o laudo salvo; um valor
+  informado pelo equipamento sempre prevalece.
+- RF-025: reconhecer `E/TRIV`/`E/IVRT` como a medida canonica `E_TRIV`, sem
+  confundi-la com uma segunda ocorrencia de `TRIV`; a sugestao continua sujeita
+  a revisao antes de ser aplicada.
+- RF-026: exibir `E_TRIV` em novo e editar laudo e no PDF, com a referencia
+  comparativa `<=2,5`; valores acima de `2,5` sao sugestivos de aumento das
+  pressoes de enchimento do VE. A medida nao gera conclusao clinica automatica.
+- RF-027: tratar `E_A` como valor calculado a partir de `Onda_E / Onda_A`,
+  `E_TRIV` a partir de `(Onda_E em m/s × 100) / TRIV em ms` e `E_E_linha` a
+  partir de `Onda_E / e_doppler`, deixando os tres campos somente leitura
+  quando as medidas de origem estiverem disponiveis. Sem todas as origens de
+  uma relacao, o valor historico importado correspondente permanece preservado.
+- RF-028: exibir `E_E_linha` no formulario e no PDF com a referencia
+  comparativa `<=12`; valores acima de `12` sao sugestivos de aumento das
+  pressoes de enchimento do VE, sem conclusao clinica automatica.
 
 ## Requisitos nao funcionais
 
@@ -71,7 +92,7 @@
     }
   ],
   "meta_importacao_estudo": {
-    "versao_extrator": "5",
+    "versao_extrator": "6",
     "formato": "pdf",
     "paginas": 1,
     "medidas_sugeridas": 1,
@@ -91,7 +112,8 @@
 - CA-005: o novo componente aparece em novo e editar laudo.
 - CA-006: medidas so entram no formulario depois de clicar em aplicar sugestoes.
 - CA-007: imagens GE LOGIQ e reconhecem paciente, tutor, idade, especie e data quando esses textos estiverem legiveis no cabecalho.
-- CA-008: `E/TRIV` nao pode ser interpretado como uma segunda medida de TRIV.
+- CA-008: texto `TRIV 40,00 ms` seguido de `E/TRIV 14,92` resulta em
+  `TRIV = 40` e `E_TRIV = 14,92`, cada um com sua evidencia, sem conflito.
 - CA-009: apóstrofo curvo em `E/E’` deve ser aceito e a leitura completa com duas casas decimais deve prevalecer sobre variante truncada.
 - CA-010: com `PATH` contendo apenas `backend/venv/bin`, uma instalacao executavel em `/usr/bin/tesseract` deve ser localizada e usada pelo extrator e pelo diagnostico de runtime.
 - CA-011: capturas GE Vivid IQ reconhecem as medidas suportadas nas caixas laterais, preservando casas decimais e retornando `perfil = ge_vivid_iq`.
@@ -114,3 +136,16 @@
 - CA-022: importacao exclusivamente 2D aplica a serie e o seletor `2d` no mesmo
   evento, sem depender de um efeito posterior do formulario; o mesmo vale para
   uma serie exclusivamente Modo M.
+- CA-023: com FE 2D e Delta D/FS 2D preenchidos, a aba de referencias exibe as
+  duas comparacoes com os limites `ef_min`/`ef_max` e `fs_min`/`fs_max` da
+  tabela correspondente ao paciente.
+- CA-024: com VDF 2D = 82 mL, VSF 2D = 47 mL, DIVEd 2D = 42,78 mm e DIVEs 2D
+  = 33,81 mm, a aba Referencias exibe FE 2D = 43% e Delta D/FS 2D = 21% e os
+  interpreta pelas faixas `ef` e `fs`; valores de FE/FS que ja vierem do
+  equipamento nao sao substituidos.
+- CA-025: com Onda E = 1,20 m/s, Onda A = 0,60 m/s, TRIV = 48 ms e e' =
+  0,10 m/s, novo e editar laudo exibem `E/A = 2`, `E/TRIV = 2,5` e `E/e' = 12`
+  como campos calculados e somente leitura.
+- CA-026: o PDF que contem `E_TRIV = 2,93` e `E_E_linha = 14` exibe ambas as
+  medidas e as referencias comparativas de `<=2,5` para E/TRIV e `<=12` para
+  E/e', sem converter esses valores em conclusao automatica.

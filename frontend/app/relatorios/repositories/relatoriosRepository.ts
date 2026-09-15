@@ -1,4 +1,5 @@
 import api from "@/lib/axios";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 
 import {
   ClinicaOption,
@@ -37,8 +38,12 @@ const normalizarLista = <T>(payload: unknown): T[] => {
 };
 
 export const listarClinicasRelatorio = async (): Promise<ClinicaOption[]> => {
-  const response = await api.get("/clinicas?limit=1000");
-  const itens = normalizarLista<ClinicaOption>(response.data);
+  const payload = await loadStableCatalog({
+    catalog: "clinicas",
+    variant: "limit=1000",
+    load: () => api.get("/clinicas?limit=1000").then((response) => response.data),
+  });
+  const itens = normalizarLista<ClinicaOption>(payload);
   return itens
     .filter((item) => Number.isFinite(Number(item?.id)))
     .map((item) => ({
@@ -53,8 +58,12 @@ export const listarClinicasRelatorio = async (): Promise<ClinicaOption[]> => {
 };
 
 export const listarServicosRelatorio = async (): Promise<ServicoOption[]> => {
-  const response = await api.get("/servicos?limit=1000");
-  const itens = normalizarLista<ServicoOption>(response.data);
+  const payload = await loadStableCatalog({
+    catalog: "servicos",
+    variant: "limit=1000",
+    load: () => api.get("/servicos?limit=1000").then((response) => response.data),
+  });
+  const itens = normalizarLista<ServicoOption>(payload);
   return itens
     .filter((item) => Number.isFinite(Number(item?.id)))
     .map((item) => ({

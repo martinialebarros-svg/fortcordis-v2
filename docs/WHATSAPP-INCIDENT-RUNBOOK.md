@@ -123,6 +123,7 @@ Acao:
 Sinais:
 - logs com `401` em `POST /webhook`;
 - queda de eventos inbound sem queda geral da API.
+- health `200`, mas nenhuma mensagem real nova aparece somente em stage.
 
 Validacoes:
 
@@ -135,10 +136,16 @@ VERIFY_TOKEN="$(grep -E '^WHATSAPP_VERIFY_TOKEN=' "${APP_DIR}/whatsapp-stage-bac
 curl -i "${WA_URL}/webhook?hub.mode=subscribe&hub.verify_token=${VERIFY_TOKEN}&hub.challenge=ok"
 ```
 
+4. No painel Meta, confirmar a URL de callback do app correspondente ao
+   ambiente. Se o app estiver apontando para producao, stage nao recebera os
+   eventos desse app.
+
 Acao:
 - se segredo/token estiver divergente do Meta App, alinhar valores;
 - reiniciar service;
 - validar chegada de novo evento.
+- nunca trocar o callback do app de producao para stage como correcao de
+  incidente; stage deve usar app, WABA e numero de teste exclusivos.
 
 ## Cenario D - Backlog de webhook_events / cleanup degradado
 

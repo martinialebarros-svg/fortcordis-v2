@@ -4,6 +4,43 @@
 
 Primeira entrega vertical publicada em stage; perfis GE LOGIQ e e GE Vivid IQ calibrados com estudos mantidos fora do repositorio.
 
+## Rodada atual: correção de E/TRIV e relações diastólicas calculadas
+
+- O extrator passou para a versao `6`, para que jobs concluidos da versao `5`
+  sejam reprocessados e possam oferecer a nova chave canonica `E_TRIV`.
+- `E/TRIV` e reconhecido tanto na camada textual/OCR quanto em XML, sem ser
+  contado como segunda medida de `TRIV`; permanece uma sugestao revisavel.
+- Novo e editar laudo e o PDF usam a referencia comparativa `<=2,5` para
+  `E/TRIV`; valores acima disso sao sugestivos de aumento das pressoes de
+  enchimento do VE. Nenhuma conclusao clinica e criada automaticamente.
+- `E/A`, `E/TRIV` e `E/e'` sao calculados, respectivamente, de `Onda_E /
+  Onda_A`, `(Onda_E em m/s × 100) / TRIV em ms` e `Onda_E / e_doppler`, e
+  ficam somente leitura. Sem todas as medidas de origem, cada valor historico
+  importado correspondente nao e apagado.
+- O limite `>12` foi mantido em `E/e'`, no formulario e no PDF, como
+  comparacao de aumento das pressoes de enchimento do VE, tambem sem conclusao
+  clinica automatica.
+- Validacao desta rodada: `frontend/node_modules/.bin/vitest run
+  lib/echo-derived-measurements.test.ts app/laudos/hooks/useReferenciaEco.test.ts`
+  passou com 4 testes; ESLint dirigido, `tsc --noEmit` e build Next.js passaram.
+  `backend/venv/bin/python -m unittest tests.test_eco_study_extraction_service
+  tests.test_pdf_laudo_echo_measurements tests.test_ai_echo_voice_assistant -v`
+  passou com 76 testes; `py_compile` do renderizador de PDF e `git diff --check`
+  tambem passaram.
+
+## Correcao de referencias do VE em Modo 2D
+
+- A comparacao de `FE_Teicholz_2D` usa `ef_min`/`ef_max`, e a de
+  `DeltaD_FS_2D` usa `fs_min`/`fs_max`, os mesmos intervalos clinicos do Modo M.
+- A aba Referencias completa somente a visualizacao com FE e Delta D/FS quando
+  esses campos nao vierem do equipamento, calculando-os a partir de VDF/VSF e
+  DIVEd/DIVES da mesma tecnica. O calculo nao altera o formulario nem o payload
+  do laudo, e valores fornecidos pelo equipamento tem precedencia.
+- `./node_modules/.bin/vitest run app/laudos/hooks/useReferenciaEco.test.ts`: a regressao
+  cobre os dois campos calculados com FE 2D = 43% e Delta D/FS 2D = 21%,
+  classificando-os abaixo dos intervalos 55-80% e 28-42%, respectivamente, e
+  confirma que valores fornecidos pelo equipamento nao sao substituidos.
+
 ## Evidencias automatizadas
 
 - `venv/bin/python -m unittest tests.test_eco_study_extraction_service tests.test_eco_study_import_jobs tests.test_eco_study_import_migration tests.test_image_header_import_service tests.test_xml_import_jobs tests.test_sdd_guardrail -v`: 36/36 testes passaram.

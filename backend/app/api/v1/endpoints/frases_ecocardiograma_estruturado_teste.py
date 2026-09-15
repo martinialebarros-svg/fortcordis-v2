@@ -1,10 +1,11 @@
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.security import get_current_user
 from app.services import frases_ecocardiograma_estruturado_teste_service as service
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 @router.get("")

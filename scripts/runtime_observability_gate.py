@@ -64,15 +64,16 @@ def _validate_health_payload(health: Dict[str, Any]) -> List[str]:
     if not isinstance(cleanup_worker, dict):
         errors.append("observability.upload_dedupe_cleanup_worker ausente ou invalido.")
     else:
+        workers_managed_externally = bool(health.get("background_workers_managed_externally"))
         enabled = bool(cleanup_worker.get("enabled"))
         status = str(cleanup_worker.get("status") or "").strip().lower()
         thread_alive = bool(cleanup_worker.get("thread_alive"))
-        if enabled and status != "running":
+        if enabled and not workers_managed_externally and status != "running":
             errors.append(
                 "worker de cleanup habilitado com status diferente de running "
                 f"(status atual: {status or 'vazio'})."
             )
-        if enabled and not thread_alive:
+        if enabled and not workers_managed_externally and not thread_alive:
             errors.append("worker de cleanup habilitado com thread_alive=false.")
 
     return errors
@@ -146,6 +147,11 @@ def main() -> int:
         if isinstance(observability, dict)
         else {}
     )
+    workers_managed_externally = bool(
+        health_payload.get("background_workers_managed_externally")
+        if isinstance(health_payload, dict)
+        else False
+    )
     print("[gate] readiness:", health_payload.get("readiness"))
     if isinstance(http_5xx, dict):
         print(
@@ -155,7 +161,9 @@ def main() -> int:
             f"window={http_5xx.get('window_minutes')}",
             f"threshold={http_5xx.get('threshold')}",
         )
-    if isinstance(worker, dict):
+    if workers_managed_externally:
+        print("[gate] cleanup_worker: managed_externally=True")
+    elif isinstance(worker, dict):
         print(
             "[gate] cleanup_worker:",
             f"enabled={worker.get('enabled')}",

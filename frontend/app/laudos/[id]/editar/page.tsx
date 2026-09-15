@@ -471,6 +471,9 @@ export default function EditarLaudoPage() {
     medidas["Atrio_esquerdo"],
     medidas["Ao_nivel_AP"],
     medidas["AP"],
+    medidas["Onda_E"],
+    medidas["Onda_A"],
+    medidas["TRIV"],
     medidas["e_doppler"],
     medidas["a_doppler"],
     medidas["DIVEd"],
@@ -566,6 +569,7 @@ export default function EditarLaudoPage() {
       "MV_E": "Onda_E",
       "MV_A": "Onda_A",
       "MV_E_A": "E_A",
+      "MV_E_TRIV": "E_TRIV",
       "MV_DT": "TD",
       "IVRT": "TRIV",
       "TDI_e": "e_doppler",
@@ -606,6 +610,8 @@ export default function EditarLaudoPage() {
       "Onda_E": "Onda_E",
       "Onda_A": "Onda_A",
       "E_A": "E_A",
+      "E_TRIV": "E_TRIV",
+      "E/TRIV": "E_TRIV",
       "TD": "TD",
       "TRIV": "TRIV",
       "e_doppler": "e_doppler",
@@ -1760,6 +1766,7 @@ export default function EditarLaudoPage() {
                           label="E/A (relação adimensional)"
                           value={medidas["E_A"] || ""}
                           onChange={(v) => handleMedidaChange("E_A", v)}
+                          readOnly
                         />
                         <MedidaInput
                           label="TD (tempo de desaceleração, ms)"
@@ -1770,6 +1777,13 @@ export default function EditarLaudoPage() {
                           label="TRIV (tempo de relaxamento isovolumétrico, ms)"
                           value={medidas["TRIV"] || ""}
                           onChange={(v) => handleMedidaChange("TRIV", v)}
+                        />
+                        <MedidaInput
+                          label="E/TRIV (índice E [cm/s] / TRIV [ms])"
+                          value={medidas["E_TRIV"] || ""}
+                          onChange={(v) => handleMedidaChange("E_TRIV", v)}
+                          readOnly
+                          reference="Ref.: ≤2,5; valores >2,5 são sugestivos de aumento das pressões de enchimento do VE."
                         />
                         <MedidaInput
                           label="MR dp/dt (mmHg/s)"
@@ -1795,7 +1809,8 @@ export default function EditarLaudoPage() {
                           label="E/E' (adimensional)"
                           value={medidas["E_E_linha"] || ""}
                           onChange={(v) => handleMedidaChange("E_E_linha", v)}
-                          reference="Ref.: <12"
+                          readOnly
+                          reference="Ref.: ≤12; valores >12 são sugestivos de aumento das pressões de enchimento do VE."
                         />
                       </div>
 

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -11,7 +12,18 @@ ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 class Settings(BaseSettings):
     DATABASE_URL: str
+    # Limites por processo da API. Em PostgreSQL, evitam que conexoes degradadas
+    # acumulem espera indefinida e respeitam o teto do pooler gerenciado.
+    DATABASE_POOL_SIZE: int = Field(default=5, ge=1)
+    DATABASE_MAX_OVERFLOW: int = Field(default=5, ge=0)
+    DATABASE_POOL_TIMEOUT_SECONDS: int = Field(default=15, ge=1)
+    DATABASE_POOL_RECYCLE_SECONDS: int = Field(default=1800, ge=1)
+    DATABASE_CONNECT_TIMEOUT_SECONDS: int = Field(default=10, ge=1)
+    DATABASE_POOL_PRE_PING: bool = True
     APP_ENV: str = "development"
+    # `all` mantem o comportamento local legado. Em producao, o systemd
+    # executa a API como `api` e os trabalhos assincronos como `worker`.
+    FORTCORDIS_PROCESS_ROLE: Literal["all", "api", "worker"] = "all"
     SECRET_KEY: str = "change-me"
     ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION: bool = True
     ALGORITHM: str = "HS256"
@@ -50,6 +62,13 @@ class Settings(BaseSettings):
     RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS: str = (
         "/api/v1/agenda,/api/v1/atendimentos,/api/v1/relatorios,/api/v1/fiscal,/api/v1/logistica"
     )
+    # PERF-17: historico administrativo sem URL, payload ou identificadores clinicos.
+    # A escrita e tolerante a falhas para nunca bloquear uma resposta da aplicacao.
+    RUNTIME_HTTP_LATENCY_PERSIST_ENABLED: bool = True
+    RUNTIME_HTTP_LATENCY_RETENTION_DAYS: int = Field(default=14, ge=1, le=90)
+    RUNTIME_HTTP_LATENCY_CLEANUP_INTERVAL_SECONDS: int = Field(default=21600, ge=60, le=86400)
+    RUNTIME_HTTP_LATENCY_QUERY_MAX_SAMPLES: int = Field(default=20000, ge=100, le=100000)
+    RUNTIME_HTTP_LATENCY_RELEASE_ID: str = ""
     WEB_PUSH_VAPID_PUBLIC_KEY: str = ""
     WEB_PUSH_VAPID_PRIVATE_KEY: str = ""
     WEB_PUSH_VAPID_CLAIMS_SUB: str = "mailto:suporte@fortcordis.local"
@@ -61,6 +80,51 @@ class Settings(BaseSettings):
     WEB_PUSH_PENDING_REMINDER_DEFAULT_HOURS: int = 6
     ASSISTENTE_AGENDA_TOKEN: str = ""
     ASSISTENTE_AGENDA_MAX_WINDOW_DAYS: int = 14
+    WHATSAPP_AGENDA_ENABLED: bool = False
+    WHATSAPP_AGENDA_SERVICE_URL: str = "http://127.0.0.1:3010"
+    WHATSAPP_AGENDA_INTERNAL_TOKEN: str = ""
+    WHATSAPP_AGENDA_TIMEOUT_SECONDS: int = 15
+    WHATSAPP_REMINDER_SCHEDULER_POLL_SECONDS: int = 300
+    WHATSAPP_REMINDER_SCHEDULER_DISTRIBUTED_LOCK_ENABLED: bool = True
+    WHATSAPP_REMINDER_SCHEDULER_DISTRIBUTED_LOCK_KEY: int = 80433002
+    WHATSAPP_REMINDER_WINDOW_HOURS: int = 24
+    WHATSAPP_REMINDER_MIN_LEAD_MINUTES: int = 45
+    WHATSAPP_REMINDER_MAX_ATTEMPTS: int = 3
+    WHATSAPP_REMINDER_RECIPIENT_TYPE: str = "clinica"
+    WHATSAPP_BOT_ENABLED: bool = False
+    # Liberacao operacional independente do modo escolhido na interface.
+    WHATSAPP_BOT_AUTO_SEND_ENABLED: bool = False
+    WHATSAPP_BOT_PROCESSING_LEASE_SECONDS: int = 900
+    WHATSAPP_BOT_MODEL: str = "gpt-5.6-sol"
+    WHATSAPP_BOT_PROMPT_VERSION: str = "whatsapp-bot-v1"
+    WHATSAPP_BOT_DEBOUNCE_SECONDS: int = 12
+    WHATSAPP_BOT_SCHEDULER_POLL_SECONDS: int = 5
+    WHATSAPP_BOT_SCHEDULER_DISTRIBUTED_LOCK_ENABLED: bool = True
+    WHATSAPP_BOT_SCHEDULER_DISTRIBUTED_LOCK_KEY: int = 80433003
+    WHATSAPP_BOT_MAX_ATTEMPTS: int = 3
+    WHATSAPP_BOT_HANDOFF_PAUSE_HOURS: int = 12
+    # Pausa do ENVIO ASSISTIDO, deliberadamente separada da de handoff. As
+    # duas semanticas sao diferentes: handoff de emergencia significa "a
+    # equipe vai ligar, o bot sai da frente"; envio assistido significa
+    # apenas "um atendente respondeu esta mensagem". Usar 12h para o
+    # segundo deixa o cliente sem bot por meio dia depois de UMA resposta.
+    WHATSAPP_BOT_ASSISTED_SEND_PAUSE_HOURS: int = 0
+    # Memoria de conversa: quantas mensagens anteriores vao ao prompt.
+    # `0` desliga sem deploy. Teto real em `whatsapp_bot_prompt`.
+    WHATSAPP_BOT_HISTORICO_MENSAGENS: int = 8
+    WHATSAPP_BOT_MAX_REPLIES_PER_CONVERSATION_DAY: int = 20
+    WHATSAPP_BOT_MAX_TOKENS_PER_DAY: int = 100000
+    WHATSAPP_BOT_MAX_REPLY_CHARS: int = 900
+    # Fase 6 (P6.5): custo por milhao de tokens do bot. Default 0.0, como
+    # em AI_ECHO_*_COST_PER_MILLION - com 0.0 o painel reporta tokens e
+    # marca o custo como nao configurado, em vez de exibir R$ 0,00 como
+    # se fosse gratuito.
+    WHATSAPP_BOT_INPUT_COST_PER_MILLION: float = 0.0
+    WHATSAPP_BOT_OUTPUT_COST_PER_MILLION: float = 0.0
+    WHATSAPP_BOT_RECONCILE_EVERY_CYCLES: int = 60
+    WHATSAPP_BOT_RECONCILE_WINDOW_MINUTES: int = 30
+    PUBLIC_APP_BASE_URL: str = ""
+    AGENDA_FORMALIZACAO_INVITE_DEFAULT_HOURS: int = 72
     OPENAI_API_KEY: str = ""
     ASSISTENTE_IA_ENABLED: bool = True
     ASSISTENTE_IA_MODEL: str = "gpt-5.6-sol"

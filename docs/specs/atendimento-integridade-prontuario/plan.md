@@ -2,7 +2,7 @@
 
 Data: 2026-07-31
 Responsavel: Claude (pareado com Martiniano)
-Status: approved
+Status: done
 
 ## 1) Sequencia de fases
 

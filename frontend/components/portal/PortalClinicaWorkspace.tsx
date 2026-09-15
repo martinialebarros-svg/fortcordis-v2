@@ -18,18 +18,27 @@ import {
   PawPrint,
   RefreshCcw,
   Search,
+  Settings,
   ShieldCheck,
   SlidersHorizontal,
   Stethoscope,
   Users,
+  Wallet,
+  X,
+  XCircle,
 } from "lucide-react";
 
 import {
+  cancelPortalClinicAgendamento,
+  changeClinicPortalPassword,
   createPortalAdminClinicExamDownloadUrls,
   clearPortalSession,
   createPortalExamDownloadUrls,
   downloadPortalAttachment,
+  downloadPortalClinicOSRecibo,
+  getPortalClinicFinanceiro,
   listPortalAdminClinicMirrorExams,
+  listPortalClinicAgendamentos,
   listPortalClinicExams,
   loadPortalSession,
   loginClinicPortal,
@@ -39,6 +48,9 @@ import {
   savePortalSession,
   verifyClinicPortalMfa,
   type PortalClinicAuthResponse,
+  type PortalClinicaAgendamentoItem,
+  type PortalClinicaFinanceiroResponse,
+  type PortalClinicaOrdemServicoItem,
   type PortalClinicExamFilters,
   type PortalClinicOperationalItem,
   type PortalClinicOperationalSummary,
@@ -103,6 +115,15 @@ const OPERATIONAL_STATUS_LABELS: Record<string, string> = {
   em_andamento: "Em andamento",
 };
 
+type PortalTabId = "visao-geral" | "laudos" | "agenda" | "financeiro";
+
+const PORTAL_TABS: { id: PortalTabId; label: string; somenteSessaoReal: boolean }[] = [
+  { id: "visao-geral", label: "Visão geral", somenteSessaoReal: false },
+  { id: "laudos", label: "Laudos", somenteSessaoReal: false },
+  { id: "agenda", label: "Agenda", somenteSessaoReal: true },
+  { id: "financeiro", label: "Financeiro", somenteSessaoReal: true },
+];
+
 function operationalStatusClasses(statusKey: string): string {
   switch (statusKey) {
     case "liberado_portal":
@@ -112,6 +133,10 @@ function operationalStatusClasses(statusKey: string): string {
     default:
       return "bg-slate-100 text-slate-700";
   }
+}
+
+function formatCurrencyBRL(value: number): string {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
 function formatFileSize(value: number | null): string {
@@ -198,11 +223,33 @@ export default function PortalClinicaWorkspace({
     EMPTY_OPERATIONAL_SUMMARY,
   );
   const [operationalItems, setOperationalItems] = useState<PortalClinicOperationalItem[]>([]);
+  const [operationalPendingItems, setOperationalPendingItems] = useState<PortalClinicOperationalItem[]>([]);
+  const [agendamentos, setAgendamentos] = useState<PortalClinicaAgendamentoItem[]>([]);
+  const [agendamentosLoading, setAgendamentosLoading] = useState(false);
+  const [agendamentosError, setAgendamentosError] = useState("");
+  const [agendamentosMessage, setAgendamentosMessage] = useState("");
+  const [confirmandoCancelamentoId, setConfirmandoCancelamentoId] = useState<number | null>(null);
+  const [cancelandoId, setCancelandoId] = useState<number | null>(null);
+  const [financeiro, setFinanceiro] = useState<PortalClinicaFinanceiroResponse | null>(null);
+  const [financeiroLoading, setFinanceiroLoading] = useState(false);
+  const [financeiroError, setFinanceiroError] = useState("");
+  const [baixandoReciboId, setBaixandoReciboId] = useState<number | null>(null);
   const [clinicName, setClinicName] = useState<string | null>(null);
   const [totalAvailable, setTotalAvailable] = useState(0);
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [abaAtiva, setAbaAtiva] = useState<PortalTabId>("visao-geral");
+  const [agendamentosSolicitados, setAgendamentosSolicitados] = useState(false);
+  const [financeiroSolicitado, setFinanceiroSolicitado] = useState(false);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [mustChangePasswordDismissed, setMustChangePasswordDismissed] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [senhaAtualInput, setSenhaAtualInput] = useState("");
+  const [novaSenhaInput, setNovaSenhaInput] = useState("");
+  const [novaSenhaConfirmacaoInput, setNovaSenhaConfirmacaoInput] = useState("");
+  const [passwordChangeLoading, setPasswordChangeLoading] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState("");
   const previewSession = useMemo<PortalSessionResponse | null>(() => {
     if (!isAdminPreview || !previewClinicId) {
       return null;
@@ -300,8 +347,20 @@ export default function PortalClinicaWorkspace({
       setExams(response.items);
       setOperationalSummary(response.operational_summary ?? EMPTY_OPERATIONAL_SUMMARY);
       setOperationalItems(response.operational_items ?? []);
+      const pendingItems = response.operational_pending_items ?? [];
+      setOperationalPendingItems(pendingItems);
+      if (
+        response.operational_summary &&
+        pendingItems.length !== response.operational_summary.aguardando_liberacao
+      ) {
+        console.warn(
+          "Portal da clinica: operational_pending_items diverge de operational_summary.aguardando_liberacao",
+          { pendingCount: pendingItems.length, summaryCount: response.operational_summary.aguardando_liberacao },
+        );
+      }
       setClinicName(response.clinica_nome || adminPreview?.clinicaNome || null);
       setTotalAvailable(response.total);
+      setMustChangePassword(Boolean(response.must_change_password));
       setDashboardLoaded(true);
       if (response.total === 0) {
         setMessage("Nenhum exame liberado foi encontrado para os filtros aplicados.");
@@ -310,6 +369,7 @@ export default function PortalClinicaWorkspace({
       setExams([]);
       setOperationalSummary(EMPTY_OPERATIONAL_SUMMARY);
       setOperationalItems([]);
+      setOperationalPendingItems([]);
       setTotalAvailable(0);
       setError(
         err instanceof Error
@@ -320,6 +380,127 @@ export default function PortalClinicaWorkspace({
       );
     } finally {
       setSearchLoading(false);
+    }
+  }
+
+  async function loadAgendamentos(currentSession: PortalSessionResponse | null = session) {
+    if (isAdminPreview || !currentSession) {
+      return;
+    }
+
+    setAgendamentosLoading(true);
+    setAgendamentosError("");
+
+    try {
+      const usableSession = await ensureClinicSession(currentSession);
+      const response = await listPortalClinicAgendamentos(usableSession.access_token);
+      setAgendamentos(response.items);
+    } catch (err) {
+      setAgendamentos([]);
+      setAgendamentosError(
+        err instanceof Error ? err.message : "Não foi possível carregar os agendamentos da clínica.",
+      );
+    } finally {
+      setAgendamentosLoading(false);
+    }
+  }
+
+  async function handleCancelarAgendamento(agendamentoId: number) {
+    if (!session) {
+      return;
+    }
+
+    setCancelandoId(agendamentoId);
+    setAgendamentosError("");
+    setAgendamentosMessage("");
+
+    try {
+      const usableSession = await ensureClinicSession(session);
+      await cancelPortalClinicAgendamento(agendamentoId, usableSession.access_token);
+      setConfirmandoCancelamentoId(null);
+      setAgendamentosMessage("Agendamento cancelado com sucesso.");
+      await loadAgendamentos(usableSession);
+    } catch (err) {
+      setAgendamentosError(
+        err instanceof Error ? err.message : "Não foi possível cancelar o agendamento.",
+      );
+    } finally {
+      setCancelandoId(null);
+    }
+  }
+
+  async function loadFinanceiro(currentSession: PortalSessionResponse | null = session) {
+    if (isAdminPreview || !currentSession) {
+      return;
+    }
+
+    setFinanceiroLoading(true);
+    setFinanceiroError("");
+
+    try {
+      const usableSession = await ensureClinicSession(currentSession);
+      const response = await getPortalClinicFinanceiro(usableSession.access_token);
+      setFinanceiro(response);
+    } catch (err) {
+      setFinanceiro(null);
+      setFinanceiroError(
+        err instanceof Error ? err.message : "Não foi possível carregar o financeiro da clínica.",
+      );
+    } finally {
+      setFinanceiroLoading(false);
+    }
+  }
+
+  async function handleBaixarRecibo(os: PortalClinicaOrdemServicoItem) {
+    if (!session) {
+      return;
+    }
+
+    setBaixandoReciboId(os.id);
+    setFinanceiroError("");
+
+    try {
+      const usableSession = await ensureClinicSession(session);
+      await downloadPortalClinicOSRecibo(os.id, usableSession.access_token, `recibo_${os.numero_os}.pdf`);
+    } catch (err) {
+      setFinanceiroError(err instanceof Error ? err.message : "Não foi possível baixar o recibo.");
+    } finally {
+      setBaixandoReciboId(null);
+    }
+  }
+
+  async function handleChangePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session) {
+      return;
+    }
+    if (novaSenhaInput !== novaSenhaConfirmacaoInput) {
+      setPasswordChangeError("A confirmação da nova senha não confere.");
+      return;
+    }
+
+    setPasswordChangeLoading(true);
+    setPasswordChangeError("");
+    try {
+      const usableSession = await ensureClinicSession(session);
+      await changeClinicPortalPassword(
+        {
+          senha_atual: senhaAtualInput,
+          nova_senha: novaSenhaInput,
+          nova_senha_confirmacao: novaSenhaConfirmacaoInput,
+        },
+        usableSession.access_token,
+      );
+      setMustChangePassword(false);
+      setShowPasswordModal(false);
+      setSenhaAtualInput("");
+      setNovaSenhaInput("");
+      setNovaSenhaConfirmacaoInput("");
+      setMessage("Senha atualizada com sucesso.");
+    } catch (err) {
+      setPasswordChangeError(err instanceof Error ? err.message : "Não foi possível trocar a senha.");
+    } finally {
+      setPasswordChangeLoading(false);
     }
   }
 
@@ -346,6 +527,7 @@ export default function PortalClinicaWorkspace({
         setExams([]);
         setOperationalSummary(EMPTY_OPERATIONAL_SUMMARY);
         setOperationalItems([]);
+        setOperationalPendingItems([]);
         setClinicName(null);
         setTotalAvailable(0);
         setDashboardLoaded(false);
@@ -364,6 +546,23 @@ export default function PortalClinicaWorkspace({
       onSessionChange?.(session);
     }
   }, [bootstrapping, isAdminPreview, onSessionChange, session]);
+
+  // Agenda/Financeiro so carregam quando a aba correspondente e aberta pela
+  // primeira vez (evita puxar dado que a clinica pode nunca chegar a ver).
+  useEffect(() => {
+    if (isAdminPreview || !session) {
+      return;
+    }
+    if (abaAtiva === "agenda" && !agendamentosSolicitados) {
+      setAgendamentosSolicitados(true);
+      void loadAgendamentos(session);
+    }
+    if (abaAtiva === "financeiro" && !financeiroSolicitado) {
+      setFinanceiroSolicitado(true);
+      void loadFinanceiro(session);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abaAtiva, isAdminPreview, session?.access_token]);
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -533,6 +732,8 @@ export default function PortalClinicaWorkspace({
       clinicName ||
       adminPreview?.clinicaNome ||
       (activeSession.clinica_id ? `Clínica #${activeSession.clinica_id}` : "Clínica parceira");
+    const isNewClinicWithNoHistory =
+      dashboardLoaded && operationalItems.length === 0 && operationalPendingItems.length === 0;
 
     return (
       <section className="fc-clinic-dashboard min-h-screen bg-[#f6fafb] text-slate-950">
@@ -547,6 +748,19 @@ export default function PortalClinicaWorkspace({
               </h1>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              {!isAdminPreview ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPasswordChangeError("");
+                    setShowPasswordModal(true);
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50"
+                >
+                  <Settings className="h-4 w-4" />
+                  Configurações
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void loadDashboard(filters, session)}
@@ -577,6 +791,34 @@ export default function PortalClinicaWorkspace({
             </div>
           </div>
         </header>
+
+        {mustChangePassword && !mustChangePasswordDismissed && !isAdminPreview ? (
+          <div className="mx-auto mt-4 flex max-w-7xl flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 px-5 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+            <p>
+              Esta conta ainda está usando a senha temporária gerada no convite. Troque por uma senha só sua assim
+              que possível.
+            </p>
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPasswordChangeError("");
+                  setShowPasswordModal(true);
+                }}
+                className="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-amber-700"
+              >
+                Trocar senha agora
+              </button>
+              <button
+                type="button"
+                onClick={() => setMustChangePasswordDismissed(true)}
+                className="inline-flex items-center justify-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-800 transition hover:bg-amber-100"
+              >
+                Dispensar por agora
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <main className="mx-auto max-w-7xl px-5 py-6 sm:px-8">
           <section className="fc-clinic-dashboard-hero grid gap-4 lg:grid-cols-[1fr_0.72fr] lg:items-start">
@@ -610,121 +852,128 @@ export default function PortalClinicaWorkspace({
             </div>
           </section>
 
-          <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {[
-              {
-                label: "Exames encontrados",
-                value: dashboardStats.totalExams,
-                detail: `${dashboardStats.visibleExams} exibidos agora`,
-                icon: FileCheck2,
-              },
-              {
-                label: "Pets no resultado",
-                value: dashboardStats.pets,
-                detail: "dentro da unidade",
-                icon: PawPrint,
-              },
-              {
-                label: "Arquivos disponíveis",
-                value: dashboardStats.attachments,
-                detail: "PDFs e anexos liberados",
-                icon: Download,
-              },
-              {
-                label: "Mais recente",
-                value: dashboardStats.latestDate,
-                detail: "por data de realização",
-                icon: CalendarDays,
-              },
-            ].map(({ label, value, detail, icon: Icon }) => (
-              <div key={label} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-                    <p className="mt-3 text-2xl font-bold text-slate-950">{value}</p>
-                    <p className="mt-1 text-sm text-slate-500">{detail}</p>
-                  </div>
-                  <span className="rounded-lg bg-slate-100 p-2 text-slate-700">
-                    <Icon className="h-5 w-5" />
-                  </span>
-                </div>
-              </div>
+          <div
+            role="tablist"
+            aria-label="Seções do portal da unidade"
+            className="mt-6 flex gap-2 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-sm"
+          >
+            {PORTAL_TABS.filter((tab) => !tab.somenteSessaoReal || !isAdminPreview).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                id={`portal-tab-${tab.id}`}
+                aria-selected={abaAtiva === tab.id}
+                aria-controls={`portal-tabpanel-${tab.id}`}
+                onClick={() => setAbaAtiva(tab.id)}
+                className={`shrink-0 rounded-lg px-4 py-2 text-sm font-bold transition ${
+                  abaAtiva === tab.id ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {tab.label}
+              </button>
             ))}
+          </div>
+
+          {abaAtiva === "visao-geral" ? (
+            <div role="tabpanel" id="portal-tabpanel-visao-geral" aria-labelledby="portal-tab-visao-geral">
+          <section className="mt-6 rounded-lg border-2 border-amber-300 bg-amber-50/70 p-4 shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-amber-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="inline-flex items-center gap-2 text-sm font-bold uppercase tracking-[0.1em] text-amber-900">
+                  <ShieldCheck className="h-4 w-4" />
+                  Aguardando liberação
+                </p>
+                <p className="mt-1 text-sm text-amber-800">
+                  Laudo finalizado, na fila para ser publicado no portal.
+                </p>
+              </div>
+              <span className="inline-flex items-center justify-center rounded-lg bg-amber-500 px-4 py-2 text-2xl font-bold text-white">
+                {operationalPendingItems.length}
+              </span>
+            </div>
+
+            {operationalPendingItems.length === 0 ? (
+              <div className="mt-4 flex items-center gap-2 rounded-lg border border-dashed border-amber-300 bg-white p-4 text-sm text-amber-900">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                {isNewClinicWithNoHistory
+                  ? "Ainda não há exames registrados para esta clínica."
+                  : "Nenhum laudo pendente no momento — tudo em dia."}
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {operationalPendingItems.map((item) => (
+                  <article key={item.item_id} className="rounded-lg border border-amber-200 bg-white p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-lg bg-amber-100 px-2 py-1 text-xs font-bold uppercase tracking-[0.08em] text-amber-800">
+                        {item.origem === "laudo" ? "Laudo" : "Exame"}
+                      </span>
+                    </div>
+                    <h3 className="mt-3 text-lg font-bold text-slate-950">{item.tipo_exame}</h3>
+                    <dl className="mt-3 grid gap-3 text-sm text-slate-600 md:grid-cols-2 xl:grid-cols-4">
+                      <div>
+                        <dt className="font-bold text-slate-900">Pet</dt>
+                        <dd className="mt-1">{item.paciente_nome || "Não informado"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-bold text-slate-900">Tutor</dt>
+                        <dd className="mt-1">{item.tutor_nome || "Não informado"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-bold text-slate-900">Data de realização</dt>
+                        <dd className="mt-1">{formatCalendarDate(item.data_realizacao || null)}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-bold text-slate-900">Previsão de liberação</dt>
+                        <dd className="mt-1">{formatPortalDateTime(item.previsao_liberacao || null)}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="inline-flex items-center gap-2 text-sm font-bold text-slate-950">
-                  <ShieldCheck className="h-4 w-4" />
-                  Painel operacional da unidade
-                </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  Acompanhe o andamento dos exames da clínica e a janela padrão de liberação no portal.
-                </p>
-              </div>
-              <p className="text-sm text-slate-500">
-                Prazo padrão: até {operationalSummary.sla_horas}h após a realização.
-              </p>
-            </div>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+              Resumo da unidade · prazo padrão de até {operationalSummary.sla_horas}h após a realização
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7">
               {[
-                {
-                  label: "Realizados hoje",
-                  value: operationalSummary.realizados_hoje,
-                  detail: "casos no escopo da unidade",
-                  icon: Stethoscope,
-                },
-                {
-                  label: "Em laudo",
-                  value: operationalSummary.em_laudo,
-                  detail: "ainda em produção clínica",
-                  icon: FileCheck2,
-                },
-                {
-                  label: "Aguardando liberação",
-                  value: operationalSummary.aguardando_liberacao,
-                  detail: "prontos para publicação",
-                  icon: ShieldCheck,
-                },
-                {
-                  label: "Liberados hoje",
-                  value: operationalSummary.liberados_hoje,
-                  detail: "já disponíveis no portal",
-                  icon: CheckCircle2,
-                },
-              ].map(({ label, value, detail, icon: Icon }) => (
-                <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-                      <p className="mt-3 text-2xl font-bold text-slate-950">{value}</p>
-                      <p className="mt-1 text-sm text-slate-500">{detail}</p>
-                    </div>
-                    <span className="rounded-lg bg-white p-2 text-slate-700 shadow-sm">
-                      <Icon className="h-5 w-5" />
-                    </span>
+                { label: "Exames encontrados", value: dashboardStats.totalExams, icon: FileCheck2 },
+                { label: "Pets no resultado", value: dashboardStats.pets, icon: PawPrint },
+                { label: "Arquivos disponíveis", value: dashboardStats.attachments, icon: Download },
+                { label: "Mais recente", value: dashboardStats.latestDate, icon: CalendarDays },
+                { label: "Realizados hoje", value: operationalSummary.realizados_hoje, icon: Stethoscope },
+                { label: "Em laudo", value: operationalSummary.em_laudo, icon: FileCheck2 },
+                { label: "Liberados hoje", value: operationalSummary.liberados_hoje, icon: CheckCircle2 },
+              ].map(({ label, value, icon: Icon }) => (
+                <div key={label} className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <Icon className="h-3.5 w-3.5" />
+                    <p className="text-[11px] font-bold uppercase tracking-[0.08em]">{label}</p>
                   </div>
+                  <p className="mt-1 text-lg font-bold text-slate-950">{value}</p>
                 </div>
               ))}
             </div>
+          </section>
 
-            <div className="mt-4 border-t border-slate-200 pt-4">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-sm font-bold text-slate-950">Fila operacional da unidade</p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Exames recentes com status, previsão e histórico de liberação.
-                  </p>
-                </div>
+          <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-sm font-bold text-slate-950">Atividade recente da unidade</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Últimos exames e laudos movimentados, em qualquer status.
+                </p>
               </div>
+            </div>
 
-              {operationalItems.length === 0 ? (
-                <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
-                  Ainda não há movimentações operacionais recentes para esta clínica.
-                </div>
-              ) : (
+            {operationalItems.length === 0 ? (
+              <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                Ainda não há movimentações operacionais recentes para esta clínica.
+              </div>
+            ) : (
                 <div className="mt-4 space-y-3">
                   {operationalItems.map((item) => (
                     <article
@@ -786,9 +1035,282 @@ export default function PortalClinicaWorkspace({
                   ))}
                 </div>
               )}
-            </div>
           </section>
+            </div>
+          ) : null}
 
+          {abaAtiva === "agenda" && !isAdminPreview ? (
+            <div role="tabpanel" id="portal-tabpanel-agenda" aria-labelledby="portal-tab-agenda">
+            <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="inline-flex items-center gap-2 text-sm font-bold text-slate-950">
+                    <CalendarDays className="h-4 w-4" />
+                    Agendamentos ativos da unidade
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Agendamentos, reservas e confirmações em aberto para esta clínica.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadAgendamentos(session)}
+                  disabled={agendamentosLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {agendamentosLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCcw className="h-4 w-4" />
+                  )}
+                  Atualizar
+                </button>
+              </div>
+
+              {agendamentosError ? (
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {agendamentosError}
+                </div>
+              ) : null}
+
+              {agendamentosMessage ? (
+                <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-800">
+                  {agendamentosMessage}
+                </div>
+              ) : null}
+
+              <div className="mt-4">
+                {agendamentosLoading && agendamentos.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                    Carregando agendamentos...
+                  </div>
+                ) : agendamentos.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                    Nenhum agendamento ativo para esta unidade no momento.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {agendamentos.map((agendamento) => (
+                      <article key={agendamento.id} className="rounded-lg border border-slate-200 bg-white p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold uppercase tracking-[0.08em] text-slate-600">
+                                {agendamento.status}
+                              </span>
+                            </div>
+                            <h3 className="mt-3 text-lg font-bold text-slate-950">
+                              {agendamento.servico_nome || "Atendimento"}
+                            </h3>
+                            <dl className="mt-3 grid gap-3 text-sm text-slate-600 md:grid-cols-2 xl:grid-cols-4">
+                              <div>
+                                <dt className="font-bold text-slate-900">Data</dt>
+                                <dd className="mt-1">
+                                  {formatCalendarDate(agendamento.data || null)}
+                                  {agendamento.hora ? ` às ${agendamento.hora}` : ""}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt className="font-bold text-slate-900">Pet</dt>
+                                <dd className="mt-1">{agendamento.paciente_nome || "Pendente"}</dd>
+                              </div>
+                              <div>
+                                <dt className="font-bold text-slate-900">Tutor</dt>
+                                <dd className="mt-1">{agendamento.tutor_nome || "Pendente"}</dd>
+                              </div>
+                            </dl>
+                          </div>
+
+                          {agendamento.pode_cancelar ? (
+                            <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+                              {confirmandoCancelamentoId === agendamento.id ? (
+                                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                                  <p className="font-bold">Cancelar este agendamento?</p>
+                                  <p className="mt-1 text-xs text-red-700">
+                                    Esta ação não pode ser desfeita pelo portal.
+                                  </p>
+                                  <div className="mt-3 flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmandoCancelamentoId(null)}
+                                      disabled={cancelandoId === agendamento.id}
+                                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                                    >
+                                      Voltar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleCancelarAgendamento(agendamento.id)}
+                                      disabled={cancelandoId === agendamento.id}
+                                      className="inline-flex items-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      {cancelandoId === agendamento.id ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <XCircle className="h-3.5 w-3.5" />
+                                      )}
+                                      Sim, cancelar
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmandoCancelamentoId(agendamento.id)}
+                                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-bold text-red-700 transition hover:bg-red-50"
+                                >
+                                  <XCircle className="h-4 w-4" />
+                                  Cancelar
+                                </button>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+            </div>
+          ) : null}
+
+          {abaAtiva === "financeiro" && !isAdminPreview ? (
+            <div role="tabpanel" id="portal-tabpanel-financeiro" aria-labelledby="portal-tab-financeiro">
+            <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="inline-flex items-center gap-2 text-sm font-bold text-slate-950">
+                    <Wallet className="h-4 w-4" />
+                    Financeiro da unidade
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Ordens de serviço pendentes e pagas geradas para esta clínica.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadFinanceiro(session)}
+                  disabled={financeiroLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {financeiroLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCcw className="h-4 w-4" />
+                  )}
+                  Atualizar
+                </button>
+              </div>
+
+              {financeiroError ? (
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {financeiroError}
+                </div>
+              ) : null}
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-amber-700">Pendente</p>
+                  <p className="mt-2 text-2xl font-bold text-amber-900">
+                    {formatCurrencyBRL(financeiro?.summary.total_pendente ?? 0)}
+                  </p>
+                  <p className="mt-1 text-sm text-amber-700">
+                    {financeiro?.summary.quantidade_pendente ?? 0} ordem(ns) de serviço
+                  </p>
+                </div>
+                <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-teal-700">Pago</p>
+                  <p className="mt-2 text-2xl font-bold text-teal-900">
+                    {formatCurrencyBRL(financeiro?.summary.total_pago ?? 0)}
+                  </p>
+                  <p className="mt-1 text-sm text-teal-700">
+                    {financeiro?.summary.quantidade_pago ?? 0} ordem(ns) de serviço
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <p className="text-sm font-bold text-slate-950">Pendentes</p>
+                {!financeiro || financeiro.pendentes.length === 0 ? (
+                  <div className="mt-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                    Nenhuma ordem de serviço pendente para esta unidade.
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {financeiro.pendentes.map((os) => (
+                      <div
+                        key={os.id}
+                        className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <p className="font-bold text-slate-900">{os.numero_os}</p>
+                          <p className="text-slate-500">
+                            {os.servico_nome || "Serviço"} · {os.paciente_nome || "Pet não informado"}
+                            {os.data_atendimento ? ` · ${formatCalendarDate(os.data_atendimento)}` : ""}
+                          </p>
+                        </div>
+                        <p className="font-bold text-amber-700">{formatCurrencyBRL(os.valor)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-slate-950">Pagas (mais recentes)</p>
+                  {financeiro && financeiro.summary.quantidade_pago > financeiro.pagas.length ? (
+                    <p className="text-xs text-slate-500">
+                      Mostrando {financeiro.pagas.length} de {financeiro.summary.quantidade_pago}
+                    </p>
+                  ) : null}
+                </div>
+                {!financeiro || financeiro.pagas.length === 0 ? (
+                  <div className="mt-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                    Nenhuma ordem de serviço paga registrada ainda.
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {financeiro.pagas.map((os) => (
+                      <div
+                        key={os.id}
+                        className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <p className="font-bold text-slate-900">{os.numero_os}</p>
+                          <p className="text-slate-500">
+                            {os.servico_nome || "Serviço"} · {os.paciente_nome || "Pet não informado"}
+                            {os.data_atendimento ? ` · ${formatCalendarDate(os.data_atendimento)}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <p className="font-bold text-teal-700">{formatCurrencyBRL(os.valor)}</p>
+                          <button
+                            type="button"
+                            onClick={() => void handleBaixarRecibo(os)}
+                            disabled={baixandoReciboId === os.id}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-teal-300 bg-white px-3 py-1.5 text-xs font-bold text-teal-700 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {baixandoReciboId === os.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            Recibo
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+            </div>
+          ) : null}
+
+          {abaAtiva === "laudos" ? (
+            <div role="tabpanel" id="portal-tabpanel-laudos" aria-labelledby="portal-tab-laudos">
           <form
             className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
             onSubmit={handleFilterSubmit}
@@ -1037,7 +1559,93 @@ export default function PortalClinicaWorkspace({
               </div>
             )}
           </section>
+            </div>
+          ) : null}
         </main>
+
+        {showPasswordModal ? (
+          <div
+            className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/60 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="portal-clinica-trocar-senha-titulo"
+          >
+            <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+              <div className="flex items-start justify-between gap-4">
+                <h2 id="portal-clinica-trocar-senha-titulo" className="text-lg font-bold text-slate-950">
+                  Trocar senha
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordModal(false)}
+                  aria-label="Fechar"
+                  className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleChangePassword} className="mt-4 space-y-4">
+                <label className="block text-sm font-semibold text-slate-800">
+                  Senha atual
+                  <input
+                    type="password"
+                    required
+                    value={senhaAtualInput}
+                    onChange={(event) => setSenhaAtualInput(event.target.value)}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-500"
+                  />
+                </label>
+                <label className="block text-sm font-semibold text-slate-800">
+                  Nova senha
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={novaSenhaInput}
+                    onChange={(event) => setNovaSenhaInput(event.target.value)}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-500"
+                  />
+                </label>
+                <label className="block text-sm font-semibold text-slate-800">
+                  Confirmar nova senha
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={novaSenhaConfirmacaoInput}
+                    onChange={(event) => setNovaSenhaConfirmacaoInput(event.target.value)}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-500"
+                  />
+                </label>
+
+                {passwordChangeError ? (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+                    {passwordChangeError}
+                  </div>
+                ) : null}
+
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswordModal(false)}
+                    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={passwordChangeLoading}
+                    className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
+                  >
+                    {passwordChangeLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Salvar nova senha
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : null}
       </section>
     );
   }

@@ -16,11 +16,13 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from jose import JWTError, jwt
 from app.api.v1.endpoints.ordens_servico import desfazer_recebimento_ordem
 from app.schemas.atendimento import (
+    AdendoPayload,
     AnexoPayload,
     AlertaPayload,
     AtendimentoCreatePayload,
     AtendimentoFinalizarPayload,
     AtendimentoUpdatePayload,
+    CatalogoExameCustomPayload,
     ClinicalPhrasePayload,
     DiagnosticoPayload,
     DocumentoAtendimentoCreatePayload,
@@ -30,9 +32,11 @@ from app.schemas.atendimento import (
     EvolucaoPayload,
     MedicamentoPayload,
     PainelExamePayload,
+    PrescricaoComplementarPayload,
     PrescricaoItemPayload,
     PrescricaoPayload,
     PrescricaoPreviewPayload,
+    PrescricaoSyncPayload,
     TriagemPayload,
 )
 from reportlab.lib import colors
@@ -64,7 +68,7 @@ from app.models.atendimento_clinico import (
     PrescricaoItemAjuste,
     UploadDedupeMetrica,
 )
-from app.models.catalogo_exame import CatalogoExame, PainelExame
+from app.models.catalogo_exame import CatalogoExame, PainelExame, PainelExameItem
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao, ConfiguracaoUsuario
 from app.models.laudo import Exame, Laudo
@@ -97,10 +101,15 @@ from app.services.atendimento.document_crud_service import (
 from app.services.atendimento.document_context_service import (
     atualizar_documento_template_se_contexto_mudou as atualizar_documento_template_se_contexto_mudou_service,
     carregar_contexto_entidades_documento as carregar_contexto_entidades_documento_service,
+    identificar_variaveis_vazias as identificar_variaveis_vazias_service,
     montar_contexto_template_documento as montar_contexto_template_documento_service,
     renderizar_template_documento as renderizar_template_documento_service,
 )
-from app.services.exam_catalog_service import montar_contexto_catalogo_exames
+from app.services.exam_catalog_service import catalogo_exame_to_dict, montar_contexto_catalogo_exames
+from app.services.atendimento.catalogo_exame_custom_service import (
+    gerar_codigo_unico_catalogo_exame,
+    obter_catalogo_exame_customizado,
+)
 from app.services.atendimento.painel_service import (
     CUSTOM_PAINEL_EXAME_PREFIX,
     gerar_codigo_unico_painel_exame,
@@ -119,6 +128,7 @@ from app.services.atendimento_upload_service import (
 )
 from app.services.attachment_download_service import (
     attachment_has_download_source,
+    attachment_is_verified_pdf,
     build_attachment_download_response,
 )
 from app.services.upload_dedupe_cleanup_service import (
@@ -157,6 +167,21 @@ ATENDIMENTO_STATUS_CANONICOS = {
 }
 ATENDIMENTO_TIPOS_HORARIO = {"comercial", "plantao"}
 ATENDIMENTO_AGENDA_STATUS_TERMINAIS = {"Cancelado", "Faltou", "Expirado"}
+# Adendo = o que chega depois do encontro (resultado de exame que o tutor
+# mandou dias depois, receita complementar, orientacao). Mora na mesma tabela
+# de evolucao clinica: o episodio continua sendo o mesmo atendimento.
+ADENDO_TIPOS_CANONICOS = {
+    "evolucao",
+    "resultado_exame",
+    "receita_complementar",
+    "orientacao",
+}
+ADENDO_TIPO_LABELS = {
+    "evolucao": "Evolucao clinica",
+    "resultado_exame": "Resultado de exame recebido",
+    "receita_complementar": "Receita complementar",
+    "orientacao": "Orientacao ao tutor",
+}
 ATENDIMENTO_FINALIZATION_LOCK_KEY = 24052302
 ORIGEM_ATENDIMENTO_DOMICILIAR = "domiciliar"
 ORIGEM_ATENDIMENTO_PADRAO = "clinica_parceira"
@@ -710,6 +735,12 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _to_local_naive(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None or value.tzinfo is None:
+        return value
+    return value.astimezone(ATENDIMENTO_LOCAL_TZ).replace(tzinfo=None)
+
+
 def _to_iso(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -788,6 +819,39 @@ def _texto_pdf_html(value: Any, fallback: str = "-") -> str:
     if not texto:
         return fallback
     return _pdf_escape(texto).replace("\r\n", "\n").replace("\n", "<br/>")
+
+
+_DOCUMENTO_PDF_NEGRITO_RE = re.compile(r"\*\*(.+?)\*\*")
+_DOCUMENTO_PDF_ITALICO_RE = re.compile(r"\*(.+?)\*")
+
+
+def _renderizar_linha_documento_pdf(linha: str) -> str:
+    """Aplica a marcacao markdown-lite (**negrito**, *italico*, "- item") de
+    um bloco de corpo de documento clinico, escapando o texto ANTES de
+    inserir qualquer tag real do ReportLab (o `**`/`*`/`-` do usuario nao sao
+    caracteres XML-especiais, entao a ordem escape-depois-marca e segura)."""
+    escapada = _pdf_escape(linha)
+    formatada = _DOCUMENTO_PDF_NEGRITO_RE.sub(r"<b>\1</b>", escapada)
+    formatada = _DOCUMENTO_PDF_ITALICO_RE.sub(r"<i>\1</i>", formatada)
+    sem_espacos_iniciais = formatada.lstrip()
+    if sem_espacos_iniciais.startswith("- "):
+        indentacao = formatada[: len(formatada) - len(sem_espacos_iniciais)]
+        formatada = f"{indentacao}• {sem_espacos_iniciais[2:]}"
+    return formatada
+
+
+def _texto_pdf_html_documento(value: Any, fallback: str = "-") -> str:
+    """Igual a `_texto_pdf_html`, mas so para o corpo de documentos/templates
+    clinicos: tambem converte **negrito**, *italico* e linhas "- item" para
+    as tags equivalentes do ReportLab. Uso restrito a esse contexto para nao
+    mudar o comportamento dos outros ~7 lugares que chamam `_texto_pdf_html`
+    (orientacoes de prescricao, contexto clinico, etc.) - la, um asterisco
+    digitado a toa nao deveria virar negrito de surpresa."""
+    texto = str(value or "").strip()
+    if not texto:
+        return fallback
+    linhas = texto.replace("\r\n", "\n").split("\n")
+    return "<br/>".join(_renderizar_linha_documento_pdf(linha) for linha in linhas)
 
 
 def _formatar_moeda_brl(value: Any) -> str:
@@ -960,7 +1024,7 @@ def _gerar_pdf_documento_atendimento_bytes(
         if not blocos:
             blocos = ["Sem conteudo registrado."]
         for bloco in blocos:
-            story.append(Paragraph(_texto_pdf_html(bloco, ""), corpo_style))
+            story.append(Paragraph(_texto_pdf_html_documento(bloco, ""), corpo_style))
             story.append(Spacer(1, 4 * mm))
 
         if nome_veterinario:
@@ -1579,6 +1643,7 @@ def _map_exame(exame: Exame) -> dict:
         "laudo_id": exame.laudo_id,
         "data_solicitacao": _to_iso(exame.data_solicitacao),
         "data_resultado": _to_operational_iso(exame.data_resultado),
+        "visualizado_portal_em": _to_iso(exame.visualizado_portal_em),
     }
 
 
@@ -1687,6 +1752,7 @@ def _serialize_anexo(anexo: AnexoAtendimento) -> dict:
         "id": anexo.id,
         "atendimento_id": anexo.atendimento_id,
         "exame_id": anexo.exame_id,
+        "evolucao_id": getattr(anexo, "evolucao_id", None),
         "tipo": anexo.tipo,
         "descricao": anexo.descricao or "",
         "url": anexo.url,
@@ -1804,6 +1870,261 @@ def _obter_nome_medicamento(
     raise HTTPException(status_code=422, detail="Informe o nome do medicamento.")
 
 
+# === ADENDOS E RECEITAS ===
+
+
+def _normalizar_tipo_adendo(value: Any) -> str:
+    token = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not token:
+        return "evolucao"
+    if token in ADENDO_TIPOS_CANONICOS:
+        return token
+    permitidos = ", ".join(sorted(ADENDO_TIPOS_CANONICOS))
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=f"Tipo de adendo invalido. Use um de: {permitidos}.",
+    )
+
+
+def _tipo_adendo(evolucao: EvolucaoClinica) -> str:
+    return (getattr(evolucao, "tipo", None) or "evolucao").strip().lower() or "evolucao"
+
+
+def _titulo_adendo(evolucao: EvolucaoClinica) -> str:
+    titulo = (getattr(evolucao, "titulo", None) or "").strip()
+    if titulo:
+        return titulo
+    return ADENDO_TIPO_LABELS.get(_tipo_adendo(evolucao), ADENDO_TIPO_LABELS["evolucao"])
+
+
+def _serialize_adendo(
+    evolucao: EvolucaoClinica,
+    *,
+    anexos: Optional[List[dict]] = None,
+    prescricao_id: Optional[int] = None,
+) -> dict:
+    return {
+        "id": evolucao.id,
+        "atendimento_id": evolucao.atendimento_id,
+        "tipo": _tipo_adendo(evolucao),
+        "titulo": _titulo_adendo(evolucao),
+        "descricao": evolucao.descricao or "",
+        "sinais_vitais": evolucao.sinais_vitais or "",
+        "data_evolucao": _to_iso(evolucao.data_evolucao),
+        "pos_conclusao": int(getattr(evolucao, "pos_conclusao", 0) or 0),
+        "responsavel_id": evolucao.responsavel_id,
+        "responsavel_nome": evolucao.responsavel_nome or "",
+        "anexos": anexos or [],
+        "prescricao_id": prescricao_id,
+        "created_at": _to_iso(evolucao.created_at),
+    }
+
+
+def _carregar_adendo_do_atendimento(
+    db: Session,
+    *,
+    atendimento_id: int,
+    adendo_id: Any,
+) -> Optional[EvolucaoClinica]:
+    if adendo_id is None:
+        return None
+    adendo = (
+        db.query(EvolucaoClinica)
+        .filter(
+            EvolucaoClinica.id == int(adendo_id),
+            EvolucaoClinica.atendimento_id == atendimento_id,
+        )
+        .first()
+    )
+    if not adendo:
+        raise HTTPException(status_code=404, detail="Adendo nao encontrado para este atendimento.")
+    return adendo
+
+
+def _sequencia_prescricao(prescricao: PrescricaoClinica) -> int:
+    return int(getattr(prescricao, "sequencia", 1) or 1)
+
+
+def _proxima_sequencia_prescricao(db: Session, atendimento_id: int) -> int:
+    maior = (
+        db.query(func.max(PrescricaoClinica.sequencia))
+        .filter(PrescricaoClinica.atendimento_id == atendimento_id)
+        .scalar()
+    )
+    return int(maior or 0) + 1
+
+
+def _buscar_prescricao_principal(db: Session, atendimento_id: int) -> Optional[PrescricaoClinica]:
+    """Receita do dia da consulta (`sequencia = 1`).
+
+    A ordenacao por sequencia (e nao por id) mantem o alvo estavel depois que
+    o atendimento passa a ter receitas complementares, e o fallback pela menor
+    sequencia cobre bases anteriores a migracao 20260910_83."""
+    return (
+        db.query(PrescricaoClinica)
+        .filter(PrescricaoClinica.atendimento_id == atendimento_id)
+        .order_by(PrescricaoClinica.sequencia.asc(), PrescricaoClinica.id.asc())
+        .first()
+    )
+
+
+def _carregar_prescricao_do_atendimento(
+    db: Session,
+    *,
+    atendimento_id: int,
+    prescricao_id: int,
+) -> PrescricaoClinica:
+    prescricao = (
+        db.query(PrescricaoClinica)
+        .filter(
+            PrescricaoClinica.id == prescricao_id,
+            PrescricaoClinica.atendimento_id == atendimento_id,
+        )
+        .first()
+    )
+    if not prescricao:
+        raise HTTPException(status_code=404, detail="Receita nao encontrada para este atendimento.")
+    return prescricao
+
+
+_PRESCRICAO_ITEM_CAMPOS_SINCRONIZADOS = (
+    "apresentacao_selecionada",
+    "dose",
+    "frequencia",
+    "duracao",
+    "via",
+    "instrucoes",
+    "dose_mg_kg",
+    "peso_referencia_kg",
+    "unidade_dose_calculo",
+    "concentracao_personalizada",
+)
+
+
+def _payload_altera_prescricao(
+    db: Session,
+    prescricao: Optional[PrescricaoClinica],
+    payload: PrescricaoPayload,
+) -> bool:
+    """O autosave reenvia a receita inteira a cada salvamento.
+
+    Sem comparar antes, o guard de receita emitida dispararia 409 em toda
+    digitacao posterior a geracao do PDF. So conta como edicao o payload que
+    de fato muda o conteudo persistido."""
+    if prescricao is None:
+        return (
+            bool(payload.itens)
+            or bool((payload.orientacoes_gerais or "").strip())
+            or payload.retorno_dias is not None
+        )
+
+    if (prescricao.orientacoes_gerais or "") != (payload.orientacoes_gerais or ""):
+        return True
+    if prescricao.retorno_dias != payload.retorno_dias:
+        return True
+
+    itens = (
+        db.query(PrescricaoItem)
+        .filter(PrescricaoItem.prescricao_id == prescricao.id)
+        .all()
+    )
+    persistidos = {item.id: item for item in itens}
+    recebidos: set = set()
+
+    for index, item_payload in enumerate(payload.itens):
+        if not item_payload.id or item_payload.id not in persistidos:
+            return True
+        recebidos.add(item_payload.id)
+        item = persistidos[item_payload.id]
+
+        ordem_payload = item_payload.ordem if item_payload.ordem is not None else index
+        if int(item.ordem or 0) != int(ordem_payload):
+            return True
+        if item.medicamento_id != item_payload.medicamento_id:
+            return True
+
+        nome_recebido = (item_payload.medicamento_nome or "").strip()
+        # Nome vazio com medicamento_id e resolvido pelo banco no sync, entao
+        # nao caracteriza mudanca.
+        if nome_recebido and nome_recebido != (item.medicamento_nome or ""):
+            return True
+
+        for campo in _PRESCRICAO_ITEM_CAMPOS_SINCRONIZADOS:
+            if (getattr(item, campo, None) or "") != (getattr(item_payload, campo, None) or ""):
+                return True
+
+    if set(persistidos) - recebidos:
+        return True
+    return False
+
+
+def _validar_edicao_receita_emitida(
+    prescricao: Optional[PrescricaoClinica],
+    *,
+    confirmado: bool,
+) -> bool:
+    """Receita que ja virou PDF e documento entregue.
+
+    Segue o padrao de `CONFIRMACAO_CONCLUSAO_PENDENCIAS`: avisa e permite, em
+    vez de bloquear. Devolve True quando houve edicao confirmada de receita
+    emitida, para o chamador auditar."""
+    if prescricao is None or not prescricao.emitida_em:
+        return False
+    if not confirmado:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "codigo": "CONFIRMACAO_EDICAO_RECEITA_EMITIDA",
+                "mensagem": (
+                    f"A receita {_sequencia_prescricao(prescricao)} deste atendimento foi "
+                    f"emitida em {_formatar_data_hora(_to_local_naive(prescricao.emitida_em))}. Editar cria "
+                    "uma nova versao do documento oficial. Para acrescentar tratamento sem "
+                    "alterar o que ja foi entregue ao tutor, emita uma receita complementar."
+                ),
+                "confirmavel": True,
+                "prescricao_id": prescricao.id,
+                "sequencia": _sequencia_prescricao(prescricao),
+                "emitida_em": _to_operational_iso(prescricao.emitida_em),
+            },
+        )
+    return True
+
+
+def _auditar_edicao_receita_emitida(
+    *,
+    current_user: User,
+    atendimento: AtendimentoClinico,
+    prescricao: PrescricaoClinica,
+    request: Optional[Request] = None,
+) -> None:
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="atendimento",
+        entidade="prescricao_clinica",
+        entidade_id=prescricao.id,
+        acao="EDITAR_RECEITA_EMITIDA",
+        descricao=(
+            f"Receita {_sequencia_prescricao(prescricao)} do atendimento #{atendimento.id} "
+            f"editada apos emissao em {_formatar_data_hora(_to_local_naive(prescricao.emitida_em))}."
+        ),
+        detalhes={
+            "atendimento_id": atendimento.id,
+            "prescricao_id": prescricao.id,
+            "sequencia": _sequencia_prescricao(prescricao),
+            "emitida_em": _to_operational_iso(prescricao.emitida_em),
+        },
+        request=request,
+    )
+
+
+def _marcar_receita_emitida(db: Session, prescricao: PrescricaoClinica) -> None:
+    """Primeira geracao do PDF congela a receita como documento entregue."""
+    if prescricao.emitida_em:
+        return
+    prescricao.emitida_em = datetime.now(ATENDIMENTO_LOCAL_TZ)
+    db.commit()
+
+
 def _sync_exames(
     db: Session,
     atendimento: AtendimentoClinico,
@@ -1843,9 +2164,19 @@ def _sync_exames(
             continue
 
         exame = None
-        if payload.id and payload.id in existentes:
-            exame = existentes[payload.id]
-
+        if payload.id is not None:
+            exame = existentes.get(payload.id)
+            if exame is None:
+                # Um id so existe para registros ja persistidos. Recriar o
+                # exame quando chega um autosave atrasado de outra aba (ou
+                # logo apos uma exclusao) transforma uma atualizacao velha em
+                # um novo item e faz a solicitacao voltar duplicada no PDF.
+                logger.warning(
+                    "Payload de exame ignorado por id inexistente (atendimento_id=%s, exame_id=%s)",
+                    atendimento.id,
+                    payload.id,
+                )
+                continue
         campos_exame_antes = (
             {
                 "resultado": exame.resultado,
@@ -1940,7 +2271,7 @@ def _sync_exames(
         else:
             exame.laudo_id = payload.laudo_id
         exame.data_solicitacao = exame.data_solicitacao or datetime.now()
-        exame.data_resultado = _parse_datetime(payload.data_resultado) if payload.data_resultado else exame.data_resultado
+        exame.data_resultado = _to_local_naive(_parse_datetime(payload.data_resultado)) if payload.data_resultado else exame.data_resultado
         if _status_exame_concluido(exame.status) and exame.data_resultado is None:
             exame.data_resultado = datetime.now()
 
@@ -1970,13 +2301,23 @@ def _sync_prescricao(
     atendimento: AtendimentoClinico,
     prescricao_payload: Optional[PrescricaoPayload],
     current_user: User,
+    *,
+    prescricao: Optional[PrescricaoClinica] = None,
 ) -> Optional[PrescricaoClinica]:
-    if prescricao_payload is None:
-        return db.query(PrescricaoClinica).filter(PrescricaoClinica.atendimento_id == atendimento.id).first()
+    """Sincroniza uma receita do atendimento.
 
-    prescricao = db.query(PrescricaoClinica).filter(PrescricaoClinica.atendimento_id == atendimento.id).first()
+    Sem `prescricao`, o alvo e a receita do dia da consulta (`sequencia = 1`),
+    que e o que o `PUT /atendimentos/{id}` continua editando. As receitas
+    complementares passam o alvo explicitamente."""
+    if prescricao_payload is None:
+        if prescricao is not None:
+            return prescricao
+        return _buscar_prescricao_principal(db, atendimento.id)
+
     if prescricao is None:
-        prescricao = PrescricaoClinica(atendimento_id=atendimento.id)
+        prescricao = _buscar_prescricao_principal(db, atendimento.id)
+    if prescricao is None:
+        prescricao = PrescricaoClinica(atendimento_id=atendimento.id, sequencia=1)
         db.add(prescricao)
         db.flush()
 
@@ -2066,6 +2407,45 @@ def _sync_prescricao(
     return prescricao
 
 
+def _montar_prescricao_dict(
+    db: Session,
+    prescricao: PrescricaoClinica,
+    itens_dict: List[dict],
+    *,
+    peso_referencia: Any,
+    medicamentos_map: Optional[Dict[int, dict]] = None,
+) -> dict:
+    if medicamentos_map is None:
+        medicamentos_ids = [
+            item.get("medicamento_id") for item in itens_dict if item.get("medicamento_id")
+        ]
+        medicamentos = (
+            db.query(Medicamento).filter(Medicamento.id.in_(medicamentos_ids)).all()
+            if medicamentos_ids
+            else []
+        )
+        medicamentos_map = {med.id: _serialize_medicamento(med) for med in medicamentos}
+
+    apoio_prescricao = analyze_prescription_items(
+        peso_kg=peso_referencia,
+        medicamentos=medicamentos_map,
+        itens=itens_dict,
+    )
+    return {
+        "id": prescricao.id,
+        "sequencia": _sequencia_prescricao(prescricao),
+        "emitida_em": _to_operational_iso(prescricao.emitida_em),
+        "adendo_id": getattr(prescricao, "adendo_id", None),
+        "orientacoes_gerais": prescricao.orientacoes_gerais or "",
+        "retorno_dias": prescricao.retorno_dias,
+        "peso_referencia_kg": peso_referencia,
+        "itens": itens_dict,
+        "apoio_clinico": apoio_prescricao,
+        "created_at": _to_iso(prescricao.created_at),
+        "updated_at": _to_iso(prescricao.updated_at),
+    }
+
+
 def _montar_detalhe_atendimento(
     db: Session,
     atendimento: AtendimentoClinico,
@@ -2086,49 +2466,59 @@ def _montar_detalhe_atendimento(
     )
     historico_por_exame = _map_ajustes_por_exame(db, [exame.id for exame in exames if exame.id])
 
-    prescricao = (
+    # Um atendimento pode ter varias receitas (a do dia + complementares dos
+    # adendos). Tudo carregado em consultas agregadas por atendimento, e nao
+    # por receita, para nao reintroduzir N+1 no detalhe.
+    prescricoes = (
         db.query(PrescricaoClinica)
         .filter(PrescricaoClinica.atendimento_id == atendimento.id)
-        .first()
+        .order_by(PrescricaoClinica.sequencia.asc(), PrescricaoClinica.id.asc())
+        .all()
     )
-    prescricao_dict = None
-    if prescricao:
-        itens = (
-            db.query(PrescricaoItem)
-            .filter(PrescricaoItem.prescricao_id == prescricao.id)
-            .order_by(PrescricaoItem.ordem.asc(), PrescricaoItem.id.asc())
-            .all()
+    prescricao_ids = [item.id for item in prescricoes if item.id]
+    itens_prescricao = (
+        db.query(PrescricaoItem)
+        .filter(PrescricaoItem.prescricao_id.in_(prescricao_ids))
+        .order_by(
+            PrescricaoItem.prescricao_id.asc(),
+            PrescricaoItem.ordem.asc(),
+            PrescricaoItem.id.asc(),
         )
-        historico_por_item = _map_ajustes_por_item(db, [item.id for item in itens if item.id])
-        medicamentos_ids = [item.medicamento_id for item in itens if item.medicamento_id]
-        medicamentos = (
-            db.query(Medicamento)
-            .filter(Medicamento.id.in_(medicamentos_ids))
-            .all()
-            if medicamentos_ids
-            else []
-        )
-        medicamentos_map = {med.id: _serialize_medicamento(med) for med in medicamentos}
-        itens_dict = []
-        for item in itens:
-            mapped_item = _map_prescricao_item(item)
-            mapped_item["historico_ajustes"] = historico_por_item.get(item.id, [])
-            itens_dict.append(mapped_item)
+        .all()
+        if prescricao_ids
+        else []
+    )
+    historico_por_item = _map_ajustes_por_item(
+        db, [item.id for item in itens_prescricao if item.id]
+    )
+    medicamentos_ids = [item.medicamento_id for item in itens_prescricao if item.medicamento_id]
+    medicamentos = (
+        db.query(Medicamento).filter(Medicamento.id.in_(medicamentos_ids)).all()
+        if medicamentos_ids
+        else []
+    )
+    medicamentos_map = {med.id: _serialize_medicamento(med) for med in medicamentos}
 
-        peso_referencia = _resolver_peso_referencia(atendimento, paciente)
-        apoio_prescricao = analyze_prescription_items(
-            peso_kg=peso_referencia,
-            medicamentos=medicamentos_map,
-            itens=itens_dict,
+    itens_por_prescricao: Dict[int, List[dict]] = defaultdict(list)
+    for item in itens_prescricao:
+        mapped_item = _map_prescricao_item(item)
+        mapped_item["historico_ajustes"] = historico_por_item.get(item.id, [])
+        itens_por_prescricao[item.prescricao_id].append(mapped_item)
+
+    peso_referencia_prescricao = _resolver_peso_referencia(atendimento, paciente)
+    prescricoes_dict = [
+        _montar_prescricao_dict(
+            db,
+            item,
+            itens_por_prescricao.get(item.id, []),
+            peso_referencia=peso_referencia_prescricao,
+            medicamentos_map=medicamentos_map,
         )
-        prescricao_dict = {
-            "id": prescricao.id,
-            "orientacoes_gerais": prescricao.orientacoes_gerais or "",
-            "retorno_dias": prescricao.retorno_dias,
-            "peso_referencia_kg": peso_referencia,
-            "itens": itens_dict,
-            "apoio_clinico": apoio_prescricao,
-        }
+        for item in prescricoes
+    ]
+    # Ordenado por sequencia: a primeira e a receita do dia da consulta, que e
+    # o que a chave legada `prescricao` continua expondo.
+    prescricao_dict = prescricoes_dict[0] if prescricoes_dict else None
 
     # Buscar evoluÃ§Ãµes
     evolucoes = (
@@ -2219,6 +2609,8 @@ def _montar_detalhe_atendimento(
             for exame in exames
         ],
         "prescricao": prescricao_dict,
+        "prescricoes": prescricoes_dict,
+        "adendos": _carregar_adendos_serializados(db, atendimento.id, anexos=anexos),
         "evolucoes": [
             {
                 "id": e.id,
@@ -2395,6 +2787,117 @@ def listar_catalogo_exames_atendimento(
     )
 
 
+def _normalizar_sinonimos_catalogo_exame(values: List[str], nome: str) -> List[str]:
+    normalized: List[str] = []
+    seen = {nome.casefold()}
+    for value in values:
+        item = str(value or "").strip()
+        key = item.casefold()
+        if not item or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(item)
+    return normalized
+
+
+def _validar_nome_catalogo_exame_disponivel(
+    db: Session,
+    nome: str,
+    *,
+    ignore_id: Optional[int] = None,
+) -> None:
+    query = db.query(CatalogoExame).filter(
+        CatalogoExame.ativo == 1,
+        func.lower(CatalogoExame.nome) == nome.lower(),
+    )
+    if ignore_id is not None:
+        query = query.filter(CatalogoExame.id != ignore_id)
+    if query.first() is not None:
+        raise HTTPException(status_code=409, detail="Ja existe um exame ativo com esse nome no catalogo.")
+
+
+def _aplicar_payload_catalogo_exame_customizado(
+    exame: CatalogoExame,
+    payload: CatalogoExameCustomPayload,
+) -> None:
+    nome = (payload.nome or "").strip()
+    categoria = (payload.categoria or "").strip()
+    if len(nome) < 2:
+        raise HTTPException(status_code=422, detail="Informe o nome do exame com pelo menos 2 caracteres.")
+    if len(categoria) < 2:
+        raise HTTPException(status_code=422, detail="Informe a categoria do exame com pelo menos 2 caracteres.")
+
+    exame.nome = nome
+    exame.categoria = categoria
+    exame.subcategoria = (payload.subcategoria or "").strip() or None
+    exame.especie_alvo = (payload.especie_alvo or "").strip() or None
+    exame.prioridade_padrao = (payload.prioridade_padrao or "Rotina").strip() or "Rotina"
+    exame.valor_padrao = float(payload.valor_padrao or 0)
+    exame.preparo = (payload.preparo or "").strip() or None
+    exame.observacoes_padrao = (payload.observacoes_padrao or "").strip() or None
+    exame.sinonimos_json = json.dumps(
+        _normalizar_sinonimos_catalogo_exame(payload.sinonimos, nome),
+        ensure_ascii=False,
+    )
+    exame.ativo = 1
+    exame.updated_at = datetime.now()
+
+
+@router.post("/exames/catalogo", status_code=status.HTTP_201_CREATED)
+def criar_catalogo_exame_customizado_atendimento(
+    payload: CatalogoExameCustomPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    nome = (payload.nome or "").strip()
+    _validar_nome_catalogo_exame_disponivel(db, nome)
+    exame = CatalogoExame(
+        codigo=gerar_codigo_unico_catalogo_exame(db, nome),
+        created_at=datetime.now(),
+    )
+    _aplicar_payload_catalogo_exame_customizado(exame, payload)
+    db.add(exame)
+    db.commit()
+    db.refresh(exame)
+    return catalogo_exame_to_dict(exame)
+
+
+@router.put("/exames/catalogo/{exame_id}")
+def atualizar_catalogo_exame_customizado_atendimento(
+    exame_id: int,
+    payload: CatalogoExameCustomPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    exame = obter_catalogo_exame_customizado(db, exame_id)
+    nome = (payload.nome or "").strip()
+    _validar_nome_catalogo_exame_disponivel(db, nome, ignore_id=exame.id)
+    exame.codigo = gerar_codigo_unico_catalogo_exame(db, nome, ignore_id=exame.id)
+    _aplicar_payload_catalogo_exame_customizado(exame, payload)
+    db.commit()
+    db.refresh(exame)
+    return catalogo_exame_to_dict(exame)
+
+
+@router.delete("/exames/catalogo/{exame_id}")
+def excluir_catalogo_exame_customizado_atendimento(
+    exame_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    exame = obter_catalogo_exame_customizado(db, exame_id)
+    db.query(PainelExameItem).filter(
+        PainelExameItem.catalogo_exame_id == exame.id
+    ).delete(synchronize_session=False)
+    exame.ativo = 0
+    exame.updated_at = datetime.now()
+    db.commit()
+    return {"message": "Exame customizado removido do catalogo.", "id": exame.id}
+
+
 @router.get("/paineis")
 def listar_paineis_customizados_atendimento(
     db: Session = Depends(get_db),
@@ -2490,6 +2993,7 @@ def listar_frases_clinicas_atendimento(
     secao: Optional[str] = None,
     search: Optional[str] = None,
     include_inactive: int = 0,
+    skip: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=1000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -2500,6 +3004,7 @@ def listar_frases_clinicas_atendimento(
         secao=(secao or "").strip() or None,
         search=(search or "").strip() or None,
         include_inactive=bool(include_inactive),
+        skip=skip,
         limit=limit,
     )
 
@@ -2647,6 +3152,18 @@ def criar_documento_atendimento(
     if not titulo or not corpo:
         raise HTTPException(status_code=422, detail="Informe um template ativo ou preencha titulo e corpo do documento.")
 
+    variaveis_vazias: List[str] = []
+    if template and titulo == titulo_base and corpo == corpo_base:
+        # So reporta "vazias" quando o documento salvo e realmente o texto
+        # renderizado do template sem sobrescrita pelo chamador - senao a
+        # analise descreveria placeholders que nem estao no texto final.
+        variaveis_vazias = sorted(
+            set(
+                identificar_variaveis_vazias_service(template.titulo_padrao or "", contexto)
+                + identificar_variaveis_vazias_service(template.corpo_template or "", contexto)
+            )
+        )
+
     documento = DocumentoAtendimento(
         atendimento_id=atendimento.id,
         template_id=template.id if template else None,
@@ -2662,7 +3179,10 @@ def criar_documento_atendimento(
     atendimento.updated_at = datetime.now()
     db.commit()
     db.refresh(documento)
-    return serializar_documento_atendimento_service(documento)
+    resultado = serializar_documento_atendimento_service(documento)
+    if variaveis_vazias:
+        resultado["variaveis_vazias"] = variaveis_vazias
+    return resultado
 
 
 @router.put("/{atendimento_id}/documentos/{documento_id}")
@@ -2743,25 +3263,14 @@ def obter_atendimento(
     return _montar_detalhe_atendimento(db, atendimento)
 
 
-@router.get("/{atendimento_id}/prescricao/pdf")
-def gerar_pdf_prescricao(
-    atendimento_id: int,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    current_user = _autenticar_usuario_pdf(request, db)
-    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
-    if not atendimento:
-        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
-
+def _responder_pdf_prescricao(
+    db: Session,
+    *,
+    atendimento: AtendimentoClinico,
+    prescricao: PrescricaoClinica,
+    current_user: User,
+) -> StreamingResponse:
     paciente, tutor, clinica = carregar_contexto_entidades_documento_service(db, atendimento)
-    prescricao = (
-        db.query(PrescricaoClinica)
-        .filter(PrescricaoClinica.atendimento_id == atendimento.id)
-        .first()
-    )
-    if not prescricao:
-        raise HTTPException(status_code=404, detail="Prescricao nao encontrada para este atendimento.")
 
     itens = (
         db.query(PrescricaoItem)
@@ -2786,12 +3295,69 @@ def gerar_pdf_prescricao(
         assinatura_bytes=branding["assinatura_bytes"],
         texto_rodape=branding["texto_rodape"],
     )
+
+    # So depois do PDF existir de fato: uma falha de geracao nao pode deixar a
+    # receita marcada como emitida.
+    _marcar_receita_emitida(db, prescricao)
+
     paciente_nome = _nome_arquivo_limpo(paciente.nome if paciente else "", f"paciente_{atendimento.paciente_id}")
-    filename = f"receita_atendimento_{atendimento.id}_{paciente_nome}.pdf"
+    sequencia = _sequencia_prescricao(prescricao)
+    # Sequencia 1 mantem o nome historico do arquivo.
+    sufixo = "" if sequencia <= 1 else f"_{sequencia}"
+    filename = f"receita{sufixo}_atendimento_{atendimento.id}_{paciente_nome}.pdf"
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers=_headers_download_pdf(filename),
+    )
+
+
+@router.get("/{atendimento_id}/prescricao/pdf")
+def gerar_pdf_prescricao(
+    atendimento_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Receita do dia da consulta. Contrato legado, preservado."""
+    current_user = _autenticar_usuario_pdf(request, db)
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    prescricao = _buscar_prescricao_principal(db, atendimento.id)
+    if not prescricao:
+        raise HTTPException(status_code=404, detail="Prescricao nao encontrada para este atendimento.")
+
+    return _responder_pdf_prescricao(
+        db,
+        atendimento=atendimento,
+        prescricao=prescricao,
+        current_user=current_user,
+    )
+
+
+@router.get("/{atendimento_id}/prescricoes/{prescricao_id}/pdf")
+def gerar_pdf_prescricao_por_id(
+    atendimento_id: int,
+    prescricao_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    current_user = _autenticar_usuario_pdf(request, db)
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    prescricao = _carregar_prescricao_do_atendimento(
+        db,
+        atendimento_id=atendimento.id,
+        prescricao_id=prescricao_id,
+    )
+    return _responder_pdf_prescricao(
+        db,
+        atendimento=atendimento,
+        prescricao=prescricao,
+        current_user=current_user,
     )
 
 
@@ -3397,11 +3963,28 @@ def atualizar_atendimento(
 
     atendimento.updated_at = datetime.now()
 
+    editou_receita_emitida = False
+    prescricao_alvo: Optional[PrescricaoClinica] = None
+
     try:
         if payload.exames is not None:
             _sync_exames(db, atendimento, payload.exames, current_user)
         if "prescricao" in data:
-            _sync_prescricao(db, atendimento, payload.prescricao, current_user)
+            prescricao_alvo = _buscar_prescricao_principal(db, atendimento.id)
+            if payload.prescricao is not None and _payload_altera_prescricao(
+                db, prescricao_alvo, payload.prescricao
+            ):
+                editou_receita_emitida = _validar_edicao_receita_emitida(
+                    prescricao_alvo,
+                    confirmado=bool(payload.confirmar_edicao_receita_emitida),
+                )
+            _sync_prescricao(
+                db,
+                atendimento,
+                payload.prescricao,
+                current_user,
+                prescricao=prescricao_alvo,
+            )
     except IntegrityError as exc:
         _raise_atendimento_integrity_conflict(
             db,
@@ -3438,6 +4021,13 @@ def atualizar_atendimento(
             current_user=current_user,
             atendimento=atendimento,
             pendencias=pendencias_conclusao,
+            request=request,
+        )
+    if editou_receita_emitida and prescricao_alvo is not None:
+        _auditar_edicao_receita_emitida(
+            current_user=current_user,
+            atendimento=atendimento,
+            prescricao=prescricao_alvo,
             request=request,
         )
     return _montar_detalhe_atendimento(db, atendimento)
@@ -3886,8 +4476,14 @@ def excluir_atendimento(
 
     _excluir_anexos_por_atendimento(db, atendimento_id)
 
-    prescricao = db.query(PrescricaoClinica).filter(PrescricaoClinica.atendimento_id == atendimento_id).first()
-    if prescricao:
+    # Todas as receitas, nao so a do dia: um atendimento pode ter
+    # complementares emitidas em adendos.
+    prescricoes_do_atendimento = (
+        db.query(PrescricaoClinica)
+        .filter(PrescricaoClinica.atendimento_id == atendimento_id)
+        .all()
+    )
+    for prescricao in prescricoes_do_atendimento:
         itens = db.query(PrescricaoItem).filter(PrescricaoItem.prescricao_id == prescricao.id).all()
         for item in itens:
             db.delete(item)
@@ -4143,6 +4739,9 @@ def criar_evolucao(
         atendimento_id=atendimento_id,
         descricao=payload.descricao,
         sinais_vitais=payload.sinais_vitais,
+        # Mesma derivacao do endpoint de adendo: uma evolucao registrada
+        # depois da conclusao e um adendo, independente da rota usada.
+        pos_conclusao=1 if _status_atendimento_concluido(atendimento.status) else 0,
         responsavel_id=current_user.id,
         responsavel_nome=current_user.nome,
     )
@@ -4158,6 +4757,302 @@ def criar_evolucao(
         "sinais_vitais": evolucao.sinais_vitais or "",
         "responsavel_nome": evolucao.responsavel_nome,
     }
+
+
+# === ADENDOS E RECEITAS COMPLEMENTARES ===
+
+
+def _carregar_adendos_serializados(
+    db: Session,
+    atendimento_id: int,
+    *,
+    anexos: Optional[List[AnexoAtendimento]] = None,
+) -> List[dict]:
+    """Adendos do atendimento com seus anexos e receita vinculada.
+
+    Recebe `anexos` ja carregados quando o chamador tem a lista em maos, para
+    nao repetir a consulta (o detalhe do atendimento ja busca todos)."""
+    adendos = (
+        db.query(EvolucaoClinica)
+        .filter(EvolucaoClinica.atendimento_id == atendimento_id)
+        .order_by(EvolucaoClinica.data_evolucao.desc(), EvolucaoClinica.id.desc())
+        .all()
+    )
+    if not adendos:
+        return []
+
+    adendo_ids = [adendo.id for adendo in adendos if adendo.id]
+    if anexos is None:
+        anexos = (
+            db.query(AnexoAtendimento)
+            .filter(AnexoAtendimento.evolucao_id.in_(adendo_ids))
+            .order_by(AnexoAtendimento.created_at.desc(), AnexoAtendimento.id.desc())
+            .all()
+            if adendo_ids
+            else []
+        )
+
+    anexos_por_adendo: Dict[int, List[dict]] = defaultdict(list)
+    for anexo in anexos:
+        if getattr(anexo, "evolucao_id", None):
+            anexos_por_adendo[anexo.evolucao_id].append(_serialize_anexo(anexo))
+
+    prescricao_por_adendo: Dict[int, int] = {}
+    if adendo_ids:
+        for prescricao_id, adendo_id in (
+            db.query(PrescricaoClinica.id, PrescricaoClinica.adendo_id)
+            .filter(PrescricaoClinica.adendo_id.in_(adendo_ids))
+            .all()
+        ):
+            prescricao_por_adendo.setdefault(adendo_id, prescricao_id)
+
+    return [
+        _serialize_adendo(
+            adendo,
+            anexos=anexos_por_adendo.get(adendo.id, []),
+            prescricao_id=prescricao_por_adendo.get(adendo.id),
+        )
+        for adendo in adendos
+    ]
+
+
+def _serializar_prescricao(
+    db: Session,
+    atendimento: AtendimentoClinico,
+    prescricao: PrescricaoClinica,
+) -> dict:
+    itens = (
+        db.query(PrescricaoItem)
+        .filter(PrescricaoItem.prescricao_id == prescricao.id)
+        .order_by(PrescricaoItem.ordem.asc(), PrescricaoItem.id.asc())
+        .all()
+    )
+    historico_por_item = _map_ajustes_por_item(db, [item.id for item in itens if item.id])
+    itens_dict = []
+    for item in itens:
+        mapped_item = _map_prescricao_item(item)
+        mapped_item["historico_ajustes"] = historico_por_item.get(item.id, [])
+        itens_dict.append(mapped_item)
+
+    paciente = db.query(Paciente).filter(Paciente.id == atendimento.paciente_id).first()
+    peso_referencia = _resolver_peso_referencia(atendimento, paciente)
+    return _montar_prescricao_dict(
+        db,
+        prescricao,
+        itens_dict,
+        peso_referencia=peso_referencia,
+    )
+
+
+@router.get("/{atendimento_id}/adendos")
+def listar_adendos(
+    atendimento_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+    return {"items": _carregar_adendos_serializados(db, atendimento_id)}
+
+
+@router.post("/{atendimento_id}/adendos", status_code=status.HTTP_201_CREATED)
+def criar_adendo(
+    atendimento_id: int,
+    payload: AdendoPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Registra o que chega depois do encontro, dentro do mesmo atendimento.
+
+    Nao gera ordem de servico e nao altera o status do atendimento nem o da
+    Agenda: o adendo e continuidade do atendimento original, ja faturado."""
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    tipo = _normalizar_tipo_adendo(payload.tipo)
+    pos_conclusao = 1 if _status_atendimento_concluido(atendimento.status) else 0
+    data_evolucao = _parse_datetime(payload.data_evolucao) or datetime.now(ATENDIMENTO_LOCAL_TZ)
+
+    adendo = EvolucaoClinica(
+        atendimento_id=atendimento.id,
+        data_evolucao=data_evolucao,
+        tipo=tipo,
+        titulo=(payload.titulo or "").strip() or None,
+        pos_conclusao=pos_conclusao,
+        descricao=(payload.descricao or "").strip(),
+        sinais_vitais=payload.sinais_vitais,
+        responsavel_id=current_user.id,
+        responsavel_nome=current_user.nome,
+    )
+    db.add(adendo)
+    db.commit()
+    db.refresh(adendo)
+
+    if pos_conclusao:
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="atendimento",
+            entidade="evolucao_clinica",
+            entidade_id=adendo.id,
+            acao="CRIAR_ADENDO_POS_CONCLUSAO",
+            descricao=(
+                f"Adendo '{_titulo_adendo(adendo)}' registrado no atendimento "
+                f"#{atendimento.id}, ja concluido."
+            ),
+            detalhes={
+                "atendimento_id": atendimento.id,
+                "paciente_id": atendimento.paciente_id,
+                "tipo": tipo,
+            },
+            request=request,
+        )
+
+    return {"adendo": _serialize_adendo(adendo)}
+
+
+@router.post("/{atendimento_id}/prescricoes", status_code=status.HTTP_201_CREATED)
+def criar_prescricao_complementar(
+    atendimento_id: int,
+    payload: PrescricaoComplementarPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cria a proxima receita do atendimento, sem tocar nas anteriores."""
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    adendo = _carregar_adendo_do_atendimento(
+        db,
+        atendimento_id=atendimento.id,
+        adendo_id=payload.adendo_id,
+    )
+    origem = None
+    if payload.copiar_de_prescricao_id:
+        origem = _carregar_prescricao_do_atendimento(
+            db,
+            atendimento_id=atendimento.id,
+            prescricao_id=int(payload.copiar_de_prescricao_id),
+        )
+
+    prescricao = PrescricaoClinica(
+        atendimento_id=atendimento.id,
+        sequencia=_proxima_sequencia_prescricao(db, atendimento.id),
+        adendo_id=adendo.id if adendo else None,
+        orientacoes_gerais=(origem.orientacoes_gerais if origem else "") or "",
+        retorno_dias=origem.retorno_dias if origem else None,
+    )
+    db.add(prescricao)
+    db.flush()
+
+    if origem:
+        itens_origem = (
+            db.query(PrescricaoItem)
+            .filter(PrescricaoItem.prescricao_id == origem.id)
+            .order_by(PrescricaoItem.ordem.asc(), PrescricaoItem.id.asc())
+            .all()
+        )
+        # Copia como registros novos: a receita de origem nao empresta ids,
+        # entao editar a copia nunca alcanca o documento ja emitido.
+        for index, item in enumerate(itens_origem):
+            db.add(
+                PrescricaoItem(
+                    prescricao_id=prescricao.id,
+                    medicamento_id=item.medicamento_id,
+                    medicamento_nome=item.medicamento_nome,
+                    apresentacao_selecionada=item.apresentacao_selecionada,
+                    dose=item.dose,
+                    frequencia=item.frequencia,
+                    duracao=item.duracao,
+                    via=item.via,
+                    instrucoes=item.instrucoes,
+                    ordem=index,
+                    dose_mg_kg=item.dose_mg_kg,
+                    peso_referencia_kg=item.peso_referencia_kg,
+                    unidade_dose_calculo=item.unidade_dose_calculo,
+                    concentracao_personalizada=item.concentracao_personalizada,
+                )
+            )
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Outra receita foi criada para este atendimento ao mesmo tempo. Recarregue e tente de novo.",
+        ) from exc
+
+    db.refresh(prescricao)
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="atendimento",
+        entidade="prescricao_clinica",
+        entidade_id=prescricao.id,
+        acao="CRIAR_RECEITA_COMPLEMENTAR",
+        descricao=(
+            f"Receita {_sequencia_prescricao(prescricao)} criada no atendimento "
+            f"#{atendimento.id}"
+            + (f", copiada da receita #{origem.id}." if origem else ".")
+        ),
+        detalhes={
+            "atendimento_id": atendimento.id,
+            "prescricao_id": prescricao.id,
+            "sequencia": _sequencia_prescricao(prescricao),
+            "adendo_id": adendo.id if adendo else None,
+            "copiada_de": origem.id if origem else None,
+        },
+        request=request,
+    )
+
+    return {"prescricao": _serializar_prescricao(db, atendimento, prescricao)}
+
+
+@router.put("/{atendimento_id}/prescricoes/{prescricao_id}")
+def atualizar_prescricao(
+    atendimento_id: int,
+    prescricao_id: int,
+    payload: PrescricaoSyncPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    prescricao = _carregar_prescricao_do_atendimento(
+        db,
+        atendimento_id=atendimento.id,
+        prescricao_id=prescricao_id,
+    )
+
+    editou_receita_emitida = False
+    if _payload_altera_prescricao(db, prescricao, payload):
+        editou_receita_emitida = _validar_edicao_receita_emitida(
+            prescricao,
+            confirmado=bool(payload.confirmar_edicao_receita_emitida),
+        )
+
+    _sync_prescricao(db, atendimento, payload, current_user, prescricao=prescricao)
+    db.commit()
+    db.refresh(prescricao)
+
+    if editou_receita_emitida:
+        _auditar_edicao_receita_emitida(
+            current_user=current_user,
+            atendimento=atendimento,
+            prescricao=prescricao,
+            request=request,
+        )
+
+    return {"prescricao": _serializar_prescricao(db, atendimento, prescricao)}
 
 
 # === ANEXOS ===
@@ -4340,12 +5235,17 @@ def liberar_exame_no_portal(
     # upload real). attachment_has_download_source confirma que existe de
     # fato algo baixavel (arquivo local ou URL remota valida) antes de
     # liberar o exame como "resultado disponivel" para o portal externo.
+    # attachment_is_verified_pdf vai alem: confirma os bytes magicos "%PDF-"
+    # no CONTEUDO real (nao so que existe algo baixavel) - um arquivo
+    # renomeado para .pdf sem ser um PDF de verdade nao passa por essa
+    # checagem extra.
     if not any(
-        _anexo_eh_pdf(anexo) and attachment_has_download_source(anexo) for anexo in anexos
+        _anexo_eh_pdf(anexo) and attachment_has_download_source(anexo) and attachment_is_verified_pdf(anexo)
+        for anexo in anexos
     ):
         raise HTTPException(status_code=422, detail="Anexe o PDF do resultado antes de liberar no portal.")
 
-    released_at = datetime.utcnow()
+    released_at = datetime.now()
     status_anterior = exame.status or ""
     exame.tipo_exame = _normalizar_tipo_exame_portal_externo(exame.tipo_exame)
     if exame.tipo_exame == "Eletrocardiograma" and not (exame.categoria_exame or "").strip():
@@ -4354,6 +5254,7 @@ def liberar_exame_no_portal(
     exame.data_resultado = released_at
     exame.observacoes_pre_portal = exame.observacoes or ""
     exame.observacoes = PORTAL_EXAME_RELEASE_MESSAGE
+    exame.visualizado_portal_em = None
     if not exame.criado_por_id:
         exame.criado_por_id = getattr(current_user, "id", None)
     if not exame.criado_por_nome:
@@ -4419,6 +5320,7 @@ def revogar_liberacao_exame_no_portal(
     if (exame.observacoes or "").strip() == PORTAL_EXAME_RELEASE_MESSAGE:
         exame.observacoes = exame.observacoes_pre_portal or ""
     exame.observacoes_pre_portal = None
+    exame.visualizado_portal_em = None
 
     db.commit()
     db.refresh(exame)
@@ -4485,10 +5387,16 @@ def criar_anexo(
         )
         if not exame:
             raise HTTPException(status_code=404, detail="Exame nao encontrado para este atendimento.")
+    adendo = _carregar_adendo_do_atendimento(
+        db,
+        atendimento_id=atendimento_id,
+        adendo_id=payload.evolucao_id,
+    )
 
     anexo = AnexoAtendimento(
         atendimento_id=atendimento_id,
         exame_id=payload.exame_id,
+        evolucao_id=adendo.id if adendo else None,
         tipo=payload.tipo,
         descricao=payload.descricao,
         url=payload.url,
@@ -4511,6 +5419,7 @@ async def upload_anexo(
     tipo: str = Form(...),
     descricao: str = Form(""),
     exame_id: Optional[int] = Form(None),
+    evolucao_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -4524,6 +5433,12 @@ async def upload_anexo(
         exame = db.query(Exame).filter(Exame.id == exame_id, Exame.atendimento_id == atendimento_id).first()
         if not exame:
             raise HTTPException(status_code=404, detail="Exame nao encontrado para este atendimento.")
+
+    adendo = _carregar_adendo_do_atendimento(
+        db,
+        atendimento_id=atendimento_id,
+        adendo_id=evolucao_id,
+    )
 
     content = await arquivo.read()
     if not content:
@@ -4557,6 +5472,13 @@ async def upload_anexo(
             evento=UPLOAD_DEDUPE_EVENT_PRECHECK,
             dedupe_key=dedupe_key,
         )
+        # O dedupe e por (atendimento, exame, bytes). Quando o mesmo arquivo ja
+        # existia solto e agora chega por um adendo, adota o anexo no adendo em
+        # vez de devolver um adendo sem nada dentro.
+        if adendo and not getattr(anexo_existente, "evolucao_id", None):
+            anexo_existente.evolucao_id = adendo.id
+            db.commit()
+            db.refresh(anexo_existente)
         payload = _serialize_anexo(anexo_existente)
         payload["deduplicado"] = True
         return JSONResponse(status_code=status.HTTP_200_OK, content=payload)
@@ -4601,6 +5523,7 @@ async def upload_anexo(
     anexo = AnexoAtendimento(
         atendimento_id=atendimento_id,
         exame_id=exame.id if exame else None,
+        evolucao_id=adendo.id if adendo else None,
         tipo=(tipo or "documento").strip() or "documento",
         descricao=(descricao or "").strip() or None,
         url="",
@@ -4913,7 +5836,8 @@ def _montar_timeline_paciente(
     reaproveitar uma lista ja buscada pelo chamador (historico_paciente ja
     consulta AtendimentoClinico com o mesmo limite) em vez de reconsultar a
     mesma tabela. A ordem de `atendimentos` nao importa para o resultado: os
-    eventos de todas as categorias sao reordenados por data ao final."""
+    eventos de todas as categorias sao reordenados por data ao final, do
+    mais recente para o mais antigo (anos e eventos dentro do ano)."""
     atendimentos = (
         atendimentos_paciente
         if atendimentos_paciente is not None
@@ -4980,11 +5904,15 @@ def _montar_timeline_paciente(
         data_evento = evolucao.data_evolucao or evolucao.created_at
         if not data_evento:
             continue
+        # `tipo` continua "evolucao" (a categoria que a UI usa para icone e
+        # cor); o que o adendo e vai em `subtipo`, aditivo.
         events.append(
             {
                 "data": _to_iso(data_evento),
                 "tipo": "evolucao",
-                "titulo": "Evolucao clinica",
+                "subtipo": _tipo_adendo(evolucao),
+                "pos_conclusao": int(getattr(evolucao, "pos_conclusao", 0) or 0),
+                "titulo": _titulo_adendo(evolucao),
                 "descricao": _resumir_texto_timeline(evolucao.descricao, "Acompanhamento clinico registrado."),
                 "status": evolucao.responsavel_nome or "",
                 "referencia_id": evolucao.id,
@@ -5064,7 +5992,7 @@ def _montar_timeline_paciente(
         )
 
     grouped: Dict[str, List[dict]] = defaultdict(list)
-    for event in sorted(events, key=lambda item: item.get("data") or ""):
+    for event in sorted(events, key=lambda item: item.get("data") or "", reverse=True):
         year = "Sem data"
         if event.get("data"):
             parsed = _parse_datetime(event["data"])
@@ -5072,7 +6000,8 @@ def _montar_timeline_paciente(
                 year = str(parsed.year)
         grouped[year].append(event)
 
-    ordered_years = sorted(grouped.keys(), key=lambda value: (value == "Sem data", value))
+    anos_reais = sorted((year for year in grouped if year != "Sem data"), reverse=True)
+    ordered_years = anos_reais + (["Sem data"] if "Sem data" in grouped else [])
     return [{"ano": year, "eventos": grouped[year]} for year in ordered_years]
 
 
@@ -5111,10 +6040,15 @@ def historico_paciente(
         else []
     )
     prescricoes_por_atendimento: Dict[int, PrescricaoClinica] = {}
+    total_receitas_por_atendimento: Dict[int, int] = defaultdict(int)
     for prescricao in prescricoes:
-        # Mantem compatibilidade com bases antigas que eventualmente possuam
-        # mais de uma linha para o mesmo atendimento, priorizando a mais nova.
-        prescricoes_por_atendimento.setdefault(prescricao.atendimento_id, prescricao)
+        # O historico mostra a conduta mais recente do encontro: com receitas
+        # complementares, e a de maior sequencia. `total_receitas` deixa
+        # explicito que existem outras.
+        total_receitas_por_atendimento[prescricao.atendimento_id] += 1
+        atual = prescricoes_por_atendimento.get(prescricao.atendimento_id)
+        if atual is None or _sequencia_prescricao(prescricao) > _sequencia_prescricao(atual):
+            prescricoes_por_atendimento[prescricao.atendimento_id] = prescricao
 
     prescricao_ids = [item.id for item in prescricoes_por_atendimento.values() if item.id]
     itens_prescricao = (
@@ -5136,6 +6070,9 @@ def historico_paciente(
         itens = itens_por_prescricao.get(prescricao.id, [])
         return {
             "id": prescricao.id,
+            "sequencia": _sequencia_prescricao(prescricao),
+            "emitida_em": _to_operational_iso(prescricao.emitida_em),
+            "total_receitas": total_receitas_por_atendimento.get(atendimento_id, 1),
             "orientacoes_gerais": prescricao.orientacoes_gerais or "",
             "retorno_dias": prescricao.retorno_dias,
             "total_itens": len(itens),
@@ -5192,6 +6129,33 @@ def historico_paciente(
             }
             for a in atendimentos
             if a.peso is not None
+        ],
+        "temperaturas": [
+            {
+                "atendimento_id": a.id,
+                "data_atendimento": _to_operational_iso(a.data_atendimento),
+                "temperatura": a.temperatura,
+            }
+            for a in atendimentos
+            if a.temperatura is not None
+        ],
+        "frequencias_cardiacas": [
+            {
+                "atendimento_id": a.id,
+                "data_atendimento": _to_operational_iso(a.data_atendimento),
+                "frequencia_cardiaca": a.frequencia_cardiaca,
+            }
+            for a in atendimentos
+            if a.frequencia_cardiaca is not None
+        ],
+        "frequencias_respiratorias": [
+            {
+                "atendimento_id": a.id,
+                "data_atendimento": _to_operational_iso(a.data_atendimento),
+                "frequencia_respiratoria": a.frequencia_respiratoria,
+            }
+            for a in atendimentos
+            if a.frequencia_respiratoria is not None
         ],
         "timeline": _montar_timeline_paciente(db, paciente_id, limite=limite, atendimentos_paciente=atendimentos),
     }

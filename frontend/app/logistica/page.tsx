@@ -13,6 +13,7 @@ import {
 
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 
 type PerfilLogistica = "comercial" | "plantao";
 
@@ -162,8 +163,11 @@ export default function LogisticaPage() {
   const carregarClinicas = async () => {
     try {
       setLoadingClinicas(true);
-      const response = await api.get("/clinicas?limit=1000");
-      const payload = response?.data;
+      const payload = await loadStableCatalog({
+        catalog: "clinicas",
+        variant: "limit=1000",
+        load: () => api.get("/clinicas?limit=1000").then((response) => response.data),
+      });
       const items = Array.isArray(payload?.items)
         ? payload.items
         : Array.isArray(payload?.data)

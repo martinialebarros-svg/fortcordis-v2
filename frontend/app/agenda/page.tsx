@@ -4,7 +4,14 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { normalizarCoordenadaOpcional } from "@/lib/coordinates";
+import {
+  createAgendaCatalogLoader,
+  extrairIdsAgendamentosVisiveis,
+  normalizarOpcoesFiltroAgenda,
+  type AgendaCatalogLoader,
+} from "@/lib/agenda-loading";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
 import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
 import {
@@ -46,6 +53,14 @@ import {
   normalizarAgendaRotaRegras,
   type AgendaRotaRenderingPolicyConfig,
 } from "@/lib/agenda-route-rules";
+import {
+  PRAZO_REABILITACAO_HORAS_MAX,
+  PRAZO_REABILITACAO_HORAS_MIN,
+  PRAZO_REABILITACAO_HORAS_PADRAO,
+  calcularPrazoReabilitacao,
+  normalizarPrazoReabilitacaoHoras,
+  podeReabilitarReserva,
+} from "@/lib/agenda-reabilitar-reserva";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
 import {
   montarGoogleMapsDestinoLocal,
@@ -55,9 +70,10 @@ import {
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
-  Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign, MapPin, Wallet
+  Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign, MapPin, Wallet, TimerReset
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
+import type { PedidoAgenda } from "@/lib/whatsapp-pedido-agenda";
 import ClienteInfoModal from "./ClienteInfoModal";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 
@@ -367,6 +383,7 @@ export default function AgendaPage() {
   const [filtroClinicaId, setFiltroClinicaId] = useState<string>("todos");
   const [filtroServicoId, setFiltroServicoId] = useState<string>("todos");
   const [busca, setBusca] = useState("");
+  const [pedidoWhatsApp, setPedidoWhatsApp] = useState<PedidoAgenda | null>(null);
   const [modalAberto, setModalAberto] = useState(false);
   const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
   const [slotSelecionado, setSlotSelecionado] = useState<{ data: string; hora: string } | null>(null);
@@ -375,6 +392,11 @@ export default function AgendaPage() {
   const [atualizandoStatus, setAtualizandoStatus] = useState<number | null>(null);
   const [modalTipoHorario, setModalTipoHorario] = useState<{ id: number; status: StatusType } | null>(null);
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
+  const [modalReabilitarReserva, setModalReabilitarReserva] = useState<Agendamento | null>(null);
+  const [prazoReabilitacaoHoras, setPrazoReabilitacaoHoras] = useState<string>(
+    String(PRAZO_REABILITACAO_HORAS_PADRAO)
+  );
+  const [reabilitandoReservaId, setReabilitandoReservaId] = useState<number | null>(null);
   const [osGerada, setOsGerada] = useState<{ numero_os: string; valor_final: number } | null>(null);
   const [laudosVinculados, setLaudosVinculados] = useState<LaudosVinculadosPorAgendamento>({});
   const [ordensServicoPorAgendamento, setOrdensServicoPorAgendamento] = useState<Record<number, OrdemServicoResumo>>({});
@@ -411,11 +433,31 @@ export default function AgendaPage() {
   const [toastRealtime, setToastRealtime] = useState<ToastRealtimeData | null>(null);
   const [opcoesClinicas, setOpcoesClinicas] = useState<FiltroOption[]>([]);
   const [opcoesServicos, setOpcoesServicos] = useState<FiltroOption[]>([]);
+  const [carregandoClinicasFiltro, setCarregandoClinicasFiltro] = useState(false);
+  const [carregandoServicosFiltro, setCarregandoServicosFiltro] = useState(false);
+  const clinicasFiltroLoaderRef = useRef<AgendaCatalogLoader | null>(null);
+  const servicosFiltroLoaderRef = useRef<AgendaCatalogLoader | null>(null);
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastRealtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
   const fortinho = useFortinho();
   const filtrosIniciaisAplicadosRef = useRef(false);
+
+  useEffect(() => {
+    if (!authChecked) return;
+    const id = new URLSearchParams(window.location.search).get("pedido_whatsapp");
+    if (!id || !/^[1-9][0-9]*$/.test(id)) return;
+    let active = true;
+    const controller = new AbortController();
+    api.get<PedidoAgenda>(`/whatsapp/bot/solicitacoes/${id}/preparar-agendamento`, { signal: controller.signal })
+      .then(({ data }) => {
+        if (!active) return;
+        setPedidoWhatsApp(data); setAgendamentoEditando(null); setSlotSelecionado(null); setModalAberto(true);
+      }).catch((error) => {
+        if (active) setErro(error?.response?.data?.detail || "Não foi possível preparar o pedido. Volte à fila e tente novamente.");
+      });
+    return () => { active = false; controller.abort(); };
+  }, [authChecked]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -703,39 +745,42 @@ export default function AgendaPage() {
     }
   };
 
-  const carregarOpcoesFiltros = async () => {
-    try {
-      const [respClinicas, respServicos] = await Promise.all([
-        api.get("/clinicas?limit=1000"),
-        api.get("/servicos?limit=1000"),
-      ]);
-
-      const clinicas = Array.isArray(respClinicas.data?.items) ? respClinicas.data.items : [];
-      const servicos = Array.isArray(respServicos.data?.items) ? respServicos.data.items : [];
-
-      const clinicasNormalizadas = clinicas
-        .map((item: any) => ({
-          id: Number(item?.id),
-          nome: String(item?.nome || "").trim(),
-        }))
-        .filter((item: FiltroOption) => Number.isFinite(item.id) && item.id > 0 && item.nome.length > 0)
-        .sort((a: FiltroOption, b: FiltroOption) => a.nome.localeCompare(b.nome, "pt-BR"));
-
-      const servicosNormalizados = servicos
-        .map((item: any) => ({
-          id: Number(item?.id),
-          nome: String(item?.nome || "").trim(),
-        }))
-        .filter((item: FiltroOption) => Number.isFinite(item.id) && item.id > 0 && item.nome.length > 0)
-        .sort((a: FiltroOption, b: FiltroOption) => a.nome.localeCompare(b.nome, "pt-BR"));
-
-      setOpcoesClinicas(clinicasNormalizadas);
-      setOpcoesServicos(servicosNormalizados);
-    } catch (error) {
-      console.error("Erro ao carregar opcoes de filtros da agenda:", error);
-      setOpcoesClinicas([]);
-      setOpcoesServicos([]);
+  const carregarOpcoesClinicasFiltro = () => {
+    if (!clinicasFiltroLoaderRef.current) {
+      clinicasFiltroLoaderRef.current = createAgendaCatalogLoader({
+        request: async () => {
+          const payload = await loadStableCatalog({
+            catalog: "clinicas",
+            variant: "limit=1000",
+            load: () => api.get("/clinicas?limit=1000").then((response) => response.data),
+          });
+          return normalizarOpcoesFiltroAgenda(payload);
+        },
+        onSuccess: setOpcoesClinicas,
+        onLoadingChange: setCarregandoClinicasFiltro,
+        onError: (error) => console.error("Erro ao carregar clinicas do filtro da agenda:", error),
+      });
     }
+    return clinicasFiltroLoaderRef.current.load();
+  };
+
+  const carregarOpcoesServicosFiltro = () => {
+    if (!servicosFiltroLoaderRef.current) {
+      servicosFiltroLoaderRef.current = createAgendaCatalogLoader({
+        request: async () => {
+          const payload = await loadStableCatalog({
+            catalog: "servicos",
+            variant: "limit=1000",
+            load: () => api.get("/servicos?limit=1000").then((response) => response.data),
+          });
+          return normalizarOpcoesFiltroAgenda(payload);
+        },
+        onSuccess: setOpcoesServicos,
+        onLoadingChange: setCarregandoServicosFiltro,
+        onError: (error) => console.error("Erro ao carregar servicos do filtro da agenda:", error),
+      });
+    }
+    return servicosFiltroLoaderRef.current.load();
   };
 
   useEffect(() => {
@@ -747,7 +792,6 @@ export default function AgendaPage() {
     setIsAdmin(usuarioEhAdmin());
     setAuthChecked(true);
     carregarAgendamentos();
-    carregarOpcoesFiltros();
   }, [router, periodoConsulta.inicio, periodoConsulta.fim]);
 
   useEffect(() => {
@@ -835,12 +879,7 @@ export default function AgendaPage() {
         setRenderingPolicy(regrasRota.rendering_policy);
       }
       if (includeRelated) {
-        await Promise.all([
-          carregarLaudosVinculados(items),
-          carregarOrdensServicoVinculadas(items),
-          carregarClinicasComEndereco(items),
-          carregarTutoresComEndereco(items),
-        ]);
+        await carregarRelacionadosVisiveis(items);
       }
       if (includeResumo) {
         await carregarResumoFinanceiro();
@@ -939,24 +978,40 @@ export default function AgendaPage() {
     [agendamentos]
   );
 
-  const carregarLaudosVinculados = async (items: Agendamento[]) => {
-    const idsAgendamento = new Set(items.map((item) => item.id));
-    const pacientePorAgendamento = new Map(
-      items.map((item) => [item.id, Number(item.paciente_id || 0)])
-    );
-    if (idsAgendamento.size === 0) {
+  const carregarRelacionadosVisiveis = async (items: Agendamento[]) => {
+    const idsVisiveis = extrairIdsAgendamentosVisiveis(items);
+    const limparRelacionados = () => {
       setLaudosVinculados({});
+      setOrdensServicoPorAgendamento({});
+      setClinicasEndereco({});
+      setTutoresEndereco({});
+    };
+
+    if (idsVisiveis.length === 0) {
+      limparRelacionados();
       return;
     }
 
-    try {
-      const respLaudos = await api.get("/laudos?limit=1000");
-      const listaLaudos = respLaudos.data?.items || [];
+    const idsAgendamento = new Set(idsVisiveis);
+    const pacientePorAgendamento = new Map(
+      items.map((item) => [item.id, Number(item.paciente_id || 0)])
+    );
 
-      const mapa: LaudosVinculadosPorAgendamento = {};
+    try {
+      const response = await api.get("/agenda/relacionados", {
+        params: { agendamento_ids: idsVisiveis.join(",") },
+      });
+      const listaLaudos = Array.isArray(response.data?.laudos) ? response.data.laudos : [];
+      const listaOrdens = Array.isArray(response.data?.ordens_servico)
+        ? response.data.ordens_servico
+        : [];
+      const listaClinicas = Array.isArray(response.data?.clinicas) ? response.data.clinicas : [];
+      const listaTutores = Array.isArray(response.data?.tutores) ? response.data.tutores : [];
+
+      const mapaLaudos: LaudosVinculadosPorAgendamento = {};
       for (const laudo of listaLaudos) {
         const agendamentoId = Number(laudo?.agendamento_id);
-        if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
+        if (!Number.isInteger(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
           continue;
         }
 
@@ -974,14 +1029,14 @@ export default function AgendaPage() {
 
         const tipo = String(laudo?.tipo || "");
         const laudoId = Number(laudo?.id);
-        if (!tipo || !Number.isFinite(laudoId)) {
+        if (!tipo || !Number.isInteger(laudoId)) {
           continue;
         }
 
-        const laudosDoAgendamento = mapa[agendamentoId] || {};
+        const laudosDoAgendamento = mapaLaudos[agendamentoId] || {};
         const anterior = laudosDoAgendamento[tipo];
         if (!anterior || laudoId > anterior.id) {
-          mapa[agendamentoId] = {
+          mapaLaudos[agendamentoId] = {
             ...laudosDoAgendamento,
             [tipo]: {
               id: laudoId,
@@ -993,47 +1048,21 @@ export default function AgendaPage() {
         }
       }
 
-      setLaudosVinculados(mapa);
-    } catch (error) {
-      console.error("Erro ao carregar laudos vinculados aos agendamentos:", error);
-      setLaudosVinculados({});
-    }
-  };
-
-  const carregarOrdensServicoVinculadas = async (items: Agendamento[]) => {
-    const idsAgendamento = new Set(items.map((item) => item.id));
-    if (idsAgendamento.size === 0) {
-      setOrdensServicoPorAgendamento({});
-      return;
-    }
-
-    try {
-      const params = new URLSearchParams();
-      params.append("limit", "2000");
-
-      if (periodoConsulta.inicio && periodoConsulta.fim) {
-        params.append("data_inicio", periodoConsulta.inicio);
-        params.append("data_fim", periodoConsulta.fim);
-      }
-
-      const respOs = await api.get(`/ordens-servico?${params.toString()}`);
-      const listaOs = respOs.data?.items || [];
-
-      const mapa: Record<number, OrdemServicoResumo> = {};
-      for (const os of listaOs) {
+      const mapaOrdens: Record<number, OrdemServicoResumo> = {};
+      for (const os of listaOrdens) {
         const agendamentoId = Number(os?.agendamento_id);
-        if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
+        if (!Number.isInteger(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
           continue;
         }
 
         const osId = Number(os?.id);
-        if (!Number.isFinite(osId)) {
+        if (!Number.isInteger(osId)) {
           continue;
         }
 
-        const anterior = mapa[agendamentoId];
+        const anterior = mapaOrdens[agendamentoId];
         if (!anterior || osId > anterior.id) {
-          mapa[agendamentoId] = {
+          mapaOrdens[agendamentoId] = {
             id: osId,
             agendamento_id: agendamentoId,
             numero_os: String(os?.numero_os || ""),
@@ -1045,39 +1074,11 @@ export default function AgendaPage() {
         }
       }
 
-      setOrdensServicoPorAgendamento(mapa);
-    } catch (error) {
-      console.error("Erro ao carregar ordens de servico vinculadas aos agendamentos:", error);
-      setOrdensServicoPorAgendamento({});
-    }
-  };
-
-  const carregarClinicasComEndereco = async (items: Agendamento[]) => {
-    const idsClinica = Array.from(
-      new Set(
-        items
-          .map((item) => Number(item.clinica_id))
-          .filter((id) => Number.isFinite(id) && id > 0)
-      )
-    );
-
-    if (idsClinica.length === 0) {
-      setClinicasEndereco({});
-      return;
-    }
-
-    try {
-      const respClinicas = await api.get("/clinicas?limit=1000");
-      const listaClinicas = respClinicas.data?.items || [];
-
-      const mapa: Record<number, ClinicaEndereco> = {};
+      const mapaClinicas: Record<number, ClinicaEndereco> = {};
       for (const clinica of listaClinicas) {
         const clinicaId = Number(clinica?.id);
-        if (!Number.isFinite(clinicaId) || !idsClinica.includes(clinicaId)) {
-          continue;
-        }
-
-        mapa[clinicaId] = {
+        if (!Number.isInteger(clinicaId) || clinicaId <= 0) continue;
+        mapaClinicas[clinicaId] = {
           id: clinicaId,
           nome: clinica?.nome || null,
           endereco: clinica?.endereco || null,
@@ -1092,39 +1093,11 @@ export default function AgendaPage() {
         };
       }
 
-      setClinicasEndereco(mapa);
-    } catch (error) {
-      console.error("Erro ao carregar enderecos das clinicas:", error);
-      setClinicasEndereco({});
-    }
-  };
-
-  const carregarTutoresComEndereco = async (items: Agendamento[]) => {
-    const idsTutor = Array.from(
-      new Set(
-        items
-          .map((item) => Number(item.tutor_id))
-          .filter((id) => Number.isFinite(id) && id > 0)
-      )
-    );
-
-    if (idsTutor.length === 0) {
-      setTutoresEndereco({});
-      return;
-    }
-
-    try {
-      const respTutores = await api.get("/tutores?limit=2000");
-      const listaTutores = Array.isArray(respTutores.data?.items) ? respTutores.data.items : [];
-
-      const mapa: Record<number, TutorEndereco> = {};
+      const mapaTutores: Record<number, TutorEndereco> = {};
       for (const tutor of listaTutores) {
         const tutorId = Number(tutor?.id);
-        if (!Number.isFinite(tutorId) || !idsTutor.includes(tutorId)) {
-          continue;
-        }
-
-        mapa[tutorId] = {
+        if (!Number.isInteger(tutorId) || tutorId <= 0) continue;
+        mapaTutores[tutorId] = {
           id: tutorId,
           nome: tutor?.nome || null,
           endereco: tutor?.endereco || null,
@@ -1139,10 +1112,13 @@ export default function AgendaPage() {
         };
       }
 
-      setTutoresEndereco(mapa);
+      setLaudosVinculados(mapaLaudos);
+      setOrdensServicoPorAgendamento(mapaOrdens);
+      setClinicasEndereco(mapaClinicas);
+      setTutoresEndereco(mapaTutores);
     } catch (error) {
-      console.error("Erro ao carregar enderecos dos tutores:", error);
-      setTutoresEndereco({});
+      console.error("Erro ao carregar dados relacionados aos agendamentos visiveis:", error);
+      limparRelacionados();
     }
   };
 
@@ -1457,7 +1433,10 @@ export default function AgendaPage() {
 
     setAtualizandoStatus(id);
     try {
-      const enviarAtualizacaoStatus = (confirmarReservaExpirada = false) => {
+      const enviarAtualizacaoStatus = (
+        confirmarReservaExpirada = false,
+        confirmarConflitoDeslocamento = false
+      ) => {
         const params = new URLSearchParams();
         params.append("status", novoStatus);
         if (tipoHorarioParam) {
@@ -1466,46 +1445,80 @@ export default function AgendaPage() {
         if (confirmarReservaExpirada) {
           params.append("confirmar_slot_reserva_expirada", "true");
         }
+        if (confirmarConflitoDeslocamento) {
+          params.append("confirmar_conflito_deslocamento", "true");
+        }
         return api.patch(`/agenda/${id}/status?${params.toString()}`);
       };
 
       let response;
-      try {
-        response = await enviarAtualizacaoStatus(false);
-      } catch (errorInicial: any) {
-        const detail = errorInicial?.response?.data?.detail;
-        if (
-          errorInicial?.response?.status !== 409 ||
-          ![
-            "CONFIRMACAO_SLOT_RESERVA_EXPIRADA",
-            "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA",
-          ].includes(detail?.codigo)
-        ) {
-          throw errorInicial;
+      let confirmouReservaExpirada = false;
+      let confirmouConflitoDeslocamento = false;
+      // Uma reativação tardia pode bater em duas confirmações em sequência
+      // (reserva expirada e conflito de rota), por isso o retry em laço.
+      for (let tentativa = 0; tentativa < 3 && !response; tentativa += 1) {
+        try {
+          response = await enviarAtualizacaoStatus(
+            confirmouReservaExpirada,
+            confirmouConflitoDeslocamento
+          );
+        } catch (errorTentativa: any) {
+          const detail = errorTentativa?.response?.data?.detail;
+          const codigo =
+            errorTentativa?.response?.status === 409 ? detail?.codigo : undefined;
+          if (
+            !confirmouReservaExpirada &&
+            [
+              "CONFIRMACAO_SLOT_RESERVA_EXPIRADA",
+              "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA",
+            ].includes(codigo)
+          ) {
+            const confirmou = await fortinho.confirm({
+              title:
+                codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+                  ? "Confirmação recebida após o prazo"
+                  : "ATENÇÃO: este horário teve uma reserva expirada",
+              message:
+                codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+                  ? "Confirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará se o horário ainda está livre antes de mudar o status para Agendado."
+                  : "Antes de reativar este horário, volte às mensagens do WhatsApp e confira se a clínica enviou os dados do tutor ou do pet após o prazo. Só continue se não houver resposta.",
+              mood: "alert",
+              gesture: "open-arms",
+              confirmLabel:
+                codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+                  ? "Cliente confirmou; agendar"
+                  : "Revisei as mensagens e quero continuar",
+              cancelLabel:
+                codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+                  ? "Cancelar"
+                  : "Voltar e verificar WhatsApp",
+            });
+            if (!confirmou) return;
+            confirmouReservaExpirada = true;
+            continue;
+          }
+          if (codigo === "CONFLITO_DESLOCAMENTO" && !confirmouConflitoDeslocamento) {
+            // Só admin pode abrir exceção de rota; para os demais o erro segue
+            // o fluxo normal de exibição.
+            if (!isAdmin) throw errorTentativa;
+            const confirmou = await fortinho.confirm({
+              title: "Conflito de deslocamento na rota",
+              message: `${
+                typeof detail?.mensagem === "string" ? detail.mensagem : ""
+              } Como administrador, você pode abrir uma exceção para este agendamento. Ela fica registrada e vale enquanto horário, clínica e serviço não mudarem.`,
+              mood: "alert",
+              gesture: "open-arms",
+              confirmLabel: "Abrir exceção e continuar",
+              cancelLabel: "Voltar e ajustar o horário",
+            });
+            if (!confirmou) return;
+            confirmouConflitoDeslocamento = true;
+            continue;
+          }
+          throw errorTentativa;
         }
-        const confirmou = await fortinho.confirm({
-          title:
-            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
-              ? "Confirmação recebida após o prazo"
-              : "ATENÇÃO: este horário teve uma reserva expirada",
-          message:
-            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
-              ? "Confirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará se o horário ainda está livre antes de mudar o status para Agendado."
-              : "Antes de reativar este horário, volte às mensagens do WhatsApp e confira se a clínica enviou os dados do tutor ou do pet após o prazo. Só continue se não houver resposta.",
-          mood: "alert",
-          gesture: "open-arms",
-          confirmLabel:
-            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
-              ? "Cliente confirmou; agendar"
-              : "Revisei as mensagens e quero continuar",
-          cancelLabel:
-            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
-              ? "Cancelar"
-              : "Voltar e verificar WhatsApp",
-        });
-        if (!confirmou) return;
-        response = await enviarAtualizacaoStatus(true);
       }
+      if (!response) return;
       await carregarAgendamentos();
       
       // Se gerou OS, mostra o modal
@@ -1549,6 +1562,113 @@ export default function AgendaPage() {
     if (!modalTipoHorario) return;
     await atualizarStatus(modalTipoHorario.id, modalTipoHorario.status, tipoHorario);
     setModalTipoHorario(null);
+  };
+
+  const abrirModalReabilitarReserva = (agendamento: Agendamento) => {
+    setErro("");
+    setPrazoReabilitacaoHoras(String(PRAZO_REABILITACAO_HORAS_PADRAO));
+    setModalReabilitarReserva(agendamento);
+  };
+
+  const confirmarReabilitacaoReserva = async () => {
+    const alvo = modalReabilitarReserva;
+    if (!alvo) return;
+
+    const horas = normalizarPrazoReabilitacaoHoras(prazoReabilitacaoHoras);
+    if (horas === null) {
+      setErro(
+        `Informe um prazo entre ${PRAZO_REABILITACAO_HORAS_MIN} e ${PRAZO_REABILITACAO_HORAS_MAX} horas.`
+      );
+      return;
+    }
+
+    setReabilitandoReservaId(alvo.id);
+    try {
+      const enviarReabilitacao = (
+        confirmarSlotReservaExpirada = false,
+        confirmarConflitoDeslocamento = false
+      ) =>
+        api.post(`/agenda/${alvo.id}/reabilitar-reserva`, {
+          prazo_confirmacao_horas: horas,
+          confirmar_slot_reserva_expirada: confirmarSlotReservaExpirada,
+          confirmar_conflito_deslocamento: confirmarConflitoDeslocamento,
+        });
+
+      let response;
+      let confirmouSlotReservaExpirada = false;
+      let confirmouConflitoDeslocamento = false;
+      for (let tentativa = 0; tentativa < 3 && !response; tentativa += 1) {
+        try {
+          response = await enviarReabilitacao(
+            confirmouSlotReservaExpirada,
+            confirmouConflitoDeslocamento
+          );
+        } catch (errorTentativa: any) {
+          const detail = errorTentativa?.response?.data?.detail;
+          const codigo =
+            errorTentativa?.response?.status === 409 ? detail?.codigo : undefined;
+          if (
+            codigo === "CONFIRMACAO_SLOT_RESERVA_EXPIRADA" &&
+            !confirmouSlotReservaExpirada
+          ) {
+            const confirmou = await fortinho.confirm({
+              title: "ATENÇÃO: outra reserva expirada neste horário",
+              message:
+                "Outra clínica também teve uma reserva expirada neste slot. Confira as mensagens do WhatsApp antes de devolver o horário para esta clínica.",
+              mood: "alert",
+              gesture: "open-arms",
+              confirmLabel: "Revisei as mensagens e quero continuar",
+              cancelLabel: "Voltar e verificar WhatsApp",
+            });
+            if (!confirmou) return;
+            confirmouSlotReservaExpirada = true;
+            continue;
+          }
+          if (codigo === "CONFLITO_DESLOCAMENTO" && !confirmouConflitoDeslocamento) {
+            if (!isAdmin) throw errorTentativa;
+            const confirmou = await fortinho.confirm({
+              title: "Conflito de deslocamento na rota",
+              message: `${
+                typeof detail?.mensagem === "string" ? detail.mensagem : ""
+              } Como administrador, você pode abrir uma exceção para este agendamento. Ela fica registrada e vale enquanto horário, clínica e serviço não mudarem.`,
+              mood: "alert",
+              gesture: "open-arms",
+              confirmLabel: "Abrir exceção e reabilitar",
+              cancelLabel: "Voltar e ajustar o horário",
+            });
+            if (!confirmou) return;
+            confirmouConflitoDeslocamento = true;
+            continue;
+          }
+          throw errorTentativa;
+        }
+      }
+      if (!response) return;
+
+      setModalReabilitarReserva(null);
+      setErro("");
+      await carregarAgendamentos();
+      fortinho.notify({
+        title: "Reserva reabilitada",
+        message:
+          response.data?.mensagem ||
+          "O horário voltou a ficar reservado até o novo prazo de confirmação.",
+        mood: "happy",
+        gesture: "wave",
+      });
+    } catch (error: any) {
+      console.error("Erro ao reabilitar reserva expirada:", error);
+      const detail = error?.response?.data?.detail;
+      const detailTexto =
+        typeof detail === "string"
+          ? detail
+          : typeof detail?.mensagem === "string"
+            ? detail.mensagem
+            : error?.message;
+      setErro("Erro ao reabilitar reserva: " + String(detailTexto || "Falha inesperada."));
+    } finally {
+      setReabilitandoReservaId(null);
+    }
   };
 
   const cancelarAgendamento = async (id: number) => {
@@ -1891,7 +2011,7 @@ export default function AgendaPage() {
     <DashboardLayout>
       <div className="fc-agenda-page">
         {toastRealtime && (
-          <div className="fixed right-4 top-4 z-[70]">
+          <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[70] lg:top-4">
             <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastRealtime.classe}`}>
               <span className="font-medium">{toastRealtime.texto}</span>
               {typeof toastRealtime.agendamentoId === "number" && (
@@ -2247,9 +2367,14 @@ export default function AgendaPage() {
                 <select
                   value={filtroClinicaId}
                   onChange={(e) => setFiltroClinicaId(e.target.value)}
+                  onFocus={() => void carregarOpcoesClinicasFiltro()}
+                  onPointerDown={() => void carregarOpcoesClinicasFiltro()}
+                  aria-busy={carregandoClinicasFiltro}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="todos">Todas as clinicas</option>
+                  <option value="todos">
+                    {carregandoClinicasFiltro ? "Carregando clinicas..." : "Todas as clinicas"}
+                  </option>
                   {opcoesClinicas.map((clinica) => (
                     <option key={clinica.id} value={String(clinica.id)}>
                       {clinica.nome}
@@ -2259,9 +2384,14 @@ export default function AgendaPage() {
                 <select
                   value={filtroServicoId}
                   onChange={(e) => setFiltroServicoId(e.target.value)}
+                  onFocus={() => void carregarOpcoesServicosFiltro()}
+                  onPointerDown={() => void carregarOpcoesServicosFiltro()}
+                  aria-busy={carregandoServicosFiltro}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="todos">Todos os servicos</option>
+                  <option value="todos">
+                    {carregandoServicosFiltro ? "Carregando servicos..." : "Todos os servicos"}
+                  </option>
                   {opcoesServicos.map((servico) => (
                     <option key={servico.id} value={String(servico.id)}>
                       {servico.nome}
@@ -2523,6 +2653,25 @@ export default function AgendaPage() {
 
                       {/* Ações */}
                       <div className="flex flex-wrap gap-2 lg:flex-[1.5_1_0%] lg:justify-end">
+                        {/* Reserva expirada que a clínica voltou a pedir: segura o
+                            horário de novo, com um prazo novo, sem exigir os dados
+                            do paciente agora. */}
+                        {podeReabilitarReserva(ag.status) && (
+                          <button
+                            onClick={() => abrirModalReabilitarReserva(ag)}
+                            disabled={reabilitandoReservaId === ag.id}
+                            title="Reservar este horário novamente por mais um período"
+                            className="px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors flex items-center gap-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200"
+                          >
+                            {reabilitandoReservaId === ag.id ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <TimerReset className="w-3.5 h-3.5" />
+                            )}
+                            Reabilitar reserva
+                          </button>
+                        )}
+
                         {/* Botões de mudança de status */}
                         {proximosStatus.map((novoStatus) => {
                           const desfazerRealizado = ag.status === 'Realizado' && novoStatus === 'Em atendimento';
@@ -2657,7 +2806,7 @@ export default function AgendaPage() {
                           Maps
                         </button>
 
-                        <details className="relative">
+                        <details className="fc-agenda-row-menu">
                           <summary
                             className="list-none px-3 py-1.5 text-sm text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                             title="Escolher tipo de laudo"
@@ -2666,7 +2815,7 @@ export default function AgendaPage() {
                             Laudar
                             <ChevronDown className="w-4 h-4" />
                           </summary>
-                          <div className="absolute right-0 top-full z-20 mt-2 w-60 overflow-hidden rounded-xl border bg-white shadow-lg">
+                          <div className="fc-agenda-row-menu-panel">
                             <button
                               type="button"
                               onClick={() => abrirFluxoLaudo(ag, TIPO_LAUDO_ECOCARDIOGRAMA)}
@@ -2935,6 +3084,108 @@ export default function AgendaPage() {
             </div>
           </div>
         )}
+
+        {/* Modal de reabilitação de reserva expirada */}
+        {modalReabilitarReserva && (() => {
+          const horasInformadas = normalizarPrazoReabilitacaoHoras(prazoReabilitacaoHoras);
+          const previsao =
+            horasInformadas === null
+              ? null
+              : calcularPrazoReabilitacao(horasInformadas, modalReabilitarReserva.inicio);
+          const salvando = reabilitandoReservaId === modalReabilitarReserva.id;
+
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <div className="mx-4 w-full max-w-md rounded-lg bg-white p-6">
+                <h3 className="text-lg font-bold text-gray-900">Reabilitar reserva</h3>
+                <p className="mt-1 text-sm text-gray-600">
+                  A reserva de{" "}
+                  <span className="font-semibold">
+                    {obterTituloAgendamentoPorOrigem(
+                      modalReabilitarReserva.origem_atendimento,
+                      modalReabilitarReserva.clinica
+                    )}
+                  </span>{" "}
+                  em {formatarDataHoraAgendamento(modalReabilitarReserva)} volta a segurar o
+                  horário por mais um período, até a clínica enviar os dados do paciente.
+                </p>
+
+                <div className="mt-4">
+                  <label
+                    htmlFor="reabilitar-reserva-horas"
+                    className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800"
+                  >
+                    Novo prazo para confirmação
+                  </label>
+                  <div className="flex max-w-xs overflow-hidden rounded-lg border border-amber-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200">
+                    <input
+                      id="reabilitar-reserva-horas"
+                      type="number"
+                      min={PRAZO_REABILITACAO_HORAS_MIN}
+                      max={PRAZO_REABILITACAO_HORAS_MAX}
+                      step="0.5"
+                      inputMode="decimal"
+                      value={prazoReabilitacaoHoras}
+                      onChange={(event) => setPrazoReabilitacaoHoras(event.target.value)}
+                      className="min-w-0 flex-1 border-0 px-3 py-2 text-gray-900 outline-none"
+                    />
+                    <span className="flex items-center border-l border-amber-200 bg-amber-50 px-3 font-medium text-amber-800">
+                      horas
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm">
+                    {horasInformadas === null ? (
+                      <span className="text-red-600">
+                        Informe um prazo entre {PRAZO_REABILITACAO_HORAS_MIN} e{" "}
+                        {PRAZO_REABILITACAO_HORAS_MAX} horas.
+                      </span>
+                    ) : previsao?.indisponivel ? (
+                      <span className="text-red-600">
+                        Este horário está próximo demais (ou já passou) para uma nova reserva.
+                        Agende direto com os dados do paciente ou escolha outro horário.
+                      </span>
+                    ) : (
+                      <span className="text-gray-700">
+                        Confirmar até <span className="font-semibold">{previsao?.prazoLegivel}</span>
+                        {previsao?.encurtado
+                          ? " (encurtado para terminar antes do horário reservado)"
+                          : ""}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <p className="mt-4 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
+                  O sistema confere se o horário continua livre e sem conflito com outros
+                  agendamentos antes de reservar de novo. Avise a clínica do novo prazo pelo
+                  WhatsApp.
+                </p>
+
+                <div className="mt-6 flex justify-end gap-3">
+                  <button
+                    onClick={() => setModalReabilitarReserva(null)}
+                    disabled={salvando}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-gray-600 hover:text-gray-900"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={confirmarReabilitacaoReserva}
+                    disabled={salvando || horasInformadas === null || Boolean(previsao?.indisponivel)}
+                    className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {salvando ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <TimerReset className="h-4 w-4" />
+                    )}
+                    Reabilitar reserva
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Modal de Seleção de Tipo de Horário */}
         {modalTipoHorario && (
@@ -3327,7 +3578,12 @@ export default function AgendaPage() {
         <NovoAgendamentoModal
           isOpen={modalAberto}
           agendamento={agendamentoEditando}
-          onClose={() => { setModalAberto(false); setAgendamentoEditando(null); setSlotSelecionado(null); }}
+          pedidoWhatsApp={pedidoWhatsApp}
+          onClose={() => {
+            setModalAberto(false); setAgendamentoEditando(null); setSlotSelecionado(null); setPedidoWhatsApp(null);
+            const url = new URL(window.location.href); url.searchParams.delete("pedido_whatsapp");
+            window.history.replaceState(null, "", url.toString());
+          }}
           onSuccess={handleAgendamentoSuccess}
           defaultDate={slotSelecionado?.data || filtroData || hojeLocal()}
           defaultTime={slotSelecionado?.hora}

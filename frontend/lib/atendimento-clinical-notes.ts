@@ -54,12 +54,32 @@ export interface ClinicalFieldValues {
   observacoes: string;
 }
 
+export interface ClinicalCoberturaMinima {
+  percentual: number;
+  completos: number;
+  total: number;
+  pendencias: string[];
+}
+
 export interface ClinicalQuickSummary {
   headline: string;
   highlights: Array<{ label: string; text: string }>;
   pending: string[];
   completeness: number;
+  coberturaMinima: ClinicalCoberturaMinima;
 }
+
+// Mesmos 3 grupos (logica OR) exigidos por `_calcular_pendencias_documentacao`
+// no backend para permitir a primeira conclusao do atendimento - mantidos em
+// sincronia manual com `backend/app/api/v1/endpoints/atendimento.py`.
+const GRUPOS_COBERTURA_MINIMA: Array<{ label: string; keys: ClinicalFieldKey[] }> = [
+  { label: "Queixa principal", keys: ["queixa_principal"] },
+  { label: "Anamnese, exame fisico ou dados clinicos", keys: ["anamnese", "exame_fisico", "dados_clinicos"] },
+  {
+    label: "Diagnostico ou plano terapeutico",
+    keys: ["diagnostico_principal", "diagnostico_secundario", "diagnostico_diferencial", "plano_terapeutico"],
+  },
+];
 
 const CLINICAL_FIELD_ORDER: ClinicalFieldKey[] = [
   "queixa_principal",
@@ -404,12 +424,33 @@ export function buildClinicalQuickSummary(
 
   const preenchidos = CLINICAL_FIELD_ORDER.filter((key) => cleanWhitespace(values[key])).length;
   const completeness = Math.round((preenchidos / CLINICAL_FIELD_ORDER.length) * 100);
+  const coberturaMinima = buildCoberturaMinima(values);
 
   return {
     headline,
     highlights,
     pending: pending.slice(0, 4),
     completeness,
+    coberturaMinima,
+  };
+}
+
+// Mesmo criterio de "pronto para concluir" usado por
+// `_validar_primeira_conclusao_atendimento` no backend - ao contrario de
+// `completeness` (media dos 11 campos), aqui cada grupo em
+// `GRUPOS_COBERTURA_MINIMA` conta como satisfeito se AO MENOS UM dos seus
+// campos estiver preenchido, exatamente como a barreira real de conclusao.
+function buildCoberturaMinima(values: ClinicalFieldValues): ClinicalCoberturaMinima {
+  const pendencias = GRUPOS_COBERTURA_MINIMA.filter(
+    (grupo) => !grupo.keys.some((key) => cleanWhitespace(values[key]))
+  ).map((grupo) => grupo.label);
+  const total = GRUPOS_COBERTURA_MINIMA.length;
+  const completos = total - pendencias.length;
+  return {
+    percentual: Math.round((completos / total) * 100),
+    completos,
+    total,
+    pendencias,
   };
 }
 

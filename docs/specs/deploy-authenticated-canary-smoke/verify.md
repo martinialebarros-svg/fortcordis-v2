@@ -12,6 +12,8 @@ Status: done
 | CA-002 | aceitacao | `scripts/deploy_authenticated_canary.py` valida `runtime.ready=true` no endpoint admin e falha em divergencia | ok |
 | CA-003 | aceitacao | canary valida `/api/v1/agenda` e `/api/v1/atendimentos/upload-metrics/dedupe/cleanup/status` e falha em erro/estrutura invalida | ok |
 | CA-004 | aceitacao | falha no canary retorna exit code != 0 no deploy, acionando fluxo de rollback ja existente | ok |
+| CA-005 | aceitacao | `test_http_401_e_403_nao_sao_sucesso_de_canario` valida rejeicao explicita de 401/403 | ok |
+| CA-006 | aceitacao | `test_latencia_da_agenda_reprova_p95_acima_do_limite`, `test_canario_mede_cinco_leituras_autenticadas_da_agenda` e `test_deploy_propaga_limite_e_release_para_o_canario` validam bloqueio, amostragem e a passagem dos limites pelo deploy | ok |
 
 ## 2) Validacoes executadas
 
@@ -27,7 +29,8 @@ python -m unittest backend.tests.test_deploy_authenticated_canary -v
 Resumo:
 - Sintaxe dos scripts de deploy valida apos integracao do canary.
 - Script canary compila sem erro.
-- Testes unitarios de validacao do canary aprovados (4 testes).
+- Testes unitarios de validacao do canary aprovados (12 testes).
+- PERF-18 aprovado localmente; permanece pendente de validacao em stage antes de marcar a decisao de release.
 
 ## 3) Riscos residuais
 

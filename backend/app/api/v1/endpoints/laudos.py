@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
-from sqlalchemy import func, or_
+from sqlalchemy import exists, func, literal, or_, select, union_all
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from typing import Any, Dict, List, Optional
-from datetime import date, datetime
+from pydantic import BaseModel, Field
+from datetime import date, datetime, timedelta
 from io import BytesIO
 import json
 import os
@@ -49,6 +50,11 @@ from app.services.laudo_pdf_jobs import (
 from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
 from app.services.portal_clinic_notification_service import notify_clinic_report_released
 from app.services.portal_partner_notification_service import notify_partner_report_released
+from app.services.whatsapp_agenda_service import normalize_whatsapp_number
+from app.services.whatsapp_template_delivery_service import (
+    WhatsAppTemplateDeliveryError,
+    send_approved_utility_template,
+)
 from app.utils.ecocardiograma_medidas import (
     extrair_medidas_ecocardiograma_da_descricao,
 )
@@ -72,6 +78,11 @@ ELETROCARDIOGRAMA_UPLOAD_ORIGIN = "laudo_eletrocardiograma_upload"
 ELETROCARDIOGRAMA_UPLOAD_ATTACHMENT_DESCRIPTION = "PDF do eletrocardiograma."
 OPERATIONAL_TIME_ZONE = ZoneInfo("America/Fortaleza")
 DATE_ONLY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+class PortalReportWhatsAppRequest(BaseModel):
+    idempotency_key: str = Field(..., min_length=8, max_length=128)
+    destination: str | None = Field(default=None, min_length=10, max_length=32)
 
 ULTRASSOM_ORGAOS_ABDOMINAIS = [
     ("figado", "Figado"),
@@ -165,6 +176,20 @@ def _label_tipo_exame_portal(laudo: Laudo) -> str:
     if tipo in labels:
         return labels[tipo]
     return str(laudo.titulo or laudo.tipo or "Laudo").strip() or "Laudo"
+
+
+def _registered_clinic_whatsapp_numbers(clinica: Any) -> list[str]:
+    values = list(getattr(clinica, "whatsapps", None) or [])
+    values.append(getattr(clinica, "telefone", None))
+    numbers: list[str] = []
+    for value in values:
+        try:
+            normalized = normalize_whatsapp_number(value)
+        except HTTPException:
+            continue
+        if normalized not in numbers:
+            numbers.append(normalized)
+    return numbers
 
 
 def _sincronizar_exame_liberado_para_portal(
@@ -1249,6 +1274,274 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
         return paciente_existente.id
 
 
+def _naive_datetime(valor):
+    if valor is None:
+        return None
+    return valor.replace(tzinfo=None) if valor.tzinfo else valor
+
+
+@router.get("/laudos/pendentes")
+def listar_laudos_pendentes(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Fila pessoal de exames realizados (via Agenda) que ainda precisam
+    de laudo - sem laudo nenhum, ou com laudo em rascunho. So considera
+    agendamentos marcados como "Realizado" (ver
+    docs/specs/laudos-fila-pendentes-agenda).
+
+    Duas fontes, mescladas: (A) exames vinculados a um Atendimento Clinico
+    completo (fluxo raro); (B) agendamentos "Realizado" sem Atendimento
+    Clinico (fluxo comum, via dropdown "Laudar" da Agenda - o Laudo e
+    criado direto via `Laudo.agendamento_id`, sem nunca gerar Exame). O
+    tipo de laudo esperado em (B) vem do servico agendado.
+
+    A pagina e resolvida pelo banco sobre as duas fontes combinadas. Assim,
+    os dados complementares e o calculo de prazo sao feitos somente para os
+    itens retornados, nunca para a fila inteira."""
+    from app.models.agendamento import Agendamento
+    from app.models.clinica import Clinica
+    from app.models.paciente import Paciente
+    from app.models.servico import Servico
+    from app.models.tutor import Tutor
+    from app.services.laudo_agilidade_service import (
+        PRAZO_LAUDO_HORAS_UTEIS,
+        SERVICO_NOME_TIPOS_LAUDO,
+        carregar_feriados,
+        horas_uteis_entre,
+    )
+
+    feriados = carregar_feriados(db)
+    agora = datetime.utcnow()
+
+    # Fonte A: exames vinculados a Atendimento Clinico completo.
+    fonte_exames = select(
+        Exame.id.label("exame_id"),
+        Exame.atendimento_id.label("atendimento_id"),
+        Agendamento.id.label("agendamento_id"),
+        Exame.laudo_id.label("laudo_id"),
+        Exame.laudo_id.isnot(None).label("tem_rascunho"),
+        Agendamento.urgente_laudo.label("urgente"),
+        Exame.paciente_id.label("paciente_id"),
+        AtendimentoClinico.clinica_id.label("clinica_id"),
+        Exame.tipo_exame.label("tipo_exame"),
+        AtendimentoClinico.data_atendimento.label("data_referencia"),
+        literal(0).label("fonte_ordem"),
+    ).select_from(Exame).join(
+        AtendimentoClinico,
+        AtendimentoClinico.id == Exame.atendimento_id,
+    ).join(
+        Agendamento,
+        Agendamento.id == AtendimentoClinico.agendamento_id,
+    ).outerjoin(
+        Laudo,
+        Laudo.id == Exame.laudo_id,
+    ).where(
+        Agendamento.status == "Realizado",
+        or_(Exame.laudo_id.is_(None), Laudo.status == "Rascunho"),
+    )
+
+    # Fonte B: agendamentos realizados sem Atendimento Clinico. Um SELECT por
+    # tipo esperado preserva os combos (por exemplo, Eco + Eletro) no banco.
+    def _fonte_agendamentos(tipo_exame: str, nomes_servico: tuple[str, ...]):
+        laudo_recente = aliased(Laudo)
+        ultimo_laudo_id = (
+            select(Laudo.id)
+            .where(
+                Laudo.agendamento_id == Agendamento.id,
+                func.lower(func.trim(Laudo.tipo)) == tipo_exame,
+            )
+            .order_by(
+                Laudo.created_at.desc().nullslast(),
+                Laudo.id.desc(),
+            )
+            .limit(1)
+            .correlate(Agendamento)
+            .scalar_subquery()
+        )
+        nome_servico = func.lower(
+            func.trim(func.coalesce(func.nullif(Servico.nome, ""), Agendamento.servico, ""))
+        )
+        return select(
+            literal(None).label("exame_id"),
+            literal(None).label("atendimento_id"),
+            Agendamento.id.label("agendamento_id"),
+            laudo_recente.id.label("laudo_id"),
+            laudo_recente.id.isnot(None).label("tem_rascunho"),
+            Agendamento.urgente_laudo.label("urgente"),
+            Agendamento.paciente_id.label("paciente_id"),
+            Agendamento.clinica_id.label("clinica_id"),
+            literal(tipo_exame).label("tipo_exame"),
+            Agendamento.inicio.label("data_referencia"),
+            literal(1).label("fonte_ordem"),
+        ).select_from(Agendamento).outerjoin(
+            Servico,
+            Servico.id == Agendamento.servico_id,
+        ).outerjoin(
+            laudo_recente,
+            laudo_recente.id == ultimo_laudo_id,
+        ).where(
+            Agendamento.status == "Realizado",
+            ~exists().where(AtendimentoClinico.agendamento_id == Agendamento.id),
+            nome_servico.in_(nomes_servico),
+            or_(laudo_recente.id.is_(None), laudo_recente.status == "Rascunho"),
+        )
+
+    tipos_por_servico: Dict[str, list[str]] = {}
+    for nome_servico, tipos in SERVICO_NOME_TIPOS_LAUDO.items():
+        for tipo_exame in tipos:
+            tipos_por_servico.setdefault(tipo_exame, []).append(nome_servico)
+
+    fontes = [fonte_exames]
+    fontes.extend(
+        _fonte_agendamentos(tipo_exame, tuple(nomes_servico))
+        for tipo_exame, nomes_servico in tipos_por_servico.items()
+    )
+    fila = union_all(*fontes).subquery("fila_laudos_pendentes")
+    total = int(db.execute(select(func.count()).select_from(fila)).scalar_one() or 0)
+    pagina = db.execute(
+        select(fila)
+        .order_by(
+            fila.c.urgente.desc(),
+            fila.c.data_referencia.asc().nullsfirst(),
+            fila.c.fonte_ordem.asc(),
+            fila.c.agendamento_id.asc(),
+            fila.c.tipo_exame.asc(),
+            fila.c.exame_id.asc(),
+        )
+        .offset(max(skip, 0))
+        .limit(max(limit, 0))
+    ).mappings().all()
+
+    paciente_ids = {item["paciente_id"] for item in pagina if item["paciente_id"]}
+    pacientes_map = (
+        {p.id: p for p in db.query(Paciente).filter(Paciente.id.in_(paciente_ids)).all()}
+        if paciente_ids
+        else {}
+    )
+    tutor_ids = {p.tutor_id for p in pacientes_map.values() if p.tutor_id}
+    tutores_map = (
+        {t.id: t for t in db.query(Tutor).filter(Tutor.id.in_(tutor_ids)).all()}
+        if tutor_ids
+        else {}
+    )
+    clinica_ids = {item["clinica_id"] for item in pagina if item["clinica_id"]}
+    clinicas_map = (
+        {c.id: c for c in db.query(Clinica).filter(Clinica.id.in_(clinica_ids)).all()}
+        if clinica_ids
+        else {}
+    )
+
+    items = []
+    for item in pagina:
+        paciente = pacientes_map.get(item["paciente_id"])
+        tutor = tutores_map.get(getattr(paciente, "tutor_id", None))
+        clinica = clinicas_map.get(item["clinica_id"])
+        data_referencia = item["data_referencia"]
+        horas = horas_uteis_entre(data_referencia, agora, feriados) if data_referencia else 0.0
+        items.append(
+            {
+                "exame_id": item["exame_id"],
+                "atendimento_id": item["atendimento_id"],
+                "agendamento_id": item["agendamento_id"],
+                "laudo_id": item["laudo_id"],
+                "tem_rascunho": bool(item["tem_rascunho"]),
+                "urgente": bool(item["urgente"]),
+                "paciente_nome": getattr(paciente, "nome", None),
+                "tutor_nome": getattr(tutor, "nome", None),
+                "clinica_nome": getattr(clinica, "nome", None),
+                "tipo_exame": item["tipo_exame"],
+                "data_atendimento": data_referencia.isoformat() if data_referencia else None,
+                "horas_uteis_decorridas": round(horas, 1),
+                "atrasado": horas > PRAZO_LAUDO_HORAS_UTEIS,
+            }
+        )
+
+    return {"total": total, "items": items}
+
+
+@router.get("/laudos/agilidade")
+def obter_agilidade_laudos(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Indicador pessoal de agilidade: % de laudos finalizados dentro do
+    prazo de 48h uteis, ultimos 90 dias comparado aos 90 dias anteriores
+    (ver docs/specs/laudos-fila-pendentes-agenda).
+
+    Une direto por `Laudo.agendamento_id` (preenchido nos dois fluxos -
+    Atendimento Clinico completo e o dropdown "Laudar" direto da Agenda),
+    sem depender de `Exame`/`AtendimentoClinico`, que so existem no fluxo
+    raro e antes subcontavam o indicador. `Agendamento.inicio` e usado
+    como referencia do prazo (ver docs/specs/laudos-fila-pendentes-agenda
+    secao de decisoes 2026-08-17)."""
+    from app.models.agendamento import Agendamento
+    from app.services.laudo_agilidade_service import (
+        PRAZO_LAUDO_HORAS_UTEIS,
+        carregar_feriados,
+        horas_uteis_entre,
+    )
+
+    feriados = carregar_feriados(db)
+    agora = datetime.utcnow()
+
+    def _calcular_janela(inicio_janela: datetime, fim_janela: datetime) -> dict:
+        rows = (
+            db.query(Laudo.finalizado_em, Agendamento.inicio)
+            .join(Agendamento, Agendamento.id == Laudo.agendamento_id)
+            .filter(Agendamento.status == "Realizado")
+            .filter(Laudo.finalizado_em >= inicio_janela, Laudo.finalizado_em < fim_janela)
+            .all()
+        )
+
+        total = len(rows)
+        if total == 0:
+            return {
+                "total_finalizados": 0,
+                "no_prazo": 0,
+                "percentual_no_prazo": None,
+                "media_horas_uteis": None,
+            }
+
+        no_prazo = 0
+        soma_horas = 0.0
+        for finalizado_em, inicio_agendamento in rows:
+            horas = horas_uteis_entre(inicio_agendamento, finalizado_em, feriados)
+            soma_horas += horas
+            if horas <= PRAZO_LAUDO_HORAS_UTEIS:
+                no_prazo += 1
+
+        return {
+            "total_finalizados": total,
+            "no_prazo": no_prazo,
+            "percentual_no_prazo": round(100 * no_prazo / total, 1),
+            "media_horas_uteis": round(soma_horas / total, 1),
+        }
+
+    janela_atual = _calcular_janela(agora - timedelta(days=90), agora)
+    janela_anterior = _calcular_janela(agora - timedelta(days=180), agora - timedelta(days=90))
+
+    tendencia = None
+    atual_pct = janela_atual["percentual_no_prazo"]
+    anterior_pct = janela_anterior["percentual_no_prazo"]
+    if atual_pct is not None and anterior_pct is not None:
+        if atual_pct > anterior_pct:
+            tendencia = "melhorou"
+        elif atual_pct < anterior_pct:
+            tendencia = "piorou"
+        else:
+            tendencia = "estavel"
+
+    return {
+        "prazo_horas_uteis": PRAZO_LAUDO_HORAS_UTEIS,
+        "janela_atual": janela_atual,
+        "janela_anterior": janela_anterior,
+        "tendencia": tendencia,
+    }
+
+
 @router.get("/laudos")
 def listar_laudos(
     paciente_id: Optional[int] = None,
@@ -1367,6 +1660,9 @@ def listar_laudos(
             "data_laudo": _iso_or_str(laudo.data_laudo),
             "created_at": _iso_or_str(laudo.created_at),
             "tem_pdf_externo": bool(_extrair_pdf_externo_laudo(laudo.anexos)),
+            "whatsapp_liberacao_status": laudo.whatsapp_liberacao_status,
+            "whatsapp_liberacao_em": _iso_or_str(laudo.whatsapp_liberacao_em),
+            "whatsapp_liberacao_erro": laudo.whatsapp_liberacao_erro,
             **_serialize_portal_release_state(
                 db,
                 laudo=laudo,
@@ -2808,6 +3104,98 @@ def liberar_laudo_para_portal_clinica(
         db=db,
         current_user=current_user,
     )
+
+
+@router.post("/laudos/{laudo_id}/portal/whatsapp")
+def avisar_laudo_liberado_por_whatsapp(
+    laudo_id: int,
+    payload: PortalReportWhatsAppRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.models.clinica import Clinica
+    from app.models.paciente import Paciente
+
+    laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
+    if laudo is None:
+        raise HTTPException(status_code=404, detail="Laudo nao encontrado.")
+    if not is_portal_released_status(laudo.status, kind="laudo"):
+        raise HTTPException(status_code=409, detail="Libere o laudo no portal antes de enviar o aviso.")
+    if not laudo.clinic_id:
+        raise HTTPException(status_code=409, detail="O laudo nao possui clinica parceira vinculada.")
+
+    clinica = db.query(Clinica).filter(Clinica.id == laudo.clinic_id).first()
+    paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
+    exame = (
+        db.query(Exame)
+        .filter(Exame.laudo_id == laudo.id)
+        .order_by(Exame.id.desc())
+        .first()
+    )
+    if clinica is None or paciente is None or exame is None:
+        raise HTTPException(status_code=409, detail="Dados do laudo incompletos para o aviso por WhatsApp.")
+
+    registered_numbers = _registered_clinic_whatsapp_numbers(clinica)
+    if not registered_numbers:
+        raise HTTPException(status_code=409, detail="A clinica nao possui WhatsApp cadastrado.")
+    destination = normalize_whatsapp_number(payload.destination) if payload.destination else registered_numbers[0]
+    if destination not in registered_numbers:
+        raise HTTPException(status_code=422, detail="O numero nao pertence a clinica vinculada ao laudo.")
+
+    try:
+        result = send_approved_utility_template(
+            template_key="portalReportAvailable",
+            subject_type="exame",
+            subject_id=exame.id,
+            destination=destination,
+            parameters=[
+                str(clinica.nome or "Clinica").strip()[:120],
+                _label_tipo_exame_portal(laudo)[:120],
+                str(paciente.nome or "Paciente").strip()[:120],
+            ],
+            idempotency_key=payload.idempotency_key,
+        )
+    except WhatsAppTemplateDeliveryError as exc:
+        laudo.whatsapp_liberacao_status = "falhou"
+        laudo.whatsapp_liberacao_em = datetime.utcnow()
+        laudo.whatsapp_liberacao_erro = str(exc)[:500]
+        db.commit()
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="laudos",
+            entidade="laudo",
+            entidade_id=laudo.id,
+            acao="LAUDO_PORTAL_WHATSAPP_FALHOU",
+            descricao="Falha ao enviar aviso de laudo disponivel pelo WhatsApp oficial.",
+            detalhes={
+                "destination_suffix": destination[-4:],
+                "erro": str(exc)[:500],
+            },
+            request=request,
+        )
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    laudo.whatsapp_liberacao_status = "enviado"
+    laudo.whatsapp_liberacao_em = datetime.utcnow()
+    laudo.whatsapp_liberacao_erro = None
+    db.commit()
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="laudos",
+        entidade="laudo",
+        entidade_id=laudo.id,
+        acao="LAUDO_PORTAL_WHATSAPP_ENVIADO",
+        descricao="Aviso de laudo disponivel enviado pelo WhatsApp oficial.",
+        detalhes={
+            "destination_suffix": destination[-4:],
+            "provider_message_id": result.get("message_id"),
+            "idempotent": bool(result.get("idempotent")),
+        },
+        request=request,
+    )
+    return result
 
 
 @router.post("/laudos/{laudo_id}/pdf-jobs", response_model=dict)

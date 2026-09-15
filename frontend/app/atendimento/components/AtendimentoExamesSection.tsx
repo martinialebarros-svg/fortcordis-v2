@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -48,6 +49,7 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
     examesExpandidos,
     examesVisiveis,
     excluirAnexo,
+    excluirCatalogoExameCustomizado,
     excluirPainelExame,
     expandirTodosExames,
     EXAME_FILTRO_OPCOES,
@@ -81,6 +83,7 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
     resolvePreviewKind,
     resumoExamesFluxo,
     salvando,
+    salvarCatalogoExameCustomizado,
     salvarPainelExame,
     selecionado,
     setExamDropActive,
@@ -104,6 +107,24 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
     uploadingAttachmentKey,
     uploadProgressByKey,
   } = props;
+
+  const [exameBuscaFoco, setExameBuscaFoco] = useState(false);
+
+  const gruposExamesVisiveis = useMemo(() => {
+    const grupos: { categoria: string; itens: AtendimentoExamesSectionProps[] }[] = [];
+    const indicePorCategoria = new Map<string, number>();
+    (examesVisiveis as AtendimentoExamesSectionProps[]).forEach((item) => {
+      const categoria = (item.exame?.categoria_exame || "").trim() || "Sem categoria";
+      let idx = indicePorCategoria.get(categoria);
+      if (idx === undefined) {
+        idx = grupos.length;
+        indicePorCategoria.set(categoria, idx);
+        grupos.push({ categoria, itens: [] });
+      }
+      grupos[idx].itens.push(item);
+    });
+    return grupos;
+  }, [examesVisiveis]);
 
   return (
     <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm space-y-3">
@@ -133,7 +154,7 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
           <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Solicitados</p>
           <p className="mt-1 text-lg font-semibold text-slate-900">{resumoExamesFluxo.solicitados}</p>
@@ -149,6 +170,10 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2">
           <p className="text-[11px] uppercase tracking-[0.2em] text-emerald-700">Interpretados</p>
           <p className="mt-1 text-lg font-semibold text-emerald-900">{resumoExamesFluxo.interpretado}</p>
+        </div>
+        <div className="rounded-2xl border border-violet-200 bg-violet-50 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-violet-700">No portal</p>
+          <p className="mt-1 text-lg font-semibold text-violet-900">{resumoExamesFluxo.liberado_portal}</p>
         </div>
       </div>
 
@@ -202,16 +227,27 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
             <input
               value={exameBusca}
               onChange={(e) => setExameBusca(e.target.value)}
+              onFocus={() => setExameBuscaFoco(true)}
+              onBlur={() => setExameBuscaFoco(false)}
               placeholder="Buscar exame por nome, categoria ou sinonimo..."
               className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-11 pr-3 text-sm text-slate-900"
             />
-            {exameBusca.trim() && examesCatalogoFiltrados.length > 0 ? (
+            {(exameBusca.trim() || exameBuscaFoco) && examesCatalogoFiltrados.length > 0 ? (
               <div className="absolute z-10 mt-2 max-h-72 w-full overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                {!exameBusca.trim() ? (
+                  <p className="px-3 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Sugestoes
+                  </p>
+                ) : null}
                 {examesCatalogoFiltrados.map((item: AtendimentoExamesSectionProps) => (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => adicionarExameDoCatalogo(item)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setExameBuscaFoco(false);
+                      adicionarExameDoCatalogo(item);
+                    }}
                     className="w-full rounded-2xl px-3 py-3 text-left transition hover:bg-sky-50"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -350,6 +386,7 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
             catalogoExames={catalogoExames}
             customPaineis={customPaineis}
             editarPainelExame={editarPainelExame}
+            excluirCatalogoExameCustomizado={excluirCatalogoExameCustomizado}
             excluirPainelExame={excluirPainelExame}
             painelEmEdicao={painelEmEdicao}
             painelFormCategoria={painelFormCategoria}
@@ -358,6 +395,7 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
             painelFormNome={painelFormNome}
             painelFormSearch={painelFormSearch}
             painelModalMode={painelModalMode}
+            salvarCatalogoExameCustomizado={salvarCatalogoExameCustomizado}
             salvarPainelExame={salvarPainelExame}
             setPainelEmEdicao={setPainelEmEdicao}
             setPainelFormCategoria={setPainelFormCategoria}
@@ -372,7 +410,8 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
       </div>
 
       <div className="space-y-3">
-        {examesVisiveis.map(({ exame, index, anexosResultado, flowStatus }: AtendimentoExamesSectionProps) => {
+        {(() => {
+        const renderExameCard = ({ exame, index, anexosResultado, flowStatus }: AtendimentoExamesSectionProps) => {
           const exameKey = getExameStateKey(exame);
           const exameExpandido = examesExpandidos[exameKey] ?? index === 0;
           const exameUploadKey = `exame-${index}`;
@@ -480,25 +519,76 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
                         </span>
                       </button>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => removerExame(index)}
-                      title={
-                        exame.id
-                          ? "Excluir este exame do prontuario"
-                          : "Remover este exame da solicitacao"
-                      }
-                      className="self-start rounded-xl bg-red-100 px-3 py-2 text-red-700 hover:bg-red-200"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {exameLiberadoNoPortal ? (
+                      <span
+                        title={
+                          exame.visualizado_portal_em
+                            ? `Clinica parceira visualizou em ${formatDate(exame.visualizado_portal_em)}`
+                            : "A clinica parceira ainda nao abriu este exame."
+                        }
+                        className={`self-start rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                          exame.visualizado_portal_em
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-amber-100 text-amber-700"
+                        }`}
+                      >
+                        {exame.visualizado_portal_em
+                          ? `Visto em ${formatDate(exame.visualizado_portal_em)}`
+                          : "Ainda nao visto"}
+                      </span>
+                    ) : null}
+                    <div className="ml-1 flex items-center self-start border-l border-slate-200 pl-3">
+                      <button
+                        type="button"
+                        onClick={() => removerExame(index)}
+                        title={
+                          exame.id
+                            ? "Excluir este exame do prontuario"
+                            : "Remover este exame da solicitacao"
+                        }
+                        className="rounded-xl bg-red-100 px-3 py-2 text-red-700 hover:bg-red-200"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
                 {!exameExpandido ? (
-                  <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                    {exame.tipo_exame || "Exame sem nome"} · {anexosResultado.length} arquivo(s) ·{" "}
-                    {exame.resultado?.trim() ? "com interpretacao" : "sem interpretacao"}
+                  <div
+                    onDragEnter={(event) => {
+                      event.preventDefault();
+                      setExamDropActive((prev: AtendimentoExamesSectionProps) => ({ ...prev, [exameKey]: true }));
+                      setExamesExpandidos((prev: AtendimentoExamesSectionProps) => ({ ...prev, [exameKey]: true }));
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                    }}
+                    onDragLeave={(event) => {
+                      event.preventDefault();
+                      if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+                      clearExamDropState(exameKey);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      clearExamDropState(exameKey);
+                      setExamesExpandidos((prev: AtendimentoExamesSectionProps) => ({ ...prev, [exameKey]: true }));
+                      const files = Array.from(event.dataTransfer.files || []);
+                      if (files.length > 1) {
+                        void uploadArquivosResultadoExame(index, files);
+                      } else if (files[0]) {
+                        setExamUploadDraftFile(exameKey, files[0]);
+                      }
+                    }}
+                    className={`rounded-[18px] border px-3 py-2 text-xs transition ${
+                      dropAtivo ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-600"
+                    }`}
+                  >
+                    {dropAtivo
+                      ? "Solte o arquivo aqui para anexar a este exame..."
+                      : `${exame.tipo_exame || "Exame sem nome"} · ${anexosResultado.length} arquivo(s) · ${
+                          exame.resultado?.trim() ? "com interpretacao" : "sem interpretacao"
+                        }`}
                   </div>
                 ) : null}
 
@@ -760,10 +850,42 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
               </div>
             </div>
           );
-        })}
+        };
+        return gruposExamesVisiveis.map((grupo) => (
+          <Fragment key={grupo.categoria}>
+            <div className="sticky top-0 z-10 -mx-1 bg-white/95 px-1 py-2 backdrop-blur-sm xl:top-[330px]">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                {grupo.categoria}
+                <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium normal-case tracking-normal text-slate-500">
+                  {grupo.itens.length}
+                </span>
+              </p>
+            </div>
+            {grupo.itens.map((item: AtendimentoExamesSectionProps) => renderExameCard(item))}
+          </Fragment>
+        ));
+        })()}
         {examesVisiveis.length === 0 ? (
           <div className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-            Nenhum exame encontrado para o filtro atual.
+            {exameFiltroRapido === "todos" ? (
+              <p>Nenhum exame solicitado ainda.</p>
+            ) : (
+              <>
+                <p>
+                  Nenhum exame encontrado para o filtro &quot;
+                  {EXAME_FILTRO_OPCOES.find((filtro: AtendimentoExamesSectionProps) => filtro.key === exameFiltroRapido)
+                    ?.label || exameFiltroRapido}
+                  &quot;.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setExameFiltroRapido("todos")}
+                  className="mt-3 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
+                >
+                  Ver todos os exames
+                </button>
+              </>
+            )}
           </div>
         ) : null}
       </div>

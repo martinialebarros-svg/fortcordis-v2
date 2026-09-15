@@ -84,6 +84,8 @@ export default function ClinicaPortalAccessCard({
   const [deliveryTarget, setDeliveryTarget] = useState(defaultWhatsapp);
   const [inviteEmail, setInviteEmail] = useState(defaultEmail);
   const [expiresInHours, setExpiresInHours] = useState("72");
+  const [senhaTemporaria, setSenhaTemporaria] = useState(false);
+  const [responsavelNome, setResponsavelNome] = useState("");
   const [lastInvite, setLastInvite] = useState<PortalAdminClinicInviteResponse | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -106,8 +108,16 @@ export default function ClinicaPortalAccessCard({
       accessMode: lastInvite.access_mode,
       expiresAt: lastInvite.expires_at,
       accountEmailMasked: lastInvite.account_email_masked,
+      senhaTemporaria: lastInvite.senha_temporaria,
     });
-  }, [clinicaNome, lastInvite?.access_mode, lastInvite?.account_email_masked, lastInvite?.activation_url, lastInvite?.expires_at]);
+  }, [
+    clinicaNome,
+    lastInvite?.access_mode,
+    lastInvite?.account_email_masked,
+    lastInvite?.activation_url,
+    lastInvite?.expires_at,
+    lastInvite?.senha_temporaria,
+  ]);
 
   async function loadSummary() {
     setLoading(true);
@@ -142,6 +152,8 @@ export default function ClinicaPortalAccessCard({
           account_email: inviteEmail.trim(),
           expires_in_hours: Number.parseInt(expiresInHours, 10) || 72,
           allow_manual_copy: true,
+          senha_temporaria: senhaTemporaria,
+          responsavel_nome: senhaTemporaria ? responsavelNome.trim() : undefined,
         },
         { headers: getPortalAdminAuthHeaders() },
       );
@@ -151,12 +163,15 @@ export default function ClinicaPortalAccessCard({
           ? response.data.delivery_status === "sent"
             ? "Este email ja tinha acesso ativo: reenviamos o acesso em vez de criar um novo convite."
             : "Este email ja tinha acesso ativo. Copie a mensagem e encaminhe pelo WhatsApp institucional."
-          : response.data.delivery_status === "sent"
-            ? "Convite enviado com sucesso para o novo gestor."
-            : "Convite gerado. Copie a mensagem e encaminhe pelo WhatsApp institucional.",
+          : response.data.access_mode === "temporary_password"
+            ? "Conta criada com senha temporaria. Copie a senha agora - ela nao aparece de novo."
+            : response.data.delivery_status === "sent"
+              ? "Convite enviado com sucesso para o novo gestor."
+              : "Convite gerado. Copie a mensagem e encaminhe pelo WhatsApp institucional.",
       );
-      if (response.data.access_mode === "activation") {
+      if (response.data.access_mode === "activation" || response.data.access_mode === "temporary_password") {
         setInviteEmail("");
+        setResponsavelNome("");
       }
       await loadSummary();
     } catch (err) {
@@ -175,6 +190,18 @@ export default function ClinicaPortalAccessCard({
       setMessage(lastInvite.access_mode === "login" ? "Link de acesso copiado." : "Link de ativacao copiado.");
     } catch {
       setError("Nao foi possivel copiar o link automaticamente.");
+    }
+  }
+
+  async function handleCopySenhaTemporaria() {
+    if (!lastInvite?.senha_temporaria) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(lastInvite.senha_temporaria);
+      setMessage("Senha temporaria copiada.");
+    } catch {
+      setError("Nao foi possivel copiar a senha automaticamente.");
     }
   }
 
@@ -321,10 +348,40 @@ export default function ClinicaPortalAccessCard({
               </label>
             </div>
 
+            <label className="mt-4 flex items-start gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={senhaTemporaria}
+                onChange={(event) => setSenhaTemporaria(event.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-700 focus:ring-teal-600"
+              />
+              <span>
+                Gerar senha temporaria (recomendado para quem tem menos familiaridade com sistemas) - a conta ja
+                nasce ativa, sem a clinica precisar criar a propria senha.
+              </span>
+            </label>
+
+            {senhaTemporaria ? (
+              <label className="mt-3 block text-sm font-medium text-gray-700">
+                Nome do responsavel na clinica
+                <input
+                  value={responsavelNome}
+                  onChange={(event) => setResponsavelNome(event.target.value)}
+                  className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-teal-600"
+                  placeholder="Nome de quem vai usar o portal"
+                />
+              </label>
+            ) : null}
+
             <button
               type="button"
               onClick={() => void handleGenerateInvite()}
-              disabled={submitting || !deliveryTarget.trim() || !inviteEmail.trim()}
+              disabled={
+                submitting ||
+                !deliveryTarget.trim() ||
+                !inviteEmail.trim() ||
+                (senhaTemporaria && !responsavelNome.trim())
+              }
               className="mt-4 inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-teal-300"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
@@ -336,9 +393,31 @@ export default function ClinicaPortalAccessCard({
                 <p className="text-sm font-semibold text-teal-950">
                   {lastInvite.access_mode === "login"
                     ? "Ultimo link de acesso gerado nesta sessao"
-                    : "Ultimo link de ativacao gerado nesta sessao"}
+                    : lastInvite.access_mode === "temporary_password"
+                      ? "Conta criada com senha temporaria nesta sessao"
+                      : "Ultimo link de ativacao gerado nesta sessao"}
                 </p>
                 <p className="mt-2 break-all text-sm text-teal-900">{lastInvite.activation_url}</p>
+                {lastInvite.access_mode === "temporary_password" && lastInvite.senha_temporaria ? (
+                  <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-amber-800">
+                      Senha temporaria - so aparece agora, anote ou copie antes de sair desta tela
+                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <code className="rounded bg-white px-2 py-1 font-mono text-base text-amber-950">
+                        {lastInvite.senha_temporaria}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => void handleCopySenhaTemporaria()}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-100"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        Copiar senha
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <label className="mt-4 block text-sm font-semibold text-teal-950">
                   {lastInvite.access_mode === "login"
                     ? "Mensagem sugerida para reenvio de acesso"

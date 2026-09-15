@@ -35,7 +35,7 @@ import {
   LV_M_MODE_KEYS,
 } from "@/lib/echo-derived-measurements";
 import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
-import { operationalTodayDateInput } from "@/lib/calendar-date";
+import { calendarDateInput, operationalTodayDateInput } from "@/lib/calendar-date";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -222,6 +222,7 @@ const PARAMETROS_MEDIDAS = [
   { key: "MV_E", label: "MV E (m/s)", categoria: "Mitral" },
   { key: "MV_A", label: "MV A (m/s)", categoria: "Mitral" },
   { key: "MV_E_A", label: "MV E/A", categoria: "Mitral" },
+  { key: "MV_E_TRIV", label: "MV E/TRIV", categoria: "Mitral" },
   { key: "MV_DT", label: "MV DT (ms)", categoria: "Mitral" },
   { key: "IVRT", label: "IVRT (ms)", categoria: "Tempos" },
   { key: "MR_Vmax", label: "MR Vmax (m/s)", categoria: "Regurgitação" },
@@ -516,6 +517,9 @@ export default function NovoLaudoPage() {
     medidas["Atrio_esquerdo"],
     medidas["Ao_nivel_AP"],
     medidas["AP"],
+    medidas["Onda_E"],
+    medidas["Onda_A"],
+    medidas["TRIV"],
     medidas["e_doppler"],
     medidas["a_doppler"],
     medidas["DIVEd"],
@@ -602,7 +606,10 @@ export default function NovoLaudoPage() {
         idade: extrairIdadePaciente(dadosPaciente || {}) || prev.idade,
         sexo: normalizarSexoPaciente(dadosPaciente?.sexo || prev.sexo || "Macho") || "Macho",
         telefone: agendamento.telefone || prev.telefone,
-        data_exame: agendamento.data || prev.data_exame || operationalTodayDateInput(),
+        data_exame:
+          calendarDateInput(agendamento.data || agendamento.inicio) ||
+          prev.data_exame ||
+          operationalTodayDateInput(),
       }));
 
       if (agendamento.clinica_id) {
@@ -674,6 +681,7 @@ export default function NovoLaudoPage() {
       "MV_E": "Onda_E",
       "MV_A": "Onda_A",
       "MV_E_A": "E_A",
+      "MV_E_TRIV": "E_TRIV",
       "MV_DT": "TD",
       "IVRT": "TRIV",
       "TDI_e": "e_doppler",
@@ -714,6 +722,8 @@ export default function NovoLaudoPage() {
       "Onda_E": "Onda_E",
       "Onda_A": "Onda_A",
       "E_A": "E_A",
+      "E_TRIV": "E_TRIV",
+      "E/TRIV": "E_TRIV",
       "TD": "TD",
       "TRIV": "TRIV",
       "e_doppler": "e_doppler",
@@ -1654,6 +1664,7 @@ export default function NovoLaudoPage() {
                           label="E/A (relação adimensional)"
                           value={medidas["E_A"] || ""}
                           onChange={(v) => handleMedidaChange("E_A", v)}
+                          readOnly
                         />
                         <MedidaInput 
                           label="TD (tempo de desaceleração, ms)"
@@ -1664,6 +1675,13 @@ export default function NovoLaudoPage() {
                           label="TRIV (tempo de relaxamento isovolumétrico, ms)"
                           value={medidas["TRIV"] || ""}
                           onChange={(v) => handleMedidaChange("TRIV", v)}
+                        />
+                        <MedidaInput
+                          label="E/TRIV (índice E [cm/s] / TRIV [ms])"
+                          value={medidas["E_TRIV"] || ""}
+                          onChange={(v) => handleMedidaChange("E_TRIV", v)}
+                          readOnly
+                          reference="Ref.: ≤2,5; valores >2,5 são sugestivos de aumento das pressões de enchimento do VE."
                         />
                         <MedidaInput 
                           label="MR dp/dt (mmHg/s)"
@@ -1689,7 +1707,8 @@ export default function NovoLaudoPage() {
                           label="E/E' (adimensional)"
                           value={medidas["E_E_linha"] || ""}
                           onChange={(v) => handleMedidaChange("E_E_linha", v)}
-                          reference="Ref.: <12"
+                          readOnly
+                          reference="Ref.: ≤12; valores >12 são sugestivos de aumento das pressões de enchimento do VE."
                         />
                       </div>
 

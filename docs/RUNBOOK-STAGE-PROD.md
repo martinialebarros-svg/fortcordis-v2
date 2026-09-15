@@ -8,13 +8,168 @@ Este runbook descreve o processo seguro para promover codigo de `stage` para `pr
 - Diretório prod: `/var/www/fortcordis-v2`
 - Stage (se na mesma VPS): `/var/www/fortcordis-stage`
 
-## Fluxo recomendado (automatizado)
+## Fluxo de entrega (stage-first)
 
-### 1) Local: promover stage -> main sem tocar no runtime local
+Regra: **nenhuma feature entra direto em produção**. `main` so recebe o que ja
+rodou em stage.
+
+1. Feature/fix sai de `stage` e abre PR com base `stage`.
+2. Merge em `stage` -> deploy automatico de stage (`.github/workflows/deploy-stage.yml`).
+3. Teste em stage (ver secao de smoke/preflight abaixo).
+4. Promocao para produção pelo **PR de release** `stage -> main` (titulo
+   `chore(release): promover <resumo>`), mergeado com merge commit — squash
+   faria `main` divergir de `stage` e criaria conflito na promocao seguinte.
+5. Merge em `main` -> deploy automatico de produção (`.github/workflows/deploy.yml`).
+
+Guards automaticos, os dois em `on: pull_request`:
+
+- `.github/workflows/branch-flow-guard.yml` marca com falha qualquer PR que mire
+  `main` sem vir de `stage`. Escape hatch para hotfix urgente de produção:
+  branch `hotfix/<slug>` ou label `hotfix` no PR.
+- `.github/workflows/promotion-verify-guard.yml` barra promocao que leve
+  criterio de aceitacao ainda `pendente` na matriz do `verify.md` das features
+  no diff. Label de excecao: `promocao-com-pendencia`.
+
+**Por que nao usar `scripts/promote_stage_to_main.sh` como rota normal:** ele
+termina em `git push origin HEAD:main`, e `main` nao tem protecao de branch.
+Como os dois guards so rodam em PR, o script nao dispara nenhum deles — e um
+criterio pendente chega em produção sem ninguem ser avisado. O script continua
+no repo como escape hatch; de quem o usa se espera saber que esta pulando a
+verificacao.
+
+**Todo hotfix aplicado direto em `main` exige backport imediato para `stage`**:
 
 ```bash
-cd <repo>
-bash scripts/promote_stage_to_main.sh
+git fetch origin
+git checkout stage
+git pull --ff-only origin stage
+git merge origin/main      # so agora origin/main inclui o hotfix
+git push origin stage
+```
+
+O `git fetch` no inicio nao e opcional: sem ele, `origin/main` local pode estar
+anterior ao hotfix, o merge nao traz nada e o push "conclui" com `stage` ainda
+sem a correcao. Enquanto `main`
+tiver commit que `stage` nao tem, a promocao seguinte resolve conflito em favor
+de `stage` **sem avisar** — ou seja, pode desfazer silenciosamente a correcao de
+emergencia (o `-X theirs` e o default do `promote_stage_to_main.sh`, mas o mesmo
+risco existe em qualquer merge feito nessa direcao).
+
+Se por qualquer motivo o backport nao tiver sido feito, faca o backport **antes**
+de promover, pelo bloco acima. Nao ha atalho pela promocao: o
+`branch-flow-guard` so aceita PR para `main` vindo de `stage`, entao o conflito
+tem de ser resolvido em `stage` de qualquer jeito. Com `stage` ja contendo
+`main`, o PR de promocao nao tem o que resolver em favor de ninguem.
+
+### Checks obrigatorios (feito em 2026-09-14)
+
+Existem duas rulesets ativas, uma por branch, criadas pela API:
+
+| ruleset | branch | checks obrigatorios |
+| --- | --- | --- |
+| `Checks obrigatorios - stage` | `refs/heads/stage` | `tipos-devem-compilar`, `testes-devem-passar`, `migration-tests`, `sdd-guardrail` |
+| `Checks obrigatorios - main` | `refs/heads/main` | os quatro acima, mais `base-deve-ser-promocao` e `criterios-devem-estar-fechados` |
+
+As duas tambem trazem `deletion` e `non_fast_forward`. Sem bypass actors: valem
+inclusive para quem administra o repositorio.
+
+**Por que duas e nao uma.** `base-deve-ser-promocao` e
+`criterios-devem-estar-fechados` rodam so em PR que mira `main`. Numa ruleset que
+cobrisse `stage`, seriam exigidos e nunca reportariam -- e check obrigatorio que
+nao roda deixa o PR parado em "Expected -- waiting for status to be reported",
+sem erro e sem vermelho. Por isso ficam so na ruleset de `main`.
+
+Pela mesma razao, o filtro `paths` foi removido de `frontend-ci.yml` antes de
+tornar os gates obrigatorios -- ver `docs/specs/ci-frontend-gates-sem-paths/`.
+Nao reintroduza o filtro sem tirar os checks da lista de obrigatorios.
+
+**Nao foi exigido PR antes do merge**, por decisao do responsavel. O gate de
+status ja barra push direto que nao tenha checks aprovados em outra ref, o que
+na pratica encerra o `promote_stage_to_main.sh` -- coerente com a secao "Promova
+pelo PR, nao pelo script" do `CLAUDE.md`.
+
+### Default branch = `stage` (feito em 2026-09-15)
+
+Era o ultimo passo manual pendente desta secao. Aplicado por
+`PATCH /repos/{owner}/{repo}` com `default_branch=stage`.
+
+Com isso, PR novo nasce com base `stage` -- inclusive os abertos por agentes --
+em vez de nascer mirando `main` e depender do `base-deve-ser-promocao` para
+avisar depois. `git clone` passa a trazer `stage`.
+
+**Conferido antes de trocar**, porque o default branch muda o ref default do
+`workflow_dispatch`, e com ele o YAML que roda num disparo manual: os quatro
+workflows que aplicam algo em produção (`sync-portal-email-env`,
+`provision-institutional-host`, `recover-frases-prod` e `fix-database`) abortam
+quando `DISPATCH_REF != refs/heads/main`, e tres deles ainda fixam `ref: main`
+no checkout. A troca nao expoe produção por acidente.
+
+O limite ja registrado acima continua valendo: esses guards protegem contra
+acidente, nao contra edicao deliberada do workflow por quem tem push.
+
+Workflow manual que aplique algo em produção precisa de duas travas, porque em
+`workflow_dispatch` o YAML executado vem do ref selecionado no dispatch (e esse
+ref default acompanha o default branch do repositorio):
+
+1. `ref: main` no `actions/checkout` — garante que os arquivos copiados para a
+   VPS sao os promovidos, nao os de `stage`.
+2. Passo inicial exigindo `github.ref == refs/heads/main` — garante que os
+   proprios passos `run` do job sao os promovidos. O checkout pinado nao cobre
+   isso.
+
+Aplicado em `sync-portal-email-env.yml`, `provision-institutional-host.yml`,
+`recover-frases-prod.yml` e (condicionado a `environment=production`)
+`fix-database.yml`.
+
+Limite conhecido: esses dois guards vivem dentro do proprio workflow, que vem do
+ref do dispatch — logo protegem contra **acidente** (rodar produção a partir de
+`stage` sem perceber), nao contra edicao deliberada do workflow em `stage` por
+quem tem permissao de push.
+
+Fechar essa segunda ameaca nao e ajuste de YAML, e um trabalho proprio, ainda
+nao feito:
+
+- `VPS_SSH_KEY`/`VPS_HOST`/`VPS_SUDO_PASSWORD` sao secrets de repositorio e
+  **as mesmas credenciais servem stage e produção** — nao existe hoje credencial
+  separada por ambiente.
+- Nove jobs os consomem: os 4 manuais de produção, os 3 manuais de stage
+  (`recover-frases-stage`, `sync-frases-store-stage`, `sync-frases-to-stage`) e
+  os 2 deploys automaticos (`deploy`, `deploy-stage`).
+- Enquanto as credenciais estiverem no escopo do repositorio, gatear por
+  Environment nao impede nada contra quem edita workflow: basta o YAML omitir
+  `environment:` e ler o secret do repositorio. Para valer, seria preciso
+  credencial exclusiva de stage na VPS, mover as de produção para um Environment
+  e vincular todos os consumidores — e, se o deploy automatico de `main` entrar
+  nesse Environment com required reviewers, produção deixa de ser deploy
+  desatendido.
+
+O que existe hoje: os 4 jobs manuais de produção declaram `environment:
+production`. Isso nao fecha a ameaca acima, mas permite uma trava util e barata
+— adicionar required reviewers a esse Environment faz **dispatch manual em
+produção exigir aprovacao humana**, protegendo contra disparo descuidado.
+Enquanto o Environment nao tiver regras, o binding nao muda nada.
+
+## Fluxo recomendado (automatizado)
+
+### 1) Promover stage -> main
+
+Pelo PR de release, para que os guards rodem:
+
+```bash
+gh pr create --base main --head stage --title "chore(release): promover <resumo>"
+gh pr merge <n> --merge
+```
+
+Para antecipar o veredito do gate de criterio pendente, antes de abrir o PR:
+
+```bash
+cd scripts/ci && python3 -c "
+import check_promotion_verify_pending as g, subprocess
+arquivos = subprocess.run(['git','diff','--name-only','origin/main...origin/stage'],
+                          capture_output=True, text=True, cwd='../..').stdout.split()
+r = g.avaliar(arquivos, '../..')
+print(r.passou, r.mensagens)
+"
 ```
 
 ### 2) VPS Stage: deploy padronizado

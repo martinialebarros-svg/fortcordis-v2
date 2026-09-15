@@ -1095,5 +1095,168 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 self.assertEqual(login_b_ainda_funciona.status_code, 200)
 
 
+    def test_convite_com_senha_temporaria_cria_conta_ativa_e_exige_mfa(self) -> None:
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        captured_codes: dict[str, str] = {}
+
+        def _capture_login_mfa(*, code: str, **kwargs):
+            captured_codes["login_mfa"] = code
+            return SimpleNamespace(provider="smtp", channel="email")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+            stack.enter_context(
+                patch(
+                    "app.api.v1.endpoints.portal_clinic_auth.send_login_mfa_code",
+                    side_effect=_capture_login_mfa,
+                )
+            )
+            with TestClient(self._app) as client:
+                invite_response = client.post(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/convites",
+                    json={
+                        "delivery_channel": "whatsapp",
+                        "delivery_target": "85999990000",
+                        "account_email": "temp.senha@example.com",
+                        "responsavel_nome": "Recepcao Teste",
+                        "expires_in_hours": 72,
+                        "allow_manual_copy": True,
+                        "senha_temporaria": True,
+                    },
+                )
+                self.assertEqual(invite_response.status_code, 200)
+                invite_payload = invite_response.json()
+                self.assertEqual(invite_payload["access_mode"], "temporary_password")
+                self.assertEqual(invite_payload["status"], "active")
+                senha_temporaria = invite_payload["senha_temporaria"]
+                self.assertRegex(senha_temporaria, r"^[a-z]+-\d{4}$")
+                self.assertIsNone(invite_payload["invite_id"])
+
+                login_response = client.post(
+                    "/api/v1/portal/auth/login",
+                    json={
+                        "email": "temp.senha@example.com",
+                        "password": senha_temporaria,
+                        "remember_device_until_shift_end": False,
+                    },
+                )
+                self.assertEqual(login_response.status_code, 200)
+                self.assertTrue(login_response.json()["mfa_required"])
+                challenge_id = login_response.json()["challenge_id"]
+                self.assertIn("login_mfa", captured_codes)
+
+                mfa_response = client.post(
+                    "/api/v1/portal/auth/mfa/verificar",
+                    json={
+                        "challenge_id": challenge_id,
+                        "codigo": captured_codes["login_mfa"],
+                        "remember_device_until_shift_end": False,
+                    },
+                )
+                self.assertEqual(mfa_response.status_code, 200)
+                auth_headers = {"Authorization": f"Bearer {mfa_response.json()['access_token']}"}
+
+                exams_response = client.get("/api/v1/portal/clinicas/exames", headers=auth_headers)
+                self.assertEqual(exams_response.status_code, 200)
+                self.assertTrue(exams_response.json()["must_change_password"])
+
+    def test_trocar_senha_zera_must_change_password_e_dispensa_mfa_depois(self) -> None:
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        captured_codes: dict[str, str] = {}
+
+        def _capture_login_mfa(*, code: str, **kwargs):
+            captured_codes["login_mfa"] = code
+            return SimpleNamespace(provider="smtp", channel="email")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+            stack.enter_context(
+                patch(
+                    "app.api.v1.endpoints.portal_clinic_auth.send_login_mfa_code",
+                    side_effect=_capture_login_mfa,
+                )
+            )
+            with TestClient(self._app) as client:
+                invite_response = client.post(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/convites",
+                    json={
+                        "delivery_channel": "whatsapp",
+                        "delivery_target": "85999990000",
+                        "account_email": "troca.senha@example.com",
+                        "responsavel_nome": "Recepcao Teste",
+                        "expires_in_hours": 72,
+                        "allow_manual_copy": True,
+                        "senha_temporaria": True,
+                    },
+                )
+                senha_temporaria = invite_response.json()["senha_temporaria"]
+
+                login_response = client.post(
+                    "/api/v1/portal/auth/login",
+                    json={
+                        "email": "troca.senha@example.com",
+                        "password": senha_temporaria,
+                        "remember_device_until_shift_end": False,
+                    },
+                )
+                challenge_id = login_response.json()["challenge_id"]
+                mfa_response = client.post(
+                    "/api/v1/portal/auth/mfa/verificar",
+                    json={
+                        "challenge_id": challenge_id,
+                        "codigo": captured_codes["login_mfa"],
+                        "remember_device_until_shift_end": False,
+                    },
+                )
+                auth_headers = {"Authorization": f"Bearer {mfa_response.json()['access_token']}"}
+
+                troca_errada = client.post(
+                    "/api/v1/portal/auth/trocar-senha",
+                    json={
+                        "senha_atual": "senha-errada-0000",
+                        "nova_senha": "Senha-nova-789",
+                        "nova_senha_confirmacao": "Senha-nova-789",
+                    },
+                    headers=auth_headers,
+                )
+                self.assertEqual(troca_errada.status_code, 401)
+
+                troca_ok = client.post(
+                    "/api/v1/portal/auth/trocar-senha",
+                    json={
+                        "senha_atual": senha_temporaria,
+                        "nova_senha": "Senha-nova-789",
+                        "nova_senha_confirmacao": "Senha-nova-789",
+                    },
+                    headers=auth_headers,
+                )
+                self.assertEqual(troca_ok.status_code, 200)
+
+                exams_response = client.get("/api/v1/portal/clinicas/exames", headers=auth_headers)
+                self.assertFalse(exams_response.json()["must_change_password"])
+
+                login_apos_troca = client.post(
+                    "/api/v1/portal/auth/login",
+                    json={
+                        "email": "troca.senha@example.com",
+                        "password": "Senha-nova-789",
+                        "remember_device_until_shift_end": False,
+                    },
+                )
+                self.assertEqual(login_apos_troca.status_code, 200)
+                self.assertFalse(login_apos_troca.json()["mfa_required"])
+                self.assertTrue(login_apos_troca.json()["access_token"])
+
+
 if __name__ == "__main__":
     unittest.main()

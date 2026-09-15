@@ -1,6 +1,6 @@
 # Spec - laudo-phrase-library
 
-Data: 2026-08-01
+Data: 2026-08-11
 Responsavel: Codex  
 Status: done
 
@@ -27,6 +27,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - RF-015: a busca de Conclusao deve considerar titulo, texto, patologia e tags, expandindo automaticamente somente os grupos com resultados.
 - RF-016: o seletor de Conclusao deve oferecer atalhos clinicos disponiveis no banco, historico local das cinco selecoes mais recentes e previa do texto escolhido.
 - RF-017: escolher uma conclusao no seletor nao deve alterar o laudo imediatamente; a aplicacao continua dependendo do acionamento explicito de `Usar frase`.
+- RF-018: todas as rotas da API estruturada de frases de ecocardiograma devem exigir uma sessao interna valida e respeitar a matriz de permissoes do modulo `frases`.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -38,6 +39,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - NFR-006 (acessibilidade): o seletor de Conclusao deve fechar com Escape, fechar por clique externo e manter busca, grupos e frases acessiveis por controles nativos de teclado.
 - NFR-007 (privacidade): o historico local deve armazenar somente IDs de frases, nunca texto clinico do laudo ou dados do paciente.
 - NFR-008 (responsividade): o painel de Conclusao deve permanecer contido no viewport, independente do overflow dos ancestrais, abrir no lado com mais espaco quando necessario e reservar a rolagem vertical para a lista de resultados.
+- NFR-009 (seguranca): requisicoes anonimas nao podem ler, aplicar, criar, editar, duplicar, desativar, restaurar ou excluir frases e presets.
 
 ## 4) Contratos tecnicos
 
@@ -48,6 +50,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - Presets: `POST /presets`, `PUT /presets/{id}`, `DELETE /presets/{id}`, `POST /presets/{id}/restaurar`, `POST /presets/{id}/duplicar`.
 - Payload de frase: `aspecto`, `novo_aspecto`, `titulo`, `texto`, `tags`, `patologias`, `ordem`, `ativo`.
 - Resposta: objetos JSON normalizados de frase/preset.
+- Autorizacao: todas as rotas dependem de `get_current_user`; a matriz existente resolve o prefixo como modulo `frases`, usando `visualizar` em GET, `editar` em POST/PUT e `excluir` em DELETE.
 
 ### Banco/migracoes
 
@@ -91,6 +94,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - CA-017: aspectos diferentes de Conclusao preservam o seletor simples existente.
 - CA-018: ao abrir o seletor proximo ao limite inferior da tela, busca, atalhos e toda a regiao rolavel permanecem visiveis; o painel pode abrir acima do gatilho quando houver mais espaco.
 - CA-019: redimensionar ou rolar a pagina reposiciona o painel, enquanto rolar a lista nao desloca o formulario ao atingir os limites internos.
+- CA-020: GET e todas as mutacoes da biblioteca retornam `401` sem sessao; com sessao e permissao correspondente, os contratos atuais permanecem funcionais.
 
 ## 7) Casos de borda
 
@@ -104,6 +108,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - CB-008: ID recente que estiver inativo ou ausente no payload atual deve ser ignorado.
 - CB-009: o painel dentro de ancestral com `overflow` nao pode ser recortado pelo formulario ou modal.
 - CB-010: em viewport estreito, a largura do painel deve respeitar margens laterais minimas e nunca ultrapassar a area visivel.
+- CB-011: usuario autenticado sem a permissao exigida no modulo `frases` recebe `403`; o papel `admin` preserva o bypass operacional ja existente na matriz.
 
 ## 8) Fora de escopo
 

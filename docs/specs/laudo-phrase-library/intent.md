@@ -1,6 +1,6 @@
 # Intent - laudo-phrase-library
 
-Data: 2026-05-03  
+Data: 2026-08-11
 Responsavel: Codex  
 Status: done
 
@@ -8,9 +8,13 @@ Status: done
 
 O editor qualitativo de ecocardiograma ja possui banco de frases e presets, mas a manutencao fica misturada ao fluxo de redacao do laudo. Isso dificulta renomear frases, organizar por patologia de base, revisar presets e controlar frases inativas sem risco de baguncar o laudo em andamento. No aspecto Conclusao, o seletor nativo tambem apresenta todas as frases em uma lista unica extensa, sem busca nem navegacao por patologia. Paineis extensos precisam permanecer integralmente acessiveis mesmo quando o gatilho esta proximo ao limite inferior da tela ou dentro de um formulario com overflow.
 
+A API estruturada de frases de ecocardiograma tambem estava exposta sem dependencia de autenticacao. Isso permitia leitura e mutacoes anonimas do store clinico, apesar de o sistema ja possuir sessao e matriz de permissoes para o modulo `frases`.
+
 ## 2) Objetivo
 
 Criar uma aba Biblioteca no modulo de laudos para organizar frases e presets estruturados de ecocardiograma, com edicao segura, agrupamento por patologias multiplas, soft delete e preservacao de compatibilidade com os presets existentes. Reutilizar essa classificacao no aspecto Conclusao da aba Qualitativa, oferecendo busca e grupos expansivos sem remover a confirmacao explicita antes de aplicar uma frase.
+
+Exigir sessao autenticada em todas as rotas da biblioteca e reutilizar a matriz existente do modulo `frases`, sem introduzir papeis ou contratos paralelos.
 
 ## 3) Nao objetivos
 
@@ -34,6 +38,7 @@ Criar uma aba Biblioteca no modulo de laudos para organizar frases e presets est
 
 - Risco 1: normalizacao do JSON alterar metadados runtime de forma inesperada.
 - Risco 2: presets passarem a apontar para frases inativas ou movidas sem sinalizacao.
+- Risco 3: chamadas anonimas alterarem ou desativarem frases e presets do store clinico.
 
 ## 7) Perguntas abertas
 

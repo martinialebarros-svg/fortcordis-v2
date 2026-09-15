@@ -1,6 +1,7 @@
 from app.models.user import User
 from app.models.papel import Papel
 from app.models.agendamento import Agendamento
+from app.models.whatsapp_agenda_resposta import WhatsappAgendaResposta
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.clinica import Clinica
@@ -50,6 +51,7 @@ from app.models.frase_atendimento_clinico import FraseAtendimentoClinico
 from app.models.push_subscription import PushSubscription
 from app.models.push_scheduled_notification import PushScheduledNotification
 from app.models.google_maps_usage_metrica import GoogleMapsUsageMetrica
+from app.models.runtime_http_latency_metric import RuntimeHttpLatencyMetric
 from app.models.portal_access import PortalAccessChallenge
 from app.models.portal_clinic_auth import (
     PortalAuthChallenge,

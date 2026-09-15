@@ -4,6 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
+import {
+  appendUniqueLoadFailure,
+  deveRecarregarResumo,
+  getFinanceiroLoadingPlan,
+  loadFinanceiroSection,
+  type FinanceiroActiveTab,
+  type FinanceiroLoadOrigin,
+} from "@/lib/financeiro-loading";
 import TransacaoModal from "./TransacaoModal";
 import { calendarDateInput, formatCalendarDate, operationalTodayDateInput } from "@/lib/calendar-date";
 import {
@@ -348,7 +357,11 @@ export default function FinanceiroPage() {
     creditos_gerados: 0,
   });
   const [periodo, setPeriodo] = useState("mes");
-  const [loading, setLoading] = useState(true);
+  const [loadingTransacoes, setLoadingTransacoes] = useState(true);
+  const [loadingOrdens, setLoadingOrdens] = useState(false);
+  const [transacoesCarregadas, setTransacoesCarregadas] = useState(false);
+  const [ordensCarregadas, setOrdensCarregadas] = useState(false);
+  const [falhasCarregamento, setFalhasCarregamento] = useState<string[]>([]);
   const [modalAberto, setModalAberto] = useState(false);
   const [transacaoEditando, setTransacaoEditando] = useState<any>(null);
   const [filtroTipo, setFiltroTipo] = useState<string>("todos");
@@ -363,8 +376,30 @@ export default function FinanceiroPage() {
   const [filtroDataInicio, setFiltroDataInicio] = useState("");
   const [filtroDataFim, setFiltroDataFim] = useState("");
   const [busca, setBusca] = useState("");
-  const [abaAtiva, setAbaAtiva] = useState<"transacoes" | "cobrancas" | "ordens">("transacoes");
+  const [buscaTransacoes, setBuscaTransacoes] = useState("");
+  const [totalTransacoes, setTotalTransacoes] = useState(0);
+  const [paginaTransacoes, setPaginaTransacoes] = useState({ chave: "", numero: 0 });
+  const chaveTransacoes = JSON.stringify([
+    filtroTipo, filtroCategoria, filtroFormaPagamento, filtroStatusTransacao,
+    filtroDataInicio, filtroDataFim, buscaTransacoes,
+  ]);
+  const paginaAtualTransacoes = paginaTransacoes.chave === chaveTransacoes ? paginaTransacoes.numero : 0;
+  const [chaveResultadoTransacoes, setChaveResultadoTransacoes] = useState("");
+  const chavePedidoTransacoes = `${chaveTransacoes}:${paginaAtualTransacoes}`;
+  const buscaTransacoesPendente = busca.trim() !== buscaTransacoes;
+
+  useEffect(() => {
+    setPaginaTransacoes((current) => current.chave === chaveTransacoes ? current : { chave: chaveTransacoes, numero: 0 });
+  }, [chaveTransacoes]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setBuscaTransacoes(busca.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [busca]);
+  const [abaAtiva, setAbaAtiva] = useState<FinanceiroActiveTab>("transacoes");
+  const [rotaFinanceiroResolvida, setRotaFinanceiroResolvida] = useState(false);
   const [modalReceberOS, setModalReceberOS] = useState<OrdemServico | null>(null);
+  const [modalReceberLoteOSIds, setModalReceberLoteOSIds] = useState<number[] | null>(null);
   const [modalEditarOS, setModalEditarOS] = useState<OrdemServico | null>(null);
   const [formasPagamentoDisponiveis, setFormasPagamentoDisponiveis] = useState<FormaPagamentoConfig[]>(FORMA_PAGAMENTO_FALLBACK);
   const [carregandoFormasPagamento, setCarregandoFormasPagamento] = useState(false);
@@ -376,6 +411,7 @@ export default function FinanceiroPage() {
   const [erroSaldoCreditoClienteOS, setErroSaldoCreditoClienteOS] = useState("");
   const [usarCreditoClienteOS, setUsarCreditoClienteOS] = useState(false);
   const [valorCreditoUtilizadoOS, setValorCreditoUtilizadoOS] = useState("0.00");
+  const [enviarReciboPdfWhatsAppAposRecebimento, setEnviarReciboPdfWhatsAppAposRecebimento] = useState(false);
   const [salvandoOS, setSalvandoOS] = useState(false);
   const [clinicas, setClinicas] = useState<ClinicaOption[]>([]);
   const [servicos, setServicos] = useState<ServicoOption[]>([]);
@@ -400,11 +436,19 @@ export default function FinanceiroPage() {
   const [osHighlightId, setOsHighlightId] = useState<number | null>(null);
   const [osHighlightUntil, setOsHighlightUntil] = useState<number>(0);
   const [osSelecionadasRecibo, setOsSelecionadasRecibo] = useState<number[]>([]);
+  const [osSelecionadasBaixa, setOsSelecionadasBaixa] = useState<number[]>([]);
+  const [recebendoLoteOS, setRecebendoLoteOS] = useState(false);
   const [modalCompartilharRecibo, setModalCompartilharRecibo] = useState<CompartilhamentoReciboState | null>(null);
   const [enviandoCompartilhamentoRecibo, setEnviandoCompartilhamentoRecibo] = useState(false);
   const [previewRecibo, setPreviewRecibo] = useState<PreviewReciboState | null>(null);
   const [carregandoPreviewRecibo, setCarregandoPreviewRecibo] = useState(false);
+  const [enviandoWhatsAppOficialOsId, setEnviandoWhatsAppOficialOsId] = useState<number | null>(null);
+  const [enviandoWhatsAppOficialGrupoKey, setEnviandoWhatsAppOficialGrupoKey] = useState<string | null>(null);
   const highlightedRowRef = useRef<HTMLDivElement | null>(null);
+  const carregarDadosControllerRef = useRef<AbortController | null>(null);
+  /** Periodo do ultimo resumo aplicado com sucesso. Evita refazer a chamada a
+   *  cada troca de pagina, filtro ou aba, que nao mudam o resumo. */
+  const periodoResumoCarregadoRef = useRef<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -416,14 +460,20 @@ export default function FinanceiroPage() {
   }, [previewRecibo]);
 
   useEffect(() => {
+    if (!rotaFinanceiroResolvida) return;
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/");
       return;
     }
-    carregarDados();
+    carregarDados("efeito");
+    return () => {
+      carregarDadosControllerRef.current?.abort();
+    };
   }, [
     router,
+    rotaFinanceiroResolvida,
+    abaAtiva,
     periodo,
     filtroTipo,
     filtroCategoria,
@@ -436,6 +486,8 @@ export default function FinanceiroPage() {
     filtroTipoHorarioOS,
     filtroDataInicio,
     filtroDataFim,
+    paginaAtualTransacoes,
+    abaAtiva === "transacoes" ? buscaTransacoes : "",
   ]);
 
   useEffect(() => {
@@ -443,7 +495,7 @@ export default function FinanceiroPage() {
     const searchParams = new URLSearchParams(window.location.search);
     const abaParam = String(searchParams.get("aba") || "").toLowerCase();
     if (abaParam === "transacoes" || abaParam === "cobrancas" || abaParam === "ordens") {
-      setAbaAtiva(abaParam as "transacoes" | "cobrancas" | "ordens");
+      setAbaAtiva(abaParam as FinanceiroActiveTab);
     }
 
     const osIdParam = Number(searchParams.get("os_id") || "");
@@ -460,6 +512,7 @@ export default function FinanceiroPage() {
       setOsHighlightId(osIdParam);
       setOsHighlightUntil(Date.now() + 25000);
     }
+    setRotaFinanceiroResolvida(true);
   }, []);
 
   useEffect(() => {
@@ -514,12 +567,44 @@ export default function FinanceiroPage() {
     return encoded ? `?${encoded}` : "";
   };
 
-  const carregarDados = async () => {
+  const carregarDados = async (origem: FinanceiroLoadOrigin = "manual") => {
+    carregarDadosControllerRef.current?.abort();
+    const controller = new AbortController();
+    carregarDadosControllerRef.current = controller;
+    const loadingPlan = getFinanceiroLoadingPlan(abaAtiva);
+
+    setLoadingTransacoes(loadingPlan.transacoes);
+    setLoadingOrdens(loadingPlan.ordens);
+    setCarregandoFormasPagamento(true);
+    setFalhasCarregamento([]);
+
+    const registrarCarga = async <T,>(
+      section: string,
+      request: Promise<T>,
+      onSuccess: (value: T) => void,
+      onSettled?: () => void
+    ) => {
+      const result = await loadFinanceiroSection({
+        section,
+        request,
+        signal: controller.signal,
+        onSuccess,
+        onSettled,
+      });
+
+      if (result.status === "failed" && carregarDadosControllerRef.current === controller) {
+        console.error(`Erro ao carregar ${section}:`, result.error);
+        setFalhasCarregamento((current) => appendUniqueLoadFailure(current, section));
+      }
+
+      return result;
+    };
+
     try {
-      setLoading(true);
-      setCarregandoFormasPagamento(true);
       const queryTransacoes = montarQueryString({
-        limit: 500,
+        limit: 100,
+        skip: paginaAtualTransacoes * 100,
+        search: buscaTransacoes || undefined,
         tipo: filtroTipo !== "todos" ? filtroTipo : undefined,
         categoria: filtroCategoria !== "todos" ? filtroCategoria : undefined,
         forma_pagamento: filtroFormaPagamento !== "todos" ? filtroFormaPagamento : undefined,
@@ -538,49 +623,140 @@ export default function FinanceiroPage() {
         data_fim: filtroDataFim || undefined,
       });
 
-      const [respTransacoes, respResumo, respOS, respClinicas, respServicos, respFormas, respBandeiras] = await Promise.all([
-        api.get(`/financeiro/transacoes${queryTransacoes}`),
-        api.get(`/financeiro/resumo?periodo=${periodo}`),
-        api.get(`/ordens-servico${queryOS}`),
-        api.get("/clinicas?limit=1000"),
-        api.get("/servicos?limit=1000"),
-        api.get("/financeiro/formas-pagamento", {
-          params: { apenas_ativas: true, limit: 300 },
-        }),
-        api.get("/financeiro/bandeiras-cartao", {
-          params: { ativo: true, limit: 300 },
-        }),
+      const signal = controller.signal;
+      const cargaTransacoes = loadingPlan.transacoes
+        ? registrarCarga(
+            "Transacoes",
+            api
+              .get<{ items?: Transacao[]; total: number }>(`/financeiro/transacoes${queryTransacoes}`, { signal })
+              .then((response) => response.data),
+            (data) => {
+              setTransacoes(data.items || []);
+              setTotalTransacoes(data.total);
+              setChaveResultadoTransacoes(chavePedidoTransacoes);
+              // A deletion or concurrent update can remove the last page.
+              if (paginaAtualTransacoes > 0 && !data.items?.length) {
+                setPaginaTransacoes({ chave: chaveTransacoes, numero: Math.max(0, Math.ceil(data.total / 100) - 1) });
+              }
+              setTransacoesCarregadas(true);
+            },
+            () => setLoadingTransacoes(false)
+          )
+        : Promise.resolve();
+      // O resumo so varia com `periodo`. Sem esta guarda ele era refeito a cada
+      // troca de pagina, filtro ou aba, sempre devolvendo o mesmo valor.
+      const cargaResumo = deveRecarregarResumo({
+        origem,
+        periodoAtual: periodo,
+        periodoCarregado: periodoResumoCarregadoRef.current,
+      })
+        ? registrarCarga(
+            "Resumo financeiro",
+            api.get<Resumo>(`/financeiro/resumo?periodo=${periodo}`, { signal }).then((response) => response.data),
+            (data) => {
+              setResumo(data);
+              // So marca depois do sucesso: falha ou cancelamento deixa o
+              // proximo carregamento tentar de novo.
+              periodoResumoCarregadoRef.current = periodo;
+            }
+          )
+        : Promise.resolve();
+      const cargaOrdens = loadingPlan.ordens
+        ? registrarCarga(
+            "Ordens de servico",
+            api
+              .get<{ items?: OrdemServico[] }>(`/ordens-servico${queryOS}`, { signal })
+              .then((response) => response.data),
+            (data) => {
+              setOrdensServico(data.items || []);
+              setOrdensCarregadas(true);
+            },
+            () => setLoadingOrdens(false)
+          )
+        : Promise.resolve();
+      const cargaClinicas = loadingPlan.catalogosOrdens
+        ? registrarCarga(
+            "Clinicas",
+            loadStableCatalog({
+              catalog: "clinicas",
+              variant: "limit=1000",
+              load: () => api.get<{ items?: ClinicaOption[] }>("/clinicas?limit=1000").then((response) => response.data),
+            }),
+            (data) => setClinicas(data.items || [])
+          )
+        : Promise.resolve();
+      const cargaServicos = loadingPlan.catalogosOrdens
+        ? registrarCarga(
+            "Servicos",
+            loadStableCatalog({
+              catalog: "servicos",
+              variant: "limit=1000",
+              load: () => api.get<{ items?: ServicoOption[] }>("/servicos?limit=1000").then((response) => response.data),
+            }),
+            (data) => setServicos(data.items || [])
+          )
+        : Promise.resolve();
+      const cargaFormas = registrarCarga(
+        "Formas de pagamento",
+        api
+          .get<{ items?: any[] }>("/financeiro/formas-pagamento", {
+            params: { apenas_ativas: true, limit: 300 },
+            signal,
+          })
+          .then((response) => response.data),
+        (data) => {
+          const formasApi = Array.isArray(data.items) ? data.items : [];
+          if (formasApi.length === 0) {
+            setFormasPagamentoDisponiveis(FORMA_PAGAMENTO_FALLBACK);
+            return;
+          }
+
+          const normalizadas: FormaPagamentoConfig[] = formasApi.map((item: any) => ({
+            id: Number(item.id),
+            codigo: normalizarCodigoFormaPagamento(item.codigo),
+            nome: String(item.nome || item.codigo || "Forma de pagamento"),
+            tipo: item.tipo,
+            adquirente: item.adquirente ?? null,
+            bandeira_id: item.bandeira_id ?? null,
+            bandeira_nome: item.bandeira_nome ?? null,
+            taxa_percentual: Number(item.taxa_percentual || 0),
+            taxa_fixa: Number(item.taxa_fixa || 0),
+            ativo: Boolean(item.ativo ?? true),
+          }));
+          setFormasPagamentoDisponiveis(normalizadas);
+        }
+      );
+      const cargaBandeiras = registrarCarga(
+        "Bandeiras de cartao",
+        api
+          .get<{ items?: BandeiraCartaoOption[] }>("/financeiro/bandeiras-cartao", {
+            params: { ativo: true, limit: 300 },
+            signal,
+          })
+          .then((response) => response.data),
+        (data) => setBandeirasCartao(data.items || [])
+      );
+      const cargaMeiosPagamento = Promise.all([cargaFormas, cargaBandeiras]).finally(() => {
+        if (!controller.signal.aborted && carregarDadosControllerRef.current === controller) {
+          setCarregandoFormasPagamento(false);
+        }
+      });
+
+      await Promise.all([
+        cargaTransacoes,
+        cargaResumo,
+        cargaOrdens,
+        cargaClinicas,
+        cargaServicos,
+        cargaMeiosPagamento,
       ]);
-      setTransacoes(respTransacoes.data.items || []);
-      setOrdensServico(respOS.data.items || []);
-      setResumo(respResumo.data);
-      setClinicas(respClinicas.data.items || []);
-      setServicos(respServicos.data.items || []);
-      setBandeirasCartao(respBandeiras.data.items || []);
-      const formasApi = Array.isArray(respFormas.data?.items) ? respFormas.data.items : [];
-      if (formasApi.length > 0) {
-        const normalizadas: FormaPagamentoConfig[] = formasApi.map((item: any) => ({
-          id: Number(item.id),
-          codigo: normalizarCodigoFormaPagamento(item.codigo),
-          nome: String(item.nome || item.codigo || "Forma de pagamento"),
-          tipo: item.tipo,
-          adquirente: item.adquirente ?? null,
-          bandeira_id: item.bandeira_id ?? null,
-          bandeira_nome: item.bandeira_nome ?? null,
-          taxa_percentual: Number(item.taxa_percentual || 0),
-          taxa_fixa: Number(item.taxa_fixa || 0),
-          ativo: Boolean(item.ativo ?? true),
-        }));
-        setFormasPagamentoDisponiveis(normalizadas);
-      } else {
-        setFormasPagamentoDisponiveis(FORMA_PAGAMENTO_FALLBACK);
-      }
-    } catch (error) {
-      console.error("Erro ao carregar:", error);
-      setFormasPagamentoDisponiveis(FORMA_PAGAMENTO_FALLBACK);
     } finally {
-      setLoading(false);
-      setCarregandoFormasPagamento(false);
+      if (!controller.signal.aborted && carregarDadosControllerRef.current === controller) {
+        setLoadingTransacoes(false);
+        setLoadingOrdens(false);
+        setCarregandoFormasPagamento(false);
+        carregarDadosControllerRef.current = null;
+      }
     }
   };
 
@@ -714,6 +890,14 @@ export default function FinanceiroPage() {
     return formas[forma] || forma;
   };
 
+  const obterFormaPagamentoPadraoCodigo = () => {
+    const formaPadrao =
+      formasPagamentoDisponiveis.find(
+        (forma) => normalizarCodigoFormaPagamento(forma.codigo) === FORMA_PAGAMENTO_PADRAO
+      ) || formasPagamentoDisponiveis[0];
+    return normalizarCodigoFormaPagamento(formaPadrao?.codigo || FORMA_PAGAMENTO_PADRAO);
+  };
+
   const resumoPagamentoOS = useMemo(() => {
     const linhas = pagamentosRecebimentoOS.map((item) => {
       const codigo = normalizarCodigoFormaPagamento(item.forma_codigo);
@@ -766,6 +950,61 @@ export default function FinanceiroPage() {
     valorCreditoUtilizadoOS,
   ]);
 
+  const ordensRecebimentoLote = useMemo(
+    () =>
+      (modalReceberLoteOSIds || [])
+        .map((id) => ordensServico.find((os) => os.id === id))
+        .filter((os): os is OrdemServico => os != null && os.status === "Pendente"),
+    [modalReceberLoteOSIds, ordensServico]
+  );
+
+  const recebimentoLoteMesmoDestinatario = useMemo(() => {
+    const chaves = new Set(
+      ordensRecebimentoLote.map((os) =>
+        os.origem_atendimento === "domiciliar"
+          ? `tutor:${os.tutor_id ?? "sem-tutor"}`
+          : `clinica:${os.clinica_id ?? "sem-clinica"}`
+      )
+    );
+    return ordensRecebimentoLote.length > 0 && chaves.size === 1;
+  }, [ordensRecebimentoLote]);
+
+  const resumoPagamentoLoteOS = useMemo(() => {
+    const linhas = pagamentosRecebimentoOS.map((item) => {
+      const codigo = normalizarCodigoFormaPagamento(item.forma_codigo);
+      const forma = formasPagamentoDisponiveis.find(
+        (opcao) => normalizarCodigoFormaPagamento(opcao.codigo) === codigo
+      );
+      const valor = parseMoneyValue(item.valor);
+      const taxaPercentual = Number(forma?.taxa_percentual || 0);
+      const taxaFixa = Number(forma?.taxa_fixa || 0);
+      const taxa = Number((valor * (taxaPercentual / 100) + taxaFixa).toFixed(2));
+      const liquido = Number((valor - taxa).toFixed(2));
+      return {
+        ...item,
+        forma,
+        valor,
+        taxa,
+        liquido,
+      };
+    });
+    const totalBruto = linhas.reduce((acc, item) => acc + item.valor, 0);
+    const totalTaxa = linhas.reduce((acc, item) => acc + item.taxa, 0);
+    const totalLiquido = linhas.reduce((acc, item) => acc + item.liquido, 0);
+    const valorOS = ordensRecebimentoLote.reduce((acc, os) => acc + Number(os.valor_final || 0), 0);
+    const diferenca = Number((totalBruto - valorOS).toFixed(2));
+    return {
+      linhas,
+      totalBruto,
+      totalTaxa,
+      totalLiquido,
+      totalCoberto: totalBruto,
+      valorOS,
+      excedente: diferenca > 0 ? diferenca : 0,
+      faltante: diferenca < 0 ? Math.abs(diferenca) : 0,
+    };
+  }, [formasPagamentoDisponiveis, ordensRecebimentoLote, pagamentosRecebimentoOS]);
+
   const atualizarLinhaPagamentoOS = (id: string, campo: "forma_codigo" | "valor", valor: string) => {
     setPagamentosRecebimentoOS((prev) =>
       prev.map((item) => (item.id === id ? { ...item, [campo]: valor } : item))
@@ -773,11 +1012,7 @@ export default function FinanceiroPage() {
   };
 
   const adicionarLinhaPagamentoOS = () => {
-    const formaPadrao =
-      formasPagamentoDisponiveis.find(
-        (forma) => normalizarCodigoFormaPagamento(forma.codigo) === FORMA_PAGAMENTO_PADRAO
-      ) || formasPagamentoDisponiveis[0];
-    const codigo = normalizarCodigoFormaPagamento(formaPadrao?.codigo || FORMA_PAGAMENTO_PADRAO);
+    const codigo = obterFormaPagamentoPadraoCodigo();
     setPagamentosRecebimentoOS((prev) => [
       ...prev,
       {
@@ -945,11 +1180,7 @@ export default function FinanceiroPage() {
 
   const handlePagarOS = (os: OrdemServico) => {
     setModalReceberOS(os);
-    const formaPadrao =
-      formasPagamentoDisponiveis.find(
-        (forma) => normalizarCodigoFormaPagamento(forma.codigo) === FORMA_PAGAMENTO_PADRAO
-      ) || formasPagamentoDisponiveis[0];
-    const codigo = normalizarCodigoFormaPagamento(formaPadrao?.codigo || FORMA_PAGAMENTO_PADRAO);
+    const codigo = obterFormaPagamentoPadraoCodigo();
     setPagamentosRecebimentoOS([
       {
         id: gerarPagamentoId(),
@@ -964,6 +1195,41 @@ export default function FinanceiroPage() {
     setErroSaldoCreditoClienteOS("");
     setUsarCreditoClienteOS(false);
     setValorCreditoUtilizadoOS("0.00");
+    setEnviarReciboPdfWhatsAppAposRecebimento(false);
+  };
+
+  const abrirRecebimentoLoteOS = (ids: number[]) => {
+    const idsPendentes = Array.from(
+      new Set(
+        ids.filter((id) => {
+          const os = ordensServico.find((item) => item.id === id);
+          return os?.status === "Pendente";
+        })
+      )
+    );
+    if (idsPendentes.length === 0) {
+      alert("Selecione ao menos uma OS pendente para receber em lote.");
+      return;
+    }
+
+    const total = idsPendentes.reduce((acc, id) => {
+      const os = ordensServico.find((item) => item.id === id);
+      return acc + Number(os?.valor_final || 0);
+    }, 0);
+
+    setModalReceberLoteOSIds(idsPendentes);
+    setPagamentosRecebimentoOS([
+      {
+        id: gerarPagamentoId(),
+        forma_codigo: obterFormaPagamentoPadraoCodigo(),
+        valor: toMoneyInput(total),
+      },
+    ]);
+    setDataRecebimentoOS(hojeLocalISO());
+    setDestinoCreditoExcedenteOS("cliente");
+    setUsarCreditoClienteOS(false);
+    setValorCreditoUtilizadoOS("0.00");
+    setEnviarReciboPdfWhatsAppAposRecebimento(false);
   };
 
   const handleEditarOS = (os: OrdemServico) => {
@@ -1000,6 +1266,19 @@ export default function FinanceiroPage() {
         destino_credito_excedente: destinoCreditoExcedenteOS,
       });
 
+      let avisoRecibo = "";
+      if (enviarReciboPdfWhatsAppAposRecebimento) {
+        try {
+          await api.post(`/ordens-servico/${modalReceberOS.id}/whatsapp/recibo-pdf`, {
+            idempotency_key: criarIdempotencyKeyWhatsApp("recibo-pdf", modalReceberOS.id),
+          });
+        } catch (error: any) {
+          avisoRecibo =
+            error.response?.data?.detail ||
+            "O recebimento foi registrado, mas nao foi possivel enviar o recibo PDF pelo WhatsApp.";
+        }
+      }
+
       setModalReceberOS(null);
       setPagamentosRecebimentoOS([]);
       setSaldoCreditoClienteOS(0);
@@ -1007,11 +1286,143 @@ export default function FinanceiroPage() {
       setErroSaldoCreditoClienteOS("");
       setUsarCreditoClienteOS(false);
       setValorCreditoUtilizadoOS("0.00");
-      alert("Recebimento registrado com sucesso!");
+      setEnviarReciboPdfWhatsAppAposRecebimento(false);
+      alert(
+        avisoRecibo
+          ? `Recebimento registrado com sucesso.\n\nAviso do WhatsApp: ${avisoRecibo}`
+          : enviarReciboPdfWhatsAppAposRecebimento
+            ? "Recebimento registrado e recibo PDF enviado pelo WhatsApp!"
+            : "Recebimento registrado com sucesso!"
+      );
       carregarDados();
     } catch (error: any) {
       console.error("Erro ao pagar OS:", error);
       alert("Erro ao processar pagamento: " + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  const alocarPagamentosParaOS = (
+    os: OrdemServico,
+    pagamentos: Array<{
+      forma_pagamento: string;
+      forma_pagamento_config_id?: number;
+      valor: number;
+    }>,
+    totalLote: number,
+    ultimaOS: boolean,
+    acumuladoPorForma: Map<string, number>
+  ) => {
+    const valorOS = Number(os.valor_final || 0);
+    return pagamentos
+      .map((pagamento) => {
+        const chave = `${pagamento.forma_pagamento_config_id || ""}:${pagamento.forma_pagamento}`;
+        const acumulado = acumuladoPorForma.get(chave) || 0;
+        const valor =
+          ultimaOS
+            ? Number((pagamento.valor - acumulado).toFixed(2))
+            : Number(((pagamento.valor * valorOS) / totalLote).toFixed(2));
+        acumuladoPorForma.set(chave, Number((acumulado + valor).toFixed(2)));
+        return {
+          ...pagamento,
+          valor,
+        };
+      })
+      .filter((pagamento) => pagamento.valor > 0);
+  };
+
+  const confirmarRecebimentoLoteOS = async () => {
+    if (ordensRecebimentoLote.length === 0) {
+      alert("Nenhuma OS pendente selecionada.");
+      return;
+    }
+
+    const pagamentosPayload = resumoPagamentoLoteOS.linhas
+      .filter((item) => item.valor > 0)
+      .map((item) => ({
+        forma_pagamento: normalizarCodigoFormaPagamento(item.forma_codigo),
+        forma_pagamento_config_id: item.forma?.id ?? undefined,
+        valor: Number(item.valor.toFixed(2)),
+      }));
+    if (pagamentosPayload.length === 0) {
+      alert("Informe ao menos um pagamento com valor maior que zero.");
+      return;
+    }
+    if (resumoPagamentoLoteOS.faltante > 0) {
+      alert(`Falta cobrir ${formatarValor(resumoPagamentoLoteOS.faltante)} para receber as OS selecionadas.`);
+      return;
+    }
+    if (resumoPagamentoLoteOS.excedente > 0) {
+      alert("A baixa em lote precisa bater exatamente com o total das OS selecionadas. Ajuste o valor informado.");
+      return;
+    }
+
+    const acumuladoPorForma = new Map<string, number>();
+    const erros: string[] = [];
+    const idsRecebidas: number[] = [];
+    let avisoRecibo = "";
+    setRecebendoLoteOS(true);
+    try {
+      for (let index = 0; index < ordensRecebimentoLote.length; index += 1) {
+        const os = ordensRecebimentoLote[index];
+        const pagamentosOS = alocarPagamentosParaOS(
+          os,
+          pagamentosPayload,
+          resumoPagamentoLoteOS.valorOS,
+          index === ordensRecebimentoLote.length - 1,
+          acumuladoPorForma
+        );
+        try {
+          await api.patch(`/ordens-servico/${os.id}/receber`, {
+            pagamentos: pagamentosOS,
+            data_recebimento: dataRecebimentoOS || null,
+            valor_credito_utilizado: 0,
+            destino_credito_excedente: "cliente",
+          });
+          idsRecebidas.push(os.id);
+        } catch (error: any) {
+          erros.push(`OS ${os.numero_os || os.id}: ${error.response?.data?.detail || error.message}`);
+        }
+      }
+
+      if (enviarReciboPdfWhatsAppAposRecebimento && idsRecebidas.length > 0) {
+        try {
+          if (idsRecebidas.length === 1) {
+            await api.post(`/ordens-servico/${idsRecebidas[0]}/whatsapp/recibo-pdf`, {
+              idempotency_key: criarIdempotencyKeyWhatsApp("recibo-pdf", idsRecebidas[0]),
+            });
+          } else {
+            await api.post("/ordens-servico/whatsapp/recibos-pdf", {
+              os_ids: idsRecebidas,
+              idempotency_key: criarIdempotencyKeyWhatsApp("recibo-pdf-lote", idsRecebidas[0]),
+            });
+          }
+        } catch (error: any) {
+          avisoRecibo =
+            error.response?.data?.detail ||
+            "As baixas foram registradas, mas nao foi possivel enviar o recibo PDF pelo WhatsApp.";
+        }
+      }
+
+      setModalReceberLoteOSIds(null);
+      setPagamentosRecebimentoOS([]);
+      setOsSelecionadasBaixa([]);
+      setEnviarReciboPdfWhatsAppAposRecebimento(false);
+      await carregarDados();
+      if (erros.length > 0 || avisoRecibo) {
+        const partes = [
+          erros.length > 0 ? `Baixa em lote concluida parcialmente.\n${erros.join("\n")}` : "Baixa em lote registrada com sucesso.",
+          avisoRecibo ? `Aviso do WhatsApp: ${avisoRecibo}` : "",
+        ].filter(Boolean);
+        alert(partes.join("\n\n"));
+      } else {
+        alert(
+          enviarReciboPdfWhatsAppAposRecebimento
+            ? "Baixa em lote registrada e recibo PDF consolidado enviado pelo WhatsApp!"
+            : "Baixa em lote registrada com sucesso!"
+        );
+      }
+    } finally {
+      setRecebendoLoteOS(false);
     }
   };
 
@@ -1076,20 +1487,9 @@ export default function FinanceiroPage() {
     }
   };
 
-  // Filtrar transacoes
-  const transacoesFiltradas = transacoes.filter((t) => {
-    const matchTipo = filtroTipo === "todos" || t.tipo === filtroTipo;
-    const matchCategoria = filtroCategoria === "todos" || t.categoria === filtroCategoria;
-    const matchFormaPagamento = filtroFormaPagamento === "todos" || t.forma_pagamento === filtroFormaPagamento;
-    const matchStatus = filtroStatusTransacao === "todos" || t.status === filtroStatusTransacao;
-    const matchData = estaNoPeriodo(t.data_transacao);
-    const termo = busca.toLowerCase();
-    const matchBusca = !busca || 
-      t.descricao?.toLowerCase().includes(termo) ||
-      t.paciente_nome?.toLowerCase().includes(termo) ||
-      getCategoriaNome(t.categoria).toLowerCase().includes(termo);
-    return matchTipo && matchCategoria && matchFormaPagamento && matchStatus && matchData && matchBusca;
-  });
+  // All transaction filters and counts are authoritative on the server.
+  const transacoesFiltradas = transacoes;
+  const transacoesDesatualizadas = chaveResultadoTransacoes !== chavePedidoTransacoes || buscaTransacoesPendente;
 
   // Filtrar OS
   const osFiltradas = ordensServico.filter((os) => {
@@ -1115,10 +1515,26 @@ export default function FinanceiroPage() {
     () => osFiltradas.filter((os) => os.status === "Pago"),
     [osFiltradas]
   );
+  const osPendentesFiltradas = useMemo(
+    () => osFiltradas.filter((os) => os.status === "Pendente"),
+    [osFiltradas]
+  );
+  const totalSelecionadoBaixa = useMemo(
+    () =>
+      ordensServico
+        .filter((os) => osSelecionadasBaixa.includes(os.id) && os.status === "Pendente")
+        .reduce((acc, os) => acc + Number(os.valor_final || 0), 0),
+    [ordensServico, osSelecionadasBaixa]
+  );
 
   useEffect(() => {
     const idsRecebidas = new Set(ordensServico.filter((os) => os.status === "Pago").map((os) => os.id));
     setOsSelecionadasRecibo((prev) => prev.filter((id) => idsRecebidas.has(id)));
+  }, [ordensServico]);
+
+  useEffect(() => {
+    const idsPendentes = new Set(ordensServico.filter((os) => os.status === "Pendente").map((os) => os.id));
+    setOsSelecionadasBaixa((prev) => prev.filter((id) => idsPendentes.has(id)));
   }, [ordensServico]);
 
   useEffect(() => {
@@ -1460,9 +1876,8 @@ export default function FinanceiroPage() {
     const ordensPendentes = grupo.ordens.filter((os) => os.status === "Pendente");
     return ordensPendentes.map(
       (os, index) =>
-        `${index + 1}. OS ${os.numero_os} | ${os.paciente || "Paciente"} | ${formatarData(
-          os.data_atendimento
-        )} | ${formatarValor(os.valor_final)}`
+        `${index + 1}. OS ${os.numero_os} | ${formatarData(os.data_atendimento)} | ${os.servico || "Servico"} | ` +
+        `Tutor: ${os.tutor || "Nao informado"} | Pet: ${os.paciente || "Nao informado"} | ${formatarValor(os.valor_final)}`
     );
   };
 
@@ -1526,17 +1941,69 @@ export default function FinanceiroPage() {
     });
   };
 
-  const enviarCobrancaWhatsApp = (grupo: GrupoCobrancaDestinatario) => {
-    const telefone = normalizarTelefoneWhatsApp(grupo.telefone_destinatario || "");
-    if (!telefone) {
-      const alvo = grupo.tipo_destinatario === "tutor" ? "tutor" : "clinica";
-      alert(`O ${alvo} ${grupo.nome_destinatario} nao possui telefone cadastrado para cobranca.`);
+  const criarIdempotencyKeyWhatsApp = (prefixo: string, osId: number) =>
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${prefixo}-${osId}-${Date.now()}`;
+
+  const enviarCobrancaWhatsApp = async (grupo: GrupoCobrancaDestinatario) => {
+    const ordensPendentes = grupo.ordens.filter((os) => os.status === "Pendente");
+    if (ordensPendentes.length === 0) {
+      alert("Nao ha OS pendente neste grupo para enviar.");
+      return;
+    }
+    if (ordensPendentes.length === 1) {
+      const ordem = ordensPendentes[0];
+      if (!confirm(`Enviar pelo WhatsApp oficial a cobrança da OS ${ordem.numero_os}?`)) return;
+
+      setEnviandoWhatsAppOficialOsId(ordem.id);
+      try {
+        await api.post(`/ordens-servico/${ordem.id}/whatsapp/cobranca`, {
+          idempotency_key: criarIdempotencyKeyWhatsApp("cobranca", ordem.id),
+        });
+        alert("Cobrança enviada pelo WhatsApp oficial da Fort Cordis.");
+      } catch (error) {
+        const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+        alert(detail || "Erro ao enviar a cobrança pelo WhatsApp oficial.");
+      } finally {
+        setEnviandoWhatsAppOficialOsId(null);
+      }
       return;
     }
 
-    const mensagem = preencherMensagemCobranca(grupo);
-    const url = `https://wa.me/${telefone}?text=${encodeURIComponent(mensagem)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    if (!confirm(`Enviar uma unica cobranca oficial com ${ordensPendentes.length} OS para ${grupo.nome_destinatario}?`)) {
+      return;
+    }
+    setEnviandoWhatsAppOficialGrupoKey(grupo.chave);
+    try {
+      await api.post("/ordens-servico/whatsapp/cobranca-agrupada", {
+        os_ids: ordensPendentes.map((os) => os.id),
+        idempotency_key: criarIdempotencyKeyWhatsApp("cobranca-agrupada", ordensPendentes[0].id),
+      });
+      alert("Cobranca consolidada enviada pelo WhatsApp oficial da Fort Cordis.");
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao enviar a cobranca consolidada pelo WhatsApp oficial.");
+    } finally {
+      setEnviandoWhatsAppOficialGrupoKey(null);
+    }
+  };
+
+  const avisarReciboPeloWhatsAppOficial = async (os: OrdemServico) => {
+    if (!confirm(`Enviar pelo WhatsApp oficial o aviso do recibo da OS ${os.numero_os}?`)) return;
+
+    setEnviandoWhatsAppOficialOsId(os.id);
+    try {
+      await api.post(`/ordens-servico/${os.id}/whatsapp/recibo`, {
+        idempotency_key: criarIdempotencyKeyWhatsApp("recibo", os.id),
+      });
+      alert("Aviso de recibo enviado pelo WhatsApp oficial da Fort Cordis.");
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao enviar o aviso de recibo pelo WhatsApp oficial.");
+    } finally {
+      setEnviandoWhatsAppOficialOsId(null);
+    }
   };
 
   const copiarMensagemCobranca = async (grupo: GrupoCobrancaDestinatario) => {
@@ -1623,12 +2090,26 @@ export default function FinanceiroPage() {
     );
   };
 
+  const toggleSelecaoBaixaOS = (osId: number) => {
+    setOsSelecionadasBaixa((prev) =>
+      prev.includes(osId) ? prev.filter((id) => id !== osId) : [...prev, osId]
+    );
+  };
+
   const selecionarTodasRecebidasVisiveis = () => {
     setOsSelecionadasRecibo(osRecebidasFiltradas.map((os) => os.id));
   };
 
+  const selecionarTodasPendentesVisiveis = () => {
+    setOsSelecionadasBaixa(osPendentesFiltradas.map((os) => os.id));
+  };
+
   const limparSelecaoRecibo = () => {
     setOsSelecionadasRecibo([]);
+  };
+
+  const limparSelecaoBaixa = () => {
+    setOsSelecionadasBaixa([]);
   };
 
   const obterReciboOSPDF = async (ids: number[], agrupar: boolean) => {
@@ -1769,8 +2250,6 @@ export default function FinanceiroPage() {
 
   // Calcular resumo de OS
   const osPendentes = ordensServico.filter(os => os.status === 'Pendente');
-  const osPagas = ordensServico.filter(os => os.status === 'Pago');
-  const valorTotalOS = osPagas.reduce((acc, os) => acc + os.valor_final, 0);
   const valorPendenteOS = osPendentes.reduce((acc, os) => acc + os.valor_final, 0);
 
   return (
@@ -1796,6 +2275,26 @@ export default function FinanceiroPage() {
             </button>
           </div>
         </header>
+
+        {falhasCarregamento.length > 0 && (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-semibold">Algumas informacoes nao carregaram.</p>
+                <p className="mt-1">
+                  Secoes indisponiveis: {falhasCarregamento.join(", ")}. Os demais dados podem continuar sendo usados.
+                </p>
+              </div>
+              <button type="button" onClick={() => void carregarDados()} className="fc-finance-secondary shrink-0">
+                Tentar novamente
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Periodo */}
         <div className="fc-finance-periods" aria-label="Período do resumo">
@@ -1864,14 +2363,18 @@ export default function FinanceiroPage() {
 	            <div className="flex items-center justify-between">
 	              <div>
 	                <p className="text-sm text-gray-500">OS Pendentes</p>
-	                <p className="text-2xl font-bold text-yellow-600">{formatarValor(valorPendenteOS)}</p>
+	                <p className="text-2xl font-bold text-yellow-600">
+	                  {ordensCarregadas ? formatarValor(valorPendenteOS) : "—"}
+	                </p>
               </div>
               <div className="w-12 h-12 bg-yellow-50 rounded-lg flex items-center justify-center">
                 <FileText className="w-6 h-6 text-yellow-600" />
               </div>
             </div>
 	            <p className="text-xs text-gray-500 mt-2">
-	              {osPendentes.length} ordem(ns) pendente(s)
+	              {ordensCarregadas
+	                ? `${osPendentes.length} ordem(ns) pendente(s)`
+	                : "Disponivel ao abrir Cobrancas ou Ordens"}
 	            </p>
 	          </div>
 
@@ -1994,7 +2497,7 @@ export default function FinanceiroPage() {
             <Receipt className="w-4 h-4" />
             Transacoes
             <span className="fc-finance-tab-count">
-              {transacoes.length}
+              {transacoesCarregadas && !transacoesDesatualizadas ? totalTransacoes : "—"}
             </span>
           </button>
           <button
@@ -2006,7 +2509,7 @@ export default function FinanceiroPage() {
             <MessageCircle className="w-4 h-4" />
             Cobrancas
             <span className="fc-finance-tab-count fc-finance-tab-count-amber">
-              {gruposCobrancaDestinatario.length} destinatario(s)
+              {ordensCarregadas ? `${gruposCobrancaDestinatario.length} destinatario(s)` : "—"}
             </span>
           </button>
           <button
@@ -2018,7 +2521,7 @@ export default function FinanceiroPage() {
             <FileText className="w-4 h-4" />
             Ordens de Servico
             <span className="fc-finance-tab-count fc-finance-tab-count-amber">
-              {osFiltradas.length}
+              {ordensCarregadas ? osFiltradas.length : "—"}
             </span>
           </button>
         </div>
@@ -2174,7 +2677,7 @@ export default function FinanceiroPage() {
 
           <div className="flex flex-wrap gap-2 mt-3">
             <button
-              onClick={carregarDados}
+              onClick={() => void carregarDados()}
               className="fc-finance-secondary"
             >
               Atualizar
@@ -2195,12 +2698,17 @@ export default function FinanceiroPage() {
               <h2 className="text-lg font-semibold text-gray-900">
                 Transacoes 
                 <span className="text-sm font-normal text-gray-500 ml-2">
-                  ({transacoesFiltradas.length})
+                  ({transacoesDesatualizadas ? "—" : totalTransacoes})
                 </span>
               </h2>
             </div>
             
-            {loading ? (
+            {falhasCarregamento.includes("Transacoes") ? (
+              <div role="alert" className="p-8 text-center">
+                <p>Nao foi possivel carregar as transacoes.</p>
+                <button className="fc-finance-secondary" onClick={() => void carregarDados()}>Recarregar transacoes</button>
+              </div>
+            ) : loadingTransacoes || transacoesDesatualizadas ? (
               <div className="p-8 text-center text-gray-500">Carregando...</div>
             ) : transacoesFiltradas.length === 0 ? (
               <div className="p-12 text-center">
@@ -2292,6 +2800,18 @@ export default function FinanceiroPage() {
           </div>
         )}
 
+        {abaAtiva === "transacoes" && (
+          <nav aria-label="Paginacao de transacoes" className="flex items-center justify-between gap-3 p-4">
+            <button className="fc-finance-secondary" disabled={loadingTransacoes || transacoesDesatualizadas || paginaAtualTransacoes === 0}
+              onClick={() => setPaginaTransacoes({ chave: chaveTransacoes, numero: paginaAtualTransacoes - 1 })}>Anterior</button>
+            <span aria-live="polite">
+              Pagina {paginaAtualTransacoes + 1} de {Math.max(1, Math.ceil(totalTransacoes / 100))} — ate 100 por pagina
+            </span>
+            <button className="fc-finance-secondary" disabled={loadingTransacoes || transacoesDesatualizadas || falhasCarregamento.includes("Transacoes") || (paginaAtualTransacoes + 1) * 100 >= totalTransacoes}
+              onClick={() => setPaginaTransacoes({ chave: chaveTransacoes, numero: paginaAtualTransacoes + 1 })}>Proxima</button>
+          </nav>
+        )}
+
         {/* Conteudo - Cobrancas */}
         {abaAtiva === "cobrancas" && (
           <div className="fc-finance-content">
@@ -2313,6 +2833,15 @@ export default function FinanceiroPage() {
               >
                 <Download className="w-4 h-4" />
                 Baixar relatorio pendente (PDF)
+              </button>
+              <button
+                onClick={() => abrirRecebimentoLoteOS(osSelecionadasBaixa)}
+                disabled={osSelecionadasBaixa.length === 0}
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Receber selecionadas
+                {osSelecionadasBaixa.length > 0 ? ` (${osSelecionadasBaixa.length})` : ""}
               </button>
             </div>
 
@@ -2352,7 +2881,7 @@ export default function FinanceiroPage() {
               />
             </div>
 
-            {loading ? (
+            {loadingOrdens ? (
               <div className="p-8 text-center text-gray-500">Carregando...</div>
             ) : gruposCobrancaDestinatario.length === 0 ? (
               <div className="p-12 text-center">
@@ -2382,6 +2911,14 @@ export default function FinanceiroPage() {
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <button
+                            onClick={() => abrirRecebimentoLoteOS(grupo.ordens.map((os) => os.id))}
+                            disabled={grupo.quantidade_os === 0}
+                            className="px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg flex items-center gap-1 disabled:opacity-50"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                            Receber pendentes
+                          </button>
+                          <button
                             onClick={() => baixarRelatorioPendenciasPDF(grupo)}
                             className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg flex items-center gap-1"
                           >
@@ -2396,11 +2933,17 @@ export default function FinanceiroPage() {
                             Copiar mensagem
                           </button>
                           <button
-                            onClick={() => enviarCobrancaWhatsApp(grupo)}
+                            onClick={() => void enviarCobrancaWhatsApp(grupo)}
+                            disabled={
+                              enviandoWhatsAppOficialGrupoKey === grupo.chave ||
+                              grupo.ordens.some(
+                                (os) => os.status === "Pendente" && enviandoWhatsAppOficialOsId === os.id
+                              )
+                            }
                             className="px-3 py-1.5 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-1"
                           >
                           <MessageCircle className="w-4 h-4" />
-                          Enviar WhatsApp
+                          {enviandoWhatsAppOficialGrupoKey === grupo.chave ? "Enviando..." : "Enviar FortCordis"}
                         </button>
                       </div>
                     </div>
@@ -2410,8 +2953,22 @@ export default function FinanceiroPage() {
                       {grupo.ordens.map((os) => (
                         <div key={os.id} className="p-4">
                           <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                            <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
-                              <FileText className="w-5 h-5 text-blue-600" />
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={osSelecionadasBaixa.includes(os.id)}
+                                disabled={os.status !== "Pendente"}
+                                onChange={() => toggleSelecaoBaixaOS(os.id)}
+                                className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+                                title={
+                                  os.status === "Pendente"
+                                    ? "Selecionar para baixa em lote"
+                                    : "Apenas OS pendentes podem ser recebidas em lote"
+                                }
+                              />
+                              <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
+                                <FileText className="w-5 h-5 text-blue-600" />
+                              </div>
                             </div>
                             <div className="flex-1 min-w-0 space-y-2">
                               <div className="flex flex-wrap items-center gap-2">
@@ -2508,8 +3065,34 @@ export default function FinanceiroPage() {
                 <p className="text-xs text-emerald-700 mt-1">
                   {osRecebidasFiltradas.length} OS recebida(s) visivel(is) | {osSelecionadasRecibo.length} selecionada(s) para recibo
                 </p>
+                <p className="text-xs text-amber-700 mt-1">
+                  {osPendentesFiltradas.length} OS pendente(s) visivel(is) | {osSelecionadasBaixa.length} selecionada(s) para baixa
+                  {osSelecionadasBaixa.length > 0 ? ` | Total ${formatarValor(totalSelecionadoBaixa)}` : ""}
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={selecionarTodasPendentesVisiveis}
+                  disabled={osPendentesFiltradas.length === 0}
+                  className="px-3 py-1.5 text-sm bg-white border border-amber-300 text-amber-800 rounded-lg hover:bg-amber-50 disabled:opacity-50"
+                >
+                  Selecionar pendentes
+                </button>
+                <button
+                  onClick={limparSelecaoBaixa}
+                  disabled={osSelecionadasBaixa.length === 0}
+                  className="px-3 py-1.5 text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Limpar baixa
+                </button>
+                <button
+                  onClick={() => abrirRecebimentoLoteOS(osSelecionadasBaixa)}
+                  disabled={osSelecionadasBaixa.length === 0}
+                  className="px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg flex items-center gap-1 disabled:opacity-50"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Receber selecionadas
+                </button>
                 <button
                   onClick={selecionarTodasRecebidasVisiveis}
                   disabled={osRecebidasFiltradas.length === 0}
@@ -2631,7 +3214,7 @@ export default function FinanceiroPage() {
               </div>
             </div>
 
-            {loading ? (
+            {loadingOrdens ? (
               <div className="p-8 text-center text-gray-500">Carregando...</div>
             ) : osFiltradas.length === 0 ? (
               <div className="p-12 text-center">
@@ -2654,14 +3237,26 @@ export default function FinanceiroPage() {
                       <div className="flex items-center gap-3">
                         <input
                           type="checkbox"
-                          checked={osSelecionadasRecibo.includes(os.id)}
-                          disabled={os.status !== "Pago"}
-                          onChange={() => toggleSelecaoReciboOS(os.id)}
+                          checked={
+                            os.status === "Pago"
+                              ? osSelecionadasRecibo.includes(os.id)
+                              : osSelecionadasBaixa.includes(os.id)
+                          }
+                          disabled={os.status !== "Pago" && os.status !== "Pendente"}
+                          onChange={() => {
+                            if (os.status === "Pago") {
+                              toggleSelecaoReciboOS(os.id);
+                            } else if (os.status === "Pendente") {
+                              toggleSelecaoBaixaOS(os.id);
+                            }
+                          }}
                           className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
                           title={
                             os.status === "Pago"
                               ? "Selecionar para recibo"
-                              : "Apenas OS recebidas podem gerar recibo"
+                              : os.status === "Pendente"
+                                ? "Selecionar para baixa em lote"
+                                : "Apenas OS recebidas geram recibo e OS pendentes podem ser recebidas em lote"
                           }
                         />
                         <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
@@ -2747,6 +3342,17 @@ export default function FinanceiroPage() {
                             >
                               <MessageCircle className="w-4 h-4" />
                               WhatsApp
+                            </button>
+                          )}
+                          {os.status === "Pago" && (
+                            <button
+                              onClick={() => void avisarReciboPeloWhatsAppOficial(os)}
+                              disabled={enviandoWhatsAppOficialOsId === os.id}
+                              className="px-3 py-1.5 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-1 disabled:opacity-50"
+                              title="Avisar pelo WhatsApp oficial que o recibo esta disponivel"
+                            >
+                              <MessageCircle className="w-4 h-4" />
+                              {enviandoWhatsAppOficialOsId === os.id ? "Enviando..." : "FortCordis"}
                             </button>
                           )}
                           {os.status === "Pago" && (
@@ -3102,18 +3708,187 @@ export default function FinanceiroPage() {
         </div>
       )}
 
+      {/* Modal de Receber OS em lote */}
+      {modalReceberLoteOSIds && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 p-4">
+          <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Receber OS em lote</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                {ordensRecebimentoLote.length} OS pendente(s) selecionada(s)
+              </p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-amber-900">Total das OS selecionadas</span>
+                  <span className="font-semibold text-amber-950">{formatarValor(resumoPagamentoLoteOS.valorOS)}</span>
+                </div>
+                <div className="mt-2 max-h-32 overflow-auto text-xs text-amber-900">
+                  {ordensRecebimentoLote.map((os) => (
+                    <div key={os.id} className="flex justify-between gap-3 py-0.5">
+                      <span>
+                        OS {os.numero_os} - {os.paciente || "Paciente nao informado"}
+                      </span>
+                      <span className="font-medium">{formatarValor(Number(os.valor_final || 0))}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {pagamentosRecebimentoOS.map((pagamento, index) => (
+                  <div key={pagamento.id} className="rounded-lg border border-gray-200 p-3">
+                    <div className="mb-2 text-xs font-medium text-gray-500">Pagamento {index + 1}</div>
+                    <label className="block text-xs font-medium text-gray-600">Forma de pagamento</label>
+                    <select
+                      value={pagamento.forma_codigo}
+                      onChange={(event) => atualizarLinhaPagamentoOS(pagamento.id, "forma_codigo", event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    >
+                      {formasPagamentoDisponiveis.map((forma) => {
+                        const codigo = normalizarCodigoFormaPagamento(forma.codigo);
+                        return (
+                          <option key={`${codigo}-${forma.id ?? "fallback"}`} value={codigo}>
+                            {descricaoFormaPagamentoConfig(forma)}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <label className="mt-2 block text-xs font-medium text-gray-600">Valor</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={pagamento.valor}
+                      onChange={(event) => atualizarLinhaPagamentoOS(pagamento.id, "valor", event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    />
+                    <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                      <span>Taxa estimada: {formatarValor(resumoPagamentoLoteOS.linhas[index]?.taxa || 0)}</span>
+                      {pagamentosRecebimentoOS.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removerLinhaPagamentoOS(pagamento.id)}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={adicionarLinhaPagamentoOS}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                >
+                  + Adicionar forma de pagamento
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Data do Recebimento</label>
+                <input
+                  type="date"
+                  value={dataRecebimentoOS}
+                  onChange={(e) => setDataRecebimentoOS(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+
+              <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                <label className="flex items-start gap-2 text-sm font-medium text-green-900">
+                  <input
+                    type="checkbox"
+                    checked={enviarReciboPdfWhatsAppAposRecebimento}
+                    disabled={!recebimentoLoteMesmoDestinatario}
+                    onChange={(event) => setEnviarReciboPdfWhatsAppAposRecebimento(event.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Enviar um recibo PDF consolidado pelo WhatsApp oficial após a baixa
+                    <span className="mt-1 block text-xs font-normal text-green-800">
+                      O PDF detalha OS, data do atendimento, serviço, tutor e pet.
+                    </span>
+                  </span>
+                </label>
+                {!recebimentoLoteMesmoDestinatario && (
+                  <p className="mt-2 text-xs text-amber-800">
+                    Para enviar um único recibo, selecione somente OS do mesmo destinatário.
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
+                <div className="flex justify-between">
+                  <span>Total das OS</span>
+                  <strong>{formatarValor(resumoPagamentoLoteOS.valorOS || 0)}</strong>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Total informado</span>
+                  <strong>{formatarValor(resumoPagamentoLoteOS.totalBruto || 0)}</strong>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Total de taxas estimadas</span>
+                  <strong>{formatarValor(resumoPagamentoLoteOS.totalTaxa || 0)}</strong>
+                </div>
+                {resumoPagamentoLoteOS.faltante > 0 && (
+                  <p className="mt-1 text-red-700">
+                    Falta cobrir {formatarValor(resumoPagamentoLoteOS.faltante)}.
+                  </p>
+                )}
+                {resumoPagamentoLoteOS.excedente > 0 && (
+                  <p className="mt-1 text-red-700">
+                    Valor informado excede o total em {formatarValor(resumoPagamentoLoteOS.excedente)}.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="p-6 border-t flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setModalReceberLoteOSIds(null);
+                  setPagamentosRecebimentoOS([]);
+                  setEnviarReciboPdfWhatsAppAposRecebimento(false);
+                }}
+                disabled={recebendoLoteOS}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarRecebimentoLoteOS}
+                disabled={
+                  recebendoLoteOS ||
+                  resumoPagamentoLoteOS.faltante > 0 ||
+                  resumoPagamentoLoteOS.excedente > 0 ||
+                  ordensRecebimentoLote.length === 0
+                }
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60"
+              >
+                <CheckCircle className="w-4 h-4" />
+                {recebendoLoteOS ? "Recebendo..." : "Confirmar baixa em lote"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de Receber OS */}
 	      {modalReceberOS && (
 	        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 p-4">
-	          <div className="bg-white rounded-lg w-full max-w-md">
-            <div className="p-6 border-b">
+	          <div className="bg-white rounded-lg w-full max-w-md max-h-[90dvh] flex flex-col overflow-hidden">
+	            <div className="shrink-0 p-6 border-b">
               <h3 className="text-lg font-semibold text-gray-900">Receber Ordem de Servico</h3>
               <p className="text-sm text-gray-500 mt-1">
                 OS {modalReceberOS.numero_os} - {modalReceberOS.paciente}
               </p>
             </div>
             
-            <div className="p-6 space-y-4">
+	            <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
 	              <div className="bg-gray-50 p-4 rounded-lg">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Valor:</span>
@@ -3210,6 +3985,23 @@ export default function FinanceiroPage() {
 	                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
 	                />
 	              </div>
+
+              <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                <label className="flex items-start gap-2 text-sm font-medium text-green-900">
+                  <input
+                    type="checkbox"
+                    checked={enviarReciboPdfWhatsAppAposRecebimento}
+                    onChange={(event) => setEnviarReciboPdfWhatsAppAposRecebimento(event.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Enviar o recibo em PDF pelo WhatsApp oficial após registrar
+                    <span className="mt-1 block text-xs font-normal text-green-800">
+                      O documento informa OS, data do atendimento, serviço, tutor e pet.
+                    </span>
+                  </span>
+                </label>
+              </div>
 
               {!carregandoSaldoCreditoClienteOS && saldoCreditoClienteOS > 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
@@ -3308,7 +4100,7 @@ export default function FinanceiroPage() {
 	              </div>
 	            </div>
 	            
-	            <div className="p-6 border-t flex justify-end gap-3">
+	            <div className="shrink-0 p-6 border-t flex justify-end gap-3">
               <button
                 onClick={() => {
                   setModalReceberOS(null);
@@ -3317,6 +4109,7 @@ export default function FinanceiroPage() {
                   setErroSaldoCreditoClienteOS("");
                   setUsarCreditoClienteOS(false);
                   setValorCreditoUtilizadoOS("0.00");
+                  setEnviarReciboPdfWhatsAppAposRecebimento(false);
                 }}
                 className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border"
               >

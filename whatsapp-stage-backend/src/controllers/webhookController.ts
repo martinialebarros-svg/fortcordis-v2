@@ -16,6 +16,10 @@ import {
   WebhookPayload,
   WebhookStatusEvent
 } from "../types/whatsapp";
+import { handleAgendaButtonReply } from "../services/agendaButtonService";
+import { handleApprovedTemplateButtonReply } from "../services/approvedTemplateButtonService";
+import { notifyPushForInboundMessage } from "../services/whatsappPushNotificationService";
+import { canonicalWhatsAppIdentity } from "../utils/phoneNumber";
 
 interface WebhookEventRow {
   id: string;
@@ -32,7 +36,7 @@ const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
 const appSecret = process.env.WHATSAPP_APP_SECRET;
 const allowUnsigned = process.env.WEBHOOK_ALLOW_UNSIGNED === "true" && process.env.NODE_ENV !== "production";
 
-function extractMessageBody(message: WebhookMessage): string {
+export function extractMessageBody(message: WebhookMessage): string {
   const type = message.type;
 
   switch (type) {
@@ -50,6 +54,10 @@ function extractMessageBody(message: WebhookMessage): string {
       return message.video?.caption ?? "[video]";
     case "document":
       return message.document?.filename ?? "[document]";
+    case "reaction": {
+      const emoji = message.reaction?.emoji;
+      return emoji ? `Reagiu com ${emoji}` : "Removeu a reação";
+    }
     default:
       return "";
   }
@@ -84,17 +92,40 @@ function formatProcessingError(error: unknown): string {
   return text.length > 4000 ? text.slice(0, 4000) : text;
 }
 
-async function touchConversation(conversationId: string, client: PoolClient): Promise<void> {
+async function touchConversation(
+  conversationId: string,
+  client: PoolClient,
+  lastInboundAt: Date | null = null
+): Promise<void> {
   await queryWithClient(
     client,
     `
       UPDATE conversations
       SET updated_at = now(),
-          last_activity_at = now()
+          last_activity_at = now(),
+          status = CASE
+            WHEN $2::timestamptz IS NOT NULL AND status IN ('pending', 'closed') THEN 'open'
+            ELSE status
+          END,
+          last_inbound_at = CASE
+            WHEN $2::timestamptz IS NULL THEN last_inbound_at
+            WHEN last_inbound_at IS NULL OR last_inbound_at < $2::timestamptz THEN $2::timestamptz
+            ELSE last_inbound_at
+          END
       WHERE id = $1
     `,
-    [conversationId]
+    [conversationId, lastInboundAt]
   );
+}
+
+function inboundMessageObservedAt(timestamp: unknown): Date {
+  const providerTimestamp = normalizeProviderTimestamp(timestamp);
+  if (providerTimestamp === null) {
+    return new Date();
+  }
+
+  const providerDate = new Date(providerTimestamp * 1000);
+  return Number.isNaN(providerDate.getTime()) ? new Date() : providerDate;
 }
 
 async function upsertConversation(
@@ -224,7 +255,13 @@ async function handleContacts(value: WebhookChangeValue, client: PoolClient): Pr
       continue;
     }
 
-    const conversation = await upsertConversation(client, waId, waId, contact.profile?.name ?? null);
+    const identity = canonicalWhatsAppIdentity(waId);
+    const conversation = await upsertConversation(
+      client,
+      identity,
+      identity,
+      contact.profile?.name ?? null
+    );
 
     await queryWithClient(
       client,
@@ -250,7 +287,7 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
 
   for (const contact of value.contacts ?? []) {
     if (contact.wa_id) {
-      contactsByWaId.set(contact.wa_id, contact);
+      contactsByWaId.set(canonicalWhatsAppIdentity(contact.wa_id), contact);
     }
   }
 
@@ -260,11 +297,12 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
       continue;
     }
 
-    const contact = contactsByWaId.get(from);
+    const identity = canonicalWhatsAppIdentity(from);
+    const contact = contactsByWaId.get(identity);
     const conversation = await upsertConversation(
       client,
-      from,
-      contact?.wa_id ?? null,
+      identity,
+      contact?.wa_id ? canonicalWhatsAppIdentity(contact.wa_id) : identity,
       contact?.profile?.name ?? null
     );
 
@@ -281,7 +319,27 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
     });
 
     if (inserted) {
-      await touchConversation(conversation.id, client);
+      // The conversation upsert already holds the same lock used by scheduling.
+      // Only a newly persisted inbound bumps the version; provider retries do not.
+      await client.query(`UPDATE conversation_follow_ups
+        SET inbound_received_at = COALESCE(inbound_received_at, now()), revision = revision + 1, updated_at = now()
+        WHERE conversation_id = $1 AND status = 'pending'`, [conversation.id]);
+      await handleAgendaButtonReply(client, message);
+      await handleApprovedTemplateButtonReply(client, message);
+      await touchConversation(
+        conversation.id,
+        client,
+        inboundMessageObservedAt(message.timestamp)
+      );
+      void notifyPushForInboundMessage({
+        conversationId: conversation.id,
+        contactLabel: contact?.profile?.name ?? identity,
+        bodyPreview: extractMessageBody(message),
+        waPhoneNumber: identity,
+        waMessageId: message.id ?? null,
+        messageType: message.type ?? "text",
+        messageTimestamp: inboundMessageObservedAt(message.timestamp).toISOString()
+      });
     }
   }
 }
@@ -347,6 +405,15 @@ async function processWebhookPayload(payload: WebhookPayload, client: PoolClient
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
       if (change.field !== "messages" || !change.value) {
+        continue;
+      }
+
+      const configuredPhoneNumberId = String(process.env.PHONE_NUMBER_ID || "").trim();
+      const eventPhoneNumberId = String(change.value.metadata?.phone_number_id || "").trim();
+      if (configuredPhoneNumberId && eventPhoneNumberId && configuredPhoneNumberId !== eventPhoneNumberId) {
+        logger.warn("Ignoring webhook event for an unexpected phone_number_id", {
+          phoneNumberId: eventPhoneNumberId
+        });
         continue;
       }
 

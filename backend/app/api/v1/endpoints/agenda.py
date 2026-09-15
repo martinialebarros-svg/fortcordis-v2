@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -56,7 +57,7 @@ from app.services.logistica_service import (
     obter_duracao_deslocamento,
     obter_duracao_deslocamento_entidades,
 )
-from app.services.precos_service import calcular_preco_servico, to_decimal
+from app.services.precos_service import calcular_preco_servico, calcular_precos_servicos_em_lote, to_decimal
 from app.services.auditoria_service import registrar_auditoria
 from app.services.push_notifications import (
     send_agenda_push_notification,
@@ -77,6 +78,13 @@ ORIGEM_ATENDIMENTO_PADRAO = "clinica_parceira"
 ORIGEM_ATENDIMENTO_DOMICILIAR = "domiciliar"
 MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
 MAX_DESLOCAMENTO_TRECHO_VIZINHO_MIN = 45
+# Reabilitacao de reserva expirada: a clinica volta a pedir o mesmo horario
+# depois do vencimento e o slot segue livre, entao a reserva ganha um novo
+# prazo ate a chegada dos dados do paciente.
+PRAZO_REABILITACAO_RESERVA_HORAS_PADRAO = 3.0
+PRAZO_REABILITACAO_RESERVA_HORAS_MIN = 0.5
+PRAZO_REABILITACAO_RESERVA_HORAS_MAX = 72.0
+MARGEM_MINIMA_PRAZO_RESERVA_MIN = 5
 AGENDA_WRITE_LOCK_KEY = 24052301
 ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS = 30
 ASSISTENTE_BUSCA_DIA_VAZIO_EXTRA_MAX_DIAS = 7
@@ -87,6 +95,7 @@ ASSISTENTE_AGENDA_MAX_WINDOW_ENV = "ASSISTENTE_AGENDA_MAX_WINDOW_DAYS"
 ASSISTENTE_AGENDA_DEFAULT_WINDOW_DAYS = 7
 ASSISTENTE_AGENDA_DEFAULT_MAX_WINDOW_DAYS = 14
 ASSISTENTE_AGENDA_HARD_MAX_WINDOW_DAYS = 31
+AGENDA_RELACIONADOS_MAX_IDS = 100
 DIAS_SEMANA_PT = [
     "segunda-feira",
     "terca-feira",
@@ -96,6 +105,33 @@ DIAS_SEMANA_PT = [
     "sabado",
     "domingo",
 ]
+
+
+def _parse_agendamento_ids_param(value: str) -> list[int]:
+    tokens = str(value or "").split(",")
+    if not tokens or any(not token.strip() for token in tokens):
+        raise HTTPException(status_code=400, detail="Informe agendamento_ids separados por virgula.")
+
+    ids: list[int] = []
+    vistos: set[int] = set()
+    for token in tokens:
+        normalizado = token.strip()
+        if not normalizado.isdigit():
+            raise HTTPException(status_code=400, detail="agendamento_ids deve conter apenas inteiros positivos.")
+        agendamento_id = int(normalizado)
+        if agendamento_id <= 0:
+            raise HTTPException(status_code=400, detail="agendamento_ids deve conter apenas inteiros positivos.")
+        if agendamento_id in vistos:
+            continue
+        vistos.add(agendamento_id)
+        ids.append(agendamento_id)
+
+    if len(ids) > AGENDA_RELACIONADOS_MAX_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"agendamento_ids aceita no maximo {AGENDA_RELACIONADOS_MAX_IDS} IDs unicos.",
+        )
+    return ids
 
 
 def _usuario_tem_papel(usuario: Any, papel: str) -> bool:
@@ -134,6 +170,11 @@ def _ensure_agendamento_workflow_columns(db: Session) -> None:
         "tutor_id": 'ALTER TABLE "agendamentos" ADD COLUMN tutor_id INTEGER',
         "origem_atendimento": 'ALTER TABLE "agendamentos" ADD COLUMN origem_atendimento VARCHAR(32) DEFAULT \'clinica_parceira\'',
         "reserva_expira_em": 'ALTER TABLE "agendamentos" ADD COLUMN reserva_expira_em TIMESTAMP',
+        "excecao_deslocamento_concedida_em": 'ALTER TABLE "agendamentos" ADD COLUMN excecao_deslocamento_concedida_em TIMESTAMP',
+        "excecao_deslocamento_concedida_por_id": 'ALTER TABLE "agendamentos" ADD COLUMN excecao_deslocamento_concedida_por_id INTEGER',
+        "excecao_deslocamento_concedida_por_nome": 'ALTER TABLE "agendamentos" ADD COLUMN excecao_deslocamento_concedida_por_nome VARCHAR(255)',
+        "excecao_deslocamento_motivo": 'ALTER TABLE "agendamentos" ADD COLUMN excecao_deslocamento_motivo TEXT',
+        "excecao_deslocamento_escopo": 'ALTER TABLE "agendamentos" ADD COLUMN excecao_deslocamento_escopo VARCHAR(64)',
     }
 
     faltantes = [sql for coluna, sql in alteracoes.items() if coluna not in colunas]
@@ -269,6 +310,25 @@ class AssistenteOfertaPayload(BaseModel):
     ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
     incluir_mesma_clinica: bool = Field(default=True)
     janela_dias_proximidade: int = Field(default=7, ge=0, le=30)
+
+
+class ReabilitarReservaPayload(BaseModel):
+    prazo_confirmacao_horas: Optional[float] = Field(
+        default=None,
+        ge=PRAZO_REABILITACAO_RESERVA_HORAS_MIN,
+        le=PRAZO_REABILITACAO_RESERVA_HORAS_MAX,
+        description="Novo prazo de confirmacao em horas contadas de agora (padrao 3h).",
+    )
+    reserva_expira_em: Optional[datetime] = Field(
+        default=None,
+        description="Prazo exato de confirmacao; quando informado, ignora prazo_confirmacao_horas.",
+    )
+    confirmar_slot_reserva_expirada: bool = Field(default=False)
+    confirmar_conflito_deslocamento: bool = Field(default=False)
+    motivo_excecao_deslocamento: Optional[str] = Field(
+        default=None,
+        description="Motivo registrado ao conceder a excecao de conflito de rota.",
+    )
 
 
 def _parse_hora_hhmm(value: Optional[str], fallback: str) -> str:
@@ -1645,6 +1705,142 @@ def _selecionar_items_hierarquia_data_assistente(
     return items_lista
 
 
+EXCECAO_DESLOCAMENTO_MOTIVO_PADRAO = "Excecao de conflito de rota confirmada por admin."
+
+EXCECAO_DESLOCAMENTO_CAMPOS = (
+    "excecao_deslocamento_concedida_em",
+    "excecao_deslocamento_concedida_por_id",
+    "excecao_deslocamento_concedida_por_nome",
+    "excecao_deslocamento_motivo",
+    "excecao_deslocamento_escopo",
+)
+
+
+def _fingerprint_escopo_deslocamento(agendamento: Agendamento) -> str:
+    """Assinatura da rota aprovada quando o admin concedeu a excecao.
+
+    A excecao vale para aquele trecho de rota especifico, nao para o
+    agendamento em geral: se horario, destino (clinica ou endereco do
+    domiciliar) ou servico mudarem, a assinatura muda e a excecao persistida
+    para de ser aplicada, para nao mascarar um conflito de rota novo.
+
+    Paciente e tutor entram na assinatura apenas no domiciliar, onde definem o
+    endereco de destino. Em clinica parceira eles nao afetam a rota - e uma
+    reserva costuma receber esses dados depois da concessao, no fluxo normal de
+    confirmacao tardia, que nao deve invalidar a excecao.
+    """
+    inicio = _to_local_naive(_coerce_datetime(getattr(agendamento, "inicio", None)))
+    fim = _to_local_naive(_coerce_datetime(getattr(agendamento, "fim", None)))
+    origem = str(getattr(agendamento, "origem_atendimento", "") or "").strip().lower()
+    origem = origem or ORIGEM_ATENDIMENTO_PADRAO
+    partes = [
+        inicio.isoformat(timespec="minutes") if inicio else "-",
+        fim.isoformat(timespec="minutes") if fim else "-",
+        str(int(getattr(agendamento, "clinica_id", 0) or 0)),
+        str(int(getattr(agendamento, "servico_id", 0) or 0)),
+        origem,
+    ]
+    if origem == ORIGEM_ATENDIMENTO_DOMICILIAR:
+        partes.extend(
+            [
+                str(int(getattr(agendamento, "paciente_id", 0) or 0)),
+                str(int(getattr(agendamento, "tutor_id", 0) or 0)),
+            ]
+        )
+    return hashlib.sha256("|".join(partes).encode("utf-8")).hexdigest()
+
+
+def _excecao_deslocamento_ativa(agendamento: Agendamento) -> bool:
+    """True quando existe excecao concedida e ainda valida para a rota atual."""
+    concedida_em = _coerce_datetime(getattr(agendamento, "excecao_deslocamento_concedida_em", None))
+    escopo = str(getattr(agendamento, "excecao_deslocamento_escopo", "") or "").strip()
+    if concedida_em is None or not escopo:
+        return False
+    return escopo == _fingerprint_escopo_deslocamento(agendamento)
+
+
+def _conceder_excecao_deslocamento(
+    agendamento: Agendamento,
+    *,
+    current_user: User,
+    motivo: str = "",
+) -> None:
+    agendamento.excecao_deslocamento_concedida_em = datetime.now()
+    agendamento.excecao_deslocamento_concedida_por_id = getattr(current_user, "id", None)
+    agendamento.excecao_deslocamento_concedida_por_nome = getattr(current_user, "nome", None)
+    agendamento.excecao_deslocamento_motivo = (
+        str(motivo or "").strip() or EXCECAO_DESLOCAMENTO_MOTIVO_PADRAO
+    )
+    agendamento.excecao_deslocamento_escopo = _fingerprint_escopo_deslocamento(agendamento)
+
+
+def _limpar_excecao_deslocamento(agendamento: Agendamento) -> bool:
+    if not any(getattr(agendamento, campo, None) for campo in EXCECAO_DESLOCAMENTO_CAMPOS):
+        return False
+    for campo in EXCECAO_DESLOCAMENTO_CAMPOS:
+        setattr(agendamento, campo, None)
+    return True
+
+
+def _descartar_excecao_deslocamento_obsoleta(agendamento: Agendamento) -> bool:
+    """Zera a concessao quando a rota aprovada nao existe mais."""
+    escopo = str(getattr(agendamento, "excecao_deslocamento_escopo", "") or "").strip()
+    if not escopo or escopo == _fingerprint_escopo_deslocamento(agendamento):
+        return False
+    return _limpar_excecao_deslocamento(agendamento)
+
+
+def _registrar_auditoria_excecao_deslocamento(
+    *,
+    db: Session,
+    current_user: User,
+    request: Optional[Request],
+    agendamento: Agendamento,
+    bypass: dict,
+    acao_operacional: str,
+) -> None:
+    """Registra concessao/reuso da excecao de rota na trilha de auditoria."""
+    origem = str(bypass.get("origem") or "")
+    if origem not in {"confirmacao_admin", "excecao_persistida"}:
+        return
+    related = _fetch_related_names(db, agendamento)
+    contexto = _contexto_agendamento_auditoria(agendamento, related)
+    concedida_em = _coerce_datetime(getattr(agendamento, "excecao_deslocamento_concedida_em", None))
+    if origem == "confirmacao_admin":
+        acao = "AGENDA_EXCECAO_DESLOCAMENTO_CONCEDIDA"
+        descricao = (
+            f"Excecao de conflito de rota concedida por admin em '{acao_operacional}' - "
+            f"{_descricao_contexto_agendamento(contexto)}"
+        )
+    else:
+        acao = "AGENDA_EXCECAO_DESLOCAMENTO_APLICADA"
+        descricao = (
+            f"Excecao de conflito de rota previamente concedida aplicada em '{acao_operacional}' - "
+            f"{_descricao_contexto_agendamento(contexto)}"
+        )
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="agenda",
+        entidade="agendamento",
+        entidade_id=agendamento.id,
+        acao=acao,
+        descricao=descricao,
+        detalhes={
+            "agendamento_id": agendamento.id,
+            "acao_operacional": acao_operacional,
+            "bloqueio_ignorado": bypass.get("bloqueio"),
+            "origem_excecao": origem,
+            "motivo": getattr(agendamento, "excecao_deslocamento_motivo", None),
+            "concedida_em": concedida_em.isoformat() if concedida_em else None,
+            "concedida_por_nome": getattr(agendamento, "excecao_deslocamento_concedida_por_nome", None),
+            "clinica_id": agendamento.clinica_id,
+            "servico_id": agendamento.servico_id,
+            "contexto_agendamento": contexto,
+        },
+        request=request,
+    )
+
+
 def _validar_deslocamento_agendamento(
     db: Session,
     agendamento: Agendamento,
@@ -1652,10 +1848,26 @@ def _validar_deslocamento_agendamento(
     agendamento_id_excluir: Optional[int] = None,
     perfil_deslocamento: str = "comercial",
     confirmar_conflito_deslocamento: bool = False,
-) -> None:
+) -> Optional[dict[str, str]]:
+    """Bloqueia conflitos de rota, salvo excecao confirmada agora ou persistida.
+
+    Retorna `None` quando nao havia conflito a ignorar. Quando um bloqueio foi
+    ignorado, devolve `{"origem": ..., "bloqueio": ...}` para o chamador
+    persistir a concessao (`confirmacao_admin`) ou registrar o reuso de uma
+    excecao ja concedida (`excecao_persistida`).
+    """
     status_atual = (str(agendamento.status or "").strip() or "Agendado")
     if status_atual == "Cancelado":
-        return
+        return None
+
+    excecao_persistida = _excecao_deslocamento_ativa(agendamento)
+    if confirmar_conflito_deslocamento:
+        origem_excecao = "confirmacao_admin"
+    elif excecao_persistida:
+        origem_excecao = "excecao_persistida"
+    else:
+        origem_excecao = ""
+    ignorar_conflito = bool(origem_excecao)
 
     inicio_dt = _to_local_naive(_coerce_datetime(agendamento.inicio))
     if inicio_dt is None:
@@ -1711,7 +1923,7 @@ def _validar_deslocamento_agendamento(
     destino_atual_nome = _rotulo_destino_operacional(destino_atual)
     if not bool(destino_atual.get("localizacao_confiavel")):
         # Fase de implantacao: sem geolocalizacao validada, nao bloquear agendamento por deslocamento.
-        return
+        return None
 
     if anterior:
         destino_anterior = anterior.get("destino_operacional") if isinstance(anterior, dict) else None
@@ -1775,8 +1987,8 @@ def _validar_deslocamento_agendamento(
     )
 
     if limite_trecho_vizinho_min > 0 and duracao_prev > limite_trecho_vizinho_min and not relaxar_limite_prev_por_ancora:
-        if confirmar_conflito_deslocamento:
-            return
+        if ignorar_conflito:
+            return {"origem": origem_excecao, "bloqueio": "limite_trecho_anterior"}
         raise HTTPException(
             status_code=409,
             detail={
@@ -1799,8 +2011,8 @@ def _validar_deslocamento_agendamento(
         )
     folga_necessaria_prev = int(duracao_prev + (0 if ancora_anterior_adjacente else margem_segura_min))
     if duracao_prev > 0 and folga_prev < folga_necessaria_prev:
-        if confirmar_conflito_deslocamento:
-            return
+        if ignorar_conflito:
+            return {"origem": origem_excecao, "bloqueio": "folga_anterior"}
         raise HTTPException(
             status_code=409,
             detail={
@@ -1827,8 +2039,8 @@ def _validar_deslocamento_agendamento(
         )
 
     if limite_trecho_vizinho_min > 0 and duracao_next > limite_trecho_vizinho_min and not relaxar_limite_next_por_ancora:
-        if confirmar_conflito_deslocamento:
-            return
+        if ignorar_conflito:
+            return {"origem": origem_excecao, "bloqueio": "limite_trecho_proximo"}
         raise HTTPException(
             status_code=409,
             detail={
@@ -1851,8 +2063,8 @@ def _validar_deslocamento_agendamento(
         )
     folga_necessaria_next = int(duracao_next + (0 if ancora_proxima_adjacente else margem_segura_min))
     if duracao_next > 0 and folga_next < folga_necessaria_next:
-        if confirmar_conflito_deslocamento:
-            return
+        if ignorar_conflito:
+            return {"origem": origem_excecao, "bloqueio": "folga_proximo"}
         raise HTTPException(
             status_code=409,
             detail={
@@ -1902,8 +2114,8 @@ def _validar_deslocamento_agendamento(
             duracao_via_novo = int(duracao_prev + duracao_next)
             desvio_insercao = max(0, int(duracao_via_novo - duracao_direta))
             if desvio_insercao > limite_desvio_insercao:
-                if confirmar_conflito_deslocamento:
-                    return
+                if ignorar_conflito:
+                    return {"origem": origem_excecao, "bloqueio": "desvio_insercao"}
                 origem = destino_anterior_nome or _rotulo_destino_operacional(destino_anterior)
                 destino = destino_proximo_nome or _rotulo_destino_operacional(destino_proximo)
                 raise HTTPException(
@@ -2232,6 +2444,52 @@ def _expirar_reservas_vencidas(db: Session) -> int:
     return expiradas
 
 
+def _calcular_prazo_reabilitacao_reserva(
+    agendamento: Agendamento,
+    *,
+    horas: Optional[float] = None,
+    prazo_explicito: Optional[datetime] = None,
+) -> tuple[datetime, bool]:
+    """Resolve o novo prazo de confirmacao ao reabilitar uma reserva expirada.
+
+    Devolve o prazo em horario local (naive, como o resto do modulo persiste) e
+    se ele precisou ser encurtado para terminar antes do horario reservado.
+    """
+    agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None, second=0, microsecond=0)
+    inicio_local = _to_local_naive(_coerce_datetime(agendamento.inicio))
+    if inicio_local is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Horario de inicio invalido para reabilitar a reserva.",
+        )
+
+    limite_local = (
+        inicio_local - timedelta(minutes=MARGEM_MINIMA_PRAZO_RESERVA_MIN)
+    ).replace(second=0, microsecond=0)
+    if limite_local <= agora_local:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Este horario esta proximo demais (ou ja passou) para uma nova reserva. "
+                "Agende direto com os dados do paciente ou escolha outro horario."
+            ),
+        )
+
+    if prazo_explicito is not None:
+        prazo_local = _to_local_naive(_coerce_datetime(prazo_explicito))
+        if prazo_local is None:
+            raise HTTPException(status_code=422, detail="Prazo de confirmacao invalido.")
+        return prazo_local.replace(second=0, microsecond=0), False
+
+    horas_pedidas = horas if horas is not None else PRAZO_REABILITACAO_RESERVA_HORAS_PADRAO
+    prazo_local = (agora_local + timedelta(hours=float(horas_pedidas))).replace(
+        second=0, microsecond=0
+    )
+    if prazo_local <= limite_local:
+        return prazo_local, False
+    return limite_local, True
+
+
 def _status_efetivo_agendamento(agendamento: Agendamento) -> str:
     status_atual = str(agendamento.status or "").strip() or "Agendado"
     if status_atual != "Reservado":
@@ -2274,7 +2532,9 @@ def _exigir_confirmacao_reativacao_reserva_expirada(
         raise HTTPException(
             status_code=409,
             detail=(
-                "Para reativar uma reserva expirada, altere primeiro o status para Agendado."
+                "Para reativar uma reserva expirada, use 'Reabilitar reserva' "
+                "(segura o horario com um novo prazo de confirmacao) ou altere "
+                "primeiro o status para Agendado."
             ),
         )
     reativando = tentativa_status_ativo and status_novo == "Agendado"
@@ -2771,6 +3031,9 @@ def _serialize_agendamento(
     inicio_dt = _coerce_datetime(agendamento.inicio)
     fim_dt = _coerce_datetime(agendamento.fim)
     reserva_expira_dt = _coerce_datetime(getattr(agendamento, "reserva_expira_em", None))
+    excecao_deslocamento_em = _coerce_datetime(
+        getattr(agendamento, "excecao_deslocamento_concedida_em", None)
+    )
     tutor_id_resolvido = _resolver_tutor_id_relacionado(agendamento, tutor_id_relacionado)
 
     data = agendamento.data
@@ -2807,6 +3070,14 @@ def _serialize_agendamento(
         "criado_por_nome": agendamento.criado_por_nome,
         "confirmado_por_nome": agendamento.confirmado_por_nome,
         "created_at": str(agendamento.created_at) if agendamento.created_at else None,
+        "excecao_deslocamento_ativa": _excecao_deslocamento_ativa(agendamento),
+        "excecao_deslocamento_concedida_em": (
+            excecao_deslocamento_em.isoformat() if excecao_deslocamento_em else None
+        ),
+        "excecao_deslocamento_concedida_por_nome": getattr(
+            agendamento, "excecao_deslocamento_concedida_por_nome", None
+        ),
+        "excecao_deslocamento_motivo": getattr(agendamento, "excecao_deslocamento_motivo", None),
     }
 
 
@@ -3361,37 +3632,188 @@ def listar_agendamentos(
     }
 
 
-def _calcular_previsao_agendamento(db: Session, agendamento: Agendamento) -> Decimal:
-    origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
-    if not agendamento.servico_id:
-        return Decimal("0.00")
-    if origem != ORIGEM_ATENDIMENTO_DOMICILIAR and not agendamento.clinica_id:
-        return Decimal("0.00")
+def _serialize_endereco_relacionado(entidade: Any) -> dict[str, Any]:
+    return {
+        "id": entidade.id,
+        "nome": entidade.nome,
+        "endereco": entidade.endereco,
+        "numero": entidade.numero,
+        "bairro": entidade.bairro,
+        "cidade": entidade.cidade,
+        "estado": entidade.estado,
+        "cep": entidade.cep,
+        "latitude": entidade.latitude,
+        "longitude": entidade.longitude,
+        "endereco_normalizado": entidade.endereco_normalizado,
+    }
+
+
+@router.get("/relacionados", response_model=dict)
+def listar_relacionados_agenda(
+    agendamento_ids: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Retorna apenas os resumos relacionados ao lote visivel da Agenda."""
+    del current_user
+    ids_solicitados = _parse_agendamento_ids_param(agendamento_ids)
+
+    relacoes = (
+        db.query(
+            Agendamento.id.label("agendamento_id"),
+            Agendamento.clinica_id.label("clinica_id"),
+            func.coalesce(Agendamento.tutor_id, Paciente.tutor_id).label("tutor_id"),
+        )
+        .outerjoin(Paciente, Paciente.id == Agendamento.paciente_id)
+        .filter(Agendamento.id.in_(ids_solicitados))
+        .all()
+    )
+    ids_validos = sorted({int(item.agendamento_id) for item in relacoes})
+    if not ids_validos:
+        return {
+            "agendamento_ids": [],
+            "laudos": [],
+            "ordens_servico": [],
+            "clinicas": [],
+            "tutores": [],
+        }
+
+    laudos_rows = (
+        db.query(
+            Laudo.id,
+            Laudo.agendamento_id,
+            Laudo.paciente_id,
+            Laudo.tipo,
+            Laudo.status,
+            Laudo.titulo,
+        )
+        .filter(Laudo.agendamento_id.in_(ids_validos))
+        .all()
+    )
+    laudos_por_chave: dict[tuple[int, str], dict[str, Any]] = {}
+    for laudo in laudos_rows:
+        agendamento_id = int(laudo.agendamento_id)
+        tipo = str(laudo.tipo or "")
+        if not tipo:
+            continue
+        chave = (agendamento_id, tipo)
+        anterior = laudos_por_chave.get(chave)
+        if anterior is None or int(laudo.id) > int(anterior["id"]):
+            laudos_por_chave[chave] = {
+                "id": int(laudo.id),
+                "agendamento_id": agendamento_id,
+                "paciente_id": int(laudo.paciente_id),
+                "tipo": tipo,
+                "status": str(laudo.status or ""),
+                "titulo": str(laudo.titulo or f"Laudo {laudo.id}"),
+            }
+
+    ordens_rows = (
+        db.query(
+            OrdemServico.id,
+            OrdemServico.agendamento_id,
+            OrdemServico.numero_os,
+            OrdemServico.status,
+            OrdemServico.valor_servico,
+            OrdemServico.desconto,
+            OrdemServico.valor_final,
+        )
+        .filter(OrdemServico.agendamento_id.in_(ids_validos))
+        .all()
+    )
+    ordens_por_agendamento: dict[int, dict[str, Any]] = {}
+    for ordem in ordens_rows:
+        agendamento_id = int(ordem.agendamento_id)
+        anterior = ordens_por_agendamento.get(agendamento_id)
+        if anterior is None or int(ordem.id) > int(anterior["id"]):
+            ordens_por_agendamento[agendamento_id] = {
+                "id": int(ordem.id),
+                "agendamento_id": agendamento_id,
+                "numero_os": str(ordem.numero_os or ""),
+                "status": str(ordem.status or ""),
+                "valor_servico": float(ordem.valor_servico or 0),
+                "desconto": float(ordem.desconto or 0),
+                "valor_final": float(ordem.valor_final or 0),
+            }
+
+    ids_clinica = sorted(
+        {
+            int(item.clinica_id)
+            for item in relacoes
+            if item.clinica_id is not None and int(item.clinica_id) > 0
+        }
+    )
+    ids_tutor = sorted(
+        {
+            int(item.tutor_id)
+            for item in relacoes
+            if item.tutor_id is not None and int(item.tutor_id) > 0
+        }
+    )
+    clinicas = db.query(Clinica).filter(Clinica.id.in_(ids_clinica)).all() if ids_clinica else []
+    tutores = db.query(Tutor).filter(Tutor.id.in_(ids_tutor)).all() if ids_tutor else []
+
+    return {
+        "agendamento_ids": ids_validos,
+        "laudos": sorted(
+            laudos_por_chave.values(),
+            key=lambda item: (item["agendamento_id"], item["tipo"], item["id"]),
+        ),
+        "ordens_servico": sorted(
+            ordens_por_agendamento.values(),
+            key=lambda item: (item["agendamento_id"], item["id"]),
+        ),
+        "clinicas": sorted(
+            (_serialize_endereco_relacionado(clinica) for clinica in clinicas),
+            key=lambda item: item["id"],
+        ),
+        "tutores": sorted(
+            (_serialize_endereco_relacionado(tutor) for tutor in tutores),
+            key=lambda item: item["id"],
+        ),
+    }
+
+
+def _calcular_previsoes_agendamentos_em_lote(
+    db: Session,
+    agendamentos: list[Agendamento],
+) -> dict[int, Decimal]:
+    """Calcula previsoes da Agenda sem repetir consultas de precificacao por item."""
+    previsoes = {int(agendamento.id): Decimal("0.00") for agendamento in agendamentos}
+    chaves_por_agendamento: dict[int, tuple[int | None, int, str]] = {}
+
+    for agendamento in agendamentos:
+        origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
+        if not agendamento.servico_id:
+            continue
+        if origem != ORIGEM_ATENDIMENTO_DOMICILIAR and not agendamento.clinica_id:
+            continue
+
+        try:
+            servico_id = int(agendamento.servico_id)
+            clinica_id = int(agendamento.clinica_id) if agendamento.clinica_id else None
+        except (TypeError, ValueError):
+            continue
+        chaves_por_agendamento[int(agendamento.id)] = (clinica_id, servico_id, origem)
+
+    if not chaves_por_agendamento:
+        return previsoes
 
     try:
-        return to_decimal(calcular_preco_servico(
-            db=db,
-            clinica_id=agendamento.clinica_id,
-            servico_id=agendamento.servico_id,
+        precos = calcular_precos_servicos_em_lote(
+            db,
+            chaves_por_agendamento.values(),
             tipo_horario="comercial",
             usar_preco_clinica=True,
-            origem_atendimento=origem,
-        ))
-    except HTTPException as exc:
-        logger.warning(
-            "Resumo financeiro da agenda sem preco para agendamento %s (clinica=%s, servico=%s): %s",
-            agendamento.id,
-            agendamento.clinica_id,
-            agendamento.servico_id,
-            exc.detail,
         )
-        return Decimal("0.00")
     except Exception:
-        logger.exception(
-            "Resumo financeiro da agenda falhou ao calcular previsao do agendamento %s",
-            agendamento.id,
-        )
-        return Decimal("0.00")
+        logger.exception("Resumo financeiro da agenda falhou ao carregar precificacao em lote")
+        return previsoes
+
+    for agendamento_id, chave in chaves_por_agendamento.items():
+        previsoes[agendamento_id] = to_decimal(precos.get(chave))
+
+    return previsoes
 
 
 @router.get("/resumo-financeiro")
@@ -3457,6 +3879,19 @@ def resumo_financeiro_agenda(
             if os_data.agendamento_id not in mapa_os:
                 mapa_os[os_data.agendamento_id] = os_data
 
+    agendamentos_sem_valor_na_os = [
+        agendamento
+        for agendamento in agendamentos
+        if not (
+            mapa_os.get(agendamento.id)
+            and mapa_os[agendamento.id].valor_final is not None
+        )
+    ]
+    previsoes_por_agendamento = _calcular_previsoes_agendamentos_em_lote(
+        db,
+        agendamentos_sem_valor_na_os,
+    )
+
     valor_realizado = Decimal("0.00")
     valor_agendado = Decimal("0.00")
     qtd_realizados = 0
@@ -3467,7 +3902,7 @@ def resumo_financeiro_agenda(
         valor_base = (
             to_decimal(os_vinculada.valor_final)
             if os_vinculada and os_vinculada.valor_final is not None
-            else _calcular_previsao_agendamento(db, ag)
+            else previsoes_por_agendamento.get(int(ag.id), Decimal("0.00"))
         )
 
         if ag.status == "Realizado":
@@ -5291,6 +5726,10 @@ def criar_agendamento(
     """Cria novo agendamento"""
     _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
+    from app.services.whatsapp_bot_pedido_agenda import iniciar, vincular
+    pedido, existente = iniciar(db, agendamento, current_user)
+    if existente is not None:
+        return _serialize_agendamento(existente, **_fetch_related_names(db, existente))
 
     override_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
     confirmou_slot_reserva_expirada = bool(
@@ -5299,6 +5738,7 @@ def criar_agendamento(
     confirmar_agenda_fechada = bool(getattr(agendamento, "confirmar_agenda_fechada", False))
     excecao_operacional_concedida = bool(getattr(agendamento, "excecao_operacional_concedida", False))
     motivo_excecao_operacional = str(getattr(agendamento, "motivo_excecao_operacional", "") or "").strip()
+    motivo_excecao_deslocamento = str(getattr(agendamento, "motivo_excecao_deslocamento", "") or "").strip()
     if override_conflito_deslocamento and not _usuario_tem_papel(current_user, "admin"):
         raise HTTPException(
             status_code=403,
@@ -5324,11 +5764,13 @@ def criar_agendamento(
     db_agendamento = Agendamento(
         **agendamento.model_dump(
             exclude={
+                "pedido_whatsapp_id", "pedido_whatsapp_versao", "pedido_whatsapp_divergencia_confirmada",
                 "confirmar_conflito_deslocamento",
                 "confirmar_slot_reserva_expirada",
                 "confirmar_agenda_fechada",
                 "excecao_operacional_concedida",
                 "motivo_excecao_operacional",
+                "motivo_excecao_deslocamento",
             }
         )
     )
@@ -5359,11 +5801,17 @@ def criar_agendamento(
         db_agendamento,
         confirmar_slot_reserva_expirada=confirmou_slot_reserva_expirada,
     )
-    _validar_deslocamento_agendamento(
+    bypass_deslocamento = _validar_deslocamento_agendamento(
         db,
         db_agendamento,
         confirmar_conflito_deslocamento=override_conflito_deslocamento,
     )
+    if bypass_deslocamento and bypass_deslocamento.get("origem") == "confirmacao_admin":
+        _conceder_excecao_deslocamento(
+            db_agendamento,
+            current_user=current_user,
+            motivo=motivo_excecao_deslocamento or motivo_excecao_operacional,
+        )
     _fill_data_hora_from_inicio(db_agendamento)
     related = _fetch_related_names(db, db_agendamento)
     _sync_denormalized_fields(db_agendamento, related)
@@ -5375,6 +5823,7 @@ def criar_agendamento(
     )
 
     db.add(db_agendamento)
+    vincular(db, pedido, db_agendamento, current_user)
     _commit_agenda_write(db)
     db.refresh(db_agendamento)
     contexto = _contexto_agendamento_auditoria(db_agendamento, related)
@@ -5445,6 +5894,15 @@ def criar_agendamento(
             related=related,
             motivo=motivo_excecao_operacional,
         )
+    if bypass_deslocamento:
+        _registrar_auditoria_excecao_deslocamento(
+            db=db,
+            current_user=current_user,
+            request=request,
+            agendamento=db_agendamento,
+            bypass=bypass_deslocamento,
+            acao_operacional="criar_agendamento",
+        )
 
     _notificar_agenda_update(
         db=db,
@@ -5499,6 +5957,7 @@ def atualizar_agendamento(
     )
     excecao_operacional_concedida = bool(getattr(agendamento, "excecao_operacional_concedida", False))
     motivo_excecao_operacional = str(getattr(agendamento, "motivo_excecao_operacional", "") or "").strip()
+    motivo_excecao_deslocamento = str(getattr(agendamento, "motivo_excecao_deslocamento", "") or "").strip()
     # O nome do campo diz "hoje" por compatibilidade: e contrato com o frontend e
     # renomear quebraria cliente antigo. O criterio que ele confirma e
     # "atendimento ja iniciado", nao "agendado para hoje" -- ver
@@ -5527,6 +5986,7 @@ def atualizar_agendamento(
     update_data.pop("confirmar_slot_reserva_expirada", None)
     update_data.pop("excecao_operacional_concedida", None)
     update_data.pop("motivo_excecao_operacional", None)
+    update_data.pop("motivo_excecao_deslocamento", None)
     update_data.pop("confirmar_alteracao_servico_hoje", None)
 
     novo_servico_id = update_data.get("servico_id", servico_original)
@@ -5593,6 +6053,7 @@ def atualizar_agendamento(
         and inicio_original_local <= datetime.now(LOCAL_TZ).replace(tzinfo=None)
     )
     reservas_expiradas_revisadas: list[Agendamento] = []
+    bypass_deslocamento: Optional[dict[str, str]] = None
     if campos_horario:
         if preservar_intervalo_servico_iniciado:
             db_agendamento.inicio = inicio_original
@@ -5627,7 +6088,7 @@ def atualizar_agendamento(
                 agendamento_id_excluir=agendamento_id,
                 confirmar_slot_reserva_expirada=confirmou_slot_reserva_expirada,
             )
-            _validar_deslocamento_agendamento(
+            bypass_deslocamento = _validar_deslocamento_agendamento(
                 db,
                 db_agendamento,
                 agendamento_id_excluir=agendamento_id,
@@ -5642,12 +6103,22 @@ def atualizar_agendamento(
             agendamento_id_excluir=agendamento_id,
             confirmar_slot_reserva_expirada=confirmou_slot_reserva_expirada,
         )
-        _validar_deslocamento_agendamento(
+        bypass_deslocamento = _validar_deslocamento_agendamento(
             db,
             db_agendamento,
             agendamento_id_excluir=agendamento_id,
             confirmar_conflito_deslocamento=override_conflito_deslocamento,
         )
+    if bypass_deslocamento and bypass_deslocamento.get("origem") == "confirmacao_admin":
+        _conceder_excecao_deslocamento(
+            db_agendamento,
+            current_user=current_user,
+            motivo=motivo_excecao_deslocamento or motivo_excecao_operacional,
+        )
+    else:
+        # Horario/destino/servico podem ter mudado: uma concessao anterior que
+        # nao corresponde mais a rota atual e descartada.
+        _descartar_excecao_deslocamento_obsoleta(db_agendamento)
     related = _fetch_related_names(db, db_agendamento)
     _sync_denormalized_fields(db_agendamento, related)
     if status_anterior == "Reservado" or "status" in update_data or "paciente_id" in update_data:
@@ -5723,6 +6194,15 @@ def atualizar_agendamento(
             related=related,
             motivo=motivo_excecao_operacional,
         )
+    if bypass_deslocamento:
+        _registrar_auditoria_excecao_deslocamento(
+            db=db,
+            current_user=current_user,
+            request=request,
+            agendamento=db_agendamento,
+            bypass=bypass_deslocamento,
+            acao_operacional="editar_agendamento",
+        )
 
     acao_push_update = "updated"
     base_push_update: Optional[dict] = None
@@ -5754,6 +6234,8 @@ def atualizar_status(
     status: str,
     tipo_horario: Optional[str] = "comercial",  # 'comercial' ou 'plantao'
     confirmar_slot_reserva_expirada: bool = False,
+    confirmar_conflito_deslocamento: bool = False,
+    motivo_excecao_deslocamento: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -5791,6 +6273,12 @@ def atualizar_status(
     db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
     if not db_agendamento:
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
+
+    if confirmar_conflito_deslocamento and not _usuario_tem_papel(current_user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Somente administradores podem confirmar excecao de conflito operacional.",
+        )
 
     status_normalizado = _normalizar_status_agendamento(status)
     transicao_clinica_protegida = status_normalizado == "Realizado" or (
@@ -5839,6 +6327,7 @@ def atualizar_status(
     reativando_cancelado = status_anterior == "Cancelado" and status_normalizado != "Cancelado"
     reativando_inativo = reativando_cancelado or reativando_expirado
     reservas_expiradas_revisadas: list[Agendamento] = []
+    bypass_deslocamento: Optional[dict[str, str]] = None
     if status_normalizado in AGENDA_STATUS_BLOQUEIAM_SLOT:
         _apply_service_duration_if_needed(db, db_agendamento)
         if reativando_inativo:
@@ -5852,7 +6341,18 @@ def atualizar_status(
             ),
         )
         if reativando_inativo:
-            _validar_deslocamento_agendamento(db, db_agendamento, agendamento_id_excluir=agendamento_id)
+            bypass_deslocamento = _validar_deslocamento_agendamento(
+                db,
+                db_agendamento,
+                agendamento_id_excluir=agendamento_id,
+                confirmar_conflito_deslocamento=confirmar_conflito_deslocamento,
+            )
+            if bypass_deslocamento and bypass_deslocamento.get("origem") == "confirmacao_admin":
+                _conceder_excecao_deslocamento(
+                    db_agendamento,
+                    current_user=current_user,
+                    motivo=motivo_excecao_deslocamento or "",
+                )
     db_agendamento.atualizado_em = datetime.now()
     db_agendamento.updated_at = datetime.now()
 
@@ -5867,6 +6367,16 @@ def atualizar_status(
 
     _commit_agenda_write(db)
     db.refresh(db_agendamento)
+
+    if bypass_deslocamento:
+        _registrar_auditoria_excecao_deslocamento(
+            db=db,
+            current_user=current_user,
+            request=request,
+            agendamento=db_agendamento,
+            bypass=bypass_deslocamento,
+            acao_operacional=f"atualizar_status:{status_normalizado}",
+        )
 
     if status_anterior == "Realizado" and status_normalizado == "Em atendimento":
         from app.models.financeiro import Transacao
@@ -6056,6 +6566,7 @@ def atualizar_status(
         "clinica": clinica_label_status,
         "servico": related_status.get("servico_nome") or "",
         "mensagem": f"Status atualizado para {status_normalizado}",
+        "excecao_deslocamento_ativa": _excecao_deslocamento_ativa(db_agendamento),
     }
 
     if os_gerada:
@@ -6177,6 +6688,158 @@ def atualizar_status(
     )
 
     return resposta
+
+
+@router.post("/{agendamento_id}/reabilitar-reserva")
+def reabilitar_reserva_expirada(
+    agendamento_id: int,
+    payload: ReabilitarReservaPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Devolve uma reserva expirada ao status Reservado com um novo prazo.
+
+    Caso de uso: o prazo venceu sem os dados do paciente, mas depois disso a
+    clinica voltou a querer o mesmo horario. Se o slot continua livre e sem
+    conflito com outros agendamentos, a reserva volta a segurar o horario por
+    mais um periodo, ate a clinica enviar os dados do paciente e do tutor.
+    """
+    _ensure_agendamento_workflow_columns(db)
+    _adquirir_lock_escrita_agenda(db)
+    _expirar_reservas_vencidas(db)
+
+    db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
+    if not db_agendamento:
+        raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
+
+    if payload.confirmar_conflito_deslocamento and not _usuario_tem_papel(current_user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Somente administradores podem confirmar excecao de conflito operacional.",
+        )
+
+    status_anterior = str(db_agendamento.status or "").strip() or "Agendado"
+    if status_anterior != "Expirado":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Somente reservas expiradas podem ser reabilitadas "
+                f"(status atual: {status_anterior})."
+            ),
+        )
+
+    prazo_anterior = _to_local_naive(
+        _coerce_datetime(getattr(db_agendamento, "reserva_expira_em", None))
+    )
+    novo_prazo, prazo_encurtado = _calcular_prazo_reabilitacao_reserva(
+        db_agendamento,
+        horas=payload.prazo_confirmacao_horas,
+        prazo_explicito=payload.reserva_expira_em,
+    )
+
+    db_agendamento.status = "Reservado"
+    db_agendamento.reserva_expira_em = novo_prazo
+    _apply_service_duration_if_needed(db, db_agendamento)
+    _validar_regras_origem_agendamento(db, db_agendamento, contexto="reabilitar a reserva")
+    _validar_prazo_reserva(db_agendamento)
+    _validar_agendamento_no_funcionamento(db, db_agendamento)
+    reservas_expiradas_revisadas = _validar_slot_disponivel(
+        db,
+        db_agendamento,
+        agendamento_id_excluir=agendamento_id,
+        confirmar_slot_reserva_expirada=payload.confirmar_slot_reserva_expirada,
+    )
+    bypass_deslocamento = _validar_deslocamento_agendamento(
+        db,
+        db_agendamento,
+        agendamento_id_excluir=agendamento_id,
+        confirmar_conflito_deslocamento=payload.confirmar_conflito_deslocamento,
+    )
+    if bypass_deslocamento and bypass_deslocamento.get("origem") == "confirmacao_admin":
+        _conceder_excecao_deslocamento(
+            db_agendamento,
+            current_user=current_user,
+            motivo=payload.motivo_excecao_deslocamento or "",
+        )
+
+    related = _fetch_related_names(db, db_agendamento)
+    _sync_denormalized_fields(db_agendamento, related)
+    db_agendamento.atualizado_em = datetime.now()
+    db_agendamento.updated_at = datetime.now()
+
+    _commit_agenda_write(db)
+    db.refresh(db_agendamento)
+
+    if bypass_deslocamento:
+        _registrar_auditoria_excecao_deslocamento(
+            db=db,
+            current_user=current_user,
+            request=request,
+            agendamento=db_agendamento,
+            bypass=bypass_deslocamento,
+            acao_operacional="reabilitar_reserva",
+        )
+
+    related = _fetch_related_names(db, db_agendamento)
+    contexto = _contexto_agendamento_auditoria(db_agendamento, related)
+    prazo_final = _to_local_naive(_coerce_datetime(db_agendamento.reserva_expira_em)) or novo_prazo
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="agenda",
+        entidade="agendamento",
+        entidade_id=db_agendamento.id,
+        acao="AGENDAMENTO_RESERVA_REABILITADA",
+        descricao=(
+            "Reserva expirada reabilitada com novo prazo de confirmacao "
+            f"{prazo_final.strftime('%d/%m/%Y %H:%M')} - "
+            f"{_descricao_contexto_agendamento(contexto)}"
+        ),
+        detalhes={
+            "status_anterior": status_anterior,
+            "status_novo": db_agendamento.status,
+            "prazo_anterior": prazo_anterior.isoformat() if prazo_anterior else None,
+            "prazo_novo": prazo_final.isoformat(),
+            "prazo_confirmacao_horas": payload.prazo_confirmacao_horas,
+            "prazo_encurtado_para_caber_antes_do_atendimento": prazo_encurtado,
+            "confirmou_revisao_slot_reserva_expirada": bool(reservas_expiradas_revisadas),
+            "reservas_expiradas_revisadas_ids": [item.id for item in reservas_expiradas_revisadas],
+            "override_conflito_deslocamento": bool(payload.confirmar_conflito_deslocamento),
+            "contexto_agendamento": contexto,
+        },
+        request=request,
+    )
+
+    _notificar_agenda_update(
+        db=db,
+        action="status_changed",
+        agendamento_id=db_agendamento.id,
+        data=_montar_payload_realtime(
+            agendamento=db_agendamento,
+            related=related,
+            usuario=current_user,
+            base={
+                "status_anterior": status_anterior,
+                "status_novo": db_agendamento.status,
+            },
+        ),
+    )
+
+    mensagem = (
+        "Reserva reabilitada. A clinica tem ate "
+        f"{prazo_final.strftime('%d/%m/%Y %H:%M')} para enviar os dados do paciente."
+    )
+    if prazo_encurtado:
+        mensagem += " O prazo foi encurtado para terminar antes do horario reservado."
+
+    return {
+        **_serialize_agendamento(db_agendamento, **related),
+        "mensagem": mensagem,
+        "prazo_encurtado": prazo_encurtado,
+    }
+
+
 @router.delete("/{agendamento_id}")
 def deletar_agendamento(
     agendamento_id: int,

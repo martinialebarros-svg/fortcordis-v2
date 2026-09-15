@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -51,3 +51,31 @@ class Agendamento(Base):
     confirmado_por_id = Column(Integer)
     confirmado_por_nome = Column(String)
     confirmado_em = Column(DateTime(timezone=True))
+
+    # Marcador manual de urgencia da fila de laudos pendentes - vive aqui
+    # (nao em Exame) porque a maioria dos agendamentos nunca gera Exame/
+    # AtendimentoClinico (fluxo do dropdown "Laudar" na Agenda, que cria
+    # o Laudo direto via agendamento_id). Para agendamentos com mais de
+    # um tipo de laudo esperado (ex.: "Eco + Eletro"), o marcador vale
+    # para o agendamento inteiro, nao por tipo individual.
+    urgente_laudo = Column(Boolean, nullable=False, default=False)
+
+    # Controle do worker de lembrete automatico de consulta via WhatsApp
+    # (ver app/services/whatsapp_reminder_scheduler_service.py).
+    whatsapp_reminder_sent_at = Column(DateTime(timezone=True), nullable=True)
+    whatsapp_reminder_attempts = Column(Integer, nullable=False, default=0)
+    whatsapp_reminder_last_error = Column(Text, nullable=True)
+
+    # Excecao de deslocamento concedida por admin (ver
+    # _validar_deslocamento_agendamento em app/api/v1/endpoints/agenda.py).
+    # Antes disso a concessao era transiente (`confirmar_conflito_deslocamento`
+    # valia so para a requisicao em curso), entao reabilitar ou reativar o
+    # agendamento depois tornava a bater na mesma validacao. A coluna de escopo
+    # guarda a assinatura da rota aprovada (horario, destino e servico): se
+    # algum desses campos mudar, a excecao deixa de valer e a validacao volta
+    # a rodar normalmente.
+    excecao_deslocamento_concedida_em = Column(DateTime(timezone=True), nullable=True)
+    excecao_deslocamento_concedida_por_id = Column(Integer, nullable=True)
+    excecao_deslocamento_concedida_por_nome = Column(String, nullable=True)
+    excecao_deslocamento_motivo = Column(Text, nullable=True)
+    excecao_deslocamento_escopo = Column(String(64), nullable=True)

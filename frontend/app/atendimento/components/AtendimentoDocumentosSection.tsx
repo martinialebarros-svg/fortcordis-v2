@@ -1,18 +1,23 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
+  AlertTriangle,
+  Bold,
   Download,
   Edit3,
   Eye,
   FileText,
   FileUp,
+  Italic,
   Link2,
+  List,
   Loader2,
   Paperclip,
   Plus,
   RefreshCw,
   Save,
+  Search,
   Settings2,
   Trash2,
   TrendingUp,
@@ -22,12 +27,50 @@ import type { LooseAtendimentoComponentProps } from "./component-props";
 
 type AtendimentoDocumentosSectionProps = LooseAtendimentoComponentProps;
 
+export type FormatoMarkdownDocumento = "negrito" | "italico" | "lista";
+
+/**
+ * Insere marcacao markdown-lite (**negrito**, *italico*, "- item") ao redor
+ * da selecao atual do textarea. O PDF do documento (backend) interpreta essa
+ * mesma marcacao - ver _texto_pdf_html_documento em atendimento.py.
+ */
+export function aplicarFormatacaoMarkdownDocumento(
+  textarea: HTMLTextAreaElement | null,
+  valorAtual: string,
+  formato: FormatoMarkdownDocumento
+): { valor: string; selecaoInicio: number; selecaoFim: number } | null {
+  if (!textarea) return null;
+  const inicio = textarea.selectionStart ?? valorAtual.length;
+  const fim = textarea.selectionEnd ?? valorAtual.length;
+  const selecionado = valorAtual.slice(inicio, fim);
+  const antes = valorAtual.slice(0, inicio);
+  const depois = valorAtual.slice(fim);
+
+  if (formato === "lista") {
+    const textoBase = selecionado || "Item da lista";
+    const linhasFormatadas = textoBase
+      .split("\n")
+      .map((linha) => (linha.trimStart().startsWith("- ") ? linha : `- ${linha}`))
+      .join("\n");
+    const valor = `${antes}${linhasFormatadas}${depois}`;
+    return { valor, selecaoInicio: antes.length, selecaoFim: antes.length + linhasFormatadas.length };
+  }
+
+  const marcador = formato === "negrito" ? "**" : "*";
+  const textoBase = selecionado || (formato === "negrito" ? "texto em negrito" : "texto em italico");
+  const inserido = `${marcador}${textoBase}${marcador}`;
+  const valor = `${antes}${inserido}${depois}`;
+  const selecaoInicio = antes.length + marcador.length;
+  const selecaoFim = selecaoInicio + textoBase.length;
+  return { valor, selecaoInicio, selecaoFim };
+}
+
 export default function AtendimentoDocumentosSection(props: AtendimentoDocumentosSectionProps) {
   const {
     ATENDIMENTO_ATTACHMENT_ACCEPT,
     adicionarLinkAnexo,
     anexosGerais,
-    anexoArquivo,
+    anexoArquivos,
     anexoForm,
     abrirAnexo,
     baixarPdfDocumentoClinico,
@@ -37,6 +80,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
     documentoClinicoForm,
     documentoTemplateForm,
     documentoTemplateSelecionado,
+    documentoVariaveisNaoResolvidas,
     editarDocumentoTemplate,
     evolucaoForm,
     excluirDocumentoClinico,
@@ -48,7 +92,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
     openingAttachmentId,
     progressoUploadGeral,
     selecionado,
-    setAnexoArquivo,
+    setAnexoArquivos,
     setAnexoForm,
     setDocumentoClinicoForm,
     setDocumentoTemplateForm,
@@ -64,7 +108,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
     salvarDocumentoTemplate,
     selecionarDocumentoClinico,
     toggleDocumentoTemplate,
-    uploadAnexoArquivo,
+    uploadArquivosAnexoGeral,
     uploadGeralEmAndamento,
     abrirAtendimento,
     api,
@@ -72,9 +116,100 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
   } = props;
 
   const templateEditorFormRef = useRef<HTMLDivElement | null>(null);
+  const documentoCorpoRef = useRef<HTMLTextAreaElement | null>(null);
+  const templateCorpoRef = useRef<HTMLTextAreaElement | null>(null);
+  const [buscaDocumento, setBuscaDocumento] = useState("");
+
+  const formatarDocumentoCorpo = (formato: FormatoMarkdownDocumento) => {
+    const resultado = aplicarFormatacaoMarkdownDocumento(documentoCorpoRef.current, documentoClinicoForm.corpo, formato);
+    if (!resultado) return;
+    setDocumentoClinicoForm({ ...documentoClinicoForm, corpo: resultado.valor });
+    requestAnimationFrame(() => {
+      documentoCorpoRef.current?.focus();
+      documentoCorpoRef.current?.setSelectionRange(resultado.selecaoInicio, resultado.selecaoFim);
+    });
+  };
+
+  const formatarTemplateCorpo = (formato: FormatoMarkdownDocumento) => {
+    const resultado = aplicarFormatacaoMarkdownDocumento(
+      templateCorpoRef.current,
+      documentoTemplateForm.corpo_template,
+      formato
+    );
+    if (!resultado) return;
+    setDocumentoTemplateForm({ ...documentoTemplateForm, corpo_template: resultado.valor });
+    requestAnimationFrame(() => {
+      templateCorpoRef.current?.focus();
+      templateCorpoRef.current?.setSelectionRange(resultado.selecaoInicio, resultado.selecaoFim);
+    });
+  };
   const templatesAtivos = (documentTemplates || []).filter((template: AtendimentoDocumentosSectionProps) => Number(template.ativo ?? 1) === 1);
+  const templatesPorTipo = templatesAtivos.reduce((grupos: Record<string, AtendimentoDocumentosSectionProps[]>, template: AtendimentoDocumentosSectionProps) => {
+    const chave = template.tipo || "Outros";
+    grupos[chave] = grupos[chave] || [];
+    grupos[chave].push(template);
+    return grupos;
+  }, {});
   const documentosAtendimento = form.documentos || [];
   const templateEmEdicao = Boolean(documentoTemplateForm.id);
+
+  const buscaDocumentoNormalizada = buscaDocumento.trim().toLowerCase();
+  const documentosFiltrados = buscaDocumentoNormalizada
+    ? documentosAtendimento.filter((documento: AtendimentoDocumentosSectionProps) =>
+        (documento.titulo || "").toLowerCase().includes(buscaDocumentoNormalizada)
+      )
+    : documentosAtendimento;
+  const documentosRascunho = documentosFiltrados.filter(
+    (documento: AtendimentoDocumentosSectionProps) => documento.status !== "emitido"
+  );
+  const documentosEmitidos = documentosFiltrados.filter(
+    (documento: AtendimentoDocumentosSectionProps) => documento.status === "emitido"
+  );
+
+  const renderDocumentoCard = (documento: AtendimentoDocumentosSectionProps) => (
+    <div key={documento.id} className="rounded-[18px] border border-slate-200 bg-white p-3">
+      <button type="button" onClick={() => selecionarDocumentoClinico(documento)} className="w-full text-left">
+        <p className="text-sm font-semibold text-slate-900">{documento.titulo}</p>
+        <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+          <span
+            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+              documento.status === "emitido" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            {documento.status === "emitido" ? "Emitido" : "Rascunho"}
+          </span>
+          {documento.updated_at ? <span>{formatDate(documento.updated_at)}</span> : null}
+        </div>
+      </button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => selecionarDocumentoClinico(documento)}
+          className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700 hover:bg-slate-200"
+        >
+          <Edit3 className="h-3.5 w-3.5" />
+          Editar
+        </button>
+        <button
+          type="button"
+          onClick={() => baixarPdfDocumentoClinico(documento)}
+          disabled={gerandoDocumentoPdfId === documento.id}
+          className="inline-flex items-center gap-1 rounded-lg bg-blue-100 px-2 py-1 text-xs text-blue-700 hover:bg-blue-200 disabled:opacity-50"
+        >
+          {gerandoDocumentoPdfId === documento.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          PDF
+        </button>
+        <button
+          type="button"
+          onClick={() => excluirDocumentoClinico(documento)}
+          className="inline-flex items-center gap-1 rounded-lg bg-red-100 px-2 py-1 text-xs text-red-700 hover:bg-red-200"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Remover
+        </button>
+      </div>
+    </div>
+  );
 
   const focusTemplateEditorForm = () => {
     window.requestAnimationFrame(() => {
@@ -136,10 +271,14 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                   className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 >
                   <option value="">Selecionar...</option>
-                  {templatesAtivos.map((template: AtendimentoDocumentosSectionProps) => (
-                    <option key={template.id} value={template.id}>
-                      {template.nome}
-                    </option>
+                  {Object.entries(templatesPorTipo).map(([tipo, templates]) => (
+                    <optgroup key={tipo} label={tipo}>
+                      {(templates as AtendimentoDocumentosSectionProps[]).map((template: AtendimentoDocumentosSectionProps) => (
+                        <option key={template.id} value={template.id}>
+                          {template.nome}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
                 <button
@@ -154,73 +293,123 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
               </div>
             </div>
 
-            <div className="space-y-2">
-              {documentosAtendimento.length > 0 ? (
-                documentosAtendimento.map((documento: AtendimentoDocumentosSectionProps) => (
-                  <div key={documento.id} className="rounded-[18px] border border-slate-200 bg-white p-3">
-                    <button
-                      type="button"
-                      onClick={() => selecionarDocumentoClinico(documento)}
-                      className="w-full text-left"
-                    >
-                      <p className="text-sm font-semibold text-slate-900">{documento.titulo}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {documento.status || "rascunho"}
-                        {documento.updated_at ? ` · ${formatDate(documento.updated_at)}` : ""}
-                      </p>
-                    </button>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => selecionarDocumentoClinico(documento)}
-                        className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700 hover:bg-slate-200"
-                      >
-                        <Edit3 className="h-3.5 w-3.5" />
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => baixarPdfDocumentoClinico(documento)}
-                        disabled={gerandoDocumentoPdfId === documento.id}
-                        className="inline-flex items-center gap-1 rounded-lg bg-blue-100 px-2 py-1 text-xs text-blue-700 hover:bg-blue-200 disabled:opacity-50"
-                      >
-                        {gerandoDocumentoPdfId === documento.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                        PDF
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => excluirDocumentoClinico(documento)}
-                        className="inline-flex items-center gap-1 rounded-lg bg-red-100 px-2 py-1 text-xs text-red-700 hover:bg-red-200"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Remover
-                      </button>
-                    </div>
-                  </div>
-                ))
-              ) : (
+            {documentosAtendimento.length > 4 ? (
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={buscaDocumento}
+                  onChange={(event) => setBuscaDocumento(event.target.value)}
+                  placeholder="Buscar documento por titulo..."
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900"
+                />
+              </div>
+            ) : null}
+
+            <div className="space-y-4">
+              {documentosAtendimento.length === 0 ? (
                 <div className="rounded-[18px] border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
                   Nenhum documento clinico salvo neste atendimento.
                 </div>
+              ) : documentosFiltrados.length === 0 ? (
+                <div className="rounded-[18px] border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                  <p>Nenhum documento encontrado para &quot;{buscaDocumento.trim()}&quot;.</p>
+                  <button
+                    type="button"
+                    onClick={() => setBuscaDocumento("")}
+                    className="mt-3 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
+                  >
+                    Limpar busca
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {documentosRascunho.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Rascunhos ({documentosRascunho.length})
+                      </p>
+                      <div className="space-y-2">
+                        {documentosRascunho.map((documento: AtendimentoDocumentosSectionProps) => renderDocumentoCard(documento))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {documentosEmitidos.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Emitidos ({documentosEmitidos.length})
+                      </p>
+                      <div className="space-y-2">
+                        {documentosEmitidos.map((documento: AtendimentoDocumentosSectionProps) => renderDocumentoCard(documento))}
+                      </div>
+                    </div>
+                  ) : null}
+                </>
               )}
             </div>
           </div>
 
           <div className="rounded-[20px] border border-slate-200 bg-white p-4">
             <div className="grid grid-cols-1 gap-3">
+              {documentoClinicoForm.status === "emitido" ? (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Este documento ja foi emitido (PDF gerado e entregue). Alteracoes aqui nao mudam o PDF
+                    ja entregue - so um novo PDF gerado reflete essas mudancas.
+                  </span>
+                </div>
+              ) : null}
+              {documentoVariaveisNaoResolvidas && documentoVariaveisNaoResolvidas.length > 0 ? (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {documentoVariaveisNaoResolvidas.length} campo(s) do template nao {documentoVariaveisNaoResolvidas.length === 1 ? "foi reconhecido" : "foram reconhecidos"}:{" "}
+                    {documentoVariaveisNaoResolvidas.join(", ")} - revise o texto antes de gerar o PDF.
+                  </span>
+                </div>
+              ) : null}
               <input
                 value={documentoClinicoForm.titulo}
                 onChange={(event) => setDocumentoClinicoForm({ ...documentoClinicoForm, titulo: event.target.value })}
                 placeholder="Titulo do documento"
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium"
               />
-              <textarea
-                value={documentoClinicoForm.corpo}
-                onChange={(event) => setDocumentoClinicoForm({ ...documentoClinicoForm, corpo: event.target.value })}
-                placeholder="Texto do documento..."
-                rows={12}
-                className="min-h-[280px] rounded-xl border border-slate-200 px-3 py-2 text-sm leading-6"
-              />
+              <div>
+                <div className="flex flex-wrap gap-1 rounded-t-xl border border-b-0 border-slate-200 bg-slate-50 p-1">
+                  <button
+                    type="button"
+                    title="Negrito (**texto**)"
+                    onClick={() => formatarDocumentoCorpo("negrito")}
+                    className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200"
+                  >
+                    <Bold className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Italico (*texto*)"
+                    onClick={() => formatarDocumentoCorpo("italico")}
+                    className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200"
+                  >
+                    <Italic className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Lista (- item)"
+                    onClick={() => formatarDocumentoCorpo("lista")}
+                    className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200"
+                  >
+                    <List className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <textarea
+                  ref={documentoCorpoRef}
+                  value={documentoClinicoForm.corpo}
+                  onChange={(event) => setDocumentoClinicoForm({ ...documentoClinicoForm, corpo: event.target.value })}
+                  placeholder="Texto do documento..."
+                  rows={12}
+                  className="min-h-[280px] w-full rounded-b-xl rounded-t-none border border-slate-200 px-3 py-2 text-sm leading-6"
+                />
+              </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -319,13 +508,42 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                   placeholder="Titulo padrao"
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 />
-                <textarea
-                  value={documentoTemplateForm.corpo_template}
-                  onChange={(event) => setDocumentoTemplateForm({ ...documentoTemplateForm, corpo_template: event.target.value })}
-                  placeholder="Corpo do template com variaveis como {{paciente_nome}}, {{tutor_nome}}, {{veterinario_nome}}, {{crmv}}..."
-                  rows={9}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm leading-6"
-                />
+                <div>
+                  <div className="flex flex-wrap gap-1 rounded-t-xl border border-b-0 border-slate-200 bg-slate-50 p-1">
+                    <button
+                      type="button"
+                      title="Negrito (**texto**)"
+                      onClick={() => formatarTemplateCorpo("negrito")}
+                      className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200"
+                    >
+                      <Bold className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Italico (*texto*)"
+                      onClick={() => formatarTemplateCorpo("italico")}
+                      className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200"
+                    >
+                      <Italic className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Lista (- item)"
+                      onClick={() => formatarTemplateCorpo("lista")}
+                      className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200"
+                    >
+                      <List className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <textarea
+                    ref={templateCorpoRef}
+                    value={documentoTemplateForm.corpo_template}
+                    onChange={(event) => setDocumentoTemplateForm({ ...documentoTemplateForm, corpo_template: event.target.value })}
+                    placeholder="Corpo do template com variaveis como {{paciente_nome}}, {{tutor_nome}}, {{veterinario_nome}}, {{crmv}}..."
+                    rows={9}
+                    className="w-full rounded-b-xl rounded-t-none border border-slate-200 px-3 py-2 text-sm leading-6"
+                  />
+                </div>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input
                     type="checkbox"
@@ -496,10 +714,15 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
             <div className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
               <FileUp className="h-4 w-4 text-slate-400" />
               <input
-                key={anexoArquivo ? `${anexoArquivo.name}-${anexoArquivo.lastModified}` : "anexo-vazio"}
+                key={
+                  anexoArquivos.length > 0
+                    ? anexoArquivos.map((file: File) => `${file.name}-${file.lastModified}`).join("|")
+                    : "anexo-vazio"
+                }
                 type="file"
+                multiple
                 accept={ATENDIMENTO_ATTACHMENT_ACCEPT}
-                onChange={(e) => setAnexoArquivo(e.target.files?.[0] || null)}
+                onChange={(e) => setAnexoArquivos(Array.from(e.target.files || []))}
                 className="w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:text-white"
               />
             </div>
@@ -507,13 +730,10 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
           <div className="flex flex-wrap gap-2">
             <button
               onClick={async () => {
-                if (!anexoArquivo) return;
-                await uploadAnexoArquivo(anexoArquivo, {
-                  tipo: anexoForm.tipo,
-                  descricao: anexoForm.descricao,
-                });
+                if (anexoArquivos.length === 0) return;
+                await uploadArquivosAnexoGeral(anexoArquivos);
               }}
-              disabled={!selecionado || !anexoArquivo || uploadGeralEmAndamento}
+              disabled={!selecionado || anexoArquivos.length === 0 || uploadGeralEmAndamento}
               className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2 text-sm text-white hover:bg-orange-700 disabled:opacity-50"
             >
               {uploadGeralEmAndamento ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
@@ -521,6 +741,8 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                 ? typeof progressoUploadGeral === "number"
                   ? `Enviando ${progressoUploadGeral}%`
                   : "Enviando..."
+                : anexoArquivos.length > 1
+                ? `Enviar ${anexoArquivos.length} arquivos`
                 : "Enviar arquivo"}
             </button>
             {uploadGeralEmAndamento ? (
@@ -533,12 +755,28 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                 Cancelar upload
               </button>
             ) : null}
-            {anexoArquivo ? (
-              <span className="inline-flex items-center rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-600">
-                {anexoArquivo.name} · {formatBytes(anexoArquivo.size)}
-              </span>
-            ) : null}
           </div>
+          {anexoArquivos.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {anexoArquivos.map((file: File, index: number) => (
+                <span
+                  key={`${file.name}-${file.lastModified}-${index}`}
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-600"
+                >
+                  {file.name} · {formatBytes(file.size)}
+                  <button
+                    type="button"
+                    onClick={() => setAnexoArquivos(anexoArquivos.filter((_: File, i: number) => i !== index))}
+                    disabled={uploadGeralEmAndamento}
+                    aria-label={`Remover ${file.name} da selecao`}
+                    className="text-slate-400 hover:text-slate-700 disabled:opacity-50"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
 
           {uploadGeralEmAndamento ? (
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">

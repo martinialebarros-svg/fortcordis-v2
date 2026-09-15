@@ -12,12 +12,13 @@ import type {
   EventInput,
 } from "@fullcalendar/core";
 import type { DateClickArg, EventResizeDoneArg } from "@fullcalendar/interaction";
-import { CalendarDays, ChevronDown, Download, FileText, List, MapPin, RefreshCw, Stethoscope, Trash2, Wallet } from "lucide-react";
+import { CalendarDays, ChevronDown, Download, FileText, List, MapPin, RefreshCw, Stethoscope, TimerReset, Trash2, Wallet } from "lucide-react";
 
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import { normalizarCoordenadaOpcional } from "@/lib/coordinates";
+import { agruparIdsAgendamentosVisiveis } from "@/lib/agenda-loading";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
 import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
 import {
@@ -34,6 +35,14 @@ import {
   obterAcoesStatusPorFluxo,
   osEstaPaga,
 } from "@/lib/agenda-shared-actions";
+import {
+  PRAZO_REABILITACAO_HORAS_MAX,
+  PRAZO_REABILITACAO_HORAS_MIN,
+  PRAZO_REABILITACAO_HORAS_PADRAO,
+  calcularPrazoReabilitacao,
+  normalizarPrazoReabilitacaoHoras,
+  podeReabilitarReserva,
+} from "@/lib/agenda-reabilitar-reserva";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
 import {
   montarGoogleMapsDestinoLocal,
@@ -502,6 +511,11 @@ export default function AgendaFullCalendarPage() {
   const [modalAberto, setModalAberto] = useState(false);
   const [modalTipoHorario, setModalTipoHorario] = useState<{ id: number; status: StatusAgenda } | null>(null);
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
+  const [modalReabilitarReservaAberto, setModalReabilitarReservaAberto] = useState(false);
+  const [prazoReabilitacaoHoras, setPrazoReabilitacaoHoras] = useState<string>(
+    String(PRAZO_REABILITACAO_HORAS_PADRAO)
+  );
+  const [reabilitandoReservaId, setReabilitandoReservaId] = useState<number | null>(null);
   const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
   const [slotSelecionado, setSlotSelecionado] = useState<SlotSelecionado | null>(null);
   const [agendaSemanal, setAgendaSemanal] = useState<AgendaSemanalConfig>(() =>
@@ -864,177 +878,50 @@ export default function AgendaFullCalendarPage() {
     return montarGoogleMapsWebUrl(destino);
   }, [montarGoogleMapsWebUrl, resolverDestinoAgendamento, selecionado]);
 
-  const carregarClinicasComEndereco = useCallback(async (items: Agendamento[]) => {
-    const idsClinica = Array.from(
-      new Set(
-        items
-          .map((item) => Number(item.clinica_id))
-          .filter((id) => Number.isFinite(id) && id > 0)
-      )
-    );
-
-    if (idsClinica.length === 0) {
+  const carregarRelacionadosVisiveis = useCallback(async (items: Agendamento[]) => {
+    const lotesIds = agruparIdsAgendamentosVisiveis(items);
+    const limparRelacionados = () => {
       setClinicasEndereco({});
+      setTutoresEndereco({});
+      setOrdensServicoPorAgendamento({});
+      setLaudosVinculados({});
+    };
+
+    if (lotesIds.length === 0) {
+      limparRelacionados();
       return;
     }
 
-    try {
-      const respClinicas = await api.get("/clinicas?limit=1000");
-      const listaClinicas = Array.isArray(respClinicas.data?.items) ? respClinicas.data.items : [];
-
-      const mapa: Record<number, ClinicaEndereco> = {};
-      for (const clinica of listaClinicas) {
-        const clinicaId = Number(clinica?.id);
-        if (!Number.isFinite(clinicaId) || !idsClinica.includes(clinicaId)) {
-          continue;
-        }
-
-        mapa[clinicaId] = {
-          id: clinicaId,
-          nome: clinica?.nome || null,
-          endereco: clinica?.endereco || null,
-          numero: clinica?.numero || null,
-          bairro: clinica?.bairro || null,
-          cidade: clinica?.cidade || null,
-          estado: clinica?.estado || null,
-          cep: clinica?.cep || null,
-          latitude: normalizarCoordenadaOpcional(clinica?.latitude),
-          longitude: normalizarCoordenadaOpcional(clinica?.longitude),
-          endereco_normalizado: clinica?.endereco_normalizado || null,
-        };
-      }
-
-      setClinicasEndereco(mapa);
-    } catch (error) {
-      console.error("Erro ao carregar enderecos de clinicas no FullCalendar:", error);
-      setClinicasEndereco({});
-    }
-  }, []);
-
-  const carregarTutoresComEndereco = useCallback(async (items: Agendamento[]) => {
-    const idsTutor = Array.from(
-      new Set(
-        items
-          .map((item) => Number(item.tutor_id))
-          .filter((id) => Number.isFinite(id) && id > 0)
-      )
-    );
-
-    if (idsTutor.length === 0) {
-      setTutoresEndereco({});
-      return;
-    }
-
-    try {
-      const respTutores = await api.get("/tutores?limit=2000");
-      const listaTutores = Array.isArray(respTutores.data?.items) ? respTutores.data.items : [];
-
-      const mapa: Record<number, TutorEndereco> = {};
-      for (const tutor of listaTutores) {
-        const tutorId = Number(tutor?.id);
-        if (!Number.isFinite(tutorId) || !idsTutor.includes(tutorId)) {
-          continue;
-        }
-
-        mapa[tutorId] = {
-          id: tutorId,
-          nome: tutor?.nome || null,
-          endereco: tutor?.endereco || null,
-          numero: tutor?.numero || null,
-          bairro: tutor?.bairro || null,
-          cidade: tutor?.cidade || null,
-          estado: tutor?.estado || null,
-          cep: tutor?.cep || null,
-          latitude: normalizarCoordenadaOpcional(tutor?.latitude),
-          longitude: normalizarCoordenadaOpcional(tutor?.longitude),
-          endereco_normalizado: tutor?.endereco_normalizado || null,
-        };
-      }
-
-      setTutoresEndereco(mapa);
-    } catch (error) {
-      console.error("Erro ao carregar enderecos de tutores no FullCalendar:", error);
-      setTutoresEndereco({});
-    }
-  }, []);
-
-  const carregarOrdensServicoVinculadas = useCallback(
-    async (items: Agendamento[], periodo: IntervaloConsulta) => {
-      const idsAgendamento = new Set(items.map((item) => item.id));
-      if (idsAgendamento.size === 0) {
-        setOrdensServicoPorAgendamento({});
-        return;
-      }
-
-      try {
-        const params = new URLSearchParams();
-        params.append("limit", "2000");
-        if (periodo.inicio && periodo.fim) {
-          params.append("data_inicio", periodo.inicio);
-          params.append("data_fim", periodo.fim);
-        }
-
-        const response = await api.get(`/ordens-servico?${params.toString()}`);
-        const listaOs = Array.isArray(response.data?.items) ? response.data.items : [];
-
-        const mapa: Record<number, OrdemServicoResumo> = {};
-        for (const os of listaOs) {
-          const agendamentoId = Number(os?.agendamento_id);
-          if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
-            continue;
-          }
-
-          const statusOs = String(os?.status || "").trim();
-          if (statusOs === "Cancelado") {
-            continue;
-          }
-
-          const osId = Number(os?.id);
-          if (!Number.isFinite(osId)) {
-            continue;
-          }
-
-          const anterior = mapa[agendamentoId];
-          if (!anterior || osId > anterior.id) {
-            mapa[agendamentoId] = {
-              id: osId,
-              agendamento_id: agendamentoId,
-              numero_os: String(os?.numero_os || ""),
-              status: statusOs || "Pendente",
-              valor_servico: Number(os?.valor_servico || 0),
-              desconto: Number(os?.desconto || 0),
-              valor_final: Number(os?.valor_final || 0),
-            };
-          }
-        }
-
-        setOrdensServicoPorAgendamento(mapa);
-      } catch (error) {
-        console.error("Erro ao carregar OS vinculadas no FullCalendar:", error);
-        setOrdensServicoPorAgendamento({});
-      }
-    },
-    []
-  );
-
-  const carregarLaudosVinculados = useCallback(async (items: Agendamento[]) => {
-    const idsAgendamento = new Set(items.map((item) => item.id));
+    const idsAgendamento = new Set(lotesIds.flat());
     const pacientePorAgendamento = new Map(
       items.map((item) => [item.id, Number(item.paciente_id || 0)])
     );
-    if (idsAgendamento.size === 0) {
-      setLaudosVinculados({});
-      return;
-    }
 
     try {
-      const response = await api.get("/laudos?limit=1000");
-      const listaLaudos = Array.isArray(response.data?.items) ? response.data.items : [];
+      const responses = await Promise.all(
+        lotesIds.map((ids) =>
+          api.get("/agenda/relacionados", {
+            params: { agendamento_ids: ids.join(",") },
+          })
+        )
+      );
+      const listaLaudos = responses.flatMap((response) =>
+        Array.isArray(response.data?.laudos) ? response.data.laudos : []
+      );
+      const listaOrdens = responses.flatMap((response) =>
+        Array.isArray(response.data?.ordens_servico) ? response.data.ordens_servico : []
+      );
+      const listaClinicas = responses.flatMap((response) =>
+        Array.isArray(response.data?.clinicas) ? response.data.clinicas : []
+      );
+      const listaTutores = responses.flatMap((response) =>
+        Array.isArray(response.data?.tutores) ? response.data.tutores : []
+      );
 
-      const mapa: LaudosVinculadosPorAgendamento = {};
+      const mapaLaudos: LaudosVinculadosPorAgendamento = {};
       for (const laudo of listaLaudos) {
         const agendamentoId = Number(laudo?.agendamento_id);
-        if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
+        if (!Number.isInteger(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
           continue;
         }
 
@@ -1052,14 +939,14 @@ export default function AgendaFullCalendarPage() {
 
         const tipo = String(laudo?.tipo || "");
         const laudoId = Number(laudo?.id);
-        if (!tipo || !Number.isFinite(laudoId)) {
+        if (!tipo || !Number.isInteger(laudoId)) {
           continue;
         }
 
-        const laudosDoAgendamento = mapa[agendamentoId] || {};
+        const laudosDoAgendamento = mapaLaudos[agendamentoId] || {};
         const anterior = laudosDoAgendamento[tipo];
         if (!anterior || laudoId > anterior.id) {
-          mapa[agendamentoId] = {
+          mapaLaudos[agendamentoId] = {
             ...laudosDoAgendamento,
             [tipo]: {
               id: laudoId,
@@ -1071,10 +958,73 @@ export default function AgendaFullCalendarPage() {
         }
       }
 
-      setLaudosVinculados(mapa);
+      const mapaOrdens: Record<number, OrdemServicoResumo> = {};
+      for (const os of listaOrdens) {
+        const agendamentoId = Number(os?.agendamento_id);
+        if (!Number.isInteger(agendamentoId) || !idsAgendamento.has(agendamentoId)) continue;
+        const statusOs = String(os?.status || "").trim();
+        if (statusOs === "Cancelado") continue;
+        const osId = Number(os?.id);
+        if (!Number.isInteger(osId)) continue;
+        const anterior = mapaOrdens[agendamentoId];
+        if (!anterior || osId > anterior.id) {
+          mapaOrdens[agendamentoId] = {
+            id: osId,
+            agendamento_id: agendamentoId,
+            numero_os: String(os?.numero_os || ""),
+            status: statusOs || "Pendente",
+            valor_servico: Number(os?.valor_servico || 0),
+            desconto: Number(os?.desconto || 0),
+            valor_final: Number(os?.valor_final || 0),
+          };
+        }
+      }
+
+      const mapaClinicas: Record<number, ClinicaEndereco> = {};
+      for (const clinica of listaClinicas) {
+        const clinicaId = Number(clinica?.id);
+        if (!Number.isInteger(clinicaId) || clinicaId <= 0) continue;
+        mapaClinicas[clinicaId] = {
+          id: clinicaId,
+          nome: clinica?.nome || null,
+          endereco: clinica?.endereco || null,
+          numero: clinica?.numero || null,
+          bairro: clinica?.bairro || null,
+          cidade: clinica?.cidade || null,
+          estado: clinica?.estado || null,
+          cep: clinica?.cep || null,
+          latitude: normalizarCoordenadaOpcional(clinica?.latitude),
+          longitude: normalizarCoordenadaOpcional(clinica?.longitude),
+          endereco_normalizado: clinica?.endereco_normalizado || null,
+        };
+      }
+
+      const mapaTutores: Record<number, TutorEndereco> = {};
+      for (const tutor of listaTutores) {
+        const tutorId = Number(tutor?.id);
+        if (!Number.isInteger(tutorId) || tutorId <= 0) continue;
+        mapaTutores[tutorId] = {
+          id: tutorId,
+          nome: tutor?.nome || null,
+          endereco: tutor?.endereco || null,
+          numero: tutor?.numero || null,
+          bairro: tutor?.bairro || null,
+          cidade: tutor?.cidade || null,
+          estado: tutor?.estado || null,
+          cep: tutor?.cep || null,
+          latitude: normalizarCoordenadaOpcional(tutor?.latitude),
+          longitude: normalizarCoordenadaOpcional(tutor?.longitude),
+          endereco_normalizado: tutor?.endereco_normalizado || null,
+        };
+      }
+
+      setClinicasEndereco(mapaClinicas);
+      setTutoresEndereco(mapaTutores);
+      setOrdensServicoPorAgendamento(mapaOrdens);
+      setLaudosVinculados(mapaLaudos);
     } catch (error) {
-      console.error("Erro ao carregar laudos vinculados no FullCalendar:", error);
-      setLaudosVinculados({});
+      console.error("Erro ao carregar relacionados visiveis no FullCalendar:", error);
+      limparRelacionados();
     }
   }, []);
 
@@ -1116,12 +1066,7 @@ export default function AgendaFullCalendarPage() {
 
       setAgendamentos(items);
       if (includeRelated) {
-        await Promise.all([
-          carregarClinicasComEndereco(items),
-          carregarTutoresComEndereco(items),
-          carregarOrdensServicoVinculadas(items, periodo),
-          carregarLaudosVinculados(items),
-        ]);
+        await carregarRelacionadosVisiveis(items);
       }
       setErro("");
     } catch (error) {
@@ -1130,7 +1075,7 @@ export default function AgendaFullCalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [carregarClinicasComEndereco, carregarLaudosVinculados, carregarOrdensServicoVinculadas, carregarTutoresComEndereco]);
+  }, [carregarRelacionadosVisiveis]);
 
   const carregarConfiguracaoAgenda = useCallback(async () => {
     try {
@@ -1496,7 +1441,10 @@ export default function AgendaFullCalendarPage() {
       setMenuStatusAberto(false);
 
       try {
-        const enviarAtualizacao = (confirmarReservaExpirada = false) => {
+        const enviarAtualizacao = (
+          confirmarReservaExpirada = false,
+          confirmarConflitoDeslocamento = false
+        ) => {
           const params = new URLSearchParams();
           params.append("status", novoStatus);
           if (tipoHorarioParam) {
@@ -1505,32 +1453,65 @@ export default function AgendaFullCalendarPage() {
           if (confirmarReservaExpirada) {
             params.append("confirmar_slot_reserva_expirada", "true");
           }
+          if (confirmarConflitoDeslocamento) {
+            params.append("confirmar_conflito_deslocamento", "true");
+          }
           return api.patch(`/agenda/${agendamentoId}/status?${params.toString()}`);
         };
 
         let response;
-        try {
-          response = await enviarAtualizacao(false);
-        } catch (errorInicial: any) {
-          const detail = errorInicial?.response?.data?.detail;
-          if (
-            errorInicial?.response?.status !== 409 ||
-            detail?.codigo !== "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
-          ) {
-            throw errorInicial;
+        let confirmouReservaExpirada = false;
+        let confirmouConflitoDeslocamento = false;
+        // Reativação tardia pode exigir duas confirmações em sequência
+        // (reserva expirada e conflito de rota), daí o retry em laço.
+        for (let tentativa = 0; tentativa < 3 && !response; tentativa += 1) {
+          try {
+            response = await enviarAtualizacao(
+              confirmouReservaExpirada,
+              confirmouConflitoDeslocamento
+            );
+          } catch (errorTentativa: any) {
+            const detail = errorTentativa?.response?.data?.detail;
+            const codigo =
+              errorTentativa?.response?.status === 409 ? detail?.codigo : undefined;
+            if (
+              codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA" &&
+              !confirmouReservaExpirada
+            ) {
+              const confirmou = await fortinho.confirm({
+                title: "Confirmação recebida após o prazo",
+                message:
+                  "Confirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará se o horário ainda está livre antes de mudar o status para Agendado.",
+                mood: "alert",
+                gesture: "open-arms",
+                confirmLabel: "Cliente confirmou; agendar",
+                cancelLabel: "Cancelar",
+              });
+              if (!confirmou) return;
+              confirmouReservaExpirada = true;
+              continue;
+            }
+            if (codigo === "CONFLITO_DESLOCAMENTO" && !confirmouConflitoDeslocamento) {
+              // Exceção de rota é prerrogativa de admin.
+              if (!isAdmin) throw errorTentativa;
+              const confirmou = await fortinho.confirm({
+                title: "Conflito de deslocamento na rota",
+                message: `${
+                  typeof detail?.mensagem === "string" ? detail.mensagem : ""
+                } Como administrador, você pode abrir uma exceção para este agendamento. Ela fica registrada e vale enquanto horário, clínica e serviço não mudarem.`,
+                mood: "alert",
+                gesture: "open-arms",
+                confirmLabel: "Abrir exceção e continuar",
+                cancelLabel: "Voltar e ajustar o horário",
+              });
+              if (!confirmou) return;
+              confirmouConflitoDeslocamento = true;
+              continue;
+            }
+            throw errorTentativa;
           }
-          const confirmou = await fortinho.confirm({
-            title: "Confirmação recebida após o prazo",
-            message:
-              "Confirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará se o horário ainda está livre antes de mudar o status para Agendado.",
-            mood: "alert",
-            gesture: "open-arms",
-            confirmLabel: "Cliente confirmou; agendar",
-            cancelLabel: "Cancelar",
-          });
-          if (!confirmou) return;
-          response = await enviarAtualizacao(true);
         }
+        if (!response) return;
         setErro("");
         setMensagemStatus(response.data?.mensagem || `Status atualizado para ${novoStatus}.`);
 
@@ -1549,7 +1530,7 @@ export default function AgendaFullCalendarPage() {
         setAtualizandoStatusId(null);
       }
     },
-    [carregarAgendamentos, fortinho, intervalo]
+    [carregarAgendamentos, fortinho, intervalo, isAdmin]
   );
 
   const executarAcaoStatus = useCallback(
@@ -1585,6 +1566,110 @@ export default function AgendaFullCalendarPage() {
     },
     [atualizarStatusAgendamento, selecionado]
   );
+
+  const abrirModalReabilitarReserva = useCallback(() => {
+    setErro("");
+    setMensagemStatus("");
+    setPrazoReabilitacaoHoras(String(PRAZO_REABILITACAO_HORAS_PADRAO));
+    setMenuStatusAberto(false);
+    setModalReabilitarReservaAberto(true);
+  }, []);
+
+  const confirmarReabilitacaoReserva = useCallback(async () => {
+    if (!selecionado) return;
+
+    const horas = normalizarPrazoReabilitacaoHoras(prazoReabilitacaoHoras);
+    if (horas === null) {
+      setErro(
+        `Informe um prazo entre ${PRAZO_REABILITACAO_HORAS_MIN} e ${PRAZO_REABILITACAO_HORAS_MAX} horas.`
+      );
+      return;
+    }
+
+    setReabilitandoReservaId(selecionado.id);
+    try {
+      const enviarReabilitacao = (
+        confirmarSlotReservaExpirada = false,
+        confirmarConflitoDeslocamento = false
+      ) =>
+        api.post(`/agenda/${selecionado.id}/reabilitar-reserva`, {
+          prazo_confirmacao_horas: horas,
+          confirmar_slot_reserva_expirada: confirmarSlotReservaExpirada,
+          confirmar_conflito_deslocamento: confirmarConflitoDeslocamento,
+        });
+
+      let response;
+      let confirmouSlotReservaExpirada = false;
+      let confirmouConflitoDeslocamento = false;
+      for (let tentativa = 0; tentativa < 3 && !response; tentativa += 1) {
+        try {
+          response = await enviarReabilitacao(
+            confirmouSlotReservaExpirada,
+            confirmouConflitoDeslocamento
+          );
+        } catch (errorTentativa: any) {
+          const detail = errorTentativa?.response?.data?.detail;
+          const codigo =
+            errorTentativa?.response?.status === 409 ? detail?.codigo : undefined;
+          if (
+            codigo === "CONFIRMACAO_SLOT_RESERVA_EXPIRADA" &&
+            !confirmouSlotReservaExpirada
+          ) {
+            const confirmou = await fortinho.confirm({
+              title: "ATENÇÃO: outra reserva expirada neste horário",
+              message:
+                "Outra clínica também teve uma reserva expirada neste slot. Confira as mensagens do WhatsApp antes de devolver o horário para esta clínica.",
+              mood: "alert",
+              gesture: "open-arms",
+              confirmLabel: "Revisei as mensagens e quero continuar",
+              cancelLabel: "Voltar e verificar WhatsApp",
+            });
+            if (!confirmou) return;
+            confirmouSlotReservaExpirada = true;
+            continue;
+          }
+          if (codigo === "CONFLITO_DESLOCAMENTO" && !confirmouConflitoDeslocamento) {
+            if (!isAdmin) throw errorTentativa;
+            const confirmou = await fortinho.confirm({
+              title: "Conflito de deslocamento na rota",
+              message: `${
+                typeof detail?.mensagem === "string" ? detail.mensagem : ""
+              } Como administrador, você pode abrir uma exceção para este agendamento. Ela fica registrada e vale enquanto horário, clínica e serviço não mudarem.`,
+              mood: "alert",
+              gesture: "open-arms",
+              confirmLabel: "Abrir exceção e reabilitar",
+              cancelLabel: "Voltar e ajustar o horário",
+            });
+            if (!confirmou) return;
+            confirmouConflitoDeslocamento = true;
+            continue;
+          }
+          throw errorTentativa;
+        }
+      }
+      if (!response) return;
+
+      setModalReabilitarReservaAberto(false);
+      setErro("");
+      setMensagemStatus(
+        response.data?.mensagem ||
+          "Reserva reabilitada: o horário voltou a ficar reservado até o novo prazo."
+      );
+      if (intervalo) {
+        await carregarAgendamentos(intervalo);
+      }
+    } catch (error: any) {
+      console.error("Erro ao reabilitar reserva expirada:", error);
+      setErro(
+        extrairMensagemErroApi(
+          error?.response?.data?.detail,
+          "Nao foi possivel reabilitar a reserva deste horario."
+        )
+      );
+    } finally {
+      setReabilitandoReservaId(null);
+    }
+  }, [carregarAgendamentos, fortinho, intervalo, isAdmin, prazoReabilitacaoHoras, selecionado]);
 
   const confirmarAtualizacaoRealizado = useCallback(async () => {
     if (!modalTipoHorario) return;
@@ -2362,7 +2447,7 @@ export default function AgendaFullCalendarPage() {
     <DashboardLayout>
       <div className="fc-agenda-page fc-calendar-page">
         {toastRealtime && (
-          <div className="fixed right-4 top-4 z-[70]">
+          <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[70] lg:top-4">
             <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastRealtime.classe}`}>
               <span className="font-medium">{toastRealtime.texto}</span>
               {typeof toastRealtime.agendamentoId === "number" && (
@@ -2566,13 +2651,13 @@ export default function AgendaFullCalendarPage() {
                     Atender
                   </button>
 
-                  <details className="relative">
+                  <details className="fc-agenda-row-menu">
                     <summary className="list-none inline-flex cursor-pointer items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100">
                       <FileText className="h-3.5 w-3.5" />
                       Laudar
                       <ChevronDown className="h-3.5 w-3.5" />
                     </summary>
-                    <div className="absolute left-0 top-full z-20 mt-2 w-56 overflow-hidden rounded-xl border bg-white shadow-lg">
+                    <div className="fc-agenda-row-menu-panel fc-agenda-row-menu-panel-start">
                       <button
                         type="button"
                         onClick={() => laudarSelecionado(TIPO_LAUDO_ECOCARDIOGRAMA)}
@@ -2651,6 +2736,18 @@ export default function AgendaFullCalendarPage() {
                       <MapPin className="h-3.5 w-3.5" />
                       Maps
                     </a>
+                  )}
+
+                  {podeReabilitarReserva(selecionado.status) && (
+                    <button
+                      onClick={abrirModalReabilitarReserva}
+                      disabled={reabilitandoReservaId === selecionado.id}
+                      title="Reservar este horario novamente por mais um periodo"
+                      className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <TimerReset className="h-3.5 w-3.5" />
+                      {reabilitandoReservaId === selecionado.id ? "Reabilitando..." : "Reabilitar reserva"}
+                    </button>
                   )}
 
                   <div className="relative" ref={statusMenuRef}>
@@ -3181,6 +3278,104 @@ export default function AgendaFullCalendarPage() {
             </div>
           </div>
         )}
+
+        {modalReabilitarReservaAberto && selecionado && (() => {
+          const horasInformadas = normalizarPrazoReabilitacaoHoras(prazoReabilitacaoHoras);
+          const previsao =
+            horasInformadas === null
+              ? null
+              : calcularPrazoReabilitacao(horasInformadas, selecionado.inicio);
+          const salvando = reabilitandoReservaId === selecionado.id;
+
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+                <h3 className="text-lg font-semibold text-gray-900">Reabilitar reserva</h3>
+                <p className="mt-1 text-sm text-gray-600">
+                  A reserva de{" "}
+                  <span className="font-semibold">
+                    {obterTituloAgendamentoPorOrigem(selecionado.origem_atendimento, selecionado.clinica)}
+                  </span>{" "}
+                  volta a segurar o horario por mais um periodo, ate a clinica enviar os dados do
+                  paciente.
+                </p>
+
+                <div className="mt-4">
+                  <label
+                    htmlFor="fc-reabilitar-reserva-horas"
+                    className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800"
+                  >
+                    Novo prazo para confirmacao
+                  </label>
+                  <div className="flex max-w-xs overflow-hidden rounded-lg border border-amber-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200">
+                    <input
+                      id="fc-reabilitar-reserva-horas"
+                      type="number"
+                      min={PRAZO_REABILITACAO_HORAS_MIN}
+                      max={PRAZO_REABILITACAO_HORAS_MAX}
+                      step="0.5"
+                      inputMode="decimal"
+                      value={prazoReabilitacaoHoras}
+                      onChange={(event) => setPrazoReabilitacaoHoras(event.target.value)}
+                      className="min-w-0 flex-1 border-0 px-3 py-2 text-gray-900 outline-none"
+                    />
+                    <span className="flex items-center border-l border-amber-200 bg-amber-50 px-3 font-medium text-amber-800">
+                      horas
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm">
+                    {horasInformadas === null ? (
+                      <span className="text-red-600">
+                        Informe um prazo entre {PRAZO_REABILITACAO_HORAS_MIN} e{" "}
+                        {PRAZO_REABILITACAO_HORAS_MAX} horas.
+                      </span>
+                    ) : previsao?.indisponivel ? (
+                      <span className="text-red-600">
+                        Este horario esta proximo demais (ou ja passou) para uma nova reserva.
+                        Agende direto com os dados do paciente ou escolha outro horario.
+                      </span>
+                    ) : (
+                      <span className="text-gray-700">
+                        Confirmar ate <span className="font-semibold">{previsao?.prazoLegivel}</span>
+                        {previsao?.encurtado
+                          ? " (encurtado para terminar antes do horario reservado)"
+                          : ""}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <p className="mt-4 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
+                  O sistema confere se o horario continua livre e sem conflito com outros
+                  agendamentos antes de reservar de novo. Avise a clinica do novo prazo pelo
+                  WhatsApp.
+                </p>
+
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    onClick={() => setModalReabilitarReservaAberto(false)}
+                    disabled={salvando}
+                    className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={confirmarReabilitacaoReserva}
+                    disabled={salvando || horasInformadas === null || Boolean(previsao?.indisponivel)}
+                    className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {salvando ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <TimerReset className="h-4 w-4" />
+                    )}
+                    Reabilitar reserva
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {modalTipoHorario && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

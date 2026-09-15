@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Float
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Float, event
 from sqlalchemy.sql import func
+from datetime import datetime
 from app.db.database import Base
 
 class Laudo(Base):
@@ -24,7 +25,14 @@ class Laudo(Base):
     
     # Status
     status = Column(String, default='Rascunho')  # Rascunho, Finalizado, Arquivado
-    
+
+    # Momento da primeira finalizacao (status == "Finalizado"). Preenchido
+    # automaticamente pelo evento SQLAlchemy abaixo, nao por cada endpoint -
+    # nunca e sobrescrito depois, mesmo que o laudo seja reaberto/editado.
+    # Usado para medir o prazo de 48h uteis (fila-pendentes-agenda), ja que
+    # `updated_at` muda a cada edicao e nao serve pra isso.
+    finalizado_em = Column(DateTime(timezone=True), nullable=True)
+
     # Datas
     data_laudo = Column(DateTime(timezone=True), default=func.now())
     created_at = Column(DateTime(timezone=True), default=func.now())
@@ -33,6 +41,13 @@ class Laudo(Base):
     # Clínica
     clinic_id = Column(Integer, nullable=True)  # ID da clínica vinculada
     veterinario_parceiro_id = Column(Integer, nullable=True, index=True)  # Parceiro externo que encaminhou o caso
+
+    # Resultado da ultima tentativa de aviso de liberacao pelo WhatsApp
+    # (POST /laudos/{id}/portal/whatsapp) - sucesso/falha do envio, nao
+    # confirmacao de entrega/leitura (essa vive so no whatsapp-stage-backend).
+    whatsapp_liberacao_status = Column(String, nullable=True)  # "enviado" | "falhou"
+    whatsapp_liberacao_em = Column(DateTime(timezone=True), nullable=True)
+    whatsapp_liberacao_erro = Column(Text, nullable=True)
 
     # Dados adicionais
     data_exame = Column(DateTime(timezone=True))  # Data do exame
@@ -82,8 +97,27 @@ class Exame(Base):
     # sobrescreve o campo com uma mensagem fixa) - usado para restaurar ao
     # revogar a liberacao.
     observacoes_pre_portal = Column(Text)
+    # Primeiro acesso da clinica parceira ao arquivo do exame liberado no
+    # portal (nulo = ainda nao visualizado). Zerado ao liberar/revogar de
+    # novo, para nao carregar uma visualizacao de um ciclo anterior.
+    visualizado_portal_em = Column(DateTime(timezone=True), nullable=True)
 
     # Auditoria
     created_at = Column(DateTime(timezone=True), default=func.now())
     criado_por_id = Column(Integer)
     criado_por_nome = Column(String)
+
+
+@event.listens_for(Laudo, "before_insert")
+@event.listens_for(Laudo, "before_update")
+def _preencher_finalizado_em(mapper, connection, target: "Laudo") -> None:
+    """Marca o momento da primeira finalizacao, uma unica vez.
+
+    Roda para qualquer insert/update de Laudo (upload de ECG ja nasce
+    "Finalizado"; o fluxo normal transiciona de "Rascunho" via
+    `atualizar_laudo`) - centralizado aqui em vez de em cada endpoint para
+    nao depender de lembrar de setar isso em todo caminho de codigo,
+    presente ou futuro.
+    """
+    if target.status == "Finalizado" and target.finalizado_em is None:
+        target.finalizado_em = datetime.utcnow()

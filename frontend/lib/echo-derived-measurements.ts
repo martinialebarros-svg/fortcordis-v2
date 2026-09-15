@@ -49,6 +49,10 @@ function formatDerivedValue(value: number): string {
   return Number(value.toFixed(2)).toString();
 }
 
+function formatDerivedPercentage(value: number): string {
+  return String(Math.round(value));
+}
+
 export function calculateBernoulliGradient(velocity: unknown): number | null {
   const parsed = parsePositiveNumber(velocity);
   return parsed === null ? null : 4 * parsed ** 2;
@@ -144,6 +148,28 @@ export function deriveAutomaticEchoMeasurements(
 ): Record<string, string> {
   const derived: Record<string, string> = {};
 
+  // As relações diastólicas são derivadas das medidas de origem informadas no
+  // formulário. Quando alguma origem não estiver disponível, preservamos o
+  // valor histórico importado pelo equipamento em vez de apagá-lo no save.
+  const eWave = parsePositiveNumber(measurements.Onda_E);
+  const aWave = parsePositiveNumber(measurements.Onda_A);
+  if (eWave !== null && aWave !== null) {
+    derived.E_A = formatDerivedValue(eWave / aWave);
+  }
+
+  const trivMs = parsePositiveNumber(measurements.TRIV);
+  if (eWave !== null && trivMs !== null) {
+    // O corte clínico de E/TRIV usa E em cm/s e TRIV em ms. O formulário
+    // armazena a velocidade da onda E em m/s, portanto convertemos somente
+    // o numerador antes de calcular o índice.
+    derived.E_TRIV = formatDerivedValue((eWave * 100) / trivMs);
+  }
+
+  const ePrime = parsePositiveNumber(measurements.e_doppler);
+  if (eWave !== null && ePrime !== null) {
+    derived.E_E_linha = formatDerivedValue(eWave / ePrime);
+  }
+
   for (const [velocityKey, gradientKey] of Object.entries(
     REGURGITATION_GRADIENTS
   )) {
@@ -189,6 +215,56 @@ export function deriveAutomaticEchoMeasurements(
   const has2D = hasAnyMeasurement(measurements, LV_2D_KEYS);
   if (hasMMode && !has2D) derived.VE_tecnica_relatorio = "modo_m";
   if (has2D && !hasMMode) derived.VE_tecnica_relatorio = "2d";
+
+  return derived;
+}
+
+/**
+ * Completa apenas a visualizacao das referencias com a funcao ventricular que
+ * pode ser obtida das medidas ja preenchidas. Nao altera o formulario nem o
+ * payload do laudo: se a FE ou o FS informado pelo equipamento existir, ele
+ * sempre tem precedencia sobre o valor calculado aqui.
+ */
+export function deriveLeftVentricularFunctionForReference(
+  measurements: Record<string, string>
+): Record<string, string> {
+  const derived: Record<string, string> = {};
+
+  for (const fields of Object.values({
+    modo_m: {
+      edv: "VDF",
+      esv: "VSF",
+      ef: "FE_Teicholz",
+      lvidD: "DIVEd",
+      lvidS: "DIVES",
+      fs: "DeltaD_FS",
+    },
+    modo_2d: {
+      edv: "VDF_2D",
+      esv: "VSF_2D",
+      ef: "FE_Teicholz_2D",
+      lvidD: "DIVEd_2D",
+      lvidS: "DIVES_2D",
+      fs: "DeltaD_FS_2D",
+    },
+  })) {
+    const edv = parsePositiveNumber(measurements[fields.edv]);
+    const esv = parsePositiveNumber(measurements[fields.esv]);
+    if (!String(measurements[fields.ef] ?? "").trim() && edv !== null && esv !== null && esv <= edv) {
+      derived[fields.ef] = formatDerivedPercentage(((edv - esv) / edv) * 100);
+    }
+
+    const lvidD = parsePositiveNumber(measurements[fields.lvidD]);
+    const lvidS = parsePositiveNumber(measurements[fields.lvidS]);
+    if (
+      !String(measurements[fields.fs] ?? "").trim() &&
+      lvidD !== null &&
+      lvidS !== null &&
+      lvidS <= lvidD
+    ) {
+      derived[fields.fs] = formatDerivedPercentage(((lvidD - lvidS) / lvidD) * 100);
+    }
+  }
 
   return derived;
 }

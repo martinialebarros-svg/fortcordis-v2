@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   subject TEXT,
   last_agent_id BIGINT,
   last_activity_at TIMESTAMPTZ DEFAULT now(),
+  last_inbound_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
   CONSTRAINT conversations_wa_phone_number_key UNIQUE (wa_phone_number),
@@ -26,6 +27,38 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TIMESTAMPTZ DEFAULT now(),
   CONSTRAINT messages_wa_message_id_key UNIQUE (wa_message_id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_messages_bot_idempotency_key
+  ON messages ((metadata->>'idempotency_key'))
+  WHERE metadata ? 'idempotency_key';
+
+ALTER TABLE conversations
+  ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ;
+
+UPDATE conversations c
+SET last_inbound_at = inbound.last_inbound_at
+FROM (
+  SELECT conversation_id, MAX(created_at) AS last_inbound_at
+  FROM messages
+  WHERE from_me = FALSE
+  GROUP BY conversation_id
+) inbound
+WHERE c.id = inbound.conversation_id
+  AND c.last_inbound_at IS NULL;
+
+ALTER TABLE conversations
+  ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+
+-- Explicit resolution covers only messages already persisted at that moment.
+-- Zero represents an empty conversation and keeps this legacy backfill idempotent.
+ALTER TABLE conversations
+  ADD COLUMN IF NOT EXISTS resolved_through_message_id BIGINT;
+
+UPDATE conversations c
+SET resolved_through_message_id = COALESCE(
+  (SELECT MAX(m.id) FROM messages m WHERE m.conversation_id = c.id), 0
+)
+WHERE c.status = 'closed' AND c.resolved_through_message_id IS NULL;
 
 -- agents
 CREATE TABLE IF NOT EXISTS agents (
@@ -96,6 +129,105 @@ CREATE TABLE IF NOT EXISTS webhook_event_cleanup_runs (
   started_at TIMESTAMPTZ NOT NULL,
   finished_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Reservation templates sent by FortCordis. The random button payloads bind
+-- Meta callbacks to one reservation without exposing its numeric id.
+CREATE TABLE IF NOT EXISTS agenda_reservation_messages (
+  id BIGSERIAL PRIMARY KEY,
+  reservation_id BIGINT NOT NULL,
+  destination VARCHAR(32) NOT NULL,
+  idempotency_key VARCHAR(128) NOT NULL,
+  request_hash VARCHAR(64) NOT NULL,
+  template_name VARCHAR(128) NOT NULL,
+  language_code VARCHAR(20) NOT NULL,
+  confirm_payload VARCHAR(128) NOT NULL,
+  change_payload VARCHAR(128) NOT NULL,
+  wa_message_id VARCHAR(160),
+  processing_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  processing_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at TIMESTAMPTZ,
+  CONSTRAINT agenda_reservation_messages_idempotency_key UNIQUE (idempotency_key),
+  CONSTRAINT agenda_reservation_messages_confirm_payload_key UNIQUE (confirm_payload),
+  CONSTRAINT agenda_reservation_messages_change_payload_key UNIQUE (change_payload),
+  CONSTRAINT agenda_reservation_messages_wa_message_id_key UNIQUE (wa_message_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_agenda_reservation_messages_reservation
+  ON agenda_reservation_messages (reservation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS agenda_reservation_button_events (
+  id BIGSERIAL PRIMARY KEY,
+  provider_message_id VARCHAR(160) NOT NULL,
+  reservation_message_id BIGINT NOT NULL REFERENCES agenda_reservation_messages(id) ON DELETE CASCADE,
+  action VARCHAR(40) NOT NULL,
+  from_phone VARCHAR(32) NOT NULL,
+  processing_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  response_payload JSONB,
+  processing_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at TIMESTAMPTZ,
+  CONSTRAINT agenda_reservation_button_events_provider_message_id_key UNIQUE (provider_message_id)
+);
+
+-- Approved utility templates sent explicitly by FortCordis. Button payloads
+-- remain opaque and are retained for future domain-specific callback bindings.
+CREATE TABLE IF NOT EXISTS approved_template_messages (
+  id BIGSERIAL PRIMARY KEY,
+  template_key VARCHAR(80) NOT NULL,
+  template_name VARCHAR(128) NOT NULL,
+  language_code VARCHAR(20) NOT NULL,
+  subject_type VARCHAR(40) NOT NULL,
+  subject_id BIGINT NOT NULL,
+  subject_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  destination VARCHAR(32) NOT NULL,
+  idempotency_key VARCHAR(128) NOT NULL,
+  request_hash VARCHAR(64) NOT NULL,
+  body_parameters JSONB NOT NULL,
+  button_bindings JSONB NOT NULL DEFAULT '[]'::jsonb,
+  rendered_body TEXT NOT NULL,
+  document_filename VARCHAR(160),
+  document_sha256 VARCHAR(64),
+  wa_media_id VARCHAR(160),
+  wa_message_id VARCHAR(160),
+  processing_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  processing_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at TIMESTAMPTZ,
+  CONSTRAINT approved_template_messages_idempotency_key UNIQUE (idempotency_key),
+  CONSTRAINT approved_template_messages_wa_message_id_key UNIQUE (wa_message_id)
+);
+
+ALTER TABLE approved_template_messages
+  ADD COLUMN IF NOT EXISTS subject_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE approved_template_messages
+  ADD COLUMN IF NOT EXISTS document_filename VARCHAR(160);
+ALTER TABLE approved_template_messages
+  ADD COLUMN IF NOT EXISTS document_sha256 VARCHAR(64);
+ALTER TABLE approved_template_messages
+  ADD COLUMN IF NOT EXISTS wa_media_id VARCHAR(160);
+
+CREATE INDEX IF NOT EXISTS ix_approved_template_messages_subject
+  ON approved_template_messages (subject_type, subject_id, created_at);
+
+-- Cliques em botoes de modelos aprovados genericos (fora do fluxo dedicado
+-- de reserva). Payloads sao opacos e ja vem com a "acao" da definicao do
+-- catalogo (approvedTemplates.ts) gravada em button_bindings.
+CREATE TABLE IF NOT EXISTS approved_template_button_events (
+  id BIGSERIAL PRIMARY KEY,
+  provider_message_id VARCHAR(160) NOT NULL,
+  template_message_id BIGINT NOT NULL REFERENCES approved_template_messages(id) ON DELETE CASCADE,
+  action VARCHAR(40) NOT NULL,
+  from_phone VARCHAR(32) NOT NULL,
+  processing_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  response_payload JSONB,
+  processing_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at TIMESTAMPTZ,
+  CONSTRAINT approved_template_button_events_provider_message_id_key UNIQUE (provider_message_id)
 );
 
 -- normalize duplicated conversations by phone (preserve oldest row)
@@ -427,8 +559,16 @@ DROP INDEX IF EXISTS idx_messages_wa_message_id;
 CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
 CREATE INDEX IF NOT EXISTS idx_conversations_last_agent ON conversations(last_agent_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_last_activity_desc ON conversations(last_activity_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversations_last_inbound_desc ON conversations(last_inbound_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_id_desc ON messages(conversation_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_successful_reply
+  ON messages(conversation_id, created_at DESC, id DESC)
+  WHERE from_me = TRUE AND status IN ('sent', 'delivered', 'read');
+CREATE INDEX IF NOT EXISTS idx_messages_inbound_queue
+  ON messages(conversation_id, created_at ASC, id ASC)
+  WHERE from_me = FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_participants_conversation_agent ON conversation_participants(conversation_id, agent_id);
 CREATE INDEX IF NOT EXISTS idx_participants_conversation_left_at ON conversation_participants(conversation_id, left_at);
@@ -446,3 +586,19 @@ CREATE INDEX IF NOT EXISTS idx_webhook_event_cleanup_runs_created_at_desc
   ON webhook_event_cleanup_runs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_webhook_event_cleanup_runs_status_created_at
   ON webhook_event_cleanup_runs(status, created_at DESC);
+
+-- One versioned internal follow-up per conversation; terminal rows preserve CAS.
+CREATE TABLE IF NOT EXISTS conversation_follow_ups (
+  conversation_id BIGINT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+  due_at TIMESTAMPTZ NOT NULL,
+  note VARCHAR(1000) NOT NULL CHECK (length(trim(note)) > 0),
+  agent_id BIGINT NOT NULL REFERENCES agents(id),
+  status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'cancelled')),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+  inbound_received_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_follow_ups_pending_due
+  ON conversation_follow_ups (due_at, conversation_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS ix_follow_ups_agent_due
+  ON conversation_follow_ups (agent_id, due_at) WHERE status = 'pending';

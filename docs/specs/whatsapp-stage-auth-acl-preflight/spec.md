@@ -17,6 +17,8 @@
 - RO-004: runbook stage/prod deve incluir passo explicito do preflight WhatsApp.
 - RO-005: deploy deve autocorrigir placeholders legados no `.env` do WhatsApp stage sem sobrescrever valores reais.
 - RO-006: deploy deve autocorrigir placeholders legados exatos (`stage_*`) de forma deterministica no `.env` do WhatsApp stage antes dos fallbacks genericos.
+- RO-007: workflow de stage deve validar e instalar `WHATSAPP_ACCESS_TOKEN_STAGE`, `WHATSAPP_APP_SECRET_STAGE` e `WHATSAPP_VERIFY_TOKEN_STAGE` no runtime por stdin, sem imprimir valores, antes do deploy fail-closed.
+- RO-008: arquivo de ambiente do servico WhatsApp deve permanecer com permissao `0600` apos a atualizacao dos segredos.
 
 ## Criterios de aceitacao
 
@@ -25,3 +27,4 @@
 - CA-003: build do `whatsapp-stage-backend` permanece verde.
 - CA-004: `npm run test:whatsapp-retry` permanece verde.
 - CA-005: preflight retorna `PASS` quando ambiente esta conforme.
+- CA-006: workflow interrompe antes do deploy quando um segredo Meta de stage estiver ausente ou malformado.

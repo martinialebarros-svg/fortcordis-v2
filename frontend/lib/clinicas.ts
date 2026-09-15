@@ -1,4 +1,5 @@
 import api from "@/lib/axios";
+import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 
 type PaginatedApiResponse<T> = {
   items?: T[];
@@ -8,37 +9,43 @@ type PaginatedApiResponse<T> = {
 const CLINICAS_PAGE_SIZE = 500;
 
 export async function listarTodasClinicas<T>(): Promise<T[]> {
-  const clinicas: T[] = [];
-  let skip = 0;
-  let total = 0;
+  return loadStableCatalog({
+    catalog: "clinicas",
+    variant: "all-paginated",
+    load: async () => {
+      const clinicas: T[] = [];
+      let skip = 0;
+      let total = 0;
 
-  while (true) {
-    const response = await api.get<PaginatedApiResponse<T>>("/clinicas", {
-      params: {
-        skip,
-        limit: CLINICAS_PAGE_SIZE,
-      },
-    });
+      while (true) {
+        const response = await api.get<PaginatedApiResponse<T>>("/clinicas", {
+          params: {
+            skip,
+            limit: CLINICAS_PAGE_SIZE,
+          },
+        });
 
-    const pagina = Array.isArray(response.data?.items) ? response.data.items : [];
-    const totalResposta = Number(response.data?.total);
+        const pagina = Array.isArray(response.data?.items) ? response.data.items : [];
+        const totalResposta = Number(response.data?.total);
 
-    if (Number.isFinite(totalResposta) && totalResposta >= 0) {
-      total = totalResposta;
-    }
+        if (Number.isFinite(totalResposta) && totalResposta >= 0) {
+          total = totalResposta;
+        }
 
-    clinicas.push(...pagina);
+        clinicas.push(...pagina);
 
-    if (
-      pagina.length === 0 ||
-      pagina.length < CLINICAS_PAGE_SIZE ||
-      (total > 0 && clinicas.length >= total)
-    ) {
-      break;
-    }
+        if (
+          pagina.length === 0 ||
+          pagina.length < CLINICAS_PAGE_SIZE ||
+          (total > 0 && clinicas.length >= total)
+        ) {
+          break;
+        }
 
-    skip += pagina.length;
-  }
+        skip += pagina.length;
+      }
 
-  return clinicas;
+      return clinicas;
+    },
+  });
 }

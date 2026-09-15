@@ -1,4 +1,4 @@
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, Field, validator
 from datetime import datetime
 from typing import Optional, List
 
@@ -36,13 +36,16 @@ class AgendamentoBase(BaseModel):
     confirmar_agenda_fechada: bool = False
     excecao_operacional_concedida: bool = False
     motivo_excecao_operacional: Optional[str] = None
+    motivo_excecao_deslocamento: Optional[str] = None
 
     @validator('inicio', 'fim', 'reserva_expira_em', pre=True)
     def parse_dates(cls, v):
         return parse_datetime(v) if v else None
 
 class AgendamentoCreate(AgendamentoBase):
-    pass
+    pedido_whatsapp_id: Optional[int] = Field(default=None, gt=0)
+    pedido_whatsapp_versao: Optional[int] = Field(default=None, gt=0)
+    pedido_whatsapp_divergencia_confirmada: bool = False
 
 class AgendamentoUpdate(BaseModel):
     paciente_id: Optional[int] = None
@@ -59,7 +62,9 @@ class AgendamentoUpdate(BaseModel):
     confirmar_slot_reserva_expirada: Optional[bool] = None
     excecao_operacional_concedida: Optional[bool] = None
     motivo_excecao_operacional: Optional[str] = None
+    motivo_excecao_deslocamento: Optional[str] = None
     confirmar_alteracao_servico_hoje: Optional[bool] = None
+    urgente_laudo: Optional[bool] = None
 
     @validator('inicio', 'fim', 'reserva_expira_em', pre=True)
     def parse_dates(cls, v):
@@ -87,6 +92,12 @@ class AgendamentoResponse(BaseModel):
     criado_por_nome: Optional[str] = None
     confirmado_por_nome: Optional[str] = None
     created_at: Optional[str] = None  # Retorna como string
+    # Excecao de deslocamento concedida por admin. `ativa` ja considera o
+    # escopo (horario/destino/servico): uma concessao obsoleta volta False.
+    excecao_deslocamento_ativa: bool = False
+    excecao_deslocamento_concedida_em: Optional[str] = None
+    excecao_deslocamento_concedida_por_nome: Optional[str] = None
+    excecao_deslocamento_motivo: Optional[str] = None
 
     class Config:
         from_attributes = True

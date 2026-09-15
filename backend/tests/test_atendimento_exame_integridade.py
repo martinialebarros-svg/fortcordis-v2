@@ -307,6 +307,19 @@ class AtendimentoExameIntegridadeTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             ExameSolicitacaoPayload(**{"id": 1, "tipo_exame": ""})
 
+    def test_autosave_atrasado_com_id_ja_excluido_nao_recria_exame(self):
+        """Um PUT atrasado nao pode ressuscitar um item removido pelo usuario."""
+        self._atualizar(
+            AtendimentoUpdatePayload(
+                exames=[ExameSolicitacaoPayload(id=987654, tipo_exame="Ultrassom abdominal")]
+            )
+        )
+
+        self.assertEqual(
+            self.db.query(Exame).filter(Exame.atendimento_id == self.atendimento.id).count(),
+            0,
+        )
+
     # ------------------------------------------------ status e portal (D2)
 
     def test_put_do_frontend_preserva_status_liberado_no_portal(self):

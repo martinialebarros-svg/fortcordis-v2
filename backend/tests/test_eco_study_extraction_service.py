@@ -147,7 +147,7 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         }
         self.assertEqual(techniques, {"modo_m", "2d"})
 
-    def test_does_not_read_e_over_triv_ratio_as_second_triv_measurement(self) -> None:
+    def test_extracts_e_over_triv_without_reading_it_as_second_triv_measurement(self) -> None:
         candidates = extract_measurements_from_text(
             "TRIV 40.00 ms\nE/triv 14.92",
             source="ocr:test",
@@ -156,6 +156,7 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         measurements, consolidated, conflicts = consolidate_measurement_candidates(candidates)
 
         self.assertEqual(measurements["TRIV"], 40)
+        self.assertEqual(measurements["E_TRIV"], 14.92)
         self.assertEqual(conflicts, 0)
         self.assertEqual(len([item for item in consolidated if item["campo"] == "TRIV"]), 1)
 

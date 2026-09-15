@@ -120,6 +120,6 @@ Ao criar uma reserva ou um agendamento, a secretaria escolhe clinica ou tutor co
 
 ## 8) Fora de escopo
 
-- Envio automatico pela Meta.
-- Processamento de respostas do WhatsApp.
+- Envio automatico pela Meta e processamento de respostas pertencem ao escopo separado
+  `docs/specs/agenda-whatsapp-cloud-api`.
 - Configuracao multiprofissional do nome/especialidade exibidos na mensagem.

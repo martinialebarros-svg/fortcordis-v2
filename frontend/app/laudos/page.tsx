@@ -12,8 +12,12 @@ import {
 } from "@/lib/laudos";
 import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
+import { extractApiErrorMessageSync } from "@/lib/api-error";
 import {
+  AlertCircle,
+  AlertTriangle,
   Calendar,
+  Check,
   ChevronDown,
   Clock,
   Download,
@@ -21,10 +25,16 @@ import {
   Eye,
   FileCheck,
   FileText,
+  Gauge,
+  Minus,
+  MessageCircle,
   Plus,
   Search,
   Send,
+  Star,
   Trash2,
+  TrendingDown,
+  TrendingUp,
   User,
 } from "lucide-react";
 
@@ -49,6 +59,9 @@ interface Laudo {
   portal_veterinario_liberado?: boolean;
   portal_destinos_pendentes?: string[];
   portal_pode_liberar?: boolean;
+  whatsapp_liberacao_status?: "enviado" | "falhou" | null;
+  whatsapp_liberacao_em?: string | null;
+  whatsapp_liberacao_erro?: string | null;
 }
 
 interface Exame {
@@ -58,6 +71,36 @@ interface Exame {
   status: string;
   valor: number;
   data_solicitacao: string;
+}
+
+interface LaudoPendenteItem {
+  exame_id: number | null;
+  atendimento_id: number | null;
+  agendamento_id: number | null;
+  laudo_id: number | null;
+  tem_rascunho: boolean;
+  urgente: boolean;
+  paciente_nome: string | null;
+  tutor_nome: string | null;
+  clinica_nome: string | null;
+  tipo_exame: string;
+  data_atendimento: string | null;
+  horas_uteis_decorridas: number;
+  atrasado: boolean;
+}
+
+interface AgilidadeJanela {
+  total_finalizados: number;
+  no_prazo: number;
+  percentual_no_prazo: number | null;
+  media_horas_uteis: number | null;
+}
+
+interface AgilidadeLaudos {
+  prazo_horas_uteis: number;
+  janela_atual: AgilidadeJanela;
+  janela_anterior: AgilidadeJanela;
+  tendencia: "melhorou" | "piorou" | "estavel" | null;
 }
 
 const LAUDOS_PAGE_SIZE = 100;
@@ -137,7 +180,13 @@ export default function LaudosPage() {
   const [totalLaudos, setTotalLaudos] = useState(0);
   const [exames, setExames] = useState<Exame[]>([]);
   const [totalExames, setTotalExames] = useState(0);
-  const [tab, setTab] = useState<"laudos" | "exames">("laudos");
+  const [tab, setTab] = useState<"laudos" | "exames" | "pendentes">("laudos");
+  const [pendentes, setPendentes] = useState<LaudoPendenteItem[]>([]);
+  const [totalPendentes, setTotalPendentes] = useState(0);
+  const [loadingPendentes, setLoadingPendentes] = useState(true);
+  const [agilidade, setAgilidade] = useState<AgilidadeLaudos | null>(null);
+  const [loadingAgilidade, setLoadingAgilidade] = useState(true);
+  const [togglingUrgenteId, setTogglingUrgenteId] = useState<number | null>(null);
   const [busca, setBusca] = useState("");
   const [buscaAplicada, setBuscaAplicada] = useState("");
   const [dataFiltro, setDataFiltro] = useState("");
@@ -145,6 +194,9 @@ export default function LaudosPage() {
   const [loadingExames, setLoadingExames] = useState(true);
   const [loadingMoreLaudos, setLoadingMoreLaudos] = useState(false);
   const [liberandoLaudoId, setLiberandoLaudoId] = useState<number | null>(null);
+  const [avisandoLaudoId, setAvisandoLaudoId] = useState<number | null>(null);
+  const [toastWhatsapp, setToastWhatsapp] = useState<{ texto: string; classe: string } | null>(null);
+  const toastWhatsappTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const laudosRequestIdRef = useRef(0);
   const novoLaudoMenuRef = useRef<HTMLDivElement | null>(null);
   const [novoLaudoMenuAberto, setNovoLaudoMenuAberto] = useState(false);
@@ -286,6 +338,77 @@ export default function LaudosPage() {
     };
   }, [buscaAplicada, dataFiltro, router, tab]);
 
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      return;
+    }
+
+    let ativo = true;
+
+    const carregarPendentes = async () => {
+      setLoadingPendentes(true);
+      try {
+        const response = await api.get("/laudos/pendentes", { params: { skip: 0, limit: 100 } });
+        if (!ativo) return;
+        const items = response.data.items || [];
+        setPendentes(items);
+        setTotalPendentes(getResponseTotal(response.data, items.length));
+      } catch (error) {
+        if (!ativo) return;
+        console.error("Erro ao carregar fila de laudos pendentes:", error);
+        setPendentes([]);
+        setTotalPendentes(0);
+      } finally {
+        if (ativo) setLoadingPendentes(false);
+      }
+    };
+
+    const carregarAgilidade = async () => {
+      setLoadingAgilidade(true);
+      try {
+        const response = await api.get("/laudos/agilidade");
+        if (!ativo) return;
+        setAgilidade(response.data);
+      } catch (error) {
+        if (!ativo) return;
+        console.error("Erro ao carregar indicador de agilidade:", error);
+        setAgilidade(null);
+      } finally {
+        if (ativo) setLoadingAgilidade(false);
+      }
+    };
+
+    carregarPendentes();
+    carregarAgilidade();
+
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  const toggleUrgente = async (item: LaudoPendenteItem) => {
+    if (!item.agendamento_id) return;
+    const agendamentoId = item.agendamento_id;
+    setTogglingUrgenteId(agendamentoId);
+    try {
+      await api.put(`/agenda/${agendamentoId}`, { urgente_laudo: !item.urgente });
+      setPendentes((prev) =>
+        prev
+          .map((p) => (p.agendamento_id === agendamentoId ? { ...p, urgente: !p.urgente } : p))
+          .sort((a, b) => {
+            if (a.urgente !== b.urgente) return a.urgente ? -1 : 1;
+            return (a.data_atendimento || "").localeCompare(b.data_atendimento || "");
+          })
+      );
+    } catch (error) {
+      console.error("Erro ao marcar/desmarcar urgencia:", error);
+      alert("Nao foi possivel atualizar a urgencia deste item.");
+    } finally {
+      setTogglingUrgenteId(null);
+    }
+  };
+
   const examesFiltrados = exames.filter((exame) => {
     if (!busca.trim()) {
       return true;
@@ -357,6 +480,61 @@ export default function LaudosPage() {
       alert(detail || "Erro ao liberar laudo no portal. Tente novamente.");
     } finally {
       setLiberandoLaudoId(null);
+    }
+  };
+
+  const mostrarToastWhatsapp = (texto: string, classe: string) => {
+    setToastWhatsapp({ texto, classe });
+    if (toastWhatsappTimeoutRef.current) {
+      clearTimeout(toastWhatsappTimeoutRef.current);
+    }
+    toastWhatsappTimeoutRef.current = setTimeout(() => {
+      setToastWhatsapp(null);
+      toastWhatsappTimeoutRef.current = null;
+    }, 4000);
+  };
+
+  const avisarLaudoPorWhatsApp = async (laudo: Laudo) => {
+    if (!laudo.portal_clinica_liberado && !isPortalReleased(laudo.status)) {
+      alert("Libere o laudo no portal antes de enviar o aviso por WhatsApp.");
+      return;
+    }
+    if (!confirm(`Enviar para ${laudo.clinica || "a clinica parceira"} o aviso de laudo disponível?`)) {
+      return;
+    }
+    const idempotencyKey = typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `laudo-portal-${laudo.id}-${Date.now()}`;
+    setAvisandoLaudoId(laudo.id);
+    try {
+      await api.post(`/laudos/${laudo.id}/portal/whatsapp`, {
+        idempotency_key: idempotencyKey,
+      });
+      const agora = new Date().toISOString();
+      setLaudos((prev) =>
+        prev.map((item) =>
+          item.id === laudo.id
+            ? { ...item, whatsapp_liberacao_status: "enviado", whatsapp_liberacao_em: agora, whatsapp_liberacao_erro: null }
+            : item
+        )
+      );
+      mostrarToastWhatsapp(
+        "Aviso enviado pelo WhatsApp oficial da Fort Cordis.",
+        "border-teal-200 bg-teal-50 text-teal-900"
+      );
+    } catch (error) {
+      const detail = extractApiErrorMessageSync(error, "Erro ao enviar o aviso por WhatsApp.");
+      const agora = new Date().toISOString();
+      setLaudos((prev) =>
+        prev.map((item) =>
+          item.id === laudo.id
+            ? { ...item, whatsapp_liberacao_status: "falhou", whatsapp_liberacao_em: agora, whatsapp_liberacao_erro: detail }
+            : item
+        )
+      );
+      mostrarToastWhatsapp(detail, "border-rose-200 bg-rose-50 text-rose-900");
+    } finally {
+      setAvisandoLaudoId(null);
     }
   };
 
@@ -459,6 +637,13 @@ export default function LaudosPage() {
   return (
     <DashboardLayout>
       <div className="fc-clinical-page">
+        {toastWhatsapp && (
+          <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[70] lg:top-4">
+            <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastWhatsapp.classe}`}>
+              <span className="font-medium">{toastWhatsapp.texto}</span>
+            </div>
+          </div>
+        )}
         <header className="fc-clinical-header">
           <div>
             <span className="fc-clinical-kicker">
@@ -526,8 +711,18 @@ export default function LaudosPage() {
             <FileCheck className="h-4 w-4" />
             Exames ({totalExames})
           </button>
+          <button
+            onClick={() => setTab("pendentes")}
+            className={`fc-clinical-tab ${tab === "pendentes" ? "fc-clinical-tab-active" : ""}`}
+            role="tab"
+            aria-selected={tab === "pendentes"}
+          >
+            <Gauge className="h-4 w-4" />
+            Pendentes ({totalPendentes})
+          </button>
         </div>
 
+        {tab !== "pendentes" && (
         <div className="fc-clinical-filters">
           <div className="flex flex-col gap-3 lg:flex-row">
             <div className="fc-clinical-control flex-1">
@@ -575,11 +770,65 @@ export default function LaudosPage() {
             </p>
           )}
         </div>
+        )}
+
+        {tab === "pendentes" && (
+          <div className="fc-clinical-filters">
+            {loadingAgilidade ? (
+              <p className="fc-clinical-filter-note">Carregando indicador de agilidade...</p>
+            ) : !agilidade || agilidade.janela_atual.total_finalizados === 0 ? (
+              <p className="fc-clinical-filter-note">
+                Sem laudos finalizados nos ultimos 90 dias para calcular o indicador de agilidade.
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-6 rounded-lg border border-ink-100 bg-white p-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                    No prazo (ultimos 90 dias)
+                  </p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {agilidade.janela_atual.percentual_no_prazo}%
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {agilidade.janela_atual.no_prazo} de {agilidade.janela_atual.total_finalizados} laudo(s)
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Tempo medio</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {agilidade.janela_atual.media_horas_uteis}h uteis
+                  </p>
+                  <p className="text-xs text-gray-500">prazo: {agilidade.prazo_horas_uteis}h uteis</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {agilidade.tendencia === "melhorou" ? (
+                    <TrendingUp className="h-5 w-5 text-green-600" />
+                  ) : agilidade.tendencia === "piorou" ? (
+                    <TrendingDown className="h-5 w-5 text-red-600" />
+                  ) : agilidade.tendencia === "estavel" ? (
+                    <Minus className="h-5 w-5 text-gray-500" />
+                  ) : null}
+                  <span className="text-sm font-medium text-gray-700">
+                    {agilidade.tendencia === "melhorou"
+                      ? "Melhorou em relacao aos 90 dias anteriores"
+                      : agilidade.tendencia === "piorou"
+                        ? "Piorou em relacao aos 90 dias anteriores"
+                        : agilidade.tendencia === "estavel"
+                          ? "Estavel em relacao aos 90 dias anteriores"
+                          : "Sem dados suficientes nos 90 dias anteriores para comparar"}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="fc-clinical-list">
           <div className="fc-clinical-list-summary">
             {tab === "laudos"
               ? resumoLaudos
+              : tab === "pendentes"
+              ? `${totalPendentes} laudo(s) pendente(s)`
               : `Mostrando ${examesFiltrados.length} de ${totalExames} exame(s)`}
           </div>
 
@@ -639,6 +888,25 @@ export default function LaudosPage() {
                           <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(laudo.status)}`}>
                             {laudo.status}
                           </span>
+                          {laudo.whatsapp_liberacao_status && (
+                            <span
+                              className={`fc-wa-envio-badge fc-wa-envio-badge-${laudo.whatsapp_liberacao_status}`}
+                              title={
+                                laudo.whatsapp_liberacao_status === "falhou"
+                                  ? laudo.whatsapp_liberacao_erro || "Falha ao enviar o aviso por WhatsApp."
+                                  : laudo.whatsapp_liberacao_em
+                                  ? `Enviado em ${formatOperationalDate(laudo.whatsapp_liberacao_em)}`
+                                  : "Aviso enviado por WhatsApp."
+                              }
+                            >
+                              {laudo.whatsapp_liberacao_status === "enviado" ? (
+                                <Check className="h-3 w-3" />
+                              ) : (
+                                <AlertCircle className="h-3 w-3" />
+                              )}
+                              {laudo.whatsapp_liberacao_status === "enviado" ? "WhatsApp enviado" : "WhatsApp falhou"}
+                            </span>
+                          )}
                           {canReleasePortal(laudo) && (
                             <button
                               onClick={() => liberarNoPortalClinica(laudo)}
@@ -648,6 +916,17 @@ export default function LaudosPage() {
                               aria-label={`Liberar laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`} no portal`}
                             >
                               <Send className="w-4 h-4" />
+                            </button>
+                          )}
+                          {laudo.clinic_id && (laudo.portal_clinica_liberado || isPortalReleased(laudo.status)) && (
+                            <button
+                              onClick={() => avisarLaudoPorWhatsApp(laudo)}
+                              disabled={avisandoLaudoId === laudo.id}
+                              className="fc-clinical-action"
+                              title="Avisar clínica pelo WhatsApp oficial"
+                              aria-label={`Avisar ${laudo.clinica || "clinica"} sobre o laudo disponível`}
+                            >
+                              <MessageCircle className="w-4 h-4" />
                             </button>
                           )}
                           <button
@@ -703,6 +982,97 @@ export default function LaudosPage() {
                   </div>
                 )}
               </>
+            )
+          ) : tab === "pendentes" ? (
+            loadingPendentes ? (
+              <div className="fc-registry-loading" aria-label="Carregando fila de pendentes">
+                {[0, 1, 2].map((item) => <span key={item} />)}
+              </div>
+            ) : pendentes.length === 0 ? (
+              <div className="fc-registry-empty">
+                <div><Gauge className="h-6 w-6" /></div>
+                <span>Nenhum laudo pendente</span>
+                <p>Tudo em dia - todos os exames realizados ja tem laudo finalizado.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-ink-100">
+                {pendentes.map((item) => (
+                  <div
+                    key={item.exame_id ?? `agendamento-${item.agendamento_id}-${item.tipo_exame}`}
+                    className="fc-clinical-row"
+                  >
+                    <div className="fc-clinical-row-layout">
+                      <div
+                        className={`fc-clinical-row-icon ${
+                          item.atrasado ? "fc-clinical-row-icon-exam" : ""
+                        }`}
+                      >
+                        {item.atrasado ? (
+                          <AlertTriangle className="h-5 w-5" />
+                        ) : (
+                          <Clock className="h-5 w-5" />
+                        )}
+                      </div>
+                      <div className="fc-clinical-row-main">
+                        <h3>{getTipoLaudoLabel(item.tipo_exame)}</h3>
+                        <div>
+                          <span>{item.paciente_nome || "Paciente nao informado"}</span>
+                          {item.tutor_nome ? <span>Tutor: {item.tutor_nome}</span> : null}
+                          {item.clinica_nome ? <span>{item.clinica_nome}</span> : null}
+                          <span>{formatCalendarDate(item.data_atendimento)}</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          {item.atrasado && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800">
+                              Atrasado ({item.horas_uteis_decorridas}h uteis)
+                            </span>
+                          )}
+                          {item.tem_rascunho && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-800">
+                              Rascunho em aberto
+                            </span>
+                          )}
+                          {item.urgente && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                              Urgente
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="fc-clinical-actions">
+                        <button
+                          onClick={() => toggleUrgente(item)}
+                          disabled={togglingUrgenteId === item.agendamento_id}
+                          className="fc-clinical-action"
+                          title={item.urgente ? "Remover urgencia" : "Marcar como urgente"}
+                          aria-label={item.urgente ? "Remover urgencia" : "Marcar como urgente"}
+                        >
+                          <Star className={`w-4 h-4 ${item.urgente ? "fill-current text-amber-600" : ""}`} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (item.tem_rascunho && item.laudo_id) {
+                              router.push(getLaudoEditPath(item.laudo_id, item.tipo_exame));
+                            } else if (item.atendimento_id) {
+                              router.push(
+                                `/laudos/novo?atendimento_id=${item.atendimento_id}&tipo=${encodeURIComponent(item.tipo_exame)}`
+                              );
+                            } else if (item.agendamento_id) {
+                              router.push(
+                                `/laudos/novo?agendamento_id=${item.agendamento_id}&tipo=${encodeURIComponent(item.tipo_exame)}`
+                              );
+                            }
+                          }}
+                          className="fc-clinical-action"
+                          title={item.tem_rascunho ? "Continuar laudo" : "Criar laudo"}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )
           ) : loadingExames ? (
             <div className="fc-registry-loading" aria-label="Carregando exames">

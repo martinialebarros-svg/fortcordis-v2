@@ -36,6 +36,10 @@ class PortalClinicAccount(Base):
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     password_changed_at = Column(DateTime(timezone=True), nullable=True)
     force_mfa_on_next_login = Column(Boolean, nullable=False, default=False)
+    # Senha temporaria gerada pelo admin no convite (nao escolhida pela
+    # clinica) - enquanto True, MFA e exigido em todo login e o portal
+    # mostra o aviso pra trocar a senha (ver maybe_require_mfa).
+    must_change_password = Column(Boolean, nullable=False, default=False)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())

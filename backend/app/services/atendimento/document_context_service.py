@@ -1,6 +1,6 @@
 from datetime import datetime
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -123,6 +123,9 @@ def montar_contexto_template_documento(
     }
 
 
+_VARIAVEL_TEMPLATE_PATTERN = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
+
+
 def renderizar_template_documento(template_text: str, contexto: Dict[str, str]) -> str:
     def substituir(match: re.Match[str]) -> str:
         chave = match.group(1).strip()
@@ -130,7 +133,15 @@ def renderizar_template_documento(template_text: str, contexto: Dict[str, str]) 
             return str(contexto[chave] or "")
         return match.group(0)
 
-    return re.sub(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}", substituir, template_text or "")
+    return _VARIAVEL_TEMPLATE_PATTERN.sub(substituir, template_text or "")
+
+
+def identificar_variaveis_vazias(template_text: str, contexto: Dict[str, str]) -> List[str]:
+    """Chaves `{{chave}}` presentes no template que existem no contexto mas
+    resolveriam para vazio (ex.: paciente sem peso/raca cadastrados) - usado
+    para avisar o vet antes de gerar o PDF (achado #42 da auditoria UX)."""
+    chaves = {match.group(1).strip() for match in _VARIAVEL_TEMPLATE_PATTERN.finditer(template_text or "")}
+    return sorted(chave for chave in chaves if chave in contexto and not str(contexto[chave] or "").strip())
 
 
 def renderizar_template_documento_para_atendimento(

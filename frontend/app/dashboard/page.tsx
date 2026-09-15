@@ -1,9 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import {
+  DASHBOARD_SECTIONS,
+  loadDashboardSection,
+  type DashboardSection,
+} from "@/lib/dashboard-loading";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -42,10 +47,25 @@ interface AgendamentoHoje {
 
 type DashboardTone = "cordis" | "vital" | "ink" | "amber";
 type MonitorTone = "ok" | "alert" | "network";
+type DashboardSectionState = "loading" | "success" | "failed" | "idle";
+
+const DASHBOARD_SECTION_LABELS: Record<DashboardSection, string> = {
+  agenda: "Agenda de hoje",
+  pacientes: "Pacientes",
+  clinicas: "Clínicas",
+  servicos: "Serviços",
+};
+
+const createInitialSectionStates = (): Record<DashboardSection, DashboardSectionState> => ({
+  agenda: "loading",
+  pacientes: "loading",
+  clinicas: "loading",
+  servicos: "loading",
+});
 
 interface DashboardMetric {
   label: string;
-  value: number;
+  value: number | string;
   Icon: LucideIcon;
   tone: DashboardTone;
   detail: string;
@@ -172,22 +192,34 @@ function DashboardLoadingState() {
 }
 
 function DashboardErrorState({
-  message,
+  failedSections,
+  isRetrying,
   onRetry,
 }: {
-  message: string;
+  failedSections: DashboardSection[];
+  isRetrying: boolean;
   onRetry: () => void;
 }) {
+  const allSectionsFailed = failedSections.length === DASHBOARD_SECTIONS.length;
+
   return (
     <section className="fc-error-panel" role="alert">
       <div>
-        <span>Sincronização interrompida</span>
-        <h2>Não foi possível atualizar o painel</h2>
-        <p>{message}</p>
+        <span>{allSectionsFailed ? "Sincronização interrompida" : "Dados parciais"}</span>
+        <h2>
+          {allSectionsFailed
+            ? "Não foi possível atualizar o painel"
+            : "Alguns indicadores não foram atualizados"}
+        </h2>
+        <p>
+          {allSectionsFailed
+            ? "Confira a conexão com o servidor e tente sincronizar novamente."
+            : `Indisponível agora: ${failedSections.map((section) => DASHBOARD_SECTION_LABELS[section]).join(", ")}.`}
+        </p>
       </div>
-      <button type="button" onClick={onRetry}>
+      <button type="button" onClick={onRetry} disabled={isRetrying}>
         <RefreshCw className="h-4 w-4" />
-        Tentar novamente
+        {isRetrying ? "Atualizando" : "Tentar novamente"}
       </button>
     </section>
   );
@@ -228,74 +260,131 @@ export default function DashboardPage() {
     totalServicos: 0,
   });
   const [agendamentosHoje, setAgendamentosHoje] = useState<AgendamentoHoje[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [sectionStates, setSectionStates] = useState<Record<DashboardSection, DashboardSectionState>>(
+    createInitialSectionStates
+  );
+  const activeRequestController = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    if (typeof window !== "undefined" && !localStorage.getItem("token")) {
-      setLoading(false);
+  const carregarDados = useCallback(async (requestedSections: DashboardSection[] = [...DASHBOARD_SECTIONS]) => {
+    activeRequestController.current?.abort();
+    const controller = new AbortController();
+    activeRequestController.current = controller;
+    const sections = requestedSections.filter((section, index) => requestedSections.indexOf(section) === index);
+
+    setSectionStates((current) => {
+      const next = { ...current };
+      sections.forEach((section) => {
+        next[section] = "loading";
+      });
+      return next;
+    });
+
+    const hoje = formatLocalDateForApi(new Date());
+    const loads = sections.map((section) => {
+      const trackResult = (result: Awaited<ReturnType<typeof loadDashboardSection>>) => {
+        const status = (result.error as { response?: { status?: number } } | undefined)?.response?.status;
+        if (result.status === "failed" && status !== 401) {
+          console.error(`Erro ao carregar ${DASHBOARD_SECTION_LABELS[result.section]}:`, result.error);
+          setSectionStates((current) => ({ ...current, [result.section]: "failed" }));
+        }
+        return result;
+      };
+
+      if (section === "agenda") {
+        return loadDashboardSection({
+          section,
+          request: api.get(`/agenda?data_inicio=${hoje}T00:00:00&data_fim=${hoje}T23:59:59`, {
+            signal: controller.signal,
+          }),
+          signal: controller.signal,
+          onSuccess: (response) => {
+            const agendamentos = response.data.items || [];
+            const confirmados = agendamentos.filter((item: any) => item.status === "Confirmado").length;
+            const pendentes = agendamentos.filter(
+              (item: any) => item.status === "Agendado" || item.status === "Reservado"
+            ).length;
+
+            setStats((current) => ({
+              ...current,
+              totalAgendamentos: agendamentos.length,
+              agendamentosHoje: agendamentos.length,
+              confirmados,
+              pendentes,
+            }));
+            setAgendamentosHoje(
+              agendamentos
+                .sort((a: any, b: any) => new Date(a.inicio).getTime() - new Date(b.inicio).getTime())
+                .slice(0, 5)
+                .map((item: any) => ({
+                  id: item.id,
+                  paciente: item.paciente,
+                  tutor: item.tutor,
+                  hora: new Date(item.inicio).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+                  status: item.status,
+                  servico: item.servico,
+                }))
+            );
+            setSectionStates((current) => ({ ...current, agenda: "success" }));
+          },
+        }).then(trackResult);
+      }
+
+      return loadDashboardSection({
+        section,
+        request: api.get(`/${section}`, { signal: controller.signal }),
+        signal: controller.signal,
+        onSuccess: (response) => {
+          setStats((current) => ({
+            ...current,
+            [`total${section.charAt(0).toUpperCase()}${section.slice(1)}`]: response.data.total || 0,
+          }));
+          setSectionStates((current) => ({ ...current, [section]: "success" }));
+        },
+      }).then(trackResult);
+    });
+
+    const results = await Promise.all(loads);
+    if (controller.signal.aborted) {
       return;
     }
 
-    carregarDados();
+    const unauthorized = results.some(
+      (result) => result.status === "failed" && (result.error as { response?: { status?: number } })?.response?.status === 401
+    );
+    if (unauthorized) {
+      setSectionStates((current) => {
+        const next = { ...current };
+        sections.forEach((section) => {
+          next[section] = "idle";
+        });
+        return next;
+      });
+      if (activeRequestController.current === controller) {
+        activeRequestController.current = null;
+      }
+      return;
+    }
+
+    if (activeRequestController.current === controller) {
+      activeRequestController.current = null;
+    }
   }, []);
 
-  const carregarDados = async () => {
-    setLoading(true);
-    setErrorMessage(null);
-
-    try {
-      // Buscar agendamentos de hoje
-      const hoje = formatLocalDateForApi(new Date());
-      const respAgenda = await api.get(`/agenda?data_inicio=${hoje}T00:00:00&data_fim=${hoje}T23:59:59`);
-      const agendamentos = respAgenda.data.items || [];
-
-      // Buscar totais
-      const [respPacientes, respClinicas, respServicos] = await Promise.all([
-        api.get('/pacientes'),
-        api.get('/clinicas'),
-        api.get('/servicos'),
-      ]);
-
-      const confirmados = agendamentos.filter((a: any) => a.status === 'Confirmado').length;
-      const pendentes = agendamentos.filter((a: any) => a.status === 'Agendado' || a.status === 'Reservado').length;
-
-      setStats({
-        totalAgendamentos: agendamentos.length,
-        agendamentosHoje: agendamentos.length,
-        confirmados,
-        pendentes,
-        totalPacientes: respPacientes.data.total || 0,
-        totalClinicas: respClinicas.data.total || 0,
-        totalServicos: respServicos.data.total || 0,
+  useEffect(() => {
+    if (typeof window !== "undefined" && !localStorage.getItem("token")) {
+      setSectionStates((current) => {
+        const next = { ...current };
+        DASHBOARD_SECTIONS.forEach((section) => {
+          next[section] = "idle";
+        });
+        return next;
       });
-
-      // Próximos agendamentos (ordenados por hora)
-      setAgendamentosHoje(
-        agendamentos
-          .sort((a: any, b: any) => new Date(a.inicio).getTime() - new Date(b.inicio).getTime())
-          .slice(0, 5)
-          .map((a: any) => ({
-            id: a.id,
-            paciente: a.paciente,
-            tutor: a.tutor,
-            hora: new Date(a.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-            status: a.status,
-            servico: a.servico,
-          }))
-      );
-    } catch (error) {
-      const status = (error as { response?: { status?: number } })?.response?.status;
-      if (status === 401) {
-        return;
-      }
-
-      console.error("Erro ao carregar dashboard:", error);
-      setErrorMessage("Confira a conexão com o servidor e tente sincronizar novamente.");
-    } finally {
-      setLoading(false);
+      return;
     }
-  };
+
+    void carregarDados();
+    return () => activeRequestController.current?.abort();
+  }, [carregarDados]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -323,20 +412,35 @@ export default function DashboardPage() {
     month: "short",
   }).format(new Date());
 
-  const commandStats: Array<{ label: string; value: number; tone: MonitorTone }> = [
+  const isLoading = DASHBOARD_SECTIONS.some((section) => sectionStates[section] === "loading");
+  const hasLoadedSection = DASHBOARD_SECTIONS.some((section) => sectionStates[section] === "success");
+  const failedSections = DASHBOARD_SECTIONS.filter((section) => sectionStates[section] === "failed");
+  const displayValue = (section: DashboardSection, value: number) =>
+    sectionStates[section] === "success" ? value : "—";
+  const detailForSection = (section: DashboardSection, defaultDetail: string) => {
+    if (sectionStates[section] === "failed") {
+      return "Dados indisponíveis — tente novamente";
+    }
+    if (sectionStates[section] === "loading") {
+      return "Atualizando dados";
+    }
+    return defaultDetail;
+  };
+
+  const commandStats: Array<{ label: string; value: number | string; tone: MonitorTone }> = [
     {
       label: "confirmados",
-      value: stats.confirmados,
+      value: displayValue("agenda", stats.confirmados),
       tone: "ok",
     },
     {
       label: "pendentes",
-      value: stats.pendentes,
+      value: displayValue("agenda", stats.pendentes),
       tone: "alert",
     },
     {
       label: "clinicas",
-      value: stats.totalClinicas,
+      value: displayValue("clinicas", stats.totalClinicas),
       tone: "network",
     },
   ];
@@ -344,34 +448,34 @@ export default function DashboardPage() {
   const boardMetrics: DashboardMetric[] = [
     {
       label: "Agendamentos hoje",
-      value: stats.agendamentosHoje,
+      value: displayValue("agenda", stats.agendamentosHoje),
       Icon: Calendar,
       tone: "cordis",
-      detail: `${stats.confirmados} confirmados / ${stats.pendentes} pendentes`,
+      detail: detailForSection("agenda", `${stats.confirmados} confirmados / ${stats.pendentes} pendentes`),
       signal: "Dia clínico",
     },
     {
       label: "Pacientes",
-      value: stats.totalPacientes,
+      value: displayValue("pacientes", stats.totalPacientes),
       Icon: Users,
       tone: "vital",
-      detail: "Total cadastrados",
+      detail: detailForSection("pacientes", "Total cadastrados"),
       signal: "Carteira ativa",
     },
     {
       label: "Clínicas",
-      value: stats.totalClinicas,
+      value: displayValue("clinicas", stats.totalClinicas),
       Icon: Building2,
       tone: "ink",
-      detail: "Parceiras ativas",
+      detail: detailForSection("clinicas", "Parceiras ativas"),
       signal: "Rede assistida",
     },
     {
       label: "Serviços",
-      value: stats.totalServicos,
+      value: displayValue("servicos", stats.totalServicos),
       Icon: Stethoscope,
       tone: "amber",
-      detail: "Disponíveis",
+      detail: detailForSection("servicos", "Disponíveis"),
       signal: "Catálogo",
     },
   ];
@@ -447,7 +551,7 @@ export default function DashboardPage() {
               </span>
               <span>
                 <PawPrint className="h-4 w-4" />
-                {loading ? "Sincronizando" : "Operação local"}
+                {isLoading ? "Sincronizando" : "Operação local"}
               </span>
             </div>
           </div>
@@ -463,7 +567,7 @@ export default function DashboardPage() {
             <div className="fc-monitor-footer">
               {commandStats.map((item) => (
                 <div key={item.label} className={`fc-monitor-chip fc-monitor-chip-${item.tone}`}>
-                  <strong>{loading ? "--" : item.value}</strong>
+                  <strong>{item.value}</strong>
                   <span>{item.label}</span>
                 </div>
               ))}
@@ -473,23 +577,28 @@ export default function DashboardPage() {
           <div className="fc-today-orbit">
             <span>Hoje</span>
             <div className="fc-today-summary">
-              <strong>{loading ? "--" : stats.agendamentosHoje}</strong>
+              <strong>{displayValue("agenda", stats.agendamentosHoje)}</strong>
               <small>eventos clínicos</small>
             </div>
             <div className="fc-today-breakdown">
-              <span>{stats.confirmados} confirmados</span>
-              <span>{stats.pendentes} pendentes</span>
-              <span>{stats.totalClinicas} clínicas</span>
+              <span>{displayValue("agenda", stats.confirmados)} confirmados</span>
+              <span>{displayValue("agenda", stats.pendentes)} pendentes</span>
+              <span>{displayValue("clinicas", stats.totalClinicas)} clínicas</span>
             </div>
           </div>
         </section>
 
-        {loading ? (
+        {isLoading && !hasLoadedSection && failedSections.length === 0 ? (
           <DashboardLoadingState />
-        ) : errorMessage ? (
-          <DashboardErrorState message={errorMessage} onRetry={carregarDados} />
         ) : (
           <>
+            {failedSections.length > 0 && (
+              <DashboardErrorState
+                failedSections={failedSections}
+                isRetrying={isLoading}
+                onRetry={() => void carregarDados(failedSections)}
+              />
+            )}
             <section className="fc-metric-ribbon" aria-label="Indicadores principais">
               {boardMetrics.map((metric) => (
                 <MetricCard key={metric.label} metric={metric} />
@@ -504,12 +613,31 @@ export default function DashboardPage() {
                     <h2>Fluxo clínico</h2>
                   </div>
                   <div className="fc-section-actions">
-                    <strong>{agendamentosHoje.length}</strong>
+                    <strong>{sectionStates.agenda === "success" ? agendamentosHoje.length : "—"}</strong>
                     <Link href="/agenda" className="fc-section-button">Abrir agenda</Link>
                   </div>
                 </div>
                 <div className="fc-agenda-stage">
-                  {agendamentosHoje.length === 0 ? (
+                  {sectionStates.agenda === "loading" ? (
+                    <div className="fc-empty-stage" role="status">
+                      <p className="fc-empty-title">Atualizando agenda</p>
+                      <p className="fc-empty-copy">Buscando os horários clínicos de hoje.</p>
+                    </div>
+                  ) : sectionStates.agenda === "failed" ? (
+                    <div className="fc-empty-stage" role="alert">
+                      <p className="fc-empty-title">Agenda indisponível no momento</p>
+                      <p className="fc-empty-copy">Os demais indicadores continuam disponíveis.</p>
+                      <button
+                        type="button"
+                        className="fc-empty-action"
+                        onClick={() => void carregarDados(["agenda"])}
+                        disabled={isLoading}
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        Tentar atualizar agenda
+                      </button>
+                    </div>
+                  ) : agendamentosHoje.length === 0 ? (
                     <EmptyAgendaState />
                   ) : (
                     <div className="fc-timeline">

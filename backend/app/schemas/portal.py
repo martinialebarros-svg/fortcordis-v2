@@ -113,7 +113,59 @@ class PortalExamListResponse(BaseModel):
     partner_tipo_label: Optional[str] = None
     operational_summary: Optional[PortalClinicOperationalSummaryResponse] = None
     operational_items: list[PortalClinicOperationalItemResponse] = Field(default_factory=list)
+    operational_pending_items: list[PortalClinicOperationalItemResponse] = Field(default_factory=list)
     items: list[PortalExamSummaryResponse] = Field(default_factory=list)
+    must_change_password: Optional[bool] = None
+
+
+class PortalClinicaAgendamentoItemResponse(BaseModel):
+    id: int
+    data: Optional[str] = None
+    hora: Optional[str] = None
+    inicio: Optional[datetime] = None
+    fim: Optional[datetime] = None
+    status: str
+    paciente_nome: Optional[str] = None
+    tutor_nome: Optional[str] = None
+    servico_nome: Optional[str] = None
+    pode_cancelar: bool = False
+
+
+class PortalClinicaAgendamentoListResponse(BaseModel):
+    total: int
+    clinica_id: int
+    clinica_nome: str
+    items: list[PortalClinicaAgendamentoItemResponse] = Field(default_factory=list)
+
+
+class PortalClinicaAgendamentoCancelResponse(BaseModel):
+    item: PortalClinicaAgendamentoItemResponse
+    message: str
+
+
+class PortalClinicaOrdemServicoItemResponse(BaseModel):
+    id: int
+    numero_os: str
+    status: str
+    valor: float
+    data_atendimento: Optional[datetime] = None
+    paciente_nome: Optional[str] = None
+    servico_nome: Optional[str] = None
+
+
+class PortalClinicaFinanceiroSummaryResponse(BaseModel):
+    total_pendente: float = 0
+    total_pago: float = 0
+    quantidade_pendente: int = 0
+    quantidade_pago: int = 0
+
+
+class PortalClinicaFinanceiroResponse(BaseModel):
+    clinica_id: int
+    clinica_nome: str
+    summary: PortalClinicaFinanceiroSummaryResponse
+    pendentes: list[PortalClinicaOrdemServicoItemResponse] = Field(default_factory=list)
+    pagas: list[PortalClinicaOrdemServicoItemResponse] = Field(default_factory=list)
 
 
 class PortalDownloadLinkItemResponse(BaseModel):
@@ -137,6 +189,8 @@ class PortalAdminClinicInviteCreateRequest(BaseModel):
     account_email: Optional[str] = Field(default=None, min_length=5, max_length=255)
     expires_in_hours: int = Field(default=72, ge=1, le=168)
     allow_manual_copy: bool = True
+    senha_temporaria: bool = False
+    responsavel_nome: Optional[str] = Field(default=None, min_length=2, max_length=255)
 
 
 class PortalAdminClinicInviteResponse(BaseModel):
@@ -144,12 +198,13 @@ class PortalAdminClinicInviteResponse(BaseModel):
     status: str
     expires_at: Optional[datetime] = None
     activation_url: str
-    access_mode: Literal["activation", "login"] = "activation"
+    access_mode: Literal["activation", "login", "temporary_password"] = "activation"
     delivery_channel: str
     delivery_target_masked: Optional[str] = None
     account_email_masked: Optional[str] = None
     delivery_status: str = "manual_copy"
     delivery_provider: Optional[str] = None
+    senha_temporaria: Optional[str] = None
 
 
 class PortalAdminClinicInviteRevokeRequest(BaseModel):
@@ -453,6 +508,12 @@ class PortalClinicActivationRequest(BaseModel):
     responsavel_nome: str = Field(..., min_length=2, max_length=255)
     password: str = Field(..., min_length=PORTAL_CLINIC_PASSWORD_MIN_LENGTH, max_length=255)
     password_confirmation: str = Field(..., min_length=PORTAL_CLINIC_PASSWORD_MIN_LENGTH, max_length=255)
+
+
+class PortalClinicPasswordChangeRequest(BaseModel):
+    senha_atual: str = Field(..., min_length=1, max_length=255)
+    nova_senha: str = Field(..., min_length=PORTAL_CLINIC_PASSWORD_MIN_LENGTH, max_length=255)
+    nova_senha_confirmacao: str = Field(..., min_length=PORTAL_CLINIC_PASSWORD_MIN_LENGTH, max_length=255)
 
 
 class PortalClinicActivationResponse(BaseModel):

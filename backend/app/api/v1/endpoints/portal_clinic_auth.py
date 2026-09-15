@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints import portal as portal_endpoints
 from app.core.config import settings
-from app.core.portal_security import PortalSessionContext
+from app.core.portal_security import PortalSessionContext, get_current_portal_session
 from app.core.security import require_any_papel, require_papel
 from app.db.database import get_db
 from app.models.atendimento_clinico import AnexoAtendimento
@@ -50,6 +50,7 @@ from app.schemas.portal import (
     PortalClinicInviteStatusResponse,
     PortalClinicLoginRequest,
     PortalClinicMfaVerifyRequest,
+    PortalClinicPasswordChangeRequest,
     PortalCodeVerifyRequest,
     PortalDownloadUrlResponse,
     PortalExamListResponse,
@@ -81,6 +82,7 @@ from app.services.portal_clinic_auth_service import (
     create_or_replace_pending_account,
     create_password_reset_token,
     expire_invite_if_needed,
+    gerar_senha_temporaria,
     get_account_by_email,
     get_active_clinica_or_404,
     get_invite_by_raw_token,
@@ -104,6 +106,7 @@ from app.services.portal_clinic_auth_service import (
     send_password_reset_email,
     send_whatsapp_invite,
     send_whatsapp_login_access,
+    send_whatsapp_temporary_password,
     set_portal_refresh_cookie,
     utcnow,
     validate_password_reset_token_or_401,
@@ -937,6 +940,8 @@ def criar_convite_clinica(
     access_mode: str = "activation"
     access_url: str
     account_email_masked: str | None
+    senha_temporaria_gerada: str | None = None
+    temp_password_account_id: int | None = None
 
     if account_allows_login_reminder:
         access_mode = "login"
@@ -951,17 +956,40 @@ def criar_convite_clinica(
                     "Revogue um acesso existente antes de convidar outro gestor."
                 ),
             )
-        invite, raw_token = create_clinic_invite(
-            db,
-            clinica_id=clinica.id,
-            delivery_channel=payload.delivery_channel,
-            delivery_target=payload.delivery_target,
-            account_email=payload.account_email,
-            expires_in_hours=payload.expires_in_hours,
-            created_by_user_id=current_user.id,
-        )
-        access_url = build_activation_url(request, raw_token)
-        account_email_masked = mask_email(payload.account_email) if payload.account_email else None
+        if payload.senha_temporaria:
+            if not normalized_payload_email:
+                raise HTTPException(status_code=422, detail="Informe o email institucional do gestor.")
+            senha_temporaria_gerada = gerar_senha_temporaria()
+            account = create_or_replace_pending_account(
+                db,
+                clinica_id=clinica.id,
+                email=payload.account_email,
+                responsavel_nome=payload.responsavel_nome or "Gestor da clinica",
+                password=senha_temporaria_gerada,
+            )
+            now = utcnow()
+            account.status = ACCOUNT_STATUS_ACTIVE
+            account.email_verified_at = now
+            account.activated_at = now
+            account.must_change_password = True
+            db.commit()
+
+            access_mode = "temporary_password"
+            access_url = build_clinic_portal_url(request)
+            account_email_masked = mask_email(account.email_normalized)
+            temp_password_account_id = account.id
+        else:
+            invite, raw_token = create_clinic_invite(
+                db,
+                clinica_id=clinica.id,
+                delivery_channel=payload.delivery_channel,
+                delivery_target=payload.delivery_target,
+                account_email=payload.account_email,
+                expires_in_hours=payload.expires_in_hours,
+                created_by_user_id=current_user.id,
+            )
+            access_url = build_activation_url(request, raw_token)
+            account_email_masked = mask_email(payload.account_email) if payload.account_email else None
 
     delivery_status = "manual_copy"
     delivery_provider = None
@@ -974,6 +1002,14 @@ def criar_convite_clinica(
                     clinica_nome=clinica.nome,
                     portal_url=access_url,
                     account_email=normalize_email(existing_account.email_normalized),
+                )
+            elif access_mode == "temporary_password":
+                result = send_whatsapp_temporary_password(
+                    destination=payload.delivery_target,
+                    clinica_nome=clinica.nome,
+                    portal_url=access_url,
+                    account_email=normalized_payload_email,
+                    senha_temporaria=senha_temporaria_gerada or "",
                 )
             else:
                 result = send_whatsapp_invite(
@@ -999,13 +1035,28 @@ def criar_convite_clinica(
             detail="Envio automatico por WhatsApp indisponivel neste ambiente.",
         )
 
+    audit_entidade = "portal_clinic_invite"
+    audit_acao = "PORTAL_CLINIC_INVITE_CREATED"
+    audit_descricao = "Convite da clinica parceira criado."
+    audit_entidade_id = invite.id if invite is not None else None
+    if access_mode == "login":
+        audit_entidade = "portal_clinic_account"
+        audit_acao = "PORTAL_CLINIC_ACCESS_REMINDER_SENT"
+        audit_descricao = "Acesso da clinica parceira reenviado."
+        audit_entidade_id = existing_account.id
+    elif access_mode == "temporary_password":
+        audit_entidade = "portal_clinic_account"
+        audit_acao = "PORTAL_CLINIC_ACCOUNT_CREATED_WITH_TEMP_PASSWORD"
+        audit_descricao = "Conta da clinica parceira criada com senha temporaria pelo admin."
+        audit_entidade_id = temp_password_account_id
+
     registrar_auditoria(
         current_user=current_user,
         modulo="portal",
-        entidade="portal_clinic_account" if access_mode == "login" else "portal_clinic_invite",
-        acao="PORTAL_CLINIC_ACCESS_REMINDER_SENT" if access_mode == "login" else "PORTAL_CLINIC_INVITE_CREATED",
-        descricao="Acesso da clinica parceira reenviado." if access_mode == "login" else "Convite da clinica parceira criado.",
-        entidade_id=existing_account.id if access_mode == "login" else invite.id,
+        entidade=audit_entidade,
+        acao=audit_acao,
+        descricao=audit_descricao,
+        entidade_id=audit_entidade_id,
         detalhes={
             "clinica_id": clinica.id,
             "delivery_channel": payload.delivery_channel,
@@ -1014,10 +1065,20 @@ def criar_convite_clinica(
         },
         request=request,
     )
+
+    invite_status: str
+    invite_expires_at = invite.expires_at if invite is not None else None
+    if access_mode == "login":
+        invite_status = existing_account.status
+    elif access_mode == "temporary_password":
+        invite_status = ACCOUNT_STATUS_ACTIVE
+    else:
+        invite_status = invite.status if invite is not None else "pending"
+
     return PortalAdminClinicInviteResponse(
         invite_id=invite.id if invite is not None else None,
-        status=existing_account.status if access_mode == "login" else invite.status,
-        expires_at=invite.expires_at if invite is not None else None,
+        status=invite_status,
+        expires_at=invite_expires_at,
         activation_url=access_url,
         access_mode=access_mode,
         delivery_channel=payload.delivery_channel,
@@ -1026,6 +1087,7 @@ def criar_convite_clinica(
         else mask_email(payload.delivery_target),
         account_email_masked=account_email_masked,
         delivery_status=delivery_status,
+        senha_temporaria=senha_temporaria_gerada,
         delivery_provider=delivery_provider,
     )
 
@@ -1629,3 +1691,45 @@ def redefinir_senha_clinica(
         request=request,
     )
     return PortalSimpleAcceptedResponse(message="Senha redefinida com sucesso.")
+
+
+@router.post("/auth/trocar-senha", response_model=PortalSimpleAcceptedResponse)
+def trocar_senha_clinica(
+    payload: PortalClinicPasswordChangeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    portal_session: PortalSessionContext = Depends(get_current_portal_session),
+):
+    _assert_password_login_enabled()
+    if portal_session.actor_type != "clinica" or not portal_session.account_id:
+        raise HTTPException(status_code=403, detail="Sessao do portal sem acesso para clinica.")
+    if payload.nova_senha != payload.nova_senha_confirmacao:
+        raise HTTPException(status_code=422, detail="A confirmacao de senha nao confere.")
+
+    account = (
+        db.query(PortalClinicAccount)
+        .filter(PortalClinicAccount.id == portal_session.account_id)
+        .first()
+    )
+    if not account or account.status != ACCOUNT_STATUS_ACTIVE:
+        raise HTTPException(status_code=403, detail="Conta da clinica indisponivel.")
+    if not verify_password(payload.senha_atual, account.password_hash):
+        raise HTTPException(status_code=401, detail="Senha atual incorreta.")
+
+    account.password_hash = hash_password(payload.nova_senha)
+    account.password_changed_at = utcnow()
+    account.must_change_password = False
+    account.force_mfa_on_next_login = False
+    db.commit()
+
+    registrar_auditoria(
+        current_user=None,
+        modulo="portal",
+        entidade="portal_clinic_account",
+        acao="PORTAL_CLINIC_PASSWORD_CHANGED_BY_USER",
+        descricao="Senha da clinica trocada pelo proprio usuario autenticado.",
+        entidade_id=account.id,
+        detalhes={"clinica_id": account.clinica_id},
+        request=request,
+    )
+    return PortalSimpleAcceptedResponse(message="Senha atualizada com sucesso.")

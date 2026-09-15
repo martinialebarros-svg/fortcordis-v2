@@ -254,11 +254,20 @@ O módulo é aditivo e isolado:
 - RF-079: o cache do PDF inclui uma versão explícita do renderizador. Mudanças
   na leitura ou apresentação das medidas invalidam PDFs concluídos por versões
   anteriores, mesmo quando o laudo não foi editado depois da correção.
+- RF-080: `E_TRIV` é uma medida numérica permitida no contexto e no patch do
+  assistente de voz, identificada como relação adimensional de Doppler pulsado
+  transmitral. A presença desse valor não deve, isoladamente, gerar conclusão
+  automática de congestão venosa pulmonar.
 - RF-080: uma alteração leve explicitamente ditada não pode ser neutralizada
   pela afirmação de que os demais parâmetros estão normais. Refluxo pulmonar
   leve deve permanecer no campo da valva pulmonar e na conclusão, inclusive
   quando descrito sem repercussão hemodinâmica; o preset normal completa apenas
   os aspectos não contraditos.
+- RF-081: frases clínicas não expõem termos internos como "intervalo de
+  referência carregado". Para função sistólica preservada, fração de ejeção
+  normal e fração de encurtamento até 1 ponto percentual acima do limite são
+  descritas como dentro dos intervalos de referência normais; os valores
+  originais permanecem inalterados nos campos e nas evidências.
 
 ## 4. Estados
 
@@ -349,6 +358,9 @@ milhão estiverem em zero.
 - CA-015: refluxo pulmonar leve sem repercussão, seguido de normalidade dos
   demais parâmetros, gera preset rico para os campos normais e conclusão
   restrita ao refluxo pulmonar, sem classificar o exame inteiro como normal.
+- CA-016: FE normal e FS até 1 ponto percentual acima do limite geram a frase
+  clínica padronizada de função sistólica dentro dos intervalos de referência
+  normais; desvios maiores não são ocultados e nenhuma frase exibe "carregado".
 
 O smoke vivo de CA-013 deve ser descartável e executado apenas sob marcação
 explícita `[ai-echo-canary]`: áudio sintético sem dados pessoais, provedor real,

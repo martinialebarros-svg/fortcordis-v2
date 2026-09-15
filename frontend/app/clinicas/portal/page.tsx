@@ -282,6 +282,8 @@ export default function PortalClinicManagementPage() {
   const [deliveryTarget, setDeliveryTarget] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [expiresInHours, setExpiresInHours] = useState("72");
+  const [senhaTemporaria, setSenhaTemporaria] = useState(false);
+  const [responsavelNome, setResponsavelNome] = useState("");
   const [generatedInvite, setGeneratedInvite] = useState<PortalAdminClinicInviteResponse | null>(null);
   const [generatedClinicName, setGeneratedClinicName] = useState("");
   const [message, setMessage] = useState("");
@@ -448,6 +450,10 @@ export default function PortalClinicManagementPage() {
       setError("Informe o email institucional que sera usado pela clinica no login.");
       return;
     }
+    if (senhaTemporaria && !responsavelNome.trim()) {
+      setError("Informe o nome do responsavel na clinica para gerar a senha temporaria.");
+      return;
+    }
 
     setSubmitting(true);
     setError("");
@@ -461,6 +467,8 @@ export default function PortalClinicManagementPage() {
           account_email: inviteEmail.trim(),
           expires_in_hours: Number.parseInt(expiresInHours, 10) || 72,
           allow_manual_copy: true,
+          senha_temporaria: senhaTemporaria,
+          responsavel_nome: senhaTemporaria ? responsavelNome.trim() : undefined,
         },
         { headers: getPortalAdminAuthHeaders() },
       );
@@ -471,10 +479,15 @@ export default function PortalClinicManagementPage() {
           ? response.data.delivery_status === "sent"
             ? "Acesso reenviado com sucesso. O link e a mensagem continuam disponiveis abaixo."
             : "Acesso pronto. Copie a mensagem e encaminhe pelo WhatsApp da clinica."
-          : response.data.delivery_status === "sent"
-            ? "Convite enviado com sucesso. O link e a mensagem continuam disponiveis abaixo."
-            : "Convite gerado. Copie a mensagem e encaminhe pelo WhatsApp da clinica.",
+          : response.data.access_mode === "temporary_password"
+            ? "Conta criada com senha temporaria. Copie a senha agora - ela nao aparece de novo."
+            : response.data.delivery_status === "sent"
+              ? "Convite enviado com sucesso. O link e a mensagem continuam disponiveis abaixo."
+              : "Convite gerado. Copie a mensagem e encaminhe pelo WhatsApp da clinica.",
       );
+      if (response.data.access_mode === "activation" || response.data.access_mode === "temporary_password") {
+        setResponsavelNome("");
+      }
       await loadOverview();
     } catch (err) {
       setError(extractApiErrorMessageSync(err, "Nao foi possivel gerar o convite da clinica."));
@@ -492,6 +505,18 @@ export default function PortalClinicManagementPage() {
       setMessage(generatedInvite.access_mode === "login" ? "Link de acesso copiado." : "Link de ativacao copiado.");
     } catch {
       setError("Nao foi possivel copiar o link automaticamente.");
+    }
+  }
+
+  async function handleCopySenhaTemporaria() {
+    if (!generatedInvite?.senha_temporaria) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(generatedInvite.senha_temporaria);
+      setMessage("Senha temporaria copiada.");
+    } catch {
+      setError("Nao foi possivel copiar a senha automaticamente.");
     }
   }
 
@@ -951,6 +976,32 @@ export default function PortalClinicManagementPage() {
               </label>
             </div>
 
+            <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={senhaTemporaria}
+                onChange={(event) => setSenhaTemporaria(event.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+              />
+              <span>
+                Gerar senha temporaria (recomendado para quem tem menos familiaridade com sistemas) - a conta ja
+                nasce ativa, sem a clinica precisar criar a propria senha.
+              </span>
+            </label>
+
+            {senhaTemporaria ? (
+              <label className="mt-3 flex flex-col gap-2 text-sm font-medium text-slate-700 md:max-w-xs">
+                Nome do responsavel na clinica
+                <input
+                  type="text"
+                  value={responsavelNome}
+                  onChange={(event) => setResponsavelNome(event.target.value)}
+                  placeholder="Nome de quem vai usar o portal"
+                  className="h-12 rounded-2xl border border-slate-200 px-4 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                />
+              </label>
+            ) : null}
+
             {selectedClinic ? (
               <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1010,6 +1061,27 @@ export default function PortalClinicManagementPage() {
                     {generatedInvite.delivery_status === "sent" ? "Enviado" : "Copia manual"}
                   </span>
                 </div>
+
+                {generatedInvite.access_mode === "temporary_password" && generatedInvite.senha_temporaria ? (
+                  <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-amber-800">
+                      Senha temporaria - so aparece agora, anote ou copie antes de sair desta tela
+                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <code className="rounded bg-white px-2 py-1 font-mono text-base text-amber-950">
+                        {generatedInvite.senha_temporaria}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => void handleCopySenhaTemporaria()}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-100"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        Copiar senha
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mt-4 grid gap-4">
                   <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">

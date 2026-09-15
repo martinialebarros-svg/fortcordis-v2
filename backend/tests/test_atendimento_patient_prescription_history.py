@@ -49,6 +49,72 @@ class AtendimentoPatientPrescriptionHistoryTest(unittest.TestCase):
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
         return tmpdir, session, engine
 
+    def test_historico_retorna_series_de_temperatura_fc_fr(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            paciente = Paciente(nome="Bidu", especie="Canina", ativo=1)
+            db.add(paciente)
+            db.flush()
+            antigo = AtendimentoClinico(
+                paciente_id=paciente.id,
+                veterinario_id=7,
+                data_atendimento=datetime(2026, 5, 1, 9, 0),
+                status="Concluido",
+                criado_por_nome="Dra. Ana",
+                temperatura=38.2,
+                frequencia_cardiaca=110,
+                frequencia_respiratoria=24,
+            )
+            # Atendimento sem sinais vitais registrados - nao deve aparecer em
+            # nenhuma das series (mesma regra que "pesos" ja aplica ao peso).
+            sem_vitais = AtendimentoClinico(
+                paciente_id=paciente.id,
+                veterinario_id=7,
+                data_atendimento=datetime(2026, 6, 1, 9, 0),
+                status="Concluido",
+                criado_por_nome="Dra. Ana",
+            )
+            recente = AtendimentoClinico(
+                paciente_id=paciente.id,
+                veterinario_id=7,
+                data_atendimento=datetime(2026, 7, 15, 9, 0),
+                status="Concluido",
+                criado_por_nome="Dra. Ana",
+                temperatura=39.1,
+                frequencia_cardiaca=130,
+                frequencia_respiratoria=32,
+            )
+            db.add_all([antigo, sem_vitais, recente])
+            db.commit()
+
+            resultado = atendimento.historico_paciente(
+                paciente.id,
+                limite=10,
+                db=db,
+                current_user=SimpleNamespace(id=7),
+            )
+
+            self.assertEqual(
+                [item["temperatura"] for item in resultado["temperaturas"]],
+                [39.1, 38.2],
+            )
+            self.assertEqual(
+                [item["frequencia_cardiaca"] for item in resultado["frequencias_cardiacas"]],
+                [130, 110],
+            )
+            self.assertEqual(
+                [item["frequencia_respiratoria"] for item in resultado["frequencias_respiratorias"]],
+                [32, 24],
+            )
+            self.assertEqual(
+                {item["atendimento_id"] for item in resultado["temperaturas"]},
+                {antigo.id, recente.id},
+            )
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_historico_retorna_receitas_separadas_por_atendimento_sem_n_plus_one(self) -> None:
         tmpdir, db, engine = self._build_session()
         statements = []

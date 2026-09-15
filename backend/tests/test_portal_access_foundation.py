@@ -684,6 +684,98 @@ class PortalAccessFoundationTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_clinica_operational_pending_items_survive_recent_activity_crowding(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            _, paciente, clinica, _, _, _ = self._seed_portal_data(db, tmpdir)
+
+            laudo_antigo_pendente = Laudo(
+                paciente_id=paciente.id,
+                veterinario_id=77,
+                tipo="ecocardiograma",
+                titulo="Eco antigo aguardando liberacao",
+                status="Finalizado",
+                clinic_id=clinica.id,
+                data_exame=datetime(2026, 6, 1, 9, 0),
+                criado_por_id=77,
+                criado_por_nome="Vet Teste",
+            )
+            db.add(laudo_antigo_pendente)
+
+            # 8 laudos recentes em outro status, o suficiente pra lotar o
+            # top-8 combinado de `operational_items` e comprovar que o
+            # pendente antigo some de la mas continua em
+            # `operational_pending_items` (achado da secao 4 do spec de
+            # portal-clinica-parceira-redesign).
+            laudos_recentes = [
+                Laudo(
+                    paciente_id=paciente.id,
+                    veterinario_id=77,
+                    tipo="ecocardiograma",
+                    titulo=f"Eco recente {indice}",
+                    status="Rascunho",
+                    clinic_id=clinica.id,
+                    data_exame=datetime(2026, 6, 16, 10, indice),
+                    criado_por_id=77,
+                    criado_por_nome="Vet Teste",
+                )
+                for indice in range(portal._PORTAL_OPERATIONAL_RECENT_LIMIT)
+            ]
+            db.add_all(laudos_recentes)
+            db.commit()
+            db.refresh(laudo_antigo_pendente)
+
+            clinic_session = PortalSessionContext(
+                actor_type="clinica",
+                actor_id=clinica.id,
+                paciente_id=None,
+                clinica_id=clinica.id,
+                challenge_id="challenge-clinica",
+                display_name="Responsavel Clinica",
+                channel="email",
+                scope=tuple(portal.PORTAL_SCOPE_CLINICA),
+                expires_at=datetime.utcnow(),
+            )
+
+            with patch.object(
+                portal,
+                "_portal_local_now",
+                return_value=datetime(2026, 6, 16, 23, 45, tzinfo=portal.PORTAL_LOCAL_TZ),
+            ):
+                response = portal.listar_exames_clinica_portal(
+                    q=None,
+                    pet=None,
+                    tutor=None,
+                    especie=None,
+                    tipo_exame=None,
+                    status_exame=None,
+                    data_inicio=None,
+                    data_fim=None,
+                    sort_by="data",
+                    sort_dir="desc",
+                    limit=100,
+                    offset=0,
+                    db=db,
+                    portal_session=clinic_session,
+                )
+
+            antigo_item_id = f"laudo:{laudo_antigo_pendente.id}"
+            operational_item_ids = {item.item_id for item in response.operational_items}
+            self.assertNotIn(
+                antigo_item_id,
+                operational_item_ids,
+                "pre-condicao do teste: o pendente antigo precisa ficar de fora do top-8 misturado",
+            )
+
+            pending_item_ids = {item.item_id for item in response.operational_pending_items}
+            self.assertIn(antigo_item_id, pending_item_ids)
+            for item in response.operational_pending_items:
+                self.assertEqual(item.status_key, "aguardando_liberacao")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_admin_mirror_reuses_clinic_portal_scope_and_downloads(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:

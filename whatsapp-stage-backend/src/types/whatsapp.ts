@@ -10,12 +10,13 @@ export interface WebhookMessage {
   timestamp?: string;
   type?: string;
   text?: { body?: string };
-  button?: { text?: string };
+  button?: { text?: string; payload?: string };
   interactive?: Record<string, unknown>;
   image?: { caption?: string };
   audio?: Record<string, unknown>;
   video?: { caption?: string };
   document?: { filename?: string };
+  reaction?: { message_id?: string; emoji?: string };
   [key: string]: unknown;
 }
 

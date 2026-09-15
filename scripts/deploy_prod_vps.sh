@@ -13,6 +13,7 @@ set -euo pipefail
 #   APP_DIR=/var/www/fortcordis-v2
 #   BRANCH=main
 #   BACKEND_SERVICE=fortcordis-backend
+#   BACKGROUND_WORKER_SERVICE=fortcordis-backend-worker
 #   FRONTEND_SERVICE=fortcordis-frontend
 #   BACKEND_PORT=8000
 #   FRONTEND_PORT=3000
@@ -21,6 +22,13 @@ set -euo pipefail
 #   WHATSAPP_STAGE_BACKEND_SERVICE=fortcordis-stage-whatsapp-backend
 #   WHATSAPP_STAGE_BACKEND_PORT=3010
 #   WHATSAPP_STAGE_BACKEND_URL=http://127.0.0.1:3010
+#   WHATSAPP_META_SOURCE_ENV_FILE=/caminho/seguro/.env
+#   WHATSAPP_EXPECTED_PHONE_NUMBER_ID=<id-publico-do-ambiente>
+#   WHATSAPP_EXPECTED_META_APP_ID=<id-publico-do-ambiente>
+#   WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID=<id-publico-do-ambiente>
+#   WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION=0|1
+#   WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED=true|false
+#   WHATSAPP_RUNTIME_LABEL=Stage
 #   ENABLE_WHATSAPP_STAGE_SMOKE=1
 #   WHATSAPP_DEFAULT_ALLOWED_PAPEIS=admin,recepcao,veterinario,cardiologista
 #   WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS=admin,recepcao,veterinario,cardiologista
@@ -28,6 +36,8 @@ set -euo pipefail
 #   ENABLE_AUTH_CANARY=1
 #   AUTH_CANARY_TIMEOUT_SECONDS=8
 #   AUTH_CANARY_DISABLE_INTERNAL_TOKEN=0
+#   AUTH_CANARY_AGENDA_LATENCY_SAMPLES=5
+#   AUTH_CANARY_AGENDA_MAX_P95_MS=1200
 #   CANARY_BEARER_TOKEN=<token-opcional>
 #   CANARY_USERNAME=<usuario-opcional>
 #   CANARY_PASSWORD=<senha-opcional>
@@ -38,7 +48,12 @@ set -euo pipefail
 #   REQUIRE_ECO_STUDY_OCR=0
 #   RUNTIME_BACKUP_RETENTION_DAYS=30
 #   RUNTIME_BACKUP_MAX_ITEMS=200
+#   ENABLE_NGINX_HTTP2=0|1
+#   NGINX_HTTP2_EXPECTED_HOSTS=app.stage.fortcordis.com.br,app.fortcordis.com.br
+#   NGINX_HTTP2_SITE_ROOT=/etc/nginx/sites-available
+#   NGINX_HTTP2_ENABLED_ROOT=/etc/nginx/sites-enabled
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-/var/www/fortcordis-v2}"
 BRANCH="${BRANCH:-main}"
 SUDO_PASSWORD="${SUDO_PASSWORD:-${VPS_SUDO_PASSWORD:-}}"
@@ -47,6 +62,7 @@ BACKEND_DIR="${APP_DIR}/backend"
 FRONTEND_DIR="${APP_DIR}/frontend"
 
 BACKEND_SERVICE="${BACKEND_SERVICE:-fortcordis-backend}"
+BACKGROUND_WORKER_SERVICE="${BACKGROUND_WORKER_SERVICE:-${BACKEND_SERVICE}-worker}"
 FRONTEND_SERVICE="${FRONTEND_SERVICE:-fortcordis-frontend}"
 
 BACKEND_PORT="${BACKEND_PORT:-8000}"
@@ -59,6 +75,16 @@ WHATSAPP_STAGE_BACKEND_PORT="${WHATSAPP_STAGE_BACKEND_PORT:-3010}"
 WHATSAPP_STAGE_BACKEND_URL="${WHATSAPP_STAGE_BACKEND_URL:-http://127.0.0.1:${WHATSAPP_STAGE_BACKEND_PORT}}"
 WHATSAPP_STAGE_BACKEND_DIR="${WHATSAPP_STAGE_BACKEND_DIR:-${APP_DIR}/whatsapp-stage-backend}"
 WHATSAPP_STAGE_BACKEND_ENV_FILE="${WHATSAPP_STAGE_BACKEND_ENV_FILE:-${WHATSAPP_STAGE_BACKEND_DIR}/.env}"
+WHATSAPP_META_SOURCE_ENV_FILE="${WHATSAPP_META_SOURCE_ENV_FILE:-}"
+WHATSAPP_EXPECTED_PHONE_NUMBER_ID="${WHATSAPP_EXPECTED_PHONE_NUMBER_ID:-}"
+WHATSAPP_EXPECTED_META_APP_ID="${WHATSAPP_EXPECTED_META_APP_ID:-}"
+WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID="${WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID:-}"
+WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION="${WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION:-0}"
+WHATSAPP_PRODUCTION_PHONE_NUMBER_ID="1279142515283484"
+WHATSAPP_PRODUCTION_META_APP_ID="975334532125008"
+WHATSAPP_PRODUCTION_BUSINESS_ACCOUNT_ID="1369494994627980"
+WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED="${WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED:-}"
+WHATSAPP_RUNTIME_LABEL="${WHATSAPP_RUNTIME_LABEL:-Stage}"
 ENABLE_WHATSAPP_STAGE_SMOKE="${ENABLE_WHATSAPP_STAGE_SMOKE:-1}"
 WHATSAPP_DEFAULT_ALLOWED_PAPEIS="${WHATSAPP_DEFAULT_ALLOWED_PAPEIS:-admin,recepcao,veterinario,cardiologista}"
 WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS="${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS:-${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}}"
@@ -75,11 +101,17 @@ AUTO_ROLLBACK_ON_FAILURE="${AUTO_ROLLBACK_ON_FAILURE:-1}"
 ENABLE_AUTH_CANARY="${ENABLE_AUTH_CANARY:-1}"
 AUTH_CANARY_TIMEOUT_SECONDS="${AUTH_CANARY_TIMEOUT_SECONDS:-8}"
 AUTH_CANARY_DISABLE_INTERNAL_TOKEN="${AUTH_CANARY_DISABLE_INTERNAL_TOKEN:-0}"
+AUTH_CANARY_AGENDA_LATENCY_SAMPLES="${AUTH_CANARY_AGENDA_LATENCY_SAMPLES:-5}"
+AUTH_CANARY_AGENDA_MAX_P95_MS="${AUTH_CANARY_AGENDA_MAX_P95_MS:-1200}"
 ENABLE_BACKUP_RESTORE_DRILL="${ENABLE_BACKUP_RESTORE_DRILL:-1}"
 BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK="${BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK:-0}"
 BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR="${BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR:-0}"
 ENABLE_ECO_STUDY_OCR="${ENABLE_ECO_STUDY_OCR:-1}"
 REQUIRE_ECO_STUDY_OCR="${REQUIRE_ECO_STUDY_OCR:-0}"
+ENABLE_NGINX_HTTP2="${ENABLE_NGINX_HTTP2:-0}"
+NGINX_HTTP2_EXPECTED_HOSTS="${NGINX_HTTP2_EXPECTED_HOSTS:-}"
+NGINX_HTTP2_SITE_ROOT="${NGINX_HTTP2_SITE_ROOT:-/etc/nginx/sites-available}"
+NGINX_HTTP2_ENABLED_ROOT="${NGINX_HTTP2_ENABLED_ROOT:-/etc/nginx/sites-enabled}"
 PRE_DEPLOY_HASH=""
 NEW_HASH=""
 CODE_UPDATED=0
@@ -244,6 +276,27 @@ reload_nginx_if_possible() {
   return 0
 }
 
+ensure_nginx_http2_if_enabled() {
+  if [[ "${ENABLE_NGINX_HTTP2}" != "1" ]]; then
+    log "HTTP/2 enablement disabled (ENABLE_NGINX_HTTP2=${ENABLE_NGINX_HTTP2}); skipping."
+    return 0
+  fi
+
+  local helper="${SCRIPT_DIR}/ensure_nginx_http2.sh"
+  if [[ ! -f "${helper}" ]]; then
+    echo "[ERROR] HTTP/2 helper is missing: ${helper}" >&2
+    return 1
+  fi
+
+  ENABLE_NGINX_HTTP2="${ENABLE_NGINX_HTTP2}" \
+    NGINX_HTTP2_EXPECTED_HOSTS="${NGINX_HTTP2_EXPECTED_HOSTS}" \
+    NGINX_HTTP2_SITE_ROOT="${NGINX_HTTP2_SITE_ROOT}" \
+    NGINX_HTTP2_ENABLED_ROOT="${NGINX_HTTP2_ENABLED_ROOT}" \
+    PUBLIC_URL="${PUBLIC_URL}" \
+    SUDO_PASSWORD="${SUDO_PASSWORD}" \
+    bash "${helper}"
+}
+
 run_systemctl_command() {
   local action="$1"
   shift
@@ -253,6 +306,15 @@ run_systemctl_command() {
   fi
 
   "$SYSTEMCTL_BIN" "$action" "$@"
+}
+
+read_backend_service_property() {
+  local property="$1"
+
+  if run_with_sudo "$SYSTEMCTL_BIN" show "$BACKEND_SERVICE" "--property=${property}" --value 2>/dev/null; then
+    return 0
+  fi
+  "$SYSTEMCTL_BIN" show "$BACKEND_SERVICE" "--property=${property}" --value 2>/dev/null || true
 }
 
 run_frontend_build() {
@@ -307,6 +369,9 @@ is_env_placeholder_value() {
       return 0
       ;;
     *placeholder*)
+      return 0
+      ;;
+    *not_configured*|000000000000000)
       return 0
       ;;
     stage_access_token_placeholder|stage_phone_number_id|stage_verify_token|stage_app_secret)
@@ -413,10 +478,27 @@ replace_env_key_if_exact_match() {
   log "Auto-healed legacy WhatsApp stage placeholder: ${key}"
 }
 
+sync_env_key_from_file() {
+  local source_file="$1"
+  local target_file="$2"
+  local key="$3"
+  local value
+
+  value="$(read_env_file_value "$source_file" "$key" "")"
+  if [[ -z "$value" ]]; then
+    echo "[ERROR] WhatsApp source config is missing required key: ${key}" >&2
+    return 1
+  fi
+
+  upsert_env_key "$target_file" "$key" "$value"
+}
+
 ensure_whatsapp_stage_env_file() {
-  local generated_internal_token generated_verify_token generated_app_secret
-  local default_access_token default_phone_number_id
+  local generated_internal_token generated_verify_token
+  local default_access_token default_phone_number_id default_app_secret
+  local default_meta_app_id default_business_account_id
   local current_internal_token_before current_internal_token_after
+  local backend_database_url
   generated_internal_token="$(
     python3 - <<'PY'
 import secrets
@@ -429,23 +511,19 @@ import secrets
 print("stage_verify_" + secrets.token_hex(8))
 PY
   )"
-  generated_app_secret="$(
-    python3 - <<'PY'
-import secrets
-print(secrets.token_hex(24))
-PY
-  )"
   default_access_token="stage_access_token_not_configured"
-  default_phone_number_id="000000000000000"
+  default_phone_number_id="${WHATSAPP_EXPECTED_PHONE_NUMBER_ID:-stage_phone_number_id_not_configured}"
+  default_app_secret="stage_app_secret_not_configured"
+  default_meta_app_id="${WHATSAPP_EXPECTED_META_APP_ID:-stage_meta_app_id_not_configured}"
+  default_business_account_id="${WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID:-stage_business_account_id_not_configured}"
+
+  backend_database_url="$(read_env_file_value "${BACKEND_DIR}/.env" "DATABASE_URL" "")"
+  if [[ -z "${backend_database_url}" ]]; then
+    echo "[ERROR] Could not infer DATABASE_URL from ${BACKEND_DIR}/.env for WhatsApp backend." >&2
+    return 1
+  fi
 
   if [[ ! -f "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" ]]; then
-    local backend_database_url
-    backend_database_url="$(read_env_file_value "${BACKEND_DIR}/.env" "DATABASE_URL" "")"
-    if [[ -z "${backend_database_url}" ]]; then
-      echo "[ERROR] Could not infer DATABASE_URL from ${BACKEND_DIR}/.env for WhatsApp stage backend." >&2
-      return 1
-    fi
-
     mkdir -p "$(dirname "${WHATSAPP_STAGE_BACKEND_ENV_FILE}")"
     cat > "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" <<EOF
 PORT=${WHATSAPP_STAGE_BACKEND_PORT}
@@ -453,7 +531,12 @@ DATABASE_URL=${backend_database_url}
 WHATSAPP_ACCESS_TOKEN=${default_access_token}
 PHONE_NUMBER_ID=${default_phone_number_id}
 WHATSAPP_VERIFY_TOKEN=${generated_verify_token}
-WHATSAPP_APP_SECRET=${generated_app_secret}
+WHATSAPP_APP_SECRET=${default_app_secret}
+WHATSAPP_GRAPH_API_VERSION=v26.0
+META_APP_ID=${default_meta_app_id}
+WHATSAPP_BUSINESS_ACCOUNT_ID=${default_business_account_id}
+WHATSAPP_RESERVATION_TEMPLATE_NAME=reserva_de_agendamento
+WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE=pt_BR
 NODE_ENV=production
 WEBHOOK_ALLOW_UNSIGNED=false
 API_BACKEND_URL=${API_BACKEND_URL}
@@ -462,7 +545,32 @@ WHATSAPP_ALLOWED_PAPEIS=${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}
 WHATSAPP_WRITE_ALLOWED_PAPEIS=${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS}
 WHATSAPP_INTERNAL_API_TOKEN=${generated_internal_token}
 EOF
-    log "Created ${WHATSAPP_STAGE_BACKEND_ENV_FILE} with stage-safe placeholders."
+    log "Created ${WHATSAPP_STAGE_BACKEND_ENV_FILE} with safe placeholders."
+  fi
+
+  if [[ -n "${WHATSAPP_META_SOURCE_ENV_FILE}" ]]; then
+    if [[ ! -f "${WHATSAPP_META_SOURCE_ENV_FILE}" ]]; then
+      echo "[ERROR] WhatsApp Meta source env file not found: ${WHATSAPP_META_SOURCE_ENV_FILE}" >&2
+      return 1
+    fi
+
+    local meta_key
+    for meta_key in \
+      WHATSAPP_ACCESS_TOKEN \
+      PHONE_NUMBER_ID \
+      WHATSAPP_VERIFY_TOKEN \
+      WHATSAPP_APP_SECRET \
+      WHATSAPP_GRAPH_API_VERSION \
+      META_APP_ID \
+      WHATSAPP_BUSINESS_ACCOUNT_ID \
+      WHATSAPP_RESERVATION_TEMPLATE_NAME \
+      WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE; do
+      sync_env_key_from_file \
+        "${WHATSAPP_META_SOURCE_ENV_FILE}" \
+        "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" \
+        "${meta_key}"
+    done
+    log "WhatsApp Meta configuration synchronized for ${WHATSAPP_RUNTIME_LABEL} without exposing secrets."
   fi
 
   current_internal_token_before="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
@@ -471,22 +579,142 @@ EOF
   replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "stage_access_token_placeholder" "${default_access_token}"
   replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "stage_phone_number_id" "${default_phone_number_id}"
   replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "stage_verify_token" "${generated_verify_token}"
-  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "stage_app_secret" "${generated_app_secret}"
+  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "stage_app_secret" "${default_app_secret}"
 
-  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "API_BACKEND_URL" "${API_BACKEND_URL}"
-  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_API_AUTH_ENABLED" "true"
+  upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PORT" "${WHATSAPP_STAGE_BACKEND_PORT}"
+  upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "DATABASE_URL" "${backend_database_url}"
+  upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "API_BACKEND_URL" "${API_BACKEND_URL}"
+  upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "NODE_ENV" "production"
+  upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WEBHOOK_ALLOW_UNSIGNED" "false"
+  upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_API_AUTH_ENABLED" "true"
+  if [[ -n "${WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED}" ]]; then
+    if [[ "${WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED}" != "true" && "${WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED}" != "false" ]]; then
+      echo "[ERROR] WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED must be true or false." >&2
+      return 1
+    fi
+    upsert_env_key \
+      "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" \
+      "DATABASE_SSL_REJECT_UNAUTHORIZED" \
+      "${WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED}"
+  fi
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ALLOWED_PAPEIS" "${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_WRITE_ALLOWED_PAPEIS" "${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "${generated_internal_token}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "${default_access_token}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "${default_phone_number_id}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "${generated_verify_token}"
-  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "${generated_app_secret}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "${default_app_secret}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_GRAPH_API_VERSION" "v26.0"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "META_APP_ID" "${default_meta_app_id}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_BUSINESS_ACCOUNT_ID" "${default_business_account_id}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_NAME" "reserva_de_agendamento"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE" "pt_BR"
 
   current_internal_token_after="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
   if [[ -z "${current_internal_token_before}" && -n "${current_internal_token_after}" ]]; then
     log "Generated WHATSAPP_INTERNAL_API_TOKEN for ${WHATSAPP_STAGE_BACKEND_ENV_FILE}."
   fi
+  chmod 600 "${WHATSAPP_STAGE_BACKEND_ENV_FILE}"
+}
+
+validate_whatsapp_stage_meta_config() {
+  local access_token phone_number_id app_secret verify_token
+  local meta_app_id business_account_id template_name template_language
+  local invalid=0
+
+  access_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "")"
+  phone_number_id="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "")"
+  app_secret="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "")"
+  verify_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "")"
+  meta_app_id="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "META_APP_ID" "")"
+  business_account_id="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_BUSINESS_ACCOUNT_ID" "")"
+  template_name="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_NAME" "")"
+  template_language="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE" "")"
+
+  if is_env_placeholder_value "${access_token}" || [[ "${access_token}" != EAA* ]] || [[ "${#access_token}" -lt 64 ]]; then
+    echo "[ERROR] WHATSAPP_ACCESS_TOKEN ausente, placeholder ou fora do formato esperado." >&2
+    invalid=1
+  fi
+  if is_env_placeholder_value "${phone_number_id}" || [[ ! "${phone_number_id}" =~ ^[0-9]{10,32}$ ]]; then
+    echo "[ERROR] PHONE_NUMBER_ID ausente, placeholder ou fora do formato esperado." >&2
+    invalid=1
+  fi
+  if is_env_placeholder_value "${app_secret}" || [[ ! "${app_secret}" =~ ^[[:xdigit:]]{32}$ ]]; then
+    echo "[ERROR] WHATSAPP_APP_SECRET ausente, placeholder ou fora do formato esperado." >&2
+    invalid=1
+  fi
+  if is_env_placeholder_value "${verify_token}" || [[ "${#verify_token}" -lt 16 ]]; then
+    echo "[ERROR] WHATSAPP_VERIFY_TOKEN ausente, placeholder ou muito curto." >&2
+    invalid=1
+  fi
+  if is_env_placeholder_value "${meta_app_id}" || [[ ! "${meta_app_id}" =~ ^[0-9]{10,32}$ ]]; then
+    echo "[ERROR] META_APP_ID ausente, placeholder ou fora do formato esperado." >&2
+    invalid=1
+  fi
+  if is_env_placeholder_value "${business_account_id}" || [[ ! "${business_account_id}" =~ ^[0-9]{10,32}$ ]]; then
+    echo "[ERROR] WHATSAPP_BUSINESS_ACCOUNT_ID ausente, placeholder ou fora do formato esperado." >&2
+    invalid=1
+  fi
+  if [[ -n "${WHATSAPP_EXPECTED_PHONE_NUMBER_ID}" && "${phone_number_id}" != "${WHATSAPP_EXPECTED_PHONE_NUMBER_ID}" ]]; then
+    echo "[ERROR] PHONE_NUMBER_ID nao corresponde a identidade esperada para ${WHATSAPP_RUNTIME_LABEL}." >&2
+    invalid=1
+  fi
+  if [[ -n "${WHATSAPP_EXPECTED_META_APP_ID}" && "${meta_app_id}" != "${WHATSAPP_EXPECTED_META_APP_ID}" ]]; then
+    echo "[ERROR] META_APP_ID nao corresponde a identidade esperada para ${WHATSAPP_RUNTIME_LABEL}." >&2
+    invalid=1
+  fi
+  if [[ -n "${WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID}" && "${business_account_id}" != "${WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID}" ]]; then
+    echo "[ERROR] WHATSAPP_BUSINESS_ACCOUNT_ID nao corresponde a identidade esperada para ${WHATSAPP_RUNTIME_LABEL}." >&2
+    invalid=1
+  fi
+  if [[ "${WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION}" != "0" && "${WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION}" != "1" ]]; then
+    echo "[ERROR] WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION deve ser 0 ou 1." >&2
+    invalid=1
+  elif [[ "${WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION}" == "1" ]]; then
+    if [[ "${phone_number_id}" == "${WHATSAPP_PRODUCTION_PHONE_NUMBER_ID}" ]]; then
+      echo "[ERROR] PHONE_NUMBER_ID de stage nao pode reutilizar o numero de producao." >&2
+      invalid=1
+    fi
+    if [[ "${meta_app_id}" == "${WHATSAPP_PRODUCTION_META_APP_ID}" ]]; then
+      echo "[ERROR] META_APP_ID de stage nao pode reutilizar o app de producao." >&2
+      invalid=1
+    fi
+    if [[ "${business_account_id}" == "${WHATSAPP_PRODUCTION_BUSINESS_ACCOUNT_ID}" ]]; then
+      echo "[ERROR] WHATSAPP_BUSINESS_ACCOUNT_ID de stage nao pode reutilizar a WABA de producao." >&2
+      invalid=1
+    fi
+  fi
+  if [[ "${template_name}" != "reserva_de_agendamento" || "${template_language}" != "pt_BR" ]]; then
+    echo "[ERROR] Modelo de reserva ou idioma nao correspondem ao modelo aprovado." >&2
+    invalid=1
+  fi
+
+  if [[ "${invalid}" -ne 0 ]]; then
+    echo "[ERROR] Configure os segredos Meta diretamente no servidor antes de habilitar o servico." >&2
+    return 1
+  fi
+
+  log "WhatsApp ${WHATSAPP_RUNTIME_LABEL} Meta configuration validated without exposing secrets."
+}
+
+ensure_whatsapp_core_integration_env() {
+  if [[ "${ENABLE_WHATSAPP_STAGE_BACKEND}" != "1" ]]; then
+    return 0
+  fi
+
+  ensure_whatsapp_stage_env_file
+  local internal_token backend_env_file
+  backend_env_file="${BACKEND_DIR}/.env"
+  internal_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
+  if [[ -z "${internal_token}" ]]; then
+    echo "[ERROR] WhatsApp internal token is unavailable for core integration." >&2
+    return 1
+  fi
+
+  upsert_env_key "${backend_env_file}" "WHATSAPP_AGENDA_ENABLED" "true"
+  upsert_env_key "${backend_env_file}" "WHATSAPP_AGENDA_SERVICE_URL" "${WHATSAPP_STAGE_BACKEND_URL}"
+  upsert_env_key "${backend_env_file}" "WHATSAPP_AGENDA_INTERNAL_TOKEN" "${internal_token}"
+  log "Core WhatsApp agenda integration env ensured."
 }
 
 ensure_whatsapp_stage_service_unit() {
@@ -495,7 +723,7 @@ ensure_whatsapp_stage_service_unit() {
 
   cat > "${temp_unit}" <<EOF
 [Unit]
-Description=FortCordis WhatsApp Stage Backend
+Description=FortCordis WhatsApp ${WHATSAPP_RUNTIME_LABEL} Backend
 After=network.target
 
 [Service]
@@ -522,6 +750,96 @@ EOF
   run_systemctl_command enable "${WHATSAPP_STAGE_BACKEND_SERVICE}"
 }
 
+ensure_background_worker_service_units() {
+  local worker_unit_path="/etc/systemd/system/${BACKGROUND_WORKER_SERVICE}.service"
+  local api_dropin_dir="/etc/systemd/system/${BACKEND_SERVICE}.service.d"
+  local api_dropin_path="${api_dropin_dir}/fortcordis-process-role.conf"
+  local worker_unit_tmp="${APP_DIR}/.tmp.${BACKGROUND_WORKER_SERVICE}.service"
+  local api_dropin_tmp="${APP_DIR}/.tmp.${BACKEND_SERVICE}.process-role.conf"
+  local backend_service_user backend_service_group worker_account_lines
+  backend_service_user="$(read_backend_service_property User)"
+  backend_service_group="$(read_backend_service_property Group)"
+  worker_account_lines=""
+  if [[ -n "${backend_service_user}" ]]; then
+    worker_account_lines+="User=${backend_service_user}"$'\n'
+  fi
+  if [[ -n "${backend_service_group}" ]]; then
+    worker_account_lines+="Group=${backend_service_group}"$'\n'
+  fi
+
+  cat > "${worker_unit_tmp}" <<EOF
+[Unit]
+Description=FortCordis Background Workers (${BRANCH})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${BACKEND_DIR}
+EnvironmentFile=${BACKEND_DIR}/.env
+Environment=FORTCORDIS_PROCESS_ROLE=worker
+Environment=PYTHONPATH=${BACKEND_DIR}
+${worker_account_lines}ExecStart=${BACKEND_DIR}/venv/bin/python -m app.worker
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  cat > "${api_dropin_tmp}" <<EOF
+[Service]
+Environment=FORTCORDIS_PROCESS_ROLE=api
+EOF
+
+  if run_with_sudo install -m 0644 "${worker_unit_tmp}" "${worker_unit_path}"; then
+    :
+  else
+    install -m 0644 "${worker_unit_tmp}" "${worker_unit_path}"
+  fi
+  if run_with_sudo mkdir -p "${api_dropin_dir}"; then
+    :
+  else
+    mkdir -p "${api_dropin_dir}"
+  fi
+  if run_with_sudo install -m 0644 "${api_dropin_tmp}" "${api_dropin_path}"; then
+    :
+  else
+    install -m 0644 "${api_dropin_tmp}" "${api_dropin_path}"
+  fi
+  rm -f "${worker_unit_tmp}" "${api_dropin_tmp}"
+
+  run_systemctl_command daemon-reload
+  run_systemctl_command enable "${BACKGROUND_WORKER_SERVICE}"
+}
+
+remove_background_worker_service_units() {
+  local worker_unit_path="/etc/systemd/system/${BACKGROUND_WORKER_SERVICE}.service"
+  local api_dropin_path="/etc/systemd/system/${BACKEND_SERVICE}.service.d/fortcordis-process-role.conf"
+
+  run_systemctl_command disable --now "${BACKGROUND_WORKER_SERVICE}" || true
+  if run_with_sudo rm -f "${worker_unit_path}" "${api_dropin_path}"; then
+    :
+  else
+    rm -f "${worker_unit_path}" "${api_dropin_path}"
+  fi
+  run_systemctl_command daemon-reload
+}
+
+ensure_ffmpeg_static_binary() {
+  local backend_dir="$1"
+  local ffmpeg_bin
+  ffmpeg_bin="$(cd "${backend_dir}" && node -e "console.log(require('ffmpeg-static') || '')" 2>/dev/null || true)"
+
+  if [[ -z "${ffmpeg_bin}" || ! -x "${ffmpeg_bin}" ]]; then
+    log "WARN: ffmpeg-static binary unavailable (resolved path='${ffmpeg_bin:-<empty>}'); WhatsApp audio de voz sera servido sem transcodificacao (fallback OGG/Opus original)."
+    return 0
+  fi
+
+  log "ffmpeg-static binary ready: ${ffmpeg_bin} ($("${ffmpeg_bin}" -version 2>&1 | head -n 1))"
+}
+
 deploy_whatsapp_stage_backend() {
   if [[ "${ENABLE_WHATSAPP_STAGE_BACKEND}" != "1" ]]; then
     return 0
@@ -533,22 +851,24 @@ deploy_whatsapp_stage_backend() {
   fi
 
   ensure_whatsapp_stage_env_file
+  validate_whatsapp_stage_meta_config
   ensure_whatsapp_stage_service_unit
 
-  log "WhatsApp stage backend: install deps + migrations"
+  log "WhatsApp ${WHATSAPP_RUNTIME_LABEL} backend: install deps + migrations"
   cd "${WHATSAPP_STAGE_BACKEND_DIR}"
   npm ci
+  ensure_ffmpeg_static_binary "${WHATSAPP_STAGE_BACKEND_DIR}"
   npm run build
   npm run migrate
 
   restart_service "${WHATSAPP_STAGE_BACKEND_SERVICE}"
   sleep 3
   if ! wait_http_ok "http://127.0.0.1:${WHATSAPP_STAGE_BACKEND_PORT}/health" 25 1; then
-    echo "[ERROR] WhatsApp stage backend health check failed." >&2
+    echo "[ERROR] WhatsApp ${WHATSAPP_RUNTIME_LABEL} backend health check failed." >&2
     print_service_diagnostics "${WHATSAPP_STAGE_BACKEND_SERVICE}"
     return 1
   fi
-  log "WhatsApp stage backend health OK"
+  log "WhatsApp ${WHATSAPP_RUNTIME_LABEL} backend health OK"
 
   if [[ "${ENABLE_WHATSAPP_STAGE_SMOKE}" == "1" && -f "${WHATSAPP_STAGE_BACKEND_DIR}/scripts/smoke-tests.sh" ]]; then
     local verify_token app_secret access_token internal_api_token
@@ -557,7 +877,7 @@ deploy_whatsapp_stage_backend() {
     access_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "stage_access_token_placeholder")"
     internal_api_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
 
-    log "WhatsApp stage backend smoke tests"
+    log "WhatsApp ${WHATSAPP_RUNTIME_LABEL} backend smoke tests"
     BASE_URL="http://127.0.0.1:${WHATSAPP_STAGE_BACKEND_PORT}" \
       WHATSAPP_VERIFY_TOKEN="${verify_token}" \
       WHATSAPP_APP_SECRET="${app_secret}" \
@@ -640,6 +960,16 @@ rollback_deploy() {
   local rollback_hash
   rollback_hash="$(git rev-parse --short HEAD)"
   log "Rollback HEAD: ${rollback_hash}"
+  if [[ -f "${BACKEND_DIR}/.env" ]]; then
+    upsert_env_key "${BACKEND_DIR}/.env" "RUNTIME_HTTP_LATENCY_RELEASE_ID" "${rollback_hash}"
+    log "Runtime latency release id restored for rollback."
+  fi
+
+  if [[ "${PREVIOUS_BACKGROUND_WORKER_SUPPORT}" != "1" ]]; then
+    # A versao anterior iniciava os workers dentro da API. Remover o drop-in
+    # antes de reinicia-la devolve exatamente esse comportamento no rollback.
+    remove_background_worker_service_units
+  fi
 
   cd "$BACKEND_DIR"
   if [[ ! -x "${BACKEND_DIR}/venv/bin/python" ]]; then
@@ -653,6 +983,15 @@ rollback_deploy() {
     echo "[ERROR] Rollback backend health check failed." >&2
     print_service_diagnostics "$BACKEND_SERVICE"
     return 1
+  fi
+
+  if [[ "${PREVIOUS_BACKGROUND_WORKER_SUPPORT}" == "1" ]]; then
+    restart_service "$BACKGROUND_WORKER_SERVICE"
+    if ! run_systemctl_command is-active --quiet "$BACKGROUND_WORKER_SERVICE"; then
+      echo "[ERROR] Rollback background worker service is not active." >&2
+      print_service_diagnostics "$BACKGROUND_WORKER_SERVICE"
+      return 1
+    fi
   fi
 
   cd "$FRONTEND_DIR"
@@ -739,8 +1078,12 @@ fi
 log "Starting deploy in ${APP_DIR} (branch=${BRANCH})"
 cd "$APP_DIR"
 PRE_DEPLOY_HASH="$(git rev-parse HEAD 2>/dev/null || true)"
+PREVIOUS_BACKGROUND_WORKER_SUPPORT=0
 if [[ -n "${PRE_DEPLOY_HASH}" ]]; then
   log "Pre-deploy HEAD: $(git rev-parse --short "${PRE_DEPLOY_HASH}")"
+  if git cat-file -e "${PRE_DEPLOY_HASH}:backend/app/worker.py" 2>/dev/null; then
+    PREVIOUS_BACKGROUND_WORKER_SUPPORT=1
+  fi
 fi
 
 mkdir -p "$RUNTIME_BACKUP_DIR"
@@ -769,11 +1112,22 @@ NEW_HASH="$(git rev-parse --short HEAD)"
 log "Current HEAD: ${NEW_HASH}"
 git log --oneline -n 1
 
+# PERF-17: permite comparar a latencia com o release realmente instalado, sem
+# expor hash pelo navegador. Nao cria arquivo de ambiente ausente, para manter
+# a configuracao existente de cada host como fonte de verdade.
+if [[ -f "${BACKEND_DIR}/.env" ]]; then
+  upsert_env_key "${BACKEND_DIR}/.env" "RUNTIME_HTTP_LATENCY_RELEASE_ID" "${NEW_HASH}"
+  log "Runtime latency release id updated."
+else
+  log "WARNING: backend .env not found; latency samples will use release_id=unknown."
+fi
+
 DEPLOY_STAGE="backend_setup"
 log "Backend: install deps + migrations"
 cd "$BACKEND_DIR"
 
 ensure_backend_stage_cookie_security
+ensure_whatsapp_core_integration_env
 ensure_eco_study_ocr_dependencies
 
 if [[ ! -x "${BACKEND_DIR}/venv/bin/python" ]]; then
@@ -795,6 +1149,9 @@ else
   log "No migration runner found; skipping migrations."
 fi
 
+DEPLOY_STAGE="background_worker_setup"
+ensure_background_worker_service_units
+
 DEPLOY_STAGE="backend_restart"
 restart_service "$BACKEND_SERVICE"
 sleep 3
@@ -804,6 +1161,15 @@ if ! wait_http_ok "http://127.0.0.1:${BACKEND_PORT}/health" 25 1; then
   exit 1
 fi
 log "Backend health OK"
+
+DEPLOY_STAGE="background_worker_restart"
+restart_service "$BACKGROUND_WORKER_SERVICE"
+if ! run_systemctl_command is-active --quiet "$BACKGROUND_WORKER_SERVICE"; then
+  echo "[ERROR] Background worker service is not active." >&2
+  print_service_diagnostics "$BACKGROUND_WORKER_SERVICE"
+  exit 1
+fi
+log "Background worker service active"
 
 DEPLOY_STAGE="whatsapp_stage_backend"
 deploy_whatsapp_stage_backend
@@ -831,6 +1197,7 @@ log "Frontend local check OK"
 
 DEPLOY_STAGE="public_check"
 log "Nginx reload + public check"
+ensure_nginx_http2_if_enabled
 reload_nginx_if_possible
 
 if ! wait_http_head_ok "$PUBLIC_URL" 15 1; then
@@ -860,6 +1227,9 @@ if [[ "${ENABLE_AUTH_CANARY}" == "1" ]]; then
     --base-url "http://127.0.0.1:${BACKEND_PORT}"
     --timeout-seconds "${AUTH_CANARY_TIMEOUT_SECONDS}"
     --backend-dir "${BACKEND_DIR}"
+    --agenda-latency-samples "${AUTH_CANARY_AGENDA_LATENCY_SAMPLES}"
+    --agenda-max-p95-ms "${AUTH_CANARY_AGENDA_MAX_P95_MS}"
+    --expected-release-id "${NEW_HASH}"
   )
   if [[ "${AUTH_CANARY_DISABLE_INTERNAL_TOKEN}" == "1" ]]; then
     CANARY_CMD+=(--disable-internal-token)

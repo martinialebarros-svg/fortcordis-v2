@@ -8,11 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask, BackgroundTasks
+from starlette.concurrency import run_in_threadpool
 
 from app.api.v1.endpoints import (
     admin,
     agenda,
     ai_echo,
+    alertas_internos,
     assistente_ia,
     atendimento,
     auth,
@@ -37,6 +40,9 @@ from app.api.v1.endpoints import (
     servicos,
     tabelas_preco,
     tutores,
+    whatsapp_agenda,
+    whatsapp_bot,
+    whatsapp_contexto,
     xml_import,
 )
 from app.core.runtime_checks import build_runtime_report, validate_startup_or_raise
@@ -51,35 +57,15 @@ from app.core.security import get_current_websocket_user
 from app.core.websocket import manager
 from app.db.database import engine, get_db
 from app.models import user, papel, agendamento
-from app.services.laudo_pdf_jobs import (
-    restart_incomplete_laudo_pdf_jobs,
-    shutdown_laudo_pdf_jobs,
+from app.services.background_workers import (
+    shutdown_background_workers as shutdown_background_worker_services,
+    start_background_workers,
 )
-from app.services.upload_dedupe_cleanup_service import (
-    shutdown_upload_dedupe_cleanup_worker,
-    start_upload_dedupe_cleanup_worker,
-)
-from app.services.push_scheduler_service import (
-    shutdown_push_scheduler_worker,
-    start_push_scheduler_worker,
-)
-from app.services.assistente_ia_autonomy import (
-    shutdown_assistant_scheduler_worker,
-    start_assistant_scheduler_worker,
-)
-from app.services.runtime_observability import record_http_request
-from app.services.xml_import_jobs import (
-    restart_incomplete_xml_import_jobs,
-    shutdown_xml_import_jobs,
-)
-from app.services.eco_study_import_jobs import (
-    restart_incomplete_eco_study_import_jobs,
-    shutdown_eco_study_import_jobs,
-)
-from app.services.ai_echo_service import (
-    restart_incomplete_ai_echo_sessions,
-    shutdown_ai_echo_cleanup_worker,
-    start_ai_echo_cleanup_worker,
+from app.services.runtime_observability import (
+    begin_http_request_observation,
+    end_http_request_observation,
+    persist_http_latency_sample,
+    record_http_request,
 )
 
 app = FastAPI(
@@ -374,30 +360,46 @@ async def enforce_csrf_for_cookie_session(request: Request, call_next):
 async def monitor_runtime_http_status(request: Request, call_next):
     path = request.url.path
     start_monotonic = time.monotonic()
+    observation_token = begin_http_request_observation(path)
     try:
         response = await call_next(request)
     except Exception:
         elapsed_ms = (time.monotonic() - start_monotonic) * 1000.0
         try:
-            record_http_request(path=path, status_code=500, duration_ms=elapsed_ms)
+            sample = record_http_request(path=path, status_code=500, duration_ms=elapsed_ms)
+            if sample is not None:
+                # Em erro não existe Response para carregar tarefa de fundo.
+                await run_in_threadpool(persist_http_latency_sample, sample)
         except Exception:
             logger.exception("Falha ao registrar erro 5xx/latencia no monitor de runtime.")
+        finally:
+            end_http_request_observation(observation_token)
         raise
 
     elapsed_ms = (time.monotonic() - start_monotonic) * 1000.0
     try:
-        record_http_request(
+        sample = record_http_request(
             path=path,
             status_code=response.status_code,
             duration_ms=elapsed_ms,
         )
+        if sample is not None:
+            if response.background is None:
+                response.background = BackgroundTask(persist_http_latency_sample, sample)
+            else:
+                background_tasks = BackgroundTasks(tasks=[response.background])
+                background_tasks.add_task(persist_http_latency_sample, sample)
+                response.background = background_tasks
     except Exception:
         logger.exception("Falha ao registrar status/latencia HTTP no monitor de runtime.")
+    finally:
+        end_http_request_observation(observation_token)
     return _append_security_headers(path, response)
 
 # Rotas REST
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(alertas_internos.router, prefix="/api/v1/alertas-internos", tags=["alertas_internos"])
 app.include_router(
     assistente_ia.router,
     prefix="/api/v1/assistente-ia",
@@ -409,6 +411,17 @@ app.include_router(
     tags=["ai_echo"],
 )
 app.include_router(agenda.router, prefix="/api/v1/agenda", tags=["agenda"])
+app.include_router(whatsapp_agenda.router, prefix="/api/v1", tags=["whatsapp_agenda"])
+app.include_router(
+    whatsapp_contexto.router,
+    prefix="/api/v1/whatsapp-contexto",
+    tags=["whatsapp_contexto"],
+)
+app.include_router(
+    whatsapp_bot.router,
+    prefix="/api/v1/whatsapp/bot",
+    tags=["whatsapp_bot"],
+)
 app.include_router(pacientes.router, prefix="/api/v1/pacientes", tags=["pacientes"])
 app.include_router(clinicas.router, prefix="/api/v1/clinicas", tags=["clinicas"])
 app.include_router(servicos.router, prefix="/api/v1/servicos", tags=["servicos"])
@@ -450,25 +463,14 @@ app.include_router(fiscal.router, prefix="/api/v1/fiscal", tags=["fiscal"])
 def startup_schema_compatibility() -> None:
     _ensure_financeiro_schema_compat()
     validate_startup_or_raise()
-    restart_incomplete_laudo_pdf_jobs()
-    restart_incomplete_xml_import_jobs()
-    restart_incomplete_eco_study_import_jobs()
-    restart_incomplete_ai_echo_sessions()
-    start_upload_dedupe_cleanup_worker()
-    start_push_scheduler_worker()
-    start_assistant_scheduler_worker()
-    start_ai_echo_cleanup_worker()
+    if settings.FORTCORDIS_PROCESS_ROLE != "api":
+        start_background_workers()
 
 
 @app.on_event("shutdown")
 def shutdown_background_workers() -> None:
-    shutdown_laudo_pdf_jobs()
-    shutdown_xml_import_jobs()
-    shutdown_eco_study_import_jobs()
-    shutdown_upload_dedupe_cleanup_worker()
-    shutdown_push_scheduler_worker()
-    shutdown_assistant_scheduler_worker()
-    shutdown_ai_echo_cleanup_worker()
+    if settings.FORTCORDIS_PROCESS_ROLE != "api":
+        shutdown_background_worker_services()
 
 
 # WebSocket endpoint
@@ -498,6 +500,10 @@ def _health_payload(report: dict) -> dict:
         "status": report["status"],
         "database": report["database"]["status"],
         "readiness": "ready" if report["ready"] else "degraded",
+        "process_role": report["environment"].get("process_role"),
+        "background_workers_managed_externally": report["environment"].get(
+            "background_workers_managed_externally"
+        ),
         "checks": {
             "migrations": {
                 "tracking_table_exists": report["migrations"].get("tracking_table_exists"),

@@ -504,6 +504,9 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     
     val = buscar_parametro_por_name(soup, ["MV E/A Ratio", "E/A VM", "E/A Ratio", "MV_E_A", "E/A"])
     if val: medidas["E_A"] = val
+
+    val = buscar_parametro_por_name(soup, ["MV E/TRIV Ratio", "E/TRIV", "E/IVRT", "E_TRIV"])
+    if val: medidas["E_TRIV"] = val
     
     val = buscar_parametro_por_name(soup, ["MV Dec Time", "T.Des. VM", "Dec Time", "MV_DT", "TD"])
     if val: medidas["TD"] = val

@@ -2,7 +2,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 os.chdir(BACKEND_DIR)
@@ -26,6 +26,10 @@ class AdminHardeningReadinessTest(unittest.TestCase):
             "ready": True,
             "warnings": [],
             "readiness_issues": [],
+            "environment": {
+                "process_role": "api",
+                "background_workers_managed_externally": True,
+            },
             "observability": {
                 "http_5xx_monitor": {
                     "window_minutes": 5,
@@ -58,12 +62,38 @@ class AdminHardeningReadinessTest(unittest.TestCase):
                             )
 
         self.assertIn("runtime", payload)
+        self.assertIn("environment", payload["runtime"])
         self.assertIn("observability", payload["runtime"])
         self.assertIn("readiness_issues", payload["runtime"])
         self.assertEqual(
             payload["runtime"]["observability"]["http_5xx_monitor"]["recent_5xx_count"],
             2,
         )
+        self.assertTrue(payload["runtime"]["environment"]["background_workers_managed_externally"])
+
+    def test_latency_observability_endpoint_delegates_only_for_an_admin_dependency(self) -> None:
+        expected = {"available": True, "groups": []}
+        with patch.object(admin, "get_persisted_http_latency_summary", return_value=expected) as summary:
+            payload = admin.obter_latencia_http_persistida(
+                hours=24,
+                current_user=_FakeAdminUser(),
+                db=object(),
+            )
+
+        self.assertIs(payload, expected)
+        summary.assert_called_once_with(ANY, hours=24)
+        route = next(
+            route
+            for route in admin.router.routes
+            if getattr(route, "path", "") == "/observability/http-latency"
+        )
+        self.assertTrue(route.dependant.dependencies)
+        role_dependency = route.dependant.dependencies[0].call
+        captured_values = [
+            cell.cell_contents
+            for cell in (getattr(role_dependency, "__closure__", None) or [])
+        ]
+        self.assertIn("admin", captured_values)
 
 
 if __name__ == "__main__":
