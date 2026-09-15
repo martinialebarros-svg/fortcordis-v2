@@ -70,3 +70,40 @@ senha temporária); nenhuma mudança de código além do `metaId` foi necessári
 - Não foi possível exercitar `test-inbox-ui-contracts.ts` (o script real, não a verificação isolada)
   neste ambiente por depender de um Postgres em `127.0.0.1:5432` indisponível aqui - risco mitigado
   pela verificação isolada de CA-002 acima, que exercita a mesma função exportada.
+
+## Stage nao valida este fluxo (2026-09-15)
+
+**As contas do WhatsApp Business de stage e de producao sao diferentes** -- outros
+modelos aprovados, outros numeros registrados. Os 3 modelos deste ciclo foram
+aprovados na conta de **producao**.
+
+Consequencia: enviar o convite em stage **sempre vai falhar**, e a falha nao
+indica defeito. A Meta responde 4xx porque o modelo nao existe naquela conta.
+
+Confirmado empiricamente em 2026-09-15, tentando o envio em stage sobre
+`749c7ce6`:
+
+| etapa | resultado |
+| --- | --- |
+| `WHATSAPP_AGENDA_ENABLED` em stage | `true` |
+| Servico `whatsapp-stage-backend` | no ar (`status: ok`) |
+| Token e URL da integracao | configurados (passou do check) |
+| Normalizacao do numero | ok |
+| Parametros do modelo | 3 declarados, 3 enviados |
+| Chamada a Meta | **recusada com 4xx** |
+
+O 4xx e preciso: o controller devolve 502 so quando o status do provedor esta
+entre 400 e 499 (`templateAutomationController.ts`); 5xx viraria 503.
+
+### O que isso significa para quem for validar
+
+Nao adianta pedir "teste em stage antes de promover" para nada que dependa de
+modelo aprovado do WhatsApp. **A validacao desses fluxos so pode acontecer em
+producao**, com um numero proprio como destino.
+
+Isso nao dispensa cuidado -- dispensa a etapa impossivel. O que protege aqui e o
+fallback: falha no envio mantem o convite valido por copia manual, que e
+exatamente o comportamento que producao ja tinha antes deste ciclo.
+
+Registrado depois de a recomendacao errada ter sido dada: a promocao foi segurada
+esperando um teste em stage que, por desenho, nunca passaria.

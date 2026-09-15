@@ -88,6 +88,20 @@ status ja barra push direto que nao tenha checks aprovados em outra ref, o que
 na pratica encerra o `promote_stage_to_main.sh` -- coerente com a secao "Promova
 pelo PR, nao pelo script" do `CLAUDE.md`.
 
+### WhatsApp: stage nao valida modelo aprovado
+
+As contas do WhatsApp Business de stage e de producao sao **diferentes** --
+outros modelos aprovados, outros numeros registrados.
+
+Qualquer fluxo que dependa de modelo aprovado da Meta (lembrete de consulta,
+recibo, aviso de laudo, convite de clinica) **sempre falha em stage**: o modelo
+nao existe naquela conta e a Meta responde 4xx. A falha nao indica defeito.
+
+Isso torna impossivel a etapa "testar em stage antes de promover" para esses
+fluxos -- a validacao so pode acontecer em producao, com um numero proprio como
+destino. Detalhe e evidencia em
+`docs/specs/whatsapp-portal-clinic-invite-template/verify.md`, secao final.
+
 ### Default branch = `stage` (feito em 2026-09-15)
 
 Era o ultimo passo manual pendente desta secao. Aplicado por
