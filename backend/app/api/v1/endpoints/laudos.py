@@ -181,6 +181,17 @@ def _label_tipo_exame_portal(laudo: Laudo) -> str:
 def _registered_clinic_whatsapp_numbers(clinica: Any) -> list[str]:
     values = list(getattr(clinica, "whatsapps", None) or [])
     values.append(getattr(clinica, "telefone", None))
+    return _normalized_whatsapp_numbers(values)
+
+
+def _registered_partner_whatsapp_numbers(partner: Any) -> list[str]:
+    """Numeros do veterinario parceiro, na ordem em que valem como destino."""
+    return _normalized_whatsapp_numbers(
+        [getattr(partner, "whatsapp", None), getattr(partner, "telefone", None)]
+    )
+
+
+def _normalized_whatsapp_numbers(values: list[Any]) -> list[str]:
     numbers: list[str] = []
     for value in values:
         try:
@@ -190,6 +201,58 @@ def _registered_clinic_whatsapp_numbers(clinica: Any) -> list[str]:
         if normalized not in numbers:
             numbers.append(normalized)
     return numbers
+
+
+def _partner_whatsapp_idempotency_key(base_key: str) -> str:
+    """Chave derivada para o parceiro.
+
+    O aviso vai para dois numeros com conteudo diferente, e o servico do
+    WhatsApp recusa a mesma chave com conteudo diferente. A chave da clinica
+    continua sendo a recebida do cliente; a do parceiro deriva dela, dentro do
+    limite de 128 caracteres que o servico aceita.
+    """
+    return f"{str(base_key)[:124]}-vet"
+
+
+def _iso_ou_nulo(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _resumo_destino_aviso_whatsapp(
+    *,
+    destination: str | None,
+    result: dict[str, Any] | None,
+    erro: str | None,
+    motivo: str | None,
+) -> dict[str, Any]:
+    if destination is None:
+        return {"status": "ignorado", "motivo": motivo}
+    if erro is not None:
+        return {"status": "falhou", "destination_suffix": destination[-4:], "erro": erro}
+    return {
+        "status": "enviado",
+        "destination_suffix": destination[-4:],
+        "message_id": (result or {}).get("message_id"),
+        "idempotent": bool((result or {}).get("idempotent")),
+    }
+
+
+def _mensagem_aviso_whatsapp(
+    *,
+    clinica_enviada: bool,
+    parceiro_enviado: bool,
+    parceiro_erro: str | None,
+) -> str:
+    if clinica_enviada and parceiro_enviado:
+        destinos = "para a clinica e para o veterinario parceiro"
+    elif parceiro_enviado:
+        destinos = "para o veterinario parceiro"
+    else:
+        destinos = "para a clinica"
+    mensagem = f"Aviso enviado {destinos} pelo WhatsApp oficial da Fort Cordis."
+    if parceiro_erro:
+        mensagem = f"{mensagem} O envio para o veterinario parceiro falhou: {parceiro_erro}"
+    return mensagem
 
 
 def _sincronizar_exame_liberado_para_portal(
@@ -1663,6 +1726,9 @@ def listar_laudos(
             "whatsapp_liberacao_status": laudo.whatsapp_liberacao_status,
             "whatsapp_liberacao_em": _iso_or_str(laudo.whatsapp_liberacao_em),
             "whatsapp_liberacao_erro": laudo.whatsapp_liberacao_erro,
+            "whatsapp_parceiro_status": laudo.whatsapp_parceiro_status,
+            "whatsapp_parceiro_em": _iso_or_str(laudo.whatsapp_parceiro_em),
+            "whatsapp_parceiro_erro": laudo.whatsapp_parceiro_erro,
             **_serialize_portal_release_state(
                 db,
                 laudo=laudo,
@@ -3122,10 +3188,22 @@ def avisar_laudo_liberado_por_whatsapp(
         raise HTTPException(status_code=404, detail="Laudo nao encontrado.")
     if not is_portal_released_status(laudo.status, kind="laudo"):
         raise HTTPException(status_code=409, detail="Libere o laudo no portal antes de enviar o aviso.")
-    if not laudo.clinic_id:
+
+    veterinario_parceiro = None
+    if _to_optional_int(laudo.veterinario_parceiro_id) is not None:
+        veterinario_parceiro = (
+            db.query(PortalPartnerProfile)
+            .filter(
+                PortalPartnerProfile.id == laudo.veterinario_parceiro_id,
+                PortalPartnerProfile.tipo == PORTAL_PARTNER_TYPE_VETERINARIO,
+                PortalPartnerProfile.ativo.is_(True),
+            )
+            .first()
+        )
+    if not laudo.clinic_id and veterinario_parceiro is None:
         raise HTTPException(status_code=409, detail="O laudo nao possui clinica parceira vinculada.")
 
-    clinica = db.query(Clinica).filter(Clinica.id == laudo.clinic_id).first()
+    clinica = db.query(Clinica).filter(Clinica.id == laudo.clinic_id).first() if laudo.clinic_id else None
     paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
     exame = (
         db.query(Exame)
@@ -3133,69 +3211,183 @@ def avisar_laudo_liberado_por_whatsapp(
         .order_by(Exame.id.desc())
         .first()
     )
-    if clinica is None or paciente is None or exame is None:
+    if paciente is None or exame is None or (laudo.clinic_id and clinica is None):
         raise HTTPException(status_code=409, detail="Dados do laudo incompletos para o aviso por WhatsApp.")
 
-    registered_numbers = _registered_clinic_whatsapp_numbers(clinica)
-    if not registered_numbers:
-        raise HTTPException(status_code=409, detail="A clinica nao possui WhatsApp cadastrado.")
-    destination = normalize_whatsapp_number(payload.destination) if payload.destination else registered_numbers[0]
-    if destination not in registered_numbers:
-        raise HTTPException(status_code=422, detail="O numero nao pertence a clinica vinculada ao laudo.")
+    # Cada destino externo do laudo e avaliado por conta propria: o aviso so sai
+    # para quem ja tem o laudo liberado no portal e tem numero cadastrado.
+    clinic_destination: str | None = None
+    clinic_skip_reason: str | None = None
+    if clinica is None:
+        clinic_skip_reason = "sem_vinculo"
+        if payload.destination:
+            raise HTTPException(status_code=422, detail="O numero nao pertence a clinica vinculada ao laudo.")
+    else:
+        registered_numbers = _registered_clinic_whatsapp_numbers(clinica)
+        if not registered_numbers:
+            clinic_skip_reason = "sem_whatsapp"
+            if payload.destination:
+                raise HTTPException(status_code=409, detail="A clinica nao possui WhatsApp cadastrado.")
+        else:
+            clinic_destination = (
+                normalize_whatsapp_number(payload.destination) if payload.destination else registered_numbers[0]
+            )
+            if clinic_destination not in registered_numbers:
+                raise HTTPException(status_code=422, detail="O numero nao pertence a clinica vinculada ao laudo.")
 
-    try:
-        result = send_approved_utility_template(
+    partner_destination: str | None = None
+    partner_skip_reason: str | None = None
+    if veterinario_parceiro is None:
+        partner_skip_reason = "sem_vinculo"
+    elif not _portal_veterinario_liberado(
+        db,
+        laudo_id=laudo.id,
+        veterinario_parceiro_id=veterinario_parceiro.id,
+        exame_id_by_laudo_id={int(laudo.id): int(exame.id)},
+    ):
+        partner_skip_reason = "nao_liberado"
+    else:
+        partner_numbers = _registered_partner_whatsapp_numbers(veterinario_parceiro)
+        if partner_numbers:
+            partner_destination = partner_numbers[0]
+        else:
+            partner_skip_reason = "sem_whatsapp"
+
+    if clinic_destination is None and partner_destination is None:
+        if clinic_skip_reason == "sem_whatsapp" and veterinario_parceiro is None:
+            raise HTTPException(status_code=409, detail="A clinica nao possui WhatsApp cadastrado.")
+        raise HTTPException(
+            status_code=409,
+            detail="Nenhum destino do laudo esta liberado no portal com WhatsApp cadastrado para receber o aviso.",
+        )
+
+    def _enviar_aviso(*, destinatario: str, destination: str, idempotency_key: str) -> dict[str, Any]:
+        return send_approved_utility_template(
             template_key="portalReportAvailable",
             subject_type="exame",
             subject_id=exame.id,
             destination=destination,
             parameters=[
-                str(clinica.nome or "Clinica").strip()[:120],
+                destinatario[:120],
                 _label_tipo_exame_portal(laudo)[:120],
                 str(paciente.nome or "Paciente").strip()[:120],
             ],
-            idempotency_key=payload.idempotency_key,
+            idempotency_key=idempotency_key,
         )
-    except WhatsAppTemplateDeliveryError as exc:
-        laudo.whatsapp_liberacao_status = "falhou"
+
+    clinic_result: dict[str, Any] | None = None
+    clinic_error: str | None = None
+    if clinic_destination is not None:
+        try:
+            clinic_result = _enviar_aviso(
+                destinatario=str(clinica.nome or "Clinica").strip(),
+                destination=clinic_destination,
+                idempotency_key=payload.idempotency_key,
+            )
+        except WhatsAppTemplateDeliveryError as exc:
+            clinic_error = str(exc)
+        laudo.whatsapp_liberacao_status = "enviado" if clinic_error is None else "falhou"
         laudo.whatsapp_liberacao_em = datetime.utcnow()
-        laudo.whatsapp_liberacao_erro = str(exc)[:500]
-        db.commit()
+        laudo.whatsapp_liberacao_erro = clinic_error[:500] if clinic_error else None
+
+    partner_result: dict[str, Any] | None = None
+    partner_error: str | None = None
+    if partner_destination is not None:
+        try:
+            partner_result = _enviar_aviso(
+                destinatario=str(veterinario_parceiro.nome_exibicao or "Veterinario parceiro").strip(),
+                destination=partner_destination,
+                idempotency_key=_partner_whatsapp_idempotency_key(payload.idempotency_key),
+            )
+        except WhatsAppTemplateDeliveryError as exc:
+            partner_error = str(exc)
+        laudo.whatsapp_parceiro_status = "enviado" if partner_error is None else "falhou"
+        laudo.whatsapp_parceiro_em = datetime.utcnow()
+        laudo.whatsapp_parceiro_erro = partner_error[:500] if partner_error else None
+
+    db.commit()
+
+    if clinic_destination is not None:
         registrar_auditoria(
             current_user=current_user,
             modulo="laudos",
             entidade="laudo",
             entidade_id=laudo.id,
-            acao="LAUDO_PORTAL_WHATSAPP_FALHOU",
-            descricao="Falha ao enviar aviso de laudo disponivel pelo WhatsApp oficial.",
+            acao="LAUDO_PORTAL_WHATSAPP_ENVIADO" if clinic_error is None else "LAUDO_PORTAL_WHATSAPP_FALHOU",
+            descricao=(
+                "Aviso de laudo disponivel enviado pelo WhatsApp oficial."
+                if clinic_error is None
+                else "Falha ao enviar aviso de laudo disponivel pelo WhatsApp oficial."
+            ),
             detalhes={
-                "destination_suffix": destination[-4:],
-                "erro": str(exc)[:500],
+                "destination_suffix": clinic_destination[-4:],
+                "provider_message_id": (clinic_result or {}).get("message_id"),
+                "idempotent": bool((clinic_result or {}).get("idempotent")),
+                "erro": clinic_error[:500] if clinic_error else None,
             },
             request=request,
         )
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    laudo.whatsapp_liberacao_status = "enviado"
-    laudo.whatsapp_liberacao_em = datetime.utcnow()
-    laudo.whatsapp_liberacao_erro = None
-    db.commit()
+    if partner_destination is not None:
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="laudos",
+            entidade="laudo",
+            entidade_id=laudo.id,
+            acao=(
+                "LAUDO_PORTAL_WHATSAPP_PARCEIRO_ENVIADO"
+                if partner_error is None
+                else "LAUDO_PORTAL_WHATSAPP_PARCEIRO_FALHOU"
+            ),
+            descricao=(
+                "Aviso de laudo disponivel enviado ao veterinario parceiro pelo WhatsApp oficial."
+                if partner_error is None
+                else "Falha ao enviar aviso de laudo disponivel ao veterinario parceiro pelo WhatsApp oficial."
+            ),
+            detalhes={
+                "partner_id": veterinario_parceiro.id,
+                "destination_suffix": partner_destination[-4:],
+                "provider_message_id": (partner_result or {}).get("message_id"),
+                "idempotent": bool((partner_result or {}).get("idempotent")),
+                "erro": partner_error[:500] if partner_error else None,
+            },
+            request=request,
+        )
 
-    registrar_auditoria(
-        current_user=current_user,
-        modulo="laudos",
-        entidade="laudo",
-        entidade_id=laudo.id,
-        acao="LAUDO_PORTAL_WHATSAPP_ENVIADO",
-        descricao="Aviso de laudo disponivel enviado pelo WhatsApp oficial.",
-        detalhes={
-            "destination_suffix": destination[-4:],
-            "provider_message_id": result.get("message_id"),
-            "idempotent": bool(result.get("idempotent")),
-        },
-        request=request,
+    if clinic_error is not None:
+        # Contrato antigo: falha no envio da clinica continua sendo 502. O
+        # resultado do parceiro ja foi persistido acima e aparece no reload.
+        raise HTTPException(status_code=502, detail=clinic_error)
+
+    resposta: dict[str, Any] = dict(clinic_result or {})
+    resposta.update(
+        {
+            "message": _mensagem_aviso_whatsapp(
+                clinica_enviada=clinic_result is not None,
+                parceiro_enviado=partner_result is not None,
+                parceiro_erro=partner_error,
+            ),
+            "clinica": _resumo_destino_aviso_whatsapp(
+                destination=clinic_destination,
+                result=clinic_result,
+                erro=clinic_error,
+                motivo=clinic_skip_reason,
+            ),
+            "veterinario_parceiro": _resumo_destino_aviso_whatsapp(
+                destination=partner_destination,
+                result=partner_result,
+                erro=partner_error,
+                motivo=partner_skip_reason,
+            ),
+            "whatsapp_liberacao_status": laudo.whatsapp_liberacao_status,
+            "whatsapp_liberacao_em": _iso_ou_nulo(laudo.whatsapp_liberacao_em),
+            "whatsapp_liberacao_erro": laudo.whatsapp_liberacao_erro,
+            "whatsapp_parceiro_status": laudo.whatsapp_parceiro_status,
+            "whatsapp_parceiro_em": _iso_ou_nulo(laudo.whatsapp_parceiro_em),
+            "whatsapp_parceiro_erro": laudo.whatsapp_parceiro_erro,
+        }
     )
-    return result
+    return resposta
 
 
 @router.post("/laudos/{laudo_id}/pdf-jobs", response_model=dict)
