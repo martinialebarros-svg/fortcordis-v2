@@ -49,6 +49,12 @@ class Laudo(Base):
     whatsapp_liberacao_em = Column(DateTime(timezone=True), nullable=True)
     whatsapp_liberacao_erro = Column(Text, nullable=True)
 
+    # Mesmo aviso, mesma chamada, mas para o veterinario parceiro que
+    # encaminhou o caso - destino independente do da clinica.
+    whatsapp_parceiro_status = Column(String, nullable=True)  # "enviado" | "falhou"
+    whatsapp_parceiro_em = Column(DateTime(timezone=True), nullable=True)
+    whatsapp_parceiro_erro = Column(Text, nullable=True)
+
     # Dados adicionais
     data_exame = Column(DateTime(timezone=True))  # Data do exame
     medico_solicitante = Column(String)  # Médico solicitante

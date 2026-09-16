@@ -13,6 +13,13 @@ import {
 import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import { parseStoredEchoMeasurements } from "@/lib/echo-derived-measurements";
+import {
+  getConfirmacaoAvisoWhatsApp,
+  getTituloBotaoAvisoWhatsApp,
+  podeAvisarWhatsApp,
+  resumirRespostaAvisoWhatsApp,
+  type RespostaAvisoWhatsApp,
+} from "@/lib/laudo-whatsapp-aviso";
 import { ArrowLeft, CheckCircle, Download, FileText, Loader2, MessageCircle, Printer, Send, Upload } from "lucide-react";
 
 const PORTAL_RELEASE_STATUS = "Liberado no portal";
@@ -288,12 +295,12 @@ export default function VisualizarLaudoPage() {
   };
 
   const avisarLaudoPorWhatsApp = async () => {
-    if (!laudo || !laudoId || !laudo.clinic_id) return;
-    if (!laudo.portal_clinica_liberado && !isPortalReleased(laudo.status)) {
+    if (!laudo || !laudoId) return;
+    if (!podeAvisarWhatsApp(laudo)) {
       alert("Libere o laudo no portal antes de enviar o aviso por WhatsApp.");
       return;
     }
-    if (!confirm(`Enviar para ${laudo.clinica || "a clinica parceira"} o aviso de laudo disponível?`)) {
+    if (!confirm(getConfirmacaoAvisoWhatsApp(laudo))) {
       return;
     }
     const idempotencyKey = typeof globalThis.crypto?.randomUUID === "function"
@@ -301,10 +308,10 @@ export default function VisualizarLaudoPage() {
       : `laudo-portal-${laudo.id}-${Date.now()}`;
     setAvisandoWhatsApp(true);
     try {
-      await api.post(`/laudos/${laudo.id}/portal/whatsapp`, {
+      const response = await api.post<RespostaAvisoWhatsApp>(`/laudos/${laudo.id}/portal/whatsapp`, {
         idempotency_key: idempotencyKey,
       });
-      alert("Aviso enviado pelo WhatsApp oficial da Fort Cordis.");
+      alert(resumirRespostaAvisoWhatsApp(response.data).texto);
     } catch (error) {
       const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
       alert(detail || "Erro ao enviar o aviso por WhatsApp.");
@@ -411,13 +418,13 @@ export default function VisualizarLaudoPage() {
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
-            {laudo.clinic_id && (laudo.portal_clinica_liberado || isPortalReleased(laudo.status)) ? (
+            {podeAvisarWhatsApp(laudo) ? (
               <button
                 type="button"
                 onClick={avisarLaudoPorWhatsApp}
                 disabled={avisandoWhatsApp}
                 className="fc-report-view-portal"
-                title="Avisar clínica pelo WhatsApp oficial"
+                title={getTituloBotaoAvisoWhatsApp(laudo)}
               >
                 {avisandoWhatsApp ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
                 {avisandoWhatsApp ? "Enviando..." : "Avisar WhatsApp"}
