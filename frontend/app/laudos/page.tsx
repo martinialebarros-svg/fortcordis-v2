@@ -14,6 +14,13 @@ import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import { extractApiErrorMessageSync } from "@/lib/api-error";
 import {
+  getConfirmacaoAvisoWhatsApp,
+  getTituloBotaoAvisoWhatsApp,
+  podeAvisarWhatsApp,
+  resumirRespostaAvisoWhatsApp,
+  type RespostaAvisoWhatsApp,
+} from "@/lib/laudo-whatsapp-aviso";
+import {
   AlertCircle,
   AlertTriangle,
   Calendar,
@@ -62,6 +69,9 @@ interface Laudo {
   whatsapp_liberacao_status?: "enviado" | "falhou" | null;
   whatsapp_liberacao_em?: string | null;
   whatsapp_liberacao_erro?: string | null;
+  whatsapp_parceiro_status?: "enviado" | "falhou" | null;
+  whatsapp_parceiro_em?: string | null;
+  whatsapp_parceiro_erro?: string | null;
 }
 
 interface Exame {
@@ -495,11 +505,11 @@ export default function LaudosPage() {
   };
 
   const avisarLaudoPorWhatsApp = async (laudo: Laudo) => {
-    if (!laudo.portal_clinica_liberado && !isPortalReleased(laudo.status)) {
+    if (!podeAvisarWhatsApp(laudo)) {
       alert("Libere o laudo no portal antes de enviar o aviso por WhatsApp.");
       return;
     }
-    if (!confirm(`Enviar para ${laudo.clinica || "a clinica parceira"} o aviso de laudo disponível?`)) {
+    if (!confirm(getConfirmacaoAvisoWhatsApp(laudo))) {
       return;
     }
     const idempotencyKey = typeof globalThis.crypto?.randomUUID === "function"
@@ -507,20 +517,32 @@ export default function LaudosPage() {
       : `laudo-portal-${laudo.id}-${Date.now()}`;
     setAvisandoLaudoId(laudo.id);
     try {
-      await api.post(`/laudos/${laudo.id}/portal/whatsapp`, {
+      const response = await api.post<RespostaAvisoWhatsApp>(`/laudos/${laudo.id}/portal/whatsapp`, {
         idempotency_key: idempotencyKey,
       });
+      const dados = response.data;
       const agora = new Date().toISOString();
       setLaudos((prev) =>
         prev.map((item) =>
           item.id === laudo.id
-            ? { ...item, whatsapp_liberacao_status: "enviado", whatsapp_liberacao_em: agora, whatsapp_liberacao_erro: null }
+            ? {
+                ...item,
+                whatsapp_liberacao_status: dados?.whatsapp_liberacao_status ?? item.whatsapp_liberacao_status,
+                whatsapp_liberacao_em: dados?.whatsapp_liberacao_em ?? agora,
+                whatsapp_liberacao_erro: dados?.whatsapp_liberacao_erro ?? null,
+                whatsapp_parceiro_status: dados?.whatsapp_parceiro_status ?? item.whatsapp_parceiro_status,
+                whatsapp_parceiro_em: dados?.whatsapp_parceiro_em ?? item.whatsapp_parceiro_em,
+                whatsapp_parceiro_erro: dados?.whatsapp_parceiro_erro ?? null,
+              }
             : item
         )
       );
+      const resumo = resumirRespostaAvisoWhatsApp(dados);
       mostrarToastWhatsapp(
-        "Aviso enviado pelo WhatsApp oficial da Fort Cordis.",
-        "border-teal-200 bg-teal-50 text-teal-900"
+        resumo.texto,
+        resumo.tom === "alerta"
+          ? "border-amber-200 bg-amber-50 text-amber-900"
+          : "border-teal-200 bg-teal-50 text-teal-900"
       );
     } catch (error) {
       const detail = extractApiErrorMessageSync(error, "Erro ao enviar o aviso por WhatsApp.");
@@ -907,6 +929,28 @@ export default function LaudosPage() {
                               {laudo.whatsapp_liberacao_status === "enviado" ? "WhatsApp enviado" : "WhatsApp falhou"}
                             </span>
                           )}
+                          {laudo.whatsapp_parceiro_status && (
+                            <span
+                              className={`fc-wa-envio-badge fc-wa-envio-badge-${laudo.whatsapp_parceiro_status}`}
+                              title={
+                                laudo.whatsapp_parceiro_status === "falhou"
+                                  ? laudo.whatsapp_parceiro_erro ||
+                                    "Falha ao enviar o aviso por WhatsApp ao veterinário parceiro."
+                                  : laudo.whatsapp_parceiro_em
+                                  ? `Enviado ao veterinário parceiro em ${formatOperationalDate(laudo.whatsapp_parceiro_em)}`
+                                  : "Aviso enviado por WhatsApp ao veterinário parceiro."
+                              }
+                            >
+                              {laudo.whatsapp_parceiro_status === "enviado" ? (
+                                <Check className="h-3 w-3" />
+                              ) : (
+                                <AlertCircle className="h-3 w-3" />
+                              )}
+                              {laudo.whatsapp_parceiro_status === "enviado"
+                                ? "WhatsApp parceiro enviado"
+                                : "WhatsApp parceiro falhou"}
+                            </span>
+                          )}
                           {canReleasePortal(laudo) && (
                             <button
                               onClick={() => liberarNoPortalClinica(laudo)}
@@ -918,13 +962,15 @@ export default function LaudosPage() {
                               <Send className="w-4 h-4" />
                             </button>
                           )}
-                          {laudo.clinic_id && (laudo.portal_clinica_liberado || isPortalReleased(laudo.status)) && (
+                          {podeAvisarWhatsApp(laudo) && (
                             <button
                               onClick={() => avisarLaudoPorWhatsApp(laudo)}
                               disabled={avisandoLaudoId === laudo.id}
                               className="fc-clinical-action"
-                              title="Avisar clínica pelo WhatsApp oficial"
-                              aria-label={`Avisar ${laudo.clinica || "clinica"} sobre o laudo disponível`}
+                              title={getTituloBotaoAvisoWhatsApp(laudo)}
+                              aria-label={`${getTituloBotaoAvisoWhatsApp(laudo)} sobre o laudo de ${
+                                laudo.paciente_nome || `paciente ${laudo.paciente_id}`
+                              }`}
                             >
                               <MessageCircle className="w-4 h-4" />
                             </button>
