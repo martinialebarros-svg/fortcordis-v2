@@ -2,7 +2,7 @@
 
 Data: 2026-09-16  
 Responsavel: Martiniano  
-Status: in-progress
+Status: done
 
 > A matriz usa as colunas `ID | Tipo | Evidencia | Status` do
 > `docs/specs/templates/verify.md` de proposito: o gate de promocao
@@ -32,8 +32,8 @@ Status: in-progress
 | CA-017 | aceitacao | `test_migracao_dos_vinculos_e_idempotente`: `upgrade()` duas vezes na mesma conexao, colunas conferidas, `uq_portal_partner_clinic_link` presente e o segundo INSERT do mesmo par recusado | ok |
 | CA-018 | aceitacao | `lib/portal-partner-clinic-links.test.ts` (11 regras) mais a verificacao em stage: parceiro #50 criado com 3 clinicas, selo `· recebe todos` so na Animal Care, e a edicao recarregou o conjunto salvo | ok |
 | CA-019 | regressao | `pytest tests/` inteiro verde (1334). Nenhuma assercao de comportamento de #151 foi tocada; das suites antigas mudou so a lista de tabelas do fixture e o import, porque a difusao faz JOIN com a tabela nova | ok |
-| CA-020 | aceitacao | `test_estado_do_laudo_mostra_o_veterinario_que_entrou_por_vinculo`: laudo liberado so por difusao devolve `disponivel`/`liberado` true e o destino com `origem = "vinculo_clinica"`. Em stage, o laudo 46 reproduziu o bug antes da correcao | ok |
-| CA-021 | aceitacao | `lib/laudo-whatsapp-aviso.test.ts`: o laudo sem nomeado, liberado por vinculo, agora devolve `["clinica", "veterinario_parceiro"]` e o dialogo nomeia "Animal Care e Dra. Carla Soares" | ok |
+| CA-020 | aceitacao | `test_estado_do_laudo_mostra_o_veterinario_que_entrou_por_vinculo` mais stage: depois do fix, o laudo 46 devolve `portal_veterinario_disponivel`/`_liberado` true e `portal_veterinarios_destinos` com a Dra. Teste Multiclinica em `origem: "vinculo_clinica"` | ok |
+| CA-021 | aceitacao | `lib/laudo-whatsapp-aviso.test.ts` mais stage: na Central de laudos o botao do laudo 46 virou "Avisar clinica e veterinario parceiro pelo WhatsApp oficial" e o dialogo veio "Enviar para Animal Care e Dra. Teste Multiclinica o aviso de laudo disponivel?" — antes do fix dizia so a clinica | ok |
 | CA-022 | aceitacao | Mesmo arquivo: com nomeado + difusao, o dialogo nomeia os dois e o botao usa "veterinarios parceiros" | ok |
 | CA-023 | aceitacao | `test_vinculo_sem_liberacao_aparece_como_pendente_e_nao_liberado` mais o caso `liberado: false` do teste de front: fica fora do aviso e entra em `portal_destinos_pendentes` | ok |
 | CA-024 | performance | `listar_laudos` carrega difusao e targets uma vez por pagina; a consulta de targets nem roda sem destino veterinario na pagina — foi assim que `test_laudo_portal_whatsapp_status.py` voltou a passar sem tocar no fixture dele | ok |
@@ -131,12 +131,28 @@ De quebra, CA-024: a consulta de targets da listagem virou preguiçosa — não 
 quando nenhum laudo da página tem destino veterinário. Foi assim que
 `test_laudo_portal_whatsapp_status.py` voltou a passar sem tocar no fixture dele.
 
-### Pendente em stage
+### Correção conferida em stage - 2026-09-16
 
-Refazer o passo 4 sobre o código corrigido e conferir na Central de laudos que o
-laudo 46 agora anuncia os dois destinos no botão e nomeia a veterinária no
-diálogo. Não exercitado: o portal do próprio veterinário parceiro (exigiria a
-senha dele).
+Depois do deploy de #155, sobre o mesmo laudo 46:
+
+- `GET /laudos` devolve `portal_veterinario_disponivel: true`,
+  `portal_veterinario_liberado: true` e
+  `portal_veterinarios_destinos: [{partner_id: 50, nome: "Dra. Teste
+  Multiclinica", origem: "vinculo_clinica", liberado: true}]`, com
+  `veterinario_parceiro_id` ainda nulo — ninguém foi nomeado, e mesmo assim o
+  laudo declara quem recebe.
+- Na Central de laudos o botão virou **"Avisar clínica e veterinário parceiro
+  pelo WhatsApp oficial"** (antes: só "Avisar clínica").
+- O diálogo veio **"Enviar para Animal Care e Dra. Teste Multiclinica o aviso de
+  laudo disponível?"** — o nome que faltava.
+
+O diálogo foi lido com `window.confirm` interceptado devolvendo `false`, de
+propósito: o texto é o que se queria conferir, e nenhuma mensagem saiu.
+Confirmado depois pelo laudo, com `whatsapp_liberacao_status` e
+`whatsapp_parceiro_status` ainda nulos.
+
+Não exercitado em stage: o portal do próprio veterinário parceiro, que exigiria
+a senha dele; e o envio de WhatsApp de fato, que stage recusa por desenho.
 
 ### Pendente em produção
 
