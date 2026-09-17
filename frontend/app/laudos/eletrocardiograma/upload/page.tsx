@@ -236,8 +236,12 @@ export default function UploadEletrocardiogramaPage() {
     const carregarParceiros = async () => {
       try {
         setLoadingParceiros(true);
+        // Com a clinica do contexto, quem atende nela vem no topo da lista.
         const response = await api.get("/portal/parceiros/veterinarios/opcoes", {
-          params: { limit: 100 },
+          params: {
+            limit: 100,
+            ...(contexto.clinic_id ? { clinica_id: Number(contexto.clinic_id) } : {}),
+          },
         });
         if (!ativo) return;
         setParceirosVeterinarios(Array.isArray(response.data?.items) ? response.data.items : []);
@@ -255,7 +259,7 @@ export default function UploadEletrocardiogramaPage() {
     return () => {
       ativo = false;
     };
-  }, []);
+  }, [contexto.clinic_id]);
 
   useEffect(() => {
     if (!contexto.agendamento_id) {

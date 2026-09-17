@@ -409,8 +409,13 @@ export default function EditarLaudoPage() {
     }
     carregarLaudo();
     carregarClinicas();
-    carregarParceirosVeterinarios();
   }, [router, laudoId]);
+
+  useEffect(() => {
+    // Refaz a lista quando a clínica do laudo muda: a ordem depende dela.
+    carregarParceirosVeterinarios(clinicaId || undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clinicaId]);
 
   useEffect(() => {
     const aorta = parseNumero(medidas["Aorta"]);
@@ -538,10 +543,14 @@ export default function EditarLaudoPage() {
     }
   };
 
-  const carregarParceirosVeterinarios = async () => {
+  const carregarParceirosVeterinarios = async (clinicaSelecionada?: string) => {
     try {
+      // Com a clínica do laudo, quem atende nela vem no topo da lista.
       const response = await api.get("/portal/parceiros/veterinarios/opcoes", {
-        params: { limit: 100 },
+        params: {
+          limit: 100,
+          ...(clinicaSelecionada ? { clinica_id: Number(clinicaSelecionada) } : {}),
+        },
       });
       setParceirosVeterinarios(Array.isArray(response.data?.items) ? response.data.items : []);
     } catch (error) {
