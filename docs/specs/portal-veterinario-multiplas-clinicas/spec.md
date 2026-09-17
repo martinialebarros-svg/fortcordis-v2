@@ -66,6 +66,13 @@ recebe pode ser mais de um.
   listagem.
 - RF-017: desativar o veterinario (`ativo = false`) preserva os vinculos, mas ele
   deixa de entrar na difusao.
+- RF-018: o estado do laudo deve declarar **todos** os veterinarios que o recebem,
+  nao so o nomeado. `portal_veterinario_disponivel` e `portal_veterinario_liberado`
+  passam a considerar tambem os de difusao, e o laudo ganha
+  `portal_veterinarios_destinos: [{partner_id, nome, origem, liberado}]`.
+- RF-019: o aviso por WhatsApp deve nomear, no botao e no dialogo de confirmacao,
+  cada veterinario que vai receber a mensagem. Nao pode existir envio a
+  destinatario que a confirmacao nao nomeou.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -174,6 +181,20 @@ Sem FK declarada, acompanhando `portal_partner_release_targets` e
 - CA-019: os testes ja existentes de `laudo-aviso-whatsapp-parceiro` e de
   `test_laudo_portal_whatsapp_status.py` continuam passando sem alteracao
   (NFR-001).
+- CA-020: laudo liberado **so** por difusao devolve
+  `portal_veterinario_disponivel = true`, `portal_veterinario_liberado = true` e
+  um `portal_veterinarios_destinos` com o veterinario de origem `vinculo_clinica`.
+- CA-021: nesse mesmo laudo, o botao da Central de laudos diz "Avisar clinica e
+  veterinario parceiro" e o dialogo nomeia o veterinario — nao pode prometer so a
+  clinica e mandar para os dois.
+- CA-022: com dois veterinarios liberados, o dialogo nomeia os dois e o botao vai
+  para o plural.
+- CA-023: veterinario com vinculo mas sem target ativo aparece em
+  `portal_veterinarios_destinos` com `liberado = false`, entra em
+  `portal_destinos_pendentes` e fica fora do aviso.
+- CA-024: a listagem de laudos nao ganha consulta por laudo — difusao e targets
+  sao carregados uma vez por pagina, e a consulta de targets nem roda quando
+  nenhum laudo da pagina tem destino veterinario.
 
 ## 6) Fora de escopo
 

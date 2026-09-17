@@ -30,8 +30,13 @@ Status: in-progress
 | CA-015 | aceitacao | `test_aviso_vai_para_clinica_nomeado_e_difusao`: `whatsapp_parceiro_status == "enviado"`, `_erro` nulo, e `veterinarios_parceiros` com os dois em `enviado` e a `origem` de cada um | ok |
 | CA-016 | aceitacao | `test_opcoes_ordena_vinculados_da_clinica_primeiro`: sem `clinica_id` a ordem e alfabetica; com ele, "Dra. Wanda Difusao" (difunde) vem antes de "Dr. Zeca Vinculado" (vinculado), e "Dr. Alberto Sem Vinculo" fica por ultimo sem sair da lista | ok |
 | CA-017 | aceitacao | `test_migracao_dos_vinculos_e_idempotente`: `upgrade()` duas vezes na mesma conexao, colunas conferidas, `uq_portal_partner_clinic_link` presente e o segundo INSERT do mesmo par recusado | ok |
-| CA-018 | aceitacao | `lib/portal-partner-clinic-links.test.ts` cobre as 11 regras da selecao (marcar, desmarcar, 3 clinicas, interruptor por clinica, ida e volta do formulario, payload por tipo). **O comportamento visual na tela ainda nao foi conferido em stage** | pendente |
+| CA-018 | aceitacao | `lib/portal-partner-clinic-links.test.ts` (11 regras) mais a verificacao em stage: parceiro #50 criado com 3 clinicas, selo `· recebe todos` so na Animal Care, e a edicao recarregou o conjunto salvo | ok |
 | CA-019 | regressao | `pytest tests/` inteiro verde (1334). Nenhuma assercao de comportamento de #151 foi tocada; das suites antigas mudou so a lista de tabelas do fixture e o import, porque a difusao faz JOIN com a tabela nova | ok |
+| CA-020 | aceitacao | `test_estado_do_laudo_mostra_o_veterinario_que_entrou_por_vinculo`: laudo liberado so por difusao devolve `disponivel`/`liberado` true e o destino com `origem = "vinculo_clinica"`. Em stage, o laudo 46 reproduziu o bug antes da correcao | ok |
+| CA-021 | aceitacao | `lib/laudo-whatsapp-aviso.test.ts`: o laudo sem nomeado, liberado por vinculo, agora devolve `["clinica", "veterinario_parceiro"]` e o dialogo nomeia "Animal Care e Dra. Carla Soares" | ok |
+| CA-022 | aceitacao | Mesmo arquivo: com nomeado + difusao, o dialogo nomeia os dois e o botao usa "veterinarios parceiros" | ok |
+| CA-023 | aceitacao | `test_vinculo_sem_liberacao_aparece_como_pendente_e_nao_liberado` mais o caso `liberado: false` do teste de front: fica fora do aviso e entra em `portal_destinos_pendentes` | ok |
+| CA-024 | performance | `listar_laudos` carrega difusao e targets uma vez por pagina; a consulta de targets nem roda sem destino veterinario na pagina — foi assim que `test_laudo_portal_whatsapp_status.py` voltou a passar sem tocar no fixture dele | ok |
 | NFR-002 | seguranca | `test_difusao_nao_liberada_no_portal_nao_recebe_aviso`: o vinculo existe e difunde, mas sem `PortalPartnerReleaseTarget` o aviso volta `ignorado`/`nao_liberado` — a visibilidade continua vindo do target explicito, nao do vinculo | ok |
 
 ## 2) Comandos executados
@@ -58,38 +63,80 @@ npx next build
 - `pytest tests/test_laudo_difusao_por_vinculo_de_clinica.py`: 11 testes novos
   passaram.
 - `pytest tests/ -k "portal or laudo or whatsapp"`: 623 passaram, 7 pulados.
-- `pytest tests/` (suite inteira): 1334 passaram, 7 pulados, 278 subtests.
-- `vitest run`: 44 arquivos, 319 testes (11 novos em
-  `lib/portal-partner-clinic-links.test.ts`).
+- `pytest tests/` (suite inteira): **1338 passaram**, 7 pulados, 278 subtests —
+  os 4 ultimos sao os de estado do laudo, da correcao do defeito de stage.
+- `vitest run`: 44 arquivos, **325 testes** (11 em
+  `lib/portal-partner-clinic-links.test.ts` e 6 novos em
+  `lib/laudo-whatsapp-aviso.test.ts`, que travam o defeito do aviso).
 - `tsc --noEmit` e `eslint --max-warnings=0`: sem erros.
 - `next build`: passou.
 
 ## 3) Verificação manual
 
+### Feito em stage - 2026-09-16
+
+Fixtures criadas: veterinário parceiro **#50 "Dra. Teste Multiclinica"**
+(`teste.multiclinica@example.com` — domínio reservado, não entrega a ninguém) e
+**#51 "Ana Teste Sem Vinculo"**, sem vínculo nenhum. Clínicas: Animal Care (id 8),
+Animal Clinic (id 13), Bicho Cheiroso.
+
+1. **Cadastro com 3 clínicas (CA-001, CA-018).** Marquei as 3 no formulário, com
+   "receber todos os laudos" ligado só na Animal Care. Cada clínica marcada abre
+   o interruptor aninhado, desligado por padrão. O card do parceiro na listagem
+   trouxe `Animal Care · recebe todos` em destaque e as outras duas sem o selo.
+2. **Edição carrega o salvo, e o PATCH substitui (CA-005, CA-018).** Reabri a
+   edição: as 3 voltaram marcadas, com o interruptor no lugar certo. Desmarquei
+   Bicho Cheiroso e liguei a difusão da Animal Clinic no mesmo salvamento; o card
+   passou a mostrar exatamente `Animal Care · recebe todos` e
+   `Animal Clinic · recebe todos`. Remoção e troca de interruptor no mesmo PATCH.
+3. **Seletor ordenado (CA-016).** Com só 2 veterinários a ordem não discriminava
+   (o de teste já vinha primeiro no alfabeto), então criei o #51 "Ana", que vem
+   antes de todos. Resultado: sem filtro → `[Ana, Dra. Teste, Martiniano]`;
+   `clinica_id=8` → `[Dra. Teste, Ana, Martiniano]`; `clinica_id=40` (sem
+   vínculo) → volta ao alfabético. Total 3 nas três consultas: ninguém sumiu.
+4. **Difusão de verdade (CA-006, NFR-004).** Liberei o laudo 46 (paciente hula,
+   Animal Care, `Finalizado`, **sem veterinário nomeado**). A resposta veio com
+   `veterinarios_por_vinculo: [50]` e `veterinario_parceiro_id: null`, e a
+   auditoria registrou `LAUDO_PORTAL_PARTNER_NOTIFICATION_SENT` com
+   `origem: "vinculo_clinica"`, `partner_id: 50`, `destination_masked:
+   "te***@example.com"`. A difusão funcionou ponta a ponta sem nomear ninguém.
+
+### Defeito encontrado em stage, e corrigido
+
+O passo 4 expôs um defeito **introduzido por esta entrega**. Depois de liberado,
+o laudo 46 respondia:
+
+```
+portal_veterinario_disponivel: false
+portal_veterinario_liberado:   false
+veterinario_parceiro_nome:     ""
+```
+
+...embora a Dra. Teste Multiclinica **tivesse** o laudo. Esses campos só olhavam
+`laudo.veterinario_parceiro_id`, que é nulo quando ninguém foi nomeado.
+
+A consequência não era cosmética. `getDestinosAvisoWhatsApp` exigia
+`veterinario_parceiro_id && portal_veterinario_liberado`, então na Central de
+laudos o botão diria *"Avisar clínica pelo WhatsApp oficial"* e o diálogo
+*"Enviar para Animal Care o aviso de laudo disponível?"* — enquanto o backend
+mandaria WhatsApp **também para o celular da veterinária**. O diálogo nomeava um
+destinatário e o envio ia para dois.
+
+Correção (RF-018, RF-019): `_serialize_portal_release_state` passou a montar o
+conjunto completo de destinatários e a expor `portal_veterinarios_destinos`; o
+front passou a decidir por essa lista e a nomear cada um no botão e no diálogo,
+com plural quando é mais de um. Coberto por CA-020 a CA-023.
+
+De quebra, CA-024: a consulta de targets da listagem virou preguiçosa — não roda
+quando nenhum laudo da página tem destino veterinário. Foi assim que
+`test_laudo_portal_whatsapp_status.py` voltou a passar sem tocar no fixture dele.
+
 ### Pendente em stage
 
-Ainda não executado. Roteiro previsto, em `app.stage.fortcordis.com.br`:
-
-1. **Cadastro com 3 clínicas (CA-018).** Em Portal Clínicas → Parceiros
-   externos, criar um veterinário parceiro e marcar 3 clínicas, ligando
-   "receber todos os laudos" em uma só. Conferir que o card do parceiro na
-   listagem mostra as 3, com o selo `· recebe todos` apenas na escolhida.
-2. **Edição carrega o que está salvo (CA-018, CA-005).** Editar o mesmo
-   parceiro: as 3 clínicas voltam marcadas e o interruptor ligado é o mesmo.
-   Desmarcar uma, salvar, reabrir e confirmar que sobraram 2.
-3. **Difusão de verdade (CA-006).** Liberar no portal um laudo da clínica com o
-   interruptor ligado, **sem** nomear o veterinário no laudo, e confirmar que
-   ele passa a enxergar o caso no ambiente do veterinário parceiro.
-4. **Seletor ordenado (CA-016).** Abrir a edição de um laudo daquela clínica e
-   conferir que os vinculados aparecem no topo da lista de veterinários.
-5. **Aviso por WhatsApp (CA-012).** Disparar o aviso e conferir que o resumo
-   traz uma linha por veterinário. Em stage o provedor recusa por desenho — o
-   que se confere aqui é a interface e o que fica persistido, não a entrega.
-
-Vale o mesmo combinado de
-[laudo-aviso-whatsapp-parceiro](../laudo-aviso-whatsapp-parceiro/verify.md):
-o modelo aprovado `laudo_disponivel_portal` só existe na conta de produção, então
-**stage confere interface e persistência, não entrega.**
+Refazer o passo 4 sobre o código corrigido e conferir na Central de laudos que o
+laudo 46 agora anuncia os dois destinos no botão e nomeia a veterinária no
+diálogo. Não exercitado: o portal do próprio veterinário parceiro (exigiria a
+senha dele).
 
 ### Pendente em produção
 

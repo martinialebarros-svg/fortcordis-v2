@@ -138,3 +138,87 @@ describe("resumo da resposta do envio", () => {
     });
   });
 });
+
+describe("difusao por vinculo de clinica", () => {
+  const laudoComDifusao = {
+    status: "Liberado no portal",
+    clinica: "Animal Care",
+    clinic_id: 8,
+    portal_clinica_liberado: true,
+    // Ninguem foi nomeado no laudo: a Dra. Carla entrou pelo vinculo da clinica.
+    veterinario_parceiro_id: null,
+    veterinario_parceiro_nome: "",
+    portal_veterinario_liberado: true,
+    portal_veterinarios_destinos: [
+      { partner_id: 50, nome: "Dra. Carla Soares", origem: "vinculo_clinica", liberado: true },
+    ],
+  };
+
+  it("inclui o veterinario que entrou so por vinculo, sem estar nomeado no laudo", () => {
+    expect(getDestinosAvisoWhatsApp(laudoComDifusao)).toEqual(["clinica", "veterinario_parceiro"]);
+    expect(podeAvisarWhatsApp(laudoComDifusao)).toBe(true);
+  });
+
+  it("o dialogo nomeia quem vai receber, e nao so a clinica", () => {
+    expect(getConfirmacaoAvisoWhatsApp(laudoComDifusao)).toBe(
+      "Enviar para Animal Care e Dra. Carla Soares o aviso de laudo disponível?",
+    );
+  });
+
+  it("o botao avisa que o veterinario tambem recebe", () => {
+    expect(getTituloBotaoAvisoWhatsApp(laudoComDifusao)).toBe(
+      "Avisar clínica e veterinário parceiro pelo WhatsApp oficial",
+    );
+  });
+
+  it("com mais de um veterinario, o dialogo nomeia todos e o botao vai para o plural", () => {
+    const laudo = {
+      ...laudoComDifusao,
+      veterinario_parceiro_id: 4,
+      veterinario_parceiro_nome: "Dra Isadora Bastos",
+      portal_veterinarios_destinos: [
+        { partner_id: 4, nome: "Dra Isadora Bastos", origem: "nomeado", liberado: true },
+        { partner_id: 50, nome: "Dra. Carla Soares", origem: "vinculo_clinica", liberado: true },
+      ],
+    };
+
+    expect(getConfirmacaoAvisoWhatsApp(laudo)).toBe(
+      "Enviar para Animal Care e Dra Isadora Bastos e Dra. Carla Soares o aviso de laudo disponível?",
+    );
+    expect(getTituloBotaoAvisoWhatsApp(laudo)).toBe(
+      "Avisar clínica e veterinários parceiros pelo WhatsApp oficial",
+    );
+  });
+
+  it("veterinario ainda nao liberado no portal fica de fora do aviso", () => {
+    const laudo = {
+      ...laudoComDifusao,
+      portal_veterinario_liberado: false,
+      portal_veterinarios_destinos: [
+        { partner_id: 50, nome: "Dra. Carla Soares", origem: "vinculo_clinica", liberado: false },
+      ],
+    };
+
+    expect(getDestinosAvisoWhatsApp(laudo)).toEqual(["clinica"]);
+    expect(getConfirmacaoAvisoWhatsApp(laudo)).toBe(
+      "Enviar para Animal Care o aviso de laudo disponível?",
+    );
+  });
+
+  it("laudo do contrato antigo, sem a lista, segue valendo pelo nomeado", () => {
+    const laudo = {
+      status: "Liberado no portal",
+      clinica: "Animal Care",
+      clinic_id: 8,
+      portal_clinica_liberado: true,
+      veterinario_parceiro_id: 4,
+      veterinario_parceiro_nome: "Dra Isadora Bastos",
+      portal_veterinario_liberado: true,
+    };
+
+    expect(getDestinosAvisoWhatsApp(laudo)).toEqual(["clinica", "veterinario_parceiro"]);
+    expect(getConfirmacaoAvisoWhatsApp(laudo)).toBe(
+      "Enviar para Animal Care e Dra Isadora Bastos o aviso de laudo disponível?",
+    );
+  });
+});
