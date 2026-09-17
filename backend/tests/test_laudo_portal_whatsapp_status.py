@@ -21,7 +21,7 @@ from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.clinica import Clinica
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
-from app.models.portal_partner import PortalPartnerProfile
+from app.models.portal_partner import PortalPartnerClinicLink, PortalPartnerProfile
 from app.models.tutor import Tutor
 
 
@@ -53,6 +53,7 @@ class LaudoPortalWhatsappStatusTest(unittest.TestCase):
             Laudo.__table__,
             Exame.__table__,
             PortalPartnerProfile.__table__,
+            PortalPartnerClinicLink.__table__,
         ):
             table.create(engine, checkfirst=True)
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()

@@ -33,8 +33,16 @@ import {
   getPortalAdminAuthHeaders,
 } from "@/lib/portal-clinic-admin";
 import { createPortalPartnerInvite } from "@/lib/portal-api";
+import {
+  buildClinicLinksPayload,
+  clinicLinksFromPartner,
+  resumoDoVinculo,
+  toggleClinicBroadcast,
+  toggleClinicLink,
+} from "@/lib/portal-partner-clinic-links";
 import type {
   PortalAdminClinicInviteResponse,
+  PortalPartnerClinicLinkPayload,
   PortalPartnerProfile,
   PortalPartnerProfileCreatePayload,
   PortalPartnerProfileListResponse,
@@ -58,6 +66,8 @@ type ClinicaOption = {
 type PartnerFormState = {
   tipo: PortalPartnerType;
   clinica_id: string;
+  /** Clinicas em que o veterinario atende, com o interruptor de difusao de cada uma. */
+  clinicas_vinculadas: PortalPartnerClinicLinkPayload[];
   nome_exibicao: string;
   email_login: string;
   telefone: string;
@@ -78,6 +88,7 @@ function emptyForm(tipo: PortalPartnerType = "veterinario"): PartnerFormState {
   return {
     tipo,
     clinica_id: "",
+    clinicas_vinculadas: [],
     nome_exibicao: "",
     email_login: "",
     telefone: "",
@@ -162,6 +173,16 @@ export default function PortalExternalPartnersPage() {
       })
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   }, [clinics, editingPartner?.clinica_id, editingPartner?.tipo, linkedClinicIds]);
+
+  // O veterinario pode atender em qualquer clinica ativa, inclusive nas que ja
+  // sao parceiras do portal por conta propria — por isso nao reusa clinicOptions.
+  const clinicasParaVinculo = useMemo(
+    () =>
+      clinics
+        .filter((clinic) => clinic.ativo !== false)
+        .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+    [clinics],
+  );
 
   const selectedClinic = useMemo(
     () => clinicOptions.find((item) => String(item.id) === form.clinica_id) || null,
@@ -292,6 +313,7 @@ export default function PortalExternalPartnersPage() {
     setForm({
       tipo: partner.tipo,
       clinica_id: partner.clinica_id ? String(partner.clinica_id) : "",
+      clinicas_vinculadas: clinicLinksFromPartner(partner.clinicas_vinculadas),
       nome_exibicao: partner.nome_exibicao || "",
       email_login: partner.email_login || "",
       telefone: partner.telefone || "",
@@ -312,10 +334,25 @@ export default function PortalExternalPartnersPage() {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
+  function handleToggleClinicLink(clinicaId: number) {
+    setForm((current) => ({
+      ...current,
+      clinicas_vinculadas: toggleClinicLink(current.clinicas_vinculadas, clinicaId),
+    }));
+  }
+
+  function handleToggleClinicBroadcast(clinicaId: number) {
+    setForm((current) => ({
+      ...current,
+      clinicas_vinculadas: toggleClinicBroadcast(current.clinicas_vinculadas, clinicaId),
+    }));
+  }
+
   function buildCreatePayload(): PortalPartnerProfileCreatePayload {
     return {
       tipo: form.tipo,
       clinica_id: form.tipo === "clinica" && form.clinica_id ? Number(form.clinica_id) : undefined,
+      clinicas_vinculadas: buildClinicLinksPayload(form.tipo, form.clinicas_vinculadas),
       nome_exibicao: cleanValue(form.nome_exibicao),
       email_login: cleanValue(form.email_login),
       telefone: cleanValue(form.telefone),
@@ -332,6 +369,7 @@ export default function PortalExternalPartnersPage() {
 
   function buildUpdatePayload(): PortalPartnerProfileUpdatePayload {
     return {
+      clinicas_vinculadas: buildClinicLinksPayload(form.tipo, form.clinicas_vinculadas),
       nome_exibicao: cleanValue(form.nome_exibicao),
       email_login: cleanValue(form.email_login),
       telefone: cleanValue(form.telefone),
@@ -822,6 +860,69 @@ export default function PortalExternalPartnersPage() {
                       className="h-12 rounded-2xl border border-slate-200 px-4 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                     />
                   </label>
+
+                  <div className="flex flex-col gap-3 text-sm md:col-span-2">
+                    <div>
+                      <p className="font-medium text-slate-700">Clínicas em que atende</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Marque todas as clínicas onde este veterinário trabalha. Ligue &ldquo;receber todos
+                        os laudos&rdquo; na clínica em que ele deve ser avisado de todo paciente, sem precisar
+                        ser nomeado no laudo — use na clínica onde ele é o único parceiro. Desligado, o
+                        vínculo apenas deixa o nome dele no topo do seletor do laudo daquela clínica.
+                      </p>
+                    </div>
+
+                    {clinicasParaVinculo.length === 0 ? (
+                      <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-3 text-xs text-slate-500">
+                        Nenhuma clínica cadastrada para vincular.
+                      </p>
+                    ) : (
+                      <div className="max-h-72 space-y-2 overflow-y-auto rounded-2xl border border-slate-200 p-2">
+                        {clinicasParaVinculo.map((clinic) => {
+                          const vinculo = form.clinicas_vinculadas.find(
+                            (item) => item.clinica_id === clinic.id,
+                          );
+                          const vinculada = Boolean(vinculo);
+                          return (
+                            <div
+                              key={clinic.id}
+                              className={`rounded-xl border px-3 py-2 transition ${
+                                vinculada ? "border-teal-200 bg-teal-50" : "border-slate-200 bg-white"
+                              }`}
+                            >
+                              <label className="flex items-center gap-3 text-sm text-slate-800">
+                                <input
+                                  type="checkbox"
+                                  checked={vinculada}
+                                  onChange={() => handleToggleClinicLink(clinic.id)}
+                                  className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                />
+                                <span className="font-medium">{clinic.nome}</span>
+                                {clinic.cidade ? (
+                                  <span className="text-xs text-slate-500">
+                                    {clinic.cidade}
+                                    {clinic.estado ? `/${clinic.estado}` : ""}
+                                  </span>
+                                ) : null}
+                              </label>
+
+                              {vinculada ? (
+                                <label className="mt-2 ml-7 flex items-center gap-2 text-xs text-slate-600">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(vinculo?.receber_todos_laudos)}
+                                    onChange={() => handleToggleClinicBroadcast(clinic.id)}
+                                    className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                  />
+                                  Receber todos os laudos desta clínica (WhatsApp e email)
+                                </label>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
 
@@ -1152,6 +1253,31 @@ export default function PortalExternalPartnersPage() {
                             <p className="mt-2 text-slate-900">{partner.area_atuacao || partner.crmv || "Operação geral"}</p>
                           </div>
                         </div>
+
+                        {partner.clinicas_vinculadas?.length ? (
+                          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              Clínicas em que atende
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {partner.clinicas_vinculadas.map((link) => (
+                                <span
+                                  key={link.clinica_id}
+                                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
+                                    link.receber_todos_laudos
+                                      ? "border-teal-200 bg-teal-50 text-teal-800"
+                                      : "border-slate-200 bg-slate-50 text-slate-700"
+                                  }`}
+                                  title={resumoDoVinculo(link)}
+                                >
+                                  <Building2 className="h-3.5 w-3.5" />
+                                  {link.clinica_nome || `Clínica ${link.clinica_id}`}
+                                  {link.receber_todos_laudos ? " · recebe todos" : ""}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
 
                         {partner.observacoes ? (
                           <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">

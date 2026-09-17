@@ -10,6 +10,13 @@ export const PORTAL_RELEASE_STATUS = "Liberado no portal";
 
 export type DestinoAvisoWhatsApp = "clinica" | "veterinario_parceiro";
 
+export interface DestinoVeterinarioLaudo {
+  partner_id: number;
+  nome?: string | null;
+  origem?: string | null;
+  liberado?: boolean;
+}
+
 export interface LaudoAvisoWhatsApp {
   status?: string;
   clinica?: string | null;
@@ -18,6 +25,12 @@ export interface LaudoAvisoWhatsApp {
   veterinario_parceiro_id?: number | null;
   veterinario_parceiro_nome?: string | null;
   portal_veterinario_liberado?: boolean;
+  /**
+   * Todos os veterinarios que recebem este laudo: o nomeado e os que entram
+   * por vinculo de clinica com difusao ligada. E daqui que sai o nome de quem
+   * vai ser avisado — o `veterinario_parceiro_id` sozinho nao ve os de vinculo.
+   */
+  portal_veterinarios_destinos?: DestinoVeterinarioLaudo[];
 }
 
 export interface ResumoDestinoAvisoWhatsApp {
@@ -38,12 +51,24 @@ export interface RespostaAvisoWhatsApp {
   whatsapp_parceiro_erro?: string | null;
 }
 
+export function getVeterinariosLiberados(laudo: LaudoAvisoWhatsApp): DestinoVeterinarioLaudo[] {
+  const destinos = laudo.portal_veterinarios_destinos;
+  if (Array.isArray(destinos)) {
+    return destinos.filter((item) => item?.liberado);
+  }
+  // Contrato antigo, de antes da difusao por vinculo: so o nomeado.
+  if (laudo.veterinario_parceiro_id && laudo.portal_veterinario_liberado) {
+    return [{ partner_id: laudo.veterinario_parceiro_id, nome: laudo.veterinario_parceiro_nome }];
+  }
+  return [];
+}
+
 export function getDestinosAvisoWhatsApp(laudo: LaudoAvisoWhatsApp): DestinoAvisoWhatsApp[] {
   const destinos: DestinoAvisoWhatsApp[] = [];
   if (laudo.clinic_id && (laudo.portal_clinica_liberado || laudo.status === PORTAL_RELEASE_STATUS)) {
     destinos.push("clinica");
   }
-  if (laudo.veterinario_parceiro_id && laudo.portal_veterinario_liberado) {
+  if (getVeterinariosLiberados(laudo).length > 0) {
     destinos.push("veterinario_parceiro");
   }
   return destinos;
@@ -58,7 +83,17 @@ function nomeClinica(laudo: LaudoAvisoWhatsApp): string {
 }
 
 function nomeParceiro(laudo: LaudoAvisoWhatsApp): string {
-  return laudo.veterinario_parceiro_nome?.trim() || "o veterinário parceiro";
+  const liberados = getVeterinariosLiberados(laudo);
+  const nomes = liberados.map((item) => item.nome?.trim()).filter((nome): nome is string => Boolean(nome));
+
+  if (nomes.length === 0) {
+    return liberados.length > 1 ? "os veterinários parceiros" : "o veterinário parceiro";
+  }
+  if (nomes.length === 1) {
+    return nomes[0];
+  }
+  // Nomear todo mundo: quem confirma o envio precisa saber quem vai receber.
+  return `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
 }
 
 export function getConfirmacaoAvisoWhatsApp(laudo: LaudoAvisoWhatsApp): string {
@@ -74,11 +109,13 @@ export function getConfirmacaoAvisoWhatsApp(laudo: LaudoAvisoWhatsApp): string {
 
 export function getTituloBotaoAvisoWhatsApp(laudo: LaudoAvisoWhatsApp): string {
   const destinos = getDestinosAvisoWhatsApp(laudo);
+  const plural = getVeterinariosLiberados(laudo).length > 1;
+  const rotuloVet = plural ? "veterinários parceiros" : "veterinário parceiro";
   if (destinos.length === 2) {
-    return "Avisar clínica e veterinário parceiro pelo WhatsApp oficial";
+    return `Avisar clínica e ${rotuloVet} pelo WhatsApp oficial`;
   }
   if (destinos.includes("veterinario_parceiro")) {
-    return "Avisar veterinário parceiro pelo WhatsApp oficial";
+    return `Avisar ${rotuloVet} pelo WhatsApp oficial`;
   }
   return "Avisar clínica pelo WhatsApp oficial";
 }

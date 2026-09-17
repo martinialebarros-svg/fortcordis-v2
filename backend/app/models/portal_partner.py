@@ -29,6 +29,27 @@ class PortalPartnerProfile(Base):
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
 
 
+class PortalPartnerClinicLink(Base):
+    """Clinicas em que um veterinario parceiro atende.
+
+    `receber_todos_laudos` liga a difusao: todo laudo daquela clinica passa a
+    liberar e avisar esse veterinario, sem precisar nomea-lo no laudo. Desligado,
+    o vinculo so ordena o seletor de veterinario do fluxo de laudo.
+    """
+
+    __tablename__ = "portal_partner_clinic_links"
+    __table_args__ = (
+        UniqueConstraint("partner_id", "clinica_id", name="uq_portal_partner_clinic_link"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    partner_id = Column(Integer, nullable=False, index=True)
+    clinica_id = Column(Integer, nullable=False, index=True)
+    receber_todos_laudos = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+
+
 class PortalPartnerReleaseTarget(Base):
     __tablename__ = "portal_partner_release_targets"
     __table_args__ = (
