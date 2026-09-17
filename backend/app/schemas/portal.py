@@ -328,12 +328,24 @@ class PortalAdminClinicAccessOverviewResponse(BaseModel):
     recent_downloads: list[PortalAdminClinicDownloadEventResponse] = Field(default_factory=list)
 
 
+class PortalPartnerClinicLinkPayload(BaseModel):
+    clinica_id: int = Field(..., gt=0)
+    receber_todos_laudos: bool = False
+
+
+class PortalPartnerClinicLinkResponse(BaseModel):
+    clinica_id: int
+    clinica_nome: Optional[str] = None
+    receber_todos_laudos: bool = False
+
+
 class PortalPartnerProfileResponse(BaseModel):
     id: int
     tipo: Literal["clinica", "veterinario"]
     tipo_label: str
     clinica_id: Optional[int] = None
     clinica_nome: Optional[str] = None
+    clinicas_vinculadas: list[PortalPartnerClinicLinkResponse] = Field(default_factory=list)
     nome_exibicao: str
     email_login: Optional[str] = None
     telefone: Optional[str] = None
@@ -357,6 +369,7 @@ class PortalPartnerProfileListResponse(BaseModel):
 class PortalPartnerProfileCreateRequest(BaseModel):
     tipo: Literal["clinica", "veterinario"]
     clinica_id: Optional[int] = Field(default=None, gt=0)
+    clinicas_vinculadas: Optional[list[PortalPartnerClinicLinkPayload]] = None
     nome_exibicao: Optional[str] = Field(default=None, min_length=2, max_length=255)
     email_login: Optional[str] = Field(default=None, min_length=5, max_length=255)
     telefone: Optional[str] = Field(default=None, min_length=8, max_length=50)
@@ -371,6 +384,7 @@ class PortalPartnerProfileCreateRequest(BaseModel):
 
 
 class PortalPartnerProfileUpdateRequest(BaseModel):
+    clinicas_vinculadas: Optional[list[PortalPartnerClinicLinkPayload]] = None
     nome_exibicao: Optional[str] = Field(default=None, min_length=2, max_length=255)
     email_login: Optional[str] = Field(default=None, min_length=5, max_length=255)
     telefone: Optional[str] = Field(default=None, min_length=8, max_length=50)

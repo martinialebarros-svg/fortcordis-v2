@@ -22,6 +22,7 @@ from app.db.database import get_db
 from app.models.clinica import Clinica
 from app.models.portal_partner import (
     PORTAL_PARTNER_TYPE_CLINICA,
+    PortalPartnerClinicLink,
     PortalPartnerProfile,
 )
 
@@ -45,6 +46,7 @@ class PortalPartnersApiTest(unittest.TestCase):
         for table in (
             Clinica.__table__,
             PortalPartnerProfile.__table__,
+            PortalPartnerClinicLink.__table__,
         ):
             table.create(self._engine, checkfirst=True)
 

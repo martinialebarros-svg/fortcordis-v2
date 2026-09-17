@@ -30,6 +30,7 @@ from app.models.paciente import Paciente
 from app.models.portal_clinic_auth import PortalClinicAccount, PortalClinicInvite
 from app.models.portal_partner import (
     PORTAL_PARTNER_TYPE_VETERINARIO,
+    PortalPartnerClinicLink,
     PortalPartnerProfile,
     PortalPartnerReleaseTarget,
 )
@@ -89,6 +90,7 @@ class LaudoPortalReleaseTest(unittest.TestCase):
             PortalClinicInvite.__table__,
             PortalClinicAccount.__table__,
             PortalPartnerProfile.__table__,
+            PortalPartnerClinicLink.__table__,
             PortalPartnerReleaseTarget.__table__,
             PortalPartnerAccount.__table__,
         ):

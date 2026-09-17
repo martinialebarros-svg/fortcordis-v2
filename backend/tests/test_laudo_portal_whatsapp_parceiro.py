@@ -23,6 +23,7 @@ from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
 from app.models.portal_partner import (
     PORTAL_PARTNER_TYPE_VETERINARIO,
+    PortalPartnerClinicLink,
     PortalPartnerProfile,
     PortalPartnerReleaseTarget,
 )
@@ -70,6 +71,7 @@ class LaudoPortalWhatsappParceiroTest(unittest.TestCase):
             Laudo.__table__,
             Exame.__table__,
             PortalPartnerProfile.__table__,
+            PortalPartnerClinicLink.__table__,
             PortalPartnerReleaseTarget.__table__,
         ):
             table.create(engine, checkfirst=True)
