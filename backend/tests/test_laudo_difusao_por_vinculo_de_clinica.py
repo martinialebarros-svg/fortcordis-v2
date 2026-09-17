@@ -513,6 +513,100 @@ class LaudoDifusaoPorVinculoDeClinicaTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    # --- estado do laudo visto pela tela -------------------------------------
+
+    def test_estado_do_laudo_mostra_o_veterinario_que_entrou_por_vinculo(self) -> None:
+        """O laudo liberado so por difusao precisa se declarar com destino veterinario.
+
+        Sem isso a Central de laudos anuncia "Avisar clinica" e o backend manda
+        WhatsApp tambem para o veterinario — o dialogo nomeia um destinatario e o
+        envio vai para dois.
+        """
+        tmpdir, db, engine = self._build_session()
+        try:
+            laudo = self._seed(db, nomeado=False, difusao_em=CLINICA_A)
+            self._liberar(db, laudo, tmpdir)
+
+            db.refresh(laudo)
+            estado = laudos._serialize_portal_release_state(db, laudo=laudo)
+
+            self.assertTrue(estado["portal_veterinario_disponivel"])
+            self.assertTrue(estado["portal_veterinario_liberado"])
+            self.assertEqual(
+                estado["portal_veterinarios_destinos"],
+                [
+                    {
+                        "partner_id": PARCEIRO_DIFUSAO,
+                        "nome": "Dra Carla Soares",
+                        "origem": "vinculo_clinica",
+                        "liberado": True,
+                    }
+                ],
+            )
+            self.assertEqual(estado["portal_destinos_pendentes"], [])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_estado_lista_nomeado_e_difusao_na_ordem_do_envio(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            laudo = self._seed(db, nomeado=True, difusao_em=CLINICA_A)
+            self._liberar(db, laudo, tmpdir)
+
+            db.refresh(laudo)
+            estado = laudos._serialize_portal_release_state(db, laudo=laudo)
+
+            self.assertEqual(
+                [(d["partner_id"], d["origem"], d["liberado"]) for d in estado["portal_veterinarios_destinos"]],
+                [
+                    (PARCEIRO_NOMEADO, "nomeado", True),
+                    (PARCEIRO_DIFUSAO, "vinculo_clinica", True),
+                ],
+            )
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_vinculo_sem_liberacao_aparece_como_pendente_e_nao_liberado(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            laudo = self._seed(db, nomeado=False, difusao_em=CLINICA_A)
+            # Sem liberar: o vinculo existe, o target nao.
+            estado = laudos._serialize_portal_release_state(db, laudo=laudo)
+
+            self.assertTrue(estado["portal_veterinario_disponivel"])
+            self.assertFalse(estado["portal_veterinario_liberado"])
+            self.assertIn("veterinario_parceiro", estado["portal_destinos_pendentes"])
+            self.assertEqual(
+                [d["liberado"] for d in estado["portal_veterinarios_destinos"]],
+                [False],
+            )
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_laudo_sem_veterinario_nenhum_continua_sem_destino_veterinario(self) -> None:
+        """Contrato antigo: laudo so de clinica nao inventa destino veterinario."""
+        tmpdir, db, engine = self._build_session()
+        try:
+            laudo = self._seed(db, nomeado=False, difusao_em=None)
+            self._liberar(db, laudo, tmpdir)
+
+            db.refresh(laudo)
+            estado = laudos._serialize_portal_release_state(db, laudo=laudo)
+
+            self.assertFalse(estado["portal_veterinario_disponivel"])
+            self.assertFalse(estado["portal_veterinario_liberado"])
+            self.assertEqual(estado["portal_veterinarios_destinos"], [])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

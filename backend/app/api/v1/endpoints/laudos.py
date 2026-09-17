@@ -812,33 +812,142 @@ def _load_exam_id_by_laudo_id_map(db: Session, laudo_ids: list[int]) -> dict[int
     return exam_id_by_laudo_id
 
 
+def _difusao_by_clinic_id(
+    db: Session,
+    clinic_ids: list[Any],
+) -> dict[int, list[PortalPartnerProfile]]:
+    """Veterinarios com difusao ligada, agrupados por clinica, em uma consulta so.
+
+    Serve a listagem de laudos, que serializa muitos laudos de uma vez: sem o
+    agrupamento seria uma consulta por laudo.
+    """
+    resolved_ids = sorted({int(item) for item in clinic_ids if _to_optional_int(item) is not None})
+    if not resolved_ids:
+        return {}
+
+    rows = (
+        db.query(PortalPartnerClinicLink.clinica_id, PortalPartnerProfile)
+        .join(PortalPartnerProfile, PortalPartnerClinicLink.partner_id == PortalPartnerProfile.id)
+        .filter(
+            PortalPartnerClinicLink.clinica_id.in_(resolved_ids),
+            PortalPartnerClinicLink.receber_todos_laudos.is_(True),
+            PortalPartnerProfile.tipo == PORTAL_PARTNER_TYPE_VETERINARIO,
+            PortalPartnerProfile.ativo.is_(True),
+        )
+        .order_by(
+            func.lower(PortalPartnerProfile.nome_exibicao).asc(),
+            PortalPartnerProfile.id.asc(),
+        )
+        .all()
+    )
+    agrupado: dict[int, list[PortalPartnerProfile]] = {}
+    for clinica_id, partner in rows:
+        agrupado.setdefault(int(clinica_id), []).append(partner)
+    return agrupado
+
+
+def _partners_liberados_by_exame_id(
+    db: Session,
+    exame_ids: list[Any],
+) -> dict[int, set[int]]:
+    """Parceiros com target ativo, por exame, em uma consulta so."""
+    resolved_ids = sorted({int(item) for item in exame_ids if _to_optional_int(item) is not None})
+    if not resolved_ids:
+        return {}
+
+    rows = (
+        db.query(PortalPartnerReleaseTarget.exame_id, PortalPartnerReleaseTarget.partner_id)
+        .filter(
+            PortalPartnerReleaseTarget.exame_id.in_(resolved_ids),
+            PortalPartnerReleaseTarget.revoked_at.is_(None),
+        )
+        .all()
+    )
+    agrupado: dict[int, set[int]] = {}
+    for exame_id, partner_id in rows:
+        agrupado.setdefault(int(exame_id), set()).add(int(partner_id))
+    return agrupado
+
+
 def _serialize_portal_release_state(
     db: Session,
     *,
     laudo: Laudo,
     portal_veterinario_liberado: bool | None = None,
     exame_id_by_laudo_id: dict[int, int] | None = None,
+    difusao_by_clinic_id: dict[int, list[PortalPartnerProfile]] | None = None,
+    liberados_by_exame_id: dict[int, set[int]] | None = None,
+    nome_parceiro_nomeado: str | None = None,
 ) -> dict[str, Any]:
     clinic_available = _to_optional_int(laudo.clinic_id) is not None
-    vet_available = _to_optional_int(laudo.veterinario_parceiro_id) is not None
     clinic_released = clinic_available and is_portal_released_status(laudo.status, kind="laudo")
-    if portal_veterinario_liberado is None:
-        portal_veterinario_liberado = _portal_veterinario_liberado(
-            db,
-            laudo_id=laudo.id,
-            veterinario_parceiro_id=laudo.veterinario_parceiro_id,
-            exame_id_by_laudo_id=exame_id_by_laudo_id,
+
+    # Quem recebe este laudo nao e so o veterinario nomeado: os vinculados a
+    # clinica com difusao ligada recebem tambem, e precisam aparecer aqui —
+    # e desta lista que a tela decide o que dizer no aviso por WhatsApp.
+    named_partner_id = _to_optional_int(laudo.veterinario_parceiro_id)
+    named_nome = nome_parceiro_nomeado
+    if named_partner_id is not None and named_nome is None:
+        # A listagem ja traz o nome pelo join; so as rotas de um laudo so consultam.
+        named_nome = (
+            db.query(PortalPartnerProfile.nome_exibicao)
+            .filter(PortalPartnerProfile.id == named_partner_id)
+            .scalar()
         )
+
+    if difusao_by_clinic_id is None:
+        difusao_by_clinic_id = _difusao_by_clinic_id(db, [laudo.clinic_id])
+
+    destinatarios: list[tuple[int, str | None, str]] = []
+    ja_incluidos: set[int] = set()
+    if named_partner_id is not None:
+        destinatarios.append((named_partner_id, named_nome, ORIGEM_PARCEIRO_NOMEADO))
+        ja_incluidos.add(named_partner_id)
+    for partner in difusao_by_clinic_id.get(_to_optional_int(laudo.clinic_id) or -1, []):
+        if int(partner.id) in ja_incluidos:
+            continue
+        ja_incluidos.add(int(partner.id))
+        destinatarios.append((int(partner.id), partner.nome_exibicao, ORIGEM_PARCEIRO_VINCULO))
+
+    exame_id = (exame_id_by_laudo_id or {}).get(int(laudo.id)) if exame_id_by_laudo_id else None
+    if exame_id is None and destinatarios:
+        exame = (
+            db.query(Exame)
+            .filter(Exame.laudo_id == laudo.id)
+            .order_by(Exame.id.desc())
+            .first()
+        )
+        exame_id = getattr(exame, "id", None)
+
+    if liberados_by_exame_id is None:
+        liberados_by_exame_id = _partners_liberados_by_exame_id(db, [exame_id] if exame_id else [])
+    liberados = liberados_by_exame_id.get(int(exame_id), set()) if exame_id else set()
+
+    destinos_veterinarios = [
+        {
+            "partner_id": partner_id,
+            "nome": str(nome or "").strip() or None,
+            "origem": origem,
+            "liberado": partner_id in liberados,
+        }
+        for partner_id, nome, origem in destinatarios
+    ]
+
+    vet_available = bool(destinos_veterinarios)
+    if portal_veterinario_liberado is None:
+        portal_veterinario_liberado = any(item["liberado"] for item in destinos_veterinarios)
+
     pending_destinations: list[str] = []
     if clinic_available and not clinic_released:
         pending_destinations.append("clinica")
-    if vet_available and not portal_veterinario_liberado:
+    if vet_available and not all(item["liberado"] for item in destinos_veterinarios):
         pending_destinations.append("veterinario_parceiro")
     return {
         "portal_clinica_disponivel": clinic_available,
         "portal_clinica_liberado": clinic_released,
         "portal_veterinario_disponivel": vet_available,
         "portal_veterinario_liberado": bool(portal_veterinario_liberado),
+        "portal_veterinarios_destinos": destinos_veterinarios,
         "portal_destinos_pendentes": pending_destinations,
         "portal_pode_liberar": bool(pending_destinations),
     }
@@ -1765,7 +1874,22 @@ def listar_laudos(
         db,
         [laudo.id for laudo in laudos_rows],
     )
-    
+    # Carregados de uma vez para a pagina inteira: sem isso, cada laudo faria a
+    # propria consulta de difusao e de targets.
+    difusao_by_clinic_id = _difusao_by_clinic_id(db, [laudo.clinic_id for laudo in laudos_rows])
+    # A consulta de targets so vale a pena se algum laudo da pagina tem destino
+    # veterinario; sem nenhum, ela seria uma ida ao banco para devolver vazio.
+    tem_destino_veterinario = any(
+        _to_optional_int(laudo.veterinario_parceiro_id) is not None
+        or difusao_by_clinic_id.get(_to_optional_int(laudo.clinic_id) or -1)
+        for laudo in laudos_rows
+    )
+    liberados_by_exame_id = (
+        _partners_liberados_by_exame_id(db, list(exame_id_by_laudo_id.values()))
+        if tem_destino_veterinario
+        else {}
+    )
+
     resultado = []
     for laudo, paciente_nome, tutor_nome, clinica_nome, veterinario_parceiro_nome in rows:
         resultado.append({
@@ -1795,6 +1919,9 @@ def listar_laudos(
                 db,
                 laudo=laudo,
                 exame_id_by_laudo_id=exame_id_by_laudo_id,
+                difusao_by_clinic_id=difusao_by_clinic_id,
+                liberados_by_exame_id=liberados_by_exame_id,
+                nome_parceiro_nomeado=veterinario_parceiro_nome,
             ),
         })
     
@@ -3175,10 +3302,11 @@ def _liberar_laudo_para_portal(
             request=request,
         )
 
+    # Sem override: os targets acabaram de ser gravados, entao a leitura reflete
+    # todos os destinatarios — o nomeado e os que entraram por vinculo.
     portal_release_state = _serialize_portal_release_state(
         db,
         laudo=laudo,
-        portal_veterinario_liberado=veterinario_parceiro is not None,
         exame_id_by_laudo_id={laudo.id: exame.id},
     )
     success_message = _build_portal_release_success_message(
