@@ -3391,6 +3391,89 @@ def liberar_laudo_para_portal(
     )
 
 
+@router.post("/laudos/{laudo_id}/portal/veterinarios/{partner_id}/revogar")
+def revogar_liberacao_veterinario_no_portal(
+    laudo_id: int,
+    partner_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Tira o acesso de um veterinario parceiro a este laudo no portal.
+
+    Nao mexe na liberacao da clinica nem na dos outros veterinarios: o alvo e
+    uma linha so de `portal_partner_release_targets`. A linha fica, com
+    `revoked_at` preenchido - e por ela que
+    `_upsert_portal_partner_release_target` devolve o acesso se o laudo for
+    liberado de novo, preservando quem liberou da primeira vez.
+    """
+    laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
+    if laudo is None:
+        raise HTTPException(status_code=404, detail="Laudo nao encontrado.")
+
+    exame = (
+        db.query(Exame)
+        .filter(Exame.laudo_id == laudo.id)
+        .order_by(Exame.id.desc())
+        .first()
+    )
+    if exame is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Este laudo nao tem exame liberado no portal.",
+        )
+
+    target = (
+        db.query(PortalPartnerReleaseTarget)
+        .filter(
+            PortalPartnerReleaseTarget.partner_id == partner_id,
+            PortalPartnerReleaseTarget.exame_id == exame.id,
+            PortalPartnerReleaseTarget.revoked_at.is_(None),
+        )
+        .first()
+    )
+    if target is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Este veterinario nao esta liberado no portal para este laudo.",
+        )
+
+    revogado_em = datetime.utcnow()
+    target.revoked_at = revogado_em
+    db.commit()
+    db.refresh(laudo)
+
+    partner_nome = (
+        db.query(PortalPartnerProfile.nome_exibicao)
+        .filter(PortalPartnerProfile.id == partner_id)
+        .scalar()
+    )
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="laudos",
+        entidade="laudo",
+        entidade_id=laudo.id,
+        acao="LAUDO_PORTAL_PARCEIRO_REVOGADO",
+        descricao="Acesso de veterinario parceiro ao laudo no portal foi revogado.",
+        detalhes={
+            "laudo_id": laudo.id,
+            "exame_id": exame.id,
+            "partner_id": partner_id,
+            "partner_nome": partner_nome,
+        },
+        request=request,
+    )
+
+    return {
+        "message": "Acesso do veterinario parceiro revogado no portal.",
+        "laudo_id": laudo.id,
+        "exame_id": exame.id,
+        "partner_id": partner_id,
+        "revogado_em": revogado_em.isoformat(),
+        **_serialize_portal_release_state(db, laudo=laudo),
+    }
+
+
 @router.post("/laudos/{laudo_id}/portal/liberar-clinica")
 def liberar_laudo_para_portal_clinica(
     laudo_id: int,
