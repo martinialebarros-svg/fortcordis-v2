@@ -37,3 +37,14 @@ ativa para este laudo).
 | CA-007 | A revogação gera evento de auditoria `LAUDO_PORTAL_PARCEIRO_REVOGADO` com `laudo_id`, `exame_id` e `partner_id` nos detalhes. |
 | CA-008 | Liberar o laudo de novo depois de revogar devolve o acesso ao parceiro: o `_upsert_portal_partner_release_target` reativa a mesma linha, zerando `revoked_at`. |
 | CA-009 | O aviso por WhatsApp respeita a revogação: parceiro revogado volta a ser `ignorado`/`nao_liberado` no `POST /laudos/{id}/portal/whatsapp`, em vez de receber mensagem. |
+
+## Criterios da tela (segunda fase)
+
+| ID | Criterio |
+|---|---|
+| CA-010 | A tela de visualização do laudo mostra um bloco "Liberado no portal para" com a clínica e cada veterinário do laudo, cada um marcado como "Com acesso" ou "Sem acesso". |
+| CA-011 | Cada veterinário aparece com a origem — "Encaminhou o caso" para o nomeado no laudo, "Por vínculo com a clínica" para quem entra por difusão. |
+| CA-012 | O botão "Revogar" aparece só em veterinário com acesso; clínica não tem botão de revogar neste bloco. |
+| CA-013 | A confirmação antes de revogar nomeia o veterinário e diz que liberar o laudo de novo devolve o acesso. |
+| CA-014 | Depois de revogar, o bloco atualiza sem recarregar: o veterinário passa a "Sem acesso" e perde o botão, a partir do estado que a própria resposta devolve. |
+| CA-015 | Laudo sem clínica e sem veterinário não mostra o bloco; o bloco não sai na impressão do laudo. |

@@ -21,7 +21,9 @@ import {
   type EnvioDestinoWhatsApp,
   type RespostaAvisoWhatsApp,
 } from "@/lib/laudo-whatsapp-aviso";
+import { getConfirmacaoRevogarVeterinario } from "@/lib/laudo-portal-destinos";
 import AvisoWhatsAppDialog from "../components/AvisoWhatsAppDialog";
+import PortalLiberadoPara from "../components/PortalLiberadoPara";
 import { ArrowLeft, CheckCircle, Download, FileText, Loader2, MessageCircle, Printer, Send, Upload } from "lucide-react";
 
 const PORTAL_RELEASE_STATUS = "Liberado no portal";
@@ -145,6 +147,7 @@ export default function VisualizarLaudoPage() {
   const [liberandoPortal, setLiberandoPortal] = useState(false);
   const [avisandoWhatsApp, setAvisandoWhatsApp] = useState(false);
   const [seletorAvisoAberto, setSeletorAvisoAberto] = useState(false);
+  const [revogandoPartnerId, setRevogandoPartnerId] = useState<number | null>(null);
   const [arquivoSubstituicao, setArquivoSubstituicao] = useState<File | null>(null);
   const [substituindoPdf, setSubstituindoPdf] = useState(false);
   const [fileInputKey, setFileInputKey] = useState(0);
@@ -296,6 +299,37 @@ export default function VisualizarLaudoPage() {
       alert(detail || "Erro ao liberar laudo no portal. Tente novamente.");
     } finally {
       setLiberandoPortal(false);
+    }
+  };
+
+  const revogarAcessoDoVeterinario = async (partnerId: number, nome: string) => {
+    if (!laudo || !laudoId) return;
+    if (!confirm(getConfirmacaoRevogarVeterinario(nome))) {
+      return;
+    }
+
+    setRevogandoPartnerId(partnerId);
+    try {
+      const response = await api.post(`/laudos/${laudo.id}/portal/veterinarios/${partnerId}/revogar`);
+      const dados = response.data;
+      setLaudo((atual) =>
+        atual
+          ? {
+              ...atual,
+              portal_clinica_liberado: dados?.portal_clinica_liberado ?? atual.portal_clinica_liberado,
+              portal_veterinario_liberado: dados?.portal_veterinario_liberado,
+              portal_veterinarios_destinos: dados?.portal_veterinarios_destinos ?? atual.portal_veterinarios_destinos,
+              portal_destinos_pendentes: dados?.portal_destinos_pendentes || [],
+              portal_pode_liberar: dados?.portal_pode_liberar,
+            }
+          : atual
+      );
+      alert(`${nome} não tem mais acesso a este laudo no portal.`);
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao revogar o acesso no portal. Tente novamente.");
+    } finally {
+      setRevogandoPartnerId(null);
     }
   };
 
@@ -498,6 +532,12 @@ export default function VisualizarLaudoPage() {
             </button>
           </div>
         </header>
+
+        <PortalLiberadoPara
+          laudo={laudo}
+          revogandoPartnerId={revogandoPartnerId}
+          onRevogar={revogarAcessoDoVeterinario}
+        />
 
         {/* Conteúdo do Laudo */}
         <article className="fc-report-view-document print:shadow-none print:border-none">
