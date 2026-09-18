@@ -14,12 +14,13 @@ import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import { extractApiErrorMessageSync } from "@/lib/api-error";
 import {
-  getConfirmacaoAvisoWhatsApp,
   getTituloBotaoAvisoWhatsApp,
   podeAvisarWhatsApp,
   resumirRespostaAvisoWhatsApp,
+  type EnvioDestinoWhatsApp,
   type RespostaAvisoWhatsApp,
 } from "@/lib/laudo-whatsapp-aviso";
+import AvisoWhatsAppDialog from "./components/AvisoWhatsAppDialog";
 import {
   AlertCircle,
   AlertTriangle,
@@ -72,6 +73,7 @@ interface Laudo {
   whatsapp_parceiro_status?: "enviado" | "falhou" | null;
   whatsapp_parceiro_em?: string | null;
   whatsapp_parceiro_erro?: string | null;
+  whatsapp_envios?: Record<string, EnvioDestinoWhatsApp> | null;
 }
 
 interface Exame {
@@ -205,6 +207,7 @@ export default function LaudosPage() {
   const [loadingMoreLaudos, setLoadingMoreLaudos] = useState(false);
   const [liberandoLaudoId, setLiberandoLaudoId] = useState<number | null>(null);
   const [avisandoLaudoId, setAvisandoLaudoId] = useState<number | null>(null);
+  const [laudoParaAvisar, setLaudoParaAvisar] = useState<Laudo | null>(null);
   const [toastWhatsapp, setToastWhatsapp] = useState<{ texto: string; classe: string } | null>(null);
   const toastWhatsappTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const laudosRequestIdRef = useRef(0);
@@ -504,12 +507,16 @@ export default function LaudosPage() {
     }, 4000);
   };
 
-  const avisarLaudoPorWhatsApp = async (laudo: Laudo) => {
+  const abrirSeletorAvisoWhatsApp = (laudo: Laudo) => {
     if (!podeAvisarWhatsApp(laudo)) {
       alert("Libere o laudo no portal antes de enviar o aviso por WhatsApp.");
       return;
     }
-    if (!confirm(getConfirmacaoAvisoWhatsApp(laudo))) {
+    setLaudoParaAvisar(laudo);
+  };
+
+  const avisarLaudoPorWhatsApp = async (laudo: Laudo, destinos: string[]) => {
+    if (destinos.length === 0) {
       return;
     }
     const idempotencyKey = typeof globalThis.crypto?.randomUUID === "function"
@@ -519,9 +526,11 @@ export default function LaudosPage() {
     try {
       const response = await api.post<RespostaAvisoWhatsApp>(`/laudos/${laudo.id}/portal/whatsapp`, {
         idempotency_key: idempotencyKey,
+        destinos,
       });
       const dados = response.data;
       const agora = new Date().toISOString();
+      setLaudoParaAvisar(null);
       setLaudos((prev) =>
         prev.map((item) =>
           item.id === laudo.id
@@ -533,6 +542,7 @@ export default function LaudosPage() {
                 whatsapp_parceiro_status: dados?.whatsapp_parceiro_status ?? item.whatsapp_parceiro_status,
                 whatsapp_parceiro_em: dados?.whatsapp_parceiro_em ?? item.whatsapp_parceiro_em,
                 whatsapp_parceiro_erro: dados?.whatsapp_parceiro_erro ?? null,
+                whatsapp_envios: dados?.whatsapp_envios ?? item.whatsapp_envios,
               }
             : item
         )
@@ -547,13 +557,17 @@ export default function LaudosPage() {
     } catch (error) {
       const detail = extractApiErrorMessageSync(error, "Erro ao enviar o aviso por WhatsApp.");
       const agora = new Date().toISOString();
-      setLaudos((prev) =>
-        prev.map((item) =>
-          item.id === laudo.id
-            ? { ...item, whatsapp_liberacao_status: "falhou", whatsapp_liberacao_em: agora, whatsapp_liberacao_erro: detail }
-            : item
-        )
-      );
+      // A janela fica aberta: o erro pode ser de um destino so, e reabrir a
+      // selecao do zero perderia a escolha que acabou de ser feita.
+      if (destinos.includes("clinica")) {
+        setLaudos((prev) =>
+          prev.map((item) =>
+            item.id === laudo.id
+              ? { ...item, whatsapp_liberacao_status: "falhou", whatsapp_liberacao_em: agora, whatsapp_liberacao_erro: detail }
+              : item
+          )
+        );
+      }
       mostrarToastWhatsapp(detail, "border-rose-200 bg-rose-50 text-rose-900");
     } finally {
       setAvisandoLaudoId(null);
@@ -665,6 +679,14 @@ export default function LaudosPage() {
               <span className="font-medium">{toastWhatsapp.texto}</span>
             </div>
           </div>
+        )}
+        {laudoParaAvisar && (
+          <AvisoWhatsAppDialog
+            laudo={laudoParaAvisar}
+            enviando={avisandoLaudoId === laudoParaAvisar.id}
+            onCancelar={() => setLaudoParaAvisar(null)}
+            onEnviar={(destinos) => avisarLaudoPorWhatsApp(laudoParaAvisar, destinos)}
+          />
         )}
         <header className="fc-clinical-header">
           <div>
@@ -964,7 +986,7 @@ export default function LaudosPage() {
                           )}
                           {podeAvisarWhatsApp(laudo) && (
                             <button
-                              onClick={() => avisarLaudoPorWhatsApp(laudo)}
+                              onClick={() => abrirSeletorAvisoWhatsApp(laudo)}
                               disabled={avisandoLaudoId === laudo.id}
                               className="fc-clinical-action"
                               title={getTituloBotaoAvisoWhatsApp(laudo)}

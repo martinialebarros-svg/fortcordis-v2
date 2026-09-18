@@ -31,6 +31,14 @@ export interface LaudoAvisoWhatsApp {
    * vai ser avisado — o `veterinario_parceiro_id` sozinho nao ve os de vinculo.
    */
   portal_veterinarios_destinos?: DestinoVeterinarioLaudo[];
+  /** Ultimo envio por destino; e daqui que o seletor sabe quem ja recebeu. */
+  whatsapp_envios?: Record<string, EnvioDestinoWhatsApp> | null;
+  whatsapp_liberacao_status?: "enviado" | "falhou" | null;
+  whatsapp_liberacao_em?: string | null;
+  whatsapp_liberacao_erro?: string | null;
+  whatsapp_parceiro_status?: "enviado" | "falhou" | null;
+  whatsapp_parceiro_em?: string | null;
+  whatsapp_parceiro_erro?: string | null;
 }
 
 export interface ResumoDestinoAvisoWhatsApp {
@@ -39,10 +47,34 @@ export interface ResumoDestinoAvisoWhatsApp {
   erro?: string | null;
 }
 
+/** Ultimo envio registrado para um destino, como o backend guarda em `whatsapp_envios`. */
+export interface EnvioDestinoWhatsApp {
+  status?: "enviado" | "falhou" | null;
+  em?: string | null;
+  erro?: string | null;
+}
+
+export interface DestinoSelecionavelWhatsApp {
+  /** Chave que o backend entende: "clinica" ou "veterinario:<id>". */
+  id: string;
+  tipo: "clinica" | "veterinario";
+  nome: string;
+  ultimoEnvio: EnvioDestinoWhatsApp | null;
+}
+
+export interface ResumoVeterinarioAvisoWhatsApp extends ResumoDestinoAvisoWhatsApp {
+  partner_id?: number;
+  nome?: string | null;
+  origem?: string | null;
+}
+
 export interface RespostaAvisoWhatsApp {
   message?: string;
   clinica?: ResumoDestinoAvisoWhatsApp;
   veterinario_parceiro?: ResumoDestinoAvisoWhatsApp;
+  /** Um por veterinario destinatario; o `veterinario_parceiro` acima e so o nomeado. */
+  veterinarios_parceiros?: ResumoVeterinarioAvisoWhatsApp[];
+  whatsapp_envios?: Record<string, EnvioDestinoWhatsApp> | null;
   whatsapp_liberacao_status?: "enviado" | "falhou" | null;
   whatsapp_liberacao_em?: string | null;
   whatsapp_liberacao_erro?: string | null;
@@ -120,31 +152,118 @@ export function getTituloBotaoAvisoWhatsApp(laudo: LaudoAvisoWhatsApp): string {
   return "Avisar clínica pelo WhatsApp oficial";
 }
 
+export const DESTINO_AVISO_CLINICA = "clinica";
+
+export function chaveDestinoVeterinario(partnerId: number): string {
+  return `veterinario:${partnerId}`;
+}
+
+function envioRegistrado(
+  laudo: LaudoAvisoWhatsApp,
+  chave: string,
+  legado: EnvioDestinoWhatsApp | null
+): EnvioDestinoWhatsApp | null {
+  const registrado = laudo.whatsapp_envios?.[chave];
+  if (registrado?.status) {
+    return registrado;
+  }
+  // Laudo avisado antes do seletor existir: o que ha e o resumo nas colunas
+  // antigas. Serve para nao remarcar quem ja recebeu.
+  return legado;
+}
+
+/**
+ * Destinos que podem receber o aviso deste laudo, cada um com o resultado do
+ * ultimo envio. A ordem e a da tela: clinica primeiro, veterinarios depois.
+ */
+export function getDestinosSelecionaveis(laudo: LaudoAvisoWhatsApp): DestinoSelecionavelWhatsApp[] {
+  const destinos: DestinoSelecionavelWhatsApp[] = [];
+
+  if (laudo.clinic_id && (laudo.portal_clinica_liberado || laudo.status === PORTAL_RELEASE_STATUS)) {
+    destinos.push({
+      id: DESTINO_AVISO_CLINICA,
+      tipo: "clinica",
+      nome: laudo.clinica?.trim() || "Clínica parceira",
+      ultimoEnvio: envioRegistrado(
+        laudo,
+        DESTINO_AVISO_CLINICA,
+        laudo.whatsapp_liberacao_status
+          ? {
+              status: laudo.whatsapp_liberacao_status,
+              em: laudo.whatsapp_liberacao_em,
+              erro: laudo.whatsapp_liberacao_erro,
+            }
+          : null
+      ),
+    });
+  }
+
+  for (const veterinario of getVeterinariosLiberados(laudo)) {
+    const chave = chaveDestinoVeterinario(veterinario.partner_id);
+    destinos.push({
+      id: chave,
+      tipo: "veterinario",
+      nome: veterinario.nome?.trim() || "Veterinário parceiro",
+      ultimoEnvio: envioRegistrado(
+        laudo,
+        chave,
+        laudo.whatsapp_parceiro_status
+          ? {
+              status: laudo.whatsapp_parceiro_status,
+              em: laudo.whatsapp_parceiro_em,
+              erro: laudo.whatsapp_parceiro_erro,
+            }
+          : null
+      ),
+    });
+  }
+
+  return destinos;
+}
+
+/** Vem marcado quem ainda nao recebeu: nunca enviado, ou envio que falhou. */
+export function getSelecaoInicialAviso(destinos: DestinoSelecionavelWhatsApp[]): string[] {
+  return destinos.filter((destino) => destino.ultimoEnvio?.status !== "enviado").map((destino) => destino.id);
+}
+
 export function resumirRespostaAvisoWhatsApp(
   resposta: RespostaAvisoWhatsApp | null | undefined
 ): { texto: string; tom: "sucesso" | "alerta" } {
   const clinicaEnviada = resposta?.clinica?.status === "enviado";
-  const parceiroEnviado = resposta?.veterinario_parceiro?.status === "enviado";
-  const parceiroFalhou = resposta?.veterinario_parceiro?.status === "falhou";
-  const erroParceiro =
-    resposta?.veterinario_parceiro?.erro?.trim() || "erro no envio pelo WhatsApp oficial.";
+  const veterinarios: ResumoVeterinarioAvisoWhatsApp[] = resposta?.veterinarios_parceiros?.length
+    ? resposta.veterinarios_parceiros
+    : resposta?.veterinario_parceiro
+    ? [resposta.veterinario_parceiro]
+    : [];
+  const enviados = veterinarios.filter((item) => item.status === "enviado");
+  const falharam = veterinarios.filter((item) => item.status === "falhou");
 
-  if (parceiroFalhou) {
+  if (falharam.length > 0) {
+    const erro = falharam[0].erro?.trim() || "erro no envio pelo WhatsApp oficial.";
+    const alvo = rotuloVeterinarios(falharam);
     const inicio = clinicaEnviada
-      ? "Aviso enviado para a clínica, mas o envio para o veterinário parceiro falhou: "
-      : "O envio para o veterinário parceiro falhou: ";
-    return { texto: `${inicio}${erroParceiro}`, tom: "alerta" };
+      ? `Aviso enviado para a clínica, mas o envio para ${alvo} falhou: `
+      : `O envio para ${alvo} falhou: `;
+    return { texto: `${inicio}${erro}`, tom: "alerta" };
   }
 
-  if (clinicaEnviada && parceiroEnviado) {
+  if (clinicaEnviada && enviados.length > 0) {
     return {
-      texto: "Aviso enviado para a clínica e para o veterinário parceiro pelo WhatsApp oficial da Fort Cordis.",
+      texto: `Aviso enviado para a clínica e para ${rotuloVeterinarios(
+        enviados
+      )} pelo WhatsApp oficial da Fort Cordis.`,
       tom: "sucesso",
     };
   }
-  if (parceiroEnviado) {
+  if (enviados.length > 0) {
     return {
-      texto: "Aviso enviado para o veterinário parceiro pelo WhatsApp oficial da Fort Cordis.",
+      texto: `Aviso enviado para ${rotuloVeterinarios(enviados)} pelo WhatsApp oficial da Fort Cordis.`,
+      tom: "sucesso",
+    };
+  }
+  if (clinicaEnviada) {
+    return {
+      texto: "Aviso enviado para a clínica pelo WhatsApp oficial da Fort Cordis.",
       tom: "sucesso",
     };
   }
@@ -152,4 +271,17 @@ export function resumirRespostaAvisoWhatsApp(
     texto: "Aviso enviado pelo WhatsApp oficial da Fort Cordis.",
     tom: "sucesso",
   };
+}
+
+function rotuloVeterinarios(veterinarios: ResumoVeterinarioAvisoWhatsApp[]): string {
+  const nomes = veterinarios
+    .map((item) => item.nome?.trim())
+    .filter((nome): nome is string => Boolean(nome));
+  if (nomes.length === 1) {
+    return nomes[0];
+  }
+  if (nomes.length > 1) {
+    return `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
+  }
+  return veterinarios.length > 1 ? "os veterinários parceiros" : "o veterinário parceiro";
 }

@@ -84,6 +84,9 @@ DATE_ONLY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 class PortalReportWhatsAppRequest(BaseModel):
     idempotency_key: str = Field(..., min_length=8, max_length=128)
     destination: str | None = Field(default=None, min_length=10, max_length=32)
+    # Chaves escolhidas no seletor ("clinica", "veterinario:<id>"). Ausente =
+    # todos os destinos elegiveis, que e o contrato de antes do seletor.
+    destinos: list[str] | None = Field(default=None, max_length=50)
 
 ULTRASSOM_ORGAOS_ABDOMINAIS = [
     ("figado", "Figado"),
@@ -206,6 +209,14 @@ def _normalized_whatsapp_numbers(values: list[Any]) -> list[str]:
 
 ORIGEM_PARCEIRO_NOMEADO = "nomeado"
 ORIGEM_PARCEIRO_VINCULO = "vinculo_clinica"
+
+# Chaves de destino do aviso por WhatsApp: e com elas que o seletor da tela diz
+# quem deve receber, e sob elas que o ultimo envio fica guardado no laudo.
+DESTINO_AVISO_CLINICA = "clinica"
+
+
+def _chave_destino_veterinario(partner_id: Any) -> str:
+    return f"veterinario:{int(partner_id)}"
 
 
 def _veterinarios_destinatarios_do_laudo(
@@ -1915,6 +1926,7 @@ def listar_laudos(
             "whatsapp_parceiro_status": laudo.whatsapp_parceiro_status,
             "whatsapp_parceiro_em": _iso_or_str(laudo.whatsapp_parceiro_em),
             "whatsapp_parceiro_erro": laudo.whatsapp_parceiro_erro,
+            "whatsapp_envios": laudo.whatsapp_envios or {},
             **_serialize_portal_release_state(
                 db,
                 laudo=laudo,
@@ -2857,6 +2869,9 @@ def obter_laudo(
         "ecocardiograma_estruturado": ecocardiograma_estruturado,
         "pdf_externo": _extrair_pdf_externo_laudo(laudo.anexos),
         "imagens": imagens_list,
+        # O seletor de destino do aviso por WhatsApp abre nesta tela tambem, e
+        # precisa saber quem ja recebeu.
+        "whatsapp_envios": laudo.whatsapp_envios or {},
         **_serialize_portal_release_state(db, laudo=laudo),
     }
 
@@ -3484,14 +3499,6 @@ def avisar_laudo_liberado_por_whatsapp(
                 destino["skip_reason"] = "sem_whatsapp"
         destinos_veterinarios.append(destino)
 
-    destino_nomeado = next(
-        (item for item in destinos_veterinarios if item["origem"] == ORIGEM_PARCEIRO_NOMEADO),
-        None,
-    )
-    partner_destination: str | None = (destino_nomeado or {}).get("destination")
-    partner_skip_reason: str | None = (
-        (destino_nomeado or {}).get("skip_reason") if destino_nomeado is not None else "sem_vinculo"
-    )
     algum_destino_veterinario = any(item["destination"] is not None for item in destinos_veterinarios)
 
     if clinic_destination is None and not algum_destino_veterinario:
@@ -3501,6 +3508,48 @@ def avisar_laudo_liberado_por_whatsapp(
             status_code=409,
             detail="Nenhum destino do laudo esta liberado no portal com WhatsApp cadastrado para receber o aviso.",
         )
+
+    # Seletor de destino: quem nao foi escolhido sai do envio. Sem o campo, vale
+    # o contrato de antes do seletor - todos os elegiveis recebem.
+    if payload.destinos is not None:
+        escolhidos = {str(chave).strip() for chave in payload.destinos if str(chave).strip()}
+        if not escolhidos:
+            raise HTTPException(status_code=422, detail="Selecione ao menos um destino para o aviso.")
+
+        elegiveis = {DESTINO_AVISO_CLINICA} if clinic_destination is not None else set()
+        elegiveis |= {
+            _chave_destino_veterinario(item["partner"].id)
+            for item in destinos_veterinarios
+            if item["destination"] is not None
+        }
+        recusados = sorted(escolhidos - elegiveis)
+        if recusados:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Destino sem WhatsApp liberado no portal para este laudo: "
+                    f"{', '.join(recusados)}."
+                ),
+            )
+
+        if DESTINO_AVISO_CLINICA not in escolhidos:
+            clinic_destination = None
+            clinic_skip_reason = "nao_selecionado"
+        for item in destinos_veterinarios:
+            if item["destination"] is None:
+                continue
+            if _chave_destino_veterinario(item["partner"].id) not in escolhidos:
+                item["destination"] = None
+                item["skip_reason"] = "nao_selecionado"
+
+    destino_nomeado = next(
+        (item for item in destinos_veterinarios if item["origem"] == ORIGEM_PARCEIRO_NOMEADO),
+        None,
+    )
+    partner_destination: str | None = (destino_nomeado or {}).get("destination")
+    partner_skip_reason: str | None = (
+        (destino_nomeado or {}).get("skip_reason") if destino_nomeado is not None else "sem_vinculo"
+    )
 
     def _enviar_aviso(*, destinatario: str, destination: str, idempotency_key: str) -> dict[str, Any]:
         return send_approved_utility_template(
@@ -3516,6 +3565,17 @@ def avisar_laudo_liberado_por_whatsapp(
             idempotency_key=idempotency_key,
         )
 
+    # O mapa por destino e reatribuido no fim: o tipo JSON do SQLAlchemy nao
+    # rastreia mutacao in-place de dicionario.
+    envios_por_destino: dict[str, Any] = dict(laudo.whatsapp_envios or {})
+
+    def _registrar_envio(chave: str, *, erro: str | None) -> None:
+        envios_por_destino[chave] = {
+            "status": "enviado" if erro is None else "falhou",
+            "em": datetime.utcnow().isoformat(),
+            "erro": erro[:500] if erro else None,
+        }
+
     clinic_result: dict[str, Any] | None = None
     clinic_error: str | None = None
     if clinic_destination is not None:
@@ -3530,6 +3590,7 @@ def avisar_laudo_liberado_por_whatsapp(
         laudo.whatsapp_liberacao_status = "enviado" if clinic_error is None else "falhou"
         laudo.whatsapp_liberacao_em = datetime.utcnow()
         laudo.whatsapp_liberacao_erro = clinic_error[:500] if clinic_error else None
+        _registrar_envio(DESTINO_AVISO_CLINICA, erro=clinic_error)
 
     for destino in destinos_veterinarios:
         if destino["destination"] is None:
@@ -3548,6 +3609,7 @@ def avisar_laudo_liberado_por_whatsapp(
             )
         except WhatsAppTemplateDeliveryError as exc:
             destino["erro"] = str(exc)
+        _registrar_envio(_chave_destino_veterinario(partner.id), erro=destino.get("erro"))
 
     # As colunas de status do laudo sao unicas e viram resumo da ultima tentativa:
     # falhou se algum veterinario falhou, enviado se houve envio sem falha. O
@@ -3561,6 +3623,8 @@ def avisar_laudo_liberado_por_whatsapp(
 
     partner_result: dict[str, Any] | None = (destino_nomeado or {}).get("result")
     partner_error: str | None = (destino_nomeado or {}).get("erro")
+
+    laudo.whatsapp_envios = envios_por_destino
 
     db.commit()
 
@@ -3661,6 +3725,7 @@ def avisar_laudo_liberado_por_whatsapp(
             "whatsapp_parceiro_status": laudo.whatsapp_parceiro_status,
             "whatsapp_parceiro_em": _iso_ou_nulo(laudo.whatsapp_parceiro_em),
             "whatsapp_parceiro_erro": laudo.whatsapp_parceiro_erro,
+            "whatsapp_envios": laudo.whatsapp_envios or {},
         }
     )
     return resposta
