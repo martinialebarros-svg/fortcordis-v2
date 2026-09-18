@@ -13,7 +13,7 @@ Status: done
 
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
-| CA-001 | aceitacao | `test_aviso_vai_para_clinica_e_para_parceiro_liberados`: confere as duas chamadas a `send_approved_utility_template`, os dois `destination` e o `{{1}}` de cada uma ("Clinica Parceira" / "Dra Isadora Bastos"), com os demais parametros iguais | ok |
+| CA-001 | aceitacao | `test_aviso_vai_para_clinica_e_para_parceiro_liberados`: confere as duas chamadas a `send_approved_utility_template`, os dois `destination` e o `{{1}}` de cada uma ("Clinica Parceira" / "Dra Isadora Bastos"), com os demais parametros iguais. Entrega real conferida em producao no laudo 1106 (secao 3) | ok |
 | CA-002 | aceitacao | Mesmo teste: `idempotency_key` da clinica e a recebida (`idem-parceiro-001`), a do parceiro e `idem-parceiro-001-vet`, com `len <= 128` | ok |
 | CA-003 | aceitacao | `test_laudo_sem_clinica_avisa_somente_o_parceiro`: laudo sem `clinic_id` responde 200, envia so para o parceiro e devolve `clinica.status == "ignorado"` (`motivo == "sem_vinculo"`) | ok |
 | CA-004 | aceitacao | `test_parceiro_sem_liberacao_no_portal_nao_recebe_aviso`: sem `PortalPartnerReleaseTarget`, so a clinica recebe e `veterinario_parceiro` volta `ignorado`/`nao_liberado`. Em stage, o titulo do botao mudou de "Avisar clinica" para "Avisar clinica e veterinario parceiro" so depois da liberacao | ok |
@@ -96,11 +96,34 @@ só com parceiro (CA-003/CA-013). Fica coberto por
 `test_laudo_sem_clinica_avisa_somente_o_parceiro` e pelos testes de
 `lib/laudo-whatsapp-aviso.test.ts`.
 
-### Pendente em produção
+### Feito em produção - 2026-09-16, 23:07 (local)
 
-Com número próprio como destino, confirmar o que só a conta aprovada entrega:
-as duas mensagens chegam — clínica e parceiro — cada uma com o próprio nome em
-`{{1}}` (CA-001), e as badges ficam verdes.
+O que stage não conseguia validar — a entrega com o modelo aprovado — foi
+conferido em produção, no laudo 1106 (Eletrocardiograma, paciente Dimmu,
+Clinica Veterinária São Jose). O veterinário destinatário entrou por **vínculo
+de clínica**, não pelo campo nomeado do laudo: a difusão de
+[portal-veterinario-multiplas-clinicas](../portal-veterinario-multiplas-clinicas/verify.md)
+foi promovida logo depois desta feature e estendeu o endpoint para percorrer
+todos os veterinários liberados.
+
+| Hora | Evento na auditoria | Detalhe |
+| --- | --- | --- |
+| 23:07:08 | `LAUDO_LIBERADO_PORTAL_EXTERNO` | `destinos_liberados_agora.veterinarios_por_vinculo: [144]` |
+| 23:07:11 | `LAUDO_PORTAL_PARTNER_NOTIFICATION_SENT` | e-mail de liberação para a parceira, via smtp |
+| 23:07:46.715 | `LAUDO_PORTAL_WHATSAPP_ENVIADO` | número da clínica (sufixo 7422), `message_id` próprio |
+| 23:07:46.748 | `LAUDO_PORTAL_WHATSAPP_PARCEIRO_ENVIADO` | número da parceira (sufixo 7972), `origem: vinculo_clinica`, `partner_id: 144` |
+
+A confirmação nomeou os dois ("Enviar para Clinica Veterinária São Jose e Dra
+Camila Rebouças o aviso de laudo disponível?") e a linha do laudo ficou com as
+duas badges verdes — "WhatsApp enviado" e "WhatsApp parceiro enviado" —, com
+`whatsapp_liberacao_status` e `whatsapp_parceiro_status` ambos `enviado`
+(CA-001, CA-006, CA-012 confirmados com envio real).
+
+Antes disso, uma tentativa no mesmo laudo (22:57) tinha saído só para a
+clínica: a liberação das 22:50 registrou `veterinarios_por_vinculo: []`, porque
+o vínculo da parceira com a clínica ainda não existia. O gate de CA-004 fez o
+que devia — quem não está liberado no portal não recebe aviso — e o caso serve
+de lembrete: vínculo criado depois da liberação exige liberar o laudo de novo.
 
 ## 4) Risco residual
 
@@ -113,3 +136,7 @@ as duas mensagens chegam — clínica e parceiro — cada uma com o próprio nom
 - O parceiro recebe no número do cadastro (`whatsapp`, ou `telefone` como
   fallback). Cadastro desatualizado manda o aviso de laudo para o número
   errado; não há tela para escolher outro destino na hora do envio.
+- Não dá para avisar só um destino: o botão dispara para todos os liberados.
+  Quando a clínica já foi avisada e falta só o veterinário — exatamente o que
+  aconteceu na conferência em produção —, a clínica recebe a mensagem de novo.
+  Um seletor de destino resolveria; ficou fora desta spec.

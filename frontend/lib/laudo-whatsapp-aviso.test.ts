@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   getConfirmacaoAvisoWhatsApp,
   getDestinosAvisoWhatsApp,
+  getDestinosSelecionaveis,
+  getSelecaoInicialAviso,
   getTituloBotaoAvisoWhatsApp,
   podeAvisarWhatsApp,
   resumirRespostaAvisoWhatsApp,
@@ -220,5 +222,139 @@ describe("difusao por vinculo de clinica", () => {
     expect(getConfirmacaoAvisoWhatsApp(laudo)).toBe(
       "Enviar para Animal Care e Dra Isadora Bastos o aviso de laudo disponível?",
     );
+  });
+});
+
+describe("seletor de destino", () => {
+  const laudoComDoisVeterinarios = {
+    status: "Liberado no portal",
+    clinica: "Clinica Veterinária São Jose",
+    clinic_id: 39,
+    portal_clinica_liberado: true,
+    veterinario_parceiro_id: 4,
+    veterinario_parceiro_nome: "Dra Isadora Bastos",
+    portal_veterinario_liberado: true,
+    portal_veterinarios_destinos: [
+      { partner_id: 4, nome: "Dra Isadora Bastos", origem: "nomeado", liberado: true },
+      { partner_id: 144, nome: "Dra Camila Rebouças", origem: "vinculo_clinica", liberado: true },
+    ],
+  };
+
+  it("lista clinica e veterinarios liberados, com a chave que o backend entende", () => {
+    const destinos = getDestinosSelecionaveis(laudoComDoisVeterinarios);
+    expect(destinos.map((item) => item.id)).toEqual(["clinica", "veterinario:4", "veterinario:144"]);
+    expect(destinos.map((item) => item.nome)).toEqual([
+      "Clinica Veterinária São Jose",
+      "Dra Isadora Bastos",
+      "Dra Camila Rebouças",
+    ]);
+  });
+
+  it("deixa de fora o veterinario que ainda nao esta liberado no portal", () => {
+    const destinos = getDestinosSelecionaveis({
+      ...laudoComDoisVeterinarios,
+      portal_veterinarios_destinos: [
+        { partner_id: 4, nome: "Dra Isadora Bastos", origem: "nomeado", liberado: true },
+        { partner_id: 144, nome: "Dra Camila Rebouças", origem: "vinculo_clinica", liberado: false },
+      ],
+    });
+    expect(destinos.map((item) => item.id)).toEqual(["clinica", "veterinario:4"]);
+  });
+
+  it("marca so quem ainda nao recebeu", () => {
+    const destinos = getDestinosSelecionaveis({
+      ...laudoComDoisVeterinarios,
+      whatsapp_envios: {
+        clinica: { status: "enviado" as const, em: "2026-09-17T02:07:46", erro: null },
+        "veterinario:4": { status: "falhou" as const, em: "2026-09-17T02:07:46", erro: "Numero invalido." },
+      },
+    });
+
+    expect(getSelecaoInicialAviso(destinos)).toEqual(["veterinario:4", "veterinario:144"]);
+    expect(destinos[0].ultimoEnvio?.status).toBe("enviado");
+    expect(destinos[1].ultimoEnvio?.erro).toBe("Numero invalido.");
+    expect(destinos[2].ultimoEnvio).toBeNull();
+  });
+
+  it("laudo com um destino so abre com ele marcado", () => {
+    const destinos = getDestinosSelecionaveis({
+      status: "Liberado no portal",
+      clinica: "Gram Pet",
+      clinic_id: 8,
+      portal_clinica_liberado: true,
+    });
+    expect(getSelecaoInicialAviso(destinos)).toEqual(["clinica"]);
+  });
+
+  it("laudo anterior ao seletor usa as colunas de resumo para saber quem ja recebeu", () => {
+    const destinos = getDestinosSelecionaveis({
+      ...laudoComDoisVeterinarios,
+      portal_veterinarios_destinos: [
+        { partner_id: 4, nome: "Dra Isadora Bastos", origem: "nomeado", liberado: true },
+      ],
+      whatsapp_liberacao_status: "enviado",
+      whatsapp_liberacao_em: "2026-09-16T16:16:34",
+      whatsapp_parceiro_status: "enviado",
+      whatsapp_parceiro_em: "2026-09-16T16:16:34",
+    });
+
+    expect(getSelecaoInicialAviso(destinos)).toEqual([]);
+  });
+
+  it("fecha a frase do erro do provedor antes de emendar o proximo aviso", () => {
+    const resumo = resumirRespostaAvisoWhatsApp({
+      clinica: { status: "ignorado", motivo: "sem_whatsapp" },
+      veterinarios_parceiros: [
+        {
+          partner_id: 49,
+          nome: "Martiniano",
+          status: "falhou",
+          erro: "WhatsApp provider rejected or did not complete the template delivery",
+        },
+      ],
+    });
+
+    expect(resumo.texto).toContain("template delivery. A clínica não tem WhatsApp cadastrado.");
+  });
+
+  it("o resumo avisa quando um destino escolhido nao tem WhatsApp cadastrado", () => {
+    const resumo = resumirRespostaAvisoWhatsApp({
+      clinica: { status: "ignorado", motivo: "sem_whatsapp" },
+      veterinarios_parceiros: [
+        { partner_id: 144, nome: "Dra Camila Rebouças", status: "enviado" },
+      ],
+    });
+
+    expect(resumo.tom).toBe("alerta");
+    expect(resumo.texto).toContain("Dra Camila Rebouças");
+    expect(resumo.texto).toContain("A clínica não tem WhatsApp cadastrado.");
+  });
+
+  it("quando ninguem tem numero, o resumo nao finge que avisou", () => {
+    const resumo = resumirRespostaAvisoWhatsApp({
+      clinica: { status: "ignorado", motivo: "sem_whatsapp" },
+      veterinarios_parceiros: [
+        { partner_id: 144, nome: "Dra Camila Rebouças", status: "ignorado", motivo: "sem_whatsapp" },
+      ],
+    });
+
+    expect(resumo.tom).toBe("alerta");
+    expect(resumo.texto).toContain("Ninguém foi avisado");
+    expect(resumo.texto).toContain("Dra Camila Rebouças");
+  });
+
+  it("o resumo nomeia o veterinario que recebeu quando a resposta detalha a lista", () => {
+    expect(
+      resumirRespostaAvisoWhatsApp({
+        clinica: { status: "ignorado", motivo: "nao_selecionado" },
+        veterinarios_parceiros: [
+          { partner_id: 4, nome: "Dra Isadora Bastos", status: "ignorado", motivo: "nao_selecionado" },
+          { partner_id: 144, nome: "Dra Camila Rebouças", status: "enviado" },
+        ],
+      })
+    ).toEqual({
+      texto: "Aviso enviado para Dra Camila Rebouças pelo WhatsApp oficial da Fort Cordis.",
+      tom: "sucesso",
+    });
   });
 });

@@ -14,12 +14,14 @@ import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import { parseStoredEchoMeasurements } from "@/lib/echo-derived-measurements";
 import {
-  getConfirmacaoAvisoWhatsApp,
   getTituloBotaoAvisoWhatsApp,
   podeAvisarWhatsApp,
   resumirRespostaAvisoWhatsApp,
+  type DestinoVeterinarioLaudo,
+  type EnvioDestinoWhatsApp,
   type RespostaAvisoWhatsApp,
 } from "@/lib/laudo-whatsapp-aviso";
+import AvisoWhatsAppDialog from "../components/AvisoWhatsAppDialog";
 import { ArrowLeft, CheckCircle, Download, FileText, Loader2, MessageCircle, Printer, Send, Upload } from "lucide-react";
 
 const PORTAL_RELEASE_STATUS = "Liberado no portal";
@@ -64,6 +66,8 @@ interface Laudo {
   portal_veterinario_liberado?: boolean;
   portal_destinos_pendentes?: string[];
   portal_pode_liberar?: boolean;
+  portal_veterinarios_destinos?: DestinoVeterinarioLaudo[];
+  whatsapp_envios?: Record<string, EnvioDestinoWhatsApp> | null;
   criado_por_nome: string;
   pdf_externo?: {
     anexo_id?: number;
@@ -140,6 +144,7 @@ export default function VisualizarLaudoPage() {
   const [qualitativa, setQualitativa] = useState<Record<string, string>>({});
   const [liberandoPortal, setLiberandoPortal] = useState(false);
   const [avisandoWhatsApp, setAvisandoWhatsApp] = useState(false);
+  const [seletorAvisoAberto, setSeletorAvisoAberto] = useState(false);
   const [arquivoSubstituicao, setArquivoSubstituicao] = useState<File | null>(null);
   const [substituindoPdf, setSubstituindoPdf] = useState(false);
   const [fileInputKey, setFileInputKey] = useState(0);
@@ -294,15 +299,17 @@ export default function VisualizarLaudoPage() {
     }
   };
 
-  const avisarLaudoPorWhatsApp = async () => {
-    if (!laudo || !laudoId) return;
+  const abrirSeletorAvisoWhatsApp = () => {
+    if (!laudo) return;
     if (!podeAvisarWhatsApp(laudo)) {
       alert("Libere o laudo no portal antes de enviar o aviso por WhatsApp.");
       return;
     }
-    if (!confirm(getConfirmacaoAvisoWhatsApp(laudo))) {
-      return;
-    }
+    setSeletorAvisoAberto(true);
+  };
+
+  const avisarLaudoPorWhatsApp = async (destinos: string[]) => {
+    if (!laudo || !laudoId || destinos.length === 0) return;
     const idempotencyKey = typeof globalThis.crypto?.randomUUID === "function"
       ? globalThis.crypto.randomUUID()
       : `laudo-portal-${laudo.id}-${Date.now()}`;
@@ -310,8 +317,14 @@ export default function VisualizarLaudoPage() {
     try {
       const response = await api.post<RespostaAvisoWhatsApp>(`/laudos/${laudo.id}/portal/whatsapp`, {
         idempotency_key: idempotencyKey,
+        destinos,
       });
-      alert(resumirRespostaAvisoWhatsApp(response.data).texto);
+      const dados = response.data;
+      setSeletorAvisoAberto(false);
+      // O resultado por destino volta na resposta: guarda para o seletor abrir
+      // ja sabendo quem acabou de receber.
+      setLaudo((atual) => (atual ? { ...atual, whatsapp_envios: dados?.whatsapp_envios ?? atual.whatsapp_envios } : atual));
+      alert(resumirRespostaAvisoWhatsApp(dados).texto);
     } catch (error) {
       const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
       alert(detail || "Erro ao enviar o aviso por WhatsApp.");
@@ -408,6 +421,14 @@ export default function VisualizarLaudoPage() {
   return (
     <DashboardLayout>
       <div className="fc-report-view-page">
+        {seletorAvisoAberto && (
+          <AvisoWhatsAppDialog
+            laudo={laudo}
+            enviando={avisandoWhatsApp}
+            onCancelar={() => setSeletorAvisoAberto(false)}
+            onEnviar={avisarLaudoPorWhatsApp}
+          />
+        )}
         <header className="fc-report-view-header">
           <div className="fc-report-editor-heading">
             <button
@@ -421,7 +442,7 @@ export default function VisualizarLaudoPage() {
             {podeAvisarWhatsApp(laudo) ? (
               <button
                 type="button"
-                onClick={avisarLaudoPorWhatsApp}
+                onClick={abrirSeletorAvisoWhatsApp}
                 disabled={avisandoWhatsApp}
                 className="fc-report-view-portal"
                 title={getTituloBotaoAvisoWhatsApp(laudo)}
