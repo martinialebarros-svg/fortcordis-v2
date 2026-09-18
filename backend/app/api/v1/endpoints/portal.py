@@ -91,6 +91,13 @@ PORTAL_SCOPE_TUTOR = ["pet:read", "exam:read", "exam:download"]
 PORTAL_SCOPE_CLINICA = ["clinic:read", "exam:read", "exam:download"]
 PORTAL_SCOPE_PARTNER = ["partner:read", "exam:read", "exam:download"]
 
+# Permissoes conferidas de fato pelos endpoints (ver _assert_portal_scope).
+# `clinic:read` cobre o que e gestao da unidade - agenda, financeiro e recibo.
+# Exame liberado e download ficam em `exam:*`, que toda sessao do portal carrega.
+PORTAL_PERMISSION_CLINIC_READ = "clinic:read"
+PORTAL_PERMISSION_EXAM_READ = "exam:read"
+PORTAL_PERMISSION_EXAM_DOWNLOAD = "exam:download"
+
 
 def _utcnow() -> datetime:
     return datetime.utcnow()
@@ -394,6 +401,28 @@ def _resolve_exam_clinica_id(
         if laudo and laudo.clinic_id is not None:
             return int(laudo.clinic_id)
     return None
+
+
+def _assert_portal_scope(session: PortalSessionContext, permissao: str) -> None:
+    """Confere a PERMISSAO da sessao, nao a posse do recurso.
+
+    Ate aqui o portal so tinha `_assert_*_scope_for_exam`, que conferem se aquele
+    exame pertence aquele ator - nunca se o ator tem direito a operacao. O campo
+    `scope` era gravado no token desde `portal-secure-access-foundation` e nunca
+    lido, ou seja, toda sessao valia tudo dentro do seu `actor_type`.
+
+    Isso passa a valer de verdade aqui. Hoje nao muda nada na pratica, porque
+    todas as sessoes emitidas (senha, MFA, refresh e o fluxo legado de codigo)
+    carregam o escopo cheio do seu ator - e o teste
+    `test_portal_escopo_sessao.py` existe para provar isso. O ganho e poder
+    emitir sessao com menos poder sem ter que confiar so na tela, que e o que
+    `portal-clinica-dispositivo-confiavel` precisa.
+    """
+    if permissao not in (session.scope or ()):
+        raise HTTPException(
+            status_code=403,
+            detail="Sessao do portal sem permissao para esta operacao.",
+        )
 
 
 def _assert_clinica_scope_for_exam(
@@ -1212,6 +1241,9 @@ def listar_exames_clinica_portal(
 ):
     if portal_session.actor_type != "clinica" or portal_session.clinica_id is None:
         raise HTTPException(status_code=403, detail="Sessao do portal sem acesso para clinica.")
+    # Exame liberado exige `exam:read`, nao `clinic:read`: esta e a leitura que
+    # uma sessao de menos poder precisa alcancar.
+    _assert_portal_scope(portal_session, PORTAL_PERMISSION_EXAM_READ)
 
     clinica = _obter_clinica_ativa(db, portal_session.clinica_id)
     if not clinica:
@@ -1310,9 +1342,23 @@ AGENDA_PORTAL_STATUSES_VISIVEIS = ("Agendado", "Reservado", "Confirmado", "Em at
 AGENDA_PORTAL_STATUSES_CANCELAVEIS = ("Agendado", "Reservado", "Confirmado")
 
 
-def _exigir_sessao_clinica_portal(db: Session, portal_session: PortalSessionContext) -> Clinica:
+def _exigir_sessao_clinica_portal(
+    db: Session,
+    portal_session: PortalSessionContext,
+    *,
+    permissao: str = PORTAL_PERMISSION_CLINIC_READ,
+) -> Clinica:
+    """Sessao de clinica ativa, com a permissao pedida.
+
+    O default e `clinic:read` de proposito: hoje quem usa este helper sao os
+    endpoints de gestao da unidade (agenda, financeiro, recibo), e o default
+    seguro evita que um endpoint novo nasca sem conferencia nenhuma. Endpoint de
+    clinica que deva valer tambem para sessao de menos poder passa `permissao`
+    explicitamente - e a escolha fica visivel no call site.
+    """
     if portal_session.actor_type != "clinica" or portal_session.clinica_id is None:
         raise HTTPException(status_code=403, detail="Sessao do portal sem acesso para clinica.")
+    _assert_portal_scope(portal_session, permissao)
     clinica = _obter_clinica_ativa(db, portal_session.clinica_id)
     if not clinica:
         raise HTTPException(status_code=403, detail="Clinica sem acesso ativo ao portal.")
@@ -1589,6 +1635,7 @@ def listar_exames_parceiro_portal(
 ):
     if portal_session.actor_type != "parceiro":
         raise HTTPException(status_code=403, detail="Sessao do portal sem acesso para parceiro externo.")
+    _assert_portal_scope(portal_session, PORTAL_PERMISSION_EXAM_READ)
 
     partner = _load_active_partner_for_session(db, portal_session)
     query = (
@@ -1672,6 +1719,9 @@ def listar_exames_pet_portal(
     db: Session = Depends(get_db),
     portal_session: PortalSessionContext = Depends(get_current_portal_session),
 ):
+    # Atende tutor, clinica e parceiro - por isso a permissao pedida e `exam:read`,
+    # comum aos tres, e nao a permissao especifica de cada ator.
+    _assert_portal_scope(portal_session, PORTAL_PERMISSION_EXAM_READ)
     if portal_session.actor_type == "tutor":
         _assert_tutor_scope(db, portal_session, paciente_id)
 
@@ -1727,6 +1777,7 @@ def gerar_download_url_exame_portal(
     db: Session = Depends(get_db),
     portal_session: PortalSessionContext = Depends(get_current_portal_session),
 ):
+    _assert_portal_scope(portal_session, PORTAL_PERMISSION_EXAM_DOWNLOAD)
     exam, atendimentos_map, laudos_map = _load_exam_with_context(db, exame_id)
     _assert_portal_exam_access(db, portal_session, exam, atendimentos_map, laudos_map)
 
@@ -1791,6 +1842,10 @@ def baixar_arquivo_anexo_portal(
         clinica_id = download_context.clinica_id
     else:
         portal_session = get_current_portal_session(request)
+        # So o caminho por sessao confere escopo: o token de download nao carrega
+        # `scope` (PortalDownloadContext nao tem o campo) e ja nasce preso ao par
+        # (exame, anexo), conferido logo acima.
+        _assert_portal_scope(portal_session, PORTAL_PERMISSION_EXAM_DOWNLOAD)
         if attachment.exame_id is None:
             raise HTTPException(status_code=403, detail="Anexo sem exame associado para o portal.")
         exam, atendimentos_map, laudos_map = _load_exam_with_context(db, int(attachment.exame_id))
