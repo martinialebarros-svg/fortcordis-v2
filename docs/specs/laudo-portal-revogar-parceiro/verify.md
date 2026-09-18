@@ -2,7 +2,7 @@
 
 Data: 2026-09-18 (rota) e 2026-09-19 (tela)
 Responsavel: Martiniano
-Status: in-progress
+Status: done
 
 ## 1) Matriz de rastreabilidade
 
@@ -24,10 +24,10 @@ Status: in-progress
 | --- | --- | --- | --- |
 | CA-010 | aceitacao | `PortalLiberadoPara` renderiza clinica e veterinarios com o selo "Com acesso"/"Sem acesso"; `getVeterinariosDoLaudo` e `getClinicaDoLaudo` testados em `lib/laudo-portal-destinos.test.ts`, inclusive no contrato antigo sem a lista de destinos | ok |
 | CA-011 | aceitacao | `getRotuloOrigemVeterinario` testado nas tres saidas ("Encaminhou o caso", "Por vínculo com a clínica", generico) | ok |
-| CA-012 | aceitacao | O botao so e renderizado dentro de `veterinario.liberado`; o item da clinica nao tem botao | pendente - conferir em stage |
+| CA-012 | aceitacao | Conferido em stage (secao 3): o item da clinica veio sem botao e o do veterinario com "Revogar"; depois de revogar, o botao sumiu junto com o acesso | ok |
 | CA-013 | aceitacao | `getConfirmacaoRevogarVeterinario` testado: nomeia o veterinario e diz que liberar de novo devolve o acesso | ok |
-| CA-014 | aceitacao | O handler atualiza `portal_veterinarios_destinos` e os demais campos com o que a resposta devolve, sem recarregar | pendente - conferir em stage |
-| CA-015 | aceitacao | `temDestinosNoPortal` testado (laudo sem clinica e sem veterinario nao renderiza); a secao leva `print:hidden` | pendente - conferir em stage |
+| CA-014 | aceitacao | Conferido em stage: o item passou a "Sem acesso" na hora, e `performance.getEntriesByType("navigation")[0].type` seguiu `navigate` — nao houve reload | ok |
+| CA-015 | aceitacao | `temDestinosNoPortal` testado (laudo sem clinica e sem veterinario nao renderiza) e a secao em stage veio com a classe `print:hidden` aplicada | ok |
 
 ## 2) Comandos executados
 
@@ -45,7 +45,8 @@ DATABASE_URL="sqlite:///./fortcordis-ci.db" venv/bin/python -m pytest tests/ -k 
 
 ## 3) Verificacao manual
 
-Sem tela neste ciclo, entao a conferencia foi na propria rota, autenticado:
+Duas rodadas, uma por fase. Na primeira nao havia tela, entao a conferencia foi
+na propria rota, autenticado:
 
 ```bash
 curl -X POST "$API/laudos/<laudo_id>/portal/veterinarios/<partner_id>/revogar" \
@@ -67,13 +68,26 @@ nenhuma rota alcancava antes desta.
 3. Segunda chamada no mesmo alvo: **409** "Este veterinario nao esta liberado no
    portal para este laudo" (CA-005).
 
-### Pendente em stage - tela
+### Feito em stage - tela - 2026-09-19
 
-Com a segunda fase, a conferencia visual passa a ter o que olhar em
-`laudos/[id]`: o bloco "Liberado no portal para" com os selos, o botao so em
-quem tem acesso, a confirmacao nomeando o veterinario, a lista se atualizando
-sozinha depois de revogar (CA-012, CA-014) e o bloco fora da impressao
-(CA-015).
+Fixture recriada de proposito no laudo 49 (o parceiro tinha sido revogado na
+conferencia da rota): parceiro 49 vinculado e liberado, e desfeita no fim.
+
+1. **O bloco (CA-010, CA-011).** "Liberado no portal para" trouxe dois itens —
+   "Martiniano Barros / Clínica parceira / Com acesso" e "Martiniano /
+   Encaminhou o caso / Com acesso".
+2. **Botao so em quem tem acesso (CA-012).** O item da clinica veio sem botao;
+   so o veterinario trouxe "Revogar".
+3. **Confirmacao (CA-013).** "Tirar o acesso de Martiniano a este laudo no
+   portal? Liberar o laudo de novo devolve o acesso."
+4. **Atualizacao sem reload (CA-014).** O item virou "Sem acesso" e perdeu o
+   botao na hora; `performance.getEntriesByType("navigation")[0].type` seguiu
+   `navigate`, confirmando que a pagina nao recarregou. O alerta trouxe
+   "Martiniano não tem mais acesso a este laudo no portal."
+5. **Fora da impressao (CA-015).** A secao veio com `print:hidden` aplicada.
+
+O laudo 49 voltou ao estado anterior: sem parceiro vinculado, sem acesso no
+portal, com a liberacao da clinica intacta.
 
 ## 4) Risco residual
 
