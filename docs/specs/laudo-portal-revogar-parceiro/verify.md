@@ -34,16 +34,30 @@ DATABASE_URL="sqlite:///./fortcordis-ci.db" venv/bin/python -m pytest tests/ -k 
 
 ## 3) Verificacao manual
 
-Nao se aplica a este ciclo: a entrega e so a rota, sem tela que a chame. A
-conferencia visual entra junto da lista de "liberado para" com o botao de
-revogar em `laudos/[id]`, no ciclo seguinte.
-
-Quem quiser exercitar antes disso chama direto, autenticado:
+Sem tela neste ciclo, entao a conferencia foi na propria rota, autenticado:
 
 ```bash
 curl -X POST "$API/laudos/<laudo_id>/portal/veterinarios/<partner_id>/revogar" \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+### Feito em stage - 2026-09-18
+
+A rota foi usada para terminar a limpeza da fixture das specs anteriores: o
+laudo 49 tinha ficado com o parceiro 49 ainda liberado no portal, sobra que
+nenhuma rota alcancava antes desta.
+
+1. Primeira chamada: **200**, com `revogado_em` gravado e
+   `portal_veterinarios_destinos: []` na resposta — o parceiro saiu dos
+   destinos do laudo.
+2. `portal_clinica_liberado` seguiu `true` e o status do laudo continuou
+   `Liberado no portal`: a liberacao da clinica, que e anterior a fixture, nao
+   foi tocada (CA-003).
+3. Segunda chamada no mesmo alvo: **409** "Este veterinario nao esta liberado no
+   portal para este laudo" (CA-005).
+
+A conferencia visual continua pendente para o ciclo da tela — a lista de
+"liberado para" com o botao de revogar em `laudos/[id]`.
 
 ## 4) Risco residual
 
