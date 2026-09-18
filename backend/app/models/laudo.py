@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Float, event
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Float, JSON, event
 from sqlalchemy.sql import func
 from datetime import datetime
 from app.db.database import Base
@@ -48,6 +48,18 @@ class Laudo(Base):
     whatsapp_liberacao_status = Column(String, nullable=True)  # "enviado" | "falhou"
     whatsapp_liberacao_em = Column(DateTime(timezone=True), nullable=True)
     whatsapp_liberacao_erro = Column(Text, nullable=True)
+
+    # Mesmo aviso, mesma chamada, mas para o veterinario parceiro que
+    # encaminhou o caso - destino independente do da clinica.
+    whatsapp_parceiro_status = Column(String, nullable=True)  # "enviado" | "falhou"
+    whatsapp_parceiro_em = Column(DateTime(timezone=True), nullable=True)
+    whatsapp_parceiro_erro = Column(Text, nullable=True)
+
+    # Ultimo resultado por destino do aviso, com as chaves que o seletor usa
+    # ("clinica", "veterinario:<id>"). As colunas acima continuam sendo o
+    # resumo; so este mapa responde "quem ja recebeu" quando o laudo tem mais
+    # de um veterinario.
+    whatsapp_envios = Column(JSON, nullable=True)
 
     # Dados adicionais
     data_exame = Column(DateTime(timezone=True))  # Data do exame

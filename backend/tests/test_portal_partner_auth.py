@@ -28,7 +28,11 @@ from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.auditoria_evento import AuditoriaEvento
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
-from app.models.portal_partner import PortalPartnerProfile, PortalPartnerReleaseTarget
+from app.models.portal_partner import (
+    PortalPartnerClinicLink,
+    PortalPartnerProfile,
+    PortalPartnerReleaseTarget,
+)
 from app.models.portal_partner_auth import (
     PortalPartnerAccount,
     PortalPartnerAuthChallenge,
@@ -61,6 +65,7 @@ class PortalPartnerAuthTest(unittest.TestCase):
             AnexoAtendimento.__table__,
             AuditoriaEvento.__table__,
             PortalPartnerProfile.__table__,
+            PortalPartnerClinicLink.__table__,
             PortalPartnerReleaseTarget.__table__,
             PortalPartnerInvite.__table__,
             PortalPartnerAccount.__table__,

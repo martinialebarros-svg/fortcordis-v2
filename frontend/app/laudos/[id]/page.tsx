@@ -13,6 +13,17 @@ import {
 import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import { parseStoredEchoMeasurements } from "@/lib/echo-derived-measurements";
+import {
+  getTituloBotaoAvisoWhatsApp,
+  podeAvisarWhatsApp,
+  resumirRespostaAvisoWhatsApp,
+  type DestinoVeterinarioLaudo,
+  type EnvioDestinoWhatsApp,
+  type RespostaAvisoWhatsApp,
+} from "@/lib/laudo-whatsapp-aviso";
+import { getConfirmacaoRevogarVeterinario } from "@/lib/laudo-portal-destinos";
+import AvisoWhatsAppDialog from "../components/AvisoWhatsAppDialog";
+import PortalLiberadoPara from "../components/PortalLiberadoPara";
 import { ArrowLeft, CheckCircle, Download, FileText, Loader2, MessageCircle, Printer, Send, Upload } from "lucide-react";
 
 const PORTAL_RELEASE_STATUS = "Liberado no portal";
@@ -57,6 +68,8 @@ interface Laudo {
   portal_veterinario_liberado?: boolean;
   portal_destinos_pendentes?: string[];
   portal_pode_liberar?: boolean;
+  portal_veterinarios_destinos?: DestinoVeterinarioLaudo[];
+  whatsapp_envios?: Record<string, EnvioDestinoWhatsApp> | null;
   criado_por_nome: string;
   pdf_externo?: {
     anexo_id?: number;
@@ -133,6 +146,8 @@ export default function VisualizarLaudoPage() {
   const [qualitativa, setQualitativa] = useState<Record<string, string>>({});
   const [liberandoPortal, setLiberandoPortal] = useState(false);
   const [avisandoWhatsApp, setAvisandoWhatsApp] = useState(false);
+  const [seletorAvisoAberto, setSeletorAvisoAberto] = useState(false);
+  const [revogandoPartnerId, setRevogandoPartnerId] = useState<number | null>(null);
   const [arquivoSubstituicao, setArquivoSubstituicao] = useState<File | null>(null);
   const [substituindoPdf, setSubstituindoPdf] = useState(false);
   const [fileInputKey, setFileInputKey] = useState(0);
@@ -287,24 +302,63 @@ export default function VisualizarLaudoPage() {
     }
   };
 
-  const avisarLaudoPorWhatsApp = async () => {
-    if (!laudo || !laudoId || !laudo.clinic_id) return;
-    if (!laudo.portal_clinica_liberado && !isPortalReleased(laudo.status)) {
+  const revogarAcessoDoVeterinario = async (partnerId: number, nome: string) => {
+    if (!laudo || !laudoId) return;
+    if (!confirm(getConfirmacaoRevogarVeterinario(nome))) {
+      return;
+    }
+
+    setRevogandoPartnerId(partnerId);
+    try {
+      const response = await api.post(`/laudos/${laudo.id}/portal/veterinarios/${partnerId}/revogar`);
+      const dados = response.data;
+      setLaudo((atual) =>
+        atual
+          ? {
+              ...atual,
+              portal_clinica_liberado: dados?.portal_clinica_liberado ?? atual.portal_clinica_liberado,
+              portal_veterinario_liberado: dados?.portal_veterinario_liberado,
+              portal_veterinarios_destinos: dados?.portal_veterinarios_destinos ?? atual.portal_veterinarios_destinos,
+              portal_destinos_pendentes: dados?.portal_destinos_pendentes || [],
+              portal_pode_liberar: dados?.portal_pode_liberar,
+            }
+          : atual
+      );
+      alert(`${nome} não tem mais acesso a este laudo no portal.`);
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao revogar o acesso no portal. Tente novamente.");
+    } finally {
+      setRevogandoPartnerId(null);
+    }
+  };
+
+  const abrirSeletorAvisoWhatsApp = () => {
+    if (!laudo) return;
+    if (!podeAvisarWhatsApp(laudo)) {
       alert("Libere o laudo no portal antes de enviar o aviso por WhatsApp.");
       return;
     }
-    if (!confirm(`Enviar para ${laudo.clinica || "a clinica parceira"} o aviso de laudo disponível?`)) {
-      return;
-    }
+    setSeletorAvisoAberto(true);
+  };
+
+  const avisarLaudoPorWhatsApp = async (destinos: string[]) => {
+    if (!laudo || !laudoId || destinos.length === 0) return;
     const idempotencyKey = typeof globalThis.crypto?.randomUUID === "function"
       ? globalThis.crypto.randomUUID()
       : `laudo-portal-${laudo.id}-${Date.now()}`;
     setAvisandoWhatsApp(true);
     try {
-      await api.post(`/laudos/${laudo.id}/portal/whatsapp`, {
+      const response = await api.post<RespostaAvisoWhatsApp>(`/laudos/${laudo.id}/portal/whatsapp`, {
         idempotency_key: idempotencyKey,
+        destinos,
       });
-      alert("Aviso enviado pelo WhatsApp oficial da Fort Cordis.");
+      const dados = response.data;
+      setSeletorAvisoAberto(false);
+      // O resultado por destino volta na resposta: guarda para o seletor abrir
+      // ja sabendo quem acabou de receber.
+      setLaudo((atual) => (atual ? { ...atual, whatsapp_envios: dados?.whatsapp_envios ?? atual.whatsapp_envios } : atual));
+      alert(resumirRespostaAvisoWhatsApp(dados).texto);
     } catch (error) {
       const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
       alert(detail || "Erro ao enviar o aviso por WhatsApp.");
@@ -401,6 +455,14 @@ export default function VisualizarLaudoPage() {
   return (
     <DashboardLayout>
       <div className="fc-report-view-page">
+        {seletorAvisoAberto && (
+          <AvisoWhatsAppDialog
+            laudo={laudo}
+            enviando={avisandoWhatsApp}
+            onCancelar={() => setSeletorAvisoAberto(false)}
+            onEnviar={avisarLaudoPorWhatsApp}
+          />
+        )}
         <header className="fc-report-view-header">
           <div className="fc-report-editor-heading">
             <button
@@ -411,13 +473,13 @@ export default function VisualizarLaudoPage() {
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
-            {laudo.clinic_id && (laudo.portal_clinica_liberado || isPortalReleased(laudo.status)) ? (
+            {podeAvisarWhatsApp(laudo) ? (
               <button
                 type="button"
-                onClick={avisarLaudoPorWhatsApp}
+                onClick={abrirSeletorAvisoWhatsApp}
                 disabled={avisandoWhatsApp}
                 className="fc-report-view-portal"
-                title="Avisar clínica pelo WhatsApp oficial"
+                title={getTituloBotaoAvisoWhatsApp(laudo)}
               >
                 {avisandoWhatsApp ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
                 {avisandoWhatsApp ? "Enviando..." : "Avisar WhatsApp"}
@@ -470,6 +532,12 @@ export default function VisualizarLaudoPage() {
             </button>
           </div>
         </header>
+
+        <PortalLiberadoPara
+          laudo={laudo}
+          revogandoPartnerId={revogandoPartnerId}
+          onRevogar={revogarAcessoDoVeterinario}
+        />
 
         {/* Conteúdo do Laudo */}
         <article className="fc-report-view-document print:shadow-none print:border-none">

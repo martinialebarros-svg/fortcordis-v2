@@ -237,12 +237,19 @@ export type PortalAdminClinicAccessOverviewResponse = {
 
 export type PortalPartnerType = "clinica" | "veterinario";
 
+export type PortalPartnerClinicLink = {
+  clinica_id: number;
+  clinica_nome?: string | null;
+  receber_todos_laudos: boolean;
+};
+
 export type PortalPartnerProfile = {
   id: number;
   tipo: PortalPartnerType;
   tipo_label: string;
   clinica_id?: number | null;
   clinica_nome?: string | null;
+  clinicas_vinculadas?: PortalPartnerClinicLink[];
   nome_exibicao: string;
   email_login?: string | null;
   telefone?: string | null;
@@ -263,9 +270,15 @@ export type PortalPartnerProfileListResponse = {
   items: PortalPartnerProfile[];
 };
 
+export type PortalPartnerClinicLinkPayload = {
+  clinica_id: number;
+  receber_todos_laudos?: boolean;
+};
+
 export type PortalPartnerProfileCreatePayload = {
   tipo: PortalPartnerType;
   clinica_id?: number;
+  clinicas_vinculadas?: PortalPartnerClinicLinkPayload[];
   nome_exibicao?: string;
   email_login?: string;
   telefone?: string;
@@ -280,6 +293,7 @@ export type PortalPartnerProfileCreatePayload = {
 };
 
 export type PortalPartnerProfileUpdatePayload = {
+  clinicas_vinculadas?: PortalPartnerClinicLinkPayload[];
   nome_exibicao?: string;
   email_login?: string;
   telefone?: string;

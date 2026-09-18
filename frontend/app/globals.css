@@ -6817,6 +6817,10 @@ body {
     @apply border-ink-600 bg-ink-700 text-white hover:bg-ink-900 focus-visible:ring-ink-200;
   }
 
+  .fc-report-view-portal-access {
+    @apply min-w-0 rounded-lg border border-ink-100 bg-white p-4 shadow-fort-soft;
+  }
+
   .fc-report-view-document {
     @apply min-w-0 rounded-lg border border-ink-100 bg-white p-4 shadow-fort-card sm:p-6 lg:p-8;
     box-shadow: inset 4px 0 0 #0d9488, 0 1px 2px rgba(23, 32, 29, 0.06), 0 18px 34px rgba(23, 32, 29, 0.08);
