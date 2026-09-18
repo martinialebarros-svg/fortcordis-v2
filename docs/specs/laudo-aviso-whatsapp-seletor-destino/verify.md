@@ -24,6 +24,7 @@ Status: done
 | CA-014 | aceitacao | `laudo com um destino so abre com ele marcado` em `lib/laudo-whatsapp-aviso.test.ts` | ok |
 | CA-015 | aceitacao | `test_migracao_do_mapa_de_envios_e_idempotente`: `upgrade()` duas vezes na mesma conexao, coluna presente e a coluna de resumo preservada | ok |
 | CA-016 | aceitacao | `test_destino_escolhido_sem_numero_nao_derruba_o_envio_dos_outros`: clinica liberada sem numero + veterinario escolhidos juntos; so o veterinario e chamado, a clinica volta `ignorado`/`sem_whatsapp`. Dois testes de `resumirRespostaAvisoWhatsApp` cobrem o aviso ambar ("A clínica não tem WhatsApp cadastrado.") e o caso em que ninguem tem numero. Conferido em stage (secao 3) | ok |
+| CA-017 | aceitacao | `fecha a frase do erro do provedor antes de emendar o proximo aviso`: o texto traz "template delivery. A clínica não tem WhatsApp cadastrado." — o erro do provedor nao termina em ponto e ganha um | ok |
 
 ## 2) Comandos executados
 
