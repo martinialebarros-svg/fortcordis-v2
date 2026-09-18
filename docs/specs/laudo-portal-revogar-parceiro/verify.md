@@ -1,8 +1,8 @@
 # Verify - laudo-portal-revogar-parceiro
 
-Data: 2026-09-18
+Data: 2026-09-18 (rota) e 2026-09-19 (tela)
 Responsavel: Martiniano
-Status: done
+Status: in-progress
 
 ## 1) Matriz de rastreabilidade
 
@@ -17,6 +17,17 @@ Status: done
 | CA-007 | aceitacao | `test_revoga_o_acesso_do_parceiro_sem_tocar_no_resto` confere `acao == "LAUDO_PORTAL_PARCEIRO_REVOGADO"` e os detalhes (`laudo_id`, `exame_id`, `partner_id`) | ok |
 | CA-008 | aceitacao | `test_liberar_de_novo_reativa_a_mesma_linha`: `_upsert_portal_partner_release_target` devolve o mesmo `target.id` com `revoked_at` nulo | ok |
 | CA-009 | aceitacao | `test_parceiro_revogado_nao_recebe_mais_aviso_por_whatsapp`: depois da revogacao o parceiro volta a `ignorado`/`nao_liberado` e o numero dele nao aparece nas chamadas ao provedor | ok |
+
+### Tela - segunda fase
+
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-010 | aceitacao | `PortalLiberadoPara` renderiza clinica e veterinarios com o selo "Com acesso"/"Sem acesso"; `getVeterinariosDoLaudo` e `getClinicaDoLaudo` testados em `lib/laudo-portal-destinos.test.ts`, inclusive no contrato antigo sem a lista de destinos | ok |
+| CA-011 | aceitacao | `getRotuloOrigemVeterinario` testado nas tres saidas ("Encaminhou o caso", "Por vínculo com a clínica", generico) | ok |
+| CA-012 | aceitacao | O botao so e renderizado dentro de `veterinario.liberado`; o item da clinica nao tem botao | pendente - conferir em stage |
+| CA-013 | aceitacao | `getConfirmacaoRevogarVeterinario` testado: nomeia o veterinario e diz que liberar de novo devolve o acesso | ok |
+| CA-014 | aceitacao | O handler atualiza `portal_veterinarios_destinos` e os demais campos com o que a resposta devolve, sem recarregar | pendente - conferir em stage |
+| CA-015 | aceitacao | `temDestinosNoPortal` testado (laudo sem clinica e sem veterinario nao renderiza); a secao leva `print:hidden` | pendente - conferir em stage |
 
 ## 2) Comandos executados
 
@@ -56,8 +67,13 @@ nenhuma rota alcancava antes desta.
 3. Segunda chamada no mesmo alvo: **409** "Este veterinario nao esta liberado no
    portal para este laudo" (CA-005).
 
-A conferencia visual continua pendente para o ciclo da tela — a lista de
-"liberado para" com o botao de revogar em `laudos/[id]`.
+### Pendente em stage - tela
+
+Com a segunda fase, a conferencia visual passa a ter o que olhar em
+`laudos/[id]`: o bloco "Liberado no portal para" com os selos, o botao so em
+quem tem acesso, a confirmacao nomeando o veterinario, a lista se atualizando
+sozinha depois de revogar (CA-012, CA-014) e o bloco fora da impressao
+(CA-015).
 
 ## 4) Risco residual
 
@@ -68,5 +84,8 @@ A conferencia visual continua pendente para o ciclo da tela — a lista de
 - A rota olha so o exame mais recente do laudo. Laudo com mais de um exame
   vinculado — situacao que o fluxo nao produz hoje — teria as liberacoes dos
   exames anteriores fora do alcance dela.
-- Sem tela, o acesso indevido continua dependendo de alguem chamar a rota. A
-  lacuna operacional so fecha no ciclo da interface.
+- A tela vive so na visualizacao do laudo (`laudos/[id]`). Quem trabalha pela
+  Central de laudos nao ve quem esta com acesso sem abrir o laudo.
+- O bloco revoga um veterinario por vez. Tirar varios exige um clique e uma
+  confirmacao para cada, o que e lento se um parceiro precisar sair de muitos
+  laudos — caso que pediria outra ferramenta, por parceiro e nao por laudo.

@@ -27,9 +27,24 @@
   - `avisar_laudo_liberado_por_whatsapp` depois da revogação: o parceiro volta
     a `ignorado`/`nao_liberado` (CA-009).
 
-## Fase 3 - entrega
+## Fase 3 - tela (segunda fase)
 
-- PR com base `stage`. A tela que usa a rota (lista de "liberado para" com o
-  botão de revogar em `laudos/[id]`) fica para o ciclo seguinte, com a
-  verificação visual junto — sem tela, não há o que conferir em stage além do
-  que os testes já cobrem.
+- `frontend/lib/laudo-portal-destinos.ts` (novo): `getClinicaDoLaudo`,
+  `getVeterinariosDoLaudo` (todos, liberados ou não, com a origem),
+  `temDestinosNoPortal`, `getRotuloOrigemVeterinario` e
+  `getConfirmacaoRevogarVeterinario`. Fica separado de
+  `laudo-whatsapp-aviso.ts` porque aquele só enxerga quem já está liberado.
+- `frontend/app/laudos/components/PortalLiberadoPara.tsx` (novo): o bloco
+  "Liberado no portal para", com selo por destino e botão de revogar só em
+  veterinário com acesso. `print:hidden` — é controle do app, não parte do
+  documento clínico.
+- `frontend/app/laudos/[id]/page.tsx`: monta o bloco entre o cabeçalho e o
+  documento, confirma pelo texto do helper e atualiza o estado do laudo com o
+  que a rota devolve.
+- `frontend/app/globals.css`: `.fc-report-view-portal-access`, no bloco das
+  demais `.fc-report-view-*`.
+
+## Fase 4 - entrega
+
+- PR com base `stage`, e a conferência visual em stage logo depois: é o que
+  fecha CA-012, CA-014 e CA-015.
