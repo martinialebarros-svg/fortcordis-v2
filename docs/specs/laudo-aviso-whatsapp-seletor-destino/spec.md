@@ -31,6 +31,7 @@ resultado por destino.
 | CA-004 | `destinos: []` responde 422 sem chamar o provedor. |
 | CA-005 | Destino que não está liberado no portal para o laudo (ou id inexistente) responde 422 nomeando a chave recusada, sem enviar nada. |
 | CA-016 | Destino escolhido que está liberado mas **não tem WhatsApp cadastrado** não derruba a chamada: os outros escolhidos recebem, ele volta `ignorado`/`sem_whatsapp`, e o aviso na tela diz que ele ficou sem número — a tela lista quem está liberado no portal, sem saber dos cadastros de telefone. |
+| CA-017 | O aviso na tela não emenda frases: o erro do provedor, que nem sempre termina em pontuação, é encerrado antes da observação seguinte, e essa observação começa como frase própria. |
 | CA-006 | Cada envio grava o resultado em `whatsapp_envios` sob a chave do destino (`status`, `em`, `erro`), preservando o que já estava lá para os destinos não escolhidos. |
 | CA-007 | As colunas `whatsapp_liberacao_*` e `whatsapp_parceiro_*` continuam sendo atualizadas como antes, e só para os destinos efetivamente tentados. |
 | CA-008 | `GET /laudos` devolve `whatsapp_envios` em cada item, e `GET /laudos/{id}` no laudo. |

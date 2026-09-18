@@ -249,13 +249,20 @@ export function resumirRespostaAvisoWhatsApp(
       semNumero.push(veterinario.nome?.trim() || "o veterinário parceiro");
     }
   }
-  const avisoSemNumero =
+  const fraseSemNumero =
     semNumero.length > 0
-      ? ` ${semNumero.join(", ")} ${semNumero.length > 1 ? "não têm" : "não tem"} WhatsApp cadastrado.`
+      ? `${semNumero.join(", ")} ${semNumero.length > 1 ? "não têm" : "não tem"} WhatsApp cadastrado.`
       : "";
+  // Vira frase propria quando entra depois de outra; por isso a maiuscula.
+  const avisoSemNumero = fraseSemNumero
+    ? ` ${fraseSemNumero.charAt(0).toUpperCase()}${fraseSemNumero.slice(1)}`
+    : "";
 
   if (falharam.length > 0) {
-    const erro = falharam[0].erro?.trim() || "erro no envio pelo WhatsApp oficial.";
+    // O erro vem do provedor e nem sempre termina em ponto; sem isto ele emenda
+    // na frase seguinte ("...template delivery a clínica não tem...").
+    const erroBruto = falharam[0].erro?.trim() || "erro no envio pelo WhatsApp oficial";
+    const erro = /[.!?]$/.test(erroBruto) ? erroBruto : `${erroBruto}.`;
     const alvo = rotuloVeterinarios(falharam);
     const inicio = clinicaEnviada
       ? `Aviso enviado para a clínica, mas o envio para ${alvo} falhou: `
@@ -287,9 +294,9 @@ export function resumirRespostaAvisoWhatsApp(
       tom,
     };
   }
-  if (avisoSemNumero) {
+  if (fraseSemNumero) {
     return {
-      texto: `Ninguém foi avisado:${avisoSemNumero}`,
+      texto: `Ninguém foi avisado: ${fraseSemNumero}`,
       tom: "alerta",
     };
   }
