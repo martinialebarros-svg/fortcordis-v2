@@ -12,55 +12,15 @@ if not os.environ.get("DATABASE_URL"):
     os.environ["DATABASE_URL"] = "sqlite:///./fortcordis.db"
 
 from app.db.database import engine, Base, SessionLocal
-from app.models import (
-    user, papel, agendamento, paciente, tutor, clinica, servico,
-    laudo, financeiro, frase, imagem_laudo, tabela_preco, 
-    ordem_servico, referencia_eco, configuracao, auditoria_evento,
-    clinica_deslocamento, cep_bairro_override, push_subscription, push_scheduled_notification,
-    google_maps_usage_metrica, portal_access, portal_partner, portal_partner_auth
-)
+
+# Importar `app.models` e o que registra os modelos em `Base.metadata`: o
+# `__init__.py` do pacote importa todos os submodulos de modelo, e e desse
+# metadata que `criar_tabelas()` parte. Nao ha lista de modelos para manter
+# aqui — modelo novo passa a ser criado assim que entra em
+# `app/models/__init__.py`.
+import app.models  # noqa: F401  (import por efeito colateral: popula Base.metadata)
 from app.utils.frases_seed import seed_frases
 from migrations.runner import get_deferred_migrations, run_migrations
-
-# Importar todos os modelos para o Base.metadata
-MODELS = [
-    user.User,
-    papel.Papel,
-    agendamento.Agendamento,
-    paciente.Paciente,
-    tutor.Tutor,
-    clinica.Clinica,
-    servico.Servico,
-    laudo.Laudo,
-    laudo.Exame,
-    financeiro.Transacao,
-    financeiro.ContaPagar,
-    financeiro.ContaReceber,
-    frase.FraseQualitativa,
-    frase.FraseQualitativaHistorico,
-    imagem_laudo.ImagemLaudo,
-    imagem_laudo.ImagemTemporaria,
-    tabela_preco.TabelaPreco,
-    tabela_preco.PrecoServico,
-    ordem_servico.OrdemServico,
-    referencia_eco.ReferenciaEco,
-    configuracao.Configuracao,
-    configuracao.ConfiguracaoUsuario,
-    push_subscription.PushSubscription,
-    push_scheduled_notification.PushScheduledNotification,
-    auditoria_evento.AuditoriaEvento,
-    clinica_deslocamento.ClinicaDeslocamento,
-    cep_bairro_override.CepBairroOverride,
-    google_maps_usage_metrica.GoogleMapsUsageMetrica,
-    portal_access.PortalAccessChallenge,
-    portal_partner.PortalPartnerProfile,
-    portal_partner.PortalPartnerReleaseTarget,
-    portal_partner_auth.PortalPartnerInvite,
-    portal_partner_auth.PortalPartnerAccount,
-    portal_partner_auth.PortalPartnerSession,
-    portal_partner_auth.PortalPartnerPasswordResetToken,
-    portal_partner_auth.PortalPartnerAuthChallenge,
-]
 
 def criar_tabelas():
     """Cria todas as tabelas no banco de dados."""
@@ -150,6 +110,8 @@ def verificar_tabelas():
     inspector = inspect(engine)
     tabelas_existentes = inspector.get_table_names()
     
+    # Smoke check de um subconjunto historico: nao e a fonte das tabelas (quem
+    # cria e o `create_all` acima) nem precisa listar todos os modelos.
     tabelas_esperadas = [
         "usuarios", "papeis", "usuario_papel",
         "agendamentos", "pacientes", "tutores", "clinicas", "servicos",
