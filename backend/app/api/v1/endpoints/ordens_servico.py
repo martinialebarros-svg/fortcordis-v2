@@ -15,7 +15,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import and_, func, or_
+from sqlalchemy import String, and_, case, cast, func, or_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -1462,19 +1462,36 @@ def enviar_recibos_pdf_whatsapp(
     )
 
 
-@router.get("")
-def listar_ordens(
+def _destinatario_cobranca_sql():
+    domiciliar = func.trim(func.coalesce(OrdemServico.origem_atendimento, "")) == "domiciliar"
+    nome_tutor = func.coalesce(func.nullif(func.trim(Tutor.nome), ""), "Tutor nao informado")
+    nome_clinica = func.coalesce(func.nullif(func.trim(Clinica.nome), ""), "Clinica nao informada")
+    nome = case((domiciliar, nome_tutor), else_=nome_clinica)
+    chave = case(
+        (domiciliar, case(
+            (Tutor.id.isnot(None), "tutor:" + cast(Tutor.id, String)),
+            else_="tutor-nome:" + func.lower(nome_tutor),
+        )),
+        else_=case(
+            (OrdemServico.clinica_id.isnot(None), "clinica:" + cast(OrdemServico.clinica_id, String)),
+            else_="clinica-nome:" + func.lower(nome_clinica),
+        ),
+    )
+    return chave, nome, case((domiciliar, "tutor"), else_="clinica")
+
+
+def _query_ordens_filtradas(
+    db: Session,
     status: Optional[str] = None,
     origem_atendimento: Optional[str] = None,
     clinica_id: Optional[int] = None,
     servico_id: Optional[int] = None,
-    tipo_horario: Optional[str] = Query(None, pattern="^(comercial|plantao)$"),
+    tipo_horario: Optional[str] = None,
     data_inicio: Optional[str] = None,
     data_fim: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    search: Optional[str] = None,
+    destinatario_chave: Optional[str] = None,
+    os_id: Optional[int] = None,
 ):
     """Lista ordens de servico com filtros."""
     query = (
@@ -1497,6 +1514,8 @@ def listar_ordens(
         .outerjoin(Servico, OrdemServico.servico_id == Servico.id)
     )
 
+    if os_id is not None:
+        query = query.filter(OrdemServico.id == os_id)
     origem_atendimento_norm = _normalizar_origem_atendimento_os(origem_atendimento)
     if status:
         query = query.filter(OrdemServico.status == status)
@@ -1513,7 +1532,122 @@ def listar_ordens(
     if data_fim:
         query = query.filter(func.date(OrdemServico.data_atendimento) <= data_fim)
 
-    total = query.count()
+    if search and search.strip():
+        # Same visible fields as the list; input is a literal substring, not SQL wildcards.
+        termo = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{termo}%"
+        clinica_label = case(
+            (and_(
+                func.trim(func.coalesce(Clinica.nome, "")) == "",
+                OrdemServico.origem_atendimento == "domiciliar",
+            ), "Atendimento domiciliar"),
+            else_=Clinica.nome,
+        )
+        query = query.filter(or_(
+            OrdemServico.numero_os.ilike(pattern, escape="\\"),
+            Paciente.nome.ilike(pattern, escape="\\"),
+            Tutor.nome.ilike(pattern, escape="\\"),
+            Servico.nome.ilike(pattern, escape="\\"),
+            clinica_label.ilike(pattern, escape="\\"),
+        ))
+
+    if destinatario_chave is not None:
+        chave, _, _ = _destinatario_cobranca_sql()
+        query = query.filter(
+            chave == destinatario_chave,
+            or_(OrdemServico.status.is_(None), OrdemServico.status != "Cancelado"),
+        )
+    return query
+
+
+@router.get("/cobrancas")
+def listar_grupos_cobranca(
+    status: Optional[str] = None,
+    origem_atendimento: Optional[str] = None,
+    clinica_id: Optional[int] = None,
+    servico_id: Optional[int] = None,
+    tipo_horario: Optional[str] = Query(None, pattern="^(comercial|plantao)$"),
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    search: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Pagina destinatarios, nunca fragmentos de seus totais filtrados."""
+    query = _query_ordens_filtradas(
+        db, status, origem_atendimento, clinica_id, servico_id,
+        tipo_horario, data_inicio, data_fim, search,
+    ).filter(or_(OrdemServico.status.is_(None), OrdemServico.status != "Cancelado"))
+    chave, nome, tipo = _destinatario_cobranca_sql()
+    grupos = query.with_entities(
+        chave.label("chave"), func.min(nome).label("nome_destinatario"),
+        func.min(tipo).label("tipo_destinatario"),
+        func.count(OrdemServico.id).label("quantidade_total"),
+        func.sum(case((OrdemServico.status == "Pendente", 1), else_=0)).label("quantidade_os"),
+        func.coalesce(func.sum(case((OrdemServico.status == "Pendente", OrdemServico.valor_final), else_=0)), 0).label("total_pendente"),
+    ).group_by(chave).subquery()
+    total, total_os, total_pendente, pendentes = db.query(
+        func.count(), func.coalesce(func.sum(grupos.c.quantidade_total), 0),
+        func.coalesce(func.sum(grupos.c.total_pendente), 0),
+        func.coalesce(func.sum(grupos.c.quantidade_os), 0),
+    ).select_from(grupos).one()
+    rows = db.query(grupos).order_by(grupos.c.total_pendente.desc(), grupos.c.chave.asc()).offset(skip).limit(limit).all()
+    return {
+        "total": int(total), "total_os": int(total_os), "total_pendente": float(total_pendente), "pendentes": int(pendentes),
+        "items": [{
+            "chave": row.chave, "nome_destinatario": row.nome_destinatario,
+            "tipo_destinatario": row.tipo_destinatario,
+            "quantidade_total": int(row.quantidade_total), "quantidade_os": int(row.quantidade_os),
+            "total_pendente": float(row.total_pendente),
+        } for row in rows],
+    }
+
+
+@router.get("")
+def listar_ordens(
+    status: Optional[str] = None,
+    origem_atendimento: Optional[str] = None,
+    clinica_id: Optional[int] = None,
+    servico_id: Optional[int] = None,
+    tipo_horario: Optional[str] = Query(None, pattern="^(comercial|plantao)$"),
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    search: Optional[str] = None,
+    incluir_resumo: bool = False,
+    destinatario_chave: Optional[str] = None,
+    os_id: Optional[int] = None,
+):
+    query = _query_ordens_filtradas(
+        db, status, origem_atendimento, clinica_id, servico_id,
+        tipo_horario, data_inicio, data_fim, search, destinatario_chave, os_id,
+    )
+    resumo = None
+    if incluir_resumo:
+        # Aggregate the full filtered relation before offset/limit; never sum the page.
+        agregado = query.with_entities(
+            func.count(OrdemServico.id),
+            func.coalesce(func.sum(case((OrdemServico.status == "Pendente", 1), else_=0)), 0),
+            func.coalesce(func.sum(case((OrdemServico.status == "Pago", 1), else_=0)), 0),
+            func.coalesce(func.sum(case((OrdemServico.status == "Cancelado", 1), else_=0)), 0),
+            func.coalesce(func.sum(case((OrdemServico.status == "Pendente", OrdemServico.valor_final), else_=0)), 0),
+            func.coalesce(func.sum(case((OrdemServico.status == "Pago", OrdemServico.valor_final), else_=0)), 0),
+        ).one()
+        total = int(agregado[0])
+        resumo = {
+            "pendentes": int(agregado[1]),
+            "pagas": int(agregado[2]),
+            "canceladas": int(agregado[3]),
+            "valor_pendente": float(agregado[4]),
+            "valor_recebido": float(agregado[5]),
+        }
+    else:
+        total = query.count()
     results = (
         query.order_by(OrdemServico.data_atendimento.desc(), OrdemServico.id.desc())
         .offset(skip)
@@ -1523,7 +1657,10 @@ def listar_ordens(
 
     items = [_serialize_os_row(row) for row in results]
 
-    return {"total": total, "items": items}
+    response = {"total": total, "items": items}
+    if resumo is not None:
+        response["resumo"] = resumo
+    return response
 
 
 @router.get("/relatorios/pendencias/pdf")
@@ -1539,6 +1676,8 @@ def gerar_relatorio_pendencias_pdf(
     data_inicio: Optional[str] = None,
     data_fim: Optional[str] = None,
     busca: Optional[str] = None,
+    search: Optional[str] = None,
+    destinatario_chave: Optional[str] = None,
     mensagem: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1613,6 +1752,14 @@ def gerar_relatorio_pendencias_pdf(
                 Servico.nome.ilike(termo),
             )
         )
+
+    # New UI shares literal search and exact recipient identity with remote groups.
+    # Keep legacy `busca` and recipient parameters unchanged for older clients.
+    if search is not None or destinatario_chave is not None:
+        matching_ids = _query_ordens_filtradas(
+            db, search=search, destinatario_chave=destinatario_chave,
+        ).with_entities(OrdemServico.id)
+        query = query.filter(OrdemServico.id.in_(matching_ids))
 
     resultados = query.order_by(OrdemServico.data_atendimento.asc(), OrdemServico.id.asc()).all()
     if not resultados:
