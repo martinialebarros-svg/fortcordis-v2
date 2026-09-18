@@ -22,6 +22,7 @@ from app.api.v1.endpoints import atendimento
 from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.laudo import Exame
+from app.models.portal_clinic_exam_link import PortalClinicExamLink
 
 
 class AtendimentoPortalExamReleaseTest(unittest.TestCase):
@@ -36,6 +37,7 @@ class AtendimentoPortalExamReleaseTest(unittest.TestCase):
             AtendimentoClinico.__table__,
             Exame.__table__,
             AnexoAtendimento.__table__,
+            PortalClinicExamLink.__table__,
         ):
             table.create(engine, checkfirst=True)
         session_factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)

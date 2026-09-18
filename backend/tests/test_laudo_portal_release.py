@@ -28,6 +28,7 @@ from app.models.imagem_laudo import ImagemLaudo
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
 from app.models.portal_clinic_auth import PortalClinicAccount, PortalClinicInvite
+from app.models.portal_clinic_exam_link import PortalClinicExamLink
 from app.models.portal_partner import (
     PORTAL_PARTNER_TYPE_VETERINARIO,
     PortalPartnerClinicLink,
@@ -93,6 +94,7 @@ class LaudoPortalReleaseTest(unittest.TestCase):
             PortalPartnerClinicLink.__table__,
             PortalPartnerReleaseTarget.__table__,
             PortalPartnerAccount.__table__,
+            PortalClinicExamLink.__table__,
         ):
             table.create(engine, checkfirst=True)
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()

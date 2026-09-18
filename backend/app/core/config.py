@@ -173,6 +173,12 @@ class Settings(BaseSettings):
     PORTAL_CLINIC_PASSWORD_RESET_EXPIRE_MINUTES: int = 30
     PORTAL_CLINIC_MAX_AUTH_ATTEMPTS: int = 5
     PORTAL_CLINIC_RELEASE_SLA_HOURS: int = 48
+    # Link direto por exame no aviso de WhatsApp da clinica. Desligada, o aviso sai
+    # exatamente como antes (modelo portalReportAvailable, sem link).
+    PORTAL_CLINIC_EXAM_LINK_ENABLED: bool = False
+    # Base publica do link (ex.: https://app.fortcordis.com.br). Vazia usa a
+    # base_url da requisicao.
+    PORTAL_CLINIC_EXAM_LINK_BASE_URL: str = ""
     PORTAL_PARTNER_INVITE_AUTH_ENABLED: bool = True
     PORTAL_PARTNER_PASSWORD_LOGIN_ENABLED: bool = True
     PORTAL_PARTNER_REFRESH_COOKIE_NAME: str = "fortcordis_portal_partner_refresh"

@@ -183,6 +183,20 @@ class PortalDownloadUrlResponse(BaseModel):
     items: list[PortalDownloadLinkItemResponse] = Field(default_factory=list)
 
 
+class PortalExamLinkResponse(BaseModel):
+    """Conteudo de UM laudo, aberto por link direto do WhatsApp da clinica.
+
+    Deliberadamente sem `access_token`: resolver o link nao abre sessao de portal,
+    so entrega este exame. Ver docs/specs/portal-clinica-link-laudo-whatsapp/.
+    """
+
+    clinica_nome: str
+    paciente_nome: Optional[str] = None
+    tipo_exame: str
+    data_exame: Optional[str] = None
+    arquivos: list[PortalDownloadLinkItemResponse] = Field(default_factory=list)
+
+
 class PortalAdminClinicInviteCreateRequest(BaseModel):
     delivery_channel: Literal["whatsapp"] = "whatsapp"
     delivery_target: str = Field(..., min_length=8, max_length=255)
