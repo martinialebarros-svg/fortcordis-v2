@@ -4,6 +4,14 @@ Data: 2026-09-15
 Status: backend e interfaces de Ordens e Cobranças implementados localmente; não publicado.
 Base: `fa113ea94fd4387f55b251d91d8db0cf62a48f55` (origin/stage).
 
+## Revalidacao para stage — 2026-09-18
+
+- PR #149 atualizado sobre `8c624d3a43aef9b50ec52466515ffafca63dafe0`,
+  sem conflitos e sem alterar o escopo de 12 arquivos da feature.
+- Suíte frontend atual: 365 Vitest + 9 Node aprovados; 13 testes de busca,
+  agrupamento, resumo e escopo do PDF novamente aprovados. Guardrail SDD aprovado.
+- Aceite autenticado e medição continuam pendentes; esta atualização não autoriza produção.
+
 ## Evidências
 
 - `test_ordens_busca_resumo.py`: 13 testes aprovados, SQLite isolado, 505 OS
