@@ -301,6 +301,32 @@ describe("seletor de destino", () => {
     expect(getSelecaoInicialAviso(destinos)).toEqual([]);
   });
 
+  it("o resumo avisa quando um destino escolhido nao tem WhatsApp cadastrado", () => {
+    const resumo = resumirRespostaAvisoWhatsApp({
+      clinica: { status: "ignorado", motivo: "sem_whatsapp" },
+      veterinarios_parceiros: [
+        { partner_id: 144, nome: "Dra Camila Rebouças", status: "enviado" },
+      ],
+    });
+
+    expect(resumo.tom).toBe("alerta");
+    expect(resumo.texto).toContain("Dra Camila Rebouças");
+    expect(resumo.texto).toContain("a clínica não tem WhatsApp cadastrado.");
+  });
+
+  it("quando ninguem tem numero, o resumo nao finge que avisou", () => {
+    const resumo = resumirRespostaAvisoWhatsApp({
+      clinica: { status: "ignorado", motivo: "sem_whatsapp" },
+      veterinarios_parceiros: [
+        { partner_id: 144, nome: "Dra Camila Rebouças", status: "ignorado", motivo: "sem_whatsapp" },
+      ],
+    });
+
+    expect(resumo.tom).toBe("alerta");
+    expect(resumo.texto).toContain("Ninguém foi avisado");
+    expect(resumo.texto).toContain("Dra Camila Rebouças");
+  });
+
   it("o resumo nomeia o veterinario que recebeu quando a resposta detalha a lista", () => {
     expect(
       resumirRespostaAvisoWhatsApp({
