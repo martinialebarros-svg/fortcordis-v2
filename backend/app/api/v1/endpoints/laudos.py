@@ -3516,18 +3516,23 @@ def avisar_laudo_liberado_por_whatsapp(
         if not escolhidos:
             raise HTTPException(status_code=422, detail="Selecione ao menos um destino para o aviso.")
 
-        elegiveis = {DESTINO_AVISO_CLINICA} if clinic_destination is not None else set()
-        elegiveis |= {
+        # O que vale como destino e quem esta liberado no portal - nao quem tem
+        # numero. A tela lista os liberados sem saber dos numeros; recusar a
+        # chamada inteira por causa de um cadastro sem WhatsApp deixaria o envio
+        # travado para todos os outros. Quem nao tem numero e ignorado com
+        # motivo, como ja acontecia antes do seletor.
+        conhecidos = {DESTINO_AVISO_CLINICA} if clinica is not None else set()
+        conhecidos |= {
             _chave_destino_veterinario(item["partner"].id)
             for item in destinos_veterinarios
-            if item["destination"] is not None
+            if item["skip_reason"] != "nao_liberado"
         }
-        recusados = sorted(escolhidos - elegiveis)
+        recusados = sorted(escolhidos - conhecidos)
         if recusados:
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "Destino sem WhatsApp liberado no portal para este laudo: "
+                    "Destino que nao esta liberado no portal para este laudo: "
                     f"{', '.join(recusados)}."
                 ),
             )

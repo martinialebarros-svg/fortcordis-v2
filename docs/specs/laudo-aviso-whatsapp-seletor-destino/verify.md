@@ -13,6 +13,7 @@ Status: in-progress
 | CA-003 | aceitacao | `test_sem_o_campo_destinos_avisa_todo_mundo`: sem `destinos`, os tres numeros sao chamados | ok |
 | CA-004 | aceitacao | `test_lista_vazia_de_destinos_responde_422`: 422 e `whatsapp_envios` continua nulo (nada foi enviado) | ok |
 | CA-005 | aceitacao | `test_destino_nao_elegivel_responde_422_nomeando_a_chave`: `veterinario:999` responde 422 com a chave no `detail`, sem envio | ok |
+| CA-016 | aceitacao | `test_destino_escolhido_sem_numero_nao_derruba_o_envio_dos_outros`: clinica liberada sem numero + veterinario escolhidos juntos; so o veterinario e chamado, a clinica volta `ignorado`/`sem_whatsapp`. No frontend, dois testes de `resumirRespostaAvisoWhatsApp` cobrem o aviso ambar ("a clínica não tem WhatsApp cadastrado") e o caso em que ninguem tem numero | ok |
 | CA-006 | aceitacao | `test_envio_novo_preserva_o_resultado_dos_destinos_nao_escolhidos`: segundo envio, so para o veterinario, mantem intacto o registro da clinica (mesmo `em`) | ok |
 | CA-007 | aceitacao | Os mesmos testes conferem `whatsapp_liberacao_status` e `whatsapp_parceiro_status`: so mudam para quem foi tentado. A suite de `test_laudo_portal_whatsapp_parceiro.py` segue verde sem alteracao | ok |
 | CA-008 | aceitacao | `test_envio_novo_preserva_o_resultado_dos_destinos_nao_escolhidos` le `whatsapp_envios` no item de `listar_laudos`; o GET de um laudo devolve o mesmo campo | ok |
@@ -37,6 +38,16 @@ npx tsc --noEmit
 npx eslint app/laudos/page.tsx "app/laudos/[id]/page.tsx" app/laudos/components/AvisoWhatsAppDialog.tsx lib/laudo-whatsapp-aviso.ts --max-warnings=0
 npx next build
 ```
+
+### Correcao depois do merge em stage - 2026-09-18
+
+A primeira versao recusava com 422 qualquer destino escolhido que nao tivesse
+numero cadastrado. Como a janela lista quem esta liberado no portal sem saber
+dos telefones, um laudo com clinica sem WhatsApp — o caso do laudo 49 em stage —
+travava o envio inteiro: a clinica vinha pre-marcada e o clique so devolvia
+erro, sem avisar nem o veterinario. Agora o 422 fica para destino que nao esta
+liberado; sem numero volta a ser `ignorado`/`sem_whatsapp`, e o toast diz quem
+ficou sem numero (CA-005 e CA-016).
 
 ### Resultado - 2026-09-17
 

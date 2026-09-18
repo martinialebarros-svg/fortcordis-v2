@@ -288,6 +288,40 @@ class LaudoPortalWhatsappSeletorTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_destino_escolhido_sem_numero_nao_derruba_o_envio_dos_outros(self) -> None:
+        """Clinica liberada mas sem WhatsApp cadastrado: o veterinario recebe assim mesmo.
+
+        A tela lista quem esta liberado no portal sem saber dos numeros. Recusar
+        a chamada inteira por causa de um cadastro incompleto deixaria o envio
+        travado para todo mundo.
+        """
+        tmpdir, db, engine = self._build_session()
+        try:
+            laudo = self._build_laudo(db)
+            clinica = db.query(Clinica).filter(Clinica.id == 8).first()
+            clinica.telefone = None
+            clinica.whatsapps = []
+            db.commit()
+
+            resposta, send_mock = self._chamar(
+                db,
+                laudo,
+                idempotency_key="idem-seletor-008",
+                destinos=[laudos.DESTINO_AVISO_CLINICA, CHAVE_NOMEADO],
+            )
+
+            destinos_chamados = [call.kwargs["destination"] for call in send_mock.call_args_list]
+            self.assertEqual(destinos_chamados, [NOMEADO_WHATSAPP])
+            self.assertEqual(resposta["clinica"], {"status": "ignorado", "motivo": "sem_whatsapp"})
+
+            db.refresh(laudo)
+            self.assertEqual(laudo.whatsapp_envios[CHAVE_NOMEADO]["status"], "enviado")
+            self.assertNotIn(laudos.DESTINO_AVISO_CLINICA, laudo.whatsapp_envios)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_envio_novo_preserva_o_resultado_dos_destinos_nao_escolhidos(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:

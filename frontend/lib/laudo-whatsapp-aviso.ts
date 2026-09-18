@@ -238,33 +238,59 @@ export function resumirRespostaAvisoWhatsApp(
   const enviados = veterinarios.filter((item) => item.status === "enviado");
   const falharam = veterinarios.filter((item) => item.status === "falhou");
 
+  // Destino escolhido que nao tem numero no cadastro: nao e erro de envio, mas
+  // tambem nao pode passar como se tivesse sido avisado.
+  const semNumero: string[] = [];
+  if (resposta?.clinica?.motivo === "sem_whatsapp") {
+    semNumero.push("a clínica");
+  }
+  for (const veterinario of veterinarios) {
+    if (veterinario.motivo === "sem_whatsapp") {
+      semNumero.push(veterinario.nome?.trim() || "o veterinário parceiro");
+    }
+  }
+  const avisoSemNumero =
+    semNumero.length > 0
+      ? ` ${semNumero.join(", ")} ${semNumero.length > 1 ? "não têm" : "não tem"} WhatsApp cadastrado.`
+      : "";
+
   if (falharam.length > 0) {
     const erro = falharam[0].erro?.trim() || "erro no envio pelo WhatsApp oficial.";
     const alvo = rotuloVeterinarios(falharam);
     const inicio = clinicaEnviada
       ? `Aviso enviado para a clínica, mas o envio para ${alvo} falhou: `
       : `O envio para ${alvo} falhou: `;
-    return { texto: `${inicio}${erro}`, tom: "alerta" };
+    return { texto: `${inicio}${erro}${avisoSemNumero}`, tom: "alerta" };
   }
+
+  const tom = avisoSemNumero ? "alerta" : "sucesso";
 
   if (clinicaEnviada && enviados.length > 0) {
     return {
       texto: `Aviso enviado para a clínica e para ${rotuloVeterinarios(
         enviados
-      )} pelo WhatsApp oficial da Fort Cordis.`,
-      tom: "sucesso",
+      )} pelo WhatsApp oficial da Fort Cordis.${avisoSemNumero}`,
+      tom,
     };
   }
   if (enviados.length > 0) {
     return {
-      texto: `Aviso enviado para ${rotuloVeterinarios(enviados)} pelo WhatsApp oficial da Fort Cordis.`,
-      tom: "sucesso",
+      texto: `Aviso enviado para ${rotuloVeterinarios(
+        enviados
+      )} pelo WhatsApp oficial da Fort Cordis.${avisoSemNumero}`,
+      tom,
     };
   }
   if (clinicaEnviada) {
     return {
-      texto: "Aviso enviado para a clínica pelo WhatsApp oficial da Fort Cordis.",
-      tom: "sucesso",
+      texto: `Aviso enviado para a clínica pelo WhatsApp oficial da Fort Cordis.${avisoSemNumero}`,
+      tom,
+    };
+  }
+  if (avisoSemNumero) {
+    return {
+      texto: `Ninguém foi avisado:${avisoSemNumero}`,
+      tom: "alerta",
     };
   }
   return {
