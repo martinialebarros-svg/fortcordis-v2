@@ -84,7 +84,7 @@ Objetivo: impedir espera infinita e recuperar o Financeiro, rota mais critica da
 | PERF-16 | Habilitar e validar HTTP/2 no Nginx | diagnostico em stage: tentativa recebeu HTTP/1.1 e foi revertida automaticamente | `curl --http2` negocia HTTP/2 nos dominios e aliases de stage, app e institucional |
 | PERF-17 | Persistir p50/p95/p99, tempo de banco e espera de pool | concluido em producao | painel administrativo, retenção limitada e comparação por release implementados e validados autenticadamente |
 | PERF-18 | Tornar o gate autenticado e sensivel a latencia | concluido em producao | 401/403 nao contam como sucesso e p95 excedido bloqueia release |
-| PERF-19 | Isolar p50/p95 das leituras de Ordens e Cobrancas | implementado localmente; stage pendente | cinco monitores atuais preservados, dois grupos exatos no painel e p95 operacional abaixo de 1,2 s |
+| PERF-19 | Isolar p50/p95 das leituras de Ordens e Cobrancas | validado em stage; amostra operacional preliminar | cinco monitores atuais preservados, dois grupos exatos no painel e p95 operacional abaixo de 1,2 s |
 
 A tentativa atomica anterior criou backup, passou em `nginx -t` e ainda assim
 a negociacao permaneceu em HTTP/1.1; a rotina restaurou a configuracao. O
@@ -132,6 +132,13 @@ As metas devem ser recalibradas depois que a telemetria persistente estiver disp
 - PERF-15 foi publicado em 2026-09-02 com worker systemd separado, runtime gate e canario autenticado aprovados. PERF-16 deve manter backup e rollback do vhost antes do reload do Nginx.
 - Em 2026-09-06, o inventario confirmou que `app.stage`, `app`, `fortcordis.com.br` e `fortcordis.com` mapeiam para quatro vhosts do mesmo listener. A autorizacao atual permite a alteracao atomica dos quatro; o helper mantem backup e rollback integral para `nginx -t`, reload ou ALPN HTTP/2 invalido.
 - PERF-18 foi validado em stage e producao com workflows terminais, smoke autenticado de Agenda/Desempenho e endpoints protegidos respondendo 401 sem sessao. O canario mede somente latencia e contrato agregado; nao registra payloads, dados clinicos nem segredos.
+- Em 2026-09-19, o PERF-19 foi validado autenticadamente em stage no release
+  `75a58ba` (workflow `35471139175`). Ordens registrou 21 amostras, p50 de
+  64,83 ms e p95 de 217,34 ms; Cobrancas registrou 20 amostras, p50 de
+  71,44 ms e p95 de 111,98 ms; ambas tiveram zero 5xx e a consulta nao foi
+  truncada. O p99 de Cobrancas chegou a 2.889,97 ms, portanto a etapa comprova
+  instrumentacao e p95 preliminar abaixo do limiar, mas a cauda deve ser
+  reavaliada em uma janela operacional preferencial de 100 amostras.
 
 ## 8. Referencias existentes
 
