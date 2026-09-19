@@ -18,3 +18,11 @@
 - [x] Smoke de rotas públicas e protegidas passou em stage.
 - [x] A promoção para produção usou o mesmo commit validado em stage.
 - [x] Smoke equivalente em produção passou após a promoção (release `4f94683`, 2026-09-06).
+
+## Extensão PERF-19 — Ordens e Cobranças
+
+- [x] A especificação passou a distinguir prefixos de rotas exatas `GET`.
+- [x] Testes locais confirmam grupos persistidos separados, cinco prefixos
+  preservados e descarte de subrotas, método ausente e métodos não-GET.
+- [ ] Smoke autenticado em stage e leitura do painel por release permanecem em
+  `docs/specs/financeiro-runtime-latency-observability/verify.md`.

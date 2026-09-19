@@ -84,6 +84,7 @@ Objetivo: impedir espera infinita e recuperar o Financeiro, rota mais critica da
 | PERF-16 | Habilitar e validar HTTP/2 no Nginx | diagnostico em stage: tentativa recebeu HTTP/1.1 e foi revertida automaticamente | `curl --http2` negocia HTTP/2 nos dominios e aliases de stage, app e institucional |
 | PERF-17 | Persistir p50/p95/p99, tempo de banco e espera de pool | concluido em producao | painel administrativo, retenção limitada e comparação por release implementados e validados autenticadamente |
 | PERF-18 | Tornar o gate autenticado e sensivel a latencia | concluido em producao | 401/403 nao contam como sucesso e p95 excedido bloqueia release |
+| PERF-19 | Isolar p50/p95 das leituras de Ordens e Cobrancas | implementado localmente; stage pendente | cinco monitores atuais preservados, dois grupos exatos no painel e p95 operacional abaixo de 1,2 s |
 
 A tentativa atomica anterior criou backup, passou em `nginx -t` e ainda assim
 a negociacao permaneceu em HTTP/1.1; a rotina restaurou a configuracao. O
