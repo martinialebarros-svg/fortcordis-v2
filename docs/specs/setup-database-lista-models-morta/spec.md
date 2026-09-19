@@ -26,6 +26,9 @@ de comportamento: mesmo conjunto de tabelas, antes e depois.
   `app/models/__init__.py` e que nao ha lista de modelos a manter no script.
 - RF-005: comentario em `verificar_tabelas()` marca `tabelas_esperadas` como
   smoke check de um subconjunto, nao como fonte das tabelas.
+- RF-006: `app/models/__init__.py` traz docstring com a convencao de criacao de
+  tabelas: registrar o modelo ali e sobre o ORM e nao substitui a migracao
+  versionada, que e o que cria a tabela nos ambientes.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -96,6 +99,8 @@ de comportamento: mesmo conjunto de tabelas, antes e depois.
   subconjunto menor so verifica menos, nao quebra nada, e nao produz falso
   negativo. Aqui ela so ganha um comentario dizendo o que e.
 - Padronizar os outros quatro submodulos ausentes de `app/models/__init__.py`
-  (`agenda_formalizacao`, `alerta_interno`, `fiscal`, `whatsapp_bot`). As 10
-  tabelas deles sao criadas por migracao versionada, entao nao ha bug em aberto;
-  adiciona-los mudaria quem cria essas tabelas e merece decisao propria.
+  (`agenda_formalizacao`, `alerta_interno`, `fiscal`, `whatsapp_bot`). Nao ha o
+  que padronizar: eles seguem a convencao vigente (tabela nova vem por migracao
+  versionada) e suas 10 tabelas sao criadas normalmente. Em vez disso, a
+  convencao passou a estar escrita na docstring de `app/models/__init__.py` —
+  ver RF-006.

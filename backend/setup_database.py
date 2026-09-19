@@ -14,10 +14,13 @@ if not os.environ.get("DATABASE_URL"):
 from app.db.database import engine, Base, SessionLocal
 
 # Importar `app.models` e o que registra os modelos em `Base.metadata`: o
-# `__init__.py` do pacote importa todos os submodulos de modelo, e e desse
-# metadata que `criar_tabelas()` parte. Nao ha lista de modelos para manter
-# aqui — modelo novo passa a ser criado assim que entra em
-# `app/models/__init__.py`.
+# `__init__.py` do pacote importa os submodulos de modelo, e e desse metadata
+# que `criar_tabelas()` parte. Nao ha lista de modelos para manter aqui.
+#
+# Nao conclua dai que basta registrar o modelo para a tabela existir: tabela
+# nova vem por migracao versionada, aplicada logo abaixo por
+# `executar_migracoes()`. A docstring de `app/models/__init__.py` explica a
+# divisao entre os dois caminhos.
 import app.models  # noqa: F401  (import por efeito colateral: popula Base.metadata)
 from app.utils.frases_seed import seed_frases
 from migrations.runner import get_deferred_migrations, run_migrations

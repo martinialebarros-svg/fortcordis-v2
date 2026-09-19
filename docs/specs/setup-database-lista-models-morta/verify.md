@@ -14,6 +14,7 @@ Status: done
 | CA-004 | aceitacao | `setup_database.py` executado contra SQLite vazio: `Tabelas criadas com sucesso`, `SETUP CONCLUIDO`, nenhuma `NÃO ENCONTRADA` | ok |
 | CA-005 | aceitacao | `python -c "import app.main"` retorna `app.main OK` | ok |
 | CA-006 | aceitacao | `pytest tests -q`: 1365 passed, 7 skipped, 290 subtests passed | ok |
+| CA-007 | aceitacao | `app/models/__init__.py` documenta a convencao (tabela nova vem por migracao versionada; registro ali e ORM e nao substitui a migracao) | ok |
 | NFR-001 | nao funcional | conjunto de modulos carregados inalterado; `import app.models` ja ocorria antes | ok |
 | NFR-003 | nao funcional | saida do script identica, incluindo o relatorio de `verificar_tabelas()` | ok |
 
@@ -64,12 +65,26 @@ Resumo dos resultados:
 
 ## 4) Regressao e riscos residuais
 
-- Risco residual 1: `agenda_formalizacao`, `alerta_interno`, `fiscal` e
-  `whatsapp_bot` seguem fora de `app/models/__init__.py`. Nao ha bug em aberto
-  (as 10 tabelas nascem por migracao versionada), mas a regra "modelo novo entra
-  no `__init__.py`" tem quatro excecoes historicas. Vale uma decisao propria
-  sobre padronizar ou documentar a convencao de que tabela nova vem por
-  migracao.
+- Risco residual 1 (reavaliado): `agenda_formalizacao`, `alerta_interno`,
+  `fiscal` e `whatsapp_bot` seguem fora de `app/models/__init__.py`, e **esta
+  correto que sigam**. A primeira leitura tratou isso como quatro excecoes a
+  padronizar; a checagem posterior mostrou o contrario. Amostragem de 8 tabelas
+  que *estao* no `__init__.py` (`portal_clinic_accounts`,
+  `portal_clinic_invites`, `portal_clinic_sessions`,
+  `portal_partner_clinic_links`, `agenda_bloqueios`, `ai_echo_sessions`,
+  `assistente_ia_conversas`, `runtime_http_latency_metrics`): todas tem migracao
+  versionada propria. A convencao real e "tabela nova vem por migracao"; quem
+  esta no `__init__.py` tem cobertura dupla por heranca das tabelas antigas.
+  Nao ha conflito entre os dois caminhos: as migracoes usam `CREATE TABLE` sem
+  `IF NOT EXISTS`, mas guardam com `_table_exists(...) -> return`, entao a
+  migracao vira no-op quando o `create_all` chegou antes. Tratado por
+  documentacao (docstring em `app/models/__init__.py`), nao por padronizacao de
+  codigo.
+- Risco residual 3: assimetria de falha silenciosa. Modelo novo adicionado a um
+  dos quatro modulos **sem** migracao nunca ganha tabela; nos modulos
+  registrados no `__init__.py` o `create_all` mascara o esquecimento (ele cria
+  tabela faltante tambem em banco ja existente). E o motivo de a docstring
+  dizer explicitamente que registrar ali nao substitui a migracao.
 - Risco residual 2: `tabelas_esperadas` em `verificar_tabelas()` cobre 37 das 99
   tabelas. E subverificacao, nao falso negativo; ficou fora de escopo e recebeu
   apenas um comentario explicando o que a lista e.
@@ -83,6 +98,11 @@ Resumo dos resultados:
 - Comentario de uma linha em `verificar_tabelas()` esclarecendo que
   `tabelas_esperadas` e smoke check de subconjunto, nao a fonte das tabelas —
   e a proxima lista que o mesmo leitor encontraria.
+- Docstring em `app/models/__init__.py` registrando a convencao de criacao de
+  tabelas, e ajuste do comentario correspondente em `setup_database.py`. Entrou
+  depois da revisao do risco residual 1, no lugar de abrir issue para
+  "padronizar os quatro modulos" — que teria congelado a leitura errada e nao
+  corrigiria nada, ja que as tabelas desses modulos ja sao criadas.
 
 ## 6) Decisao de release
 

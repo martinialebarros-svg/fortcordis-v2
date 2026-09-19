@@ -72,11 +72,14 @@ certo sem consulta a ninguem.
 
 ## 7) Perguntas abertas
 
-- Vale padronizar que todo submodulo de modelo entre em
-  `app/models/__init__.py`? Hoje cinco ficam de fora (`agenda_formalizacao`,
-  `alerta_interno`, `configuracao`, `fiscal`, `whatsapp_bot`) e suas tabelas
-  nascem por migracao versionada. Esta entrega resolve so `configuracao`, que
-  era o caso sem migracao.
+- ~~Vale padronizar que todo submodulo de modelo entre em
+  `app/models/__init__.py`?~~ **Respondida: nao.** Cinco ficavam de fora
+  (`agenda_formalizacao`, `alerta_interno`, `configuracao`, `fiscal`,
+  `whatsapp_bot`). So `configuracao` era problema, por nao ter migracao; os
+  outros quatro seguem a convencao vigente, em que tabela nova vem por migracao
+  versionada — confirmado por amostragem de 8 tabelas registradas no
+  `__init__.py`, todas com migracao propria. A resposta virou documentacao
+  (docstring do `__init__.py`), nao mudanca de codigo.
 
 ## 8) Definition of Ready (gate para spec)
 
