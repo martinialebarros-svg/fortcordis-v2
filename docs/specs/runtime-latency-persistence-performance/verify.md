@@ -24,5 +24,9 @@
 - [x] A especificação passou a distinguir prefixos de rotas exatas `GET`.
 - [x] Testes locais confirmam grupos persistidos separados, cinco prefixos
   preservados e descarte de subrotas, método ausente e métodos não-GET.
-- [ ] Smoke autenticado em stage e leitura do painel por release permanecem em
+- [x] Smoke autenticado em stage concluído no release `75a58ba`: Ordens e
+  Cobranças apareceram como grupos distintos, com ao menos 20 amostras cada,
+  `truncated=false`, p95 abaixo de 1.200 ms e zero 5xx.
+- [ ] A janela operacional preferencial de 100 amostras e a validação em
+  produção permanecem registradas em
   `docs/specs/financeiro-runtime-latency-observability/verify.md`.
