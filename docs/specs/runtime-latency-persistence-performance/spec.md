@@ -2,14 +2,19 @@
 
 ## Dados coletados
 
-Para cada requisição de um prefixo em `RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS`,
-o sistema poderá registrar:
+Para cada requisição de um prefixo em `RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS`
+ou `GET` de um caminho em `RUNTIME_HTTP_LATENCY_EXACT_ENDPOINTS`, o sistema
+poderá registrar:
 
 - prefixo normalizado configurado, nunca a URL solicitada;
 - identificador curto do release em execução;
 - código HTTP;
 - duração total, duração acumulada de SQL e espera acumulada de pool, em ms;
 - instante UTC da amostra.
+
+Os prefixos agregam uma família de rotas. Os caminhos exatos não aceitam
+subrotas nem métodos diferentes de `GET`, permitindo medir uma leitura sem
+misturar detalhes, PDFs ou mutações da mesma família.
 
 Nenhum parâmetro de URL, payload, usuário, clínica, paciente, tutor ou texto
 clínico pode ser persistido nessa tabela.

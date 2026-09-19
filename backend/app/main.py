@@ -360,13 +360,18 @@ async def enforce_csrf_for_cookie_session(request: Request, call_next):
 async def monitor_runtime_http_status(request: Request, call_next):
     path = request.url.path
     start_monotonic = time.monotonic()
-    observation_token = begin_http_request_observation(path)
+    observation_token = begin_http_request_observation(path, method=request.method)
     try:
         response = await call_next(request)
     except Exception:
         elapsed_ms = (time.monotonic() - start_monotonic) * 1000.0
         try:
-            sample = record_http_request(path=path, status_code=500, duration_ms=elapsed_ms)
+            sample = record_http_request(
+                path=path,
+                method=request.method,
+                status_code=500,
+                duration_ms=elapsed_ms,
+            )
             if sample is not None:
                 # Em erro não existe Response para carregar tarefa de fundo.
                 await run_in_threadpool(persist_http_latency_sample, sample)
@@ -380,6 +385,7 @@ async def monitor_runtime_http_status(request: Request, call_next):
     try:
         sample = record_http_request(
             path=path,
+            method=request.method,
             status_code=response.status_code,
             duration_ms=elapsed_ms,
         )
