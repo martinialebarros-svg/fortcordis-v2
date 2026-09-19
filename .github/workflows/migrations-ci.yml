@@ -42,4 +42,5 @@ jobs:
             backend/tests/test_people_datetime_normalization_migration.py \
             backend/tests/test_fiscal_numero_unicidade.py \
             backend/tests/test_fiscal_numero_sequence.py \
-            backend/tests/test_critical_composite_indexes.py
+            backend/tests/test_critical_composite_indexes.py \
+            backend/tests/test_portal_escopo_sessao.py
