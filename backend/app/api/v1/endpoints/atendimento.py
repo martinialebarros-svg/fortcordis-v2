@@ -131,6 +131,7 @@ from app.services.attachment_download_service import (
     attachment_is_verified_pdf,
     build_attachment_download_response,
 )
+from app.services.portal_clinic_exam_link_service import revoke_links_for_exam
 from app.services.upload_dedupe_cleanup_service import (
     UploadDedupeCleanupBusyError,
     UploadDedupeCleanupExecutionError,
@@ -5322,6 +5323,12 @@ def revogar_liberacao_exame_no_portal(
     exame.observacoes_pre_portal = None
     exame.visualizado_portal_em = None
 
+    # O link direto enviado no WhatsApp da clinica nao pode sobreviver a
+    # despublicacao do exame. O endpoint publico ja reconfere o status a cada
+    # abertura e falharia de qualquer forma; revogar aqui deixa o corte
+    # explicito e auditavel, em vez de depender so daquela checagem.
+    links_revogados = revoke_links_for_exam(db, exame.id, motivo="liberacao_revogada")
+
     db.commit()
     db.refresh(exame)
 
@@ -5346,6 +5353,7 @@ def revogar_liberacao_exame_no_portal(
         "atendimento_id": exame.atendimento_id,
         "status": exame.status,
         "status_anterior": status_anterior,
+        "links_revogados": links_revogados,
         "exame": {
             **_map_exame(exame),
             "anexos_resultado": [_serialize_anexo(anexo) for anexo in anexos_atualizados],

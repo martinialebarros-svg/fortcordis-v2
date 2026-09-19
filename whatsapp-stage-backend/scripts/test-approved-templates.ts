@@ -17,6 +17,7 @@ async function run(): Promise<void> {
     appointmentMissingData: ["dados_pendentes_agendamento", "2094851784715594", 4, 2],
     appointmentFormalized: ["agendamento_formalizado", "PENDING_META_APPROVAL", 7, 0],
     portalReportAvailable: ["laudo_disponivel_portal", "1682393009502350", 3, 0],
+    portalReportLink: ["laudo_disponivel_portal_link", "PENDING_META_APPROVAL", 4, 0],
     receiptAvailable: ["recibo_disponivel", "934407008986859", 4, 1],
     receiptPdf: ["recibo_pagamento_pdf", "1025876410335393", 7, 1],
     receiptPdfBulk: ["recibo_pagamento_pdf_multiplas_os", "940165775772306", 3, 1],
@@ -27,7 +28,7 @@ async function run(): Promise<void> {
     portalClinicInviteTemporaryPassword: ["senha_temporaria_portal_clinica", "1087880320425546", 4, 0]
   } as const;
 
-  assert.strictEqual(Object.keys(APPROVED_UTILITY_TEMPLATES).length, 15);
+  assert.strictEqual(Object.keys(APPROVED_UTILITY_TEMPLATES).length, 16);
   assert.strictEqual(APPROVED_TEMPLATE_LANGUAGE, "pt_BR");
   for (const [templateKey, definition] of Object.entries(APPROVED_UTILITY_TEMPLATES)) {
     const expected = expectedCatalog[templateKey as keyof typeof expectedCatalog];

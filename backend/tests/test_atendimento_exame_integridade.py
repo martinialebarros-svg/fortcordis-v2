@@ -30,6 +30,7 @@ from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico,
 from app.models.clinica import Clinica
 from app.models.laudo import Exame
 from app.models.paciente import Paciente
+from app.models.portal_clinic_exam_link import PortalClinicExamLink
 from app.models.tutor import Tutor
 from app.schemas.atendimento import AtendimentoUpdatePayload, ExameSolicitacaoPayload
 
@@ -50,6 +51,7 @@ class AtendimentoExameIntegridadeTest(unittest.TestCase):
             AnexoAtendimento.__table__,
             Exame.__table__,
             ExameAjuste.__table__,
+            PortalClinicExamLink.__table__,
         ):
             table.create(self.engine, checkfirst=True)
         self.db = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)()

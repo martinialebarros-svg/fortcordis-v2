@@ -88,10 +88,21 @@ O texto do toast emendava o erro do provedor na frase seguinte ("...template
 delivery a clínica não tem..."), porque o erro nem sempre termina em ponto.
 Corrigido junto, com teste.
 
-### Pendente em producao
+### Feito em producao - 2026-09-18
 
-Confirmar o que motivou a spec: avisar so o destino que faltava e ver que o
-outro **nao** recebeu mensagem nova.
+Laudo 1106 (Dimmu, Clinica Veterinária São Jose), o mesmo que motivou a spec —
+a clinica e a Dra Camila Rebouças foram avisadas em 16/09, e foi ali que a
+clinica levou mensagem repetida por falta do seletor.
+
+Com o seletor em producao, a janela abriu com **os dois desmarcados**, cada um
+com "✓ Já avisado em 16/09/2026", e o botao em "Enviar (0)", desabilitado
+(CA-011, CA-012, CA-014 confirmados com dados reais).
+
+O detalhe que so producao entregava: aqueles envios sao anteriores a coluna
+`whatsapp_envios`, que chegou na promocao do dia seguinte. Logo o mapa por
+destino esta vazio nesse laudo, e a pre-selecao veio das colunas de resumo
+(`whatsapp_liberacao_status` e `whatsapp_parceiro_status`) — o caminho de
+compatibilidade descrito no risco residual, exercitado de verdade.
 
 ## 4) Risco residual
 
@@ -104,3 +115,5 @@ outro **nao** recebeu mensagem nova.
 - Laudos avisados antes desta spec nao tem `whatsapp_envios`; a pre-selecao cai
   nas colunas de resumo, que para varios veterinarios valem para o conjunto.
   Com dois veterinarios num laudo antigo, os dois aparecem com o mesmo status.
+  Conferido em producao no laudo 1106 (secao 3): com um veterinario so, o
+  fallback acerta; com dois, ainda vale a ressalva acima.

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from datetime import date, datetime, timedelta
 from io import BytesIO
 import json
+import logging
 import os
 import re
 import unicodedata
@@ -18,6 +19,7 @@ from app.api.v1.endpoints.atendimento import (
     revogar_liberacao_exame_no_portal,
 )
 from app.db.database import get_db
+from app.core.config import settings
 from app.core.portal_release import PORTAL_RELEASED_STATUS, is_portal_released_status
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.laudo import Laudo, Exame
@@ -49,6 +51,11 @@ from app.services.laudo_pdf_jobs import (
     submit_laudo_pdf_job,
 )
 from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
+from app.services.portal_clinic_exam_link_service import (
+    build_exam_link_url,
+    issue_exam_link,
+    revoke_links_for_exam,
+)
 from app.services.portal_clinic_notification_service import notify_clinic_report_released
 from app.services.portal_partner_notification_service import notify_partner_report_released
 from app.services.whatsapp_agenda_service import normalize_whatsapp_number
@@ -66,6 +73,8 @@ from app.utils.paciente_helpers import (
 )
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 _ANEXOS_UNSET = object()
@@ -274,6 +283,16 @@ def _partner_whatsapp_idempotency_key(base_key: str) -> str:
     limite de 128 caracteres que o servico aceita.
     """
     return f"{str(base_key)[:124]}-vet"
+
+
+def _link_fallback_idempotency_key(base_key: str) -> str:
+    """Chave da degradacao para o modelo sem link.
+
+    O servico do WhatsApp recusa a mesma chave com conteudo diferente (409), e a
+    tentativa com link ja pode ter gravado a chave original. A degradacao precisa
+    entao de chave propria.
+    """
+    return f"{str(base_key)[:121]}-nolink"
 
 
 def _partner_whatsapp_idempotency_key_por_vinculo(base_key: str, partner_id: int) -> str:
@@ -3639,19 +3658,53 @@ def avisar_laudo_liberado_por_whatsapp(
         (destino_nomeado or {}).get("skip_reason") if destino_nomeado is not None else "sem_vinculo"
     )
 
-    def _enviar_aviso(*, destinatario: str, destination: str, idempotency_key: str) -> dict[str, Any]:
-        return send_approved_utility_template(
+    def _enviar_aviso(
+        *,
+        destinatario: str,
+        destination: str,
+        idempotency_key: str,
+        link_url: str | None = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Envia o aviso. Devolve (resultado, link_incluido).
+
+        Com `link_url`, tenta primeiro o modelo que carrega o link direto do
+        laudo. Se ele falhar - tipicamente por ainda nao estar aprovado na Meta -
+        cai para o modelo aprovado de sempre, sem link: o aviso de laudo nao pode
+        parar de sair por causa de uma aprovacao pendente (RF-004).
+        """
+        parametros = [
+            destinatario[:120],
+            _label_tipo_exame_portal(laudo)[:120],
+            str(paciente.nome or "Paciente").strip()[:120],
+        ]
+        if link_url:
+            try:
+                resultado = send_approved_utility_template(
+                    template_key="portalReportLink",
+                    subject_type="exame",
+                    subject_id=exame.id,
+                    destination=destination,
+                    parameters=[*parametros, link_url[:400]],
+                    idempotency_key=idempotency_key,
+                )
+                return resultado, True
+            except WhatsAppTemplateDeliveryError as exc:
+                logger.warning(
+                    "Modelo com link indisponivel para o laudo %s; degradando para o aviso sem link: %s",
+                    laudo.id,
+                    exc,
+                )
+                idempotency_key = _link_fallback_idempotency_key(idempotency_key)
+
+        resultado = send_approved_utility_template(
             template_key="portalReportAvailable",
             subject_type="exame",
             subject_id=exame.id,
             destination=destination,
-            parameters=[
-                destinatario[:120],
-                _label_tipo_exame_portal(laudo)[:120],
-                str(paciente.nome or "Paciente").strip()[:120],
-            ],
+            parameters=parametros,
             idempotency_key=idempotency_key,
         )
+        return resultado, False
 
     # O mapa por destino e reatribuido no fim: o tipo JSON do SQLAlchemy nao
     # rastreia mutacao in-place de dicionario.
@@ -3664,14 +3717,30 @@ def avisar_laudo_liberado_por_whatsapp(
             "erro": erro[:500] if erro else None,
         }
 
+    # O link direto do laudo e so da clinica: o veterinario parceiro individual
+    # tem portal proprio e ficou fora desta entrega (ver spec, secao 8).
+    clinic_link_url: str | None = None
+    if settings.PORTAL_CLINIC_EXAM_LINK_ENABLED and clinic_destination is not None and clinica is not None:
+        exam_link, raw_link_token = issue_exam_link(
+            db,
+            exame_id=exame.id,
+            clinica_id=clinica.id,
+            laudo_id=laudo.id,
+            created_by_user_id=getattr(current_user, "id", None),
+            delivery_target_masked=f"***{clinic_destination[-4:]}",
+        )
+        clinic_link_url = build_exam_link_url(request, raw_link_token)
+
     clinic_result: dict[str, Any] | None = None
     clinic_error: str | None = None
+    clinic_link_incluido = False
     if clinic_destination is not None:
         try:
-            clinic_result = _enviar_aviso(
+            clinic_result, clinic_link_incluido = _enviar_aviso(
                 destinatario=str(clinica.nome or "Clinica").strip(),
                 destination=clinic_destination,
                 idempotency_key=payload.idempotency_key,
+                link_url=clinic_link_url,
             )
         except WhatsAppTemplateDeliveryError as exc:
             clinic_error = str(exc)
@@ -3690,7 +3759,7 @@ def avisar_laudo_liberado_por_whatsapp(
             else _partner_whatsapp_idempotency_key_por_vinculo(payload.idempotency_key, partner.id)
         )
         try:
-            destino["result"] = _enviar_aviso(
+            destino["result"], _ = _enviar_aviso(
                 destinatario=str(partner.nome_exibicao or "Veterinario parceiro").strip(),
                 destination=destino["destination"],
                 idempotency_key=chave,
@@ -3733,6 +3802,9 @@ def avisar_laudo_liberado_por_whatsapp(
                 "provider_message_id": (clinic_result or {}).get("message_id"),
                 "idempotent": bool((clinic_result or {}).get("idempotent")),
                 "erro": clinic_error[:500] if clinic_error else None,
+                # A URL em si nunca vai para a auditoria: e credencial de acesso
+                # ao laudo. Registra-se apenas se o aviso saiu com link.
+                "link_incluido": clinic_link_incluido,
             },
             request=request,
         )
@@ -3773,6 +3845,8 @@ def avisar_laudo_liberado_por_whatsapp(
     resposta: dict[str, Any] = dict(clinic_result or {})
     resposta.update(
         {
+            "template_key": "portalReportLink" if clinic_link_incluido else "portalReportAvailable",
+            "link_incluido": clinic_link_incluido,
             "message": _mensagem_aviso_whatsapp(
                 clinica_enviada=clinic_result is not None,
                 parceiro_enviado=any(
@@ -3817,6 +3891,54 @@ def avisar_laudo_liberado_por_whatsapp(
         }
     )
     return resposta
+
+
+class PortalExamLinkRevokeRequest(BaseModel):
+    motivo: str | None = Field(default=None, max_length=255)
+
+
+@router.post("/laudos/{laudo_id}/portal/link/revogar")
+def revogar_link_laudo_portal(
+    laudo_id: int,
+    payload: PortalExamLinkRevokeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Corta o link direto daquele laudo.
+
+    Existe porque o link nao expira por tempo: revogar e o unico jeito de
+    encerrar um acesso que vazou. Reemitir depois gera token diferente - um link
+    revogado nunca volta a valer.
+    """
+    laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
+    if laudo is None:
+        raise HTTPException(status_code=404, detail="Laudo nao encontrado.")
+
+    exame = (
+        db.query(Exame)
+        .filter(Exame.laudo_id == laudo.id)
+        .order_by(Exame.id.desc())
+        .first()
+    )
+    if exame is None:
+        raise HTTPException(status_code=409, detail="O laudo nao possui exame vinculado.")
+
+    motivo = str(payload.motivo or "").strip() or "revogado_manualmente"
+    revogados = revoke_links_for_exam(db, exame.id, motivo=motivo)
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="laudos",
+        entidade="laudo",
+        entidade_id=laudo.id,
+        acao="LAUDO_PORTAL_LINK_REVOGADO",
+        descricao="Link direto do laudo revogado.",
+        detalhes={"exame_id": exame.id, "revogados": revogados, "motivo": motivo},
+        request=request,
+    )
+
+    return {"exame_id": exame.id, "revogados": revogados}
 
 
 @router.post("/laudos/{laudo_id}/pdf-jobs", response_model=dict)

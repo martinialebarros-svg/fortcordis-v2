@@ -44,6 +44,10 @@ from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.portal_access import PortalAccessChallenge
 from app.models.portal_clinic_auth import PortalClinicAccount
+from app.services.portal_clinic_exam_link_service import (
+    register_link_open,
+    resolve_active_link,
+)
 from app.models.portal_partner import PortalPartnerProfile, PortalPartnerReleaseTarget
 from app.models.servico import Servico
 from app.models.tutor import Tutor
@@ -62,6 +66,7 @@ from app.schemas.portal import (
     PortalDownloadLinkItemResponse,
     PortalDownloadUrlResponse,
     PortalExamAttachmentResponse,
+    PortalExamLinkResponse,
     PortalExamListResponse,
     PortalExamSummaryResponse,
     PortalTokenResponse,
@@ -90,6 +95,13 @@ PORTAL_CHALLENGE_STATUS_LOCKED = "locked"
 PORTAL_SCOPE_TUTOR = ["pet:read", "exam:read", "exam:download"]
 PORTAL_SCOPE_CLINICA = ["clinic:read", "exam:read", "exam:download"]
 PORTAL_SCOPE_PARTNER = ["partner:read", "exam:read", "exam:download"]
+
+# Permissoes conferidas de fato pelos endpoints (ver _assert_portal_scope).
+# `clinic:read` cobre o que e gestao da unidade - agenda, financeiro e recibo.
+# Exame liberado e download ficam em `exam:*`, que toda sessao do portal carrega.
+PORTAL_PERMISSION_CLINIC_READ = "clinic:read"
+PORTAL_PERMISSION_EXAM_READ = "exam:read"
+PORTAL_PERMISSION_EXAM_DOWNLOAD = "exam:download"
 
 
 def _utcnow() -> datetime:
@@ -394,6 +406,28 @@ def _resolve_exam_clinica_id(
         if laudo and laudo.clinic_id is not None:
             return int(laudo.clinic_id)
     return None
+
+
+def _assert_portal_scope(session: PortalSessionContext, permissao: str) -> None:
+    """Confere a PERMISSAO da sessao, nao a posse do recurso.
+
+    Ate aqui o portal so tinha `_assert_*_scope_for_exam`, que conferem se aquele
+    exame pertence aquele ator - nunca se o ator tem direito a operacao. O campo
+    `scope` era gravado no token desde `portal-secure-access-foundation` e nunca
+    lido, ou seja, toda sessao valia tudo dentro do seu `actor_type`.
+
+    Isso passa a valer de verdade aqui. Hoje nao muda nada na pratica, porque
+    todas as sessoes emitidas (senha, MFA, refresh e o fluxo legado de codigo)
+    carregam o escopo cheio do seu ator - e o teste
+    `test_portal_escopo_sessao.py` existe para provar isso. O ganho e poder
+    emitir sessao com menos poder sem ter que confiar so na tela, que e o que
+    `portal-clinica-dispositivo-confiavel` precisa.
+    """
+    if permissao not in (session.scope or ()):
+        raise HTTPException(
+            status_code=403,
+            detail="Sessao do portal sem permissao para esta operacao.",
+        )
 
 
 def _assert_clinica_scope_for_exam(
@@ -1193,6 +1227,129 @@ def verificar_codigo_portal(
     return token_response
 
 
+@router.post("/laudo-link/{token}", response_model=PortalExamLinkResponse)
+def abrir_laudo_por_link(
+    token: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Abre UM laudo a partir do link enviado no WhatsApp da clinica.
+
+    Publico de proposito: quem usa e a secretaria da clinica, que nao tem a senha
+    do portal (criada pelo gerente) nem acesso ao e-mail do cadastro. Ver
+    docs/specs/portal-clinica-link-laudo-whatsapp/intent.md.
+
+    NAO emite sessao de portal. Uma sessao de clinica abriria todos os exames da
+    unidade; este link vale por um exame so. O acesso ao arquivo sai por token de
+    download ja preso ao par (exame, anexo), com validade curta.
+
+    Todo caminho de recusa devolve o MESMO 404: a pagina publica nao pode revelar
+    se o token existiu, se foi revogado ou se o exame saiu do ar (NFR-003).
+    """
+    link_invalido = HTTPException(
+        status_code=404,
+        detail="Link de laudo invalido ou indisponivel.",
+    )
+
+    link = resolve_active_link(db, token)
+    if link is None:
+        raise link_invalido
+
+    clinica = _obter_clinica_ativa(db, link.clinica_id)
+    if clinica is None:
+        raise link_invalido
+
+    exam = db.query(Exame).filter(Exame.id == link.exame_id).first()
+    if exam is None:
+        raise link_invalido
+
+    atendimentos_map = _load_map(
+        db, AtendimentoClinico, [exam.atendimento_id] if exam.atendimento_id else []
+    )
+    laudos_map = _load_map(db, Laudo, [exam.laudo_id] if exam.laudo_id else [])
+
+    if not _is_exam_released_to_portal(exam, laudos_map):
+        raise link_invalido
+
+    # O vinculo exame->clinica e reconferido a cada abertura: o link guarda a
+    # clinica de quando foi emitido, e um exame remanejado depois nao pode
+    # continuar acessivel pela unidade antiga.
+    resolved_clinica_id = _resolve_exam_clinica_id(exam, atendimentos_map, laudos_map)
+    if resolved_clinica_id is None or resolved_clinica_id != link.clinica_id:
+        raise link_invalido
+
+    paciente = db.query(Paciente).filter(Paciente.id == exam.paciente_id).first()
+    laudo = laudos_map.get(exam.laudo_id) if exam.laudo_id else None
+
+    # Contexto sintetico so para emitir o token de download preso a (exame, anexo).
+    # actor_type "clinica" mantem a contagem de "a clinica ja viu" coerente com o
+    # acesso pelo portal com senha (_marcar_exame_visualizado_no_portal).
+    download_context = PortalSessionContext(
+        actor_type="clinica",
+        actor_id=link.clinica_id,
+        paciente_id=exam.paciente_id,
+        clinica_id=link.clinica_id,
+        challenge_id=f"exam-link:{link.id}",
+        display_name=clinica.nome,
+        channel="whatsapp",
+        scope=("exam:read", "exam:download"),
+        expires_at=_utcnow(),
+        auth_method="exam_link",
+    )
+
+    attachments = (
+        db.query(AnexoAtendimento)
+        .filter(AnexoAtendimento.exame_id == exam.id)
+        .order_by(AnexoAtendimento.created_at.desc(), AnexoAtendimento.id.desc())
+        .all()
+    )
+    arquivos: list[PortalDownloadLinkItemResponse] = []
+    for attachment in attachments:
+        if not attachment_has_download_source(attachment):
+            continue
+        download_token, expires_at = create_portal_download_token(
+            download_context,
+            exame_id=exam.id,
+            anexo_id=attachment.id,
+        )
+        arquivos.append(
+            PortalDownloadLinkItemResponse(
+                anexo_id=attachment.id,
+                nome_original=attachment.nome_original or f"anexo_{attachment.id}",
+                mime_type=attachment.mime_type or "application/octet-stream",
+                download_url=f"/api/v1/portal/anexos/{attachment.id}/arquivo",
+                download_token=download_token,
+                download_token_header=PORTAL_DOWNLOAD_TOKEN_HEADER,
+                expires_at=expires_at,
+            )
+        )
+
+    register_link_open(db, link)
+    registrar_auditoria(
+        current_user=None,
+        modulo="portal",
+        entidade="portal_clinic_exam_link",
+        acao="PORTAL_EXAM_LINK_OPENED",
+        descricao="Laudo aberto pelo link direto enviado no WhatsApp da clinica.",
+        entidade_id=str(link.id),
+        detalhes={
+            "exame_id": exam.id,
+            "clinica_id": link.clinica_id,
+            "open_count": link.open_count,
+            "arquivos_disponiveis": len(arquivos),
+        },
+        request=request,
+    )
+
+    return PortalExamLinkResponse(
+        clinica_nome=clinica.nome or "Clinica parceira",
+        paciente_nome=getattr(paciente, "nome", None),
+        tipo_exame=exam.tipo_exame or "Exame",
+        data_exame=laudo.data_exame.isoformat() if laudo and laudo.data_exame else None,
+        arquivos=arquivos,
+    )
+
+
 @router.get("/clinicas/exames", response_model=PortalExamListResponse)
 def listar_exames_clinica_portal(
     q: str | None = Query(default=None, max_length=120),
@@ -1212,6 +1369,9 @@ def listar_exames_clinica_portal(
 ):
     if portal_session.actor_type != "clinica" or portal_session.clinica_id is None:
         raise HTTPException(status_code=403, detail="Sessao do portal sem acesso para clinica.")
+    # Exame liberado exige `exam:read`, nao `clinic:read`: esta e a leitura que
+    # uma sessao de menos poder precisa alcancar.
+    _assert_portal_scope(portal_session, PORTAL_PERMISSION_EXAM_READ)
 
     clinica = _obter_clinica_ativa(db, portal_session.clinica_id)
     if not clinica:
@@ -1310,9 +1470,23 @@ AGENDA_PORTAL_STATUSES_VISIVEIS = ("Agendado", "Reservado", "Confirmado", "Em at
 AGENDA_PORTAL_STATUSES_CANCELAVEIS = ("Agendado", "Reservado", "Confirmado")
 
 
-def _exigir_sessao_clinica_portal(db: Session, portal_session: PortalSessionContext) -> Clinica:
+def _exigir_sessao_clinica_portal(
+    db: Session,
+    portal_session: PortalSessionContext,
+    *,
+    permissao: str = PORTAL_PERMISSION_CLINIC_READ,
+) -> Clinica:
+    """Sessao de clinica ativa, com a permissao pedida.
+
+    O default e `clinic:read` de proposito: hoje quem usa este helper sao os
+    endpoints de gestao da unidade (agenda, financeiro, recibo), e o default
+    seguro evita que um endpoint novo nasca sem conferencia nenhuma. Endpoint de
+    clinica que deva valer tambem para sessao de menos poder passa `permissao`
+    explicitamente - e a escolha fica visivel no call site.
+    """
     if portal_session.actor_type != "clinica" or portal_session.clinica_id is None:
         raise HTTPException(status_code=403, detail="Sessao do portal sem acesso para clinica.")
+    _assert_portal_scope(portal_session, permissao)
     clinica = _obter_clinica_ativa(db, portal_session.clinica_id)
     if not clinica:
         raise HTTPException(status_code=403, detail="Clinica sem acesso ativo ao portal.")
@@ -1589,6 +1763,7 @@ def listar_exames_parceiro_portal(
 ):
     if portal_session.actor_type != "parceiro":
         raise HTTPException(status_code=403, detail="Sessao do portal sem acesso para parceiro externo.")
+    _assert_portal_scope(portal_session, PORTAL_PERMISSION_EXAM_READ)
 
     partner = _load_active_partner_for_session(db, portal_session)
     query = (
@@ -1672,6 +1847,9 @@ def listar_exames_pet_portal(
     db: Session = Depends(get_db),
     portal_session: PortalSessionContext = Depends(get_current_portal_session),
 ):
+    # Atende tutor, clinica e parceiro - por isso a permissao pedida e `exam:read`,
+    # comum aos tres, e nao a permissao especifica de cada ator.
+    _assert_portal_scope(portal_session, PORTAL_PERMISSION_EXAM_READ)
     if portal_session.actor_type == "tutor":
         _assert_tutor_scope(db, portal_session, paciente_id)
 
@@ -1727,6 +1905,7 @@ def gerar_download_url_exame_portal(
     db: Session = Depends(get_db),
     portal_session: PortalSessionContext = Depends(get_current_portal_session),
 ):
+    _assert_portal_scope(portal_session, PORTAL_PERMISSION_EXAM_DOWNLOAD)
     exam, atendimentos_map, laudos_map = _load_exam_with_context(db, exame_id)
     _assert_portal_exam_access(db, portal_session, exam, atendimentos_map, laudos_map)
 
@@ -1791,6 +1970,10 @@ def baixar_arquivo_anexo_portal(
         clinica_id = download_context.clinica_id
     else:
         portal_session = get_current_portal_session(request)
+        # So o caminho por sessao confere escopo: o token de download nao carrega
+        # `scope` (PortalDownloadContext nao tem o campo) e ja nasce preso ao par
+        # (exame, anexo), conferido logo acima.
+        _assert_portal_scope(portal_session, PORTAL_PERMISSION_EXAM_DOWNLOAD)
         if attachment.exame_id is None:
             raise HTTPException(status_code=403, detail="Anexo sem exame associado para o portal.")
         exam, atendimentos_map, laudos_map = _load_exam_with_context(db, int(attachment.exame_id))
