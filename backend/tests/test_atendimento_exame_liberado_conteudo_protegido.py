@@ -21,6 +21,7 @@ from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico, ExameAjuste
 from app.models.laudo import Exame
 from app.models.portal_clinic_exam_link import PortalClinicExamLink
+from app.models.portal_clinic_trusted_device import PortalClinicTrustedDevice
 from app.schemas.atendimento import ExameSolicitacaoPayload
 
 
@@ -35,7 +36,7 @@ class AtendimentoExameLiberadoConteudoProtegidoTest(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         db_path = Path(self.tmpdir.name) / "atendimento-exame-liberado-conteudo.db"
         self.engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
-        for table in (AtendimentoClinico.__table__, Exame.__table__, AnexoAtendimento.__table__, ExameAjuste.__table__, PortalClinicExamLink.__table__):
+        for table in (AtendimentoClinico.__table__, Exame.__table__, AnexoAtendimento.__table__, ExameAjuste.__table__, PortalClinicExamLink.__table__, PortalClinicTrustedDevice.__table__):
             table.create(self.engine, checkfirst=True)
         self.db = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)()
         self.user = SimpleNamespace(id=1, nome="Dr Teste")

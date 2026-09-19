@@ -25,6 +25,7 @@ from app.models.portal_clinic_auth import (
     PortalClinicInvite,
     PortalClinicSession,
 )
+from app.models.portal_clinic_trusted_device import PortalClinicTrustedDevice
 from app.models.tutor import Tutor
 from app.models.user import User
 from app.schemas.portal import (
@@ -45,6 +46,9 @@ from app.schemas.portal import (
     PortalAdminClinicSessionSnapshot,
     PortalAdminClinicSessionsRevokeRequest,
     PortalAdminClinicSessionsRevokeResponse,
+    PortalAdminClinicTrustedDeviceSnapshot,
+    PortalAdminDeviceRevokeRequest,
+    PortalAdminDeviceRevokeResponse,
     PortalChallengeResponse,
     PortalClinicActivationRequest,
     PortalClinicActivationResponse,
@@ -61,6 +65,11 @@ from app.schemas.portal import (
     PortalSimpleAcceptedResponse,
 )
 from app.services.auditoria_service import registrar_auditoria
+from app.services.portal_clinic_device_trust_service import (
+    TRUST_STATUS_ACTIVE,
+    revoke_trust,
+    revoke_trusts_for_clinica,
+)
 from app.services.portal_clinic_auth_service import (
     ACCOUNT_STATUS_ACTIVE,
     ACCOUNT_STATUS_LOCKED,
@@ -204,6 +213,21 @@ def _account_snapshot(account: PortalClinicAccount | None) -> PortalAdminClinicA
         last_login_at=account.last_login_at,
         force_mfa_on_next_login=bool(account.force_mfa_on_next_login),
         revoked_at=account.revoked_at,
+    )
+
+
+def _trusted_device_snapshot(device: PortalClinicTrustedDevice) -> PortalAdminClinicTrustedDeviceSnapshot:
+    return PortalAdminClinicTrustedDeviceSnapshot(
+        id=device.id,
+        status=device.status,
+        device_label=device.device_label,
+        origin=device.origin,
+        origin_exam_link_id=device.origin_exam_link_id,
+        expires_at=device.expires_at,
+        last_seen_at=device.last_seen_at,
+        created_at=device.created_at,
+        revoked_at=device.revoked_at,
+        revoked_reason=device.revoked_reason,
     )
 
 
@@ -679,6 +703,13 @@ def consultar_acesso_clinica_admin(
         .all()
     )
 
+    trusted_devices = (
+        db.query(PortalClinicTrustedDevice)
+        .filter(PortalClinicTrustedDevice.clinica_id == clinica.id)
+        .order_by(PortalClinicTrustedDevice.id.desc())
+        .all()
+    )
+
     return PortalAdminClinicAccessSummaryResponse(
         clinica_id=clinica.id,
         clinica_nome=clinica.nome,
@@ -688,7 +719,58 @@ def consultar_acesso_clinica_admin(
         accounts=[_account_snapshot(account) for account in accounts],
         active_session_count=len(active_sessions),
         active_sessions=[_session_snapshot(session) for session in active_sessions],
+        trusted_devices=[_trusted_device_snapshot(device) for device in trusted_devices],
     )
+
+
+@router.post(
+    "/admin/clinica-dispositivos/revogar",
+    response_model=PortalAdminDeviceRevokeResponse,
+)
+def revogar_dispositivos_confiaveis_admin(
+    payload: PortalAdminDeviceRevokeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_portal_invite_operator),
+):
+    """Corta o acesso de um computador da recepcao, ou de todos os de uma unidade.
+
+    Existe porque a confianca nao expira por tempo, so por inatividade: revogar e
+    o unico jeito de encerrar um acesso que nao deveria mais valer - maquina
+    trocada, vendida, ou unidade que encerrou a parceria.
+    """
+    motivo = str(payload.motivo or "").strip() or "revogado_pelo_admin"
+
+    if payload.device_id is not None:
+        device = (
+            db.query(PortalClinicTrustedDevice)
+            .filter(PortalClinicTrustedDevice.id == payload.device_id)
+            .first()
+        )
+        if device is None:
+            raise HTTPException(status_code=404, detail="Dispositivo nao encontrado.")
+        revogados = 0
+        if device.status == TRUST_STATUS_ACTIVE:
+            revoke_trust(db, device, motivo=motivo)
+            revogados = 1
+        clinica_id = device.clinica_id
+    elif payload.clinica_id is not None:
+        revogados = revoke_trusts_for_clinica(db, payload.clinica_id, motivo=motivo)
+        clinica_id = payload.clinica_id
+    else:
+        raise HTTPException(status_code=422, detail="Informe device_id ou clinica_id.")
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="portal",
+        entidade="portal_clinic_trusted_device",
+        acao="PORTAL_CLINIC_DEVICE_REVOKED",
+        descricao="Confianca de dispositivo revogada pela equipe Fort Cordis.",
+        entidade_id=str(payload.device_id or payload.clinica_id),
+        detalhes={"clinica_id": clinica_id, "revogados": revogados, "motivo": motivo},
+        request=request,
+    )
+    return PortalAdminDeviceRevokeResponse(revogados=revogados)
 
 
 @router.get("/admin/clinicas/{clinica_id}/espelho", response_model=PortalExamListResponse)

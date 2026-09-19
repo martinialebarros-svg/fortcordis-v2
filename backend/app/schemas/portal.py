@@ -183,6 +183,43 @@ class PortalDownloadUrlResponse(BaseModel):
     items: list[PortalDownloadLinkItemResponse] = Field(default_factory=list)
 
 
+class PortalDeviceTrustRequest(BaseModel):
+    device_label: Optional[str] = Field(default=None, max_length=120)
+
+
+class PortalDeviceTrustResponse(BaseModel):
+    """Sessao do computador da recepcao, em modo laudos.
+
+    `scope` vem sem `clinic:read` de proposito: financeiro, agenda e recibo
+    continuam exigindo senha. Ver docs/specs/portal-clinica-dispositivo-confiavel/.
+    """
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_at: datetime
+    actor_type: str = "clinica"
+    actor_id: int
+    clinica_id: int
+    clinica_nome: str
+    scope: list[str] = Field(default_factory=list)
+    trusted_until: datetime
+    auth_method: str = "device_trust"
+
+
+class PortalDeviceTrustEndResponse(BaseModel):
+    encerrado: bool = True
+
+
+class PortalAdminDeviceRevokeRequest(BaseModel):
+    device_id: Optional[int] = None
+    clinica_id: Optional[int] = None
+    motivo: Optional[str] = Field(default=None, max_length=255)
+
+
+class PortalAdminDeviceRevokeResponse(BaseModel):
+    revogados: int
+
+
 class PortalExamLinkResponse(BaseModel):
     """Conteudo de UM laudo, aberto por link direto do WhatsApp da clinica.
 
@@ -195,6 +232,9 @@ class PortalExamLinkResponse(BaseModel):
     tipo_exame: str
     data_exame: Optional[str] = None
     arquivos: list[PortalDownloadLinkItemResponse] = Field(default_factory=list)
+    # Evita duplicar PORTAL_CLINIC_DEVICE_TRUST_ENABLED no frontend: a pagina so
+    # oferece "manter esta unidade conectada" quando o backend aceita.
+    dispositivo_confiavel_disponivel: bool = False
 
 
 class PortalAdminClinicInviteCreateRequest(BaseModel):
@@ -265,6 +305,19 @@ class PortalAdminClinicSessionSnapshot(BaseModel):
     device_label: Optional[str] = None
 
 
+class PortalAdminClinicTrustedDeviceSnapshot(BaseModel):
+    id: int
+    status: str
+    device_label: Optional[str] = None
+    origin: str
+    origin_exam_link_id: Optional[int] = None
+    expires_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    revoked_reason: Optional[str] = None
+
+
 class PortalAdminClinicAccessSummaryResponse(BaseModel):
     clinica_id: int
     clinica_nome: str
@@ -274,6 +327,7 @@ class PortalAdminClinicAccessSummaryResponse(BaseModel):
     accounts: list[PortalAdminClinicAccountSnapshot] = Field(default_factory=list)
     active_session_count: int = 0
     active_sessions: list[PortalAdminClinicSessionSnapshot] = Field(default_factory=list)
+    trusted_devices: list[PortalAdminClinicTrustedDeviceSnapshot] = Field(default_factory=list)
 
 
 class PortalAdminClinicAccessOverviewMetrics(BaseModel):

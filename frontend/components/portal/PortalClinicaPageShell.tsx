@@ -18,6 +18,7 @@ import {
   clearPortalSession,
   loadPortalSession,
   refreshClinicPortalSession,
+  resumePortalDeviceSession,
   savePortalSession,
   type PortalClinicAuthResponse,
   type PortalSessionResponse,
@@ -241,6 +242,18 @@ export default function PortalClinicaPageShell() {
         }
       } catch {
         clearPortalSession("clinica");
+        // Sem sessão de senha, tenta o computador confiável da recepção. A ordem
+        // importa: o gerente logado na mesma máquina tem precedência, e o modo
+        // laudos é o que sobra para quem não tem senha (CB-001).
+        try {
+          const dispositivo = await resumePortalDeviceSession();
+          savePortalSession(dispositivo);
+          if (!cancelled) {
+            setSession(dispositivo);
+          }
+        } catch {
+          clearPortalSession("clinica");
+        }
       } finally {
         if (!cancelled) {
           setBootstrapping(false);

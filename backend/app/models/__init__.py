@@ -54,6 +54,7 @@ from app.models.google_maps_usage_metrica import GoogleMapsUsageMetrica
 from app.models.runtime_http_latency_metric import RuntimeHttpLatencyMetric
 from app.models.portal_access import PortalAccessChallenge
 from app.models.portal_clinic_exam_link import PortalClinicExamLink
+from app.models.portal_clinic_trusted_device import PortalClinicTrustedDevice
 from app.models.portal_clinic_auth import (
     PortalAuthChallenge,
     PortalClinicAccount,
