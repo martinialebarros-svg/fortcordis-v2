@@ -2,7 +2,7 @@
 
 Data: 2026-09-18
 Responsavel: Martiniano Barros
-Status: in-progress
+Status: done
 
 ## 1) Matriz de rastreabilidade
 
@@ -24,7 +24,7 @@ Status: in-progress
 | NFR-004 | nao funcional | Mensagem unica "Sessao do portal sem permissao para esta operacao.", sem nomear a permissao | ok |
 | RF-010 | funcional | `backend/tests/test_portal_escopo_sessao.py` adicionado ao `migrations-ci.yml`; rodado por `unittest` como o CI invoca (9 testes, OK) | ok |
 | CB-003 | borda | Download por token segue sem conferencia de escopo, por desenho; suite completa cobre o caminho sem regressao | ok |
-| Stage | manual | Conferir que clinica com senha continua vendo financeiro e agenda em `app.stage.fortcordis.com.br` | pendente |
+| Stage | manual | Conferido em 18/09/2026 na clinica 8 (Animal Care) em `app.stage.fortcordis.com.br` - ver secao 3 | ok |
 
 ## 2) Testes automatizados executados
 
@@ -53,11 +53,33 @@ carregava testes de invariante critica (`test_fiscal_numero_unicidade`,
 
 ## 3) Testes manuais
 
-Pendente em stage, um cenario so e direto ao ponto:
+Executado em **18/09/2026**, em `app.stage.fortcordis.com.br`, com sessao real de
+clinica (clinica 8 - Animal Care), login por e-mail e senha feito pelo usuario.
 
-- Cenario 1: entrar em `app.stage.fortcordis.com.br` com uma conta de clinica e
-  confirmar que exames, agenda, financeiro e recibo continuam abrindo. E a unica
-  forma de confirmar contra sessao real, e nao so contra sessao construida em teste.
+Cenario 1 - a clinica com senha nao perdeu nada. Todos os endpoints tocados pela
+conferencia de escopo responderam **200**:
+
+| Endpoint | Permissao exigida | Resultado |
+| --- | --- | --- |
+| `GET /portal/clinicas/exames` | `exam:read` | 200 |
+| `GET /portal/clinicas/agendamentos` | `clinic:read` | 200 |
+| `GET /portal/clinicas/financeiro` | `clinic:read` | 200 |
+| `GET /portal/clinicas/ordens-servico/42/recibo` | `clinic:read` | 200 |
+| `POST /portal/exames/17/download-url` | `exam:download` | 200 |
+| `GET /portal/anexos/20/arquivo` | `exam:download` | 200 |
+
+As quatro abas (Visao geral, Laudos, Agenda, Financeiro) aparecem e carregam dados;
+o cabecalho mostra "Sessao ativa", nao o modo laudos - correto, porque a sessao com
+senha carrega `clinic:read`.
+
+**Nenhum 403 na sessao inteira.** Os 401 registrados no console sao todos de
+autenticacao, nao de autorizacao: quatro de `POST /portal/auth/refresh` (o portal
+tenta retomar sessao antes de mostrar o formulario, e nao havia cookie) e cinco de
+`POST /portal/auth/login` antes do login que deu 200.
+
+Conferido de passagem, embora seja criterio de outra feature: `/laudo/<token>` com
+token invalido devolve 404 da API e a mensagem generica na tela, sem revelar se o
+token existiu (`portal-clinica-link-laudo-whatsapp`, tambem ja em stage).
 
 ## 4) Regressao e riscos residuais
 
@@ -82,5 +104,6 @@ Pendente em stage, um cenario so e direto ao ponto:
 ## 6) Decisao de release
 
 - [x] Aprovado para stage.
-- [ ] Aprovado para producao - liberar depois do Cenario 1 manual em stage.
+- [x] Aprovado para producao - Cenario 1 conferido em stage em 18/09/2026, sem
+      nenhum 403 e com os seis endpoints em 200.
 - [ ] Nao aprovado.
