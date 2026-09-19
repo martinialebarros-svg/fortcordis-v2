@@ -388,6 +388,14 @@ export type PortalDownloadUrlResponse = {
   items: PortalDownloadItem[];
 };
 
+export type PortalExamLinkResponse = {
+  clinica_nome: string;
+  paciente_nome?: string | null;
+  tipo_exame: string;
+  data_exame?: string | null;
+  arquivos: PortalDownloadItem[];
+};
+
 const PORTAL_SESSION_STORAGE_KEY_PREFIX = "fortcordis_portal_session";
 
 function getPortalSessionStorageKey(actorType: PortalActorType): string {
@@ -1098,6 +1106,15 @@ export async function createPortalAdminClinicExamDownloadUrls(
       body: JSON.stringify({}),
     },
     "Nao foi possivel preparar o download na visao espelhada.",
+  );
+}
+
+/** Abre UM laudo pelo link recebido no WhatsApp da clinica - sem sessao, sem senha. */
+export async function resolvePortalExamLink(token: string): Promise<PortalExamLinkResponse> {
+  return portalFetchJson<PortalExamLinkResponse>(
+    `/api/v1/portal/laudo-link/${encodeURIComponent(token)}`,
+    { method: "POST" },
+    "Este link nao esta mais disponivel.",
   );
 }
 

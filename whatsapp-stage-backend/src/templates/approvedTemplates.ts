@@ -67,6 +67,20 @@ export const APPROVED_UTILITY_TEMPLATES = {
     quickReplies: [],
     buttonActions: []
   },
+  portalReportLink: {
+    name: "laudo_disponivel_portal_link",
+    // Aguardando aprovacao da Meta - ver docs/specs/portal-clinica-link-laudo-whatsapp/.
+    // Atualizar com o ID real assim que o modelo for aprovado no Business Manager.
+    // Enquanto isso o backend degrada para "portalReportAvailable" (sem link).
+    // O link vai como variavel de corpo, e nao como botao de URL, seguindo o
+    // precedente ja aprovado de "convite_portal_clinica_v2".
+    metaId: "PENDING_META_APPROVAL",
+    body:
+      "Olá, equipe {{1}}. O laudo do exame {{2}} do paciente {{3}} já está disponível. " +
+      "Abra pelo link seguro da Fort Cordis: {{4}} — não é preciso senha.",
+    quickReplies: [],
+    buttonActions: []
+  },
   receiptAvailable: {
     name: "recibo_disponivel",
     metaId: "934407008986859",
