@@ -183,7 +183,10 @@ class Settings(BaseSettings):
     # CRIACAO de confianca e cortada - as existentes continuam valendo.
     PORTAL_CLINIC_DEVICE_TRUST_ENABLED: bool = False
     # Dias SEM USO ate a confianca cair. Cada acesso empurra o prazo para frente.
-    PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS: int = 60
+    # 30 dias: definido pelo usuario em 18/09/2026. Clinica que encaminha exame
+    # com alguma regularidade renova sozinha; quem sumiu por um mes inteiro
+    # perde o acesso da maquina, que e o comportamento desejado.
+    PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS: int = 30
     # Cookie proprio: nao pode colidir com PORTAL_CLINIC_REFRESH_COOKIE_NAME, que
     # e de um gerente logado com senha, possivelmente na mesma maquina.
     PORTAL_CLINIC_DEVICE_TRUST_COOKIE_NAME: str = "fortcordis_portal_clinic_device"

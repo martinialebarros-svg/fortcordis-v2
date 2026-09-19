@@ -53,7 +53,7 @@ def hash_trust_token(raw_token: str) -> str:
 
 
 def _inactivity_delta() -> timedelta:
-    dias = max(1, int(settings.PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS or 60))
+    dias = max(1, int(settings.PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS or 30))
     return timedelta(days=dias)
 
 

@@ -118,14 +118,14 @@ Resolvidas com o usuario em 2026-09-18:
   recibos.
 - **Como a maquina vira confiavel?** Pela propria pagina do link, sem passar pelo
   gerente. O gerente recebe aviso por e-mail e a Fort Cordis pode revogar.
-- **Por quanto tempo?** Renova a cada uso e cai por inatividade.
+- **Por quanto tempo?** Renova a cada uso e cai por inatividade, com **30 dias**
+  sem uso (decidido em 18/09/2026). Uma clinica que encaminha exame com alguma
+  regularidade renova sozinha; a que sumiu por um mes inteiro perde o acesso
+  daquela maquina, que e o efeito desejado. Continua configuravel por
+  `PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS`.
 
 Em aberto:
 
-- Quantos dias de inatividade? A spec assume **60**, configuravel. Vale conferir
-  contra o intervalo real entre exames de uma clinica pouco ativa - se uma clinica
-  manda um exame a cada dois meses, 60 dias a derruba justamente no caso em que ela
-  mais precisaria do historico.
 - Limite de dispositivos confiaveis por clinica? Hoje ha `MAX_ACTIVE_CLINIC_MANAGERS
   = 5` para contas; nao ha equivalente para maquinas.
 - A secretaria deveria conseguir ver e encerrar os dispositivos da propria unidade,

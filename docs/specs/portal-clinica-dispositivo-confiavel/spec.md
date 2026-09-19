@@ -50,7 +50,7 @@ a originou e revogado.
 - RF-009: `POST /portal/clinicas/dispositivo/encerrar` revoga a confianca daquele
   navegador e limpa o cookie.
 - RF-010: a confianca expira depois de
-  `PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS` (default 60) **sem uso**; cada uso
+  `PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS` (default 30) **sem uso**; cada uso
   empurra o prazo para frente.
 - RF-011: a confianca e amarrada ao navegador por `user_agent_hash`, no mesmo
   criterio ja usado em `refresh_login_clinica`: divergencia revoga a confianca em
@@ -182,7 +182,7 @@ a originou e revogado.
 ### Configuracao
 
 - `PORTAL_CLINIC_DEVICE_TRUST_ENABLED: bool = False`
-- `PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS: int = 60`
+- `PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS: int = 30`
 - `PORTAL_CLINIC_DEVICE_TRUST_COOKIE_NAME: str = "fortcordis_portal_clinic_device"`
 
 ## 5) Compatibilidade e rollout

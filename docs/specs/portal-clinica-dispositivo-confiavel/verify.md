@@ -96,10 +96,12 @@ Pendentes em stage, com a flag `PORTAL_CLINIC_DEVICE_TRUST_ENABLED` ligada:
   quem sentar nela.
 - Risco residual 3: computador trocado ou roubado segue confiavel ate expirar por
   inatividade ou ser revogado.
-- Risco residual 4: **60 dias de inatividade e um chute.** Clinica de baixo volume
-  pode cair justamente quando mais precisaria do historico. Configuravel por
-  `PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS`, mas o numero nao foi calibrado
-  contra dado real.
+- Risco residual 4: **30 dias de inatividade** (decidido em 18/09/2026) e uma
+  escolha de operacao, nao uma medicao. Clinica que so manda exame a cada dois
+  meses vai perder a confianca da maquina entre um envio e outro e precisara
+  reconectar pelo link seguinte - o que funciona, mas e um passo a mais. O numero
+  continua configuravel por `PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS`; vale
+  revisitar depois de ver os dados de `last_seen_at` das primeiras unidades.
 - Risco residual 5: nao ha limite de dispositivos confiaveis por clinica, nem tela
   para a propria unidade listar os seus (so "sair deste computador" no navegador
   atual). Uma unidade com varias maquinas acumula confiancas que so a Fort Cordis
@@ -124,5 +126,6 @@ Pendentes em stage, com a flag `PORTAL_CLINIC_DEVICE_TRUST_ENABLED` ligada:
       normal).
 - [ ] Aprovado para producao - **bloqueado** ate: (a) `portal-escopo-sessao-clinica`
       estar em producao; (b) os 7 cenarios manuais rodarem em stage; (c) a migracao
-      `20260918_88` ser aplicada; (d) decisao sobre o prazo de inatividade.
+      `20260918_88` ser aplicada. O prazo de inatividade ficou decidido em
+      **30 dias** (18/09/2026).
 - [ ] Nao aprovado.

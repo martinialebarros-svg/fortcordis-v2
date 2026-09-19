@@ -259,6 +259,27 @@ class PortalClinicDeviceTrustTest(unittest.TestCase):
             db.close()
             tmpdir.cleanup()
 
+    def test_prazo_de_inatividade_e_de_30_dias(self) -> None:
+        """Decisao de 18/09/2026, fixada aqui para nao se perder num refactor.
+
+        O numero e de operacao, nao de medicao: 30 dias derrubam a maquina de uma
+        clinica que passou um mes sem mandar exame, e ela reconecta pelo link
+        seguinte. Mudar isso deve ser deliberado.
+        """
+        self.assertEqual(settings.PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS, 30)
+
+        tmpdir, db = self._build_session()
+        try:
+            clinica, _exame = self._seed(db)
+            trust, _ = trust_service.create_trust(
+                db, clinica_id=clinica.id, request=_request()
+            )
+            dias = (trust.expires_at - datetime.utcnow()).days
+            self.assertEqual(dias, 29)  # 29 dias e alguma horas -> 30 dias corridos
+        finally:
+            db.close()
+            tmpdir.cleanup()
+
     def test_confianca_sem_uso_alem_do_prazo_expira(self) -> None:
         """CA-007."""
         tmpdir, db = self._build_session()
