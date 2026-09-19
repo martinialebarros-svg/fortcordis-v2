@@ -2,17 +2,17 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | `test_run_due_once_processes_up_to_limit`: 3 agendamentos elegíveis, `limit=2` processa 2 e marca `whatsapp_reminder_sent_at` | passou |
-| CA-002 | `test_fetch_next_due_agendamento_respeita_janela_status_e_tentativas`: agendamento 10min no futuro (abaixo do piso de 45min) e 30h no futuro (acima da janela de 24h) não são selecionados | passou |
-| CA-003 | Mesmo teste: agendamento `status="Cancelado"` não é selecionado | passou |
-| CA-004 | Mesmo teste: agendamento com `whatsapp_reminder_sent_at` preenchido e agendamento com `whatsapp_reminder_attempts=3` (== MAX) não são selecionados | passou |
-| CA-005 | `test_process_agendamento_marca_erro_quando_clinica_sem_whatsapp`: clínica sem `whatsapps`/`telefone` gera `result == "error"`, `attempts == 1`, `last_error` preenchido, `sent_at` continua `None` | passou |
-| CA-006 | `test_run_due_once_skips_cycle_when_distributed_lock_is_busy`: lock ocupado → `processed=0`, nenhuma linha tocada | passou |
-| CA-007 | `.env.example`/`config.py`: `WHATSAPP_REMINDER_SCHEDULER_ENABLED=False` por padrão; `_scheduler_worker_main` retorna sem agendar nada quando desligado | passou (inspeção de código + smoke de startup) |
-| CA-008 | `test_list_eligible_agendamentos_preview_nao_envia_nada_e_mascara_destino`: após chamar o preview, `whatsapp_reminder_sent_at` continua `None` e `attempts` continua `0` no agendamento elegível | passou |
-| CA-009 | Mesmo teste: `destination_last4 == "8888"` para o número `5585999998888` cadastrado, nunca o número completo | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | `test_run_due_once_processes_up_to_limit`: 3 agendamentos elegíveis, `limit=2` processa 2 e marca `whatsapp_reminder_sent_at` | passou |
+| CA-002 | aceitacao | `test_fetch_next_due_agendamento_respeita_janela_status_e_tentativas`: agendamento 10min no futuro (abaixo do piso de 45min) e 30h no futuro (acima da janela de 24h) não são selecionados | passou |
+| CA-003 | aceitacao | Mesmo teste: agendamento `status="Cancelado"` não é selecionado | passou |
+| CA-004 | aceitacao | Mesmo teste: agendamento com `whatsapp_reminder_sent_at` preenchido e agendamento com `whatsapp_reminder_attempts=3` (== MAX) não são selecionados | passou |
+| CA-005 | aceitacao | `test_process_agendamento_marca_erro_quando_clinica_sem_whatsapp`: clínica sem `whatsapps`/`telefone` gera `result == "error"`, `attempts == 1`, `last_error` preenchido, `sent_at` continua `None` | passou |
+| CA-006 | aceitacao | `test_run_due_once_skips_cycle_when_distributed_lock_is_busy`: lock ocupado → `processed=0`, nenhuma linha tocada | passou |
+| CA-007 | aceitacao | `.env.example`/`config.py`: `WHATSAPP_REMINDER_SCHEDULER_ENABLED=False` por padrão; `_scheduler_worker_main` retorna sem agendar nada quando desligado | passou (inspeção de código + smoke de startup) |
+| CA-008 | aceitacao | `test_list_eligible_agendamentos_preview_nao_envia_nada_e_mascara_destino`: após chamar o preview, `whatsapp_reminder_sent_at` continua `None` e `attempts` continua `0` no agendamento elegível | passou |
+| CA-009 | aceitacao | Mesmo teste: `destination_last4 == "8888"` para o número `5585999998888` cadastrado, nunca o número completo | passou |
 
 ## Comandos executados
 
@@ -92,10 +92,10 @@ Ao testar em produção, o preview revelou 10 agendamentos reais elegíveis em
 de precisar pedir para eu editar pipeline/SSH a cada vez que quiser
 ligar/desligar.
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-010 | `test_nao_admin_nao_pode_alterar_whatsapp_lembrete_automatico` (403) e `test_admin_pode_habilitar_whatsapp_lembrete_automatico` (sucesso, refletido no GET) em `test_configuracoes_autorizacao.py` | passou |
-| CA-011 | Smoke manual local: `PUT /configuracoes {"whatsapp_lembrete_automatico_habilitado": true}` seguido de `GET /agenda/whatsapp/lembrete-preview` retornou `reminder_scheduler_enabled: true` na mesma execução do servidor, sem restart | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-010 | aceitacao | `test_nao_admin_nao_pode_alterar_whatsapp_lembrete_automatico` (403) e `test_admin_pode_habilitar_whatsapp_lembrete_automatico` (sucesso, refletido no GET) em `test_configuracoes_autorizacao.py` | passou |
+| CA-011 | aceitacao | Smoke manual local: `PUT /configuracoes {"whatsapp_lembrete_automatico_habilitado": true}` seguido de `GET /agenda/whatsapp/lembrete-preview` retornou `reminder_scheduler_enabled: true` na mesma execução do servidor, sem restart | passou |
 
 Comandos executados:
 ```bash

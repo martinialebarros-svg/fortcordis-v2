@@ -2,13 +2,13 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | Teste de componente: mensagem `type: "text"` não renderiza `WhatsAppMediaViewer` (retorna `null` antes de qualquer botão) | passou |
-| CA-002 | Teste "carrega e exibe a mídia recebida ao clicar no botão": clique em "Ver imagem" troca o botão por `<img>` com o blob carregado | passou |
-| CA-003 | `test-message-media.ts`: imagem com `metadata.message.image = {}` (sem `id`) retorna `404` | passou |
-| CA-004 | `test-message-media.ts`: documento com `media_id` inválido retorna `502` (Graph API rejeitou o token/id, capturado e traduzido) | passou |
-| CA-005 | `test-message-media.ts`: `messageId` inexistente retorna `404` | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | Teste de componente: mensagem `type: "text"` não renderiza `WhatsAppMediaViewer` (retorna `null` antes de qualquer botão) | passou |
+| CA-002 | aceitacao | Teste "carrega e exibe a mídia recebida ao clicar no botão": clique em "Ver imagem" troca o botão por `<img>` com o blob carregado | passou |
+| CA-003 | aceitacao | `test-message-media.ts`: imagem com `metadata.message.image = {}` (sem `id`) retorna `404` | passou |
+| CA-004 | aceitacao | `test-message-media.ts`: documento com `media_id` inválido retorna `502` (Graph API rejeitou o token/id, capturado e traduzido) | passou |
+| CA-005 | aceitacao | `test-message-media.ts`: `messageId` inexistente retorna `404` | passou |
 
 ## Bug de teste encontrado (não do código de produção)
 

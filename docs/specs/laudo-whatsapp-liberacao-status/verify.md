@@ -2,15 +2,15 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | `test_aviso_whatsapp_com_sucesso_persiste_status_enviado`: chama o endpoint com `send_approved_utility_template` mockado com sucesso, confere `whatsapp_liberacao_status == "enviado"` | passou |
-| CA-002 | `test_aviso_whatsapp_com_falha_persiste_status_falhou`: chama o endpoint com `send_approved_utility_template` levantando `WhatsAppTemplateDeliveryError`, confere `whatsapp_liberacao_status == "falhou"` e `whatsapp_liberacao_erro` preenchido | passou |
-| CA-003 | Ambos os testes acima também chamam `listar_laudos(...)` depois do envio e conferem que os 3 campos aparecem no item retornado (equivalente a um reload da lista) | passou |
-| CA-004 | Verificação manual em navegador: laudo sem envio prévio de WhatsApp não mostra nenhuma badge na linha (só depois do primeiro clique ela aparece) | passou |
-| CA-005 | Migração testada isoladamente: `Laudo.__table__.create()` + `upgrade()` chamado duas vezes seguidas na mesma conexão sqlite, sem exceção na segunda chamada | passou |
-| CA-006 | Nos dois testes, `registrar_auditoria` é mockado e o `acao` do `call_args.kwargs` é conferido (`LAUDO_PORTAL_WHATSAPP_ENVIADO` / `LAUDO_PORTAL_WHATSAPP_FALHOU`) | passou |
-| CA-007 | `test_aviso_whatsapp_com_falha_persiste_status_falhou` confere `ctx.exception.status_code == 502` | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | `test_aviso_whatsapp_com_sucesso_persiste_status_enviado`: chama o endpoint com `send_approved_utility_template` mockado com sucesso, confere `whatsapp_liberacao_status == "enviado"` | passou |
+| CA-002 | aceitacao | `test_aviso_whatsapp_com_falha_persiste_status_falhou`: chama o endpoint com `send_approved_utility_template` levantando `WhatsAppTemplateDeliveryError`, confere `whatsapp_liberacao_status == "falhou"` e `whatsapp_liberacao_erro` preenchido | passou |
+| CA-003 | aceitacao | Ambos os testes acima também chamam `listar_laudos(...)` depois do envio e conferem que os 3 campos aparecem no item retornado (equivalente a um reload da lista) | passou |
+| CA-004 | aceitacao | Verificação manual em navegador: laudo sem envio prévio de WhatsApp não mostra nenhuma badge na linha (só depois do primeiro clique ela aparece) | passou |
+| CA-005 | aceitacao | Migração testada isoladamente: `Laudo.__table__.create()` + `upgrade()` chamado duas vezes seguidas na mesma conexão sqlite, sem exceção na segunda chamada | passou |
+| CA-006 | aceitacao | Nos dois testes, `registrar_auditoria` é mockado e o `acao` do `call_args.kwargs` é conferido (`LAUDO_PORTAL_WHATSAPP_ENVIADO` / `LAUDO_PORTAL_WHATSAPP_FALHOU`) | passou |
+| CA-007 | aceitacao | `test_aviso_whatsapp_com_falha_persiste_status_falhou` confere `ctx.exception.status_code == 502` | passou |
 
 ## Comandos executados
 

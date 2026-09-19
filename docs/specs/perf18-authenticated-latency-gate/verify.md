@@ -10,12 +10,12 @@
 
 ## Matriz de aceitação
 
-| ID | Evidência | Estado |
-| --- | --- | --- |
-| CA-001 | `test_http_401_e_403_nao_sao_sucesso_de_canario` | ok |
-| CA-002 | `test_latencia_da_agenda_exige_todas_as_amostras` | ok |
-| CA-003 | `test_latencia_da_agenda_reprova_p95_acima_do_limite` | ok |
-| CA-004 | `test_canario_mede_cinco_leituras_autenticadas_da_agenda` e `test_deploy_propaga_limite_e_release_para_o_canario` | ok |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | `test_http_401_e_403_nao_sao_sucesso_de_canario` | ok |
+| CA-002 | aceitacao | `test_latencia_da_agenda_exige_todas_as_amostras` | ok |
+| CA-003 | aceitacao | `test_latencia_da_agenda_reprova_p95_acima_do_limite` | ok |
+| CA-004 | aceitacao | `test_canario_mede_cinco_leituras_autenticadas_da_agenda` e `test_deploy_propaga_limite_e_release_para_o_canario` | ok |
 
 ## Evidência de stage e produção
 

@@ -29,3 +29,13 @@ jobs:
           python3 scripts/ci/check_sdd_guardrail.py \
             --base-sha "${{ steps.diff.outputs.base_sha }}" \
             --head-sha "${{ steps.diff.outputs.head_sha }}"
+
+      # Complementar ao guardrail acima: ele exige que o verify.md mude junto
+      # com o codigo, este exige que a matriz fique num formato que o gate de
+      # promocao consiga ler. Sem coluna `Status`, o gate ignora a tabela e um
+      # criterio `pendente` atravessa a promocao com o PR verde.
+      - name: Verificar formato da matriz do verify.md
+        run: |
+          python3 scripts/ci/check_verify_matrix_format.py \
+            --base-sha "${{ steps.diff.outputs.base_sha }}" \
+            --head-sha "${{ steps.diff.outputs.head_sha }}"
