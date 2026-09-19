@@ -51,6 +51,7 @@ from app.services.laudo_pdf_jobs import (
     submit_laudo_pdf_job,
 )
 from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
+from app.services.portal_clinic_device_trust_service import revoke_trusts_for_exam
 from app.services.portal_clinic_exam_link_service import (
     build_exam_link_url,
     issue_exam_link,
@@ -3925,6 +3926,8 @@ def revogar_link_laudo_portal(
         raise HTTPException(status_code=409, detail="O laudo nao possui exame vinculado.")
 
     motivo = str(payload.motivo or "").strip() or "revogado_manualmente"
+    # Antes dos links: a confianca e localizada pelo `origin_exam_link_id`.
+    dispositivos_revogados = revoke_trusts_for_exam(db, exame.id, motivo=motivo)
     revogados = revoke_links_for_exam(db, exame.id, motivo=motivo)
 
     registrar_auditoria(
@@ -3934,11 +3937,20 @@ def revogar_link_laudo_portal(
         entidade_id=laudo.id,
         acao="LAUDO_PORTAL_LINK_REVOGADO",
         descricao="Link direto do laudo revogado.",
-        detalhes={"exame_id": exame.id, "revogados": revogados, "motivo": motivo},
+        detalhes={
+            "exame_id": exame.id,
+            "revogados": revogados,
+            "dispositivos_revogados": dispositivos_revogados,
+            "motivo": motivo,
+        },
         request=request,
     )
 
-    return {"exame_id": exame.id, "revogados": revogados}
+    return {
+        "exame_id": exame.id,
+        "revogados": revogados,
+        "dispositivos_revogados": dispositivos_revogados,
+    }
 
 
 @router.post("/laudos/{laudo_id}/pdf-jobs", response_model=dict)

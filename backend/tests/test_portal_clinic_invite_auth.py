@@ -41,6 +41,7 @@ from app.models.portal_clinic_auth import (
     PortalClinicSession,
     PortalPasswordResetToken,
 )
+from app.models.portal_clinic_trusted_device import PortalClinicTrustedDevice
 from app.models.tutor import Tutor
 from app.services.portal_clinic_auth_service import MAX_ACTIVE_CLINIC_MANAGERS
 
@@ -76,6 +77,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
             PortalClinicSession.__table__,
             PortalPasswordResetToken.__table__,
             PortalAuthChallenge.__table__,
+            PortalClinicTrustedDevice.__table__,
         ):
             table.create(self._engine, checkfirst=True)
 

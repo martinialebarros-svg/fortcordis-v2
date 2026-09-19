@@ -89,6 +89,62 @@ describe("laudo aberto pelo link do WhatsApp", () => {
     expect(screen.getByRole("link", { name: /portal completo/i })).toBeInTheDocument();
   });
 
+  it("oferece conectar o computador da recepcao e confirma ao conectar", async () => {
+    const fetchMock = vi.fn(async (url: unknown, _init?: RequestInit) =>
+      String(url).includes("/confiar-dispositivo")
+        ? json({
+            access_token: "token-do-dispositivo",
+            token_type: "bearer",
+            expires_at: "2026-09-18T15:02:00",
+            actor_type: "clinica",
+            actor_id: 8,
+            clinica_id: 8,
+            clinica_nome: "Clinica Pet Sus",
+            scope: ["exam:read", "exam:download"],
+            trusted_until: "2026-11-17T15:02:00",
+            auth_method: "device_trust",
+          })
+        : json({ ...exameLiberado, dispositivo_confiavel_disponivel: true }),
+    );
+
+    montar(fetchMock);
+
+    const botao = await screen.findByRole("button", { name: /manter esta unidade conectada/i });
+    fireEvent.click(botao);
+
+    expect(await screen.findByText(/abre os laudos da unidade direto, sem senha/i)).toBeInTheDocument();
+    const chamada = fetchMock.mock.calls.find(([url]) => String(url).includes("/confiar-dispositivo"));
+    expect(String(chamada?.[0])).toBe("/api/v1/portal/laudo-link/token-do-link/confiar-dispositivo");
+    expect((chamada?.[1] as RequestInit | undefined)?.method).toBe("POST");
+  });
+
+  it("nao oferece conectar quando o backend nao aceita", async () => {
+    // A flag mora no backend; a tela nao pode prometer o que ele nao faz.
+    const fetchMock = vi.fn(async () => json(exameLiberado));
+
+    montar(fetchMock);
+
+    await screen.findByText("Thor");
+    expect(screen.queryByRole("button", { name: /manter esta unidade conectada/i })).not.toBeInTheDocument();
+  });
+
+  it("falha ao conectar sem tirar o laudo da tela", async () => {
+    const fetchMock = vi.fn(async (url: unknown, _init?: RequestInit) =>
+      String(url).includes("/confiar-dispositivo")
+        ? json({ detail: "Recurso indisponivel." }, 404)
+        : json({ ...exameLiberado, dispositivo_confiavel_disponivel: true }),
+    );
+
+    montar(fetchMock);
+
+    fireEvent.click(await screen.findByRole("button", { name: /manter esta unidade conectada/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/não foi possível conectar/i);
+    // CB-002: o que a pessoa veio fazer continua disponivel.
+    expect(screen.getByText("Thor")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /laudo-thor\.pdf/ })).toBeInTheDocument();
+  });
+
   it("avisa quando o laudo esta liberado mas sem arquivo para baixar", async () => {
     const fetchMock = vi.fn(async () => json({ ...exameLiberado, arquivos: [] }));
 

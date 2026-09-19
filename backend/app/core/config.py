@@ -179,6 +179,17 @@ class Settings(BaseSettings):
     # Base publica do link (ex.: https://app.fortcordis.com.br). Vazia usa a
     # base_url da requisicao.
     PORTAL_CLINIC_EXAM_LINK_BASE_URL: str = ""
+    # Computador da recepcao conectado em modo laudos, sem senha. Desligada, so a
+    # CRIACAO de confianca e cortada - as existentes continuam valendo.
+    PORTAL_CLINIC_DEVICE_TRUST_ENABLED: bool = False
+    # Dias SEM USO ate a confianca cair. Cada acesso empurra o prazo para frente.
+    # 30 dias: definido pelo usuario em 18/09/2026. Clinica que encaminha exame
+    # com alguma regularidade renova sozinha; quem sumiu por um mes inteiro
+    # perde o acesso da maquina, que e o comportamento desejado.
+    PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS: int = 30
+    # Cookie proprio: nao pode colidir com PORTAL_CLINIC_REFRESH_COOKIE_NAME, que
+    # e de um gerente logado com senha, possivelmente na mesma maquina.
+    PORTAL_CLINIC_DEVICE_TRUST_COOKIE_NAME: str = "fortcordis_portal_clinic_device"
     PORTAL_PARTNER_INVITE_AUTH_ENABLED: bool = True
     PORTAL_PARTNER_PASSWORD_LOGIN_ENABLED: bool = True
     PORTAL_PARTNER_REFRESH_COOKIE_NAME: str = "fortcordis_portal_partner_refresh"

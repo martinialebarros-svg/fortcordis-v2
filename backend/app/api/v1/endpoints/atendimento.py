@@ -131,6 +131,7 @@ from app.services.attachment_download_service import (
     attachment_is_verified_pdf,
     build_attachment_download_response,
 )
+from app.services.portal_clinic_device_trust_service import revoke_trusts_for_exam
 from app.services.portal_clinic_exam_link_service import revoke_links_for_exam
 from app.services.upload_dedupe_cleanup_service import (
     UploadDedupeCleanupBusyError,
@@ -5327,6 +5328,9 @@ def revogar_liberacao_exame_no_portal(
     # despublicacao do exame. O endpoint publico ja reconfere o status a cada
     # abertura e falharia de qualquer forma; revogar aqui deixa o corte
     # explicito e auditavel, em vez de depender so daquela checagem.
+    # A confianca do dispositivo e revogada ANTES dos links: ela e localizada
+    # pelo `origin_exam_link_id`, entao precisa das linhas ainda identificaveis.
+    dispositivos_revogados = revoke_trusts_for_exam(db, exame.id, motivo="liberacao_revogada")
     links_revogados = revoke_links_for_exam(db, exame.id, motivo="liberacao_revogada")
 
     db.commit()
@@ -5354,6 +5358,7 @@ def revogar_liberacao_exame_no_portal(
         "status": exame.status,
         "status_anterior": status_anterior,
         "links_revogados": links_revogados,
+        "dispositivos_revogados": dispositivos_revogados,
         "exame": {
             **_map_exame(exame),
             "anexos_resultado": [_serialize_anexo(anexo) for anexo in anexos_atualizados],

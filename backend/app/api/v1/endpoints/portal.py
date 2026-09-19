@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any, Iterable, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -48,6 +48,18 @@ from app.services.portal_clinic_exam_link_service import (
     register_link_open,
     resolve_active_link,
 )
+from app.services.portal_clinic_device_trust_service import (
+    DEVICE_TRUST_SCOPE,
+    clear_device_cookie,
+    create_trust,
+    get_device_cookie,
+    resolve_active_trust,
+    revoke_trust,
+    rotate_and_renew,
+    set_device_cookie,
+    user_agent_matches,
+)
+from app.services.portal_clinic_notification_service import notify_clinic_device_trusted
 from app.models.portal_partner import PortalPartnerProfile, PortalPartnerReleaseTarget
 from app.models.servico import Servico
 from app.models.tutor import Tutor
@@ -63,6 +75,9 @@ from app.schemas.portal import (
     PortalClinicaOrdemServicoItemResponse,
     PortalClinicaSessionLinkRequest,
     PortalCodeVerifyRequest,
+    PortalDeviceTrustEndResponse,
+    PortalDeviceTrustRequest,
+    PortalDeviceTrustResponse,
     PortalDownloadLinkItemResponse,
     PortalDownloadUrlResponse,
     PortalExamAttachmentResponse,
@@ -1227,24 +1242,18 @@ def verificar_codigo_portal(
     return token_response
 
 
-@router.post("/laudo-link/{token}", response_model=PortalExamLinkResponse)
-def abrir_laudo_por_link(
+def _resolver_link_laudo(
+    db: Session,
     token: str,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Abre UM laudo a partir do link enviado no WhatsApp da clinica.
+) -> tuple[Any, Clinica, Exame, dict[int, AtendimentoClinico], dict[int, Laudo]]:
+    """Valida o link de laudo e devolve o contexto do exame.
 
-    Publico de proposito: quem usa e a secretaria da clinica, que nao tem a senha
-    do portal (criada pelo gerente) nem acesso ao e-mail do cadastro. Ver
-    docs/specs/portal-clinica-link-laudo-whatsapp/intent.md.
+    Fonte unica da regra de recusa, usada tanto para abrir o laudo quanto para
+    conectar o computador da recepcao. Reimplementar isso em cada endpoint faria
+    os dois divergirem com o tempo, e a porta mais fraca viraria a efetiva.
 
-    NAO emite sessao de portal. Uma sessao de clinica abriria todos os exames da
-    unidade; este link vale por um exame so. O acesso ao arquivo sai por token de
-    download ja preso ao par (exame, anexo), com validade curta.
-
-    Todo caminho de recusa devolve o MESMO 404: a pagina publica nao pode revelar
-    se o token existiu, se foi revogado ou se o exame saiu do ar (NFR-003).
+    Toda recusa e o MESMO 404: a pagina publica nao pode revelar se o token
+    existiu, se foi revogado ou se o exame saiu do ar.
     """
     link_invalido = HTTPException(
         status_code=404,
@@ -1271,12 +1280,36 @@ def abrir_laudo_por_link(
     if not _is_exam_released_to_portal(exam, laudos_map):
         raise link_invalido
 
-    # O vinculo exame->clinica e reconferido a cada abertura: o link guarda a
-    # clinica de quando foi emitido, e um exame remanejado depois nao pode
-    # continuar acessivel pela unidade antiga.
+    # O vinculo exame->clinica e reconferido a cada uso: o link guarda a clinica
+    # de quando foi emitido, e um exame remanejado depois nao pode continuar
+    # acessivel pela unidade antiga.
     resolved_clinica_id = _resolve_exam_clinica_id(exam, atendimentos_map, laudos_map)
     if resolved_clinica_id is None or resolved_clinica_id != link.clinica_id:
         raise link_invalido
+
+    return link, clinica, exam, atendimentos_map, laudos_map
+
+
+@router.post("/laudo-link/{token}", response_model=PortalExamLinkResponse)
+def abrir_laudo_por_link(
+    token: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Abre UM laudo a partir do link enviado no WhatsApp da clinica.
+
+    Publico de proposito: quem usa e a secretaria da clinica, que nao tem a senha
+    do portal (criada pelo gerente) nem acesso ao e-mail do cadastro. Ver
+    docs/specs/portal-clinica-link-laudo-whatsapp/intent.md.
+
+    NAO emite sessao de portal. Uma sessao de clinica abriria todos os exames da
+    unidade; este link vale por um exame so. O acesso ao arquivo sai por token de
+    download ja preso ao par (exame, anexo), com validade curta.
+
+    Todo caminho de recusa devolve o MESMO 404: a pagina publica nao pode revelar
+    se o token existiu, se foi revogado ou se o exame saiu do ar (NFR-003).
+    """
+    link, clinica, exam, atendimentos_map, laudos_map = _resolver_link_laudo(db, token)
 
     paciente = db.query(Paciente).filter(Paciente.id == exam.paciente_id).first()
     laudo = laudos_map.get(exam.laudo_id) if exam.laudo_id else None
@@ -1347,7 +1380,185 @@ def abrir_laudo_por_link(
         tipo_exame=exam.tipo_exame or "Exame",
         data_exame=laudo.data_exame.isoformat() if laudo and laudo.data_exame else None,
         arquivos=arquivos,
+        dispositivo_confiavel_disponivel=bool(settings.PORTAL_CLINIC_DEVICE_TRUST_ENABLED),
     )
+
+
+def _emitir_sessao_dispositivo(
+    trust,
+    clinica: Clinica,
+) -> PortalDeviceTrustResponse:
+    """Access token curto em modo laudos para o dispositivo confiavel.
+
+    O escopo sai da linha da confianca, nao de uma constante do endpoint: se um
+    dia houver confianca com escopo diferente, o token acompanha.
+    """
+    scope = _json_load_list(trust.scope_json) or list(DEVICE_TRUST_SCOPE)
+    access_token, expires_at = create_portal_session_token(
+        actor_type="clinica",
+        actor_id=clinica.id,
+        challenge_id=f"device-trust:{trust.id}",
+        clinica_id=clinica.id,
+        display_name=clinica.nome,
+        channel="device_trust",
+        scope=scope,
+        auth_method="device_trust",
+    )
+    return PortalDeviceTrustResponse(
+        access_token=access_token,
+        expires_at=expires_at,
+        actor_id=clinica.id,
+        clinica_id=clinica.id,
+        clinica_nome=clinica.nome or "Clinica parceira",
+        scope=list(scope),
+        trusted_until=trust.expires_at,
+    )
+
+
+@router.post("/laudo-link/{token}/confiar-dispositivo", response_model=PortalDeviceTrustResponse)
+def confiar_dispositivo_por_link(
+    token: str,
+    payload: PortalDeviceTrustRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Conecta o computador da recepcao ao portal em modo laudos.
+
+    Nasce da mesma validacao que abre o laudo (`_resolver_link_laudo`), entao um
+    link revogado, um exame despublicado ou uma clinica inativa recusam aqui
+    exatamente como recusam la.
+
+    Amplia o alcance em relacao ao link - que vale por um exame - para o acervo
+    de laudos da unidade. E consciente: o preco de tirar a secretaria da
+    dependencia do gerente. O teto e escopo de laudo, prazo por inatividade,
+    revogacao e aviso ao gestor.
+    """
+    if not settings.PORTAL_CLINIC_DEVICE_TRUST_ENABLED:
+        raise HTTPException(status_code=404, detail="Recurso indisponivel.")
+
+    link, clinica, _exam, _atendimentos_map, _laudos_map = _resolver_link_laudo(db, token)
+
+    trust, raw_token = create_trust(
+        db,
+        clinica_id=clinica.id,
+        request=request,
+        origin_exam_link_id=link.id,
+        device_label=payload.device_label,
+    )
+    set_device_cookie(response, raw_token, expires_at=trust.expires_at, request=request)
+
+    try:
+        notify_clinic_device_trusted(
+            db=db,
+            request=request,
+            clinica_id=clinica.id,
+            clinica_nome=clinica.nome,
+            device_label=trust.device_label,
+            trusted_until=trust.expires_at,
+        )
+    except Exception:
+        # O aviso ao gestor e supervisao, nao pre-requisito: SMTP fora do ar nao
+        # pode impedir a recepcao de se conectar.
+        logger.exception(
+            "Falha ao avisar os gestores sobre dispositivo confiavel (clinica_id=%s)",
+            clinica.id,
+        )
+
+    registrar_auditoria(
+        current_user=None,
+        modulo="portal",
+        entidade="portal_clinic_trusted_device",
+        acao="PORTAL_CLINIC_DEVICE_TRUSTED",
+        descricao="Computador da recepcao conectado ao portal em modo laudos.",
+        entidade_id=str(trust.id),
+        detalhes={
+            "clinica_id": clinica.id,
+            "origin": trust.origin,
+            "origin_exam_link_id": trust.origin_exam_link_id,
+            "trusted_until": trust.expires_at.isoformat() if trust.expires_at else None,
+        },
+        request=request,
+    )
+    return _emitir_sessao_dispositivo(trust, clinica)
+
+
+@router.post("/clinicas/dispositivo/sessao", response_model=PortalDeviceTrustResponse)
+def abrir_sessao_dispositivo_confiavel(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Troca o cookie do dispositivo por uma sessao curta em modo laudos.
+
+    Nao audita: a recepcao chama isso a cada carregamento de pagina por meses, e
+    uma linha por chamada inundaria a auditoria sem informar nada. O que fica e
+    `last_seen_at` na propria confianca. Criacao e revogacao continuam auditadas.
+
+    Segue honrando confianca existente com a flag desligada - so a criacao e
+    cortada la em cima.
+    """
+    sessao_invalida = HTTPException(status_code=401, detail="Dispositivo nao esta mais conectado.")
+
+    raw_token = get_device_cookie(request)
+    trust = resolve_active_trust(db, raw_token)
+    if trust is None:
+        clear_device_cookie(response, request)
+        raise sessao_invalida
+
+    if not user_agent_matches(trust, request):
+        # Mesmo criterio de refresh_login_clinica: divergencia de navegador
+        # encerra a confianca em vez de so recusar a chamada.
+        revoke_trust(db, trust, motivo="mudanca-de-dispositivo")
+        clear_device_cookie(response, request)
+        registrar_auditoria(
+            current_user=None,
+            modulo="portal",
+            entidade="portal_clinic_trusted_device",
+            acao="PORTAL_CLINIC_DEVICE_REVOKED",
+            descricao="Confianca de dispositivo encerrada por divergencia de navegador.",
+            entidade_id=str(trust.id),
+            detalhes={"clinica_id": trust.clinica_id, "motivo": "mudanca-de-dispositivo"},
+            request=request,
+        )
+        raise sessao_invalida
+
+    clinica = _obter_clinica_ativa(db, trust.clinica_id)
+    if clinica is None:
+        revoke_trust(db, trust, motivo="clinica-inativa")
+        clear_device_cookie(response, request)
+        raise sessao_invalida
+
+    novo_token = rotate_and_renew(db, trust, request=request)
+    set_device_cookie(response, novo_token, expires_at=trust.expires_at, request=request)
+    return _emitir_sessao_dispositivo(trust, clinica)
+
+
+@router.post("/clinicas/dispositivo/encerrar", response_model=PortalDeviceTrustEndResponse)
+def encerrar_dispositivo_confiavel(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """"Sair deste computador". Idempotente: sem confianca viva, so limpa o cookie."""
+    raw_token = get_device_cookie(request)
+    trust = resolve_active_trust(db, raw_token)
+    clear_device_cookie(response, request)
+    if trust is None:
+        return PortalDeviceTrustEndResponse(encerrado=True)
+
+    revoke_trust(db, trust, motivo="encerrado-pela-unidade")
+    registrar_auditoria(
+        current_user=None,
+        modulo="portal",
+        entidade="portal_clinic_trusted_device",
+        acao="PORTAL_CLINIC_DEVICE_REVOKED",
+        descricao="Confianca de dispositivo encerrada pela propria unidade.",
+        entidade_id=str(trust.id),
+        detalhes={"clinica_id": trust.clinica_id, "motivo": "encerrado-pela-unidade"},
+        request=request,
+    )
+    return PortalDeviceTrustEndResponse(encerrado=True)
 
 
 @router.get("/clinicas/exames", response_model=PortalExamListResponse)
