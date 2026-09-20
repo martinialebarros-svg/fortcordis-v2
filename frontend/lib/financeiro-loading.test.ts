@@ -4,6 +4,7 @@ import {
   deveRecarregarResumo,
   getFinanceiroLoadingPlan,
   loadFinanceiroSection,
+  removeLoadFailure,
 } from "./financeiro-loading";
 
 describe("getFinanceiroLoadingPlan", () => {
@@ -122,5 +123,14 @@ describe("appendUniqueLoadFailure", () => {
   it("mantem cada secao apenas uma vez", () => {
     expect(appendUniqueLoadFailure(["Resumo"], "Resumo")).toEqual(["Resumo"]);
     expect(appendUniqueLoadFailure(["Resumo"], "Clinicas")).toEqual(["Resumo", "Clinicas"]);
+  });
+});
+
+describe("removeLoadFailure", () => {
+  it("limpa apenas a falha da secao repetida", () => {
+    expect(removeLoadFailure(["Resumo", "Cobrancas", "Clinicas"], "Cobrancas")).toEqual([
+      "Resumo",
+      "Clinicas",
+    ]);
   });
 });

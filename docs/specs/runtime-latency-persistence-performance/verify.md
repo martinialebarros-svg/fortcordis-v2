@@ -30,3 +30,14 @@
 - [ ] A janela operacional preferencial de 100 amostras e a validação em
   produção permanecem registradas em
   `docs/specs/financeiro-runtime-latency-observability/verify.md`.
+
+## Extensão PERF-20 — visibilidade da cauda máxima
+
+- [x] Agregação em memória e persistida retornam `max_ms`,
+  `slow_request_count` e o limite explícito de 1.200 ms.
+- [x] Teste de fronteira confirma que 1.200 ms não conta como excedente e um
+  valor estritamente maior conta.
+- [x] O painel administrativo exibe máximo e número de excedentes sem expor
+  rota completa, query string, usuário ou conteúdo clínico.
+- [x] Testes focados, suíte backend completa, 378 testes Vitest, 9 testes Node,
+  lint, typecheck, build de 43 páginas e guardrail SDD aprovados.

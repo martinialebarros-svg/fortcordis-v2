@@ -52,3 +52,15 @@ git diff --check origin/stage...HEAD                                            
 - [ ] Aprovado para stage (requer teste autenticado no ambiente).
 - [ ] Aprovado para producao.
 - [x] Pronto para revisao em PR; deploy ainda nao autorizado.
+
+## 6) Extensao 2026-09-19 — recarga isolada de Cobrancas
+
+- [x] Teste de componente confirma que `Atualizar destinatarios` refaz apenas
+  `GET /ordens-servico/cobrancas`.
+- [x] Teste unitario confirma que a limpeza de falha remove apenas a secao
+  solicitada.
+- [x] Suite frontend (378 Vitest + 9 Node), lint, typecheck, build de 43 paginas
+  e guardrail SDD aprovados. Suite backend completa tambem terminou com codigo
+  zero.
+- [ ] Smoke autenticado em stage confirma recuperacao sem novo leque de
+  requisicoes auxiliares.

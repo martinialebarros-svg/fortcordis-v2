@@ -92,3 +92,7 @@ export async function loadFinanceiroSection<T>({
 export function appendUniqueLoadFailure(current: string[], section: string): string[] {
   return current.includes(section) ? current : [...current, section];
 }
+
+export function removeLoadFailure(current: string[], section: string): string[] {
+  return current.filter((item) => item !== section);
+}

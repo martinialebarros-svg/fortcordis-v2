@@ -26,6 +26,7 @@ _MAX_LATENCY_WINDOW_MINUTES = 1440
 _DEFAULT_LATENCY_MAX_SAMPLES = 2000
 _MIN_LATENCY_MAX_SAMPLES = 100
 _MAX_LATENCY_MAX_SAMPLES = 20000
+_SLOW_REQUEST_THRESHOLD_MS = 1200.0
 _DEFAULT_PERSISTENCE_RETENTION_DAYS = 14
 _MIN_PERSISTENCE_RETENTION_DAYS = 1
 _MAX_PERSISTENCE_RETENTION_DAYS = 90
@@ -496,6 +497,10 @@ def get_http_latency_monitor_status() -> Dict[str, Any]:
                 "request_count": request_count,
                 "error_5xx_count": error_5xx_count,
                 "avg_ms": avg_ms,
+                "max_ms": round(max(durations), 2) if durations else None,
+                "slow_request_count": sum(
+                    1 for duration in durations if duration > _SLOW_REQUEST_THRESHOLD_MS
+                ),
                 "p50_ms": p50_ms,
                 "p95_ms": p95_ms,
                 "p99_ms": p99_ms,
@@ -510,6 +515,7 @@ def get_http_latency_monitor_status() -> Dict[str, Any]:
     return {
         "window_minutes": int(config["window_minutes"]),
         "max_samples_per_endpoint": int(config["max_samples_per_endpoint"]),
+        "slow_request_threshold_ms": _SLOW_REQUEST_THRESHOLD_MS,
         "priority_endpoints": endpoints,
         "priority_endpoint_prefixes": list(config["priority_endpoint_prefixes"]),
         "exact_endpoints": list(config["exact_endpoints"]),
@@ -625,6 +631,7 @@ def get_persisted_http_latency_summary(db: Any, *, hours: int) -> Dict[str, Any]
             "hours": int(hours),
             "retention_days": int(config["retention_days"]),
             "query_max_samples": max_samples,
+            "slow_request_threshold_ms": _SLOW_REQUEST_THRESHOLD_MS,
             "truncated": False,
             "groups": [],
         }
@@ -667,6 +674,10 @@ def get_persisted_http_latency_summary(db: Any, *, hours: int) -> Dict[str, Any]
                 **group,
                 "request_count": request_count,
                 "avg_ms": round(sum(durations) / request_count, 2) if request_count else None,
+                "max_ms": round(max(durations), 2) if durations else None,
+                "slow_request_count": sum(
+                    1 for duration in durations if duration > _SLOW_REQUEST_THRESHOLD_MS
+                ),
                 "p50_ms": _percentile_ms(durations, 50),
                 "p95_ms": _percentile_ms(durations, 95),
                 "p99_ms": _percentile_ms(durations, 99),
@@ -692,6 +703,7 @@ def get_persisted_http_latency_summary(db: Any, *, hours: int) -> Dict[str, Any]
         "hours": int(hours),
         "retention_days": int(config["retention_days"]),
         "query_max_samples": max_samples,
+        "slow_request_threshold_ms": _SLOW_REQUEST_THRESHOLD_MS,
         "truncated": truncated,
         "groups": result_groups,
     }
