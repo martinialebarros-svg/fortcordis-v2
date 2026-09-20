@@ -81,6 +81,14 @@ a originou e revogado.
   e agenda e mostra "Entrar com senha para ver financeiro e agenda".
 - RF-020: em modo laudos, o cabecalho mostra "Conectado neste computador" e a acao
   "Sair deste computador".
+- RF-021 (acrescentado em 20/09/2026, depois do cenario 6 em stage): quando ha
+  sessao **de dispositivo** guardada no navegador, `/clinica-parceira` a reconfere
+  com `POST /clinicas/dispositivo/sessao` **antes** de renderizar qualquer laudo, e
+  descarta a sessao guardada se o servidor recusar. Sessao com senha nao passa por
+  isso: ela tem o refresh proprio, e a precedencia de CB-001 fica de pe.
+  Motivo: o token guardado vive ate meia hora, entao confiar nele fazia a revogacao
+  administrativa so valer quando ele expirasse - e revogar existe justamente para
+  maquina trocada, vendida ou roubada.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -229,6 +237,9 @@ a originou e revogado.
   no formulario de login quando nao ha.
 - CA-015: em modo laudos as abas de financeiro e agenda nao sao renderizadas, e a
   acao "Sair deste computador" encerra a confianca.
+- CA-016: com sessao de dispositivo guardada e ainda dentro do proprio prazo, revogar
+  o computador (pelo admin ou pela unidade) derruba o acesso **na recarga seguinte**,
+  sem esperar o token expirar; sessao com senha guardada nao dispara a reconferencia.
 
 ## 7) Casos de borda
 
@@ -243,6 +254,9 @@ a originou e revogado.
   `dispositivo/sessao` continua honrando as existentes; so a criacao e cortada.
 - CB-006: exame remanejado para outra clinica - a confianca e da clinica, nao do
   exame, e continua valida para o acervo da clinica original.
+- CB-007: servidor sem resposta (rede fora) na reconferencia de RF-021 - a recepcao
+  **continua** com a sessao guardada. Oscilacao de rede nao e recusa, e derrubar a
+  unidade por causa dela custaria mais do que o risco que a reconferencia fecha.
 
 ## 8) Fora de escopo
 
