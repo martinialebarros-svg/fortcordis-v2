@@ -6,7 +6,9 @@ import { Download, FileText, Loader2, MonitorCheck, PawPrint, ShieldCheck } from
 
 import {
   downloadPortalAttachment,
+  PortalRequestError,
   resolvePortalExamLink,
+  resumePortalDeviceSession,
   savePortalSession,
   trustPortalDevice,
   type PortalDownloadItem,
@@ -80,14 +82,34 @@ export default function PortalExamLinkWorkspace({ linkToken }: PortalExamLinkWor
   const conectarComputador = useCallback(async () => {
     setConectando(true);
     setErroConexao("");
+
+    // Falha em qualquer etapa não pode atrapalhar o que a pessoa veio fazer: o
+    // laudo segue na tela e o download continua funcionando (CB-002).
     try {
-      const sessao = await trustPortalDevice(linkToken);
+      await trustPortalDevice(linkToken);
+    } catch {
+      setErroConexao("Não foi possível conectar este computador. O laudo acima continua disponível.");
+      setConectando(false);
+      return;
+    }
+
+    // O 200 acima diz que o servidor criou a confiança — não que ESTE navegador
+    // guardou o cookie dela. Num navegador que bloqueia cookies o pedido passa e
+    // o `Set-Cookie` é descartado em silêncio: sem esta confirmação a tela diria
+    // "Pronto" para uma recepção que amanhã encontra o portal pedindo senha, e a
+    // suspeita cairia no link. Confirmado em stage em 20/09/2026.
+    try {
+      const sessao = await resumePortalDeviceSession();
       savePortalSession(sessao);
       setConectado(true);
-    } catch {
-      // Falha aqui não pode atrapalhar o que a pessoa veio fazer: o laudo segue
-      // na tela e o download continua funcionando (CB-002, navegador sem cookie).
-      setErroConexao("Não foi possível conectar este computador. O laudo acima continua disponível.");
+    } catch (erro) {
+      setErroConexao(
+        erro instanceof PortalRequestError
+          ? "Este navegador não guardou o acesso, então o computador não ficou conectado. " +
+            "Se estiver em uma janela anônima ou com cookies bloqueados, tente de novo em uma " +
+            "janela normal. O laudo acima continua disponível."
+          : "Não foi possível confirmar a conexão deste computador. O laudo acima continua disponível.",
+      );
     } finally {
       setConectando(false);
     }

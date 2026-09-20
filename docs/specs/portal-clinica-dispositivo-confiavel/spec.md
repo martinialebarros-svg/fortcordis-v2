@@ -75,6 +75,14 @@ a originou e revogado.
 - RF-017: `/laudo/[token]` ganha, abaixo do download, a acao "manter esta unidade
   conectada neste computador", com uma linha explicando que da acesso aos laudos da
   clinica e nao ao financeiro.
+- RF-023 (acrescentado em 20/09/2026, depois do cenario 7 em stage): a acao so diz
+  que conectou depois de **confirmar com o servidor** que este navegador guardou o
+  cookie - uma chamada a `dispositivo/sessao` logo apos o `confiar-dispositivo`. Se a
+  confirmacao devolver recusa, a tela explica que o navegador nao guardou o acesso e
+  sugere sair da janela anonima; o laudo e o download continuam na tela.
+  Motivo: com cookies bloqueados o `confiar-dispositivo` responde **200** e so o
+  `Set-Cookie` e descartado, em silencio. A tela dizia "Pronto" para uma recepcao que
+  no dia seguinte encontra o portal pedindo senha - e a suspeita cai no link.
 - RF-018: `/clinica-parceira` tenta `POST /clinicas/dispositivo/sessao` no
   carregamento, antes de mostrar o formulario de login. Dando certo, entra direto.
 - RF-019: sem `clinic:read`, `PortalClinicaWorkspace` esconde as abas de financeiro
@@ -263,7 +271,9 @@ a originou e revogado.
 - CB-001: gerente com sessao de senha e recepcao com dispositivo confiavel no mesmo
   navegador - os dois cookies coexistem e a sessao com senha tem precedencia.
 - CB-002: navegador em aba anonima ou com cookies bloqueados - a acao falha com
-  mensagem clara e o download do laudo continua funcionando.
+  mensagem clara e o download do laudo continua funcionando. Vale para os dois jeitos
+  de falhar: o pedido recusado pelo servidor e o pedido aceito cujo cookie o navegador
+  descarta (RF-023). O segundo so passou a ser coberto em 20/09/2026.
 - CB-003: duas maquinas da mesma clinica confiaveis ao mesmo tempo - ambas validas e
   revogaveis em separado.
 - CB-004: clinica desativada e reativada - a confianca anterior segue revogada.
