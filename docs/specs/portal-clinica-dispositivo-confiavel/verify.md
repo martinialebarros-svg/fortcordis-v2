@@ -21,11 +21,13 @@ Status: in-progress
 | CA-011 | aceitacao | `test_portal_clinic_device_trust.py::test_falha_no_aviso_ao_gestor_nao_impede_a_conexao` | ok |
 | CA-012 | aceitacao | `test_portal_clinic_device_trust.py::test_admin_revoga_por_dispositivo_e_por_clinica` (inclui 422 sem alvo) | ok |
 | CA-013 | aceitacao | `test_portal_clinic_device_trust.py::test_sessao_de_rotina_nao_gera_auditoria` | ok |
-| CA-014 | aceitacao | `PortalClinicaPageShell` tenta `resumePortalDeviceSession` depois do refresh por senha; coberto indiretamente pelos testes de modo laudos e por `tsc`. **Sem teste proprio** - ver risco residual 6 | pendente |
+| CA-014 | aceitacao | `PortalClinicaPageShell.test.tsx::ainda tenta o computador confiavel quando nao ha nada guardado` (teste proprio, criado em 20/09/2026) + cenario 1 em stage | ok |
 | CA-015 | aceitacao | `PortalClinicaWorkspaceModoLaudos.test.tsx` - 5 casos (abas escondidas, abas presentes com senha, cabecalho, sair do computador) | ok |
-| CB-001 | borda | Ordem de bootstrap no shell da a precedencia a sessao com senha; `PortalClinicaWorkspaceModoLaudos.test.tsx` cobre os dois modos em separado. Convivencia real dos dois cookies: **so em stage** | pendente |
+| CB-001 | borda | Ordem de bootstrap no shell da a precedencia a sessao com senha; `PortalClinicaPageShell.test.tsx::nao reconfere sessao com senha` prova que a sessao de senha guardada nao e tocada. Convivencia real dos dois cookies: **cenario 3 em stage, ainda pendente** | pendente |
 | CB-002 | borda | `PortalExamLinkWorkspace.test.tsx::falha ao conectar sem tirar o laudo da tela` | ok |
+| CA-016 | aceitacao | `PortalClinicaPageShell.test.tsx::derruba o computador revogado mesmo com token guardado ainda no prazo` e `::nao reconfere sessao com senha` | ok |
 | CB-005 | borda | `test_portal_clinic_device_trust.py::test_sessao_rotaciona_o_cookie_e_renova_o_prazo` (sessao com a flag desligada) e `test_flag_desligada_impede_conectar` | ok |
+| CB-007 | borda | `PortalClinicaPageShell.test.tsx::mantem a recepcao conectada quando o servidor nao responde` - erro que nao e `PortalRequestError` nao desconecta | ok |
 | RF-014 | funcional | `test_portal_clinic_device_trust.py::test_clinica_inativa_invalida_a_confianca` | ok |
 | NFR-001 | nao funcional | CA-004 (escopo do token) + CA-003 (403 na gestao) + `_resolver_link_laudo` compartilhado entre abrir laudo e conectar | ok |
 | NFR-002 | nao funcional | Coberto por `portal-escopo-sessao-clinica` | ok |
@@ -34,8 +36,8 @@ Status: in-progress
 | NFR-005 | nao funcional | CA-013 | ok |
 | NFR-006 | nao funcional | Todas as recusas de `dispositivo/sessao` devolvem 401 com o mesmo `detail` e limpam o cookie (CA-006 a CA-009, RF-014) | ok |
 | NFR-007 | nao funcional | Modo laudos usa os mesmos endpoints de exame do portal com senha; nenhum dado novo exposto | ok |
-| Migracao | banco | `20260918_88` aplicada em banco limpo pela suite; **falta rodar em stage/producao** | pendente |
-| Stage | manual | 7 cenarios da secao 3 em `app.stage.fortcordis.com.br` | pendente |
+| Migracao | banco | `20260918_88` aplicada em banco limpo pela suite; aplicada em stage (conferido em 20/09/2026: `current_version=20260918_88`, `pending_count=0`); **falta producao** | pendente |
+| Stage | manual | 5 dos 7 cenarios rodados em 20/09/2026 (secao 3); falta o 3 e a metade visual do 7 | pendente |
 
 ## 2) Testes automatizados executados
 
@@ -70,21 +72,82 @@ Regressao corrigida no caminho: sete suites que montam schema SQLite a mao
 passaram a depender de `portal_clinic_trusted_devices`, porque revogar a liberacao
 do exame agora revoga as confiancas. As sete receberam a tabela na lista.
 
+### Incremento de 20/09/2026 - RF-021 (reconferencia no bootstrap)
+
+Mudanca so de frontend; o backend nao foi tocado e a suite dele nao foi rodada de
+novo nesta rodada.
+
+```bash
+cd frontend && npx tsc --noEmit && npm run lint && npm test
+```
+
+- `tsc` limpo, `eslint --max-warnings=0` limpo,
+  **50 arquivos / 383 testes** no vitest e 9 no `node --test`.
+- Arquivo novo `PortalClinicaPageShell.test.tsx`, 5 casos: reconfere antes de
+  renderizar, derruba o computador revogado, sobrevive a rede fora, nao toca em
+  sessao com senha, e ainda tenta o dispositivo quando nao ha nada guardado.
+- `portalFetchJson` passou a lancar `PortalRequestError`, que carrega o status HTTP.
+  Sem isso nao da para separar "o servidor recusou" de "nao falei com o servidor", e
+  uma oscilacao de rede desconectaria quem continua autorizado (CB-007).
+
 ## 3) Testes manuais
 
-Pendentes em stage, com a flag `PORTAL_CLINIC_DEVICE_TRUST_ENABLED` ligada:
+Rodados em 20/09/2026 em `app.stage.fortcordis.com.br`, clinica Animal Care (id 8),
+laudo 48 / exame 17, com `PORTAL_CLINIC_DEVICE_TRUST_ENABLED=true`.
 
-- Cenario 1: abrir um laudo pelo link, marcar "manter esta unidade conectada" e
-  conferir que `/clinica-parceira` abre direto na lista de exames.
-- Cenario 2: conferir que agenda e financeiro nao aparecem, e que chamada direta a
-  `/portal/clinicas/financeiro` com esse token devolve 403.
-- Cenario 3 (CB-001): logar com senha no mesmo navegador e conferir que o portal
-  completo volta, com os dois cookies convivendo.
-- Cenario 4: "Sair deste computador" e confirmar que o acesso acaba.
-- Cenario 5: revogar o link de origem e confirmar que a confianca cai junto.
-- Cenario 6: revogar pelo admin (`/admin/clinica-dispositivos/revogar`).
-- Cenario 7 (CB-002): navegador anonimo com cookies bloqueados - a acao falha com
-  mensagem clara e o download do laudo continua funcionando.
+O modelo `laudo_disponivel_portal_link` continua em analise na Meta e a WABA de teste
+so entrega para numeros na lista de autorizados, entao **a mensagem nao chegou**. Nao
+foi impedimento: `issue_exam_link` roda e da commit **antes** do envio, entao o link
+nasceu mesmo com a entrega falhando, e a URL foi reconstruida de `SECRET_KEY` +
+`token_nonce` (conferida contra o `token_hash` guardado).
+
+- Cenario 1 - **ok**. Link abriu o laudo sem sessao; "manter esta unidade conectada"
+  devolveu 200; `/clinica-parceira` passou a abrir direto na lista, com
+  "Conectado neste computador", a fila de aguardando liberacao (4) e o acervo.
+  Prazo exibido: 30 dias (20/10), e `last_seen_at` avanca a cada sessao.
+- Cenario 2 - **ok**. Sessao nasceu com `scope: ["exam:read","exam:download"]` e
+  `auth_method: device_trust`. `/clinicas/financeiro` e `/clinicas/agendamentos`
+  devolveram **403** com `"Sessao do portal sem permissao para esta operacao."`;
+  `/clinicas/exames` devolveu 200. Abas de agenda e financeiro ausentes da tela.
+- Cenario 3 (CB-001) - **pendente**: depende de login com senha, que so o usuario faz.
+- Cenario 4 - **ok**. "Sair deste computador" devolveu a tela publica e limpou a
+  sessao guardada no navegador. Dispositivo ficou `revoked`, motivo
+  `encerrado-pela-unidade`.
+- Cenario 5 - **ok**. Revogar a liberacao do exame devolveu
+  `links_revogados: 1, dispositivos_revogados: 1`; `dispositivo/sessao` passou a 401
+  e a pagina do link passou a exibir "Este link nao esta mais disponivel.".
+  Religar o exame e reemitir gerou **token diferente** - link revogado nao volta.
+- Cenario 6 - **ok, com o achado abaixo**. Revogacao pelo admin fez
+  `dispositivo/sessao` devolver 401 com o cookie limpo.
+- Cenario 7 (CB-002) - **parcial**. A metade que importa foi conferida: com
+  `credentials: "omit"` (cookie descartado, como num navegador que os bloqueia),
+  conectar devolve 200 mas a sessao seguinte cai em 401 - o efeito util e nenhum - e
+  **o download do laudo continua funcionando** (200, `application/pdf`, 899.570
+  bytes, sem cookie nenhum). A mensagem na tela segue coberta so por
+  `PortalExamLinkWorkspace.test.tsx`; falta ver com os olhos num navegador com
+  cookies bloqueados.
+
+Verificacoes extras que o roteiro nao pedia:
+
+- O token de download e preso ao par exame/anexo tambem em stage: o token do laudo da
+  gamora devolveu **403** no anexo 24, que e **da mesma clinica**. Link encaminhado
+  nao vira chave do acervo.
+- A degradacao do modelo com link roda de verdade: a Meta recusou `portalReportLink`
+  e o backend tentou `portalReportAvailable` com a chave `-nolink`, na ordem prevista
+  por CA-003 do spec do link.
+
+### Achado do cenario 6: revogar nao cortava na hora
+
+Revogado o dispositivo pelo admin, `dispositivo/sessao` devolvia 401 corretamente -
+mas recarregar `/clinica-parceira` **mantinha a recepcao dentro**, lendo os laudos. O
+access token fica em `localStorage` (`fortcordis_portal_session:clinica`) e o
+bootstrap o reusava sem reconferir. Medido no momento da revogacao: token ainda valia
+**1583 s** (~26 min) e `/clinicas/exames` com ele devolvia **200**.
+
+Isso contrariava o risco residual 3, que trata revogacao como o remedio para maquina
+trocada ou roubada. Corrigido no mesmo dia por RF-021 (reconferencia no bootstrap,
+com CB-007 para nao derrubar ninguem por oscilacao de rede). **A reconferencia em si
+ainda nao foi confirmada em stage** - so por teste automatizado.
 
 ## 4) Regressao e riscos residuais
 
@@ -95,7 +158,10 @@ Pendentes em stage, com a flag `PORTAL_CLINIC_DEVICE_TRUST_ENABLED` ligada:
 - Risco residual 2: maquina compartilhada na recepcao expoe os laudos da unidade a
   quem sentar nela.
 - Risco residual 3: computador trocado ou roubado segue confiavel ate expirar por
-  inatividade ou ser revogado.
+  inatividade ou ser revogado. Desde 20/09/2026 a revogacao vale na recarga seguinte
+  (RF-021); antes disso o token guardado ainda abria laudos por ate meia hora - ver o
+  achado do cenario 6 na secao 3. O que sobra: uma aba **ja aberta** so sente a
+  revogacao quando recarregar ou quando o token expirar.
 - Risco residual 4: **30 dias de inatividade** (decidido em 18/09/2026) e uma
   escolha de operacao, nao uma medicao. Clinica que so manda exame a cada dois
   meses vai perder a confianca da maquina entre um envio e outro e precisara
@@ -106,9 +172,10 @@ Pendentes em stage, com a flag `PORTAL_CLINIC_DEVICE_TRUST_ENABLED` ligada:
   para a propria unidade listar os seus (so "sair deste computador" no navegador
   atual). Uma unidade com varias maquinas acumula confiancas que so a Fort Cordis
   enxerga.
-- Risco residual 6: **CA-014 e CB-001 nao tem teste automatizado.** A ordem do
-  bootstrap (senha antes de dispositivo) esta coberta so por leitura e por `tsc`;
-  a convivencia real dos dois cookies no mesmo navegador so se confirma em stage.
+- Risco residual 6 (reduzido em 20/09/2026): CA-014 ganhou teste proprio em
+  `PortalClinicaPageShell.test.tsx`, junto com CA-016 e CB-007. Sobra **CB-001**: a
+  convivencia real dos dois cookies no mesmo navegador so se confirma com login por
+  senha em stage (cenario 3), que ainda nao rodou.
 - Regressao: suites de backend, frontend e do servico Node verdes.
 
 ## 5) Itens fora de escopo entregues
@@ -124,8 +191,10 @@ Pendentes em stage, com a flag `PORTAL_CLINIC_DEVICE_TRUST_ENABLED` ligada:
 - [x] Aprovado para stage (com `PORTAL_CLINIC_DEVICE_TRUST_ENABLED=false` no
       primeiro deploy; ligar so depois de conferir que o portal com senha segue
       normal).
-- [ ] Aprovado para producao - **bloqueado** ate: (a) `portal-escopo-sessao-clinica`
-      estar em producao; (b) os 7 cenarios manuais rodarem em stage; (c) a migracao
-      `20260918_88` ser aplicada. O prazo de inatividade ficou decidido em
-      **30 dias** (18/09/2026).
+- [ ] Aprovado para producao - **bloqueado** ate: (a) ~~`portal-escopo-sessao-clinica`
+      estar em producao~~ **resolvido em 20/09/2026** (`_assert_portal_scope` esta em
+      `main`); (b) os 7 cenarios manuais rodarem em stage - **5 rodaram em 20/09/2026**,
+      faltam o 3 (CB-001) e a metade visual do 7, mais a reconferencia de RF-021;
+      (c) a migracao `20260918_88` - **ja aplicada em stage**, falta producao. O prazo
+      de inatividade ficou decidido em **30 dias** (18/09/2026).
 - [ ] Nao aprovado.

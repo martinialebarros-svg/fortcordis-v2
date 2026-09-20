@@ -419,6 +419,23 @@ function getCookie(name: string): string | null {
   return null;
 }
 
+/**
+ * Erro de uma chamada ao portal que o servidor respondeu.
+ *
+ * Existe para distinguir "o servidor recusou" de "nao consegui falar com o
+ * servidor". Sem isso, uma queda de rede era indistinguivel de um 401 e levava a
+ * desconectar quem continuava autorizado.
+ */
+export class PortalRequestError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "PortalRequestError";
+    this.status = status;
+  }
+}
+
 async function readErrorMessage(response: Response, fallback: string): Promise<string> {
   try {
     return portalErrorMessageFromBody(await response.text(), fallback);
@@ -452,7 +469,7 @@ async function portalFetchJson<T>(
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, fallback));
+    throw new PortalRequestError(response.status, await readErrorMessage(response, fallback));
   }
 
   return (await response.json()) as T;
@@ -1128,6 +1145,13 @@ export const PORTAL_PERMISSION_CLINIC_READ = "clinic:read";
 
 export function portalSessionHasClinicRead(session: PortalSessionResponse | null): boolean {
   return Boolean(session?.scope?.includes(PORTAL_PERMISSION_CLINIC_READ));
+}
+
+/** Metodo de autenticacao da sessao nascida do link do laudo. */
+export const PORTAL_AUTH_METHOD_DEVICE_TRUST = "device_trust";
+
+export function portalSessionIsDeviceTrust(session: PortalSessionResponse | null): boolean {
+  return session?.auth_method === PORTAL_AUTH_METHOD_DEVICE_TRUST;
 }
 
 function deviceTrustToSession(payload: PortalDeviceTrustResponse): PortalSessionResponse {
