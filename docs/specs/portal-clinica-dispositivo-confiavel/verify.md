@@ -2,7 +2,7 @@
 
 Data: 2026-09-18
 Responsavel: Martiniano Barros
-Status: in-progress
+Status: concluido
 
 ## 1) Matriz de rastreabilidade
 
@@ -39,7 +39,7 @@ Status: in-progress
 | NFR-006 | nao funcional | Todas as recusas de `dispositivo/sessao` devolvem 401 com o mesmo `detail` e limpam o cookie (CA-006 a CA-009, RF-014) | ok |
 | NFR-007 | nao funcional | Modo laudos usa os mesmos endpoints de exame do portal com senha; nenhum dado novo exposto | ok |
 | Migracao | banco | `20260918_88` aplicada em banco limpo pela suite; aplicada em stage (conferido em 20/09/2026: `current_version=20260918_88`, `pending_count=0`); **falta producao** | pendente |
-| Stage | manual | **Os 7 cenarios** rodados em 20/09/2026, mais RF-021 e RF-022 confirmados em stage (secao 3). Falta rever o 7 em stage depois do RF-023 | pendente |
+| Stage | manual | **Os 7 cenarios rodados e verdes** em 20/09/2026, mais RF-021, RF-022 e RF-023 confirmados em stage (secao 3) | ok |
 
 ## 2) Testes automatizados executados
 
@@ -127,6 +127,7 @@ Tambem so de frontend.
 - `PortalExamLinkWorkspace.test.tsx::nao diz que conectou quando o navegador nao
   guarda o cookie` cobre o caso novo; o teste de sucesso passou a exigir que a
   confirmacao tenha acontecido antes do "Pronto".
+- Confirmado em stage em 20/09/2026, com a mesma emulacao que tinha reprovado.
 - A mensagem separa recusa do servidor de falha de rede: so a primeira acusa o
   navegador de nao ter guardado o acesso.
 
@@ -171,10 +172,14 @@ nasceu mesmo com a entrega falhando, e a URL foi reconstruida de `SECRET_KEY` +
   navegador que bloqueia cookies (pedido sai, `Set-Cookie` descartado), a tela
   respondeu **"Pronto. Este computador agora abre os laudos da unidade direto, sem
   senha."** e `/clinica-parceira` em seguida mostrou a pagina publica de login. Ou
-  seja: falhou em silencio, com confirmacao verde por cima. Corrigido no mesmo dia
-  por RF-023 - falta rever em stage depois do deploy.
-  A outra metade passou: **o download do laudo continua funcionando** sem cookie
-  nenhum (200, `application/pdf`, 899.570 bytes).
+  seja: falhou em silencio, com confirmacao verde por cima.
+  **Refeito depois do deploy do RF-023, e passou**: a mesma emulacao agora devolve
+  "Este navegador nao guardou o acesso, entao o computador nao ficou conectado. Se
+  estiver em uma janela anonima ou com cookies bloqueados, tente de novo em uma janela
+  normal. O laudo acima continua disponivel.", com o botao de conectar ainda na tela
+  para tentar de novo.
+  A outra metade sempre passou: **o download do laudo continua funcionando** sem
+  cookie nenhum (200, `application/pdf`, 899.570 bytes).
 
 Verificacoes extras que o roteiro nao pedia:
 
@@ -305,11 +310,17 @@ gestor pediu por RF-019 (CB-008 cobre o caso em que a confianca tambem acabou).
 - [x] Aprovado para stage (com `PORTAL_CLINIC_DEVICE_TRUST_ENABLED=false` no
       primeiro deploy; ligar so depois de conferir que o portal com senha segue
       normal).
-- [ ] Aprovado para producao - **bloqueado** ate: (a) ~~`portal-escopo-sessao-clinica`
-      estar em producao~~ **resolvido em 20/09/2026** (`_assert_portal_scope` esta em
-      `main`); (b) os 7 cenarios manuais rodarem em stage - **6 rodaram em 20/09/2026**,
-      falta so a metade visual do 7 (mensagem na tela com cookies bloqueados), mais a
-      confirmacao em stage do RF-022;
-      (c) a migracao `20260918_88` - **ja aplicada em stage**, falta producao. O prazo
-      de inatividade ficou decidido em **30 dias** (18/09/2026).
+- [ ] Aprovado para producao - **os tres bloqueios cairam em 20/09/2026**, falta a
+      decisao do responsavel:
+      (a) `portal-escopo-sessao-clinica` esta em `main`;
+      (b) os **7 cenarios manuais rodaram em stage**, mais RF-021, RF-022 e RF-023 -
+      os tres nasceram dos proprios cenarios e foram confirmados em stage depois do
+      deploy;
+      (c) a migracao `20260918_88` esta aplicada em stage, e o deploy de `main` a
+      aplica em producao.
+      O prazo de inatividade ficou decidido em **30 dias** (18/09/2026).
+      Ressalva de rollout: as duas flags (`PORTAL_CLINIC_EXAM_LINK_ENABLED` e
+      `PORTAL_CLINIC_DEVICE_TRUST_ENABLED`) chegam **desligadas** em producao pelo
+      default de `config.py`, e o link no WhatsApp ainda depende de o modelo
+      `laudo_disponivel_portal_link` sair da analise da Meta.
 - [ ] Nao aprovado.
