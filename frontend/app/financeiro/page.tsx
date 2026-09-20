@@ -12,6 +12,7 @@ import {
   deveRecarregarResumo,
   getFinanceiroLoadingPlan,
   loadFinanceiroSection,
+  removeLoadFailure,
   type FinanceiroActiveTab,
   type FinanceiroLoadOrigin,
 } from "@/lib/financeiro-loading";
@@ -482,6 +483,7 @@ export default function FinanceiroPage() {
   const [enviandoWhatsAppOficialGrupoKey, setEnviandoWhatsAppOficialGrupoKey] = useState<string | null>(null);
   const highlightedRowRef = useRef<HTMLDivElement | null>(null);
   const carregarDadosControllerRef = useRef<AbortController | null>(null);
+  const carregarCobrancasControllerRef = useRef<AbortController | null>(null);
   /** Periodo do ultimo resumo aplicado com sucesso. Evita refazer a chamada a
    *  cada troca de pagina, filtro ou aba, que nao mudam o resumo. */
   const periodoResumoCarregadoRef = useRef<string | null>(null);
@@ -505,6 +507,7 @@ export default function FinanceiroPage() {
     carregarDados("efeito");
     return () => {
       carregarDadosControllerRef.current?.abort();
+      carregarCobrancasControllerRef.current?.abort();
       grupoControllerRef.current?.abort();
     };
   }, [
@@ -662,12 +665,71 @@ export default function FinanceiroPage() {
     }
   };
 
+  const recarregarCobrancas = async () => {
+    carregarCobrancasControllerRef.current?.abort();
+    const controller = new AbortController();
+    carregarCobrancasControllerRef.current = controller;
+    const chavePedido = chavePedidoCobrancas;
+
+    fecharGrupo();
+    setLoadingOrdens(true);
+    setFalhasCarregamento((current) => removeLoadFailure(current, "Cobrancas"));
+
+    try {
+      const data = (
+        await api.get<{
+          items: BillingGroup[];
+          total: number;
+          total_os: number;
+          pendentes: number;
+          total_pendente: number;
+        }>(
+          `/ordens-servico/cobrancas${montarQueryString({
+            ...filtrosRemotosOS(),
+            limit: 50,
+            skip: paginaAtualCobrancas * 50,
+          })}`,
+          { signal: controller.signal }
+        )
+      ).data;
+
+      if (controller.signal.aborted || carregarCobrancasControllerRef.current !== controller) return;
+      if (!Array.isArray(data.items) || !Number.isInteger(data.total) || data.total < 0 ||
+        !Number.isInteger(data.pendentes) || !Number.isFinite(data.total_pendente)) {
+        throw new Error("Resposta de cobrancas sem totais validos.");
+      }
+
+      setGruposRemotos(data.items);
+      setTotalGrupos(data.total);
+      setTotalOrdens(data.total_os);
+      setResumoOrdens({ pendentes: data.pendentes, valor_pendente: data.total_pendente });
+      setChaveResultadoCobrancas(chavePedido);
+      setOrdensCarregadas(true);
+      if (paginaAtualCobrancas > 0 && !data.items.length) {
+        setPaginaCobrancas({
+          chave: chaveOrdens,
+          numero: Math.max(0, Math.ceil(data.total / 50) - 1),
+        });
+      }
+    } catch (error) {
+      if (!controller.signal.aborted && carregarCobrancasControllerRef.current === controller) {
+        console.error("Erro ao carregar Cobrancas:", error);
+        setFalhasCarregamento((current) => appendUniqueLoadFailure(current, "Cobrancas"));
+      }
+    } finally {
+      if (carregarCobrancasControllerRef.current === controller) {
+        setLoadingOrdens(false);
+        carregarCobrancasControllerRef.current = null;
+      }
+    }
+  };
+
   const carregarDados = async (origem: FinanceiroLoadOrigin = "manual") => {
     carregarDadosControllerRef.current?.abort();
+    carregarCobrancasControllerRef.current?.abort();
     const controller = new AbortController();
     carregarDadosControllerRef.current = controller;
     const loadingPlan = getFinanceiroLoadingPlan(abaAtiva);
-    if (abaAtiva === "cobrancas") fecharGrupo();
 
     setLoadingTransacoes(loadingPlan.transacoes);
     setLoadingOrdens(loadingPlan.ordens);
@@ -790,25 +852,7 @@ export default function FinanceiroPage() {
             () => setLoadingOrdens(false)
           )
         : Promise.resolve();
-      const cargaGrupos = abaAtiva === "cobrancas"
-        ? registrarCarga(
-            "Cobrancas",
-            api.get<{ items: BillingGroup[]; total: number; total_os: number; pendentes: number; total_pendente: number }>(
-              `/ordens-servico/cobrancas${montarQueryString({ ...filtrosRemotosOS(), limit: 50, skip: paginaAtualCobrancas * 50 })}`, { signal }
-            ).then((response) => response.data),
-            (data) => {
-              if (!Array.isArray(data.items) || !Number.isInteger(data.total) || data.total < 0 ||
-                !Number.isInteger(data.pendentes) || !Number.isFinite(data.total_pendente)) throw new Error("Resposta de cobrancas sem totais validos.");
-              setGruposRemotos(data.items);
-              setTotalGrupos(data.total);
-              setTotalOrdens(data.total_os);
-              setResumoOrdens({ pendentes: data.pendentes, valor_pendente: data.total_pendente });
-              setChaveResultadoCobrancas(chavePedidoCobrancas);
-              setOrdensCarregadas(true);
-              if (paginaAtualCobrancas > 0 && !data.items.length) setPaginaCobrancas({ chave: chaveOrdens, numero: Math.max(0, Math.ceil(data.total / 50) - 1) });
-            },
-            () => setLoadingOrdens(false)
-          ) : Promise.resolve();
+      const cargaGrupos = abaAtiva === "cobrancas" ? recarregarCobrancas() : Promise.resolve();
       const cargaClinicas = loadingPlan.catalogosOrdens
         ? registrarCarga(
             "Clinicas",
@@ -889,7 +933,7 @@ export default function FinanceiroPage() {
     } finally {
       if (!controller.signal.aborted && carregarDadosControllerRef.current === controller) {
         setLoadingTransacoes(false);
-        setLoadingOrdens(false);
+        if (abaAtiva !== "cobrancas") setLoadingOrdens(false);
         setCarregandoFormasPagamento(false);
         carregarDadosControllerRef.current = null;
       }
@@ -3012,7 +3056,7 @@ export default function FinanceiroPage() {
               <span>Pagina {paginaAtualCobrancas + 1} de {Math.max(1, Math.ceil(totalGrupos / 50))} — ate 50 destinatarios por pagina</span>
               <button disabled={loadingOrdens || cobrancasDesatualizadas || validandoSelecao || falhasCarregamento.includes("Cobrancas") || (paginaAtualCobrancas + 1) * 50 >= totalGrupos}
                 onClick={() => setPaginaCobrancas({ chave: chaveOrdens, numero: paginaAtualCobrancas + 1 })}>Proxima</button>
-              <button disabled={loadingOrdens} onClick={() => carregarDados()}>Atualizar destinatarios</button>
+              <button disabled={loadingOrdens} onClick={() => void recarregarCobrancas()}>Atualizar destinatarios</button>
             </nav>
             {falhasCarregamento.includes("Cobrancas") ? <p role="alert" className="p-4 text-red-700">Falha ao carregar destinatarios. Use Atualizar destinatarios para tentar novamente.</p> :
               loadingOrdens || cobrancasDesatualizadas ? <p className="p-4">Carregando destinatarios...</p> :

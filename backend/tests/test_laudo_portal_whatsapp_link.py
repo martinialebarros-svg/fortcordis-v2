@@ -29,6 +29,7 @@ from app.models.clinica import Clinica
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
 from app.models.portal_clinic_exam_link import PortalClinicExamLink
+from app.models.portal_clinic_trusted_device import PortalClinicTrustedDevice
 from app.models.portal_partner import PortalPartnerClinicLink, PortalPartnerProfile
 from app.models.tutor import Tutor
 from app.services.portal_clinic_exam_link_service import derive_link_token
@@ -64,6 +65,7 @@ class LaudoPortalWhatsappLinkTest(unittest.TestCase):
             PortalPartnerProfile.__table__,
             PortalPartnerClinicLink.__table__,
             PortalClinicExamLink.__table__,
+            PortalClinicTrustedDevice.__table__,
         ):
             table.create(engine, checkfirst=True)
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()

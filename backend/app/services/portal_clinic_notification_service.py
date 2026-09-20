@@ -87,6 +87,65 @@ def resolve_clinic_release_notification_emails(db: Session, clinica_id: int) -> 
     return [fallback_email] if fallback_email else []
 
 
+def notify_clinic_device_trusted(
+    *,
+    db: Session,
+    request: Request | None,
+    clinica_id: int,
+    clinica_nome: str | None,
+    device_label: str | None,
+    trusted_until: datetime | None,
+) -> PortalClinicReleaseNotificationResult:
+    """Avisa os gestores que um computador da unidade foi conectado sem senha.
+
+    E supervisao, nao autorizacao: a conexao ja aconteceu quando este aviso sai, e
+    de proposito - exigir aprovacao do gestor reintroduziria exatamente o gargalo
+    que a feature existe para eliminar. Falha de envio e devolvida no resultado;
+    quem chama e responsavel por nao deixar isso derrubar a conexao.
+    """
+    destinations = resolve_clinic_release_notification_emails(db, clinica_id)
+    if not destinations:
+        return PortalClinicReleaseNotificationResult(status="skipped", reason="no_recipient")
+
+    subject = "Um computador foi conectado ao portal da clinica"
+    body = "\n".join(
+        [
+            f"Ola, equipe {clinica_nome or 'parceira'}.",
+            "",
+            "Um computador da unidade foi conectado ao Portal Fort Cordis para consultar",
+            "laudos sem precisar digitar senha a cada acesso.",
+            f"Identificacao: {device_label or 'computador da recepcao'}",
+            f"Conectado em: {_format_datetime(datetime.utcnow())}",
+            f"Acesso valido ate (sem uso): {_format_datetime(trusted_until)}",
+            "",
+            "Esse acesso mostra apenas exames e laudos da unidade. Financeiro, agenda e",
+            "recibos continuam exigindo login com e-mail e senha.",
+            "",
+            "Se voce nao reconhece esse acesso, encerre em 'Sair deste computador' na",
+            f"propria maquina, ou responda este email: {_build_clinic_portal_url(request)}",
+        ]
+    )
+
+    sent_masked: list[str] = []
+    provider: str | None = None
+    last_failure_reason: str | None = None
+    for destination in destinations:
+        try:
+            result = send_portal_email_message(destination=destination, subject=subject, body=body)
+        except PortalDeliveryError as exc:
+            last_failure_reason = exc.__class__.__name__
+            continue
+        provider = result.provider
+        sent_masked.append(mask_email(destination))
+
+    return PortalClinicReleaseNotificationResult(
+        status="sent" if sent_masked else "failed",
+        destination_masked=", ".join(sent_masked) or None,
+        provider=provider,
+        reason=last_failure_reason if not sent_masked else None,
+    )
+
+
 def notify_clinic_report_released(
     *,
     db: Session,

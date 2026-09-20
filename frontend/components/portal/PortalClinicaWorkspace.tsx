@@ -36,6 +36,7 @@ import {
   createPortalExamDownloadUrls,
   downloadPortalAttachment,
   downloadPortalClinicOSRecibo,
+  endPortalDeviceTrust,
   getPortalClinicFinanceiro,
   listPortalAdminClinicMirrorExams,
   listPortalClinicAgendamentos,
@@ -43,6 +44,7 @@ import {
   loadPortalSession,
   loginClinicPortal,
   logoutClinicPortal,
+  portalSessionHasClinicRead,
   refreshClinicPortalSession,
   requestClinicPasswordReset,
   savePortalSession,
@@ -64,6 +66,15 @@ type PortalClinicaWorkspaceProps = {
   mode?: "embedded" | "standalone" | "admin_preview";
   initialSession?: PortalSessionResponse | null;
   onSessionChange?: (session: PortalSessionResponse | null) => void;
+  /**
+   * Abre o formulario de senha sem encerrar a confianca do computador (RF-019).
+   *
+   * Quem monta o shell decide como mostrar o formulario; o workspace so avisa que
+   * alguem pediu. Sem isso, a unica saida do modo laudos era "Sair deste
+   * computador", que revoga a confianca - o gestor precisava derrubar a recepcao
+   * para ver o financeiro.
+   */
+  onPedirLoginPorSenha?: () => void;
   adminPreview?: {
     clinicaId: number;
     clinicaNome?: string | null;
@@ -200,12 +211,20 @@ export default function PortalClinicaWorkspace({
   mode = "embedded",
   initialSession = null,
   onSessionChange,
+  onPedirLoginPorSenha,
   adminPreview = null,
 }: PortalClinicaWorkspaceProps) {
   const isAdminPreview = mode === "admin_preview";
   const previewClinicId = adminPreview?.clinicaId ?? null;
   const [bootstrapping, setBootstrapping] = useState(() => (isAdminPreview ? false : !initialSession));
   const [session, setSession] = useState<PortalSessionResponse | null>(initialSession);
+  // Modo laudos (computador confiavel da recepcao) nao carrega `clinic:read`:
+  // agenda e financeiro somem por completo, em vez de aparecerem desabilitados -
+  // desabilitado sugeriria que basta insistir. O backend confere de todo jeito
+  // (docs/specs/portal-escopo-sessao-clinica/); aqui e so nao prometer o que nao ha.
+  const temClinicRead = isAdminPreview || portalSessionHasClinicRead(session);
+  const modoLaudos = !isAdminPreview && session !== null && !temClinicRead;
+  const [encerrandoDispositivo, setEncerrandoDispositivo] = useState(false);
   const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -553,6 +572,10 @@ export default function PortalClinicaWorkspace({
     if (isAdminPreview || !session) {
       return;
     }
+    // Sem `clinic:read` essas duas chamadas voltariam 403: nem tenta.
+    if (!temClinicRead) {
+      return;
+    }
     if (abaAtiva === "agenda" && !agendamentosSolicitados) {
       setAgendamentosSolicitados(true);
       void loadAgendamentos(session);
@@ -563,6 +586,23 @@ export default function PortalClinicaWorkspace({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [abaAtiva, isAdminPreview, session?.access_token]);
+
+  async function encerrarDispositivo() {
+    setEncerrandoDispositivo(true);
+    setError("");
+    try {
+      await endPortalDeviceTrust();
+    } catch {
+      // O encerramento no backend e idempotente; se falhou, a sessao local ainda
+      // deve cair, senao a pessoa continua vendo laudos numa maquina que ela
+      // acabou de dizer que nao e mais dela.
+    } finally {
+      clearPortalSession("clinica");
+      setSession(null);
+      setEncerrandoDispositivo(false);
+      setMessage("Acesso encerrado neste computador.");
+    }
+  }
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -833,7 +873,13 @@ export default function PortalClinicaWorkspace({
             </div>
 
             <div className="fc-clinic-dashboard-session rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-              <p className="font-bold text-slate-950">{isAdminPreview ? "Visao espelhada" : "Sessão ativa"}</p>
+              <p className="font-bold text-slate-950">
+                {isAdminPreview
+                  ? "Visao espelhada"
+                  : modoLaudos
+                    ? "Conectado neste computador"
+                    : "Sessão ativa"}
+              </p>
               <p className="mt-2">ID da clínica: {activeSession.clinica_id ?? "-"}</p>
               {isAdminPreview ? (
                 <p className="mt-1">
@@ -847,6 +893,33 @@ export default function PortalClinicaWorkspace({
                       Acesso neste computador até {formatPortalDateTime(activeSession.trusted_session_expires_at)}
                     </p>
                   ) : null}
+                  {modoLaudos ? (
+                    <>
+                      <p className="mt-2 text-slate-500">
+                        Este computador consulta laudos da unidade sem senha. Financeiro e agenda
+                        exigem login.
+                      </p>
+                      {onPedirLoginPorSenha ? (
+                        <button
+                          type="button"
+                          onClick={onPedirLoginPorSenha}
+                          className="mt-2 inline-flex text-sm font-semibold text-emerald-800 underline underline-offset-4"
+                        >
+                          Entrar com senha para ver financeiro e agenda
+                        </button>
+                      ) : null}
+                      {/* Abaixo do login de proposito: encerrar e destrutivo e tira a
+                          recepcao do ar, entao nao deve ser a primeira saida a mao. */}
+                      <button
+                        type="button"
+                        onClick={encerrarDispositivo}
+                        disabled={encerrandoDispositivo}
+                        className="mt-2 block text-sm font-semibold text-rose-700 underline underline-offset-4 disabled:opacity-60"
+                      >
+                        {encerrandoDispositivo ? "Encerrando..." : "Sair deste computador"}
+                      </button>
+                    </>
+                  ) : null}
                 </>
               )}
             </div>
@@ -857,7 +930,9 @@ export default function PortalClinicaWorkspace({
             aria-label="Seções do portal da unidade"
             className="mt-6 flex gap-2 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-sm"
           >
-            {PORTAL_TABS.filter((tab) => !tab.somenteSessaoReal || !isAdminPreview).map((tab) => (
+            {PORTAL_TABS.filter(
+              (tab) => !tab.somenteSessaoReal || (!isAdminPreview && temClinicRead),
+            ).map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -1039,7 +1114,7 @@ export default function PortalClinicaWorkspace({
             </div>
           ) : null}
 
-          {abaAtiva === "agenda" && !isAdminPreview ? (
+          {abaAtiva === "agenda" && !isAdminPreview && temClinicRead ? (
             <div role="tabpanel" id="portal-tabpanel-agenda" aria-labelledby="portal-tab-agenda">
             <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1175,7 +1250,7 @@ export default function PortalClinicaWorkspace({
             </div>
           ) : null}
 
-          {abaAtiva === "financeiro" && !isAdminPreview ? (
+          {abaAtiva === "financeiro" && !isAdminPreview && temClinicRead ? (
             <div role="tabpanel" id="portal-tabpanel-financeiro" aria-labelledby="portal-tab-financeiro">
             <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">

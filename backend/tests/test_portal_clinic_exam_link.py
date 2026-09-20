@@ -33,6 +33,7 @@ from app.models.clinica import Clinica
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
 from app.models.portal_clinic_exam_link import PortalClinicExamLink
+from app.models.portal_clinic_trusted_device import PortalClinicTrustedDevice
 from app.models.tutor import Tutor
 from app.services import portal_clinic_exam_link_service as link_service
 
@@ -67,6 +68,7 @@ class PortalClinicExamLinkTests(unittest.TestCase):
             Exame.__table__,
             AnexoAtendimento.__table__,
             PortalClinicExamLink.__table__,
+            PortalClinicTrustedDevice.__table__,
         ):
             table.create(engine, checkfirst=True)
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()

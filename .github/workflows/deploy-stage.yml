@@ -279,6 +279,57 @@ jobs:
             echo "Stage echo voice assistant configuration updated."
           EOF
 
+      - name: Configure portal clinic access flags on Stage VPS
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -euo pipefail
+            env_file="/var/www/fortcordis-stage/backend/.env"
+            if [ ! -f "$env_file" ]; then
+              echo "Stage backend env file not found."
+              exit 1
+            fi
+
+            upsert_env() {
+              key="$1"
+              value="$2"
+              temp_file="${env_file}.${key}.$$"
+              awk -v key="$key" -v value="$value" '
+                BEGIN { found = 0 }
+                index($0, key "=") == 1 {
+                  print key "=" value
+                  found = 1
+                  next
+                }
+                { print }
+                END {
+                  if (!found) print key "=" value
+                }
+              ' "$env_file" > "$temp_file"
+              chmod --reference="$env_file" "$temp_file"
+              mv "$temp_file" "$env_file"
+            }
+
+            # Ligadas SO em stage, para os cenarios manuais de
+            # docs/specs/portal-clinica-dispositivo-confiavel/verify.md secao 3.
+            # Producao recebe as duas desligadas pelo default de config.py, e
+            # este workflow nao toca no .env de producao.
+            #
+            # As duas andam juntas: a acao "manter esta unidade conectada" mora
+            # na pagina do link do laudo, entao sem o link nao ha por onde
+            # conectar o computador da recepcao.
+            # A URL base do link precisa ser fixada aqui. Sem ela,
+            # build_exam_link_url cai no request.base_url, e o uvicorn sobe sem
+            # --proxy-headers (ver o ExecStart em docs/DEPLOY-STAGE.md): ignora o
+            # X-Forwarded-Proto que o nginx manda e monta o link como http://. O
+            # nginx responde 301 para https, mas o primeiro GET ja teria levado o
+            # token do laudo em texto claro - e esse token e credencial ao
+            # portador, o suficiente para abrir o exame.
+            upsert_env PORTAL_CLINIC_EXAM_LINK_BASE_URL https://app.stage.fortcordis.com.br
+            upsert_env PORTAL_CLINIC_EXAM_LINK_ENABLED true
+            upsert_env PORTAL_CLINIC_DEVICE_TRUST_ENABLED true
+            echo "Stage portal clinic access flags updated."
+          EOF
+
       - name: Configure isolated WhatsApp Cloud API identity on Stage VPS
         env:
           WHATSAPP_ACCESS_TOKEN_STAGE: ${{ secrets.WHATSAPP_ACCESS_TOKEN_STAGE }}

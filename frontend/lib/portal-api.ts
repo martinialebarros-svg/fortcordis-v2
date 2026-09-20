@@ -394,6 +394,7 @@ export type PortalExamLinkResponse = {
   tipo_exame: string;
   data_exame?: string | null;
   arquivos: PortalDownloadItem[];
+  dispositivo_confiavel_disponivel?: boolean;
 };
 
 const PORTAL_SESSION_STORAGE_KEY_PREFIX = "fortcordis_portal_session";
@@ -416,6 +417,23 @@ function getCookie(name: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Erro de uma chamada ao portal que o servidor respondeu.
+ *
+ * Existe para distinguir "o servidor recusou" de "nao consegui falar com o
+ * servidor". Sem isso, uma queda de rede era indistinguivel de um 401 e levava a
+ * desconectar quem continuava autorizado.
+ */
+export class PortalRequestError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "PortalRequestError";
+    this.status = status;
+  }
 }
 
 async function readErrorMessage(response: Response, fallback: string): Promise<string> {
@@ -451,7 +469,7 @@ async function portalFetchJson<T>(
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, fallback));
+    throw new PortalRequestError(response.status, await readErrorMessage(response, fallback));
   }
 
   return (await response.json()) as T;
@@ -1106,6 +1124,84 @@ export async function createPortalAdminClinicExamDownloadUrls(
       body: JSON.stringify({}),
     },
     "Nao foi possivel preparar o download na visao espelhada.",
+  );
+}
+
+export type PortalDeviceTrustResponse = {
+  access_token: string;
+  token_type: string;
+  expires_at: string;
+  actor_type: "clinica";
+  actor_id: number;
+  clinica_id: number;
+  clinica_nome: string;
+  scope: string[];
+  trusted_until: string;
+  auth_method: string;
+};
+
+/** `clinic:read` separa o portal completo do modo laudos da recepcao. */
+export const PORTAL_PERMISSION_CLINIC_READ = "clinic:read";
+
+export function portalSessionHasClinicRead(session: PortalSessionResponse | null): boolean {
+  return Boolean(session?.scope?.includes(PORTAL_PERMISSION_CLINIC_READ));
+}
+
+/** Metodo de autenticacao da sessao nascida do link do laudo. */
+export const PORTAL_AUTH_METHOD_DEVICE_TRUST = "device_trust";
+
+export function portalSessionIsDeviceTrust(session: PortalSessionResponse | null): boolean {
+  return session?.auth_method === PORTAL_AUTH_METHOD_DEVICE_TRUST;
+}
+
+function deviceTrustToSession(payload: PortalDeviceTrustResponse): PortalSessionResponse {
+  return {
+    access_token: payload.access_token,
+    token_type: payload.token_type || "bearer",
+    expires_at: payload.expires_at,
+    actor_type: "clinica",
+    actor_id: payload.actor_id,
+    clinica_id: payload.clinica_id,
+    paciente_id: null,
+    account_id: null,
+    auth_method: payload.auth_method || "device_trust",
+    trusted_session_expires_at: payload.trusted_until,
+    scope: payload.scope || [],
+    message: null,
+  };
+}
+
+/** Conecta este computador ao portal em modo laudos, a partir do link do laudo. */
+export async function trustPortalDevice(
+  linkToken: string,
+  deviceLabel?: string,
+): Promise<PortalSessionResponse> {
+  const payload = await portalFetchJson<PortalDeviceTrustResponse>(
+    `/api/v1/portal/laudo-link/${encodeURIComponent(linkToken)}/confiar-dispositivo`,
+    {
+      method: "POST",
+      body: JSON.stringify({ device_label: deviceLabel ?? null }),
+    },
+    "Nao foi possivel conectar este computador.",
+  );
+  return deviceTrustToSession(payload);
+}
+
+/** Retoma a sessao do computador confiavel pelo cookie, sem pedir senha. */
+export async function resumePortalDeviceSession(): Promise<PortalSessionResponse> {
+  const payload = await portalFetchJson<PortalDeviceTrustResponse>(
+    "/api/v1/portal/clinicas/dispositivo/sessao",
+    { method: "POST" },
+    "Dispositivo nao esta mais conectado.",
+  );
+  return deviceTrustToSession(payload);
+}
+
+export async function endPortalDeviceTrust(): Promise<void> {
+  await portalFetchJson<{ encerrado: boolean }>(
+    "/api/v1/portal/clinicas/dispositivo/encerrar",
+    { method: "POST" },
+    "Nao foi possivel encerrar o acesso deste computador.",
   );
 }
 

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   BadgeCheck,
@@ -17,7 +17,10 @@ import PortalClinicaWorkspace from "@/components/portal/PortalClinicaWorkspace";
 import {
   clearPortalSession,
   loadPortalSession,
+  portalSessionIsDeviceTrust,
+  PortalRequestError,
   refreshClinicPortalSession,
+  resumePortalDeviceSession,
   savePortalSession,
   type PortalClinicAuthResponse,
   type PortalSessionResponse,
@@ -85,7 +88,13 @@ function LoadingState() {
   );
 }
 
-function PublicLanding({ onSessionChange }: { onSessionChange: (session: PortalSessionResponse | null) => void }) {
+function PublicLanding({
+  onSessionChange,
+  onVoltarParaLaudos,
+}: {
+  onSessionChange: (session: PortalSessionResponse | null) => void;
+  onVoltarParaLaudos?: () => void;
+}) {
   return (
     <main className="fc-public-portal fc-public-portal-clinic">
       <section className="fc-public-portal-hero">
@@ -97,6 +106,16 @@ function PublicLanding({ onSessionChange }: { onSessionChange: (session: PortalS
             <ArrowLeft className="h-4 w-4" />
             Portal Fort Cordis
           </Link>
+
+          {/* So aparece quando o gestor veio do modo laudos: a confianca do
+              computador continua de pe, entao da para desistir do login sem que a
+              recepcao perca o acesso. */}
+          {onVoltarParaLaudos ? (
+            <button type="button" onClick={onVoltarParaLaudos} className="fc-public-portal-back">
+              <ArrowLeft className="h-4 w-4" />
+              Voltar para os laudos da unidade
+            </button>
+          ) : null}
 
           <div className="fc-public-portal-hero-grid">
             <div className="fc-public-portal-copy">
@@ -215,22 +234,127 @@ function PublicLanding({ onSessionChange }: { onSessionChange: (session: PortalS
 export default function PortalClinicaPageShell() {
   const [bootstrapping, setBootstrapping] = useState(true);
   const [session, setSession] = useState<PortalSessionResponse | null>(null);
+  const [pedindoSenha, setPedindoSenha] = useState(false);
 
-  const handleSessionChange = useCallback((nextSession: PortalSessionResponse | null) => {
-    setSession(nextSession);
+  // Lidos dentro de `handleSessionChange`, que precisa ficar com identidade
+  // estavel: o workspace guarda esse callback nas dependencias de um efeito, e
+  // trocar a funcao a cada render o faria reemitir a sessao sem necessidade.
+  const sessionRef = useRef<PortalSessionResponse | null>(null);
+  const pedindoSenhaRef = useRef(false);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  useEffect(() => {
+    pedindoSenhaRef.current = pedindoSenha;
+  }, [pedindoSenha]);
+
+  const retomarDispositivo = useCallback(async () => {
+    try {
+      const dispositivo = await resumePortalDeviceSession();
+      savePortalSession(dispositivo);
+      setSession(dispositivo);
+      return true;
+    } catch {
+      clearPortalSession("clinica");
+      return false;
+    }
   }, []);
+
+  const handleSessionChange = useCallback(
+    (nextSession: PortalSessionResponse | null) => {
+      if (nextSession) {
+        setSession(nextSession);
+        setPedindoSenha(false);
+        return;
+      }
+
+      setSession(null);
+
+      // Uma sessao acabou de terminar (logout do gestor). Antes de mandar a
+      // recepcao para a pagina publica, ve se o computador continua confiavel:
+      // senao a secretaria encontra a maquina pedindo uma senha que ela nao tem
+      // - o problema que esta entrega existe para evitar - e so um F5 desfaria.
+      //
+      // Duas guardas. Se o gestor PEDIU o formulario (RF-019), a volta e decisao
+      // dele, pelo "Voltar para os laudos da unidade". E se nao havia sessao, o
+      // null veio do cartao de login da pagina publica terminando o proprio
+      // bootstrap - nao ha logout nenhum para reagir.
+      if (pedindoSenhaRef.current || !sessionRef.current) {
+        return;
+      }
+
+      void retomarDispositivo();
+    },
+    [retomarDispositivo],
+  );
+
+  /**
+   * Abre o formulario de senha sem encerrar a confianca do computador (RF-019).
+   *
+   * So limpa a sessao guardada: o cookie do dispositivo continua no navegador.
+   * Por isso o gestor pode desistir - por "Voltar para os laudos da unidade" ou
+   * simplesmente recarregando - que a recepcao volta sozinha. Antes disso a unica
+   * saida do modo laudos era "Sair deste computador", que revoga a confianca e
+   * obrigava a reconectar pelo link seguinte.
+   */
+  const pedirLoginPorSenha = useCallback(() => {
+    clearPortalSession("clinica");
+    setSession(null);
+    setPedindoSenha(true);
+  }, []);
+
+  const voltarParaOsLaudos = useCallback(async () => {
+    // Confianca pode ter caido nesse meio tempo; ai fica no formulario de senha,
+    // que e a unica porta que sobrou.
+    await retomarDispositivo();
+    setPedindoSenha(false);
+  }, [retomarDispositivo]);
 
   useEffect(() => {
     let cancelled = false;
 
+    function aplicar(nextSession: PortalSessionResponse | null) {
+      if (cancelled) {
+        return;
+      }
+      setSession(nextSession);
+      setBootstrapping(false);
+    }
+
     async function hydrate() {
       const storedSession = loadPortalSession("clinica");
+      let dispositivoRecusado = false;
+
       if (storedSession) {
-        if (!cancelled) {
-          setSession(storedSession);
-          setBootstrapping(false);
+        if (!portalSessionIsDeviceTrust(storedSession)) {
+          aplicar(storedSession);
+          return;
         }
-        return;
+
+        // Modo laudos: o token guardado sozinho não prova mais nada. Ele vive até
+        // meia hora no armazenamento do navegador, então confiar nele faria a
+        // revogação só valer quando o token expirasse — e revogar existe
+        // justamente para máquina trocada, vendida ou roubada, onde meia hora é
+        // tempo demais. Reconfere com o servidor antes de mostrar qualquer laudo.
+        try {
+          const revalidada = await resumePortalDeviceSession();
+          savePortalSession(revalidada);
+          aplicar(revalidada);
+          return;
+        } catch (erro) {
+          if (!(erro instanceof PortalRequestError)) {
+            // Sem resposta do servidor (rede fora, por exemplo) não é recusa.
+            // Derrubar a recepção por causa de uma oscilação seria pior do que o
+            // risco que esta revalidação fecha, e a sessão guardada continua
+            // dentro do próprio prazo.
+            aplicar(storedSession);
+            return;
+          }
+          clearPortalSession("clinica");
+          dispositivoRecusado = true;
+        }
       }
 
       try {
@@ -241,6 +365,20 @@ export default function PortalClinicaPageShell() {
         }
       } catch {
         clearPortalSession("clinica");
+        // Sem sessão de senha, tenta o computador confiável da recepção. A ordem
+        // importa: o gerente logado na mesma máquina tem precedência, e o modo
+        // laudos é o que sobra para quem não tem senha (CB-001).
+        if (!dispositivoRecusado) {
+          try {
+            const dispositivo = await resumePortalDeviceSession();
+            savePortalSession(dispositivo);
+            if (!cancelled) {
+              setSession(dispositivo);
+            }
+          } catch {
+            clearPortalSession("clinica");
+          }
+        }
       } finally {
         if (!cancelled) {
           setBootstrapping(false);
@@ -265,9 +403,15 @@ export default function PortalClinicaPageShell() {
         mode="standalone"
         initialSession={session}
         onSessionChange={handleSessionChange}
+        onPedirLoginPorSenha={pedirLoginPorSenha}
       />
     );
   }
 
-  return <PublicLanding onSessionChange={handleSessionChange} />;
+  return (
+    <PublicLanding
+      onSessionChange={handleSessionChange}
+      onVoltarParaLaudos={pedindoSenha ? voltarParaOsLaudos : undefined}
+    />
+  );
 }

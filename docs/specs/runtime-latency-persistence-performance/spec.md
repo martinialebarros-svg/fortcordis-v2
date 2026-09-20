@@ -2,14 +2,19 @@
 
 ## Dados coletados
 
-Para cada requisição de um prefixo em `RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS`,
-o sistema poderá registrar:
+Para cada requisição de um prefixo em `RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS`
+ou `GET` de um caminho em `RUNTIME_HTTP_LATENCY_EXACT_ENDPOINTS`, o sistema
+poderá registrar:
 
 - prefixo normalizado configurado, nunca a URL solicitada;
 - identificador curto do release em execução;
 - código HTTP;
 - duração total, duração acumulada de SQL e espera acumulada de pool, em ms;
 - instante UTC da amostra.
+
+Os prefixos agregam uma família de rotas. Os caminhos exatos não aceitam
+subrotas nem métodos diferentes de `GET`, permitindo medir uma leitura sem
+misturar detalhes, PDFs ou mutações da mesma família.
 
 Nenhum parâmetro de URL, payload, usuário, clínica, paciente, tutor ou texto
 clínico pode ser persistido nessa tabela.
@@ -28,8 +33,15 @@ clínico pode ser persistido nessa tabela.
 
 `GET /api/v1/admin/observability/http-latency?hours={1..168}` exige papel
 `admin`. A resposta é agregada por `(endpoint, release_id)` e traz quantidade,
-erros 5xx, média, p50, p95, p99, banco e pool. A consulta possui limite de
-amostras e informa quando ele foi atingido.
+erros 5xx, média, p50, p95, p99, máximo, quantidade acima do limite operacional
+de 1.200 ms, banco e pool. O limite acompanha o gate autenticado existente e é
+devolvido explicitamente em `slow_request_threshold_ms`. A consulta possui
+limite de amostras e informa quando ele foi atingido.
+
+O máximo e `slow_request_count` complementam os percentis: com 101 amostras o
+p99 por nearest-rank não representa necessariamente a maior observação. Esses
+campos continuam medindo apenas o intervalo depois da entrada no middleware;
+fila anterior ao ASGI exige correlação de cliente/ingress.
 
 ## Identificação do release
 

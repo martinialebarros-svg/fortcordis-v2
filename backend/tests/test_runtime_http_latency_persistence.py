@@ -81,6 +81,13 @@ class RuntimeHttpLatencyPersistenceTest(unittest.TestCase):
                 database_ms=50,
                 pool_wait_ms=10,
             )
+            third_sample = runtime_observability.record_http_request(
+                path="/api/v1/agenda",
+                status_code=200,
+                duration_ms=1300,
+                database_ms=25,
+                pool_wait_ms=2,
+            )
 
         self.assertEqual(first_sample["endpoint"], "/api/v1/agenda")
         self.assertEqual(first_sample["database_ms"], 20.0)
@@ -88,6 +95,7 @@ class RuntimeHttpLatencyPersistenceTest(unittest.TestCase):
         self.assertNotIn("42", first_sample.values())
         self.assertTrue(runtime_observability.persist_http_latency_sample(first_sample))
         self.assertTrue(runtime_observability.persist_http_latency_sample(second_sample))
+        self.assertTrue(runtime_observability.persist_http_latency_sample(third_sample))
 
         db = self.session_factory()
         try:
@@ -101,10 +109,13 @@ class RuntimeHttpLatencyPersistenceTest(unittest.TestCase):
         group = payload["groups"][0]
         self.assertEqual(group["endpoint"], "/api/v1/agenda")
         self.assertEqual(group["release_id"], "abc123")
-        self.assertEqual(group["request_count"], 2)
+        self.assertEqual(payload["slow_request_threshold_ms"], 1200.0)
+        self.assertEqual(group["request_count"], 3)
         self.assertEqual(group["error_5xx_count"], 1)
-        self.assertEqual(group["p50_ms"], 100.0)
-        self.assertEqual(group["p95_ms"], 300.0)
+        self.assertEqual(group["max_ms"], 1300.0)
+        self.assertEqual(group["slow_request_count"], 1)
+        self.assertEqual(group["p50_ms"], 300.0)
+        self.assertEqual(group["p95_ms"], 1300.0)
         self.assertEqual(group["database_p95_ms"], 50.0)
         self.assertEqual(group["pool_wait_p95_ms"], 10.0)
 
@@ -116,6 +127,51 @@ class RuntimeHttpLatencyPersistenceTest(unittest.TestCase):
         )
         with patch.object(database, "SessionLocal", side_effect=RuntimeError("indisponivel")):
             self.assertFalse(runtime_observability.persist_http_latency_sample(sample))
+
+    def test_exact_financeiro_reads_persist_as_separate_safe_groups(self) -> None:
+        with patch.object(
+            runtime_observability.settings,
+            "RUNTIME_HTTP_LATENCY_RELEASE_ID",
+            "financeiro123",
+        ):
+            ordens_sample = runtime_observability.record_http_request(
+                path="/api/v1/ordens-servico",
+                method="GET",
+                status_code=200,
+                duration_ms=180,
+                database_ms=70,
+                pool_wait_ms=4,
+            )
+            cobrancas_sample = runtime_observability.record_http_request(
+                path="/api/v1/ordens-servico/cobrancas",
+                method="GET",
+                status_code=200,
+                duration_ms=260,
+                database_ms=110,
+                pool_wait_ms=6,
+            )
+
+        self.assertIsNotNone(ordens_sample)
+        self.assertIsNotNone(cobrancas_sample)
+        self.assertTrue(runtime_observability.persist_http_latency_sample(ordens_sample))
+        self.assertTrue(runtime_observability.persist_http_latency_sample(cobrancas_sample))
+
+        db = self.session_factory()
+        try:
+            payload = runtime_observability.get_persisted_http_latency_summary(db, hours=24)
+        finally:
+            db.close()
+
+        groups = {item["endpoint"]: item for item in payload["groups"]}
+        self.assertEqual(set(groups), {
+            "/api/v1/ordens-servico",
+            "/api/v1/ordens-servico/cobrancas",
+        })
+        self.assertEqual(groups["/api/v1/ordens-servico"]["p95_ms"], 180.0)
+        self.assertEqual(
+            groups["/api/v1/ordens-servico/cobrancas"]["p95_ms"],
+            260.0,
+        )
 
     def test_first_persisted_write_cleans_expired_samples_with_bounded_retention(self) -> None:
         db = self.session_factory()

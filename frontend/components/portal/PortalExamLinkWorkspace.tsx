@@ -2,11 +2,15 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Download, FileText, Loader2, PawPrint, ShieldCheck } from "lucide-react";
+import { Download, FileText, Loader2, MonitorCheck, PawPrint, ShieldCheck } from "lucide-react";
 
 import {
   downloadPortalAttachment,
+  PortalRequestError,
   resolvePortalExamLink,
+  resumePortalDeviceSession,
+  savePortalSession,
+  trustPortalDevice,
   type PortalDownloadItem,
   type PortalExamLinkResponse,
 } from "@/lib/portal-api";
@@ -29,6 +33,9 @@ export default function PortalExamLinkWorkspace({ linkToken }: PortalExamLinkWor
   const [erro, setErro] = useState("");
   const [baixando, setBaixando] = useState<number | null>(null);
   const [erroDownload, setErroDownload] = useState("");
+  const [conectando, setConectando] = useState(false);
+  const [conectado, setConectado] = useState(false);
+  const [erroConexao, setErroConexao] = useState("");
 
   useEffect(() => {
     let ativo = true;
@@ -71,6 +78,42 @@ export default function PortalExamLinkWorkspace({ linkToken }: PortalExamLinkWor
       setBaixando(null);
     }
   }, []);
+
+  const conectarComputador = useCallback(async () => {
+    setConectando(true);
+    setErroConexao("");
+
+    // Falha em qualquer etapa não pode atrapalhar o que a pessoa veio fazer: o
+    // laudo segue na tela e o download continua funcionando (CB-002).
+    try {
+      await trustPortalDevice(linkToken);
+    } catch {
+      setErroConexao("Não foi possível conectar este computador. O laudo acima continua disponível.");
+      setConectando(false);
+      return;
+    }
+
+    // O 200 acima diz que o servidor criou a confiança — não que ESTE navegador
+    // guardou o cookie dela. Num navegador que bloqueia cookies o pedido passa e
+    // o `Set-Cookie` é descartado em silêncio: sem esta confirmação a tela diria
+    // "Pronto" para uma recepção que amanhã encontra o portal pedindo senha, e a
+    // suspeita cairia no link. Confirmado em stage em 20/09/2026.
+    try {
+      const sessao = await resumePortalDeviceSession();
+      savePortalSession(sessao);
+      setConectado(true);
+    } catch (erro) {
+      setErroConexao(
+        erro instanceof PortalRequestError
+          ? "Este navegador não guardou o acesso, então o computador não ficou conectado. " +
+            "Se estiver em uma janela anônima ou com cookies bloqueados, tente de novo em uma " +
+            "janela normal. O laudo acima continua disponível."
+          : "Não foi possível confirmar a conexão deste computador. O laudo acima continua disponível.",
+      );
+    } finally {
+      setConectando(false);
+    }
+  }, [linkToken]);
 
   if (carregando) {
     return (
@@ -161,6 +204,51 @@ export default function PortalExamLinkWorkspace({ linkToken }: PortalExamLinkWor
         <p className="mt-4 text-sm font-medium text-rose-700" role="alert">
           {erroDownload}
         </p>
+      ) : null}
+
+      {exame.dispositivo_confiavel_disponivel ? (
+        <div className="mt-6 rounded-md border border-teal-200 bg-teal-50/60 p-4">
+          {conectado ? (
+            <p className="flex items-start gap-2 text-sm leading-6 text-teal-900">
+              <MonitorCheck className="h-5 w-5 shrink-0" aria-hidden />
+              <span>
+                Pronto. Este computador agora abre os laudos da unidade direto, sem senha.
+                <Link
+                  href="/clinica-parceira"
+                  className="ml-1 font-semibold underline underline-offset-4"
+                >
+                  Ver todos os laudos
+                </Link>
+              </span>
+            </p>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-teal-900">É este o computador da recepção?</p>
+              <p className="mt-1 text-sm leading-6 text-teal-900/80">
+                Deixe conectado e a equipe passa a abrir os laudos da unidade sem senha — incluindo
+                os antigos. Financeiro e agenda continuam exigindo login.
+              </p>
+              <button
+                type="button"
+                onClick={conectarComputador}
+                disabled={conectando}
+                className="mt-3 inline-flex items-center gap-2 rounded-md border border-teal-700 px-4 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-700 hover:text-white disabled:opacity-60"
+              >
+                {conectando ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <MonitorCheck className="h-4 w-4" aria-hidden />
+                )}
+                Manter esta unidade conectada neste computador
+              </button>
+            </>
+          )}
+          {erroConexao ? (
+            <p className="mt-3 text-sm font-medium text-rose-700" role="alert">
+              {erroConexao}
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       <p className="mt-6 flex items-start gap-2 text-xs leading-5 text-slate-500">

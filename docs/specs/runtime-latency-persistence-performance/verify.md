@@ -18,3 +18,26 @@
 - [x] Smoke de rotas públicas e protegidas passou em stage.
 - [x] A promoção para produção usou o mesmo commit validado em stage.
 - [x] Smoke equivalente em produção passou após a promoção (release `4f94683`, 2026-09-06).
+
+## Extensão PERF-19 — Ordens e Cobranças
+
+- [x] A especificação passou a distinguir prefixos de rotas exatas `GET`.
+- [x] Testes locais confirmam grupos persistidos separados, cinco prefixos
+  preservados e descarte de subrotas, método ausente e métodos não-GET.
+- [x] Smoke autenticado em stage concluído no release `75a58ba`: Ordens e
+  Cobranças apareceram como grupos distintos, com ao menos 20 amostras cada,
+  `truncated=false`, p95 abaixo de 1.200 ms e zero 5xx.
+- [ ] A janela operacional preferencial de 100 amostras e a validação em
+  produção permanecem registradas em
+  `docs/specs/financeiro-runtime-latency-observability/verify.md`.
+
+## Extensão PERF-20 — visibilidade da cauda máxima
+
+- [x] Agregação em memória e persistida retornam `max_ms`,
+  `slow_request_count` e o limite explícito de 1.200 ms.
+- [x] Teste de fronteira confirma que 1.200 ms não conta como excedente e um
+  valor estritamente maior conta.
+- [x] O painel administrativo exibe máximo e número de excedentes sem expor
+  rota completa, query string, usuário ou conteúdo clínico.
+- [x] Testes focados, suíte backend completa, 378 testes Vitest, 9 testes Node,
+  lint, typecheck, build de 43 páginas e guardrail SDD aprovados.

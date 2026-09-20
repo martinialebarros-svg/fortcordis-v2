@@ -26,6 +26,7 @@ _MAX_LATENCY_WINDOW_MINUTES = 1440
 _DEFAULT_LATENCY_MAX_SAMPLES = 2000
 _MIN_LATENCY_MAX_SAMPLES = 100
 _MAX_LATENCY_MAX_SAMPLES = 20000
+_SLOW_REQUEST_THRESHOLD_MS = 1200.0
 _DEFAULT_PERSISTENCE_RETENTION_DAYS = 14
 _MIN_PERSISTENCE_RETENTION_DAYS = 1
 _MAX_PERSISTENCE_RETENTION_DAYS = 90
@@ -42,6 +43,8 @@ _DEFAULT_LATENCY_ENDPOINTS = [
     "/api/v1/fiscal",
     "/api/v1/logistica",
 ]
+_MAX_LATENCY_PREFIX_ENDPOINTS = 5
+_MAX_LATENCY_EXACT_ENDPOINTS = 5
 
 _HTTP_5XX_EVENTS: Deque[Tuple[float, datetime]] = deque()
 _HTTP_5XX_LOCK = threading.Lock()
@@ -146,25 +149,61 @@ def get_http_latency_monitor_config() -> Dict[str, Any]:
         min_value=_MIN_LATENCY_MAX_SAMPLES,
         max_value=_MAX_LATENCY_MAX_SAMPLES,
     )
-    configured_endpoints = _parse_endpoint_prefixes(
+    configured_prefixes = _parse_endpoint_prefixes(
         settings.RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS
     )
-    endpoints_warning: Optional[str] = None
-    if not configured_endpoints:
-        configured_endpoints = list(_DEFAULT_LATENCY_ENDPOINTS)
-        endpoints_warning = (
+    endpoint_warnings: List[str] = []
+    if not configured_prefixes:
+        configured_prefixes = list(_DEFAULT_LATENCY_ENDPOINTS)
+        endpoint_warnings.append(
             "RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS vazio/invalido. "
             "Usando endpoints padrao."
         )
-    endpoints = configured_endpoints[:5]
+    configured_exact_endpoints = _parse_endpoint_prefixes(
+        settings.RUNTIME_HTTP_LATENCY_EXACT_ENDPOINTS
+    )
+    if len(configured_exact_endpoints) > _MAX_LATENCY_EXACT_ENDPOINTS:
+        endpoint_warnings.append(
+            "RUNTIME_HTTP_LATENCY_EXACT_ENDPOINTS excede o limite de "
+            f"{_MAX_LATENCY_EXACT_ENDPOINTS}; os itens excedentes foram ignorados."
+        )
+    exact_endpoints = configured_exact_endpoints[:_MAX_LATENCY_EXACT_ENDPOINTS]
+
+    exact_endpoint_set = set(exact_endpoints)
+    overlapping_endpoints = [
+        endpoint for endpoint in configured_prefixes if endpoint in exact_endpoint_set
+    ]
+    if overlapping_endpoints:
+        endpoint_warnings.append(
+            "Endpoint presente nas configuracoes de prefixo e rota exata; "
+            "a classificacao exata GET prevalece e o prefixo duplicado foi ignorado."
+        )
+        configured_prefixes = [
+            endpoint for endpoint in configured_prefixes if endpoint not in exact_endpoint_set
+        ]
+
+    if len(configured_prefixes) > _MAX_LATENCY_PREFIX_ENDPOINTS:
+        endpoint_warnings.append(
+            "RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS excede o limite de "
+            f"{_MAX_LATENCY_PREFIX_ENDPOINTS}; os itens excedentes foram ignorados."
+        )
+    prefixes = configured_prefixes[:_MAX_LATENCY_PREFIX_ENDPOINTS]
+
+    endpoints: List[str] = []
+    for endpoint in prefixes + exact_endpoints:
+        if endpoint not in endpoints:
+            endpoints.append(endpoint)
 
     warnings = [
-        warning for warning in (window_warning, samples_warning, endpoints_warning) if warning
+        warning for warning in (window_warning, samples_warning) if warning
     ]
+    warnings.extend(endpoint_warnings)
     return {
         "window_minutes": window_minutes,
         "max_samples_per_endpoint": max_samples,
         "priority_endpoints": endpoints,
+        "priority_endpoint_prefixes": prefixes,
+        "exact_endpoints": exact_endpoints,
         "warnings": warnings,
     }
 
@@ -211,11 +250,20 @@ def get_http_latency_persistence_config() -> Dict[str, Any]:
     }
 
 
-def begin_http_request_observation(path: str) -> Optional[Token]:
-    """Abre contexto somente para um prefixo configurado, sem guardar a URL."""
+def begin_http_request_observation(
+    path: str,
+    *,
+    method: Optional[str] = None,
+) -> Optional[Token]:
+    """Abre contexto somente para uma rota monitorada, sem guardar a URL."""
 
     config = get_http_latency_monitor_config()
-    endpoint = _resolve_monitored_endpoint(path, list(config["priority_endpoints"]))
+    endpoint = _resolve_monitored_endpoint(
+        path,
+        list(config["priority_endpoint_prefixes"]),
+        exact_endpoints=list(config["exact_endpoints"]),
+        method=method,
+    )
     if endpoint is None:
         return None
     return _REQUEST_LATENCY_CONTEXT.set(
@@ -268,10 +316,20 @@ def _purge_old_latency_events_locked(
         events.popleft()
 
 
-def _resolve_monitored_endpoint(path: str, endpoints: List[str]) -> Optional[str]:
+def _resolve_monitored_endpoint(
+    path: str,
+    endpoints: List[str],
+    *,
+    exact_endpoints: Optional[List[str]] = None,
+    method: Optional[str] = None,
+) -> Optional[str]:
     if not path:
         return None
     clean_path = path.strip()
+    normalized_method = str(method or "").strip().upper()
+    for endpoint in exact_endpoints or []:
+        if clean_path == endpoint:
+            return endpoint if normalized_method == "GET" else None
     matches = [endpoint for endpoint in endpoints if clean_path.startswith(endpoint)]
     if not matches:
         return None
@@ -298,6 +356,7 @@ def record_http_request(
     path: str,
     status_code: int,
     duration_ms: float,
+    method: Optional[str] = None,
     database_ms: Optional[float] = None,
     pool_wait_ms: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -315,7 +374,12 @@ def record_http_request(
     record_http_status(status_int)
 
     config = get_http_latency_monitor_config()
-    endpoint = _resolve_monitored_endpoint(path, list(config["priority_endpoints"]))
+    endpoint = _resolve_monitored_endpoint(
+        path,
+        list(config["priority_endpoint_prefixes"]),
+        exact_endpoints=list(config["exact_endpoints"]),
+        method=method,
+    )
     if endpoint is None:
         return None
 
@@ -433,6 +497,10 @@ def get_http_latency_monitor_status() -> Dict[str, Any]:
                 "request_count": request_count,
                 "error_5xx_count": error_5xx_count,
                 "avg_ms": avg_ms,
+                "max_ms": round(max(durations), 2) if durations else None,
+                "slow_request_count": sum(
+                    1 for duration in durations if duration > _SLOW_REQUEST_THRESHOLD_MS
+                ),
                 "p50_ms": p50_ms,
                 "p95_ms": p95_ms,
                 "p99_ms": p99_ms,
@@ -447,7 +515,10 @@ def get_http_latency_monitor_status() -> Dict[str, Any]:
     return {
         "window_minutes": int(config["window_minutes"]),
         "max_samples_per_endpoint": int(config["max_samples_per_endpoint"]),
+        "slow_request_threshold_ms": _SLOW_REQUEST_THRESHOLD_MS,
         "priority_endpoints": endpoints,
+        "priority_endpoint_prefixes": list(config["priority_endpoint_prefixes"]),
+        "exact_endpoints": list(config["exact_endpoints"]),
         "endpoints": endpoint_payload,
         "persistence": {
             "enabled": persistence_config["enabled"],
@@ -560,6 +631,7 @@ def get_persisted_http_latency_summary(db: Any, *, hours: int) -> Dict[str, Any]
             "hours": int(hours),
             "retention_days": int(config["retention_days"]),
             "query_max_samples": max_samples,
+            "slow_request_threshold_ms": _SLOW_REQUEST_THRESHOLD_MS,
             "truncated": False,
             "groups": [],
         }
@@ -602,6 +674,10 @@ def get_persisted_http_latency_summary(db: Any, *, hours: int) -> Dict[str, Any]
                 **group,
                 "request_count": request_count,
                 "avg_ms": round(sum(durations) / request_count, 2) if request_count else None,
+                "max_ms": round(max(durations), 2) if durations else None,
+                "slow_request_count": sum(
+                    1 for duration in durations if duration > _SLOW_REQUEST_THRESHOLD_MS
+                ),
                 "p50_ms": _percentile_ms(durations, 50),
                 "p95_ms": _percentile_ms(durations, 95),
                 "p99_ms": _percentile_ms(durations, 99),
@@ -627,6 +703,7 @@ def get_persisted_http_latency_summary(db: Any, *, hours: int) -> Dict[str, Any]
         "hours": int(hours),
         "retention_days": int(config["retention_days"]),
         "query_max_samples": max_samples,
+        "slow_request_threshold_ms": _SLOW_REQUEST_THRESHOLD_MS,
         "truncated": truncated,
         "groups": result_groups,
     }

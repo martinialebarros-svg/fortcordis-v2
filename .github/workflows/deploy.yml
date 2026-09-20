@@ -277,6 +277,49 @@ jobs:
           echo "Production echo voice assistant configuration updated."
         EOF
 
+    - name: Configure portal clinic link base URL on Production VPS
+      run: |
+        ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+          set -euo pipefail
+          env_file="/var/www/fortcordis-v2/backend/.env"
+          if [ ! -f "$env_file" ]; then
+            echo "Production backend env file not found."
+            exit 1
+          fi
+
+          upsert_env() {
+            key="$1"
+            value="$2"
+            temp_file="${env_file}.${key}.$$"
+            awk -v key="$key" -v value="$value" '
+              BEGIN { found = 0 }
+              index($0, key "=") == 1 {
+                print key "=" value
+                found = 1
+                next
+              }
+              { print }
+              END {
+                if (!found) print key "=" value
+              }
+            ' "$env_file" > "$temp_file"
+            chmod --reference="$env_file" "$temp_file"
+            mv "$temp_file" "$env_file"
+          }
+
+          # So fixa a URL base; nao liga nada. PORTAL_CLINIC_EXAM_LINK_ENABLED e
+          # PORTAL_CLINIC_DEVICE_TRUST_ENABLED seguem desligadas pelo default de
+          # config.py, e esta variavel so e lida na hora de emitir um link.
+          #
+          # Fica pronta de antemao porque o dia de ligar a flag e o dia em que sai
+          # mensagem para clinica de verdade, e sem ela build_exam_link_url cairia no
+          # request.base_url: o uvicorn de producao tambem sobe sem --proxy-headers
+          # (ver README-DEPLOY.md), entao montaria http:// e o token do laudo, que e
+          # credencial ao portador, viajaria em texto claro ate o 301 do nginx.
+          upsert_env PORTAL_CLINIC_EXAM_LINK_BASE_URL https://app.fortcordis.com.br
+          echo "Production portal clinic link base URL updated."
+        EOF
+
     - name: Deploy to VPS
       run: |
         ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'

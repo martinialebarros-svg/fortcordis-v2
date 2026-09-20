@@ -77,3 +77,18 @@ Tornar o carregamento inicial do Financeiro limitado, cancelavel e parcial. O cl
 - Otimizacao de SQL/indices.
 - Retry automatico.
 - Mudancas de infraestrutura.
+
+## 9) Extensao 2026-09-19 — recarga isolada de Cobrancas
+
+- RF-008: `Atualizar destinatarios` deve refazer apenas
+  `GET /ordens-servico/cobrancas`, preservando Resumo, Clinicas, Servicos,
+  Formas de pagamento e Bandeiras ja carregados.
+- RF-009: a recarga especifica de Cobrancas deve possuir controlador proprio;
+  uma nova tentativa cancela somente a leitura anterior da mesma secao.
+- NFR-006: uma carga geral por troca de rota, aba ou filtro continua podendo
+  cancelar a recarga de Cobrancas obsoleta, sem permitir que sua resposta
+  substitua os filtros atuais.
+- CA-008: teste de componente prova que a recarga especifica incrementa apenas
+  a chamada de Cobrancas e nao reinicia as cinco leituras independentes.
+- CA-009: a recarga limpa somente a falha de Cobrancas, preservando avisos de
+  outras secoes ate que elas sejam tentadas novamente.
