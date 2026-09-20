@@ -34,7 +34,7 @@ Status: in-progress
 | NFR-005 | nao funcional | CA-013 | ok |
 | NFR-006 | nao funcional | Todas as recusas de `dispositivo/sessao` devolvem 401 com o mesmo `detail` e limpam o cookie (CA-006 a CA-009, RF-014) | ok |
 | NFR-007 | nao funcional | Modo laudos usa os mesmos endpoints de exame do portal com senha; nenhum dado novo exposto | ok |
-| Migracao | banco | `20260918_88` aplicada em banco limpo pela suite; **falta rodar em stage/producao** | pendente |
+| Migracao | banco | `20260918_88` aplicada em banco limpo pela suite; aplicada em stage (conferido em 20/09/2026 por `get_migration_status`: `current_version=20260918_88`, `pending_count=0`); **falta producao** | pendente |
 | Stage | manual | 7 cenarios da secao 3 em `app.stage.fortcordis.com.br` | pendente |
 
 ## 2) Testes automatizados executados
@@ -124,8 +124,9 @@ Pendentes em stage, com a flag `PORTAL_CLINIC_DEVICE_TRUST_ENABLED` ligada:
 - [x] Aprovado para stage (com `PORTAL_CLINIC_DEVICE_TRUST_ENABLED=false` no
       primeiro deploy; ligar so depois de conferir que o portal com senha segue
       normal).
-- [ ] Aprovado para producao - **bloqueado** ate: (a) `portal-escopo-sessao-clinica`
-      estar em producao; (b) os 7 cenarios manuais rodarem em stage; (c) a migracao
-      `20260918_88` ser aplicada. O prazo de inatividade ficou decidido em
+- [ ] Aprovado para producao - **bloqueado** ate: (a) ~~`portal-escopo-sessao-clinica`
+      estar em producao~~ **resolvido em 20/09/2026** (`_assert_portal_scope` esta em
+      `main`); (b) os 7 cenarios manuais rodarem em stage; (c) a migracao
+      `20260918_88` ser aplicada - ja rodou em stage, falta producao. O prazo de inatividade ficou decidido em
       **30 dias** (18/09/2026).
 - [ ] Nao aprovado.
