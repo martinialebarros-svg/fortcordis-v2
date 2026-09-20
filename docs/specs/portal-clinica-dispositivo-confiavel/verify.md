@@ -24,7 +24,7 @@ Status: in-progress
 | CA-014 | aceitacao | `PortalClinicaPageShell.test.tsx::ainda tenta o computador confiavel quando nao ha nada guardado` (teste proprio, criado em 20/09/2026) + cenario 1 em stage | ok |
 | CA-015 | aceitacao | `PortalClinicaWorkspaceModoLaudos.test.tsx` - 8 casos (abas escondidas, abas presentes com senha, cabecalho, sair do computador, e os tres do login por senha do RF-019) | ok |
 | CB-001 | borda | **Confirmado em stage em 20/09/2026** (cenario 3, secao 3): com o gestor logado, a tela roda em `password` com `clinic:read` e o cookie do dispositivo continua valido no mesmo navegador (`dispositivo/sessao` 200, escopo so de exames). Testes: `PortalClinicaPageShell.test.tsx::nao reconfere sessao com senha`, `::leva ao formulario de senha sem encerrar a confianca do computador` e `PortalClinicaWorkspaceModoLaudos.test.tsx::oferece entrar com senha sem passar por sair do computador` | ok |
-| CB-002 | borda | `PortalExamLinkWorkspace.test.tsx::falha ao conectar sem tirar o laudo da tela` | ok |
+| CB-002 | borda | `PortalExamLinkWorkspace.test.tsx::falha ao conectar sem tirar o laudo da tela` (pedido recusado) e `::nao diz que conectou quando o navegador nao guarda o cookie` (pedido aceito, cookie descartado - RF-023, 20/09/2026). Download sem cookie conferido em stage: 200, `application/pdf`, 899.570 bytes | ok |
 | CA-016 | aceitacao | `PortalClinicaPageShell.test.tsx::derruba o computador revogado mesmo com token guardado ainda no prazo` e `::nao reconfere sessao com senha`; confirmado em stage em 20/09/2026 (secao 3) | ok |
 | CA-017 | aceitacao | `PortalClinicaPageShell.test.tsx::volta para o modo laudos quando a sessao com senha termina` e `::nao retoma o dispositivo quando foi o gestor que pediu o formulario` | ok |
 | CB-005 | borda | `test_portal_clinic_device_trust.py::test_sessao_rotaciona_o_cookie_e_renova_o_prazo` (sessao com a flag desligada) e `test_flag_desligada_impede_conectar` | ok |
@@ -39,7 +39,7 @@ Status: in-progress
 | NFR-006 | nao funcional | Todas as recusas de `dispositivo/sessao` devolvem 401 com o mesmo `detail` e limpam o cookie (CA-006 a CA-009, RF-014) | ok |
 | NFR-007 | nao funcional | Modo laudos usa os mesmos endpoints de exame do portal com senha; nenhum dado novo exposto | ok |
 | Migracao | banco | `20260918_88` aplicada em banco limpo pela suite; aplicada em stage (conferido em 20/09/2026: `current_version=20260918_88`, `pending_count=0`); **falta producao** | pendente |
-| Stage | manual | **6 dos 7 cenarios** rodados em 20/09/2026, mais a reconferencia do RF-021 (secao 3); falta so a metade visual do 7 | pendente |
+| Stage | manual | **Os 7 cenarios** rodados em 20/09/2026, mais RF-021 e RF-022 confirmados em stage (secao 3). Falta rever o 7 em stage depois do RF-023 | pendente |
 
 ## 2) Testes automatizados executados
 
@@ -118,6 +118,18 @@ Tambem so de frontend.
   workspace guarda esse callback nas dependencias de um efeito, e trocar a identidade
   da funcao a cada render o faria reemitir a sessao sem necessidade.
 
+### Incremento de 20/09/2026 - RF-023 (confirmar que o cookie colou)
+
+Tambem so de frontend.
+
+- `tsc` limpo, `eslint --max-warnings=0` limpo,
+  **50 arquivos / 392 testes** no vitest e 9 no `node --test`.
+- `PortalExamLinkWorkspace.test.tsx::nao diz que conectou quando o navegador nao
+  guarda o cookie` cobre o caso novo; o teste de sucesso passou a exigir que a
+  confirmacao tenha acontecido antes do "Pronto".
+- A mensagem separa recusa do servidor de falha de rede: so a primeira acusa o
+  navegador de nao ter guardado o acesso.
+
 ## 3) Testes manuais
 
 Rodados em 20/09/2026 em `app.stage.fortcordis.com.br`, clinica Animal Care (id 8),
@@ -155,13 +167,14 @@ nasceu mesmo com a entrega falhando, e a URL foi reconstruida de `SECRET_KEY` +
   Religar o exame e reemitir gerou **token diferente** - link revogado nao volta.
 - Cenario 6 - **ok, com o achado abaixo**. Revogacao pelo admin fez
   `dispositivo/sessao` devolver 401 com o cookie limpo.
-- Cenario 7 (CB-002) - **parcial**. A metade que importa foi conferida: com
-  `credentials: "omit"` (cookie descartado, como num navegador que os bloqueia),
-  conectar devolve 200 mas a sessao seguinte cai em 401 - o efeito util e nenhum - e
-  **o download do laudo continua funcionando** (200, `application/pdf`, 899.570
-  bytes, sem cookie nenhum). A mensagem na tela segue coberta so por
-  `PortalExamLinkWorkspace.test.tsx`; falta ver com os olhos num navegador com
-  cookies bloqueados.
+- Cenario 7 (CB-002) - **rodado, e reprovou na primeira tentativa**. Emulando um
+  navegador que bloqueia cookies (pedido sai, `Set-Cookie` descartado), a tela
+  respondeu **"Pronto. Este computador agora abre os laudos da unidade direto, sem
+  senha."** e `/clinica-parceira` em seguida mostrou a pagina publica de login. Ou
+  seja: falhou em silencio, com confirmacao verde por cima. Corrigido no mesmo dia
+  por RF-023 - falta rever em stage depois do deploy.
+  A outra metade passou: **o download do laudo continua funcionando** sem cookie
+  nenhum (200, `application/pdf`, 899.570 bytes).
 
 Verificacoes extras que o roteiro nao pedia:
 
@@ -213,6 +226,22 @@ continua na tela, abaixo, porque encerrar de verdade tambem precisa existir.
 
 Com isso o cenario 3 deixou de estar bloqueado, e rodou no mesmo dia.
 
+### Achado do cenario 7: a tela dizia "Pronto" sem ter conectado
+
+O `confiar-dispositivo` responde **200** mesmo quando o navegador descarta o cookie -
+o servidor cria a confianca e nao tem como saber que ela nao chegou. A tela tratava o
+200 como sucesso.
+
+O teste que cobria CB-002 exercitava o outro jeito de falhar (pedido **recusado**
+pelo servidor), entao a lacuna passou batida ate a verificacao em stage.
+
+Quem vive isso e a recepcao: clica, le "Pronto", volta ao trabalho, e no dia seguinte
+o portal pede senha. A suspeita cai no link, nao no navegador.
+
+Corrigido por RF-023: a tela so confirma depois de `dispositivo/sessao` provar que o
+cookie colou. Sobra um efeito colateral aceito - a confianca criada nesse caso fica
+orfa no banco, sem ninguem que saiba o segredo, ate expirar por inatividade.
+
 ### Achado do cenario 3: o logout largava a recepcao na porta
 
 Rodando o cenario 3 ate o fim: depois do "Sair" do gestor, a tela foi para a **pagina
@@ -249,6 +278,10 @@ gestor pediu por RF-019 (CB-008 cobre o caso em que a confianca tambem acabou).
   reconectar pelo link seguinte - o que funciona, mas e um passo a mais. O numero
   continua configuravel por `PORTAL_CLINIC_DEVICE_TRUST_INACTIVITY_DAYS`; vale
   revisitar depois de ver os dados de `last_seen_at` das primeiras unidades.
+- Risco residual 7 (20/09/2026): navegador que descarta o cookie deixa uma confianca
+  orfa no banco - criada, mas sem ninguem que saiba o segredo. Nao da acesso a
+  ninguem; so aparece na lista do admin ate expirar por inatividade. `confiar-
+  dispositivo` nao tem como saber, na hora, que o cookie nao chegou.
 - Risco residual 5: nao ha limite de dispositivos confiaveis por clinica, nem tela
   para a propria unidade listar os seus (so "sair deste computador" no navegador
   atual). Uma unidade com varias maquinas acumula confiancas que so a Fort Cordis

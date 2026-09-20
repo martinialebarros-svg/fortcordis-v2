@@ -89,23 +89,30 @@ describe("laudo aberto pelo link do WhatsApp", () => {
     expect(screen.getByRole("link", { name: /portal completo/i })).toBeInTheDocument();
   });
 
+  const sessaoDoDispositivo = {
+    access_token: "token-do-dispositivo",
+    token_type: "bearer",
+    expires_at: "2026-09-18T15:02:00",
+    actor_type: "clinica",
+    actor_id: 8,
+    clinica_id: 8,
+    clinica_nome: "Clinica Pet Sus",
+    scope: ["exam:read", "exam:download"],
+    trusted_until: "2026-11-17T15:02:00",
+    auth_method: "device_trust",
+  };
+
   it("oferece conectar o computador da recepcao e confirma ao conectar", async () => {
-    const fetchMock = vi.fn(async (url: unknown, _init?: RequestInit) =>
-      String(url).includes("/confiar-dispositivo")
-        ? json({
-            access_token: "token-do-dispositivo",
-            token_type: "bearer",
-            expires_at: "2026-09-18T15:02:00",
-            actor_type: "clinica",
-            actor_id: 8,
-            clinica_id: 8,
-            clinica_nome: "Clinica Pet Sus",
-            scope: ["exam:read", "exam:download"],
-            trusted_until: "2026-11-17T15:02:00",
-            auth_method: "device_trust",
-          })
-        : json({ ...exameLiberado, dispositivo_confiavel_disponivel: true }),
-    );
+    const fetchMock = vi.fn(async (url: unknown, _init?: RequestInit) => {
+      const alvo = String(url);
+      if (alvo.includes("/confiar-dispositivo")) {
+        return json(sessaoDoDispositivo);
+      }
+      if (alvo.includes("/dispositivo/sessao")) {
+        return json(sessaoDoDispositivo);
+      }
+      return json({ ...exameLiberado, dispositivo_confiavel_disponivel: true });
+    });
 
     montar(fetchMock);
 
@@ -116,6 +123,36 @@ describe("laudo aberto pelo link do WhatsApp", () => {
     const chamada = fetchMock.mock.calls.find(([url]) => String(url).includes("/confiar-dispositivo"));
     expect(String(chamada?.[0])).toBe("/api/v1/portal/laudo-link/token-do-link/confiar-dispositivo");
     expect((chamada?.[1] as RequestInit | undefined)?.method).toBe("POST");
+    // O "Pronto" so aparece depois de o navegador provar que guardou o acesso.
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/dispositivo/sessao")),
+    ).toBe(true);
+  });
+
+  it("nao diz que conectou quando o navegador nao guarda o cookie (CB-002)", async () => {
+    // O pedido de conexao passa (200) e so o Set-Cookie morre no caminho - e o
+    // que acontece em janela anonima ou com cookies bloqueados. Sem a
+    // confirmacao, a tela dizia "Pronto" e a recepcao so descobria no dia
+    // seguinte, com o portal pedindo senha.
+    const fetchMock = vi.fn(async (url: unknown, _init?: RequestInit) => {
+      const alvo = String(url);
+      if (alvo.includes("/confiar-dispositivo")) {
+        return json(sessaoDoDispositivo);
+      }
+      if (alvo.includes("/dispositivo/sessao")) {
+        return json({ detail: "Dispositivo nao esta mais conectado." }, 401);
+      }
+      return json({ ...exameLiberado, dispositivo_confiavel_disponivel: true });
+    });
+
+    montar(fetchMock);
+
+    fireEvent.click(await screen.findByRole("button", { name: /manter esta unidade conectada/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/não guardou o acesso/i);
+    expect(screen.queryByText(/abre os laudos da unidade direto, sem senha/i)).not.toBeInTheDocument();
+    // CB-002: o que a pessoa veio fazer continua disponivel.
+    expect(screen.getByRole("button", { name: /laudo-thor\.pdf/ })).toBeInTheDocument();
   });
 
   it("nao oferece conectar quando o backend nao aceita", async () => {
