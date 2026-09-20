@@ -28,7 +28,7 @@ Status: in-progress
 | NFR-004 | nao funcional | CA-001 - `link_incluido` na auditoria e a URL ausente dos detalhes; `PORTAL_EXAM_LINK_OPENED` registrado em `abrir_laudo_por_link` | ok |
 | NFR-005 | nao funcional | CA-002 + suite completa de backend sem regressao | ok |
 | NFR-006 | nao funcional | Resposta limitada a clinica, pet, tipo de exame e data (`PortalExamLinkResponse`); sem tutor, CPF ou telefone | ok |
-| Migracao | banco | `20260918_87_portal_clinic_exam_links` aplicada em banco limpo pela suite; **falta rodar em stage/producao** | pendente |
+| Migracao | banco | `20260918_87_portal_clinic_exam_links` aplicada em banco limpo pela suite; aplicada em stage (conferido em 20/09/2026 por `get_migration_status`: `current_version=20260918_88`, `pending_count=0`); **falta producao** | pendente |
 | Meta | dependencia externa | Modelo `laudo_disponivel_portal_link` com `metaId: PENDING_META_APPROVAL` - **aguardando aprovacao no Business Manager** | pendente |
 | Stage | manual | Verificacao ponta a ponta em `app.stage.fortcordis.com.br` com a flag ligada | pendente |
 
@@ -93,6 +93,15 @@ Ainda nao executados. Roteiro para a verificacao em stage:
 - Risco residual 4: nao ha limite de tentativas no endpoint publico. O token tem
   256 bits de entropia, o que torna forca bruta inviavel, mas tambem nao ha
   rate limit para abuso de um token valido conhecido.
+- Risco residual 5 (achado em 20/09/2026, corrigido no mesmo dia): a URL do link
+  dependia de `request.base_url`, porque `PORTAL_CLINIC_EXAM_LINK_BASE_URL` ficou
+  vazia no `.env` de stage (o deploy so tinha setado as duas flags `_ENABLED`). O
+  nginx manda `X-Forwarded-Proto`, mas o uvicorn sobe sem `--proxy-headers` nos
+  dois ambientes, entao ignora o cabecalho e montaria `http://`. O 301 do nginx
+  salvaria a navegacao, mas o primeiro GET ja teria levado o token em texto claro
+  - e o token e credencial ao portador. O deploy dos dois ambientes passou a
+  fixar a URL base explicitamente. Nao chegou a vazar nada: nenhuma mensagem com
+  link saiu ainda, porque o modelo segue em analise na Meta.
 - Regressao coberta: a suite completa de backend e frontend passa sem falha.
 
 ## 5) Itens fora de escopo entregues

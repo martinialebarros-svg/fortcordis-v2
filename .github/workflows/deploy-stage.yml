@@ -317,6 +317,14 @@ jobs:
             # As duas andam juntas: a acao "manter esta unidade conectada" mora
             # na pagina do link do laudo, entao sem o link nao ha por onde
             # conectar o computador da recepcao.
+            # A URL base do link precisa ser fixada aqui. Sem ela,
+            # build_exam_link_url cai no request.base_url, e o uvicorn sobe sem
+            # --proxy-headers (ver o ExecStart em docs/DEPLOY-STAGE.md): ignora o
+            # X-Forwarded-Proto que o nginx manda e monta o link como http://. O
+            # nginx responde 301 para https, mas o primeiro GET ja teria levado o
+            # token do laudo em texto claro - e esse token e credencial ao
+            # portador, o suficiente para abrir o exame.
+            upsert_env PORTAL_CLINIC_EXAM_LINK_BASE_URL https://app.stage.fortcordis.com.br
             upsert_env PORTAL_CLINIC_EXAM_LINK_ENABLED true
             upsert_env PORTAL_CLINIC_DEVICE_TRUST_ENABLED true
             echo "Stage portal clinic access flags updated."
