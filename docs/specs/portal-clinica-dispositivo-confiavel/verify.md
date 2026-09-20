@@ -23,11 +23,13 @@ Status: in-progress
 | CA-013 | aceitacao | `test_portal_clinic_device_trust.py::test_sessao_de_rotina_nao_gera_auditoria` | ok |
 | CA-014 | aceitacao | `PortalClinicaPageShell.test.tsx::ainda tenta o computador confiavel quando nao ha nada guardado` (teste proprio, criado em 20/09/2026) + cenario 1 em stage | ok |
 | CA-015 | aceitacao | `PortalClinicaWorkspaceModoLaudos.test.tsx` - 8 casos (abas escondidas, abas presentes com senha, cabecalho, sair do computador, e os tres do login por senha do RF-019) | ok |
-| CB-001 | borda | Ordem de bootstrap no shell da a precedencia a sessao com senha; `PortalClinicaPageShell.test.tsx::nao reconfere sessao com senha`. O caminho de interface existe desde 20/09/2026: `PortalClinicaPageShell.test.tsx::leva ao formulario de senha sem encerrar a confianca do computador` e `PortalClinicaWorkspaceModoLaudos.test.tsx::oferece entrar com senha sem passar por sair do computador`. Convivencia real dos dois cookies: **cenario 3 em stage, pendente** | pendente |
+| CB-001 | borda | **Confirmado em stage em 20/09/2026** (cenario 3, secao 3): com o gestor logado, a tela roda em `password` com `clinic:read` e o cookie do dispositivo continua valido no mesmo navegador (`dispositivo/sessao` 200, escopo so de exames). Testes: `PortalClinicaPageShell.test.tsx::nao reconfere sessao com senha`, `::leva ao formulario de senha sem encerrar a confianca do computador` e `PortalClinicaWorkspaceModoLaudos.test.tsx::oferece entrar com senha sem passar por sair do computador` | ok |
 | CB-002 | borda | `PortalExamLinkWorkspace.test.tsx::falha ao conectar sem tirar o laudo da tela` | ok |
 | CA-016 | aceitacao | `PortalClinicaPageShell.test.tsx::derruba o computador revogado mesmo com token guardado ainda no prazo` e `::nao reconfere sessao com senha`; confirmado em stage em 20/09/2026 (secao 3) | ok |
+| CA-017 | aceitacao | `PortalClinicaPageShell.test.tsx::volta para o modo laudos quando a sessao com senha termina` e `::nao retoma o dispositivo quando foi o gestor que pediu o formulario` | ok |
 | CB-005 | borda | `test_portal_clinic_device_trust.py::test_sessao_rotaciona_o_cookie_e_renova_o_prazo` (sessao com a flag desligada) e `test_flag_desligada_impede_conectar` | ok |
 | CB-007 | borda | `PortalClinicaPageShell.test.tsx::mantem a recepcao conectada quando o servidor nao responde` - erro que nao e `PortalRequestError` nao desconecta | ok |
+| CB-008 | borda | `PortalClinicaPageShell.test.tsx::cai na pagina publica se a confianca tambem tiver acabado` | ok |
 | RF-014 | funcional | `test_portal_clinic_device_trust.py::test_clinica_inativa_invalida_a_confianca` | ok |
 | NFR-001 | nao funcional | CA-004 (escopo do token) + CA-003 (403 na gestao) + `_resolver_link_laudo` compartilhado entre abrir laudo e conectar | ok |
 | NFR-002 | nao funcional | Coberto por `portal-escopo-sessao-clinica` | ok |
@@ -37,7 +39,7 @@ Status: in-progress
 | NFR-006 | nao funcional | Todas as recusas de `dispositivo/sessao` devolvem 401 com o mesmo `detail` e limpam o cookie (CA-006 a CA-009, RF-014) | ok |
 | NFR-007 | nao funcional | Modo laudos usa os mesmos endpoints de exame do portal com senha; nenhum dado novo exposto | ok |
 | Migracao | banco | `20260918_88` aplicada em banco limpo pela suite; aplicada em stage (conferido em 20/09/2026: `current_version=20260918_88`, `pending_count=0`); **falta producao** | pendente |
-| Stage | manual | 5 dos 7 cenarios rodados em 20/09/2026, mais a reconferencia do RF-021 (secao 3); falta o 3 (bloqueado) e a metade visual do 7 | pendente |
+| Stage | manual | **6 dos 7 cenarios** rodados em 20/09/2026, mais a reconferencia do RF-021 (secao 3); falta so a metade visual do 7 | pendente |
 
 ## 2) Testes automatizados executados
 
@@ -103,6 +105,19 @@ Tambem so de frontend.
 - O ponto coberto que mais importa: clicar em "Entrar com senha" **nao** encerra a
   confianca. O shell limpa so a sessao guardada, e por isso a volta funciona.
 
+### Incremento de 20/09/2026 - RF-022 (retomada no logout)
+
+Tambem so de frontend.
+
+- `tsc` limpo, `eslint --max-warnings=0` limpo,
+  **50 arquivos / 391 testes** no vitest e 9 no `node --test`.
+- 3 casos novos em `PortalClinicaPageShell.test.tsx`: volta ao modo laudos no logout,
+  cai na pagina publica quando a confianca tambem acabou (CB-008), e nao reage ao
+  formulario que o proprio gestor pediu.
+- `handleSessionChange` le `session` e `pedindoSenha` por `useRef` de proposito: o
+  workspace guarda esse callback nas dependencias de um efeito, e trocar a identidade
+  da funcao a cada render o faria reemitir a sessao sem necessidade.
+
 ## 3) Testes manuais
 
 Rodados em 20/09/2026 em `app.stage.fortcordis.com.br`, clinica Animal Care (id 8),
@@ -122,9 +137,15 @@ nasceu mesmo com a entrega falhando, e a URL foi reconstruida de `SECRET_KEY` +
   `auth_method: device_trust`. `/clinicas/financeiro` e `/clinicas/agendamentos`
   devolveram **403** com `"Sessao do portal sem permissao para esta operacao."`;
   `/clinicas/exames` devolveu 200. Abas de agenda e financeiro ausentes da tela.
-- Cenario 3 (CB-001) - **pendente**: depende de login com senha, que so o usuario
-  faz. Estava bloqueado por falta de caminho na tela; a acao do RF-019 destravou
-  isso no mesmo dia. Ver o achado no fim desta secao.
+- Cenario 3 (CB-001) - **ok**, rodado depois que a acao do RF-019 criou o caminho.
+  Com o gestor logado pela propria tela do modo laudos, medido no mesmo instante e no
+  mesmo navegador: sessao da tela em `password` com
+  `["clinic:read","exam:read","exam:download"]` e `account_id: 1`; cookie do
+  dispositivo **ainda valido** (`dispositivo/sessao` -> 200, `device_trust`,
+  `["exam:read","exam:download"]`); `/clinicas/financeiro` com o token de senha ->
+  200. Abas de agenda e financeiro de volta, cabecalho trocando "Conectado neste
+  computador" por "Sessao ativa". Os dois cookies convivem, com a senha na frente.
+  Ver tambem o achado do logout, no fim desta secao.
 - Cenario 4 - **ok**. "Sair deste computador" devolveu a tela publica e limpou a
   sessao guardada no navegador. Dispositivo ficou `revoked`, motivo
   `encerrado-pela-unidade`.
@@ -190,8 +211,24 @@ limpa a sessao guardada, o cookie do dispositivo fica de pe, e "Voltar para os l
 da unidade" (ou uma recarga) traz a recepcao de volta. "Sair deste computador"
 continua na tela, abaixo, porque encerrar de verdade tambem precisa existir.
 
-Com isso o cenario 3 deixa de estar bloqueado: o caminho passa a existir. Continua
-**pendente** porque depende de login com senha, que so o usuario faz.
+Com isso o cenario 3 deixou de estar bloqueado, e rodou no mesmo dia.
+
+### Achado do cenario 3: o logout largava a recepcao na porta
+
+Rodando o cenario 3 ate o fim: depois do "Sair" do gestor, a tela foi para a **pagina
+publica de login**. A confianca do computador continuava de pe - recarregar devolvia o
+modo laudos, com os 30 dias intactos - mas o bootstrap do shell so roda na montagem,
+entao nada reconsultava o dispositivo.
+
+O efeito pratico e o problema que esta entrega existe para evitar: o gestor sai, vai
+embora, e a secretaria senta numa maquina pedindo **uma senha que ela nao tem**. Um F5
+resolveria; ela nao tem como saber disso, e liga para a Fort Cordis.
+
+Corrigido no mesmo dia por RF-022: terminada a sessao com senha, o shell reconsulta o
+dispositivo antes de mostrar a pagina publica. Com duas guardas - nao reage ao `null`
+que o cartao de login emite ao terminar o proprio bootstrap, nem ao formulario que o
+gestor pediu por RF-019 (CB-008 cobre o caso em que a confianca tambem acabou).
+**Ainda nao confirmado em stage**, so por teste.
 
 ## 4) Regressao e riscos residuais
 
@@ -216,11 +253,10 @@ Com isso o cenario 3 deixa de estar bloqueado: o caminho passa a existir. Contin
   para a propria unidade listar os seus (so "sair deste computador" no navegador
   atual). Uma unidade com varias maquinas acumula confiancas que so a Fort Cordis
   enxerga.
-- Risco residual 6 (reduzido em 20/09/2026): CA-014 ganhou teste proprio em
-  `PortalClinicaPageShell.test.tsx`, junto com CA-016 e CB-007. Sobra **CB-001**: os
-  dois lados estao cobertos por teste e o caminho de interface passou a existir, mas
-  a convivencia real dos dois cookies no mesmo navegador so se confirma com um login
-  por senha em stage (cenario 3).
+- Risco residual 6 (**fechado em 20/09/2026**): CA-014 ganhou teste proprio em
+  `PortalClinicaPageShell.test.tsx`, junto com CA-016, CA-017, CB-007 e CB-008; e o
+  CB-001 foi confirmado em stage no cenario 3, com os dois cookies medidos vivos no
+  mesmo instante.
 - Regressao: suites de backend, frontend e do servico Node verdes.
 
 ## 5) Itens fora de escopo entregues
@@ -238,8 +274,9 @@ Com isso o cenario 3 deixa de estar bloqueado: o caminho passa a existir. Contin
       normal).
 - [ ] Aprovado para producao - **bloqueado** ate: (a) ~~`portal-escopo-sessao-clinica`
       estar em producao~~ **resolvido em 20/09/2026** (`_assert_portal_scope` esta em
-      `main`); (b) os 7 cenarios manuais rodarem em stage - **5 rodaram em 20/09/2026**,
-      faltam o 3 (CB-001) e a metade visual do 7, mais a reconferencia de RF-021;
+      `main`); (b) os 7 cenarios manuais rodarem em stage - **6 rodaram em 20/09/2026**,
+      falta so a metade visual do 7 (mensagem na tela com cookies bloqueados), mais a
+      confirmacao em stage do RF-022;
       (c) a migracao `20260918_88` - **ja aplicada em stage**, falta producao. O prazo
       de inatividade ficou decidido em **30 dias** (18/09/2026).
 - [ ] Nao aprovado.

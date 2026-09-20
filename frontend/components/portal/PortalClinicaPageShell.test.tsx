@@ -27,9 +27,11 @@ vi.mock("@/lib/portal-api", async (importOriginal) => {
 vi.mock("@/components/portal/PortalClinicaWorkspace", () => ({
   default: ({
     initialSession,
+    onSessionChange,
     onPedirLoginPorSenha,
   }: {
     initialSession?: PortalSessionResponse;
+    onSessionChange?: (session: PortalSessionResponse | null) => void;
     onPedirLoginPorSenha?: () => void;
   }) =>
     initialSession ? (
@@ -40,9 +42,18 @@ vi.mock("@/components/portal/PortalClinicaWorkspace", () => ({
             Entrar com senha
           </button>
         ) : null}
+        <button type="button" onClick={() => onSessionChange?.(null)}>
+          Sair
+        </button>
       </div>
     ) : (
-      <div data-testid="cartao-de-login" />
+      <div data-testid="cartao-de-login">
+        {/* O cartao real emite `null` ao terminar o proprio bootstrap sem sessao;
+            aqui isso fica sob controle do teste. */}
+        <button type="button" onClick={() => onSessionChange?.(null)}>
+          Cartao sem sessao
+        </button>
+      </div>
     ),
 }));
 
@@ -157,6 +168,57 @@ describe("bootstrap do portal da clinica", () => {
     });
 
     expect(await screen.findByTestId("workspace")).toHaveTextContent("token-guardado");
+  });
+
+  it("volta para o modo laudos quando a sessao com senha termina", async () => {
+    loadPortalSession.mockReturnValue(sessaoComSenha);
+    resumePortalDeviceSession.mockResolvedValue(sessaoDeDispositivo);
+
+    render(<PortalClinicaPageShell />);
+    expect(await screen.findByTestId("workspace")).toHaveTextContent("token-de-senha");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Sair" }));
+    });
+
+    // Sem isso a secretaria encontraria a maquina pedindo uma senha que ela nao
+    // tem, e so um F5 desfaria.
+    expect(resumePortalDeviceSession).toHaveBeenCalledTimes(1);
+    expect(await screen.findByTestId("workspace")).toHaveTextContent("token-guardado");
+  });
+
+  it("cai na pagina publica se a confianca tambem tiver acabado", async () => {
+    loadPortalSession.mockReturnValue(sessaoComSenha);
+    resumePortalDeviceSession.mockRejectedValue(
+      new PortalRequestError(401, "Dispositivo nao esta mais conectado."),
+    );
+
+    render(<PortalClinicaPageShell />);
+    await screen.findByTestId("workspace");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Sair" }));
+    });
+
+    expect(await screen.findByTestId("cartao-de-login")).toBeInTheDocument();
+    expect(clearPortalSession).toHaveBeenCalledWith("clinica");
+  });
+
+  it("nao retoma o dispositivo quando foi o gestor que pediu o formulario", async () => {
+    loadPortalSession.mockReturnValue(sessaoComSenha);
+
+    render(<PortalClinicaPageShell />);
+    fireEvent.click(await screen.findByRole("button", { name: "Entrar com senha" }));
+
+    const cartao = await screen.findByTestId("cartao-de-login");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cartao sem sessao" }));
+    });
+
+    // O `null` do cartao nao e um logout: reagir a ele jogaria o gestor de volta
+    // nos laudos sem ele ter digitado nada.
+    expect(resumePortalDeviceSession).not.toHaveBeenCalled();
+    expect(cartao).toBeInTheDocument();
   });
 
   it("nao oferece a volta para os laudos em quem chegou deslogado", async () => {

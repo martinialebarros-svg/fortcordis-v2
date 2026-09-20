@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   BadgeCheck,
@@ -236,12 +236,59 @@ export default function PortalClinicaPageShell() {
   const [session, setSession] = useState<PortalSessionResponse | null>(null);
   const [pedindoSenha, setPedindoSenha] = useState(false);
 
-  const handleSessionChange = useCallback((nextSession: PortalSessionResponse | null) => {
-    setSession(nextSession);
-    if (nextSession) {
-      setPedindoSenha(false);
+  // Lidos dentro de `handleSessionChange`, que precisa ficar com identidade
+  // estavel: o workspace guarda esse callback nas dependencias de um efeito, e
+  // trocar a funcao a cada render o faria reemitir a sessao sem necessidade.
+  const sessionRef = useRef<PortalSessionResponse | null>(null);
+  const pedindoSenhaRef = useRef(false);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  useEffect(() => {
+    pedindoSenhaRef.current = pedindoSenha;
+  }, [pedindoSenha]);
+
+  const retomarDispositivo = useCallback(async () => {
+    try {
+      const dispositivo = await resumePortalDeviceSession();
+      savePortalSession(dispositivo);
+      setSession(dispositivo);
+      return true;
+    } catch {
+      clearPortalSession("clinica");
+      return false;
     }
   }, []);
+
+  const handleSessionChange = useCallback(
+    (nextSession: PortalSessionResponse | null) => {
+      if (nextSession) {
+        setSession(nextSession);
+        setPedindoSenha(false);
+        return;
+      }
+
+      setSession(null);
+
+      // Uma sessao acabou de terminar (logout do gestor). Antes de mandar a
+      // recepcao para a pagina publica, ve se o computador continua confiavel:
+      // senao a secretaria encontra a maquina pedindo uma senha que ela nao tem
+      // - o problema que esta entrega existe para evitar - e so um F5 desfaria.
+      //
+      // Duas guardas. Se o gestor PEDIU o formulario (RF-019), a volta e decisao
+      // dele, pelo "Voltar para os laudos da unidade". E se nao havia sessao, o
+      // null veio do cartao de login da pagina publica terminando o proprio
+      // bootstrap - nao ha logout nenhum para reagir.
+      if (pedindoSenhaRef.current || !sessionRef.current) {
+        return;
+      }
+
+      void retomarDispositivo();
+    },
+    [retomarDispositivo],
+  );
 
   /**
    * Abre o formulario de senha sem encerrar a confianca do computador (RF-019).
@@ -259,17 +306,11 @@ export default function PortalClinicaPageShell() {
   }, []);
 
   const voltarParaOsLaudos = useCallback(async () => {
-    try {
-      const dispositivo = await resumePortalDeviceSession();
-      savePortalSession(dispositivo);
-      setSession(dispositivo);
-    } catch {
-      // Confianca caiu nesse meio tempo: fica no formulario de senha, que e a
-      // unica porta que sobrou.
-    } finally {
-      setPedindoSenha(false);
-    }
-  }, []);
+    // Confianca pode ter caido nesse meio tempo; ai fica no formulario de senha,
+    // que e a unica porta que sobrou.
+    await retomarDispositivo();
+    setPedindoSenha(false);
+  }, [retomarDispositivo]);
 
   useEffect(() => {
     let cancelled = false;
