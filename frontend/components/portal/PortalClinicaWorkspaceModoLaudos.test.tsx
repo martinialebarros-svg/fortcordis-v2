@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import PortalClinicaWorkspace from "./PortalClinicaWorkspace";
@@ -43,9 +43,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function montar(session: PortalSessionResponse) {
+function montar(session: PortalSessionResponse, onPedirLoginPorSenha?: () => void) {
   vi.stubGlobal("fetch", vi.fn(async () => json(listaVazia)));
-  return render(<PortalClinicaWorkspace mode="standalone" initialSession={session} />);
+  return render(
+    <PortalClinicaWorkspace
+      mode="standalone"
+      initialSession={session}
+      onPedirLoginPorSenha={onPedirLoginPorSenha}
+    />,
+  );
 }
 
 describe("portal da clinica em modo laudos", () => {
@@ -79,6 +85,39 @@ describe("portal da clinica em modo laudos", () => {
 
     expect(await screen.findByText("Sessão ativa")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /sair deste computador/i })).not.toBeInTheDocument();
+  });
+
+  it("oferece entrar com senha sem passar por sair do computador (RF-019)", async () => {
+    const pedir = vi.fn();
+    montar(sessaoBase, pedir);
+
+    const entrar = await screen.findByRole("button", {
+      name: /entrar com senha para ver financeiro e agenda/i,
+    });
+    fireEvent.click(entrar);
+
+    // O caminho para o financeiro nao pode passar por encerrar a confianca: isso
+    // tiraria a recepcao do ar so porque o gestor quis ver um numero.
+    expect(pedir).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: /sair deste computador/i })).toBeInTheDocument();
+  });
+
+  it("nao promete o login por senha quando nao ha para onde levar", async () => {
+    montar(sessaoBase);
+
+    expect(await screen.findByText("Conectado neste computador")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /entrar com senha para ver financeiro e agenda/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("nao oferece entrar com senha em quem ja entrou com senha", async () => {
+    montar(sessaoComSenha, vi.fn());
+
+    expect(await screen.findByText("Sessão ativa")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /entrar com senha para ver financeiro e agenda/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("portalSessionHasClinicRead distingue os dois modos", () => {
