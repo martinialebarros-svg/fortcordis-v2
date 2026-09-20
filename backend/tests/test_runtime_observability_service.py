@@ -85,9 +85,25 @@ class RuntimeObservabilityServiceTest(unittest.TestCase):
         agenda = payload["endpoints"]["/api/v1/agenda"]
         self.assertEqual(agenda["request_count"], 3)
         self.assertEqual(agenda["error_5xx_count"], 1)
+        self.assertEqual(agenda["max_ms"], 250.0)
+        self.assertEqual(agenda["slow_request_count"], 0)
         self.assertEqual(agenda["p95_ms"], 250.0)
         self.assertEqual(agenda["p99_ms"], 250.0)
         self.assertIsNotNone(agenda["last_seen_at"])
+
+    def test_http_latency_monitor_keeps_max_and_counts_only_samples_above_gate(self) -> None:
+        for duration_ms in (100, 1200, 1200.01, 2400):
+            runtime_observability.record_http_request(
+                path="/api/v1/agenda",
+                status_code=200,
+                duration_ms=duration_ms,
+            )
+
+        payload = runtime_observability.get_http_latency_monitor_status()
+        agenda = payload["endpoints"]["/api/v1/agenda"]
+        self.assertEqual(payload["slow_request_threshold_ms"], 1200.0)
+        self.assertEqual(agenda["max_ms"], 2400.0)
+        self.assertEqual(agenda["slow_request_count"], 2)
 
     def test_http_latency_monitor_ignores_non_priority_endpoint(self) -> None:
         with patch.object(
@@ -236,6 +252,8 @@ class RuntimeObservabilityServiceTest(unittest.TestCase):
 
         agenda = payload["endpoints"]["/api/v1/agenda"]
         self.assertEqual(agenda["request_count"], 0)
+        self.assertIsNone(agenda["max_ms"])
+        self.assertEqual(agenda["slow_request_count"], 0)
         self.assertIsNone(agenda["p95_ms"])
         self.assertIsNone(agenda["p99_ms"])
 

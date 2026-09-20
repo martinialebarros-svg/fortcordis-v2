@@ -283,6 +283,8 @@ interface LatenciaRuntimeGrupo {
   request_count: number;
   error_5xx_count: number;
   avg_ms: number | null;
+  max_ms: number | null;
+  slow_request_count: number;
   p50_ms: number | null;
   p95_ms: number | null;
   p99_ms: number | null;
@@ -298,6 +300,7 @@ interface LatenciaRuntimeResumo {
   hours: number;
   retention_days: number;
   query_max_samples: number;
+  slow_request_threshold_ms: number;
   truncated: boolean;
   groups: LatenciaRuntimeGrupo[];
 }
@@ -734,8 +737,15 @@ export default function ConfiguracoesPage() {
         hours: Number(payload.hours) || janelaLatenciaRuntime,
         retention_days: Number(payload.retention_days) || 14,
         query_max_samples: Number(payload.query_max_samples) || 0,
+        slow_request_threshold_ms: Number(payload.slow_request_threshold_ms) || 1200,
         truncated: payload.truncated === true,
-        groups: Array.isArray(payload.groups) ? payload.groups : [],
+        groups: Array.isArray(payload.groups)
+          ? payload.groups.map((group: Record<string, any>) => ({
+              ...group,
+              max_ms: Number.isFinite(Number(group.max_ms)) ? Number(group.max_ms) : null,
+              slow_request_count: Number(group.slow_request_count) || 0,
+            }))
+          : [],
       });
       setStatusLatenciaRuntime("idle");
     } catch (error: any) {
@@ -3583,6 +3593,10 @@ export default function ConfiguracoesPage() {
                           <th className="text-right px-3 py-2 font-medium">p50</th>
                           <th className="text-right px-3 py-2 font-medium">p95</th>
                           <th className="text-right px-3 py-2 font-medium">p99</th>
+                          <th className="text-right px-3 py-2 font-medium">Máximo</th>
+                          <th className="text-right px-3 py-2 font-medium">
+                            &gt; {formatarMilissegundos(latenciaRuntime.slow_request_threshold_ms)}
+                          </th>
                           <th className="text-right px-3 py-2 font-medium">Banco p95</th>
                           <th className="text-right px-3 py-2 font-medium">Pool p95</th>
                           <th className="text-right px-3 py-2 font-medium">5xx</th>
@@ -3598,6 +3612,12 @@ export default function ConfiguracoesPage() {
                             <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.p50_ms)}</td>
                             <td className="px-3 py-2 text-right font-medium text-gray-900">{formatarMilissegundos(grupo.p95_ms)}</td>
                             <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.p99_ms)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.max_ms)}</td>
+                            <td className="px-3 py-2 text-right">
+                              <span className={grupo.slow_request_count > 0 ? "text-amber-700 font-medium" : "text-gray-700"}>
+                                {grupo.slow_request_count}
+                              </span>
+                            </td>
                             <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.database_p95_ms)}</td>
                             <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.pool_wait_p95_ms)}</td>
                             <td className="px-3 py-2 text-right">

@@ -33,8 +33,15 @@ clínico pode ser persistido nessa tabela.
 
 `GET /api/v1/admin/observability/http-latency?hours={1..168}` exige papel
 `admin`. A resposta é agregada por `(endpoint, release_id)` e traz quantidade,
-erros 5xx, média, p50, p95, p99, banco e pool. A consulta possui limite de
-amostras e informa quando ele foi atingido.
+erros 5xx, média, p50, p95, p99, máximo, quantidade acima do limite operacional
+de 1.200 ms, banco e pool. O limite acompanha o gate autenticado existente e é
+devolvido explicitamente em `slow_request_threshold_ms`. A consulta possui
+limite de amostras e informa quando ele foi atingido.
+
+O máximo e `slow_request_count` complementam os percentis: com 101 amostras o
+p99 por nearest-rank não representa necessariamente a maior observação. Esses
+campos continuam medindo apenas o intervalo depois da entrada no middleware;
+fila anterior ao ASGI exige correlação de cliente/ingress.
 
 ## Identificação do release
 

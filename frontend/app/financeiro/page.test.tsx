@@ -49,6 +49,30 @@ describe("Cobrancas remote groups", () => {
     fireEvent.click(screen.getByRole("button", { name: "Proxima" }));
     await waitFor(() => expect(mocks.get.mock.calls.some(([url]) => url.includes("cobrancas?") && url.includes("skip=50"))).toBe(true));
   });
+  it("refreshes only recipient summaries without restarting independent reads", async () => {
+    render(<FinanceiroPage />);
+    await screen.findByRole("button", { name: "Abrir destinatario Clinica sintetica" });
+    const refresh = screen.getByRole("button", { name: "Atualizar destinatarios" });
+    await waitFor(() => expect(refresh).toBeEnabled());
+
+    const count = (prefix: string) => mocks.get.mock.calls.filter(([url]) => String(url).startsWith(prefix)).length;
+    const before = {
+      cobrancas: count("/ordens-servico/cobrancas?"),
+      resumo: count("/financeiro/resumo"),
+      clinicas: count("/clinicas?"),
+      servicos: count("/servicos?"),
+      formas: count("/financeiro/formas-pagamento"),
+      bandeiras: count("/financeiro/bandeiras-cartao"),
+    };
+
+    fireEvent.click(refresh);
+    await waitFor(() => expect(count("/ordens-servico/cobrancas?")).toBe(before.cobrancas + 1));
+    expect(count("/financeiro/resumo")).toBe(before.resumo);
+    expect(count("/clinicas?")).toBe(before.clinicas);
+    expect(count("/servicos?")).toBe(before.servicos);
+    expect(count("/financeiro/formas-pagamento")).toBe(before.formas);
+    expect(count("/financeiro/bandeiras-cartao")).toBe(before.bandeiras);
+  });
   it("unlocks actions only after all recipient rows are loaded", async () => {
     render(<FinanceiroPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Abrir destinatario Clinica sintetica" }));
