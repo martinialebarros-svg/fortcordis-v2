@@ -85,6 +85,15 @@ a originou e revogado.
   a sessao guardada e mostra a pagina publica; o cookie do dispositivo fica de pe,
   entao "Voltar para os laudos da unidade" - ou uma simples recarga - traz a recepcao
   de volta. E o caminho que torna CB-001 alcancavel pela interface.
+- RF-022 (acrescentado em 20/09/2026, depois do cenario 3 em stage): quando a sessao
+  **com senha** termina no navegador (logout do gestor), o shell reconsulta o
+  dispositivo antes de mostrar a pagina publica. Nao vale quando foi o proprio gestor
+  que pediu o formulario por RF-019 - ali a volta e decisao dele.
+  Motivo: o bootstrap so roda na montagem, entao sair da sessao com senha deixava a
+  maquina da recepcao exibindo um formulario de senha que a secretaria nao tem. A
+  confianca continuava de pe e um F5 resolvia, mas ninguem sabe disso - e a ligacao
+  para a Fort Cordis, que esta entrega existe para evitar, voltaria pela porta dos
+  fundos.
 - RF-020: em modo laudos, o cabecalho mostra "Conectado neste computador" e a acao
   "Sair deste computador".
 - RF-021 (acrescentado em 20/09/2026, depois do cenario 6 em stage): quando ha
@@ -246,6 +255,8 @@ a originou e revogado.
 - CA-016: com sessao de dispositivo guardada e ainda dentro do proprio prazo, revogar
   o computador (pelo admin ou pela unidade) derruba o acesso **na recarga seguinte**,
   sem esperar o token expirar; sessao com senha guardada nao dispara a reconferencia.
+- CA-017: terminada a sessao com senha, a tela volta ao modo laudos **sem recarga**,
+  desde que a confianca do computador continue valida.
 
 ## 7) Casos de borda
 
@@ -263,6 +274,9 @@ a originou e revogado.
 - CB-007: servidor sem resposta (rede fora) na reconferencia de RF-021 - a recepcao
   **continua** com a sessao guardada. Oscilacao de rede nao e recusa, e derrubar a
   unidade por causa dela custaria mais do que o risco que a reconferencia fecha.
+- CB-008: logout do gestor com a confianca **tambem** vencida ou revogada - a
+  retomada de RF-022 falha e a tela cai na pagina publica, que e o certo. O que nao
+  pode e cair na pagina publica com a confianca ainda valida.
 
 ## 8) Fora de escopo
 
