@@ -79,6 +79,12 @@ a originou e revogado.
   carregamento, antes de mostrar o formulario de login. Dando certo, entra direto.
 - RF-019: sem `clinic:read`, `PortalClinicaWorkspace` esconde as abas de financeiro
   e agenda e mostra "Entrar com senha para ver financeiro e agenda".
+  A acao **abre o formulario de senha sem revogar a confianca do computador**
+  (implementada em 20/09/2026; antes so existia "Sair deste computador", que revoga -
+  ou seja, o gestor precisava derrubar a recepcao para ver um numero). O shell limpa
+  a sessao guardada e mostra a pagina publica; o cookie do dispositivo fica de pe,
+  entao "Voltar para os laudos da unidade" - ou uma simples recarga - traz a recepcao
+  de volta. E o caminho que torna CB-001 alcancavel pela interface.
 - RF-020: em modo laudos, o cabecalho mostra "Conectado neste computador" e a acao
   "Sair deste computador".
 - RF-021 (acrescentado em 20/09/2026, depois do cenario 6 em stage): quando ha

@@ -88,7 +88,13 @@ function LoadingState() {
   );
 }
 
-function PublicLanding({ onSessionChange }: { onSessionChange: (session: PortalSessionResponse | null) => void }) {
+function PublicLanding({
+  onSessionChange,
+  onVoltarParaLaudos,
+}: {
+  onSessionChange: (session: PortalSessionResponse | null) => void;
+  onVoltarParaLaudos?: () => void;
+}) {
   return (
     <main className="fc-public-portal fc-public-portal-clinic">
       <section className="fc-public-portal-hero">
@@ -100,6 +106,16 @@ function PublicLanding({ onSessionChange }: { onSessionChange: (session: PortalS
             <ArrowLeft className="h-4 w-4" />
             Portal Fort Cordis
           </Link>
+
+          {/* So aparece quando o gestor veio do modo laudos: a confianca do
+              computador continua de pe, entao da para desistir do login sem que a
+              recepcao perca o acesso. */}
+          {onVoltarParaLaudos ? (
+            <button type="button" onClick={onVoltarParaLaudos} className="fc-public-portal-back">
+              <ArrowLeft className="h-4 w-4" />
+              Voltar para os laudos da unidade
+            </button>
+          ) : null}
 
           <div className="fc-public-portal-hero-grid">
             <div className="fc-public-portal-copy">
@@ -218,9 +234,41 @@ function PublicLanding({ onSessionChange }: { onSessionChange: (session: PortalS
 export default function PortalClinicaPageShell() {
   const [bootstrapping, setBootstrapping] = useState(true);
   const [session, setSession] = useState<PortalSessionResponse | null>(null);
+  const [pedindoSenha, setPedindoSenha] = useState(false);
 
   const handleSessionChange = useCallback((nextSession: PortalSessionResponse | null) => {
     setSession(nextSession);
+    if (nextSession) {
+      setPedindoSenha(false);
+    }
+  }, []);
+
+  /**
+   * Abre o formulario de senha sem encerrar a confianca do computador (RF-019).
+   *
+   * So limpa a sessao guardada: o cookie do dispositivo continua no navegador.
+   * Por isso o gestor pode desistir - por "Voltar para os laudos da unidade" ou
+   * simplesmente recarregando - que a recepcao volta sozinha. Antes disso a unica
+   * saida do modo laudos era "Sair deste computador", que revoga a confianca e
+   * obrigava a reconectar pelo link seguinte.
+   */
+  const pedirLoginPorSenha = useCallback(() => {
+    clearPortalSession("clinica");
+    setSession(null);
+    setPedindoSenha(true);
+  }, []);
+
+  const voltarParaOsLaudos = useCallback(async () => {
+    try {
+      const dispositivo = await resumePortalDeviceSession();
+      savePortalSession(dispositivo);
+      setSession(dispositivo);
+    } catch {
+      // Confianca caiu nesse meio tempo: fica no formulario de senha, que e a
+      // unica porta que sobrou.
+    } finally {
+      setPedindoSenha(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -314,9 +362,15 @@ export default function PortalClinicaPageShell() {
         mode="standalone"
         initialSession={session}
         onSessionChange={handleSessionChange}
+        onPedirLoginPorSenha={pedirLoginPorSenha}
       />
     );
   }
 
-  return <PublicLanding onSessionChange={handleSessionChange} />;
+  return (
+    <PublicLanding
+      onSessionChange={handleSessionChange}
+      onVoltarParaLaudos={pedindoSenha ? voltarParaOsLaudos : undefined}
+    />
+  );
 }

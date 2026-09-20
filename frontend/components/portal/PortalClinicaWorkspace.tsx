@@ -66,6 +66,15 @@ type PortalClinicaWorkspaceProps = {
   mode?: "embedded" | "standalone" | "admin_preview";
   initialSession?: PortalSessionResponse | null;
   onSessionChange?: (session: PortalSessionResponse | null) => void;
+  /**
+   * Abre o formulario de senha sem encerrar a confianca do computador (RF-019).
+   *
+   * Quem monta o shell decide como mostrar o formulario; o workspace so avisa que
+   * alguem pediu. Sem isso, a unica saida do modo laudos era "Sair deste
+   * computador", que revoga a confianca - o gestor precisava derrubar a recepcao
+   * para ver o financeiro.
+   */
+  onPedirLoginPorSenha?: () => void;
   adminPreview?: {
     clinicaId: number;
     clinicaNome?: string | null;
@@ -202,6 +211,7 @@ export default function PortalClinicaWorkspace({
   mode = "embedded",
   initialSession = null,
   onSessionChange,
+  onPedirLoginPorSenha,
   adminPreview = null,
 }: PortalClinicaWorkspaceProps) {
   const isAdminPreview = mode === "admin_preview";
@@ -889,11 +899,22 @@ export default function PortalClinicaWorkspace({
                         Este computador consulta laudos da unidade sem senha. Financeiro e agenda
                         exigem login.
                       </p>
+                      {onPedirLoginPorSenha ? (
+                        <button
+                          type="button"
+                          onClick={onPedirLoginPorSenha}
+                          className="mt-2 inline-flex text-sm font-semibold text-emerald-800 underline underline-offset-4"
+                        >
+                          Entrar com senha para ver financeiro e agenda
+                        </button>
+                      ) : null}
+                      {/* Abaixo do login de proposito: encerrar e destrutivo e tira a
+                          recepcao do ar, entao nao deve ser a primeira saida a mao. */}
                       <button
                         type="button"
                         onClick={encerrarDispositivo}
                         disabled={encerrandoDispositivo}
-                        className="mt-2 inline-flex text-sm font-semibold text-rose-700 underline underline-offset-4 disabled:opacity-60"
+                        className="mt-2 block text-sm font-semibold text-rose-700 underline underline-offset-4 disabled:opacity-60"
                       >
                         {encerrandoDispositivo ? "Encerrando..." : "Sair deste computador"}
                       </button>
