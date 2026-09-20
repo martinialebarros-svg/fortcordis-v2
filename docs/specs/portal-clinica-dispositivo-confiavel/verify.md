@@ -23,9 +23,9 @@ Status: in-progress
 | CA-013 | aceitacao | `test_portal_clinic_device_trust.py::test_sessao_de_rotina_nao_gera_auditoria` | ok |
 | CA-014 | aceitacao | `PortalClinicaPageShell.test.tsx::ainda tenta o computador confiavel quando nao ha nada guardado` (teste proprio, criado em 20/09/2026) + cenario 1 em stage | ok |
 | CA-015 | aceitacao | `PortalClinicaWorkspaceModoLaudos.test.tsx` - 5 casos (abas escondidas, abas presentes com senha, cabecalho, sair do computador) | ok |
-| CB-001 | borda | Ordem de bootstrap no shell da a precedencia a sessao com senha; `PortalClinicaPageShell.test.tsx::nao reconfere sessao com senha` prova que a sessao de senha guardada nao e tocada. Convivencia real dos dois cookies: **cenario 3 em stage, ainda pendente** | pendente |
+| CB-001 | borda | Ordem de bootstrap no shell da a precedencia a sessao com senha; `PortalClinicaPageShell.test.tsx::nao reconfere sessao com senha` prova que a sessao de senha guardada nao e tocada. Convivencia real dos dois cookies: **bloqueada** - falta a acao do RF-019 que leva ao login por senha (achado de 20/09/2026, secao 3) | pendente |
 | CB-002 | borda | `PortalExamLinkWorkspace.test.tsx::falha ao conectar sem tirar o laudo da tela` | ok |
-| CA-016 | aceitacao | `PortalClinicaPageShell.test.tsx::derruba o computador revogado mesmo com token guardado ainda no prazo` e `::nao reconfere sessao com senha` | ok |
+| CA-016 | aceitacao | `PortalClinicaPageShell.test.tsx::derruba o computador revogado mesmo com token guardado ainda no prazo` e `::nao reconfere sessao com senha`; confirmado em stage em 20/09/2026 (secao 3) | ok |
 | CB-005 | borda | `test_portal_clinic_device_trust.py::test_sessao_rotaciona_o_cookie_e_renova_o_prazo` (sessao com a flag desligada) e `test_flag_desligada_impede_conectar` | ok |
 | CB-007 | borda | `PortalClinicaPageShell.test.tsx::mantem a recepcao conectada quando o servidor nao responde` - erro que nao e `PortalRequestError` nao desconecta | ok |
 | RF-014 | funcional | `test_portal_clinic_device_trust.py::test_clinica_inativa_invalida_a_confianca` | ok |
@@ -37,7 +37,7 @@ Status: in-progress
 | NFR-006 | nao funcional | Todas as recusas de `dispositivo/sessao` devolvem 401 com o mesmo `detail` e limpam o cookie (CA-006 a CA-009, RF-014) | ok |
 | NFR-007 | nao funcional | Modo laudos usa os mesmos endpoints de exame do portal com senha; nenhum dado novo exposto | ok |
 | Migracao | banco | `20260918_88` aplicada em banco limpo pela suite; aplicada em stage (conferido em 20/09/2026: `current_version=20260918_88`, `pending_count=0`); **falta producao** | pendente |
-| Stage | manual | 5 dos 7 cenarios rodados em 20/09/2026 (secao 3); falta o 3 e a metade visual do 7 | pendente |
+| Stage | manual | 5 dos 7 cenarios rodados em 20/09/2026, mais a reconferencia do RF-021 (secao 3); falta o 3 (bloqueado) e a metade visual do 7 | pendente |
 
 ## 2) Testes automatizados executados
 
@@ -109,7 +109,8 @@ nasceu mesmo com a entrega falhando, e a URL foi reconstruida de `SECRET_KEY` +
   `auth_method: device_trust`. `/clinicas/financeiro` e `/clinicas/agendamentos`
   devolveram **403** com `"Sessao do portal sem permissao para esta operacao."`;
   `/clinicas/exames` devolveu 200. Abas de agenda e financeiro ausentes da tela.
-- Cenario 3 (CB-001) - **pendente**: depende de login com senha, que so o usuario faz.
+- Cenario 3 (CB-001) - **bloqueado**, nao so pendente: a tela do modo laudos nao
+  oferece caminho para o login por senha. Ver o achado no fim desta secao.
 - Cenario 4 - **ok**. "Sair deste computador" devolveu a tela publica e limpou a
   sessao guardada no navegador. Dispositivo ficou `revoked`, motivo
   `encerrado-pela-unidade`.
@@ -146,8 +147,31 @@ bootstrap o reusava sem reconferir. Medido no momento da revogacao: token ainda 
 
 Isso contrariava o risco residual 3, que trata revogacao como o remedio para maquina
 trocada ou roubada. Corrigido no mesmo dia por RF-021 (reconferencia no bootstrap,
-com CB-007 para nao derrubar ninguem por oscilacao de rede). **A reconferencia em si
-ainda nao foi confirmada em stage** - so por teste automatizado.
+com CB-007 para nao derrubar ninguem por oscilacao de rede).
+
+**Reconferencia confirmada em stage em 20/09/2026**, depois do deploy do PR #183:
+computador conectado pelo link, `/clinica-parceira` abrindo em modo laudos com
+`dispositivo/sessao` 200 na carga; revogacao pelo admin (`revogados: 1`); recarga da
+mesma pagina com a sessao guardada ainda dentro do proprio prazo -> **caiu na tela
+publica de login** e o `localStorage` foi limpo. Sob o codigo anterior a recepcao
+continuava dentro.
+
+### Achado ao preparar o cenario 3: nao ha porta para o login por senha
+
+Com o computador conectado, o cabecalho do modo laudos diz "Financeiro e agenda
+exigem login" - mas a unica acao na tela e **"Sair deste computador"**, que revoga a
+confianca. O RF-019 previa tambem "Entrar com senha para ver financeiro e agenda";
+isso nao foi implementado.
+
+Consequencia pratica: para o gestor entrar com senha na maquina da recepcao, ele
+precisa primeiro desconectar a maquina - e depois a recepcao so volta pelo link
+seguinte. Os dois cookies **conseguem** coexistir (tem nomes diferentes e o bootstrap
+da precedencia a sessao com senha), mas nao ha caminho de interface que leve a isso.
+E por isso que o **cenario 3 (CB-001) segue sem rodar**: do jeito que a tela esta, ele
+nao descreve um caminho que exista.
+
+Pendente de decisao do usuario: implementar a acao que faltou no RF-019, ou mudar o
+texto para nao prometer um login sem porta.
 
 ## 4) Regressao e riscos residuais
 
@@ -173,9 +197,9 @@ ainda nao foi confirmada em stage** - so por teste automatizado.
   atual). Uma unidade com varias maquinas acumula confiancas que so a Fort Cordis
   enxerga.
 - Risco residual 6 (reduzido em 20/09/2026): CA-014 ganhou teste proprio em
-  `PortalClinicaPageShell.test.tsx`, junto com CA-016 e CB-007. Sobra **CB-001**: a
-  convivencia real dos dois cookies no mesmo navegador so se confirma com login por
-  senha em stage (cenario 3), que ainda nao rodou.
+  `PortalClinicaPageShell.test.tsx`, junto com CA-016 e CB-007. Sobra **CB-001**, que
+  nao e mais so falta de teste: a interface nao oferece caminho para o login por
+  senha numa maquina conectada - ver o segundo achado da secao 3.
 - Regressao: suites de backend, frontend e do servico Node verdes.
 
 ## 5) Itens fora de escopo entregues

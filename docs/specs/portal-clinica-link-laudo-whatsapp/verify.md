@@ -30,7 +30,7 @@ Status: in-progress
 | NFR-006 | nao funcional | Resposta limitada a clinica, pet, tipo de exame e data (`PortalExamLinkResponse`); sem tutor, CPF ou telefone | ok |
 | Migracao | banco | `20260918_87_portal_clinic_exam_links` aplicada em banco limpo pela suite; aplicada em stage (conferido em 20/09/2026 por `get_migration_status`: `current_version=20260918_88`, `pending_count=0`); **falta producao** | pendente |
 | Meta | dependencia externa | Modelo `laudo_disponivel_portal_link` com `metaId: PENDING_META_APPROVAL` - **aguardando aprovacao no Business Manager** | pendente |
-| Stage | manual | Verificacao ponta a ponta em `app.stage.fortcordis.com.br` com a flag ligada | pendente |
+| Stage | manual | Link aberto, laudo entregue e PDF baixado em stage em 20/09/2026 (sem cookie: 200, `application/pdf`, 899.570 bytes); token de download recusado em anexo da mesma clinica (403). **Falta a ponta do WhatsApp**: modelo em analise e numero fora da lista de autorizados da WABA de teste | pendente |
 
 ## 2) Testes automatizados executados
 
@@ -102,6 +102,10 @@ Ainda nao executados. Roteiro para a verificacao em stage:
   - e o token e credencial ao portador. O deploy dos dois ambientes passou a
   fixar a URL base explicitamente. Nao chegou a vazar nada: nenhuma mensagem com
   link saiu ainda, porque o modelo segue em analise na Meta.
+  **Conferido em stage apos o deploy do PR #182** (20/09/2026):
+  `PORTAL_CLINIC_EXAM_LINK_BASE_URL=https://app.stage.fortcordis.com.br` no `.env` e
+  `build_exam_link_url(None, "TOKEN")` devolvendo `https://app.stage.fortcordis.com.br/laudo/TOKEN`
+  - a URL nao depende mais do `request.base_url`.
 - Regressao coberta: a suite completa de backend e frontend passa sem falha.
 
 ## 5) Itens fora de escopo entregues
