@@ -4,6 +4,7 @@ import json
 from copy import deepcopy
 from datetime import datetime
 import shutil
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -128,6 +129,13 @@ DEFAULT_SAMPLE_PRESETS_COUNT = len(DEFAULT_SAMPLE_PRESETS)
 DEFAULT_SAMPLE_PHRASES_COUNT = sum(len(items) for items in DEFAULT_SAMPLE_PHRASES.values())
 SAVE_REASONS_ALLOWING_SHRINK = {"import", "recover_from_backup", "fallback_rebuild", "auto_recover_minimal_store"}
 
+CONCLUSION_TEXT_CORRECTIONS = {
+    "efusao pericardica leve sem tamponamento": (
+        "Efusão pericárdica discreta (não drenável), sem alterações cardíacas estruturais.",
+        "Efusão pericárdica discreta (não drenável).",
+    ),
+}
+
 
 def _now_iso() -> str:
     return datetime.now().isoformat()
@@ -135,6 +143,21 @@ def _now_iso() -> str:
 
 def _slugify(value: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in value).strip("_")
+
+
+def _normalize_match_key(value: Any) -> str:
+    decomposed = unicodedata.normalize("NFD", str(value or ""))
+    return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn").casefold().strip()
+
+
+def _apply_conclusion_text_correction(aspecto: str, titulo: str, texto: str) -> str:
+    if aspecto != "conclusao":
+        return texto
+    correction = CONCLUSION_TEXT_CORRECTIONS.get(_normalize_match_key(titulo))
+    if correction is None:
+        return texto
+    original, replacement = correction
+    return texto.replace(original, replacement)
 
 
 def _normalize_string_list(value: Any) -> List[str]:
@@ -406,6 +429,7 @@ def _normalize_store(store: Dict[str, Any]) -> Dict[str, Any]:
         for index, frase in enumerate(frases_in, start=1):
             titulo = str(frase.get("titulo") or "").strip()
             texto = str(frase.get("texto") or "").strip()
+            texto = _apply_conclusion_text_correction(default_aspect["key"], titulo, texto)
             if not titulo or not texto:
                 continue
             frase_id = frase.get("id")
