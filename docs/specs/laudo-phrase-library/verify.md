@@ -47,6 +47,10 @@ Status: done
 | CA-027 | aceitacao | teste unitario cobre marcadores internos em linhas e no mesmo paragrafo, gerando topicos separados e paragrafo sem simbolos residuais. | ok local |
 | CA-028 | seguranca clinica | teste de servico normaliza somente a frase `Efusao pericardica leve sem tamponamento`, preservando os demais achados. | ok local |
 | NFR-012 | seguranca clinica | correcao runtime e idempotente, restrita ao aspecto/titulo conhecido e aplicada antes da persistencia normalizada com backup. | ok local |
+| CA-029 | aceitacao | teste `gera e atualiza o rascunho pelos achados sem sobrescrever a conclusao antes da revisao` confirma geracao inicial e troca automatica de grau. | ok local |
+| CA-030 | seguranca clinica | o mesmo teste confirma que a conclusao oficial permanece intacta ate `Aplicar rascunho revisado na conclusao`; teste unitario limita a origem aos achados escolhidos. | ok local |
+| CA-031 | aceitacao | `EcocardiogramaEstruturadoEditor.tsx` mantem o seletor existente sob `Ajuste opcional com frases prontas` e diferencia sua acao como `Aplicar selecao manual`. | ok local |
+| NFR-013 | seguranca clinica | `comporRascunhoConclusaoDosAchados` usa somente titulo/texto existente, ignora tag `normal`/`fisiologico` e nao consulta medidas nem cria classificacoes. | ok local |
 
 ## 2) Testes automatizados executados
 
@@ -75,6 +79,8 @@ Resumo dos resultados:
 - Store runtime de stage: 15 titulos renomeados para `DMVM`, 6 referencias de presets sincronizadas, 112 titulos unicos e zero referencias quebradas; producao permaneceu com o hash anterior.
 - Seguranca da API: 15 testes direcionados passaram (3 de autenticacao/autorizacao, 11 do servico e 1 de importacao); a mesma execucao da esteira (`pytest tests`) passou com 711 testes; CI, deploy e Migration CI de stage passaram no SHA `2a16925c`.
 - Compositor local de achados: 6 testes direcionados passaram, cobrindo escolha exclusiva de grau, isolamento entre familias clinicas, composicao de conclusoes, aplicacao explicita e ausencia de mutacao silenciosa da biblioteca.
+- Rascunho automatico da conclusao: 11 testes direcionados passaram; ESLint dos arquivos alterados, TypeScript sem emissao e build de producao com 43 paginas passaram.
+- Regressao frontend apos o rascunho automatico: 405 testes Vitest e 9 testes Node passaram.
 - Regressao frontend no snapshot combinado com o `stage` atual: 400 testes Vitest e 9 testes Node passaram; ESLint global e TypeScript sem emissao passaram; o build de producao compilou, validou tipos e gerou 43 paginas.
 - Hotfix da composicao: 401 testes Vitest passaram; 13 testes direcionados de servico/importacao passaram; ESLint direcionado, TypeScript sem emissao e build de producao com 43 paginas passaram.
 - O teste clinico direcionado confirma que a correcao remove somente `sem alteracoes cardiacas estruturais`, preservando efusao, ausencia de tamponamento e o restante da frase; uma segunda normalizacao nao produz novas mudancas.
@@ -103,6 +109,7 @@ Resumo dos resultados:
 - Cenario 19: editar manualmente um aspecto, sair do campo, recarregar a Biblioteca e confirmar que a frase compartilhada nao foi sobrescrita.
 - Cenario 20: combinar uma conclusao com marcadores internos, alternar para `Em paragrafo` e confirmar que nenhum marcador visual permanece.
 - Cenario 21: combinar valvopatia com `Efusao pericardica leve sem tamponamento` e confirmar que a conclusao nao afirma ausencia de alteracoes estruturais.
+- Cenario 22: aplicar um preset base, alterar um ou mais aspectos e confirmar que o rascunho automatico acompanha os achados, omite frases marcadas como normais/fisiologicas e so substitui a conclusao oficial apos revisao e aplicacao explicita.
 
 Resultado operacional ja confirmado para o cenario 8: arquivo runtime e API publica de stage retornam zero titulos legados e 112 conclusoes integras. Os cenarios 6 e 7 serao repetidos no frontend publicado apos o workflow de deploy.
 
@@ -121,6 +128,7 @@ O smoke de seguranca em stage confirmou `401 Credenciais invalidas` tanto no GET
 - Risco residual 5: o historico Recentes e local a cada navegador e nao sincroniza entre dispositivos, por desenho.
 - Risco residual 6: usuarios autenticados sem permissao configurada no modulo `frases` passam a receber `403`, comportamento intencional da matriz existente.
 - Risco residual 7: os atalhos de grau dependem de familias coerentes no banco atual; quando a relacao nao for segura, a interface omite os atalhos e mantem o seletor completo.
+- Risco residual 8: o rascunho automatico resume os titulos cadastrados e depende da qualidade desses titulos; por seguranca, continua exigindo revisao humana antes de entrar no laudo.
 
 ## 5) Itens fora de escopo entregues
 

@@ -23,6 +23,7 @@ import {
 } from "@/lib/ecocardiograma-estruturado";
 import {
   comporConclusaoDeFrases,
+  comporRascunhoConclusaoDosAchados,
   type FormatoConclusaoEco,
   obterOpcoesDeGrauRelacionadas,
 } from "@/lib/ecocardiograma-compositor";
@@ -196,6 +197,9 @@ export default function EcocardiogramaEstruturadoEditor({
   );
   const [conclusoesCompostasIds, setConclusoesCompostasIds] = useState<string[]>([]);
   const [formatoConclusao, setFormatoConclusao] = useState<FormatoConclusaoEco>("topicos");
+  const [rascunhoConclusao, setRascunhoConclusao] = useState("");
+  const [rascunhoConclusaoEditado, setRascunhoConclusaoEditado] = useState(false);
+  const [assinaturaRascunhoConclusao, setAssinaturaRascunhoConclusao] = useState("");
   const [aplicandoPreset, setAplicandoPreset] = useState(false);
   const [salvandoPreset, setSalvandoPreset] = useState(false);
   const [atualizandoPresetSelecionado, setAtualizandoPresetSelecionado] = useState(false);
@@ -448,6 +452,56 @@ export default function EcocardiogramaEstruturadoEditor({
       ),
     [conclusoesCompostasIds, formatoConclusao, frasesConclusaoAtivas],
   );
+  const achadosParaConclusao = useMemo(
+    () =>
+      aspectos
+        .filter((aspecto) => aspecto.key !== "conclusao")
+        .map((aspecto) => {
+          const fraseId = fraseSelecionadaEfetivaPorAspecto[aspecto.key];
+          const frase = (aspecto.frases || []).find(
+            (item) =>
+              String(item.id) === String(fraseId || "") && Number(item.ativo ?? 1) === 1,
+          );
+          return {
+            aspecto: aspecto.key,
+            label: aspecto.label,
+            texto: String(estado.textos[aspecto.key] || "").trim(),
+            frase,
+          };
+        }),
+    [aspectos, estado.textos, fraseSelecionadaEfetivaPorAspecto],
+  );
+  const textoRascunhoAutomatico = useMemo(
+    () => comporRascunhoConclusaoDosAchados(achadosParaConclusao, formatoConclusao),
+    [achadosParaConclusao, formatoConclusao],
+  );
+  const assinaturaAchadosConclusao = useMemo(
+    () =>
+      JSON.stringify({
+        formato: formatoConclusao,
+        achados: achadosParaConclusao.map((achado) => [
+          achado.aspecto,
+          achado.texto,
+          achado.frase?.id || null,
+        ]),
+      }),
+    [achadosParaConclusao, formatoConclusao],
+  );
+  const rascunhoConclusaoDesatualizado =
+    rascunhoConclusaoEditado && assinaturaRascunhoConclusao !== assinaturaAchadosConclusao;
+
+  useEffect(() => {
+    if (modoPreenchimento !== "compositor" || rascunhoConclusaoEditado) {
+      return;
+    }
+    setRascunhoConclusao(textoRascunhoAutomatico);
+    setAssinaturaRascunhoConclusao(assinaturaAchadosConclusao);
+  }, [
+    assinaturaAchadosConclusao,
+    modoPreenchimento,
+    rascunhoConclusaoEditado,
+    textoRascunhoAutomatico,
+  ]);
 
   useEffect(() => {
     if (!presets.length) {
@@ -904,6 +958,30 @@ export default function EcocardiogramaEstruturadoEditor({
     setHint(
       `${conclusoesCompostasIds.length} frase(s) aprovada(s) aplicadas à conclusão para revisão.`,
     );
+  };
+
+  const atualizarRascunhoConclusao = () => {
+    setRascunhoConclusao(textoRascunhoAutomatico);
+    setRascunhoConclusaoEditado(false);
+    setAssinaturaRascunhoConclusao(assinaturaAchadosConclusao);
+    setHint("Rascunho atualizado a partir dos achados atuais. Revise antes de aplicar.");
+  };
+
+  const aplicarRascunhoConclusao = () => {
+    const textoRevisado = rascunhoConclusao.trim();
+    if (!textoRevisado) {
+      return;
+    }
+    setFraseSelecionadaPorAspecto((prev) => ({ ...prev, conclusao: "" }));
+    onChange(
+      atualizarEstrutura(estado, {
+        textos: {
+          ...estado.textos,
+          conclusao: textoRevisado,
+        },
+      }),
+    );
+    setHint("Rascunho revisado aplicado à conclusão do laudo.");
   };
 
   const atualizarTextoFraseNoPayloadLocal = (
@@ -1618,6 +1696,55 @@ export default function EcocardiogramaEstruturadoEditor({
               </div>
               {modoPreenchimento === "compositor" && aspecto.key === "conclusao" ? (
                 <div className="mb-3 space-y-3 rounded-lg border border-teal-100 bg-teal-50/40 p-3">
+                  <div className="rounded-lg border border-teal-200 bg-white p-3">
+                    <div className="text-sm font-semibold text-gray-900">
+                      Rascunho automático dos achados
+                    </div>
+                    <p className="mt-1 text-xs text-gray-600">
+                      Resume apenas as frases já escolhidas nos aspectos e omite itens marcados
+                      como normais ou fisiológicos. Não calcula estágio nem cria diagnóstico.
+                    </p>
+                    <textarea
+                      aria-label="Rascunho automático da conclusão"
+                      value={rascunhoConclusao}
+                      onChange={(event) => {
+                        setRascunhoConclusao(event.target.value);
+                        setRascunhoConclusaoEditado(true);
+                      }}
+                      placeholder="Escolha os achados acima para gerar o rascunho automaticamente."
+                      rows={Math.max(4, Math.min(10, rascunhoConclusao.split("\n").length + 1))}
+                      className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100"
+                    />
+                    {rascunhoConclusaoDesatualizado ? (
+                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        Os achados mudaram depois da sua edição. Atualize o rascunho para refletir
+                        as escolhas atuais; sua versão só será substituída ao confirmar.
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={atualizarRascunhoConclusao}
+                        disabled={!textoRascunhoAutomatico}
+                        className="rounded-lg border border-teal-300 bg-white px-3 py-2 text-sm text-teal-700 hover:bg-teal-50 disabled:opacity-50"
+                      >
+                        Atualizar pelos achados
+                      </button>
+                      <button
+                        type="button"
+                        onClick={aplicarRascunhoConclusao}
+                        disabled={!rascunhoConclusao.trim() || rascunhoConclusaoDesatualizado}
+                        className="rounded-lg bg-teal-600 px-3 py-2 text-sm text-white hover:bg-teal-700 disabled:opacity-50"
+                      >
+                        Aplicar rascunho revisado na conclusão
+                      </button>
+                    </div>
+                  </div>
+                  <div className="border-t border-teal-100 pt-3">
+                    <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Ajuste opcional com frases prontas
+                    </div>
+                  </div>
                   <SeletorFraseConclusao
                     frases={frasesAtivas}
                     multiple
@@ -1663,7 +1790,7 @@ export default function EcocardiogramaEstruturadoEditor({
                     disabled={!textoConclusaoComposta}
                     className="rounded-lg bg-teal-600 px-3 py-2 text-sm text-white hover:bg-teal-700 disabled:opacity-50"
                   >
-                    Aplicar {conclusoesCompostasIds.length || ""} frase(s) na conclusão
+                    Aplicar seleção manual de {conclusoesCompostasIds.length || ""} frase(s)
                   </button>
                 </div>
               ) : (

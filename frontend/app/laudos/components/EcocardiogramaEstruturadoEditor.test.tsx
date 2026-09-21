@@ -26,6 +26,8 @@ vi.mock("@/lib/frases-ecocardiograma-estruturado-teste-api", () => ({
 
 const textoModerado = "Ventrículo esquerdo com sobrecarga volumétrica moderada.";
 const textoImportante = "Ventrículo esquerdo com sobrecarga volumétrica importante.";
+const textoMitralNormal = "Valva mitral sem alterações morfológicas ou refluxo.";
+const textoMitralLeve = "Valva mitral com espessamento e refluxo leves.";
 const conclusaoDmvm = "Doença valvar mixomatosa com repercussão hemodinâmica.";
 const conclusaoHp = "Alta probabilidade ecocardiográfica de hipertensão pulmonar.";
 
@@ -34,6 +36,31 @@ const payload = {
   mode: "teste",
   last_updated: "2026-09-21T00:00:00Z",
   aspectos: [
+    {
+      key: "valva_mitral",
+      label: "Valva mitral",
+      categoria: "Valvas",
+      descricao: "Morfologia e refluxo mitral",
+      placeholder: "Descreva a valva mitral",
+      legacy_field: "valvas",
+      ordem: 5,
+      frases: [
+        {
+          id: 1,
+          titulo: "Mitral normal",
+          texto: textoMitralNormal,
+          tags: ["normal"],
+          ativo: 1,
+        },
+        {
+          id: 3,
+          titulo: "Espessamento mitral leve com refluxo leve",
+          texto: textoMitralLeve,
+          tags: ["endocardiose", "leve", "B1"],
+          ativo: 1,
+        },
+      ],
+    },
     {
       key: "ventriculo_esquerdo",
       label: "Ventriculo esquerdo",
@@ -100,6 +127,7 @@ const payload = {
       key: "dmvm_base",
       label: "DMVM base",
       selecoes: [
+        { aspecto: "valva_mitral", frase_id: 1, frase_titulo: "Mitral normal" },
         { aspecto: "ventriculo_esquerdo", frase_id: 66, frase_titulo: "VE moderado" },
         { aspecto: "conclusao", frase_id: 170, frase_titulo: "DMVM" },
       ],
@@ -114,11 +142,13 @@ const estadoInicial: EcocardiogramaEstruturadoPersistido = {
   preset_id: 7,
   preset_label: "DMVM base",
   preset_textos: {
+    valva_mitral: textoMitralNormal,
     ventriculo_esquerdo: textoModerado,
     conclusao: conclusaoDmvm,
   },
   updated_at: "2026-09-21T00:00:00Z",
   textos: {
+    valva_mitral: textoMitralNormal,
     ventriculo_esquerdo: textoModerado,
     conclusao: conclusaoDmvm,
   },
@@ -189,12 +219,112 @@ describe("EcocardiogramaEstruturadoEditor - composicao de achados", () => {
       conclusaoDmvm,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Aplicar 2 frase\(s\) na conclusão/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Aplicar seleção manual de 2 frase\(s\)/i }),
+    );
 
     await waitFor(() => {
       const campo = screen.getByPlaceholderText("Escreva a conclusao") as HTMLTextAreaElement;
       expect(campo.value).toContain(`* ${conclusaoDmvm}`);
       expect(campo.value).toContain(`* ${conclusaoHp}`);
     });
+  });
+
+  it("gera e atualiza o rascunho pelos achados sem sobrescrever a conclusao antes da revisao", async () => {
+    const onChange = vi.fn();
+    render(<EditorControlado onChange={onChange} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Combinar achados/i }));
+
+    const rascunho = await screen.findByRole("textbox", {
+      name: /Rascunho automático da conclusão/i,
+    });
+    await waitFor(() => {
+      expect((rascunho as HTMLTextAreaElement).value).toContain(
+        "Ventriculo esquerdo: VE com sobrecarga volumétrica moderada.",
+      );
+    });
+    expect((screen.getByPlaceholderText("Escreva a conclusao") as HTMLTextAreaElement).value).toBe(
+      conclusaoDmvm,
+    );
+
+    fireEvent.click(await screen.findByRole("radio", { name: /Importante/i }));
+
+    await waitFor(() => {
+      expect((rascunho as HTMLTextAreaElement).value).toContain(
+        "Ventriculo esquerdo: VE com sobrecarga volumétrica importante.",
+      );
+      expect((rascunho as HTMLTextAreaElement).value).not.toContain("moderada");
+    });
+    expect((screen.getByPlaceholderText("Escreva a conclusao") as HTMLTextAreaElement).value).toBe(
+      conclusaoDmvm,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Aplicar rascunho revisado na conclusão/i }),
+    );
+
+    await waitFor(() => {
+      expect((screen.getByPlaceholderText("Escreva a conclusao") as HTMLTextAreaElement).value).toBe(
+        "* Ventriculo esquerdo: VE com sobrecarga volumétrica importante.",
+      );
+    });
+  });
+
+  it("inclui automaticamente a mitral alterada e omite a frase normal do preset", async () => {
+    const onChange = vi.fn();
+    render(<EditorControlado onChange={onChange} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Combinar achados/i }));
+    const rascunho = await screen.findByRole("textbox", {
+      name: /Rascunho automático da conclusão/i,
+    });
+    await waitFor(() => {
+      expect((rascunho as HTMLTextAreaElement).value).not.toContain("Mitral normal");
+    });
+
+    fireEvent.change(screen.getByLabelText("Escolher frase para Valva mitral"), {
+      target: { value: "3" },
+    });
+
+    await waitFor(() => {
+      expect((rascunho as HTMLTextAreaElement).value).toContain(
+        "Valva mitral: Espessamento mitral leve com refluxo leve.",
+      );
+    });
+    expect((screen.getByPlaceholderText("Escreva a conclusao") as HTMLTextAreaElement).value).toBe(
+      conclusaoDmvm,
+    );
+  });
+
+  it("preserva a revisao manual e bloqueia aplicacao quando os achados mudam", async () => {
+    const onChange = vi.fn();
+    render(<EditorControlado onChange={onChange} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Combinar achados/i }));
+    const rascunho = await screen.findByRole("textbox", {
+      name: /Rascunho automático da conclusão/i,
+    });
+    await waitFor(() => expect((rascunho as HTMLTextAreaElement).value).not.toBe(""));
+
+    fireEvent.change(rascunho, { target: { value: "Conclusão revisada pelo médico." } });
+    fireEvent.click(await screen.findByRole("radio", { name: /Importante/i }));
+
+    expect(await screen.findByText(/Os achados mudaram depois da sua edição/i)).toBeInTheDocument();
+    expect((rascunho as HTMLTextAreaElement).value).toBe("Conclusão revisada pelo médico.");
+    expect(
+      screen.getByRole("button", { name: /Aplicar rascunho revisado na conclusão/i }),
+    ).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Atualizar pelos achados/i }));
+
+    await waitFor(() => {
+      expect((rascunho as HTMLTextAreaElement).value).toContain(
+        "VE com sobrecarga volumétrica importante",
+      );
+    });
+    expect(
+      screen.getByRole("button", { name: /Aplicar rascunho revisado na conclusão/i }),
+    ).toBeEnabled();
   });
 });
