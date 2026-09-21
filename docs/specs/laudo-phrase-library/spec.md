@@ -1,6 +1,6 @@
 # Spec - laudo-phrase-library
 
-Data: 2026-08-11
+Data: 2026-09-21
 Responsavel: Codex  
 Status: done
 
@@ -28,6 +28,11 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - RF-016: o seletor de Conclusao deve oferecer atalhos clinicos disponiveis no banco, historico local das cinco selecoes mais recentes e previa do texto escolhido.
 - RF-017: escolher uma conclusao no seletor nao deve alterar o laudo imediatamente; a aplicacao continua dependendo do acionamento explicito de `Usar frase`.
 - RF-018: todas as rotas da API estruturada de frases de ecocardiograma devem exigir uma sessao interna valida e respeitar a matriz de permissoes do modulo `frases`.
+- RF-019: a aba Qualitativa deve oferecer os modos `Preset rapido` e `Combinar achados`, preservando o fluxo atual para laudos simples.
+- RF-020: no modo `Combinar achados`, o preset deve atuar como base e cada nova escolha deve substituir somente a frase do aspecto correspondente.
+- RF-021: quando o banco contiver frases aprovadas da mesma familia clinica em diferentes graus, o aspecto deve oferecer escolhas rapidas mutuamente exclusivas de grau, sem gerar ou inferir texto clinico.
+- RF-022: o aspecto Conclusao deve permitir selecionar multiplas frases aprovadas, exibir a composicao em topicos ou paragrafo e alterar o laudo somente por aplicacao explicita.
+- RF-023: editar o texto de um aspecto no laudo nao deve atualizar silenciosamente a frase compartilhada da biblioteca ao sair do campo.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -40,6 +45,8 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - NFR-007 (privacidade): o historico local deve armazenar somente IDs de frases, nunca texto clinico do laudo ou dados do paciente.
 - NFR-008 (responsividade): o painel de Conclusao deve permanecer contido no viewport, independente do overflow dos ancestrais, abrir no lado com mais espaco quando necessario e reservar a rolagem vertical para a lista de resultados.
 - NFR-009 (seguranca): requisicoes anonimas nao podem ler, aplicar, criar, editar, duplicar, desativar, restaurar ou excluir frases e presets.
+- NFR-010 (seguranca clinica): variacoes rapidas e conclusoes compostas devem reutilizar literalmente frases ativas da biblioteca; a interface nao pode inventar graduacoes ou diagnosticos ausentes do banco.
+- NFR-011 (previsibilidade): a composicao da conclusao deve ser deterministica, preservar a ordem de selecao e remover IDs duplicados ou indisponiveis.
 
 ## 4) Contratos tecnicos
 
@@ -63,8 +70,8 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 ### Frontend
 
 - Telas afetadas: `/laudos/novo` e `/laudos/[id]/editar`.
-- Estados de UI: aba `biblioteca`, secao `frases|presets`, filtros, `gruposFrasesExpandidos`, formulario de frase e formulario de preset; na aba Qualitativa, busca de preset, filtro por grupo clinico, dropdown agrupado, busca de Conclusao, atalho clinico, grupos de Conclusao expandidos e IDs recentes locais.
-- Regras: salvar na Biblioteca recarrega o banco, mas nao altera diretamente o laudo em edicao.
+- Estados de UI: aba `biblioteca`, secao `frases|presets`, filtros, `gruposFrasesExpandidos`, formulario de frase e formulario de preset; na aba Qualitativa, busca de preset, filtro por grupo clinico, dropdown agrupado, modo de preenchimento, variacoes de grau relacionadas, busca de Conclusao, selecao multipla, formato da composicao, atalho clinico, grupos de Conclusao expandidos e IDs recentes locais.
+- Regras: salvar na Biblioteca recarrega o banco, mas nao altera diretamente o laudo em edicao; editar o laudo nao altera a Biblioteca sem uma acao explicita de propagacao.
 
 ## 5) Compatibilidade e rollout
 
@@ -95,6 +102,12 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - CA-018: ao abrir o seletor proximo ao limite inferior da tela, busca, atalhos e toda a regiao rolavel permanecem visiveis; o painel pode abrir acima do gatilho quando houver mais espaco.
 - CA-019: redimensionar ou rolar a pagina reposiciona o painel, enquanto rolar a lista nao desloca o formulario ao atingir os limites internos.
 - CA-020: GET e todas as mutacoes da biblioteca retornam `401` sem sessao; com sessao e permissao correspondente, os contratos atuais permanecem funcionais.
+- CA-021: o usuario pode alternar entre `Preset rapido` e `Combinar achados` sem perder o preset aplicado.
+- CA-022: em `Combinar achados`, trocar `dilatacao moderada` por `dilatacao importante`, quando ambas existirem na mesma familia aprovada, exige uma unica escolha e altera somente o aspecto correspondente.
+- CA-023: frases de familias clinicas diferentes nao aparecem como variantes rapidas umas das outras, ainda que compartilhem o mesmo grau.
+- CA-024: o usuario pode selecionar duas ou mais conclusoes aprovadas, revisar a previa e aplica-las como topicos ou paragrafo sem digitacao repetitiva.
+- CA-025: selecionar ou desmarcar conclusoes na composicao nao altera o campo oficial ate o acionamento de `Aplicar`.
+- CA-026: editar um texto e sair do campo nao chama a API de atualizacao da frase compartilhada; a propagacao para a biblioteca continua sendo uma acao separada e confirmada.
 
 ## 7) Casos de borda
 
@@ -109,9 +122,12 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - CB-009: o painel dentro de ancestral com `overflow` nao pode ser recortado pelo formulario ou modal.
 - CB-010: em viewport estreito, a largura do painel deve respeitar margens laterais minimas e nunca ultrapassar a area visivel.
 - CB-011: usuario autenticado sem a permissao exigida no modulo `frases` recebe `403`; o papel `admin` preserva o bypass operacional ja existente na matriz.
+- CB-012: quando nao houver pelo menos duas frases relacionadas com graus reconhecidos, os atalhos de grau devem ser omitidos e o seletor completo permanece disponivel.
+- CB-013: frase de conclusao inativa, ausente ou selecionada duas vezes deve ser ignorada pela composicao sem produzir texto clinico novo.
 
 ## 8) Fora de escopo
 
 - Controle de permissao especifico por perfil.
 - Auditoria SQL das alteracoes.
 - Drag and drop para reordenacao.
+- Geracao de conclusao por modelo de IA ou inferencia automatica a partir de medidas e achados.
