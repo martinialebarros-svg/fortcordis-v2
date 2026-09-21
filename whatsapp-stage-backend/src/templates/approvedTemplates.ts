@@ -69,12 +69,19 @@ export const APPROVED_UTILITY_TEMPLATES = {
   },
   portalReportLink: {
     name: "laudo_disponivel_portal_link",
-    // Aguardando aprovacao da Meta - ver docs/specs/portal-clinica-link-laudo-whatsapp/.
-    // Atualizar com o ID real assim que o modelo for aprovado no Business Manager.
-    // Enquanto isso o backend degrada para "portalReportAvailable" (sem link).
+    // Aprovado pela Meta em 20/09/2026 nas duas contas ("Ativo").
+    //
+    // O ID aqui e o da WABA de PRODUCAO (Fort Cordis, 1369494994627980), como
+    // nas demais entradas deste catalogo. A WABA de teste
+    // (4413513738886247) aprovou o mesmo modelo com ID proprio,
+    // 2146833716714375 - um campo so nao da conta dos dois, e nao precisa: o
+    // envio usa `name`, nao `metaId`. Este campo serve para achar o modelo no
+    // Business Manager. Se algum dia algo passar a enviar por ID, este campo
+    // vira por ambiente.
+    //
     // O link vai como variavel de corpo, e nao como botao de URL, seguindo o
     // precedente ja aprovado de "convite_portal_clinica_v2".
-    metaId: "PENDING_META_APPROVAL",
+    metaId: "1341477634545137",
     body:
       "Olá, equipe {{1}}. O laudo do exame {{2}} do paciente {{3}} já está disponível. " +
       "Abra pelo link seguro da Fort Cordis: {{4}} — não é preciso senha.",
