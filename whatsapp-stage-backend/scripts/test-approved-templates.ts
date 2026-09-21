@@ -17,7 +17,7 @@ async function run(): Promise<void> {
     appointmentMissingData: ["dados_pendentes_agendamento", "2094851784715594", 4, 2],
     appointmentFormalized: ["agendamento_formalizado", "PENDING_META_APPROVAL", 7, 0],
     portalReportAvailable: ["laudo_disponivel_portal", "1682393009502350", 3, 0],
-    portalReportLink: ["laudo_disponivel_portal_link", "PENDING_META_APPROVAL", 4, 0],
+    portalReportLink: ["laudo_disponivel_portal_link", "1341477634545137", 4, 0],
     receiptAvailable: ["recibo_disponivel", "934407008986859", 4, 1],
     receiptPdf: ["recibo_pagamento_pdf", "1025876410335393", 7, 1],
     receiptPdfBulk: ["recibo_pagamento_pdf_multiplas_os", "940165775772306", 3, 1],

@@ -28,9 +28,9 @@ Status: in-progress
 | NFR-004 | nao funcional | CA-001 - `link_incluido` na auditoria e a URL ausente dos detalhes; `PORTAL_EXAM_LINK_OPENED` registrado em `abrir_laudo_por_link` | ok |
 | NFR-005 | nao funcional | CA-002 + suite completa de backend sem regressao | ok |
 | NFR-006 | nao funcional | Resposta limitada a clinica, pet, tipo de exame e data (`PortalExamLinkResponse`); sem tutor, CPF ou telefone | ok |
-| Migracao | banco | `20260918_87_portal_clinic_exam_links` aplicada em banco limpo pela suite; aplicada em stage (conferido em 20/09/2026 por `get_migration_status`: `current_version=20260918_88`, `pending_count=0`); **falta producao** | pendente |
-| Meta | dependencia externa | Modelo `laudo_disponivel_portal_link` com `metaId: PENDING_META_APPROVAL` - **aguardando aprovacao no Business Manager** | pendente |
-| Stage | manual | Link aberto, laudo entregue e PDF baixado em stage em 20/09/2026 (sem cookie: 200, `application/pdf`, 899.570 bytes); token de download recusado em anexo da mesma clinica (403). **Falta a ponta do WhatsApp**: modelo em analise e numero fora da lista de autorizados da WABA de teste | pendente |
+| Migracao | banco | `20260918_87_portal_clinic_exam_links` aplicada em banco limpo pela suite, em stage e **em producao** (conferido em 20/09/2026 depois do PR #188: `current_version=20260918_88`, `pending_count=0` nos dois) | ok |
+| Meta | dependencia externa | Modelo `laudo_disponivel_portal_link` **aprovado em 20/09/2026 nas duas contas** ("Ativo - Qualidade pendente", corpo identico ao do catalogo): producao `1341477634545137`, teste `2146833716714375`. `metaId` gravado com o de producao | ok |
+| Stage | manual | Link aberto, laudo entregue e PDF baixado em stage em 20/09/2026 (sem cookie: 200, `application/pdf`, 899.570 bytes); token de download recusado em anexo da mesma clinica (403); degradacao `portalReportLink` -> `portalReportAvailable` exercitada de verdade. **Falta so a mensagem chegando**: a WABA de teste so entrega para numero na lista de autorizados da Meta, e o numero do responsavel nao esta la | pendente |
 
 ## 2) Testes automatizados executados
 
@@ -117,8 +117,14 @@ Ainda nao executados. Roteiro para a verificacao em stage:
 
 - [x] Aprovado para stage (com `PORTAL_CLINIC_EXAM_LINK_ENABLED=false` no primeiro
       deploy; ligar so depois de conferir que o aviso continua saindo normalmente).
-- [ ] Aprovado para producao - **bloqueado** ate: (a) o modelo
-      `laudo_disponivel_portal_link` ser aprovado pela Meta e ter o `metaId` real
-      no lugar de `PENDING_META_APPROVAL`; (b) os 6 cenarios manuais rodarem em
-      stage; (c) a migracao `20260918_87` ser aplicada.
+- [ ] Aprovado para producao - os tres bloqueios cairam, falta a decisao do
+      responsavel sobre **ligar a flag**:
+      (a) o modelo `laudo_disponivel_portal_link` foi **aprovado em 20/09/2026** nas
+      duas contas, e o `metaId` de producao esta gravado;
+      (b) dos 6 cenarios manuais, 5 rodaram em stage em 20/09/2026 - falta so o
+      cenario 1, a mensagem chegando, que depende de o numero entrar na lista de
+      destinatarios autorizados da WABA de teste;
+      (c) a migracao `20260918_87` esta aplicada em stage e em producao.
+      O codigo ja esta em `main` com `PORTAL_CLINIC_EXAM_LINK_ENABLED=false`, entao
+      nada mudou para as clinicas ate alguem ligar a flag.
 - [ ] Nao aprovado.
