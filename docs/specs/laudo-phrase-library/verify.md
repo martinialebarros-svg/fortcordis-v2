@@ -44,6 +44,9 @@ Status: done
 | CA-026 | integridade | teste de integracao edita e desfoca o campo e confirma que `atualizarFraseEcoEstruturadoTeste` nao foi chamado. | ok local |
 | NFR-010 | seguranca clinica | `ecocardiograma-compositor.ts` seleciona e compoe somente frases ativas existentes no payload; testes cobrem ausencia, inatividade e familia insuficiente. | ok local |
 | NFR-011 | previsibilidade | teste unitario confirma ordem de selecao, remocao de duplicatas e formatos deterministas. | ok local |
+| CA-027 | aceitacao | teste unitario cobre marcadores internos em linhas e no mesmo paragrafo, gerando topicos separados e paragrafo sem simbolos residuais. | ok local |
+| CA-028 | seguranca clinica | teste de servico normaliza somente a frase `Efusao pericardica leve sem tamponamento`, preservando os demais achados. | ok local |
+| NFR-012 | seguranca clinica | correcao runtime e idempotente, restrita ao aspecto/titulo conhecido e aplicada antes da persistencia normalizada com backup. | ok local |
 
 ## 2) Testes automatizados executados
 
@@ -73,6 +76,9 @@ Resumo dos resultados:
 - Seguranca da API: 15 testes direcionados passaram (3 de autenticacao/autorizacao, 11 do servico e 1 de importacao); a mesma execucao da esteira (`pytest tests`) passou com 711 testes; CI, deploy e Migration CI de stage passaram no SHA `2a16925c`.
 - Compositor local de achados: 6 testes direcionados passaram, cobrindo escolha exclusiva de grau, isolamento entre familias clinicas, composicao de conclusoes, aplicacao explicita e ausencia de mutacao silenciosa da biblioteca.
 - Regressao frontend no snapshot combinado com o `stage` atual: 400 testes Vitest e 9 testes Node passaram; ESLint global e TypeScript sem emissao passaram; o build de producao compilou, validou tipos e gerou 43 paginas.
+- Hotfix da composicao: 401 testes Vitest passaram; 13 testes direcionados de servico/importacao passaram; ESLint direcionado, TypeScript sem emissao e build de producao com 43 paginas passaram.
+- O teste clinico direcionado confirma que a correcao remove somente `sem alteracoes cardiacas estruturais`, preservando efusao, ausencia de tamponamento e o restante da frase; uma segunda normalizacao nao produz novas mudancas.
+- Regressao backend completa do hotfix: 1404 testes passaram e 7 foram ignorados pelas dependencias opcionais ja previstas; guardrail SDD e `git diff --check` passaram.
 
 ## 3) Testes manuais
 
@@ -95,6 +101,8 @@ Resumo dos resultados:
 - Cenario 17: aplicar um preset base, abrir `Combinar achados` e trocar somente o grau de dilatacao do ventriculo esquerdo por uma opcao aprovada.
 - Cenario 18: combinar conclusoes de valvopatia e hipertensao pulmonar, alternar entre topicos/paragrafo e confirmar que o texto oficial muda somente apos `Aplicar`.
 - Cenario 19: editar manualmente um aspecto, sair do campo, recarregar a Biblioteca e confirmar que a frase compartilhada nao foi sobrescrita.
+- Cenario 20: combinar uma conclusao com marcadores internos, alternar para `Em paragrafo` e confirmar que nenhum marcador visual permanece.
+- Cenario 21: combinar valvopatia com `Efusao pericardica leve sem tamponamento` e confirmar que a conclusao nao afirma ausencia de alteracoes estruturais.
 
 Resultado operacional ja confirmado para o cenario 8: arquivo runtime e API publica de stage retornam zero titulos legados e 112 conclusoes integras. Os cenarios 6 e 7 serao repetidos no frontend publicado apos o workflow de deploy.
 

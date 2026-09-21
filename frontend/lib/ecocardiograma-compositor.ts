@@ -160,8 +160,16 @@ export function obterOpcoesDeGrauRelacionadas(
   return selecionadas.length >= 2 ? selecionadas : [];
 }
 
-function removerMarcadorInicial(texto: string): string {
-  return texto.replace(/^\s*(?:[-*•]+)\s*/, "").trim();
+function separarItensClinicos(texto: string): string[] {
+  const valor = String(texto || "").trim();
+  if (!valor) {
+    return [];
+  }
+
+  return valor
+    .split(/(?:^|[\r\n]+|\s+)(?:[-*•]+)\s+/g)
+    .map((item) => item.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
 }
 
 export function comporConclusaoDeFrases(
@@ -175,14 +183,13 @@ export function comporConclusaoDeFrases(
       .filter((frase) => Number(frase.ativo ?? 1) === 1 && frase.id !== undefined)
       .map((frase) => [String(frase.id), frase]),
   );
-  const textos = idsUnicos
+  const itens = idsUnicos
     .map((id) => porId.get(id))
     .filter(Boolean)
-    .map((frase) => removerMarcadorInicial(String(frase?.texto || "")))
-    .filter(Boolean);
+    .flatMap((frase) => separarItensClinicos(String(frase?.texto || "")));
 
   if (formato === "paragrafo") {
-    return textos.join(" ");
+    return itens.join(" ");
   }
-  return textos.map((texto) => `* ${texto}`).join("\n");
+  return itens.map((item) => `* ${item}`).join("\n");
 }

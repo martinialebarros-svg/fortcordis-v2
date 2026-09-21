@@ -33,6 +33,8 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - RF-021: quando o banco contiver frases aprovadas da mesma familia clinica em diferentes graus, o aspecto deve oferecer escolhas rapidas mutuamente exclusivas de grau, sem gerar ou inferir texto clinico.
 - RF-022: o aspecto Conclusao deve permitir selecionar multiplas frases aprovadas, exibir a composicao em topicos ou paragrafo e alterar o laudo somente por aplicacao explicita.
 - RF-023: editar o texto de um aspecto no laudo nao deve atualizar silenciosamente a frase compartilhada da biblioteca ao sair do campo.
+- RF-024: ao compor conclusoes, marcadores internos de topicos devem ser normalizados; o formato `Em paragrafo` nao pode manter asteriscos, hifens ou bolinhas usados apenas como marcadores.
+- RF-025: a conclusao `Efusao pericardica leve sem tamponamento` deve ser neutra quanto a outras alteracoes estruturais, preservando apenas os achados aprovados de efusao e ausencia de tamponamento.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -47,6 +49,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - NFR-009 (seguranca): requisicoes anonimas nao podem ler, aplicar, criar, editar, duplicar, desativar, restaurar ou excluir frases e presets.
 - NFR-010 (seguranca clinica): variacoes rapidas e conclusoes compostas devem reutilizar literalmente frases ativas da biblioteca; a interface nao pode inventar graduacoes ou diagnosticos ausentes do banco.
 - NFR-011 (previsibilidade): a composicao da conclusao deve ser deterministica, preservar a ordem de selecao e remover IDs duplicados ou indisponiveis.
+- NFR-012 (seguranca clinica): correcoes de conteudo runtime devem ser pontuais, idempotentes, identificadas por aspecto e titulo e preservar todo o restante da frase aprovada.
 
 ## 4) Contratos tecnicos
 
@@ -108,6 +111,8 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - CA-024: o usuario pode selecionar duas ou mais conclusoes aprovadas, revisar a previa e aplica-las como topicos ou paragrafo sem digitacao repetitiva.
 - CA-025: selecionar ou desmarcar conclusoes na composicao nao altera o campo oficial ate o acionamento de `Aplicar`.
 - CA-026: editar um texto e sair do campo nao chama a API de atualizacao da frase compartilhada; a propagacao para a biblioteca continua sendo uma acao separada e confirmada.
+- CA-027: uma frase aprovada com dois ou mais marcadores internos gera um topico por item em `Em topicos` e texto continuo sem marcadores em `Em paragrafo`.
+- CA-028: a normalizacao do store remove somente a afirmacao `sem alteracoes cardiacas estruturais` da conclusao de efusao leve sem tamponamento, mantendo efusao, ausencia de tamponamento e recomendacoes existentes.
 
 ## 7) Casos de borda
 
@@ -124,6 +129,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - CB-011: usuario autenticado sem a permissao exigida no modulo `frases` recebe `403`; o papel `admin` preserva o bypass operacional ja existente na matriz.
 - CB-012: quando nao houver pelo menos duas frases relacionadas com graus reconhecidos, os atalhos de grau devem ser omitidos e o seletor completo permanece disponivel.
 - CB-013: frase de conclusao inativa, ausente ou selecionada duas vezes deve ser ignorada pela composicao sem produzir texto clinico novo.
+- CB-014: texto de conclusao sem marcadores deve permanecer uma unidade, com apenas espacos em branco normalizados.
 
 ## 8) Fora de escopo
 

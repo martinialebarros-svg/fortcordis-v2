@@ -73,6 +73,32 @@ describe("compositor de ecocardiograma", () => {
     );
   });
 
+  it("normaliza marcadores internos ao alternar entre topicos e paragrafo", () => {
+    const conclusoes: FraseEcoEstruturadoTeste[] = [
+      {
+        id: 1,
+        titulo: "Valvopatia com HP",
+        texto: "* Doença valvar mixomatosa.\n* Alta probabilidade de hipertensão pulmonar.",
+      },
+      {
+        id: 2,
+        titulo: "Efusao leve",
+        texto: "• Efusão pericárdica discreta. * Sem sinais de tamponamento.",
+      },
+    ];
+
+    expect(comporConclusaoDeFrases(conclusoes, ["1", "2"], "topicos")).toBe(
+      "* Doença valvar mixomatosa.\n" +
+        "* Alta probabilidade de hipertensão pulmonar.\n" +
+        "* Efusão pericárdica discreta.\n" +
+        "* Sem sinais de tamponamento.",
+    );
+    expect(comporConclusaoDeFrases(conclusoes, ["1", "2"], "paragrafo")).toBe(
+      "Doença valvar mixomatosa. Alta probabilidade de hipertensão pulmonar. " +
+        "Efusão pericárdica discreta. Sem sinais de tamponamento.",
+    );
+  });
+
   it("ignora ids ausentes ou frases inativas sem criar texto clinico", () => {
     const conclusoes: FraseEcoEstruturadoTeste[] = [
       { id: 1, titulo: "Ativa", texto: "Texto aprovado.", ativo: 1 },
