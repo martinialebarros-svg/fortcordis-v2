@@ -9,6 +9,13 @@ export interface OpcaoGrauRapidoEco {
   frase: FraseEcoEstruturadoTeste;
 }
 
+export interface AchadoParaConclusaoEco {
+  aspecto: string;
+  label: string;
+  texto: string;
+  frase?: FraseEcoEstruturadoTeste;
+}
+
 const GRAUS_RAPIDOS: Array<{
   grau: GrauRapidoEco;
   label: string;
@@ -170,6 +177,45 @@ function separarItensClinicos(texto: string): string[] {
     .split(/(?:^|[\r\n]+|\s+)(?:[-*•]+)\s+/g)
     .map((item) => item.replace(/\s+/g, " ").trim())
     .filter(Boolean);
+}
+
+function pontuarFraseClinica(texto: string): string {
+  const valor = String(texto || "").replace(/\s+/g, " ").trim();
+  if (!valor) {
+    return "";
+  }
+  return /[.!?]$/.test(valor) ? valor : `${valor}.`;
+}
+
+function fraseRepresentaNormalidade(frase?: FraseEcoEstruturadoTeste): boolean {
+  if (!frase) {
+    return false;
+  }
+  const tags = new Set((frase.tags || []).map(normalizar));
+  return tags.has("normal") || tags.has("fisiologico");
+}
+
+export function comporRascunhoConclusaoDosAchados(
+  achados: AchadoParaConclusaoEco[],
+  formato: FormatoConclusaoEco,
+): string {
+  const itens = achados
+    .filter(
+      (achado) =>
+        achado.aspecto !== "conclusao" &&
+        String(achado.texto || "").trim() &&
+        !fraseRepresentaNormalidade(achado.frase),
+    )
+    .map((achado) => {
+      const resumo = String(achado.frase?.titulo || achado.texto || "").trim();
+      return pontuarFraseClinica(`${achado.label}: ${resumo}`);
+    })
+    .filter(Boolean);
+
+  if (formato === "paragrafo") {
+    return itens.join(" ");
+  }
+  return itens.map((item) => `* ${item}`).join("\n");
 }
 
 export function comporConclusaoDeFrases(

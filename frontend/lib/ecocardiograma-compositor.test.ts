@@ -4,6 +4,7 @@ import type { FraseEcoEstruturadoTeste } from "@/lib/ecocardiograma-estruturado-
 
 import {
   comporConclusaoDeFrases,
+  comporRascunhoConclusaoDosAchados,
   obterOpcoesDeGrauRelacionadas,
 } from "./ecocardiograma-compositor";
 
@@ -106,5 +107,51 @@ describe("compositor de ecocardiograma", () => {
     ];
 
     expect(comporConclusaoDeFrases(conclusoes, ["2", "999"], "topicos")).toBe("");
+  });
+
+  it("gera rascunho automatico somente a partir dos achados selecionados relevantes", () => {
+    const achados = [
+      {
+        aspecto: "valva_mitral",
+        label: "Valva mitral",
+        texto: "Texto detalhado da mitral.",
+        frase: {
+          id: 3,
+          titulo: "Espessamento mitral leve com refluxo leve",
+          texto: "Texto detalhado da mitral.",
+          tags: ["endocardiose", "leve"],
+        },
+      },
+      {
+        aspecto: "aorta",
+        label: "Aorta",
+        texto: "Aorta normal.",
+        frase: {
+          id: 91,
+          titulo: "Aorta normal",
+          texto: "Aorta normal.",
+          tags: ["normal"],
+        },
+      },
+      {
+        aspecto: "pericardio",
+        label: "Pericardio",
+        texto: "Efusao pericardica discreta sem tamponamento.",
+      },
+      {
+        aspecto: "conclusao",
+        label: "Conclusao",
+        texto: "Conclusao anterior.",
+      },
+    ];
+
+    expect(comporRascunhoConclusaoDosAchados(achados, "topicos")).toBe(
+      "* Valva mitral: Espessamento mitral leve com refluxo leve.\n" +
+        "* Pericardio: Efusao pericardica discreta sem tamponamento.",
+    );
+    expect(comporRascunhoConclusaoDosAchados(achados, "paragrafo")).toBe(
+      "Valva mitral: Espessamento mitral leve com refluxo leve. " +
+        "Pericardio: Efusao pericardica discreta sem tamponamento.",
+    );
   });
 });
