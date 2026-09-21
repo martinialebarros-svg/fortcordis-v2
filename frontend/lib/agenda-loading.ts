@@ -19,6 +19,14 @@ export interface AgendaCatalogLoader {
   isLoaded: () => boolean;
 }
 
+export type AgendaAuxiliaryLoad = () => Promise<unknown>;
+
+export function executarCargasAuxiliaresAgenda(
+  tasks: readonly AgendaAuxiliaryLoad[]
+): Promise<PromiseSettledResult<unknown>[]> {
+  return Promise.allSettled(tasks.map(async (task) => task()));
+}
+
 export function extrairIdsAgendamentosVisiveis(
   items: AgendaIdCandidate[],
   limit = 100
