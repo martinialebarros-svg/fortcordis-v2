@@ -8,6 +8,7 @@ import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { normalizarCoordenadaOpcional } from "@/lib/coordinates";
 import {
   createAgendaCatalogLoader,
+  executarCargasAuxiliaresAgenda,
   extrairIdsAgendamentosVisiveis,
   normalizarOpcoesFiltroAgenda,
   type AgendaCatalogLoader,
@@ -439,6 +440,9 @@ export default function AgendaPage() {
   const servicosFiltroLoaderRef = useRef<AgendaCatalogLoader | null>(null);
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastRealtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const agendaLoadSequenceRef = useRef(0);
+  const relatedLoadSequenceRef = useRef(0);
+  const financialSummaryLoadSequenceRef = useRef(0);
   const router = useRouter();
   const fortinho = useFortinho();
   const filtrosIniciaisAplicadosRef = useRef(false);
@@ -791,7 +795,7 @@ export default function AgendaPage() {
     }
     setIsAdmin(usuarioEhAdmin());
     setAuthChecked(true);
-    carregarAgendamentos();
+    carregarAgendamentos({ includeResumo: false });
   }, [router, periodoConsulta.inicio, periodoConsulta.fim]);
 
   useEffect(() => {
@@ -801,7 +805,9 @@ export default function AgendaPage() {
   }, [router]);
 
   useEffect(() => {
+    if (!authChecked) return;
     if (modoVisualizacao !== "lista") {
+      financialSummaryLoadSequenceRef.current += 1;
       setResumoFinanceiro(null);
       setCarregandoResumoFinanceiro(false);
       setErroResumoFinanceiro(false);
@@ -818,6 +824,7 @@ export default function AgendaPage() {
     filtroServicoId,
     filtroPacienteNome,
     filtroTutorNome,
+    authChecked,
   ]);
 
   useEffect(() => {
@@ -837,6 +844,7 @@ export default function AgendaPage() {
     includeRelated = true,
     includeResumo = true,
   }: CarregarAgendamentosOptions = {}) => {
+    const loadSequence = ++agendaLoadSequenceRef.current;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -863,6 +871,7 @@ export default function AgendaPage() {
       }
 
       const response = await api.get(`/agenda?${params.toString()}`);
+      if (loadSequence !== agendaLoadSequenceRef.current) return;
       const items = response.data.items || [];
       setAgendamentos(items);
       if (response.data?.agenda_semanal) {
@@ -878,14 +887,19 @@ export default function AgendaPage() {
         const regrasRota = normalizarAgendaRotaRegras(response.data.agenda_rota_regras);
         setRenderingPolicy(regrasRota.rendering_policy);
       }
+      const auxiliaryLoads = [];
       if (includeRelated) {
-        await carregarRelacionadosVisiveis(items);
+        auxiliaryLoads.push(() => carregarRelacionadosVisiveis(items, loadSequence));
       }
       if (includeResumo) {
-        await carregarResumoFinanceiro();
+        auxiliaryLoads.push(() => carregarResumoFinanceiro());
+      }
+      if (auxiliaryLoads.length > 0) {
+        void executarCargasAuxiliaresAgenda(auxiliaryLoads);
       }
       setErro("");
     } catch (error: any) {
+      if (loadSequence !== agendaLoadSequenceRef.current) return;
       console.error("Erro ao carregar:", error);
       if (error.response?.status === 401) {
         setErro("Sessão expirada. Redirecionando...");
@@ -895,7 +909,9 @@ export default function AgendaPage() {
         setErro("Erro ao carregar agendamentos");
       }
     } finally {
-      setLoading(false);
+      if (loadSequence === agendaLoadSequenceRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -978,9 +994,17 @@ export default function AgendaPage() {
     [agendamentos]
   );
 
-  const carregarRelacionadosVisiveis = async (items: Agendamento[]) => {
+  const carregarRelacionadosVisiveis = async (
+    items: Agendamento[],
+    agendaLoadSequence = agendaLoadSequenceRef.current
+  ) => {
+    const relatedLoadSequence = ++relatedLoadSequenceRef.current;
+    const isCurrentLoad = () =>
+      relatedLoadSequence === relatedLoadSequenceRef.current &&
+      agendaLoadSequence === agendaLoadSequenceRef.current;
     const idsVisiveis = extrairIdsAgendamentosVisiveis(items);
     const limparRelacionados = () => {
+      if (!isCurrentLoad()) return;
       setLaudosVinculados({});
       setOrdensServicoPorAgendamento({});
       setClinicasEndereco({});
@@ -1007,6 +1031,8 @@ export default function AgendaPage() {
         : [];
       const listaClinicas = Array.isArray(response.data?.clinicas) ? response.data.clinicas : [];
       const listaTutores = Array.isArray(response.data?.tutores) ? response.data.tutores : [];
+
+      if (!isCurrentLoad()) return;
 
       const mapaLaudos: LaudosVinculadosPorAgendamento = {};
       for (const laudo of listaLaudos) {
@@ -1123,6 +1149,7 @@ export default function AgendaPage() {
   };
 
   const carregarResumoFinanceiro = async () => {
+    const loadSequence = ++financialSummaryLoadSequenceRef.current;
     if (!isAdmin || modoVisualizacao !== "lista") {
       setResumoFinanceiro(null);
       setErroResumoFinanceiro(false);
@@ -1157,16 +1184,20 @@ export default function AgendaPage() {
       }
 
       const respResumo = await api.get(`/agenda/resumo-financeiro?${params.toString()}`);
+      if (loadSequence !== financialSummaryLoadSequenceRef.current) return;
       setResumoFinanceiro(respResumo.data || null);
       setErroResumoFinanceiro(false);
     } catch (error: any) {
+      if (loadSequence !== financialSummaryLoadSequenceRef.current) return;
       if (error?.response?.status !== 403) {
         console.error("Erro ao carregar resumo financeiro da agenda:", error);
       }
       setResumoFinanceiro(null);
       setErroResumoFinanceiro(true);
     } finally {
-      setCarregandoResumoFinanceiro(false);
+      if (loadSequence === financialSummaryLoadSequenceRef.current) {
+        setCarregandoResumoFinanceiro(false);
+      }
     }
   };
 
