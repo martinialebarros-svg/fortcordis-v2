@@ -21,8 +21,11 @@ import { type FraseEcoEstruturadoTeste } from "@/lib/ecocardiograma-estruturado-
 
 interface SeletorFraseConclusaoProps {
   frases: FraseEcoEstruturadoTeste[];
-  value: string;
-  onChange: (fraseId: string) => void;
+  value?: string;
+  onChange?: (fraseId: string) => void;
+  multiple?: boolean;
+  values?: string[];
+  onValuesChange?: (fraseIds: string[]) => void;
 }
 
 interface GrupoConclusoes {
@@ -175,8 +178,11 @@ function ordenarGrupos(grupoA: string, grupoB: string): number {
 
 export default function SeletorFraseConclusao({
   frases,
-  value,
+  value = "",
   onChange,
+  multiple = false,
+  values = [],
+  onValuesChange,
 }: SeletorFraseConclusaoProps) {
   const [aberto, setAberto] = useState(false);
   const [busca, setBusca] = useState("");
@@ -331,6 +337,15 @@ export default function SeletorFraseConclusao({
     () => frasesOrdenadas.find((frase) => String(frase.id) === value) || null,
     [frasesOrdenadas, value],
   );
+  const idsSelecionados = useMemo(
+    () => new Set((multiple ? values : [value]).map(String).filter(Boolean)),
+    [multiple, value, values],
+  );
+  const frasesSelecionadas = useMemo(
+    () => frasesOrdenadas.filter((frase) => idsSelecionados.has(String(frase.id))),
+    [frasesOrdenadas, idsSelecionados],
+  );
+  const temSelecao = multiple ? frasesSelecionadas.length > 0 : Boolean(fraseSelecionada);
 
   const atalhosDisponiveis = useMemo(
     () =>
@@ -390,8 +405,16 @@ export default function SeletorFraseConclusao({
   };
 
   const selecionarFrase = (fraseId: string) => {
-    onChange(fraseId);
-    if (fraseId) {
+    const adicionandoSelecao = !idsSelecionados.has(fraseId);
+    if (multiple) {
+      const proximosIds = !adicionandoSelecao
+        ? values.filter((id) => String(id) !== fraseId)
+        : [...values.map(String), fraseId];
+      onValuesChange?.(Array.from(new Set(proximosIds)));
+    } else {
+      onChange?.(fraseId);
+    }
+    if (fraseId && (!multiple || adicionandoSelecao)) {
       const proximosIds = [
         fraseId,
         ...idsRecentes.filter((id) => id !== fraseId),
@@ -406,7 +429,9 @@ export default function SeletorFraseConclusao({
         // O historico local e apenas uma conveniencia; a selecao clinica nao depende dele.
       }
     }
-    fecharSeletor();
+    if (!multiple) {
+      fecharSeletor();
+    }
   };
 
   const alternarGrupo = (grupo: string) => {
@@ -426,7 +451,7 @@ export default function SeletorFraseConclusao({
 
   const renderizarFrase = (frase: FraseEcoEstruturadoTeste) => {
     const fraseId = String(frase.id);
-    const selecionada = fraseId === value;
+    const selecionada = idsSelecionados.has(fraseId);
     return (
       <button
         key={fraseId}
@@ -475,10 +500,14 @@ export default function SeletorFraseConclusao({
       >
         <span
           className={
-            fraseSelecionada ? "truncate text-gray-900" : "text-gray-500"
+            temSelecao ? "truncate text-gray-900" : "text-gray-500"
           }
         >
-          {fraseSelecionada?.titulo || "Selecionar frase do banco"}
+          {multiple
+            ? frasesSelecionadas.length
+              ? `${frasesSelecionadas.length} frase(s) selecionada(s)`
+              : "Selecionar frases para compor"
+            : fraseSelecionada?.titulo || "Selecionar frase do banco"}
         </span>
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-gray-500 transition-transform ${aberto ? "rotate-180" : ""}`}
@@ -492,7 +521,11 @@ export default function SeletorFraseConclusao({
               id="seletor-frases-conclusao"
               data-testid="seletor-frases-conclusao-painel"
               role="dialog"
-              aria-label="Selecionar frase de conclusão"
+              aria-label={
+                multiple
+                  ? "Selecionar frases para compor a conclusão"
+                  : "Selecionar frase de conclusão"
+              }
               style={posicaoPainel}
               className="fixed z-[100] flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
             >
@@ -613,12 +646,37 @@ export default function SeletorFraseConclusao({
                   </div>
                 )}
               </div>
+              {multiple ? (
+                <div className="flex shrink-0 items-center justify-between gap-3 border-t border-gray-100 bg-white px-3 py-2">
+                  <span className="text-xs text-gray-500">
+                    {frasesSelecionadas.length} selecionada(s)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={fecharSeletor}
+                    className="rounded-lg bg-teal-600 px-3 py-2 text-sm text-white hover:bg-teal-700"
+                  >
+                    Concluir seleção
+                  </button>
+                </div>
+              ) : null}
             </div>,
             document.body,
           )
         : null}
 
-      {fraseSelecionada ? (
+      {multiple && frasesSelecionadas.length ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {frasesSelecionadas.map((frase) => (
+            <span
+              key={frase.id}
+              className="rounded-full border border-teal-100 bg-teal-50 px-2 py-1 text-xs text-teal-800"
+            >
+              {frase.titulo}
+            </span>
+          ))}
+        </div>
+      ) : fraseSelecionada ? (
         <div className="mt-2 rounded-lg border border-teal-100 bg-teal-50/60 px-3 py-2">
           <div className="text-xs font-medium text-teal-800">
             Prévia da frase selecionada

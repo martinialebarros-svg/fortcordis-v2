@@ -1,6 +1,6 @@
 # Verify - laudo-phrase-library
 
-Data: 2026-08-11
+Data: 2026-09-21
 Responsavel: Codex  
 Status: done
 
@@ -36,6 +36,14 @@ Status: done
 | CA-018 | aceitacao | cabecalho e `shrink-0`; lista usa `min-h-0`, `flex-1` e `overflow-y-auto`, mantendo o final rolavel dentro da altura calculada. | ok |
 | CA-019 | aceitacao | listeners de resize/scroll reposicionam o painel; eventos de scroll originados dentro do proprio painel nao recalculam a ancora. | ok |
 | CA-020 | seguranca | `test_todas_as_rotas_exigem_autenticacao`, `test_usuario_autenticado_consegue_carregar_payload` e smoke anonimo em stage. | ok |
+| CA-021 | aceitacao | `EcocardiogramaEstruturadoEditor.tsx` mantem o preset aplicado e alterna explicitamente entre os dois modos de preenchimento. | ok local |
+| CA-022 | aceitacao | teste `substitui o grau do aspecto com escolha unica sem alterar a biblioteca` aplica a variante importante e preserva os demais aspectos. | ok local |
+| CA-023 | seguranca clinica | teste `oferece graus mutuamente exclusivos da mesma familia clinica` exclui a frase de hipertrofia da familia de sobrecarga volumetrica. | ok local |
+| CA-024 | aceitacao | teste `combina varias conclusoes aprovadas somente apos aplicacao explicita` cobre selecao multipla e composicao em topicos; teste unitario cobre tambem paragrafo. | ok local |
+| CA-025 | aceitacao | teste de integracao confirma que a conclusao oficial permanece intacta ate `Aplicar 2 frase(s) na conclusao`. | ok local |
+| CA-026 | integridade | teste de integracao edita e desfoca o campo e confirma que `atualizarFraseEcoEstruturadoTeste` nao foi chamado. | ok local |
+| NFR-010 | seguranca clinica | `ecocardiograma-compositor.ts` seleciona e compoe somente frases ativas existentes no payload; testes cobrem ausencia, inatividade e familia insuficiente. | ok local |
+| NFR-011 | previsibilidade | teste unitario confirma ordem de selecao, remocao de duplicatas e formatos deterministas. | ok local |
 
 ## 2) Testes automatizados executados
 
@@ -48,6 +56,7 @@ venv/bin/python -m pytest tests/test_frases_ecocardiograma_estruturado_teste_ser
 venv/bin/python -m py_compile app/api/v1/endpoints/frases_ecocardiograma_estruturado_teste.py app/services/frases_ecocardiograma_estruturado_teste_service.py
 venv/bin/python -m py_compile sync_frases_store.py
 cd ../frontend
+npx vitest run lib/ecocardiograma-compositor.test.ts app/laudos/components/EcocardiogramaEstruturadoEditor.test.tsx
 npx eslint app/laudos/components/EcocardiogramaEstruturadoEditor.tsx
 npx eslint app/laudos/components/EcocardiogramaEstruturadoBiblioteca.tsx
 npx tsc --noEmit --pretty false
@@ -62,6 +71,8 @@ Resumo dos resultados:
 - Hotfix de viewport do seletor: ESLint direcionado passou; TypeScript sem emissao passou; build de producao compilou e gerou 39 paginas.
 - Store runtime de stage: 15 titulos renomeados para `DMVM`, 6 referencias de presets sincronizadas, 112 titulos unicos e zero referencias quebradas; producao permaneceu com o hash anterior.
 - Seguranca da API: 15 testes direcionados passaram (3 de autenticacao/autorizacao, 11 do servico e 1 de importacao); a mesma execucao da esteira (`pytest tests`) passou com 711 testes; CI, deploy e Migration CI de stage passaram no SHA `2a16925c`.
+- Compositor local de achados: 6 testes direcionados passaram, cobrindo escolha exclusiva de grau, isolamento entre familias clinicas, composicao de conclusoes, aplicacao explicita e ausencia de mutacao silenciosa da biblioteca.
+- Regressao frontend no snapshot combinado com o `stage` atual: 400 testes Vitest e 9 testes Node passaram; ESLint global e TypeScript sem emissao passaram; o build de producao compilou, validou tipos e gerou 43 paginas.
 
 ## 3) Testes manuais
 
@@ -81,10 +92,15 @@ Resumo dos resultados:
 - Cenario 14: rolar a lista ate a ultima patologia e redimensionar a janela, confirmando que o painel permanece contido no viewport.
 - Cenario 15: chamar GET e cada familia de mutacao da API sem cookie/token e confirmar `401`.
 - Cenario 16: com sessao e permissao do modulo `frases`, carregar a biblioteca e aplicar/salvar uma alteracao controlada em stage.
+- Cenario 17: aplicar um preset base, abrir `Combinar achados` e trocar somente o grau de dilatacao do ventriculo esquerdo por uma opcao aprovada.
+- Cenario 18: combinar conclusoes de valvopatia e hipertensao pulmonar, alternar entre topicos/paragrafo e confirmar que o texto oficial muda somente apos `Aplicar`.
+- Cenario 19: editar manualmente um aspecto, sair do campo, recarregar a Biblioteca e confirmar que a frase compartilhada nao foi sobrescrita.
 
 Resultado operacional ja confirmado para o cenario 8: arquivo runtime e API publica de stage retornam zero titulos legados e 112 conclusoes integras. Os cenarios 6 e 7 serao repetidos no frontend publicado apos o workflow de deploy.
 
 Os cenarios 9 a 12 dependem do primeiro deploy desta iteracao em stage e serao repetidos no frontend servido antes de qualquer promocao para producao.
+
+Os cenarios 17 a 19 permanecem pendentes de validacao visual em stage; nenhuma publicacao foi executada nesta implementacao local.
 
 O smoke de seguranca em stage confirmou `401 Credenciais invalidas` tanto no GET do payload quanto no POST com payload invalido. As rotas `/` e `/laudos/novo` retornaram `200` nos hosts `stage.fortcordis.com.br` e `app.stage.fortcordis.com.br`. Nenhuma mutacao clinica foi usada no smoke vivo.
 
@@ -96,6 +112,7 @@ O smoke de seguranca em stage confirmou `401 Credenciais invalidas` tanto no GET
 - Risco residual 4: a validacao visual dos menus expansivos depende do deploy de stage concluir.
 - Risco residual 5: o historico Recentes e local a cada navegador e nao sincroniza entre dispositivos, por desenho.
 - Risco residual 6: usuarios autenticados sem permissao configurada no modulo `frases` passam a receber `403`, comportamento intencional da matriz existente.
+- Risco residual 7: os atalhos de grau dependem de familias coerentes no banco atual; quando a relacao nao for segura, a interface omite os atalhos e mantem o seletor completo.
 
 ## 5) Itens fora de escopo entregues
 
