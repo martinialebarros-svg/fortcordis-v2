@@ -2,7 +2,7 @@
 
 Data: 2026-09-18
 Responsavel: Martiniano Barros
-Status: in-progress
+Status: concluido
 
 ## 1) Matriz de rastreabilidade
 
@@ -30,7 +30,7 @@ Status: in-progress
 | NFR-006 | nao funcional | Resposta limitada a clinica, pet, tipo de exame e data (`PortalExamLinkResponse`); sem tutor, CPF ou telefone | ok |
 | Migracao | banco | `20260918_87_portal_clinic_exam_links` aplicada em banco limpo pela suite, em stage e **em producao** (conferido em 20/09/2026 depois do PR #188: `current_version=20260918_88`, `pending_count=0` nos dois) | ok |
 | Meta | dependencia externa | Modelo `laudo_disponivel_portal_link` **aprovado em 20/09/2026 nas duas contas** ("Ativo - Qualidade pendente", corpo identico ao do catalogo): producao `1341477634545137`, teste `2146833716714375`. `metaId` gravado com o de producao | ok |
-| Stage | manual | Link aberto, laudo entregue e PDF baixado em stage em 20/09/2026 (sem cookie: 200, `application/pdf`, 899.570 bytes); token de download recusado em anexo da mesma clinica (403); degradacao `portalReportLink` -> `portalReportAvailable` exercitada de verdade. **Falta so a mensagem chegando**: a WABA de teste so entrega para numero na lista de autorizados da Meta, e o numero do responsavel nao esta la | pendente |
+| Stage | manual | Link aberto, laudo entregue e PDF baixado em stage em 20/09/2026 (sem cookie: 200, `application/pdf`, 899.570 bytes); token de download recusado em anexo da mesma clinica (403); degradacao `portalReportLink` -> `portalReportAvailable` exercitada de verdade. A mensagem chegando **nao deu para verificar em stage** (WABA de teste so entrega para numero autorizado) e foi verificada **em producao** - ver secao 3 | ok |
 
 ## 2) Testes automatizados executados
 
@@ -65,6 +65,31 @@ schema SQLite a mao e passaram a depender da tabela nova, porque
 tabela ausente no servico) esconderia erro real em producao.
 
 ## 3) Testes manuais
+
+### Verificacao em producao - 20/09/2026
+
+O cenario 1 (a mensagem chegando com link clicavel) nao roda em stage: a WABA de
+teste so entrega para numero na lista de autorizados da Meta. A decisao do
+responsavel foi ligar a flag em producao e verificar la, com alvo controlado.
+
+Alvo: laudo 657, paciente "Teste", clinica **Fort Cordis Cardiovet** (id 41) - cujo
+WhatsApp e o numero do proprio responsavel, conferido antes do disparo. O seletor da
+tela confirmou um unico destino.
+
+Resultado:
+
+- `POST /laudos/657/portal/whatsapp` -> **200**, `whatsapp_liberacao_status: enviado`,
+  sem erro.
+- `approved_template_messages` id 290: **`portalReportLink`**, `sent`, com
+  `wa_message_id` da Meta. **Nao houve degradacao** - as duas entradas anteriores
+  (19/09, antes da flag) eram `portalReportAvailable`.
+- Link emitido: linha 1 em producao, exame 97, clinica 41, destino mascarado
+  `***4320`, `hash_confere True` na derivacao por `SECRET_KEY` + `token_nonce`.
+- **Mensagem recebida no aparelho, com o link clicavel** - confirmado pelo
+  responsavel.
+
+Com isso o ciclo fecha ponta a ponta: da liberacao do laudo ate o link abrindo no
+celular de quem recebe.
 
 Ainda nao executados. Roteiro para a verificacao em stage:
 
@@ -117,14 +142,13 @@ Ainda nao executados. Roteiro para a verificacao em stage:
 
 - [x] Aprovado para stage (com `PORTAL_CLINIC_EXAM_LINK_ENABLED=false` no primeiro
       deploy; ligar so depois de conferir que o aviso continua saindo normalmente).
-- [ ] Aprovado para producao - os tres bloqueios cairam, falta a decisao do
-      responsavel sobre **ligar a flag**:
+- [x] **Aprovado e ligado em producao** em 20/09/2026, por decisao do responsavel.
+      `PORTAL_CLINIC_EXAM_LINK_ENABLED=true` no `.env` de producao, verificado com
+      envio real. Os tres bloqueios que precediam a decisao:
       (a) o modelo `laudo_disponivel_portal_link` foi **aprovado em 20/09/2026** nas
       duas contas, e o `metaId` de producao esta gravado;
-      (b) dos 6 cenarios manuais, 5 rodaram em stage em 20/09/2026 - falta so o
-      cenario 1, a mensagem chegando, que depende de o numero entrar na lista de
-      destinatarios autorizados da WABA de teste;
+      (b) os 6 cenarios manuais rodaram - 5 em stage e o cenario 1 (a mensagem
+      chegando) **em producao**, por nao ser verificavel na WABA de teste;
       (c) a migracao `20260918_87` esta aplicada em stage e em producao.
-      O codigo ja esta em `main` com `PORTAL_CLINIC_EXAM_LINK_ENABLED=false`, entao
-      nada mudou para as clinicas ate alguem ligar a flag.
+      Backup do `.env` anterior em `/var/www/fortcordis-v2/backend/.env.bak-20260920-flags`.
 - [ ] Nao aprovado.

@@ -13,6 +13,33 @@ from app.services import frases_ecocardiograma_estruturado_teste_service as serv
 
 
 class FrasesEcocardiogramaEstruturadoTesteServiceTest(unittest.TestCase):
+    def test_normalize_corrects_context_dependent_pericardial_conclusion(self) -> None:
+        payload = service._build_default_store()
+        conclusao = next(item for item in payload["aspectos"] if item["key"] == "conclusao")
+        conclusao["frases"].append(
+            {
+                "id": 999,
+                "titulo": "Efusao pericardica leve sem tamponamento",
+                "texto": (
+                    "* Efusão pericárdica discreta (não drenável), sem alterações cardíacas "
+                    "estruturais. * Não há critérios ecocardiográficos de tamponamento no momento."
+                ),
+                "tags": ["efusao_pericardica", "leve"],
+                "ativo": 1,
+            }
+        )
+
+        normalized = service.normalize_external_store(payload)
+        conclusao_normalizada = next(
+            item for item in normalized["aspectos"] if item["key"] == "conclusao"
+        )
+        frase = next(item for item in conclusao_normalizada["frases"] if item["id"] == 999)
+
+        self.assertIn("Efusão pericárdica discreta (não drenável).", frase["texto"])
+        self.assertNotIn("sem alterações cardíacas estruturais", frase["texto"])
+        self.assertIn("Não há critérios ecocardiográficos de tamponamento", frase["texto"])
+        self.assertEqual(service.normalize_external_store(normalized), normalized)
+
     def test_create_phrase_persists_new_phrase_in_aspect(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             data_dir = Path(tmp)
