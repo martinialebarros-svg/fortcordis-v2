@@ -467,25 +467,34 @@ export default function EcocardiogramaEstruturadoEditor({
             label: aspecto.label,
             texto: String(estado.textos[aspecto.key] || "").trim(),
             frase,
+            origem: origemAspectos[aspecto.key],
           };
         }),
-    [aspectos, estado.textos, fraseSelecionadaEfetivaPorAspecto],
+    [aspectos, estado.textos, fraseSelecionadaEfetivaPorAspecto, origemAspectos],
   );
+  const conclusaoBasePreset = String(estado.preset_textos?.conclusao || "").trim();
   const textoRascunhoAutomatico = useMemo(
-    () => comporRascunhoConclusaoDosAchados(achadosParaConclusao, formatoConclusao),
-    [achadosParaConclusao, formatoConclusao],
+    () =>
+      comporRascunhoConclusaoDosAchados(
+        achadosParaConclusao,
+        formatoConclusao,
+        conclusaoBasePreset,
+      ),
+    [achadosParaConclusao, conclusaoBasePreset, formatoConclusao],
   );
   const assinaturaAchadosConclusao = useMemo(
     () =>
       JSON.stringify({
         formato: formatoConclusao,
+        conclusaoBase: conclusaoBasePreset,
         achados: achadosParaConclusao.map((achado) => [
           achado.aspecto,
           achado.texto,
           achado.frase?.id || null,
+          achado.origem,
         ]),
       }),
-    [achadosParaConclusao, formatoConclusao],
+    [achadosParaConclusao, conclusaoBasePreset, formatoConclusao],
   );
   const rascunhoConclusaoDesatualizado =
     rascunhoConclusaoEditado && assinaturaRascunhoConclusao !== assinaturaAchadosConclusao;
@@ -1701,8 +1710,9 @@ export default function EcocardiogramaEstruturadoEditor({
                       Rascunho automático dos achados
                     </div>
                     <p className="mt-1 text-xs text-gray-600">
-                      Resume apenas as frases já escolhidas nos aspectos e omite itens marcados
-                      como normais ou fisiológicos. Não calcula estágio nem cria diagnóstico.
+                      Mantém integralmente a conclusão padrão do preset e acrescenta somente os
+                      aspectos que você alterou ou preencheu manualmente. Não calcula estágio nem
+                      cria diagnóstico.
                     </p>
                     <textarea
                       aria-label="Rascunho automático da conclusão"

@@ -154,4 +154,52 @@ describe("compositor de ecocardiograma", () => {
         "Pericardio: Efusao pericardica discreta sem tamponamento.",
     );
   });
+
+  it("preserva a conclusao do preset e acrescenta somente os aspectos alterados", () => {
+    const conclusaoBase =
+      "* Disfunção diastólica grau I.\n" +
+      "* Redução do diâmetro ventricular associada à desidratação.";
+    const achados = [
+      {
+        aspecto: "valva_mitral",
+        label: "Valva mitral",
+        texto: "Texto detalhado da mitral.",
+        origem: "alterado" as const,
+        frase: {
+          id: 3,
+          titulo: "Espessamento mitral leve com refluxo leve",
+          texto: "Texto detalhado da mitral.",
+          tags: ["endocardiose", "leve"],
+        },
+      },
+      {
+        aspecto: "ventriculo_esquerdo",
+        label: "Ventriculo esquerdo",
+        texto: "Diâmetro reduzido.",
+        origem: "preset" as const,
+        frase: {
+          id: 77,
+          titulo: "VE Desidratação",
+          texto: "Diâmetro reduzido.",
+        },
+      },
+      {
+        aspecto: "pericardio",
+        label: "Pericardio",
+        texto: "Efusao pericardica discreta sem tamponamento.",
+        origem: "manual" as const,
+      },
+    ];
+
+    expect(comporRascunhoConclusaoDosAchados(achados, "topicos", conclusaoBase)).toBe(
+      `${conclusaoBase}\n` +
+        "* Valva mitral: Espessamento mitral leve com refluxo leve.\n" +
+        "* Pericardio: Efusao pericardica discreta sem tamponamento.",
+    );
+    expect(comporRascunhoConclusaoDosAchados(achados, "paragrafo", conclusaoBase)).toBe(
+      `${conclusaoBase} ` +
+        "Valva mitral: Espessamento mitral leve com refluxo leve. " +
+        "Pericardio: Efusao pericardica discreta sem tamponamento.",
+    );
+  });
 });

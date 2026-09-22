@@ -35,7 +35,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - RF-023: editar o texto de um aspecto no laudo nao deve atualizar silenciosamente a frase compartilhada da biblioteca ao sair do campo.
 - RF-024: ao compor conclusoes, marcadores internos de topicos devem ser normalizados; o formato `Em paragrafo` nao pode manter asteriscos, hifens ou bolinhas usados apenas como marcadores.
 - RF-025: a conclusao `Efusao pericardica leve sem tamponamento` deve ser neutra quanto a outras alteracoes estruturais, preservando apenas os achados aprovados de efusao e ausencia de tamponamento.
-- RF-026: no modo `Combinar achados`, a Conclusao deve gerar automaticamente um rascunho editavel a partir das frases atualmente escolhidas nos aspectos, sem exigir a busca manual por um preset de conclusao.
+- RF-026: no modo `Combinar achados`, a Conclusao deve gerar automaticamente um rascunho editavel que preserve integralmente a conclusao padrao do preset e acrescente somente os aspectos alterados ou preenchidos manualmente, sem exigir a busca manual por outro preset de conclusao.
 - RF-027: o rascunho automatico deve acompanhar as trocas de achados enquanto nao tiver sido editado; depois de uma edicao manual, mudancas nos achados devem sinalizar desatualizacao e exigir atualizacao explicita para nao sobrescrever a revisao do usuario.
 - RF-028: o texto oficial da Conclusao deve permanecer inalterado ate o acionamento explicito de `Aplicar rascunho revisado na conclusao`.
 
@@ -53,7 +53,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - NFR-010 (seguranca clinica): variacoes rapidas e conclusoes compostas devem reutilizar literalmente frases ativas da biblioteca; a interface nao pode inventar graduacoes ou diagnosticos ausentes do banco.
 - NFR-011 (previsibilidade): a composicao da conclusao deve ser deterministica, preservar a ordem de selecao e remover IDs duplicados ou indisponiveis.
 - NFR-012 (seguranca clinica): correcoes de conteudo runtime devem ser pontuais, idempotentes, identificadas por aspecto e titulo e preservar todo o restante da frase aprovada.
-- NFR-013 (seguranca clinica): o rascunho automatico deve ser deterministico, resumir apenas titulos/textos de achados ja escolhidos, omitir somente frases explicitamente marcadas como `normal` ou `fisiologico` e nao inferir estagio, etiologia ou diagnostico.
+- NFR-013 (seguranca clinica): o rascunho automatico deve ser deterministico, reutilizar literalmente a conclusao do preset como base, resumir somente titulos/textos dos aspectos alterados ou manuais e nao inferir estagio, etiologia ou diagnostico.
 
 ## 4) Contratos tecnicos
 
@@ -117,7 +117,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - CA-026: editar um texto e sair do campo nao chama a API de atualizacao da frase compartilhada; a propagacao para a biblioteca continua sendo uma acao separada e confirmada.
 - CA-027: uma frase aprovada com dois ou mais marcadores internos gera um topico por item em `Em topicos` e texto continuo sem marcadores em `Em paragrafo`.
 - CA-028: a normalizacao do store remove somente a afirmacao `sem alteracoes cardiacas estruturais` da conclusao de efusao leve sem tamponamento, mantendo efusao, ausencia de tamponamento e recomendacoes existentes.
-- CA-029: ao entrar em `Combinar achados`, o rascunho da Conclusao lista automaticamente os achados nao marcados como normais/fisiologicos e acompanha a substituicao de um grau por outro.
+- CA-029: ao entrar em `Combinar achados`, o rascunho reproduz exatamente a conclusao padrao do preset; cada troca de aspecto acrescenta apenas a nova frase correspondente, sem repetir os demais aspectos inalterados.
 - CA-030: revisar o rascunho ou trocar achados nao altera a Conclusao oficial antes da aplicacao explicita; um rascunho manual desatualizado nao pode ser aplicado sem revisao/atualizacao.
 - CA-031: a selecao manual de frases prontas permanece disponivel como ajuste opcional, com rotulo distinto da aplicacao do rascunho automatico.
 
@@ -137,7 +137,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - CB-012: quando nao houver pelo menos duas frases relacionadas com graus reconhecidos, os atalhos de grau devem ser omitidos e o seletor completo permanece disponivel.
 - CB-013: frase de conclusao inativa, ausente ou selecionada duas vezes deve ser ignorada pela composicao sem produzir texto clinico novo.
 - CB-014: texto de conclusao sem marcadores deve permanecer uma unidade, com apenas espacos em branco normalizados.
-- CB-015: texto manual sem frase correspondente pode compor o rascunho com seu conteudo literal; frase selecionada com tag `normal` ou `fisiologico` deve ser omitida sem ocultar frases anormais de funcao preservada.
+- CB-015: texto manual sem frase correspondente pode compor o rascunho com seu conteudo literal; quando nao houver conclusao base de preset, o fallback continua omitindo frases explicitamente marcadas como `normal` ou `fisiologico`.
 
 ## 8) Fora de escopo
 

@@ -240,9 +240,7 @@ describe("EcocardiogramaEstruturadoEditor - composicao de achados", () => {
       name: /Rascunho automático da conclusão/i,
     });
     await waitFor(() => {
-      expect((rascunho as HTMLTextAreaElement).value).toContain(
-        "Ventriculo esquerdo: VE com sobrecarga volumétrica moderada.",
-      );
+      expect((rascunho as HTMLTextAreaElement).value).toBe(conclusaoDmvm);
     });
     expect((screen.getByPlaceholderText("Escreva a conclusao") as HTMLTextAreaElement).value).toBe(
       conclusaoDmvm,
@@ -266,7 +264,7 @@ describe("EcocardiogramaEstruturadoEditor - composicao de achados", () => {
 
     await waitFor(() => {
       expect((screen.getByPlaceholderText("Escreva a conclusao") as HTMLTextAreaElement).value).toBe(
-        "* Ventriculo esquerdo: VE com sobrecarga volumétrica importante.",
+        `${conclusaoDmvm}\n* Ventriculo esquerdo: VE com sobrecarga volumétrica importante.`,
       );
     });
   });
@@ -280,6 +278,7 @@ describe("EcocardiogramaEstruturadoEditor - composicao de achados", () => {
       name: /Rascunho automático da conclusão/i,
     });
     await waitFor(() => {
+      expect((rascunho as HTMLTextAreaElement).value).toBe(conclusaoDmvm);
       expect((rascunho as HTMLTextAreaElement).value).not.toContain("Mitral normal");
     });
 
@@ -288,8 +287,8 @@ describe("EcocardiogramaEstruturadoEditor - composicao de achados", () => {
     });
 
     await waitFor(() => {
-      expect((rascunho as HTMLTextAreaElement).value).toContain(
-        "Valva mitral: Espessamento mitral leve com refluxo leve.",
+      expect((rascunho as HTMLTextAreaElement).value).toBe(
+        `${conclusaoDmvm}\n* Valva mitral: Espessamento mitral leve com refluxo leve.`,
       );
     });
     expect((screen.getByPlaceholderText("Escreva a conclusao") as HTMLTextAreaElement).value).toBe(
