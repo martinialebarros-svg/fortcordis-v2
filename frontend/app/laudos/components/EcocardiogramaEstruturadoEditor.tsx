@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Loader2, RefreshCw, Search, X } from "lucide-react";
+import { Check, ChevronDown, Layers3, Loader2, RefreshCw, Search, X } from "lucide-react";
 
 import {
   type AspectoEcoEstruturadoTeste,
@@ -21,6 +21,12 @@ import {
   type EcocardiogramaEstruturadoPersistido,
   normalizarEcocardiogramaEstruturado,
 } from "@/lib/ecocardiograma-estruturado";
+import {
+  comporConclusaoDeFrases,
+  comporRascunhoConclusaoDosAchados,
+  type FormatoConclusaoEco,
+  obterOpcoesDeGrauRelacionadas,
+} from "@/lib/ecocardiograma-compositor";
 
 import SeletorFraseConclusao from "./SeletorFraseConclusao";
 
@@ -56,11 +62,10 @@ interface ResultadoDeteccaoPreset {
 }
 
 type OrigemAspectoStatus = "preset" | "alterado" | "manual" | "empty";
-type StatusSincronizacaoAspecto = "saving" | "saved" | "error";
+type ModoPreenchimentoEco = "preset" | "compositor";
 
 interface SincronizacaoFraseOptions {
   silencioso?: boolean;
-  onErroSilencioso?: () => void;
 }
 
 interface GrupoPresets {
@@ -162,28 +167,6 @@ function getOrigemAspectoClasses(status: OrigemAspectoStatus): string {
   }
 }
 
-function getStatusSincronizacaoLabel(status: StatusSincronizacaoAspecto): string {
-  switch (status) {
-    case "saving":
-      return "Salvando...";
-    case "saved":
-      return "Salvo";
-    default:
-      return "Falha ao salvar";
-  }
-}
-
-function getStatusSincronizacaoClasses(status: StatusSincronizacaoAspecto): string {
-  switch (status) {
-    case "saving":
-      return "border-amber-200 bg-amber-50 text-amber-700";
-    case "saved":
-      return "border-green-200 bg-green-50 text-green-700";
-    default:
-      return "border-red-200 bg-red-50 text-red-700";
-  }
-}
-
 function atualizarEstrutura(
   atual: EcocardiogramaEstruturadoPersistido,
   patch: Partial<EcocardiogramaEstruturadoPersistido>
@@ -208,21 +191,23 @@ export default function EcocardiogramaEstruturadoEditor({
   const [buscaPreset, setBuscaPreset] = useState("");
   const [grupoPresetFiltro, setGrupoPresetFiltro] = useState(FILTRO_TODOS_PRESETS);
   const [seletorPresetsAberto, setSeletorPresetsAberto] = useState(false);
+  const [modoPreenchimento, setModoPreenchimento] = useState<ModoPreenchimentoEco>("preset");
   const [fraseSelecionadaPorAspecto, setFraseSelecionadaPorAspecto] = useState<Record<string, string>>(
     {}
   );
+  const [conclusoesCompostasIds, setConclusoesCompostasIds] = useState<string[]>([]);
+  const [formatoConclusao, setFormatoConclusao] = useState<FormatoConclusaoEco>("topicos");
+  const [rascunhoConclusao, setRascunhoConclusao] = useState("");
+  const [rascunhoConclusaoEditado, setRascunhoConclusaoEditado] = useState(false);
+  const [assinaturaRascunhoConclusao, setAssinaturaRascunhoConclusao] = useState("");
   const [aplicandoPreset, setAplicandoPreset] = useState(false);
   const [salvandoPreset, setSalvandoPreset] = useState(false);
   const [atualizandoPresetSelecionado, setAtualizandoPresetSelecionado] = useState(false);
   const [propagandoFrasesSelecionadas, setPropagandoFrasesSelecionadas] = useState(false);
   const [salvandoNovaFraseAspecto, setSalvandoNovaFraseAspecto] = useState<string | null>(null);
-  const [statusSincronizacaoPorAspecto, setStatusSincronizacaoPorAspecto] = useState<
-    Record<string, StatusSincronizacaoAspecto>
-  >({});
   const [presetFormAberto, setPresetFormAberto] = useState(false);
   const [filtroAspectosPreset, setFiltroAspectosPreset] = useState<"all" | "pending">("all");
   const [presetDeteccao, setPresetDeteccao] = useState<Record<string, PresetDeteccaoInfo>>({});
-  const limparStatusTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [presetForm, setPresetForm] = useState<PresetForm>({
     label: "",
     key: "",
@@ -260,14 +245,6 @@ export default function EcocardiogramaEstruturadoEditor({
 
   useEffect(() => {
     carregarPayload();
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      Object.values(limparStatusTimeoutRef.current).forEach((timer) => {
-        clearTimeout(timer);
-      });
-    };
   }, []);
 
   useEffect(() => {
@@ -459,6 +436,81 @@ export default function EcocardiogramaEstruturadoEditor({
       }, {}),
     [aspectos, estado.textos, fraseSelecionadaPorAspecto, presetAplicado]
   );
+  const frasesConclusaoAtivas = useMemo(
+    () =>
+      (aspectos.find((aspecto) => aspecto.key === "conclusao")?.frases || []).filter(
+        (frase) => Number(frase.ativo ?? 1) === 1,
+      ),
+    [aspectos],
+  );
+  const textoConclusaoComposta = useMemo(
+    () =>
+      comporConclusaoDeFrases(
+        frasesConclusaoAtivas,
+        conclusoesCompostasIds,
+        formatoConclusao,
+      ),
+    [conclusoesCompostasIds, formatoConclusao, frasesConclusaoAtivas],
+  );
+  const achadosParaConclusao = useMemo(
+    () =>
+      aspectos
+        .filter((aspecto) => aspecto.key !== "conclusao")
+        .map((aspecto) => {
+          const fraseId = fraseSelecionadaEfetivaPorAspecto[aspecto.key];
+          const frase = (aspecto.frases || []).find(
+            (item) =>
+              String(item.id) === String(fraseId || "") && Number(item.ativo ?? 1) === 1,
+          );
+          return {
+            aspecto: aspecto.key,
+            label: aspecto.label,
+            texto: String(estado.textos[aspecto.key] || "").trim(),
+            frase,
+            origem: origemAspectos[aspecto.key],
+          };
+        }),
+    [aspectos, estado.textos, fraseSelecionadaEfetivaPorAspecto, origemAspectos],
+  );
+  const conclusaoBasePreset = String(estado.preset_textos?.conclusao || "").trim();
+  const textoRascunhoAutomatico = useMemo(
+    () =>
+      comporRascunhoConclusaoDosAchados(
+        achadosParaConclusao,
+        formatoConclusao,
+        conclusaoBasePreset,
+      ),
+    [achadosParaConclusao, conclusaoBasePreset, formatoConclusao],
+  );
+  const assinaturaAchadosConclusao = useMemo(
+    () =>
+      JSON.stringify({
+        formato: formatoConclusao,
+        conclusaoBase: conclusaoBasePreset,
+        achados: achadosParaConclusao.map((achado) => [
+          achado.aspecto,
+          achado.texto,
+          achado.frase?.id || null,
+          achado.origem,
+        ]),
+      }),
+    [achadosParaConclusao, conclusaoBasePreset, formatoConclusao],
+  );
+  const rascunhoConclusaoDesatualizado =
+    rascunhoConclusaoEditado && assinaturaRascunhoConclusao !== assinaturaAchadosConclusao;
+
+  useEffect(() => {
+    if (modoPreenchimento !== "compositor" || rascunhoConclusaoEditado) {
+      return;
+    }
+    setRascunhoConclusao(textoRascunhoAutomatico);
+    setAssinaturaRascunhoConclusao(assinaturaAchadosConclusao);
+  }, [
+    assinaturaAchadosConclusao,
+    modoPreenchimento,
+    rascunhoConclusaoEditado,
+    textoRascunhoAutomatico,
+  ]);
 
   useEffect(() => {
     if (!presets.length) {
@@ -565,6 +617,12 @@ export default function EcocardiogramaEstruturadoEditor({
           }
           return acc;
         }, {})
+      );
+      const conclusaoPreset = selecoesResolvidas.find(
+        (selecao) => selecao?.aspecto === "conclusao" && selecao?.frase_id != null,
+      );
+      setConclusoesCompostasIds(
+        conclusaoPreset?.frase_id != null ? [String(conclusaoPreset.frase_id)] : [],
       );
       onChange(
         atualizarEstrutura(estado, {
@@ -859,8 +917,11 @@ export default function EcocardiogramaEstruturadoEditor({
     }
   };
 
-  const aplicarFraseDoAspecto = (aspecto: AspectoEcoEstruturadoTeste) => {
-    const fraseId = fraseSelecionadaEfetivaPorAspecto[aspecto.key];
+  const aplicarFraseDoAspecto = (
+    aspecto: AspectoEcoEstruturadoTeste,
+    fraseIdInformada?: string,
+  ) => {
+    const fraseId = fraseIdInformada || fraseSelecionadaEfetivaPorAspecto[aspecto.key];
     const frase = (aspecto.frases || []).find(
       (item) => String(item.id) === fraseId && Number(item.ativo ?? 1) === 1
     );
@@ -868,6 +929,10 @@ export default function EcocardiogramaEstruturadoEditor({
       return;
     }
 
+    setFraseSelecionadaPorAspecto((prev) => ({
+      ...prev,
+      [aspecto.key]: String(frase.id),
+    }));
     onChange(
       atualizarEstrutura(estado, {
         textos: {
@@ -878,51 +943,54 @@ export default function EcocardiogramaEstruturadoEditor({
     );
   };
 
-  const limparStatusSincronizacao = (aspectoKey: string) => {
-    const timerAtual = limparStatusTimeoutRef.current[aspectoKey];
-    if (timerAtual) {
-      clearTimeout(timerAtual);
-      delete limparStatusTimeoutRef.current[aspectoKey];
-    }
-    setStatusSincronizacaoPorAspecto((prev) => {
-      if (!prev[aspectoKey]) {
-        return prev;
-      }
-      const next = { ...prev };
-      delete next[aspectoKey];
-      return next;
-    });
+  const ativarModoCompositor = () => {
+    const conclusaoAtualId = fraseSelecionadaEfetivaPorAspecto.conclusao;
+    setModoPreenchimento("compositor");
+    setConclusoesCompostasIds((atuais) =>
+      atuais.length || !conclusaoAtualId ? atuais : [conclusaoAtualId],
+    );
   };
 
-  const definirStatusSincronizacao = (
-    aspectoKey: string,
-    status: StatusSincronizacaoAspecto,
-    limparEmMs?: number
-  ) => {
-    const timerAtual = limparStatusTimeoutRef.current[aspectoKey];
-    if (timerAtual) {
-      clearTimeout(timerAtual);
-      delete limparStatusTimeoutRef.current[aspectoKey];
+  const aplicarConclusaoComposta = () => {
+    if (!textoConclusaoComposta) {
+      return;
     }
+    setFraseSelecionadaPorAspecto((prev) => ({ ...prev, conclusao: "" }));
+    onChange(
+      atualizarEstrutura(estado, {
+        textos: {
+          ...estado.textos,
+          conclusao: textoConclusaoComposta,
+        },
+      }),
+    );
+    setHint(
+      `${conclusoesCompostasIds.length} frase(s) aprovada(s) aplicadas à conclusão para revisão.`,
+    );
+  };
 
-    setStatusSincronizacaoPorAspecto((prev) => ({
-      ...prev,
-      [aspectoKey]: status,
-    }));
+  const atualizarRascunhoConclusao = () => {
+    setRascunhoConclusao(textoRascunhoAutomatico);
+    setRascunhoConclusaoEditado(false);
+    setAssinaturaRascunhoConclusao(assinaturaAchadosConclusao);
+    setHint("Rascunho atualizado a partir dos achados atuais. Revise antes de aplicar.");
+  };
 
-    if (limparEmMs && limparEmMs > 0) {
-      limparStatusTimeoutRef.current[aspectoKey] = setTimeout(() => {
-        setStatusSincronizacaoPorAspecto((prev) => {
-          if (!prev[aspectoKey]) {
-            return prev;
-          }
-          const next = { ...prev };
-          delete next[aspectoKey];
-          return next;
-        });
-        delete limparStatusTimeoutRef.current[aspectoKey];
-      }, limparEmMs);
+  const aplicarRascunhoConclusao = () => {
+    const textoRevisado = rascunhoConclusao.trim();
+    if (!textoRevisado) {
+      return;
     }
+    setFraseSelecionadaPorAspecto((prev) => ({ ...prev, conclusao: "" }));
+    onChange(
+      atualizarEstrutura(estado, {
+        textos: {
+          ...estado.textos,
+          conclusao: textoRevisado,
+        },
+      }),
+    );
+    setHint("Rascunho revisado aplicado à conclusão do laudo.");
   };
 
   const atualizarTextoFraseNoPayloadLocal = (
@@ -960,7 +1028,7 @@ export default function EcocardiogramaEstruturadoEditor({
     aspecto: AspectoEcoEstruturadoTeste,
     options: SincronizacaoFraseOptions = {}
   ): Promise<boolean> => {
-    const { silencioso = false, onErroSilencioso } = options;
+    const { silencioso = false } = options;
 
     const fraseId = String(fraseSelecionadaEfetivaPorAspecto[aspecto.key] || "").trim();
     if (!fraseId) {
@@ -1013,45 +1081,10 @@ export default function EcocardiogramaEstruturadoEditor({
       if (!silencioso) {
         setError(err?.response?.data?.detail || "Nao foi possivel atualizar a frase do banco.");
       } else {
-        console.error("Falha ao sincronizar frase automaticamente:", err);
-        onErroSilencioso?.();
+        console.error("Falha ao propagar frase para o banco:", err);
       }
       return false;
     }
-  };
-
-  const sincronizarFraseSelecionadaNoBlur = async (aspecto: AspectoEcoEstruturadoTeste) => {
-    const aspectoKey = aspecto.key;
-    const temFraseSelecionada = Boolean(
-      String(fraseSelecionadaEfetivaPorAspecto[aspectoKey] || "").trim()
-    );
-    const temTexto = Boolean(String(estado.textos[aspectoKey] || "").trim());
-
-    if (!temFraseSelecionada || !temTexto) {
-      limparStatusSincronizacao(aspectoKey);
-      return;
-    }
-
-    let houveErroSilencioso = false;
-    definirStatusSincronizacao(aspectoKey, "saving");
-    const atualizado = await sincronizarFraseSelecionadaDoAspecto(aspecto, {
-      silencioso: true,
-      onErroSilencioso: () => {
-        houveErroSilencioso = true;
-      },
-    });
-
-    if (houveErroSilencioso) {
-      definirStatusSincronizacao(aspectoKey, "error", 4000);
-      return;
-    }
-
-    if (atualizado) {
-      definirStatusSincronizacao(aspectoKey, "saved", 2000);
-      return;
-    }
-
-    limparStatusSincronizacao(aspectoKey);
   };
 
   const propagarTextosSelecionadosParaBanco = async () => {
@@ -1163,9 +1196,8 @@ export default function EcocardiogramaEstruturadoEditor({
           <h4 className="font-medium text-gray-900">Ecocardiograma estruturado</h4>
           <p className="text-sm text-gray-600">
             Presets e frases por aspecto. Quando ativo, os blocos legados abaixo passam
-            a ser gerados a partir desta estrutura. Voce pode editar qualquer texto e
-            salvar como nova frase, inclusive no aspecto Conclusao. Ao sair do campo,
-            a frase selecionada eh sincronizada automaticamente no banco.
+            a ser gerados a partir desta estrutura. Edições feitas no laudo ficam apenas
+            neste exame; a biblioteca só muda por uma ação explícita.
           </p>
         </div>
         <button
@@ -1196,6 +1228,42 @@ export default function EcocardiogramaEstruturadoEditor({
           Usar o estruturado para preencher o laudo oficial.
         </span>
       </label>
+
+      <div className="rounded-lg border border-blue-200 bg-white p-3">
+        <div className="mb-2 text-sm font-medium text-gray-900">Modo de preenchimento</div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Modo de preenchimento do ecocardiograma">
+          <button
+            type="button"
+            aria-pressed={modoPreenchimento === "preset"}
+            onClick={() => setModoPreenchimento("preset")}
+            className={`rounded-lg border px-3 py-2 text-sm ${
+              modoPreenchimento === "preset"
+                ? "border-teal-400 bg-teal-50 text-teal-800"
+                : "border-gray-300 text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            Preset rápido
+          </button>
+          <button
+            type="button"
+            aria-pressed={modoPreenchimento === "compositor"}
+            onClick={ativarModoCompositor}
+            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+              modoPreenchimento === "compositor"
+                ? "border-teal-400 bg-teal-50 text-teal-800"
+                : "border-gray-300 text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            <Layers3 className="h-4 w-4" />
+            Combinar achados
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-gray-500">
+          {modoPreenchimento === "preset"
+            ? "Use um preset completo para os exames que se encaixam no padrão habitual."
+            : "Use o preset como base e substitua cada aspecto por uma única frase aprovada. A conclusão pode combinar várias frases."}
+        </p>
+      </div>
 
       {estado.preset_label ? (
         <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
@@ -1323,22 +1391,35 @@ export default function EcocardiogramaEstruturadoEditor({
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => aplicarPreset("merge")}
-          disabled={!presetSelecionadoId || aplicandoPreset}
-          className="rounded-lg border border-teal-300 bg-white px-3 py-2 text-sm text-teal-700 hover:bg-teal-50 disabled:opacity-50"
-        >
-          Aplicar sobre atual
-        </button>
-        <button
-          type="button"
-          onClick={() => aplicarPreset("reset")}
-          disabled={!presetSelecionadoId || aplicandoPreset}
-          className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-50"
-        >
-          Zerar e aplicar
-        </button>
+        {modoPreenchimento === "compositor" ? (
+          <button
+            type="button"
+            onClick={() => aplicarPreset("reset")}
+            disabled={!presetSelecionadoId || aplicandoPreset}
+            className="rounded-lg border border-teal-300 bg-white px-3 py-2 text-sm text-teal-700 hover:bg-teal-50 disabled:opacity-50 lg:col-span-2"
+          >
+            Aplicar como preset base
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => aplicarPreset("merge")}
+              disabled={!presetSelecionadoId || aplicandoPreset}
+              className="rounded-lg border border-teal-300 bg-white px-3 py-2 text-sm text-teal-700 hover:bg-teal-50 disabled:opacity-50"
+            >
+              Aplicar sobre atual
+            </button>
+            <button
+              type="button"
+              onClick={() => aplicarPreset("reset")}
+              disabled={!presetSelecionadoId || aplicandoPreset}
+              className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+            >
+              Zerar e aplicar
+            </button>
+          </>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -1600,22 +1681,17 @@ export default function EcocardiogramaEstruturadoEditor({
           const frasesAtivas = (aspecto.frases || []).filter(
             (frase) => Number(frase.ativo ?? 1) === 1
           );
-          const statusSincronizacao = statusSincronizacaoPorAspecto[aspecto.key];
+          const fraseSelecionadaId = fraseSelecionadaEfetivaPorAspecto[aspecto.key] || "";
+          const opcoesDeGrau =
+            aspecto.key === "conclusao"
+              ? []
+              : obterOpcoesDeGrauRelacionadas(frasesAtivas, fraseSelecionadaId);
           return (
             <div key={aspecto.key} className="rounded-lg border border-gray-200 bg-white p-4">
               <div className="mb-2">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div className="text-sm font-medium text-gray-900">{aspecto.label}</div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {statusSincronizacao ? (
-                      <span
-                        className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusSincronizacaoClasses(
-                          statusSincronizacao
-                        )}`}
-                      >
-                        {getStatusSincronizacaoLabel(statusSincronizacao)}
-                      </span>
-                    ) : null}
                     <span
                       className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getOrigemAspectoClasses(
                         origemAspectos[aspecto.key]
@@ -1627,66 +1703,225 @@ export default function EcocardiogramaEstruturadoEditor({
                 </div>
                 <div className="text-xs text-gray-500">{aspecto.placeholder}</div>
               </div>
-              <div className="mb-3 flex flex-col items-start gap-2 lg:flex-row">
-                {aspecto.key === "conclusao" ? (
+              {modoPreenchimento === "compositor" && aspecto.key === "conclusao" ? (
+                <div className="mb-3 space-y-3 rounded-lg border border-teal-100 bg-teal-50/40 p-3">
+                  <div className="rounded-lg border border-teal-200 bg-white p-3">
+                    <div className="text-sm font-semibold text-gray-900">
+                      Rascunho automático dos achados
+                    </div>
+                    <p className="mt-1 text-xs text-gray-600">
+                      Mantém integralmente a conclusão padrão do preset e acrescenta somente os
+                      aspectos que você alterou ou preencheu manualmente. Não calcula estágio nem
+                      cria diagnóstico.
+                    </p>
+                    <textarea
+                      aria-label="Rascunho automático da conclusão"
+                      value={rascunhoConclusao}
+                      onChange={(event) => {
+                        setRascunhoConclusao(event.target.value);
+                        setRascunhoConclusaoEditado(true);
+                      }}
+                      placeholder="Escolha os achados acima para gerar o rascunho automaticamente."
+                      rows={Math.max(4, Math.min(10, rascunhoConclusao.split("\n").length + 1))}
+                      className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100"
+                    />
+                    {rascunhoConclusaoDesatualizado ? (
+                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        Os achados mudaram depois da sua edição. Atualize o rascunho para refletir
+                        as escolhas atuais; sua versão só será substituída ao confirmar.
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={atualizarRascunhoConclusao}
+                        disabled={!textoRascunhoAutomatico}
+                        className="rounded-lg border border-teal-300 bg-white px-3 py-2 text-sm text-teal-700 hover:bg-teal-50 disabled:opacity-50"
+                      >
+                        Atualizar pelos achados
+                      </button>
+                      <button
+                        type="button"
+                        onClick={aplicarRascunhoConclusao}
+                        disabled={!rascunhoConclusao.trim() || rascunhoConclusaoDesatualizado}
+                        className="rounded-lg bg-teal-600 px-3 py-2 text-sm text-white hover:bg-teal-700 disabled:opacity-50"
+                      >
+                        Aplicar rascunho revisado na conclusão
+                      </button>
+                    </div>
+                  </div>
+                  <div className="border-t border-teal-100 pt-3">
+                    <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Ajuste opcional com frases prontas
+                    </div>
+                  </div>
                   <SeletorFraseConclusao
                     frases={frasesAtivas}
-                    value={fraseSelecionadaEfetivaPorAspecto[aspecto.key] || ""}
-                    onChange={(fraseId) =>
-                      setFraseSelecionadaPorAspecto((prev) => ({
-                        ...prev,
-                        [aspecto.key]: fraseId,
-                      }))
-                    }
+                    multiple
+                    values={conclusoesCompostasIds}
+                    onValuesChange={setConclusoesCompostasIds}
                   />
-                ) : (
-                  <select
-                    value={fraseSelecionadaEfetivaPorAspecto[aspecto.key] || ""}
-                    onChange={(e) =>
-                      setFraseSelecionadaPorAspecto((prev) => ({
-                        ...prev,
-                        [aspecto.key]: e.target.value,
-                      }))
-                    }
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
-                  >
-                    <option value="">Selecionar frase do banco</option>
-                    {frasesAtivas.map((frase) => (
-                      <option key={frase.id} value={String(frase.id)}>
-                        {frase.titulo}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-gray-600">Formato:</span>
+                    <button
+                      type="button"
+                      aria-pressed={formatoConclusao === "topicos"}
+                      onClick={() => setFormatoConclusao("topicos")}
+                      className={`rounded-lg border px-3 py-1.5 text-xs ${
+                        formatoConclusao === "topicos"
+                          ? "border-teal-400 bg-white text-teal-800"
+                          : "border-gray-300 bg-white text-gray-600"
+                      }`}
+                    >
+                      Em tópicos
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={formatoConclusao === "paragrafo"}
+                      onClick={() => setFormatoConclusao("paragrafo")}
+                      className={`rounded-lg border px-3 py-1.5 text-xs ${
+                        formatoConclusao === "paragrafo"
+                          ? "border-teal-400 bg-white text-teal-800"
+                          : "border-gray-300 bg-white text-gray-600"
+                      }`}
+                    >
+                      Em parágrafo
+                    </button>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <div className="text-xs font-medium text-gray-700">Prévia da composição</div>
+                    <div className="mt-1 whitespace-pre-wrap text-sm text-gray-600">
+                      {textoConclusaoComposta || "Selecione uma ou mais frases aprovadas."}
+                    </div>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => aplicarFraseDoAspecto(aspecto)}
-                    disabled={!fraseSelecionadaEfetivaPorAspecto[aspecto.key]}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    onClick={aplicarConclusaoComposta}
+                    disabled={!textoConclusaoComposta}
+                    className="rounded-lg bg-teal-600 px-3 py-2 text-sm text-white hover:bg-teal-700 disabled:opacity-50"
                   >
-                    Usar frase
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => salvarNovaFraseDoAspecto(aspecto)}
-                    disabled={
-                      !String(estado.textos[aspecto.key] || "").trim() ||
-                      salvandoNovaFraseAspecto === aspecto.key
-                    }
-                    className="rounded-lg border border-teal-300 px-3 py-2 text-sm text-teal-700 hover:bg-teal-50 disabled:opacity-50"
-                  >
-                    {salvandoNovaFraseAspecto === aspecto.key
-                      ? "Salvando..."
-                      : "Salvar como nova frase"}
+                    Aplicar seleção manual de {conclusoesCompostasIds.length || ""} frase(s)
                   </button>
                 </div>
-              </div>
+              ) : (
+                <div className="mb-3 flex flex-col items-start gap-2 lg:flex-row">
+                  {aspecto.key === "conclusao" ? (
+                    <SeletorFraseConclusao
+                      frases={frasesAtivas}
+                      value={fraseSelecionadaId}
+                      onChange={(fraseId) =>
+                        setFraseSelecionadaPorAspecto((prev) => ({
+                          ...prev,
+                          [aspecto.key]: fraseId,
+                        }))
+                      }
+                    />
+                  ) : modoPreenchimento === "compositor" ? (
+                    <div className="w-full space-y-3">
+                      {opcoesDeGrau.length ? (
+                        <fieldset>
+                          <legend className="mb-2 text-xs font-medium text-gray-600">
+                            Variações de grau relacionadas
+                          </legend>
+                          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={`Grau de ${aspecto.label}`}>
+                            {opcoesDeGrau.map((opcao) => {
+                              const selecionada = String(opcao.frase.id) === fraseSelecionadaId;
+                              return (
+                                <button
+                                  key={opcao.grau}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={selecionada}
+                                  onClick={() => aplicarFraseDoAspecto(aspecto, String(opcao.frase.id))}
+                                  className={`rounded-lg border px-3 py-2 text-left text-sm ${
+                                    selecionada
+                                      ? "border-teal-400 bg-teal-50 text-teal-800"
+                                      : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                                  }`}
+                                >
+                                  <span className="block font-medium">{opcao.label}</span>
+                                  <span className="mt-0.5 block max-w-56 text-xs text-gray-500">
+                                    {opcao.frase.titulo}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </fieldset>
+                      ) : null}
+                      <label className="block">
+                        <span className="mb-1 block text-xs text-gray-500">
+                          Escolha única: a nova frase substitui somente este aspecto.
+                        </span>
+                        <select
+                          aria-label={`Escolher frase para ${aspecto.label}`}
+                          value={fraseSelecionadaId}
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              aplicarFraseDoAspecto(aspecto, e.target.value);
+                            }
+                          }}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
+                        >
+                          <option value="">Selecionar frase do banco</option>
+                          {frasesAtivas.map((frase) => (
+                            <option key={frase.id} value={String(frase.id)}>
+                              {frase.titulo}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  ) : (
+                    <select
+                      value={fraseSelecionadaId}
+                      onChange={(e) =>
+                        setFraseSelecionadaPorAspecto((prev) => ({
+                          ...prev,
+                          [aspecto.key]: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
+                    >
+                      <option value="">Selecionar frase do banco</option>
+                      {frasesAtivas.map((frase) => (
+                        <option key={frase.id} value={String(frase.id)}>
+                          {frase.titulo}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    {modoPreenchimento === "preset" ? (
+                      <button
+                        type="button"
+                        onClick={() => aplicarFraseDoAspecto(aspecto)}
+                        disabled={!fraseSelecionadaId}
+                        className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Usar frase
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => salvarNovaFraseDoAspecto(aspecto)}
+                      disabled={
+                        !String(estado.textos[aspecto.key] || "").trim() ||
+                        salvandoNovaFraseAspecto === aspecto.key
+                      }
+                      className="rounded-lg border border-teal-300 px-3 py-2 text-sm text-teal-700 hover:bg-teal-50 disabled:opacity-50"
+                    >
+                      {salvandoNovaFraseAspecto === aspecto.key
+                        ? "Salvando..."
+                        : "Salvar como nova frase"}
+                    </button>
+                  </div>
+                </div>
+              )}
               <textarea
                 value={estado.textos[aspecto.key] || ""}
                 onChange={(e) =>
                   {
-                    limparStatusSincronizacao(aspecto.key);
                     onChange(
                       atualizarEstrutura(estado, {
                         textos: {
@@ -1697,9 +1932,6 @@ export default function EcocardiogramaEstruturadoEditor({
                     );
                   }
                 }
-                onBlur={() => {
-                  void sincronizarFraseSelecionadaNoBlur(aspecto);
-                }}
                 rows={4}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
                 placeholder={aspecto.placeholder}

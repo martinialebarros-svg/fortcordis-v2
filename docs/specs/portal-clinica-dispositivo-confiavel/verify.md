@@ -310,8 +310,9 @@ gestor pediu por RF-019 (CB-008 cobre o caso em que a confianca tambem acabou).
 - [x] Aprovado para stage (com `PORTAL_CLINIC_DEVICE_TRUST_ENABLED=false` no
       primeiro deploy; ligar so depois de conferir que o portal com senha segue
       normal).
-- [ ] Aprovado para producao - **os tres bloqueios cairam em 20/09/2026**, falta a
-      decisao do responsavel:
+- [x] **Aprovado e ligado em producao** em 20/09/2026, por decisao do responsavel
+      (`PORTAL_CLINIC_DEVICE_TRUST_ENABLED=true` no `.env` de producao, junto com a
+      flag do link). Os tres bloqueios que precediam a decisao:
       (a) `portal-escopo-sessao-clinica` esta em `main`;
       (b) os **7 cenarios manuais rodaram em stage**, mais RF-021, RF-022 e RF-023 -
       os tres nasceram dos proprios cenarios e foram confirmados em stage depois do
@@ -319,8 +320,11 @@ gestor pediu por RF-019 (CB-008 cobre o caso em que a confianca tambem acabou).
       (c) a migracao `20260918_88` esta aplicada em stage, e o deploy de `main` a
       aplica em producao.
       O prazo de inatividade ficou decidido em **30 dias** (18/09/2026).
-      Ressalva de rollout: as duas flags (`PORTAL_CLINIC_EXAM_LINK_ENABLED` e
-      `PORTAL_CLINIC_DEVICE_TRUST_ENABLED`) chegam **desligadas** em producao pelo
-      default de `config.py`, e o link no WhatsApp ainda depende de o modelo
-      `laudo_disponivel_portal_link` sair da analise da Meta.
+      O modelo `laudo_disponivel_portal_link` foi aprovado pela Meta em 20/09/2026, e
+      o primeiro envio real em producao saiu com link, sem degradar - ver a secao 3 do
+      verify de `portal-clinica-link-laudo-whatsapp`.
+      Para desligar: trocar a flag no `.env` e reiniciar `fortcordis-backend`. Backup
+      do `.env` anterior em `/var/www/fortcordis-v2/backend/.env.bak-20260920-flags`.
+      Desligar **nao** derruba quem ja conectou (CB-005); para cortar de verdade, e
+      revogacao pelo admin.
 - [ ] Nao aprovado.

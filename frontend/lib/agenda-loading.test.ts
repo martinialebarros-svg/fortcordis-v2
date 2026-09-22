@@ -2,9 +2,52 @@ import { describe, expect, it, vi } from "vitest";
 import {
   agruparIdsAgendamentosVisiveis,
   createAgendaCatalogLoader,
+  executarCargasAuxiliaresAgenda,
   extrairIdsAgendamentosVisiveis,
   normalizarOpcoesFiltroAgenda,
 } from "./agenda-loading";
+
+describe("executarCargasAuxiliaresAgenda", () => {
+  it("inicia as leituras independentes em paralelo", async () => {
+    let concluirRelacionados: (() => void) | undefined;
+    let concluirResumo: (() => void) | undefined;
+    const relacionados = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          concluirRelacionados = resolve;
+        })
+    );
+    const resumo = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          concluirResumo = resolve;
+        })
+    );
+
+    const resultado = executarCargasAuxiliaresAgenda([relacionados, resumo]);
+
+    expect(relacionados).toHaveBeenCalledTimes(1);
+    expect(resumo).toHaveBeenCalledTimes(1);
+    concluirRelacionados?.();
+    concluirResumo?.();
+    await expect(resultado).resolves.toEqual([
+      { status: "fulfilled", value: undefined },
+      { status: "fulfilled", value: undefined },
+    ]);
+  });
+
+  it("isola a falha de uma leitura auxiliar", async () => {
+    const resultado = await executarCargasAuxiliaresAgenda([
+      async () => {
+        throw new Error("falha nos relacionados");
+      },
+      async () => "resumo disponivel",
+    ]);
+
+    expect(resultado[0].status).toBe("rejected");
+    expect(resultado[1]).toEqual({ status: "fulfilled", value: "resumo disponivel" });
+  });
+});
 
 describe("extrairIdsAgendamentosVisiveis", () => {
   it("mantem apenas IDs positivos, inteiros e unicos", () => {
