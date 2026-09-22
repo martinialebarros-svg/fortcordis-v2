@@ -14,6 +14,7 @@ export interface AchadoParaConclusaoEco {
   label: string;
   texto: string;
   frase?: FraseEcoEstruturadoTeste;
+  origem?: "preset" | "alterado" | "manual" | "empty";
 }
 
 const GRAUS_RAPIDOS: Array<{
@@ -198,13 +199,17 @@ function fraseRepresentaNormalidade(frase?: FraseEcoEstruturadoTeste): boolean {
 export function comporRascunhoConclusaoDosAchados(
   achados: AchadoParaConclusaoEco[],
   formato: FormatoConclusaoEco,
+  conclusaoBase = "",
 ): string {
+  const base = String(conclusaoBase || "").trim();
   const itens = achados
     .filter(
       (achado) =>
         achado.aspecto !== "conclusao" &&
         String(achado.texto || "").trim() &&
-        !fraseRepresentaNormalidade(achado.frase),
+        (base
+          ? achado.origem === "alterado" || achado.origem === "manual"
+          : !fraseRepresentaNormalidade(achado.frase)),
     )
     .map((achado) => {
       const resumo = String(achado.frase?.titulo || achado.texto || "").trim();
@@ -213,9 +218,10 @@ export function comporRascunhoConclusaoDosAchados(
     .filter(Boolean);
 
   if (formato === "paragrafo") {
-    return itens.join(" ");
+    return [base, itens.join(" ")].filter(Boolean).join(" ");
   }
-  return itens.map((item) => `* ${item}`).join("\n");
+  const complementos = itens.map((item) => `* ${item}`).join("\n");
+  return [base, complementos].filter(Boolean).join("\n");
 }
 
 export function comporConclusaoDeFrases(
