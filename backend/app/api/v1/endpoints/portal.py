@@ -475,24 +475,42 @@ def _is_exam_released_to_portal(exam: Exame, laudos_map: dict[int, Laudo]) -> bo
     return False
 
 
-def _marcar_exame_visualizado_no_portal(db: Session, exame_id: int, actor_type: str | None) -> None:
-    """Registra o primeiro acesso da CLINICA PARCEIRA ao arquivo de um exame liberado.
+def _marcar_exame_visualizado_no_portal(
+    db: Session,
+    exame_id: int,
+    actor_type: str | None,
+    actor_id: int | None = None,
+) -> None:
+    """Registra o primeiro download externo do ciclo de liberacao vigente.
 
-    O mesmo endpoint de download tambem atende o tutor (dono do pet); um
-    download do tutor nao pode contar como "a clinica parceira ja viu"
-    (informacao errada seria pior que nenhuma), entao so marca quando
-    actor_type == "clinica". Idempotente (so grava na primeira vez) e
-    silencioso: um erro aqui nao pode derrubar o download do arquivo em si.
+    O mesmo endpoint tambem atende o tutor (dono do pet), que nao pode contar
+    como parceiro. Clinica grava no exame; veterinario grava no destino de
+    liberacao correspondente. Ambos sao idempotentes no ciclo vigente.
     """
-    if actor_type != "clinica":
+    if actor_type == "clinica":
+        exame = db.query(Exame).filter(Exame.id == exame_id).first()
+        if not exame or exame.visualizado_portal_em is not None:
+            return
+        if not is_portal_released_status(exame.status):
+            return
+        exame.visualizado_portal_em = datetime.now()
+        db.commit()
         return
-    exame = db.query(Exame).filter(Exame.id == exame_id).first()
-    if not exame or exame.visualizado_portal_em is not None:
-        return
-    if not is_portal_released_status(exame.status):
-        return
-    exame.visualizado_portal_em = datetime.now()
-    db.commit()
+
+    if actor_type == "parceiro" and actor_id is not None:
+        target = (
+            db.query(PortalPartnerReleaseTarget)
+            .filter(
+                PortalPartnerReleaseTarget.partner_id == actor_id,
+                PortalPartnerReleaseTarget.exame_id == exame_id,
+                PortalPartnerReleaseTarget.revoked_at.is_(None),
+            )
+            .first()
+        )
+        if target is None or target.downloaded_at is not None:
+            return
+        target.downloaded_at = datetime.now()
+        db.commit()
 
 
 def _serialize_exam_attachment(anexo: AnexoAtendimento) -> PortalExamAttachmentResponse:
@@ -2194,7 +2212,7 @@ def baixar_arquivo_anexo_portal(
         clinica_id = portal_session.clinica_id
         account_id = portal_session.account_id
 
-    _marcar_exame_visualizado_no_portal(db, attachment.exame_id, actor_type)
+    _marcar_exame_visualizado_no_portal(db, attachment.exame_id, actor_type, actor_id)
 
     registrar_auditoria(
         current_user=None,
