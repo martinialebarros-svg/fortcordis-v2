@@ -33,6 +33,7 @@ Ao criar uma reserva ou um agendamento, a secretaria escolhe clinica ou tutor co
 - RF-021: a confirmacao de revisao deve ser registrada na auditoria com os IDs das reservas expiradas encontradas.
 - RF-022: se o mesmo cliente confirmar depois do vencimento, a secretaria deve poder alterar `Expirado` para `Agendado` mediante confirmacao tardia explicita, desde que o slot continue livre e os dados obrigatorios estejam preenchidos.
 - RF-023: a confirmacao tardia deve ficar disponivel na Agenda e no FullCalendar com rotulo proprio, sem reativar silenciosamente a reserva.
+- RF-024: ao completar tutor e animal de uma reserva expirada, a interface deve distinguir texto de busca de cadastro selecionado, salvar os IDs sem alterar o status e orientar a acao subsequente `Agendar apos confirmacao tardia`.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -42,6 +43,7 @@ Ao criar uma reserva ou um agendamento, a secretaria escolhe clinica ou tutor co
 - NFR-004 (integridade): a expiracao deve liberar a exclusao PostgreSQL sem permitir sobreposicao de slots ativos.
 - NFR-005 (timezone): a comparacao de vencimento deve usar o horario operacional UTC-3, independentemente do timezone do runner ou servidor.
 - NFR-006 (integridade): confirmar a revisao de uma reserva expirada nunca pode contornar bloqueios administrativos ou a sobreposicao com outro agendamento ativo.
+- NFR-007 (ux): nomes digitados na busca de tutor ou animal nao podem aparentar selecao enquanto nenhum resultado cadastrado tiver sido escolhido.
 
 ## 4) Contratos tecnicos
 
@@ -77,6 +79,7 @@ Ao criar uma reserva ou um agendamento, a secretaria escolhe clinica ou tutor co
 - A Agenda destaca reservas na ultima hora, torna o alerta critico nos 15 minutos finais e atualiza a contagem regressiva sem recarregar a pagina.
 - O modal compartilhado de novo agendamento exige a revisao das mensagens antes de repetir a escrita com o campo de confirmacao.
 - Reservas expiradas exibem a acao `Agendar apos confirmacao tardia` nas duas visualizacoes da agenda.
+- A edicao de reserva expirada explica o fluxo em duas etapas, identifica campos ainda sem cadastro selecionado e retorna para a Agenda depois de salvar tutor e animal.
 
 ## 5) Compatibilidade e rollout
 
@@ -105,6 +108,7 @@ Ao criar uma reserva ou um agendamento, a secretaria escolhe clinica ou tutor co
 - CA-017: `Expirado` oferece a acao `Agendar apos confirmacao tardia`; sem confirmacao a API retorna `CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA`.
 - CA-018: confirmar a resposta tardia muda a mesma reserva para `Agendado` quando o slot esta livre e mantem o bloqueio quando outro atendimento ja ocupa o horario.
 - CA-019: a reativacao continua exigindo paciente e tutor para o status `Agendado` e registra a confirmacao tardia na auditoria.
+- CA-020: em reserva `Expirado` sem tutor/paciente, digitar texto mantem o seletor sem valor; escolher resultados persiste `tutor_id`/`paciente_id`, preserva `Expirado` e informa que a proxima acao e `Agendar apos confirmacao tardia`.
 
 ## 7) Casos de borda
 
@@ -117,6 +121,7 @@ Ao criar uma reserva ou um agendamento, a secretaria escolhe clinica ou tutor co
 - CB-007: edicao de contato aberta precisa ser salva ou cancelada antes da criacao do agendamento.
 - CB-008: dados ausentes na reserva expirada aparecem como `Pendente` na confirmacao e nao impedem a revisao manual.
 - CB-009: mais de uma reserva expirada sobreposta deve ser informada pela API e registrada na auditoria quando o slot for reutilizado.
+- CB-010: os textos legados `Tutor nao informado` e `Paciente nao informado` nao podem ser apresentados como cadastros selecionados no formulario.
 
 ## 8) Fora de escopo
 
