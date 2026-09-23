@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import FinanceiroPage from "./page";
@@ -48,6 +48,44 @@ describe("Cobrancas remote groups", () => {
     expect(screen.queryByRole("button", { name: "Receber pendentes" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Proxima" }));
     await waitFor(() => expect(mocks.get.mock.calls.some(([url]) => url.includes("cobrancas?") && url.includes("skip=50"))).toBe(true));
+  });
+  it("expands pending orders directly below the recipient row and collapses them", async () => {
+    const compactGroup = { ...group, quantidade_total: 2, quantidade_os: 1, total_pendente: 10 };
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/ordens-servico/cobrancas?")) {
+        return { data: { total: 1, total_os: 2, pendentes: 1, total_pendente: 10, items: [compactGroup] } };
+      }
+      if (url.startsWith("/ordens-servico?")) {
+        return {
+          data: {
+            total: 2,
+            resumo: { pendentes: 1, valor_pendente: 10 },
+            items: [
+              { ...osItem(1), clinica_id: 1 },
+              { ...osItem(2), clinica_id: 1, status: "Pago" },
+            ],
+          },
+        };
+      }
+      return { data: { items: [] } };
+    });
+
+    render(<FinanceiroPage />);
+    const recipient = await screen.findByRole("region", { name: "Cobrancas de Clinica sintetica" });
+    const open = within(recipient).getByRole("button", { name: "Abrir destinatario Clinica sintetica" });
+    expect(open).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(open);
+
+    expect(await within(recipient).findByText("OS #OS-1")).toBeInTheDocument();
+    expect(within(recipient).queryByText("OS #OS-2")).not.toBeInTheDocument();
+    const close = within(recipient).getByRole("button", { name: "Fechar destinatario Clinica sintetica" });
+    expect(close).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(close);
+
+    expect(within(recipient).queryByText("OS #OS-1")).not.toBeInTheDocument();
+    expect(mocks.get.mock.calls.filter(([url]) => String(url).startsWith("/ordens-servico?")).length).toBe(1);
   });
   it("refreshes only recipient summaries without restarting independent reads", async () => {
     render(<FinanceiroPage />);
