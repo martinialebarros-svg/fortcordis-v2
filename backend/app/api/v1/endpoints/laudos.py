@@ -900,6 +900,62 @@ def _partners_liberados_by_exame_id(
     return agrupado
 
 
+def _load_portal_downloads_by_laudo_id(
+    db: Session,
+    exame_id_by_laudo_id: dict[int, int],
+    partner_laudo_ids: set[int],
+) -> dict[int, dict[str, Any]]:
+    if not exame_id_by_laudo_id:
+        return {}
+
+    laudo_id_by_exame_id = {
+        exame_id: laudo_id for laudo_id, exame_id in exame_id_by_laudo_id.items()
+    }
+    states: dict[int, dict[str, Any]] = {
+        laudo_id: {
+            "portal_clinica_baixado_em": None,
+            "portal_veterinario_baixado_em": None,
+        }
+        for laudo_id in exame_id_by_laudo_id
+    }
+    exams = (
+        db.query(Exame.id, Exame.visualizado_portal_em)
+        .filter(Exame.id.in_(list(laudo_id_by_exame_id)))
+        .all()
+    )
+    for exame_id, downloaded_at in exams:
+        laudo_id = laudo_id_by_exame_id.get(int(exame_id))
+        if laudo_id is not None:
+            states[laudo_id]["portal_clinica_baixado_em"] = downloaded_at
+
+    partner_exam_ids = [
+        exame_id
+        for laudo_id, exame_id in exame_id_by_laudo_id.items()
+        if laudo_id in partner_laudo_ids
+    ]
+    if not partner_exam_ids:
+        return states
+
+    partner_targets = (
+        db.query(
+            PortalPartnerReleaseTarget.exame_id,
+            PortalPartnerReleaseTarget.downloaded_at,
+        )
+        .filter(
+            PortalPartnerReleaseTarget.exame_id.in_(partner_exam_ids),
+            PortalPartnerReleaseTarget.revoked_at.is_(None),
+        )
+        .all()
+    )
+    for exame_id, downloaded_at in partner_targets:
+        laudo_id = laudo_id_by_exame_id.get(int(exame_id))
+        if laudo_id is not None and downloaded_at is not None:
+            current = states[laudo_id]["portal_veterinario_baixado_em"]
+            if current is None or downloaded_at < current:
+                states[laudo_id]["portal_veterinario_baixado_em"] = downloaded_at
+    return states
+
+
 def _serialize_portal_release_state(
     db: Session,
     *,
@@ -1026,6 +1082,7 @@ def _upsert_portal_partner_release_target(
     if was_inactive:
         target.revoked_at = None
         target.released_at = released_at
+        target.downloaded_at = None
     return target, was_inactive
 
 
@@ -1920,6 +1977,16 @@ def listar_laudos(
         if tem_destino_veterinario
         else {}
     )
+    portal_downloads_by_laudo_id = _load_portal_downloads_by_laudo_id(
+        db,
+        exame_id_by_laudo_id,
+        {
+            laudo.id
+            for laudo in laudos_rows
+            if _to_optional_int(laudo.veterinario_parceiro_id) is not None
+            or difusao_by_clinic_id.get(_to_optional_int(laudo.clinic_id) or -1)
+        },
+    )
 
     resultado = []
     for laudo, paciente_nome, tutor_nome, clinica_nome, veterinario_parceiro_nome in rows:
@@ -1947,6 +2014,12 @@ def listar_laudos(
             "whatsapp_parceiro_em": _iso_or_str(laudo.whatsapp_parceiro_em),
             "whatsapp_parceiro_erro": laudo.whatsapp_parceiro_erro,
             "whatsapp_envios": laudo.whatsapp_envios or {},
+            "portal_clinica_baixado_em": _iso_or_str(
+                portal_downloads_by_laudo_id.get(laudo.id, {}).get("portal_clinica_baixado_em")
+            ),
+            "portal_veterinario_baixado_em": _iso_or_str(
+                portal_downloads_by_laudo_id.get(laudo.id, {}).get("portal_veterinario_baixado_em")
+            ),
             **_serialize_portal_release_state(
                 db,
                 laudo=laudo,

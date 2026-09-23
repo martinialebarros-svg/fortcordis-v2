@@ -62,6 +62,7 @@ class PortalPartnerReleaseTarget(Base):
     laudo_id = Column(Integer, nullable=True, index=True)
     permitir_download = Column(Boolean, nullable=False, default=True)
     released_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    downloaded_at = Column(DateTime(timezone=True), nullable=True, index=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True, index=True)
     created_by_user_id = Column(Integer, nullable=True, index=True)
     contexto_json = Column(Text, nullable=False, default="{}")
