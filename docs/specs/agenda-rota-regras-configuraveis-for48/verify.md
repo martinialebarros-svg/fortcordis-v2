@@ -24,6 +24,7 @@ Status: in-progress
 | CA-014 | aceitacao | `test_sugestao_permite_encaixe_adjacente_a_ancora_registrada`, `test_validacao_permite_encaixe_adjacente_a_ancora_registrada` e `test_proximidade_usa_trecho_aderente_em_encaixe_adjacente` cobrem encaixe livre adjacente a ancora ja registrada por excecao operacional | ok |
 | CA-015 | aceitacao | `NovoAgendamentoModal` solicita confirmacao contextual ao admin; Agenda e FullCalendar abrem o formulario sem editar configuracoes | ok |
 | CA-016 / NFR-006 / NFR-007 | aceitacao e seguranca | `test_agenda_duracao_servico_create.py` cobre bloqueio sem confirmacao, rejeicao nao-admin e evento auditavel para admin | ok |
+| CA-017 | aceitacao | modal de recebimento da Agenda Lista oferece checkbox de recibo PDF para a clinica; baixa e envio oficial sao sequenciais, com chave de idempotencia, falha independente e rolagem em viewport reduzida | ok |
 | NFR-001 | nao funcional | cache de deslocamento por request mantido | ok |
 | NFR-002 | nao funcional | sem novos endpoints publicos; usa permissao de configuracoes existente | ok |
 | NFR-004 | nao funcional | perfis nao-admin sem acao de criacao/confirmacao em slot fechado | ok |
@@ -55,6 +56,7 @@ cd backend && ./venv/bin/python -m pytest -q tests/test_agenda_sugestao_janela_o
 ```
 
 Resumo dos resultados:
+- Atualizacao 2026-09-23: `eslint app/agenda/page.tsx`, `tsc --noEmit`, `npm run build` e `git diff --check` aprovados para a opcao de envio de recibo PDF no recebimento da Agenda Lista; validacao local nao realizou envio externo.
 - Atualizacao 2026-08-04: backend aprovado (`11 passed` em `test_agenda_duracao_servico_create.py`, Python 3.12), `py_compile` aprovado para `agenda.py` e `agendamento.py`; ESLint, `tsc --noEmit` e build de producao dos tres fluxos da agenda aprovados.
 - Backend: ok (py_compile).
 - Backend agenda: ok (`28 passed` em `test_agenda_sugestao_janela_operacional.py`).
@@ -78,6 +80,7 @@ Resumo dos resultados:
 - Cenario 11: manter dois agendamentos no mesmo dia por excecao operacional previa e validar que o slot livre adjacente ao agendamento ja registrado e proximo ao novo destino pode ser sugerido/salvo sem reprocessar a matriz logistica.
 - Cenario 12: como admin, abrir um slot fechado e salvar; validar aviso com motivo, confirmacao explicita, criacao do agendamento e ausencia de alteracao em Configuracoes > Funcionamento da Agenda.
 - Cenario 13: como nao-admin, tentar criar no mesmo horario; validar bloqueio sem opcao de confirmacao.
+- Cenario 14: na Agenda Lista, abrir `Receber`, confirmar que o checkbox de recibo inicia desmarcado, marca-lo e validar baixa seguida de envio do PDF oficial para a clinica; simular falha no segundo request e confirmar que a OS permanece paga com aviso separado.
 
 ## 4) Regressao e riscos residuais
 

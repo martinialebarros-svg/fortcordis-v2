@@ -366,6 +366,11 @@ const parseMoneyValue = (value: string): number => {
   return parsed;
 };
 
+const criarIdempotencyKeyWhatsApp = (prefixo: string, osId: number) =>
+  typeof globalThis.crypto?.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : `${prefixo}-${osId}-${Date.now()}`;
+
 const SLOT_INTERVALO_PADRAO_MIN = DEFAULT_AGENDA_ROTA_REGRAS.rendering_policy.slot_interval_min;
 
 export default function AgendaPage() {
@@ -415,6 +420,7 @@ export default function AgendaPage() {
   const [usarCreditoClientePagamento, setUsarCreditoClientePagamento] = useState(false);
   const [valorCreditoUtilizadoPagamento, setValorCreditoUtilizadoPagamento] = useState("0.00");
   const [descontoPagamento, setDescontoPagamento] = useState("0.00");
+  const [enviarReciboPdfWhatsAppAposRecebimento, setEnviarReciboPdfWhatsAppAposRecebimento] = useState(false);
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
   const [tutoresEndereco, setTutoresEndereco] = useState<Record<number, TutorEndereco>>({});
   const [agendaSemanal, setAgendaSemanal] = useState<AgendaSemanalConfig>(() =>
@@ -1377,6 +1383,7 @@ export default function AgendaPage() {
     setErroSaldoCreditoPagamento("");
     setUsarCreditoClientePagamento(false);
     setValorCreditoUtilizadoPagamento("0.00");
+    setEnviarReciboPdfWhatsAppAposRecebimento(false);
     setAgendamentoPagamentoId(agendamentoId);
     setModalPagamentoAberto(true);
     if (!formasPagamentoDisponiveis.length) {
@@ -1419,6 +1426,19 @@ export default function AgendaPage() {
         destino_credito_excedente: destinoCreditoExcedente,
       });
 
+      let avisoRecibo = "";
+      if (enviarReciboPdfWhatsAppAposRecebimento) {
+        try {
+          await api.post(`/ordens-servico/${osVinculada.id}/whatsapp/recibo-pdf`, {
+            idempotency_key: criarIdempotencyKeyWhatsApp("agenda-recibo-pdf", osVinculada.id),
+          });
+        } catch (error: any) {
+          avisoRecibo =
+            error?.response?.data?.detail ||
+            "O recebimento foi registrado, mas nao foi possivel enviar o recibo PDF para a clinica pelo WhatsApp.";
+        }
+      }
+
       setModalPagamentoAberto(false);
       setAgendamentoPagamentoId(null);
       setPagamentosRecebimento([]);
@@ -1428,7 +1448,13 @@ export default function AgendaPage() {
       setUsarCreditoClientePagamento(false);
       setValorCreditoUtilizadoPagamento("0.00");
       setDescontoPagamento("0.00");
+      setEnviarReciboPdfWhatsAppAposRecebimento(false);
       await carregarAgendamentos();
+      if (avisoRecibo) {
+        window.alert(`Recebimento registrado com sucesso.\n\nAviso do WhatsApp: ${avisoRecibo}`);
+      } else if (enviarReciboPdfWhatsAppAposRecebimento) {
+        window.alert("Recebimento registrado e recibo PDF enviado para a clinica pelo WhatsApp!");
+      }
     } catch (error: any) {
       console.error("Erro ao receber pagamento da OS na agenda:", error);
       const detail = error?.response?.data?.detail;
@@ -3283,7 +3309,7 @@ export default function AgendaPage() {
 
         {modalPagamentoAberto && agendamentoPagamentoId !== null && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="mx-4 w-full max-w-md rounded-lg bg-white p-6">
+            <div className="mx-4 max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white p-6">
               <h3 className="text-lg font-semibold text-gray-900">Receber pagamento</h3>
               <p className="mt-1 text-sm text-gray-600">
                 Informe as formas de pagamento da OS vinculada ao agendamento.
@@ -3430,6 +3456,23 @@ export default function AgendaPage() {
                 </div>
               )}
 
+              <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3">
+                <label className="flex items-start gap-2 text-sm font-medium text-green-900">
+                  <input
+                    type="checkbox"
+                    checked={enviarReciboPdfWhatsAppAposRecebimento}
+                    onChange={(event) => setEnviarReciboPdfWhatsAppAposRecebimento(event.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Enviar o recibo em PDF para a clinica pelo WhatsApp oficial apos registrar
+                    <span className="mt-1 block text-xs font-normal text-green-800">
+                      O documento informa OS, data do atendimento, servico, tutor e pet.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
               {resumoPagamentoModal.excedente > 0 && (
                 <>
                   <label className="mt-4 block text-sm font-medium text-gray-700">
@@ -3538,6 +3581,7 @@ export default function AgendaPage() {
                     setUsarCreditoClientePagamento(false);
                     setValorCreditoUtilizadoPagamento("0.00");
                     setDescontoPagamento("0.00");
+                    setEnviarReciboPdfWhatsAppAposRecebimento(false);
                   }}
                   className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
