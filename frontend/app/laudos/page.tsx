@@ -74,6 +74,8 @@ interface Laudo {
   whatsapp_parceiro_em?: string | null;
   whatsapp_parceiro_erro?: string | null;
   whatsapp_envios?: Record<string, EnvioDestinoWhatsApp> | null;
+  portal_clinica_baixado_em?: string | null;
+  portal_veterinario_baixado_em?: string | null;
 }
 
 interface Exame {
@@ -971,6 +973,22 @@ export default function LaudosPage() {
                               {laudo.whatsapp_parceiro_status === "enviado"
                                 ? "WhatsApp parceiro enviado"
                                 : "WhatsApp parceiro falhou"}
+                            </span>
+                          )}
+                          {(laudo.portal_clinica_baixado_em || laudo.portal_veterinario_baixado_em) && (
+                            <span
+                              className="inline-flex items-center justify-center rounded-full bg-emerald-100 p-1.5 text-emerald-700"
+                              title={[
+                                laudo.portal_clinica_baixado_em
+                                  ? `Baixado pela clínica parceira em ${formatOperationalDate(laudo.portal_clinica_baixado_em)}`
+                                  : null,
+                                laudo.portal_veterinario_baixado_em
+                                  ? `Baixado pelo veterinário parceiro em ${formatOperationalDate(laudo.portal_veterinario_baixado_em)}`
+                                  : null,
+                              ].filter(Boolean).join(" • ")}
+                              aria-label="Laudo baixado por parceiro externo"
+                            >
+                              <FileCheck className="h-4 w-4" />
                             </span>
                           )}
                           {canReleasePortal(laudo) && (

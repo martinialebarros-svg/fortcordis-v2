@@ -22,8 +22,9 @@
 ## Extensão PERF-19 — Ordens e Cobranças
 
 - [x] A especificação passou a distinguir prefixos de rotas exatas `GET`.
-- [x] Testes locais confirmam grupos persistidos separados, cinco prefixos
-  preservados e descarte de subrotas, método ausente e métodos não-GET.
+- [x] Testes locais confirmam grupos persistidos separados e descarte de
+  subrotas, método ausente e métodos não-GET. Desde PERF-21, quatro prefixos
+  permanecem e a Agenda usa grupos exatos.
 - [x] Smoke autenticado em stage concluído no release `75a58ba`: Ordens e
   Cobranças apareceram como grupos distintos, com ao menos 20 amostras cada,
   `truncated=false`, p95 abaixo de 1.200 ms e zero 5xx.
@@ -41,3 +42,12 @@
   rota completa, query string, usuário ou conteúdo clínico.
 - [x] Testes focados, suíte backend completa, 378 testes Vitest, 9 testes Node,
   lint, typecheck, build de 43 páginas e guardrail SDD aprovados.
+
+## Extensão PERF-21 — subrotas da Agenda e custo de aplicação
+
+- [x] Cinco leituras da Agenda aparecem como rotas exatas separadas nos testes.
+- [x] Amostras persistem contagem de consultas e agregam o tempo de aplicação.
+- [x] Painel exibe p95 de aplicação e consultas sem dados sensíveis.
+- [x] Migração idempotente, 1.413 testes backend, 409 testes Vitest, 9 testes
+  Node, lint, typecheck, build, diff e guardrail SDD aprovados localmente.
+- [ ] Stage coleta janela representativa por rota antes de qualquer otimização.
