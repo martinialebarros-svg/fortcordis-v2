@@ -296,6 +296,7 @@ interface SearchableSelectProps {
   placeholder: string;
   searchPlaceholder: string;
   emptyText: string;
+  selectionHint?: string;
   clearLabel?: string;
   disabled?: boolean;
   showSelectedDescription?: boolean;
@@ -676,6 +677,7 @@ function SearchableSelect({
   placeholder,
   searchPlaceholder,
   emptyText,
+  selectionHint,
   clearLabel = "Selecione...",
   disabled = false,
   showSelectedDescription = false,
@@ -789,6 +791,11 @@ function SearchableSelect({
                 className="w-full bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400"
               />
             </div>
+            {selectionHint ? (
+              <p className="mt-1.5 px-1 text-xs text-amber-800">
+                {selectionHint}
+              </p>
+            ) : null}
           </div>
 
           <div className="max-h-72 overflow-y-auto py-1">
@@ -947,6 +954,7 @@ export default function NovoAgendamentoModal({
     ? (agendamento?.status || "Agendado")
     : (formData.marcar_como_reserva ? "Reservado" : "Agendado");
   const permiteSemPacienteTutor = statusFormulario === "Reservado";
+  const editandoReservaExpirada = isEditando && statusFormulario === "Expirado";
   const atendimentoDomiciliar = formData.origem_atendimento === "domiciliar";
   const estadoExcecaoManual = {
     isEditando,
@@ -1141,18 +1149,18 @@ export default function NovoAgendamentoModal({
       agendamento.paciente_id && agendamento.paciente_id > 0
         ? pacientes.find((p) => p.id === agendamento.paciente_id)
         : null;
+    const tutorIdInicial = agendamento?.tutor_id
+      ? String(agendamento.tutor_id)
+      : pacienteSelecionado?.tutor_id !== null &&
+          pacienteSelecionado?.tutor_id !== undefined
+        ? pacienteSelecionado.tutor_id.toString()
+        : "";
     const origemAtendimento: OrigemAtendimento =
       agendamento?.origem_atendimento === "domiciliar" ? "domiciliar" : "clinica_parceira";
 
     setFormData({
       origem_atendimento: origemAtendimento,
-      tutor_id:
-        agendamento?.tutor_id
-          ? String(agendamento.tutor_id)
-          : pacienteSelecionado?.tutor_id !== null &&
-              pacienteSelecionado?.tutor_id !== undefined
-            ? pacienteSelecionado.tutor_id.toString()
-            : "",
+      tutor_id: tutorIdInicial,
       paciente_id:
         agendamento.paciente_id && agendamento.paciente_id > 0
           ? agendamento.paciente_id.toString()
@@ -1171,7 +1179,9 @@ export default function NovoAgendamentoModal({
       observacoes: agendamento.observacoes || "",
     });
 
-    setTutorSelecionado(pacienteSelecionado?.tutor || agendamento?.tutor || "");
+    setTutorSelecionado(
+      tutorIdInicial ? (pacienteSelecionado?.tutor || agendamento?.tutor || "") : ""
+    );
     setSugestoesHorario([]);
     setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
@@ -3383,7 +3393,9 @@ export default function NovoAgendamentoModal({
         );
       }
 
-      if (entregaMensagemAgenda) {
+      // Ao completar uma reserva expirada, volte para a Agenda: a proxima acao
+      // obrigatoria e a confirmacao tardia, nao o envio de uma mensagem de alteracao.
+      if (entregaMensagemAgenda && !editandoReservaExpirada) {
         setMensagemAgendaCriada({
           ...entregaMensagemAgenda,
           agendamentoId: Number(response?.data?.id) || null,
@@ -3397,6 +3409,20 @@ export default function NovoAgendamentoModal({
         return;
       }
       await onSuccess(response?.data);
+      if (
+        editandoReservaExpirada &&
+        Number.isFinite(pacienteId) &&
+        Number.isFinite(tutorId)
+      ) {
+        fortinho.notify({
+          title: "Dados da reserva atualizados",
+          message:
+            "Tutor e animal foram vinculados. Agora use 'Agendar após confirmação tardia' na Agenda para concluir.",
+          mood: "happy",
+          gesture: "point-right",
+          sticky: true,
+        });
+      }
       onClose();
       setFormData(buildInitialFormData(defaultDate, defaultTime));
       setTutorSelecionado("");
@@ -3719,6 +3745,20 @@ export default function NovoAgendamentoModal({
             </div>
           )}
 
+          {editandoReservaExpirada ? (
+            <section
+              aria-label="Como concluir a confirmação tardia"
+              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-950"
+            >
+              <strong>Como concluir a confirmação tardia</strong>
+              <p className="mt-1">
+                Busque e clique no tutor e no animal corretos, salve os dados da reserva e depois use
+                <strong> Agendar após confirmação tardia</strong> na Agenda. Digitar um nome sem escolher o
+                resultado não vincula o cadastro.
+              </p>
+            </section>
+          ) : null}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Origem do atendimento</label>
             <div className="fc-appointment-origin grid grid-cols-2 gap-2">
@@ -3767,6 +3807,7 @@ export default function NovoAgendamentoModal({
                 placeholder="Selecione..."
                 searchPlaceholder="Buscar tutor por nome ou telefone..."
                 emptyText="Nenhum tutor encontrado."
+                selectionHint="Digite para buscar e clique no tutor correto. O texto digitado sozinho não seleciona o cadastro."
                 clearLabel="Selecione..."
                 onSearchChange={setBuscaTutorRemota}
                 isSearching={buscandoTutores}
@@ -3779,6 +3820,11 @@ export default function NovoAgendamentoModal({
                 {formData.tutor_id ? "Ver tutor" : "Novo tutor"}
               </button>
             </div>
+            {!formData.tutor_id && !permiteSemPacienteTutor ? (
+              <p className="mt-1 text-xs font-medium text-amber-800">
+                Nenhum tutor cadastrado foi selecionado.
+              </p>
+            ) : null}
             {formData.tutor_id && (
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 {carregandoTutorPanorama ? (
@@ -3881,6 +3927,7 @@ export default function NovoAgendamentoModal({
                     ? "Nenhum animal encontrado para este tutor."
                     : "Nenhum animal encontrado."
                 }
+                selectionHint="Digite para buscar e clique no animal correto. O texto digitado sozinho não seleciona o cadastro."
                 clearLabel="Selecione..."
               />
               <button
@@ -3891,6 +3938,12 @@ export default function NovoAgendamentoModal({
                 Novo animal
               </button>
             </div>
+
+            {!formData.paciente_id && !permiteSemPacienteTutor ? (
+              <p className="mt-1 text-xs font-medium text-amber-800">
+                Nenhum animal cadastrado foi selecionado.
+              </p>
+            ) : null}
 
             {tutorSelecionado && (
               <div className="mt-2 flex items-center gap-2 text-sm text-gray-600 bg-blue-50 p-2 rounded-lg">
@@ -4575,7 +4628,9 @@ export default function NovoAgendamentoModal({
             >
               {loading 
                 ? (isEditando ? "Salvando..." : "Criando...") 
-                : (isEditando ? "Salvar Alterações" : "Salvar Agendamento")
+                : (isEditando
+                    ? (editandoReservaExpirada ? "Salvar dados da reserva" : "Salvar Alterações")
+                    : "Salvar Agendamento")
               }
             </button>
           </div>

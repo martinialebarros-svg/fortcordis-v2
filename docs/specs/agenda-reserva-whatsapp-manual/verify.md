@@ -1,8 +1,8 @@
 # Verify - agenda-reserva-whatsapp-manual
 
-Data: 2026-08-02
+Data: 2026-09-22
 Responsavel: Martiniano + Codex
-Status: release-candidate-validated
+Status: local-validated
 
 ## 1) Matriz de rastreabilidade
 
@@ -19,6 +19,7 @@ Status: release-candidate-validated
 | CA-015 | cancelamento da confirmacao interrompe a escrita e permite voltar ao WhatsApp | passou por inspecao do fluxo e build |
 | CA-016/NFR-006 | confirmacao do slot expirado nao ignora conflito com agendamento ativo | passou |
 | CA-017/CA-018/CA-019 | confirmacao tardia reativa `Expirado` somente com slot livre, dados obrigatorios e auditoria | passou |
+| CA-020/NFR-007 | busca de tutor/animal exige escolha de resultado, remove falso selecionado e orienta a segunda etapa | passou localmente |
 | NFR-001/NFR-004 | fallback legado e status expirado fora dos bloqueios ativos | passou |
 
 ## 2) Testes executados
@@ -46,6 +47,28 @@ Resultados:
 - Regressao de slot expirado: primeira tentativa retorna `CONFIRMACAO_SLOT_RESERVA_EXPIRADA`, a repeticao consciente ocupa o slot livre e um conflito ativo continua bloqueado.
 - Regressao de confirmacao tardia: `Expirado` exige `CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA`, muda para `Agendado` quando livre e permanece bloqueado quando o slot ja foi ocupado.
 - Frontend: alerta destacado na ultima hora, estado critico nos 15 minutos finais e confirmacao com orientacao para revisar o WhatsApp.
+
+### Atualizacao de 2026-09-22
+
+```bash
+cd frontend && npx vitest run app/agenda/NovoAgendamentoModal.reserva-expirada.test.tsx
+cd frontend && npx vitest run app/agenda/NovoAgendamentoModal.reserva-expirada.test.tsx app/agenda/NovoAgendamentoModal.excecao-manual.test.tsx app/agenda/NovoAgendamentoPedido.test.tsx
+cd frontend && npm test
+/Users/martiniano/fortcordis-v2/backend/venv/bin/python -m unittest backend/tests/test_agenda_duracao_servico_create.py backend/tests/test_agenda_excecao_deslocamento_persistente.py
+cd frontend && npx tsc --noEmit --pretty false
+cd frontend && npm run lint
+cd frontend && npm run build
+git diff --check
+# evaluate_guardrail aplicado ao git diff e aos arquivos ainda nao rastreados
+```
+
+- Regressao do modal: o texto digitado permanece somente como filtro ate a escolha de um resultado; ao selecionar tutor e animal, o `PUT` preserva `Expirado` e envia os IDs vinculados.
+- A reserva expirada nao apresenta mais `Tutor nao informado` como tutor selecionado.
+- Depois de salvar os dados, o modal retorna para a Agenda e orienta `Agendar apos confirmacao tardia`, mantendo a revalidacao de slot e rota no fluxo existente.
+- Teste novo: 2 testes passaram; regressao dos tres modais da Agenda: 6 testes passaram.
+- Suite frontend completa: 53 arquivos e 408 testes Vitest, mais 9 testes Node, passaram.
+- Backend focado em confirmacao tardia e conflito de deslocamento: 23 testes passaram.
+- TypeScript, ESLint, build Next.js com 43 paginas, `git diff --check` e guardrail SDD sobre o working tree passaram.
 
 ### Atualizacao de 2026-08-02
 
