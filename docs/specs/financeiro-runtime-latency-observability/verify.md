@@ -4,7 +4,7 @@
 
 | ID | Evidência | Estado |
 | --- | --- | --- |
-| CA-001 | `test_http_latency_monitor_tracks_exact_financeiro_reads_separately` confirma cinco prefixos + duas rotas exatas | ok |
+| CA-001 | `test_http_latency_monitor_tracks_exact_financeiro_reads_separately` confirma quatro prefixos atuais + duas rotas financeiras exatas; a Agenda migrou para grupos exatos em PERF-21 | ok |
 | CA-002 | teste em memória e `test_exact_financeiro_reads_persist_as_separate_safe_groups` confirmam grupos distintos | ok |
 | CA-003 | testes focados ignoram detalhe, método ausente e não-GET, inclusive com prefixo sobreposto | ok |
 | CA-004 | `test_http_latency_monitor_warns_when_endpoint_limits_are_exceeded` | ok |

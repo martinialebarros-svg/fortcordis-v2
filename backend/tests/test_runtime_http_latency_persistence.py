@@ -21,14 +21,28 @@ from app.db import database
 from app.models.runtime_http_latency_metric import RuntimeHttpLatencyMetric
 from app.services import runtime_observability
 
-MIGRATION_PATH = (
+MIGRATION_80_PATH = (
     BACKEND_DIR / "migrations" / "versions" / "20260903_80_runtime_http_latency_metrics.py"
 )
-SPEC = importlib.util.spec_from_file_location("migration_20260903_80", MIGRATION_PATH)
-if SPEC is None or SPEC.loader is None:
-    raise RuntimeError(f"Nao foi possivel carregar migracao: {MIGRATION_PATH}")
-MIGRATION = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MIGRATION)
+MIGRATION_89_PATH = (
+    BACKEND_DIR
+    / "migrations"
+    / "versions"
+    / "20260923_89_runtime_http_latency_query_count.py"
+)
+
+
+def _load_migration(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Nao foi possivel carregar migracao: {path}")
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    return migration
+
+
+MIGRATION_80 = _load_migration("migration_20260903_80", MIGRATION_80_PATH)
+MIGRATION_89 = _load_migration("migration_20260923_89", MIGRATION_89_PATH)
 
 
 class RuntimeHttpLatencyPersistenceTest(unittest.TestCase):
@@ -37,8 +51,9 @@ class RuntimeHttpLatencyPersistenceTest(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.engine = create_engine(f"sqlite:///{Path(self.tmpdir.name) / 'metrics.db'}")
         with self.engine.begin() as connection:
-            MIGRATION.upgrade(connection, "sqlite")
-            MIGRATION.upgrade(connection, "sqlite")
+            MIGRATION_80.upgrade(connection, "sqlite")
+            MIGRATION_89.upgrade(connection, "sqlite")
+            MIGRATION_89.upgrade(connection, "sqlite")
         self.session_factory = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
         self.session_patch = patch.object(database, "SessionLocal", self.session_factory)
         self.session_patch.start()
@@ -61,36 +76,51 @@ class RuntimeHttpLatencyPersistenceTest(unittest.TestCase):
             "ix_runtime_http_latency_metrics_endpoint_release_created",
             index_names,
         )
+        column_names = {
+            item["name"]
+            for item in inspector.get_columns("runtime_http_latency_metrics")
+        }
+        self.assertIn("database_query_count", column_names)
 
     def test_request_context_and_persisted_summary_keep_only_aggregate_fields(self) -> None:
         with patch.object(runtime_observability.settings, "RUNTIME_HTTP_LATENCY_RELEASE_ID", "abc123"):
-            token = runtime_observability.begin_http_request_observation("/api/v1/agenda/42")
+            token = runtime_observability.begin_http_request_observation(
+                "/api/v1/atendimentos/42",
+                method="GET",
+            )
             runtime_observability.record_database_query_duration(12.5)
             runtime_observability.record_database_query_duration(7.5)
             runtime_observability.record_database_pool_wait(3.25)
             first_sample = runtime_observability.record_http_request(
-                path="/api/v1/agenda/42",
+                path="/api/v1/atendimentos/42",
+                method="GET",
                 status_code=200,
                 duration_ms=100,
             )
             runtime_observability.end_http_request_observation(token)
             second_sample = runtime_observability.record_http_request(
-                path="/api/v1/agenda/999?paciente=nao-persistir",
+                path="/api/v1/atendimentos/999?paciente=nao-persistir",
+                method="GET",
                 status_code=503,
                 duration_ms=300,
                 database_ms=50,
+                database_query_count=4,
                 pool_wait_ms=10,
             )
             third_sample = runtime_observability.record_http_request(
-                path="/api/v1/agenda",
+                path="/api/v1/atendimentos",
+                method="GET",
                 status_code=200,
                 duration_ms=1300,
                 database_ms=25,
+                database_query_count=1,
                 pool_wait_ms=2,
             )
 
-        self.assertEqual(first_sample["endpoint"], "/api/v1/agenda")
+        self.assertEqual(first_sample["endpoint"], "/api/v1/atendimentos")
         self.assertEqual(first_sample["database_ms"], 20.0)
+        self.assertEqual(first_sample["database_query_count"], 2)
+        self.assertEqual(first_sample["application_ms"], 76.75)
         self.assertEqual(first_sample["pool_wait_ms"], 3.25)
         self.assertNotIn("42", first_sample.values())
         self.assertTrue(runtime_observability.persist_http_latency_sample(first_sample))
@@ -107,7 +137,7 @@ class RuntimeHttpLatencyPersistenceTest(unittest.TestCase):
         self.assertFalse(payload["truncated"])
         self.assertEqual(len(payload["groups"]), 1)
         group = payload["groups"][0]
-        self.assertEqual(group["endpoint"], "/api/v1/agenda")
+        self.assertEqual(group["endpoint"], "/api/v1/atendimentos")
         self.assertEqual(group["release_id"], "abc123")
         self.assertEqual(payload["slow_request_threshold_ms"], 1200.0)
         self.assertEqual(group["request_count"], 3)
@@ -117,11 +147,14 @@ class RuntimeHttpLatencyPersistenceTest(unittest.TestCase):
         self.assertEqual(group["p50_ms"], 300.0)
         self.assertEqual(group["p95_ms"], 1300.0)
         self.assertEqual(group["database_p95_ms"], 50.0)
+        self.assertEqual(group["database_query_count_p95"], 4.0)
+        self.assertEqual(group["application_p95_ms"], 1273.0)
         self.assertEqual(group["pool_wait_p95_ms"], 10.0)
 
     def test_persistence_failure_is_isolated_from_request(self) -> None:
         sample = runtime_observability.record_http_request(
-            path="/api/v1/agenda/42",
+            path="/api/v1/agenda",
+            method="GET",
             status_code=200,
             duration_ms=100,
         )
@@ -183,6 +216,7 @@ class RuntimeHttpLatencyPersistenceTest(unittest.TestCase):
                     status_code=200,
                     duration_ms=100,
                     database_ms=10,
+                    database_query_count=1,
                     pool_wait_ms=1,
                     created_at=datetime.now(timezone.utc) - timedelta(days=2),
                 )
@@ -192,7 +226,8 @@ class RuntimeHttpLatencyPersistenceTest(unittest.TestCase):
             db.close()
 
         sample = runtime_observability.record_http_request(
-            path="/api/v1/agenda/42",
+            path="/api/v1/agenda",
+            method="GET",
             status_code=200,
             duration_ms=100,
         )

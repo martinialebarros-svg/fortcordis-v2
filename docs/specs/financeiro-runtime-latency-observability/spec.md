@@ -15,15 +15,17 @@
 ## Configuração e limites
 
 - `RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS` continua aceitando no máximo cinco
-  prefixos e preserva a cobertura operacional anterior.
-- `RUNTIME_HTTP_LATENCY_EXACT_ENDPOINTS` aceita no máximo cinco caminhos exatos
-  e, por padrão, contém as duas leituras financeiras deste incremento.
+  prefixos. Após PERF-21, a Agenda deixa o prefixo amplo e passa a usar rotas
+  exatas; os quatro demais prefixos operacionais permanecem preservados.
+- `RUNTIME_HTTP_LATENCY_EXACT_ENDPOINTS` aceita no máximo dez caminhos exatos
+  e preserva as duas leituras financeiras deste incremento junto das leituras
+  operacionais acrescentadas posteriormente.
 - Itens acima de qualquer limite são ignorados com aviso explícito no relatório
   de runtime; não pode haver truncamento silencioso.
 - Se o mesmo caminho estiver nas duas configurações, prevalece a rota exata
   `GET`; o prefixo duplicado é removido com aviso para não agregar subrotas.
-- A lista combinada continua limitada a dez rótulos e ao limite de amostras já
-  definido por endpoint.
+- A lista combinada fica limitada a quinze rótulos configuráveis e ao limite de
+  amostras já definido por endpoint.
 
 ## Privacidade e confiabilidade
 
@@ -37,12 +39,12 @@
 
 ## Critérios de aceitação
 
-- CA-001: os cinco prefixos anteriores e as duas rotas exatas ficam ativos ao
-  mesmo tempo.
+- CA-001: os quatro prefixos operacionais atuais e as rotas exatas financeiras
+  ficam ativos ao mesmo tempo; a Agenda é coberta separadamente por PERF-21.
 - CA-002: uma amostra de Ordens não altera Cobranças e vice-versa.
 - CA-003: `GET /api/v1/ordens-servico/{id}` e método não-GET no caminho base não
   alteram a métrica exata de Ordens.
-- CA-004: configuração de seis rotas exatas mantém cinco e emite aviso.
+- CA-004: configuração de onze rotas exatas mantém dez e emite aviso.
 - CA-005: testes focados, suíte de observabilidade e guardrail SDD passam.
 - CA-006: a leitura operacional só é conclusiva com release correto,
   `truncated=false` e amostra representativa; a meta inicial continua p95 menor

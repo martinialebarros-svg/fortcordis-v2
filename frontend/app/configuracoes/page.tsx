@@ -290,6 +290,10 @@ interface LatenciaRuntimeGrupo {
   p99_ms: number | null;
   database_avg_ms: number | null;
   database_p95_ms: number | null;
+  database_query_count_avg: number | null;
+  database_query_count_p95: number | null;
+  application_avg_ms: number | null;
+  application_p95_ms: number | null;
   pool_wait_avg_ms: number | null;
   pool_wait_p95_ms: number | null;
   last_seen_at: string | null;
@@ -3598,6 +3602,8 @@ export default function ConfiguracoesPage() {
                             &gt; {formatarMilissegundos(latenciaRuntime.slow_request_threshold_ms)}
                           </th>
                           <th className="text-right px-3 py-2 font-medium">Banco p95</th>
+                          <th className="text-right px-3 py-2 font-medium">App p95</th>
+                          <th className="text-right px-3 py-2 font-medium">Consultas p95</th>
                           <th className="text-right px-3 py-2 font-medium">Pool p95</th>
                           <th className="text-right px-3 py-2 font-medium">5xx</th>
                           <th className="text-left px-3 py-2 font-medium">Última amostra</th>
@@ -3619,6 +3625,10 @@ export default function ConfiguracoesPage() {
                               </span>
                             </td>
                             <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.database_p95_ms)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.application_p95_ms)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">
+                              {grupo.database_query_count_p95 === null ? "—" : Math.round(grupo.database_query_count_p95)}
+                            </td>
                             <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.pool_wait_p95_ms)}</td>
                             <td className="px-3 py-2 text-right">
                               <span className={grupo.error_5xx_count > 0 ? "text-red-700 font-medium" : "text-gray-700"}>
