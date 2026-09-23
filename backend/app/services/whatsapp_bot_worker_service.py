@@ -229,7 +229,15 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
     historico = _fetch_historico(base_url=base_url, headers=headers, timeout=timeout,
         conversation_id=job.conversation_id, quantidade=_historico_mensagens() + 1)[:-1]
     from app.services.whatsapp_bot_continuidade import agrupar_fragmentos
-    corpo, historico = agrupar_fragmentos(historico, last_message)
+    from app.services.whatsapp_bot_mensagens_automaticas import mensagem_automatica, sem_aviso_automatico
+    corpo, historico = agrupar_fragmentos(
+        [sem_aviso_automatico(item) for item in historico],
+        sem_aviso_automatico(last_message),
+    )
+    if mensagem_automatica(last_message) and not corpo.strip():
+        _record_resposta(db, job, decisao="suppressed", motivo="mensagem_automatica")
+        job.status = "done"
+        return "done"
 
     # RF-023 (emergencia): prioridade maxima, nao passa pelo gerador e ignora
     # pausa/janela - e o unico handoff que se mantem em qualquer horario.
