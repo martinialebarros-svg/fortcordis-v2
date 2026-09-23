@@ -30,7 +30,7 @@ import {
   DollarSign, TrendingUp, TrendingDown, Plus, Search, 
   Calendar, CheckCircle, XCircle, Clock, Edit, Trash2,
   Filter, Download, BarChart3, PieChart, ArrowUpRight, ArrowDownRight,
-  ChevronLeft, ChevronRight, FileText, Receipt, Undo2, MessageCircle, Copy, Mail
+  ChevronDown, ChevronLeft, ChevronRight, FileText, Receipt, Undo2, MessageCircle, Copy, Mail
 } from "lucide-react";
 
 interface Transacao {
@@ -640,6 +640,7 @@ export default function FinanceiroPage() {
     fecharGrupo();
     const controller = new AbortController();
     grupoControllerRef.current = controller;
+    setGrupoAberto(grupo.chave);
     setCarregandoGrupo(true);
     let expirou = false;
     const timer = window.setTimeout(() => { expirou = true; controller.abort(); }, 30000);
@@ -3061,179 +3062,195 @@ export default function FinanceiroPage() {
             {falhasCarregamento.includes("Cobrancas") ? <p role="alert" className="p-4 text-red-700">Falha ao carregar destinatarios. Use Atualizar destinatarios para tentar novamente.</p> :
               loadingOrdens || cobrancasDesatualizadas ? <p className="p-4">Carregando destinatarios...</p> :
               gruposRemotos.length === 0 ? <p className="p-4">Nenhuma cobranca encontrada para os filtros atuais</p> :
-              <div className="p-4 space-y-2">{gruposRemotos.map((grupo) => <div key={grupo.chave} className="flex items-center justify-between gap-3 border rounded-lg p-3">
-                <span>{grupo.nome_destinatario} — {grupo.quantidade_os} pendente(s) de {grupo.quantidade_total} OS — {formatarValor(grupo.total_pendente)}</span>
-                <button disabled={validandoSelecao} onClick={() => abrirDetalhesGrupo(grupo)}>Abrir destinatario {grupo.nome_destinatario}</button>
-              </div>)}</div>}
-            {carregandoGrupo && <p role="status" className="p-4">Carregando todas as OS do destinatario; as acoes aguardam a conferencia.</p>}
-            {erroGrupo && <p role="alert" className="p-4 text-red-700">{erroGrupo}</p>}
-            {grupoAberto && !loadingOrdens && !cobrancasDesatualizadas && !falhasCarregamento.includes("Cobrancas") && <fieldset disabled={validandoSelecao}>
-              <button className="m-4" onClick={fecharGrupo}>Fechar destinatario</button>
-            {loadingOrdens ? (
-              <div className="p-8 text-center text-gray-500">Carregando...</div>
-            ) : gruposCobrancaDestinatario.length === 0 ? (
-              <div className="p-12 text-center">
-                <MessageCircle className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">Nenhuma cobranca encontrada para os filtros atuais</p>
-              </div>
-            ) : (
-              <div className="p-4 space-y-4">
-                {gruposCobrancaDestinatario.map((grupo) => (
-                  <div key={grupo.chave} className="border border-amber-200 rounded-xl overflow-hidden bg-amber-50/30">
-                    <div className="p-4 border-b border-amber-100 bg-white">
-                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                        <div>
-                          <p className="font-semibold text-gray-900">{grupo.nome_destinatario}</p>
-                          <p className="text-xs text-gray-500">
-                            {grupo.tipo_destinatario === "tutor" ? "Atendimento domiciliar" : "Clinica parceira"}
-                          </p>
-                          <p className="text-xs text-gray-600">
-                            {grupo.quantidade_os} pendente(s) de {grupo.quantidade_total} OS listada(s)
-                          </p>
-                          <p className="text-xs text-gray-600">
-                            Total pendente: <span className="font-semibold">{formatarValor(grupo.total_pendente)}</span>
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            Contato: {grupo.telefone_destinatario || grupo.email_destinatario || "nao informado"}
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            onClick={() => abrirRecebimentoLoteOS(grupo.ordens.filter((os) => os.status === "Pendente").map((os) => os.id))}
-                            disabled={grupo.quantidade_os === 0}
-                            className="px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg flex items-center gap-1 disabled:opacity-50"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                            Receber pendentes
-                          </button>
-                          <button
-                            onClick={() => baixarRelatorioPendenciasPDF(grupo)}
-                            className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg flex items-center gap-1"
-                          >
-                            <FileText className="w-4 h-4" />
-                            Baixar PDF
-                          </button>
-                          <button
-                            onClick={() => copiarMensagemCobranca(grupo)}
-                            className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg flex items-center gap-1"
-                          >
-                            <Copy className="w-4 h-4" />
-                            Copiar mensagem
-                          </button>
-                          <button
-                            onClick={() => void enviarCobrancaWhatsApp(grupo)}
-                            disabled={
-                              enviandoWhatsAppOficialGrupoKey === grupo.chave ||
-                              grupo.ordens.some(
-                                (os) => os.status === "Pendente" && enviandoWhatsAppOficialOsId === os.id
-                              )
-                            }
-                            className="px-3 py-1.5 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-1"
-                          >
-                          <MessageCircle className="w-4 h-4" />
-                          {enviandoWhatsAppOficialGrupoKey === grupo.chave ? "Enviando..." : "Enviar FortCordis"}
+              <div className="p-4 space-y-2">
+                {gruposRemotos.map((grupo) => {
+                  const expandido = grupoAberto === grupo.chave;
+                  const detalhesId = `cobrancas-detalhes-${grupo.chave.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+                  const grupoDetalhado = gruposCobrancaDestinatario.find(
+                    (detalhe) => detalhe.chave === grupo.chave
+                  );
+                  const ordensPendentes = grupoDetalhado?.ordens.filter(
+                    (os) => os.status === "Pendente"
+                  ) || [];
+
+                  return (
+                    <section
+                      key={grupo.chave}
+                      aria-label={`Cobrancas de ${grupo.nome_destinatario}`}
+                      className="overflow-hidden rounded-lg border border-gray-200 bg-white"
+                    >
+                      <div className="flex items-center justify-between gap-3 p-3">
+                        <span>
+                          {grupo.nome_destinatario} — {grupo.quantidade_os} pendente(s) de {grupo.quantidade_total} OS — {formatarValor(grupo.total_pendente)}
+                        </span>
+                        <button
+                          type="button"
+                          aria-controls={detalhesId}
+                          aria-expanded={expandido}
+                          aria-label={`${expandido ? "Fechar" : "Abrir"} destinatario ${grupo.nome_destinatario}`}
+                          disabled={validandoSelecao}
+                          onClick={() => expandido ? fecharGrupo() : void abrirDetalhesGrupo(grupo)}
+                          className="inline-flex items-center gap-2 text-right text-sm font-medium text-gray-700 hover:text-gray-950 disabled:opacity-50"
+                        >
+                          {expandido ? "Fechar destinatario" : "Abrir destinatario"} {grupo.nome_destinatario}
+                          <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${expandido ? "rotate-180" : ""}`} />
                         </button>
                       </div>
-                    </div>
-                    </div>
 
-                    <div className="divide-y bg-white">
-                      {grupo.ordens.map((os) => (
-                        <div key={os.id} className="p-4">
-                          <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                            <div className="flex items-center gap-3">
-                              <input
-                                type="checkbox"
-                                checked={osSelecionadasBaixa.includes(os.id)}
-                                disabled={os.status !== "Pendente"}
-                                onChange={() => toggleSelecaoBaixaOS(os.id)}
-                                className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
-                                title={
-                                  os.status === "Pendente"
-                                    ? "Selecionar para baixa em lote"
-                                    : "Apenas OS pendentes podem ser recebidas em lote"
-                                }
-                              />
-                              <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
-                                <FileText className="w-5 h-5 text-blue-600" />
-                              </div>
+                      {expandido && (
+                        <div id={detalhesId} className="border-t border-amber-200 bg-amber-50/30">
+                          {carregandoGrupo ? (
+                            <p role="status" className="p-4 text-sm text-gray-600">
+                              Carregando as OS pendentes deste destinatario; as acoes aguardam a conferencia.
+                            </p>
+                          ) : erroGrupo ? (
+                            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-red-700">
+                              <span>{erroGrupo}</span>
+                              <button
+                                type="button"
+                                onClick={() => void abrirDetalhesGrupo(grupo)}
+                                className="rounded-lg border border-red-200 bg-white px-3 py-1.5 font-medium hover:bg-red-50"
+                              >
+                                Tentar novamente
+                              </button>
                             </div>
-                            <div className="flex-1 min-w-0 space-y-2">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-sm font-semibold text-gray-900">
-                                  {formatarDataHoraCurta(os.data_atendimento)}
-                                </span>
-                                <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusColor(os.status)}`}>
-                                  {getStatusIcon(os.status)}
-                                  <span className="ml-1">{os.status}</span>
-                                </span>
-                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                                  {os.tipo_horario === "plantao" ? "Plantao" : "Comercial"}
-                                </span>
-                                <span className="text-xs text-gray-400">OS #{os.numero_os}</span>
+                          ) : grupoDetalhado ? (
+                            <fieldset disabled={validandoSelecao}>
+                              <legend className="sr-only">OS pendentes de {grupo.nome_destinatario}</legend>
+                              <div className="flex flex-col gap-3 border-b border-amber-100 p-4 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                  <p className="text-xs text-gray-500">
+                                    {grupoDetalhado.tipo_destinatario === "tutor" ? "Atendimento domiciliar" : "Clinica parceira"}
+                                  </p>
+                                  <p className="text-xs text-gray-500">
+                                    Contato: {grupoDetalhado.telefone_destinatario || grupoDetalhado.email_destinatario || "nao informado"}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    onClick={() => abrirRecebimentoLoteOS(ordensPendentes.map((os) => os.id))}
+                                    disabled={ordensPendentes.length === 0}
+                                    className="flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-50"
+                                  >
+                                    <CheckCircle className="h-4 w-4" />
+                                    Receber pendentes
+                                  </button>
+                                  <button
+                                    onClick={() => baixarRelatorioPendenciasPDF(grupoDetalhado)}
+                                    className="flex items-center gap-1 rounded-lg bg-blue-100 px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-200"
+                                  >
+                                    <FileText className="h-4 w-4" />
+                                    Baixar PDF
+                                  </button>
+                                  <button
+                                    onClick={() => copiarMensagemCobranca(grupoDetalhado)}
+                                    className="flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200"
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                    Copiar mensagem
+                                  </button>
+                                  <button
+                                    onClick={() => void enviarCobrancaWhatsApp(grupoDetalhado)}
+                                    disabled={
+                                      enviandoWhatsAppOficialGrupoKey === grupoDetalhado.chave ||
+                                      ordensPendentes.some((os) => enviandoWhatsAppOficialOsId === os.id)
+                                    }
+                                    className="flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-700 disabled:opacity-50"
+                                  >
+                                    <MessageCircle className="h-4 w-4" />
+                                    {enviandoWhatsAppOficialGrupoKey === grupoDetalhado.chave ? "Enviando..." : "Enviar FortCordis"}
+                                  </button>
+                                </div>
                               </div>
 
-                              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700">
-                                <span className="font-semibold">{os.paciente || "Paciente nao informado"}</span>
-                                <span>Tutor: {os.tutor || "Nao informado"}</span>
-                                <span>Servico: {os.servico || "Nao informado"}</span>
-                              </div>
-
-                              {(os.observacoes || "").trim() && (
-                                <p className="text-xs text-gray-500 line-clamp-2">Obs: {os.observacoes}</p>
+                              {ordensPendentes.length === 0 ? (
+                                <p className="p-4 text-sm text-gray-500">Nenhuma OS pendente para este destinatario.</p>
+                              ) : (
+                                <div className="divide-y divide-gray-100 bg-white">
+                                  {ordensPendentes.map((os) => (
+                                    <div key={os.id} className="p-4">
+                                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+                                        <div className="flex items-center gap-3">
+                                          <input
+                                            type="checkbox"
+                                            checked={osSelecionadasBaixa.includes(os.id)}
+                                            onChange={() => toggleSelecaoBaixaOS(os.id)}
+                                            className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                                            title="Selecionar para baixa em lote"
+                                          />
+                                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100">
+                                            <FileText className="h-5 w-5 text-blue-600" />
+                                          </div>
+                                        </div>
+                                        <div className="min-w-0 flex-1 space-y-2">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <span className="text-sm font-semibold text-gray-900">
+                                              {formatarDataHoraCurta(os.data_atendimento)}
+                                            </span>
+                                            <span className={`rounded-full px-2 py-0.5 text-xs ${getStatusColor(os.status)}`}>
+                                              {getStatusIcon(os.status)}
+                                              <span className="ml-1">{os.status}</span>
+                                            </span>
+                                            <span className="rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                                              {os.tipo_horario === "plantao" ? "Plantao" : "Comercial"}
+                                            </span>
+                                            <span className="text-xs text-gray-400">OS #{os.numero_os}</span>
+                                          </div>
+                                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700">
+                                            <span className="font-semibold">{os.paciente || "Paciente nao informado"}</span>
+                                            <span>Tutor: {os.tutor || "Nao informado"}</span>
+                                            <span>Servico: {os.servico || "Nao informado"}</span>
+                                          </div>
+                                          {(os.observacoes || "").trim() && (
+                                            <p className="line-clamp-2 text-xs text-gray-500">Obs: {os.observacoes}</p>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-3 lg:ml-2">
+                                          <div className="min-w-[120px] text-right">
+                                            <p className="font-bold text-gray-900">{formatarValor(os.valor_final)}</p>
+                                            {(os.desconto || 0) > 0 && (
+                                              <p className="text-xs text-gray-400">Desc: {formatarValor(os.desconto)}</p>
+                                            )}
+                                          </div>
+                                          <div className="flex flex-wrap justify-end gap-2">
+                                            <button
+                                              onClick={() => handlePagarOS(os)}
+                                              className="flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-700"
+                                            >
+                                              <CheckCircle className="h-4 w-4" />
+                                              Receber
+                                            </button>
+                                            <button
+                                              onClick={() => handleEditarOS(os)}
+                                              className="flex items-center gap-1 rounded-lg bg-blue-100 px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-200"
+                                            >
+                                              <Edit className="h-4 w-4" />
+                                              Editar
+                                            </button>
+                                            <button
+                                              onClick={() => handleExcluirOS(os)}
+                                              className="rounded p-1.5 text-red-600 hover:bg-red-50"
+                                              aria-label={`Excluir OS ${os.numero_os}`}
+                                            >
+                                              <Trash2 className="h-4 w-4" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               )}
-                            </div>
-
-                            <div className="flex items-center gap-3 lg:ml-2">
-                              <div className="text-right min-w-[120px]">
-                                <p className="font-bold text-gray-900">{formatarValor(os.valor_final)}</p>
-                                {(os.desconto || 0) > 0 && (
-                                  <p className="text-xs text-gray-400">Desc: {formatarValor(os.desconto)}</p>
-                                )}
-                              </div>
-                              <div className="flex flex-wrap justify-end gap-2">
-                                {os.status === "Pendente" && (
-                                  <button
-                                    onClick={() => handlePagarOS(os)}
-                                    className="px-3 py-1.5 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-1"
-                                  >
-                                    <CheckCircle className="w-4 h-4" />
-                                    Receber
-                                  </button>
-                                )}
-                                {os.status === "Pago" && (
-                                  <button
-                                    onClick={() => handleDesfazerRecebimentoOS(os)}
-                                    className="px-3 py-1.5 text-sm bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-lg flex items-center gap-1"
-                                  >
-                                    <Undo2 className="w-4 h-4" />
-                                    Desfazer
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => handleEditarOS(os)}
-                                  className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg flex items-center gap-1"
-                                >
-                                  <Edit className="w-4 h-4" />
-                                  Editar
-                                </button>
-                                <button
-                                  onClick={() => handleExcluirOS(os)}
-                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
+                            </fieldset>
+                          ) : (
+                            <p className="p-4 text-sm text-gray-500">Nenhuma OS pendente para este destinatario.</p>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            </fieldset>}
+                      )}
+                    </section>
+                  );
+                })}
+              </div>}
           </div>
         )}
 
