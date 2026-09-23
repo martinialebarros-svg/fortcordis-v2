@@ -60,12 +60,15 @@ class Settings(BaseSettings):
     RUNTIME_HTTP_LATENCY_WINDOW_MINUTES: int = 30
     RUNTIME_HTTP_LATENCY_MAX_SAMPLES_PER_ENDPOINT: int = 2000
     RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS: str = (
-        "/api/v1/agenda,/api/v1/atendimentos,/api/v1/relatorios,/api/v1/fiscal,/api/v1/logistica"
+        "/api/v1/atendimentos,/api/v1/relatorios,/api/v1/fiscal,/api/v1/logistica"
     )
     # Rotas de leitura que precisam de uma metrica isolada, sem agregar subrotas
     # (por exemplo detalhes, PDFs ou mutacoes da mesma familia).
     RUNTIME_HTTP_LATENCY_EXACT_ENDPOINTS: str = (
-        "/api/v1/ordens-servico,/api/v1/ordens-servico/cobrancas"
+        "/api/v1/ordens-servico,/api/v1/ordens-servico/cobrancas,"
+        "/api/v1/agenda,/api/v1/agenda/relacionados,"
+        "/api/v1/agenda/resumo-financeiro,/api/v1/agenda/configuracao,"
+        "/api/v1/agenda/stream"
     )
     # PERF-17: historico administrativo sem URL, payload ou identificadores clinicos.
     # A escrita e tolerante a falhas para nunca bloquear uma resposta da aplicacao.

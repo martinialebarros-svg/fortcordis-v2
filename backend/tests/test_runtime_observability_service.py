@@ -64,9 +64,14 @@ class RuntimeObservabilityServiceTest(unittest.TestCase):
             runtime_observability.settings,
             "RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS",
             "/api/v1/agenda,/api/v1/atendimentos,/api/v1/relatorios,/api/v1/fiscal,/api/v1/logistica",
+        ), patch.object(
+            runtime_observability.settings,
+            "RUNTIME_HTTP_LATENCY_EXACT_ENDPOINTS",
+            "",
         ):
             runtime_observability.record_http_request(
                 path="/api/v1/agenda",
+                method="GET",
                 status_code=200,
                 duration_ms=10,
             )
@@ -77,6 +82,7 @@ class RuntimeObservabilityServiceTest(unittest.TestCase):
             )
             runtime_observability.record_http_request(
                 path="/api/v1/agenda",
+                method="GET",
                 status_code=503,
                 duration_ms=250,
             )
@@ -95,6 +101,7 @@ class RuntimeObservabilityServiceTest(unittest.TestCase):
         for duration_ms in (100, 1200, 1200.01, 2400):
             runtime_observability.record_http_request(
                 path="/api/v1/agenda",
+                method="GET",
                 status_code=200,
                 duration_ms=duration_ms,
             )
@@ -165,12 +172,85 @@ class RuntimeObservabilityServiceTest(unittest.TestCase):
             payload["exact_endpoints"],
             ["/api/v1/ordens-servico", "/api/v1/ordens-servico/cobrancas"],
         )
-        self.assertEqual(len(payload["priority_endpoint_prefixes"]), 5)
-        self.assertEqual(len(payload["priority_endpoints"]), 7)
+        self.assertEqual(len(payload["priority_endpoint_prefixes"]), 4)
+        self.assertEqual(len(payload["priority_endpoints"]), 6)
+
+    def test_http_latency_monitor_tracks_exact_agenda_reads_separately(self) -> None:
+        agenda_endpoints = [
+            "/api/v1/agenda",
+            "/api/v1/agenda/relacionados",
+            "/api/v1/agenda/resumo-financeiro",
+            "/api/v1/agenda/configuracao",
+            "/api/v1/agenda/stream",
+        ]
+        exact_endpoints = [
+            "/api/v1/ordens-servico",
+            "/api/v1/ordens-servico/cobrancas",
+            *agenda_endpoints,
+        ]
+        with patch.object(
+            runtime_observability.settings,
+            "RUNTIME_HTTP_LATENCY_EXACT_ENDPOINTS",
+            ",".join(exact_endpoints),
+        ):
+            for index, endpoint in enumerate(agenda_endpoints, start=1):
+                runtime_observability.record_http_request(
+                    path=endpoint,
+                    method="GET",
+                    status_code=200,
+                    duration_ms=index * 100,
+                )
+            detail_sample = runtime_observability.record_http_request(
+                path="/api/v1/agenda/123",
+                method="GET",
+                status_code=200,
+                duration_ms=900,
+            )
+            mutation_sample = runtime_observability.record_http_request(
+                path="/api/v1/agenda",
+                method="POST",
+                status_code=201,
+                duration_ms=600,
+            )
+            payload = runtime_observability.get_http_latency_monitor_status()
+            config_payload = runtime_observability.get_http_latency_monitor_config()
+
+        self.assertIsNone(detail_sample)
+        self.assertIsNone(mutation_sample)
+        self.assertEqual(payload["exact_endpoints"], exact_endpoints)
+        self.assertNotIn("/api/v1/agenda", payload["priority_endpoint_prefixes"])
+        self.assertFalse(config_payload["warnings"])
+        for index, endpoint in enumerate(agenda_endpoints, start=1):
+            group = payload["endpoints"][endpoint]
+            self.assertEqual(group["request_count"], 1)
+            self.assertEqual(group["p95_ms"], float(index * 100))
+
+    def test_http_latency_monitor_tracks_query_count_and_application_time(self) -> None:
+        token = runtime_observability.begin_http_request_observation(
+            "/api/v1/atendimentos/42",
+            method="GET",
+        )
+        runtime_observability.record_database_query_duration(12.5)
+        runtime_observability.record_database_query_duration(7.5)
+        runtime_observability.record_database_pool_wait(3.25)
+        sample = runtime_observability.record_http_request(
+            path="/api/v1/atendimentos/42",
+            method="GET",
+            status_code=200,
+            duration_ms=100,
+        )
+        runtime_observability.end_http_request_observation(token)
+
+        payload = runtime_observability.get_http_latency_monitor_status()
+        group = payload["endpoints"]["/api/v1/atendimentos"]
+        self.assertEqual(sample["database_query_count"], 2)
+        self.assertEqual(sample["application_ms"], 76.75)
+        self.assertEqual(group["database_query_count_p95"], 2.0)
+        self.assertEqual(group["application_p95_ms"], 76.75)
 
     def test_http_latency_monitor_warns_when_endpoint_limits_are_exceeded(self) -> None:
         configured_prefixes = ",".join(f"/api/v1/prefix-{index}" for index in range(6))
-        configured_exact = ",".join(f"/api/v1/exact-{index}" for index in range(6))
+        configured_exact = ",".join(f"/api/v1/exact-{index}" for index in range(11))
         with patch.object(
             runtime_observability.settings,
             "RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS",
@@ -183,7 +263,7 @@ class RuntimeObservabilityServiceTest(unittest.TestCase):
             payload = runtime_observability.get_http_latency_monitor_config()
 
         self.assertEqual(len(payload["priority_endpoint_prefixes"]), 5)
-        self.assertEqual(len(payload["exact_endpoints"]), 5)
+        self.assertEqual(len(payload["exact_endpoints"]), 10)
         self.assertTrue(
             any("PRIORITY_ENDPOINTS excede o limite" in item for item in payload["warnings"])
         )
@@ -244,6 +324,7 @@ class RuntimeObservabilityServiceTest(unittest.TestCase):
             with patch("app.services.runtime_observability.time.monotonic", return_value=1000.0):
                 runtime_observability.record_http_request(
                     path="/api/v1/agenda",
+                    method="GET",
                     status_code=200,
                     duration_ms=50,
                 )

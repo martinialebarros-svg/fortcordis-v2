@@ -44,11 +44,14 @@ _DEFAULT_LATENCY_ENDPOINTS = [
     "/api/v1/logistica",
 ]
 _MAX_LATENCY_PREFIX_ENDPOINTS = 5
-_MAX_LATENCY_EXACT_ENDPOINTS = 5
+_MAX_LATENCY_EXACT_ENDPOINTS = 10
 
 _HTTP_5XX_EVENTS: Deque[Tuple[float, datetime]] = deque()
 _HTTP_5XX_LOCK = threading.Lock()
-_HTTP_LATENCY_EVENTS: Dict[str, Deque[Tuple[float, float, int, float, float, datetime]]] = {}
+_HTTP_LATENCY_EVENTS: Dict[
+    str,
+    Deque[Tuple[float, float, int, float, float, int, float, datetime]],
+] = {}
 _HTTP_LATENCY_LOCK = threading.Lock()
 _REQUEST_LATENCY_CONTEXT: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
     "fortcordis_request_latency_context",
@@ -270,6 +273,7 @@ def begin_http_request_observation(
         {
             "endpoint": endpoint,
             "database_ms": 0.0,
+            "database_query_count": 0,
             "pool_wait_ms": 0.0,
         }
     )
@@ -292,7 +296,15 @@ def _record_request_component(component: str, elapsed_ms: float) -> None:
 
 
 def record_database_query_duration(elapsed_ms: float) -> None:
-    _record_request_component("database_ms", elapsed_ms)
+    context = _REQUEST_LATENCY_CONTEXT.get()
+    if context is None:
+        return
+    try:
+        elapsed = max(0.0, float(elapsed_ms))
+    except (TypeError, ValueError):
+        return
+    context["database_ms"] = float(context.get("database_ms", 0.0)) + elapsed
+    context["database_query_count"] = int(context.get("database_query_count", 0)) + 1
 
 
 def record_database_pool_wait(elapsed_ms: float) -> None:
@@ -306,7 +318,7 @@ def _purge_old_events_locked(*, now_monotonic: float, window_seconds: int) -> No
 
 
 def _purge_old_latency_events_locked(
-    events: Deque[Tuple[float, float, int, float, float, datetime]],
+    events: Deque[Tuple[float, float, int, float, float, int, float, datetime]],
     *,
     now_monotonic: float,
     window_seconds: int,
@@ -358,6 +370,7 @@ def record_http_request(
     duration_ms: float,
     method: Optional[str] = None,
     database_ms: Optional[float] = None,
+    database_query_count: Optional[int] = None,
     pool_wait_ms: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
     """Registra o resumo em memória e devolve uma amostra segura para persistir.
@@ -390,8 +403,15 @@ def record_http_request(
     pool_wait_float = float(
         request_context.get("pool_wait_ms", 0.0) if pool_wait_ms is None else pool_wait_ms
     )
+    database_query_count_int = int(
+        request_context.get("database_query_count", 0)
+        if database_query_count is None
+        else database_query_count
+    )
     database_float = max(0.0, database_float)
     pool_wait_float = max(0.0, pool_wait_float)
+    database_query_count_int = max(0, database_query_count_int)
+    application_float = max(0.0, duration_float - database_float - pool_wait_float)
 
     window_seconds = int(config["window_minutes"]) * 60
     max_samples = int(config["max_samples_per_endpoint"])
@@ -407,6 +427,8 @@ def record_http_request(
                 status_int,
                 database_float,
                 pool_wait_float,
+                database_query_count_int,
+                application_float,
                 now_utc,
             )
         )
@@ -427,6 +449,8 @@ def record_http_request(
         "status_code": status_int,
         "duration_ms": round(duration_float, 3),
         "database_ms": round(database_float, 3),
+        "database_query_count": database_query_count_int,
+        "application_ms": round(application_float, 3),
         "pool_wait_ms": round(pool_wait_float, 3),
         "created_at": now_utc,
     }
@@ -481,6 +505,8 @@ def get_http_latency_monitor_status() -> Dict[str, Any]:
             durations = [sample[1] for sample in samples]
             database_durations = [sample[3] for sample in samples]
             pool_waits = [sample[4] for sample in samples]
+            database_query_counts = [float(sample[5]) for sample in samples]
+            application_durations = [sample[6] for sample in samples]
             request_count = len(samples)
             error_5xx_count = sum(1 for sample in samples if 500 <= int(sample[2]) <= 599)
             avg_ms = round(sum(durations) / request_count, 2) if request_count else None
@@ -491,7 +517,7 @@ def get_http_latency_monitor_status() -> Dict[str, Any]:
             p50_ms = _percentile_ms(durations, 50)
             p95_ms = _percentile_ms(durations, 95)
             p99_ms = _percentile_ms(durations, 99)
-            last_seen_at = samples[-1][5].isoformat() if samples else None
+            last_seen_at = samples[-1][7].isoformat() if samples else None
 
             endpoint_payload[endpoint] = {
                 "request_count": request_count,
@@ -506,6 +532,18 @@ def get_http_latency_monitor_status() -> Dict[str, Any]:
                 "p99_ms": p99_ms,
                 "database_avg_ms": database_avg_ms,
                 "database_p95_ms": _percentile_ms(database_durations, 95),
+                "database_query_count_avg": (
+                    round(sum(database_query_counts) / request_count, 2)
+                    if request_count
+                    else None
+                ),
+                "database_query_count_p95": _percentile_ms(database_query_counts, 95),
+                "application_avg_ms": (
+                    round(sum(application_durations) / request_count, 2)
+                    if request_count
+                    else None
+                ),
+                "application_p95_ms": _percentile_ms(application_durations, 95),
                 "pool_wait_avg_ms": pool_wait_avg_ms,
                 "pool_wait_p95_ms": _percentile_ms(pool_waits, 95),
                 "last_seen_at": last_seen_at,
@@ -558,6 +596,7 @@ def persist_http_latency_sample(sample: Mapping[str, Any]) -> bool:
         status_code = int(sample["status_code"])
         duration_ms = max(0.0, float(sample["duration_ms"]))
         database_ms = max(0.0, float(sample.get("database_ms", 0.0)))
+        database_query_count = max(0, int(sample.get("database_query_count", 0)))
         pool_wait_ms = max(0.0, float(sample.get("pool_wait_ms", 0.0)))
     except (KeyError, TypeError, ValueError):
         logger.warning("Amostra de latencia descartada por formato invalido.")
@@ -576,6 +615,7 @@ def persist_http_latency_sample(sample: Mapping[str, Any]) -> bool:
                 status_code=status_code,
                 duration_ms=duration_ms,
                 database_ms=database_ms,
+                database_query_count=database_query_count,
                 pool_wait_ms=pool_wait_ms,
                 created_at=sample.get("created_at") or _utc_now(),
             )
@@ -648,14 +688,22 @@ def get_persisted_http_latency_summary(db: Any, *, hours: int) -> Dict[str, Any]
                 "release_id": key[1],
                 "durations": [],
                 "database_durations": [],
+                "database_query_counts": [],
+                "application_durations": [],
                 "pool_waits": [],
                 "error_5xx_count": 0,
                 "last_seen_at": None,
             },
         )
         group["durations"].append(float(row.duration_ms or 0.0))
-        group["database_durations"].append(float(row.database_ms or 0.0))
-        group["pool_waits"].append(float(row.pool_wait_ms or 0.0))
+        database_duration = float(row.database_ms or 0.0)
+        pool_wait = float(row.pool_wait_ms or 0.0)
+        group["database_durations"].append(database_duration)
+        group["database_query_counts"].append(float(row.database_query_count or 0))
+        group["application_durations"].append(
+            max(0.0, float(row.duration_ms or 0.0) - database_duration - pool_wait)
+        )
+        group["pool_waits"].append(pool_wait)
         if 500 <= int(row.status_code or 0) <= 599:
             group["error_5xx_count"] += 1
         if group["last_seen_at"] is None:
@@ -667,6 +715,8 @@ def get_persisted_http_latency_summary(db: Any, *, hours: int) -> Dict[str, Any]
     for group in groups.values():
         durations = group.pop("durations")
         database_durations = group.pop("database_durations")
+        database_query_counts = group.pop("database_query_counts")
+        application_durations = group.pop("application_durations")
         pool_waits = group.pop("pool_waits")
         request_count = len(durations)
         result_groups.append(
@@ -687,6 +737,18 @@ def get_persisted_http_latency_summary(db: Any, *, hours: int) -> Dict[str, Any]
                     else None
                 ),
                 "database_p95_ms": _percentile_ms(database_durations, 95),
+                "database_query_count_avg": (
+                    round(sum(database_query_counts) / request_count, 2)
+                    if request_count
+                    else None
+                ),
+                "database_query_count_p95": _percentile_ms(database_query_counts, 95),
+                "application_avg_ms": (
+                    round(sum(application_durations) / request_count, 2)
+                    if request_count
+                    else None
+                ),
+                "application_p95_ms": _percentile_ms(application_durations, 95),
                 "pool_wait_avg_ms": (
                     round(sum(pool_waits) / request_count, 2) if request_count else None
                 ),

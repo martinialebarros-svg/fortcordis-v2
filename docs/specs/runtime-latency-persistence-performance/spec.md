@@ -9,12 +9,17 @@ poderá registrar:
 - prefixo normalizado configurado, nunca a URL solicitada;
 - identificador curto do release em execução;
 - código HTTP;
-- duração total, duração acumulada de SQL e espera acumulada de pool, em ms;
+- duração total, duração acumulada de SQL, contagem de consultas e espera
+  acumulada de pool;
 - instante UTC da amostra.
 
 Os prefixos agregam uma família de rotas. Os caminhos exatos não aceitam
 subrotas nem métodos diferentes de `GET`, permitindo medir uma leitura sem
 misturar detalhes, PDFs ou mutações da mesma família.
+
+A Agenda é monitorada somente pelos caminhos exatos definidos em PERF-21; o
+prefixo amplo `/api/v1/agenda` não integra a configuração padrão para evitar
+misturar listagem, subrotas, detalhes e mutações.
 
 Nenhum parâmetro de URL, payload, usuário, clínica, paciente, tutor ou texto
 clínico pode ser persistido nessa tabela.
@@ -34,9 +39,11 @@ clínico pode ser persistido nessa tabela.
 `GET /api/v1/admin/observability/http-latency?hours={1..168}` exige papel
 `admin`. A resposta é agregada por `(endpoint, release_id)` e traz quantidade,
 erros 5xx, média, p50, p95, p99, máximo, quantidade acima do limite operacional
-de 1.200 ms, banco e pool. O limite acompanha o gate autenticado existente e é
-devolvido explicitamente em `slow_request_threshold_ms`. A consulta possui
-limite de amostras e informa quando ele foi atingido.
+de 1.200 ms, banco, contagem de consultas, aplicação e pool. O tempo de
+aplicação é derivado por amostra como `max(0, total - banco - pool)`. O limite
+acompanha o gate autenticado existente e é devolvido explicitamente em
+`slow_request_threshold_ms`. A consulta possui limite de amostras e informa
+quando ele foi atingido.
 
 O máximo e `slow_request_count` complementam os percentis: com 101 amostras o
 p99 por nearest-rank não representa necessariamente a maior observação. Esses
