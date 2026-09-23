@@ -142,3 +142,46 @@ e stage não tem massa para demonstrar isso. O que este aceite estabelece é
   como comprovar. O aceite cobre correção, não desempenho.
 - Em aberto: medir com massa realista (milhares de OS) para confirmar que o desenho
   entrega o que promete em escala.
+
+## Verificação local da expansão inline — 2026-09-22
+
+Mudança ainda não publicada. O teste de componente acrescentado em
+`frontend/app/financeiro/page.test.tsx` cobre:
+
+- região acessível da clínica e controle com `aria-expanded`;
+- detalhe renderizado diretamente dentro da linha do destinatário;
+- exibição da OS pendente e exclusão visual de uma OS paga do mesmo grupo;
+- fechamento pelo mesmo controle sem repetir a leitura de detalhes.
+
+Validações executadas nesta worktree:
+
+```bash
+cd frontend
+npx vitest run app/financeiro/page.test.tsx
+# 18 testes aprovados
+
+npx eslint app/financeiro/page.tsx app/financeiro/page.test.tsx
+# aprovado
+
+npx tsc --noEmit
+# aprovado
+
+npm test
+# 409 testes Vitest + 9 testes Node aprovados
+
+npm run lint
+# aprovado, zero warnings
+
+npm run build
+# aprovado, 43 paginas geradas
+```
+
+`git diff --check` e o guardrail SDD sobre os quatro arquivos alterados também
+foram aprovados; `ordens-busca-resumo-remotos` foi reconhecida como a feature
+qualificada. O aviso não bloqueante de Browserslist desatualizado permaneceu
+igual ao já registrado no projeto, sem atualização de dependências.
+
+O carregador completo e suas checagens de total, IDs, status, destinatário e
+valor não foram alterados. Não houve chamada autenticada, pagamento, baixa,
+edição, exclusão, envio de WhatsApp ou publicação. Smoke visual autenticado fica
+para o ambiente de stage após autorização de release.

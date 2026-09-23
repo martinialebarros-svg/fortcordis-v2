@@ -98,3 +98,24 @@ transacional; mudanças concorrentes que preservem contagens/somas não são det
 pela conferência agregada, e ações financeiras mantêm a revalidação individual.
 Rollback: reverter primeiro a interface ou ambos os lados juntos; não remover
 o contrato novo enquanto a interface paginada ainda depende dele.
+
+## Extensão 2026-09-22 — OS pendentes expansíveis por destinatário
+
+- RF-7: clicar em `Abrir destinatário` expande o próprio resumo do destinatário
+  e apresenta as OS pendentes imediatamente abaixo da linha selecionada.
+- RF-8: o mesmo controle fecha a expansão sem uma nova leitura; permanece
+  permitido somente um destinatário aberto por vez.
+- RF-9: carregamento e falha do detalhe aparecem dentro da linha expandida. Uma
+  falha oferece nova tentativa no mesmo contexto e não libera ações parciais.
+- RF-10: a expansão lista somente OS com status `Pendente`; OS pagas continuam
+  disponíveis na aba Ordens de Serviço, mas não são misturadas à cobrança aberta.
+- NFR-1: o controle expõe `aria-expanded` e `aria-controls`, e a região expandida
+  possui nome acessível vinculado ao destinatário.
+- CA-6: teste de componente comprova que a OS pendente aparece dentro da região
+  da clínica, a OS paga não aparece e o segundo clique recolhe os detalhes sem
+  repetir `GET /ordens-servico`.
+
+O contrato de API, a conferência integral antes de liberar ações, os cálculos,
+as permissões e as mutações financeiras permanecem inalterados. O rollback é a
+reversão do frontend e desta extensão documental; não há migração nem dado a
+reverter.
