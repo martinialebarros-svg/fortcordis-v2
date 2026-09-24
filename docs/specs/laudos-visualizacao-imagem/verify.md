@@ -6,6 +6,7 @@
 - Imagens novas e persistidas podem ser reordenadas por arrastar; as setas permanecem como alternativa de teclado.
 - `Incluir no PDF` é persistido separadamente da existência da imagem. Desmarcar não exclui nem oculta a imagem na edição.
 - A migração aditiva usa `true` como padrão para manter os PDFs legados inalterados.
+- O SQL da migração usa o literal booleano nativo `TRUE` no PostgreSQL e `1` no SQLite.
 - O cache do PDF incorpora a ordem e a seleção de todas as imagens ativas.
 
 ## Evidências automatizadas
