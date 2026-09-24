@@ -134,6 +134,8 @@ class ImagensConfiguracaoPdfTest(unittest.TestCase):
         self.assertEqual([imagem.incluir_no_pdf for imagem in associadas], [True, False])
 
     def test_migracao_adiciona_coluna_com_default_sem_desmarcar_legado(self) -> None:
+        self.assertEqual(MIGRATION._boolean_default_sql("postgresql"), "TRUE")
+        self.assertEqual(MIGRATION._boolean_default_sql("sqlite"), "1")
         engine = create_engine("sqlite:///:memory:")
         with engine.begin() as connection:
             connection.execute(text("CREATE TABLE imagens_laudo (id INTEGER PRIMARY KEY)"))

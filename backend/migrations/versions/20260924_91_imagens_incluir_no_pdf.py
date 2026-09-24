@@ -8,8 +8,12 @@ VERSION = "20260924_91"
 DESCRIPTION = "Adiciona incluir_no_pdf as imagens permanentes e temporarias"
 
 
+def _boolean_default_sql(dialect: str) -> str:
+    return "TRUE" if dialect == "postgresql" else "1"
+
+
 def upgrade(connection: Connection, dialect: str) -> None:
-    del dialect
+    default_sql = _boolean_default_sql(dialect)
     for table in ("imagens_laudo", "imagens_temporarias"):
         inspector = inspect(connection)
         if table not in inspector.get_table_names():
@@ -19,6 +23,6 @@ def upgrade(connection: Connection, dialect: str) -> None:
             connection.execute(
                 text(
                     f"ALTER TABLE {table} "
-                    "ADD COLUMN incluir_no_pdf BOOLEAN NOT NULL DEFAULT 1"
+                    f"ADD COLUMN incluir_no_pdf BOOLEAN NOT NULL DEFAULT {default_sql}"
                 )
             )
