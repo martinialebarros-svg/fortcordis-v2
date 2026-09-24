@@ -24,7 +24,7 @@ import EcoStudyImportUploader from "../../components/EcoStudyImportUploader";
 import EcocardiogramaEstruturadoEditor from "../../components/EcocardiogramaEstruturadoEditor";
 import EcocardiogramaEstruturadoBiblioteca from "../../components/EcocardiogramaEstruturadoBiblioteca";
 import EchoVoiceAssistant from "../../components/EchoVoiceAssistant";
-import { ArrowLeft, Save, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus, FolderOpen } from "lucide-react";
+import { ArrowLeft, Save, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus, FolderOpen, GripVertical, X } from "lucide-react";
 import { ReferenciaComparison } from "../../components/ReferenciaComparison";
 import {
   criarEcocardiogramaEstruturadoInicial,
@@ -197,6 +197,7 @@ interface Imagem {
   url: string;
   dataUrl?: string;
   tamanho: number;
+  incluir_no_pdf: boolean;
 }
 
 interface Laudo {
@@ -372,7 +373,46 @@ export default function EditarLaudoPage() {
   const [imagens, setImagens] = useState<Imagem[]>([]);
   const [imagensTemp, setImagensTemp] = useState<any[]>([]);
   const [previewImagemIndex, setPreviewImagemIndex] = useState<number | null>(null);
+  const [draggedImagemIndex, setDraggedImagemIndex] = useState<number | null>(null);
   const [sessionId] = useState<string>(() => Math.random().toString(36).substring(2, 15));
+
+  const salvarConfiguracaoImagens = async (novasImagens: Imagem[], anteriores: Imagem[]) => {
+    setImagens(novasImagens);
+    if (!laudoId) return;
+    try {
+      await api.put(`/imagens/laudo/${laudoId}/configuracao`, {
+        imagens: novasImagens.map((imagem, index) => ({
+          id: imagem.id,
+          ordem: index,
+          incluir_no_pdf: imagem.incluir_no_pdf !== false,
+        })),
+      });
+    } catch (error) {
+      console.error("Erro ao salvar configuração das imagens:", error);
+      setImagens(anteriores);
+      alert("Não foi possível salvar a ordem ou a seleção das imagens para o PDF.");
+    }
+  };
+
+  const moverImagemPersistida = (origem: number, destino: number) => {
+    if (origem === destino || origem < 0 || destino < 0 || destino >= imagens.length) return;
+    const anteriores = imagens;
+    const reordenadas = [...imagens];
+    const [movida] = reordenadas.splice(origem, 1);
+    reordenadas.splice(destino, 0, movida);
+    void salvarConfiguracaoImagens(
+      reordenadas.map((imagem, index) => ({ ...imagem, ordem: index })),
+      anteriores,
+    );
+  };
+
+  const alternarImagemNoPdf = (index: number) => {
+    const anteriores = imagens;
+    const atualizadas = imagens.map((imagem, atual) =>
+      atual === index ? { ...imagem, incluir_no_pdf: imagem.incluir_no_pdf === false } : imagem
+    );
+    void salvarConfiguracaoImagens(atualizadas, anteriores);
+  };
   const opcoesRitmoPaciente = incluirOpcaoAtual(OPCOES_RITMO, ecocardiogramaCabecalho.ritmo);
   const opcoesEstadoPaciente = incluirOpcaoAtual(
     OPCOES_ESTADO_PACIENTE,
@@ -799,10 +839,10 @@ export default function EditarLaudoPage() {
                 reader.onloadend = () => resolve(reader.result as string);
                 reader.readAsDataURL(resp.data);
               });
-              return { ...img, dataUrl };
+              return { ...img, dataUrl, incluir_no_pdf: img.incluir_no_pdf !== false };
             } catch (e) {
               console.error("Erro ao carregar imagem:", e);
-              return img;
+              return { ...img, incluir_no_pdf: img.incluir_no_pdf !== false };
             }
           })
         );
@@ -2071,7 +2111,27 @@ export default function EditarLaudoPage() {
                     {imagens.length > 0 && (
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                         {imagens.map((img, idx) => (
-                          <div key={img.id} className="relative group border rounded-lg overflow-hidden">
+                          <div
+                            key={img.id}
+                            draggable
+                            onDragStart={(event) => {
+                              setDraggedImagemIndex(idx);
+                              event.dataTransfer.effectAllowed = "move";
+                            }}
+                            onDragEnd={() => setDraggedImagemIndex(null)}
+                            onDragOver={(event) => {
+                              event.preventDefault();
+                              event.dataTransfer.dropEffect = "move";
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              if (draggedImagemIndex !== null) moverImagemPersistida(draggedImagemIndex, idx);
+                              setDraggedImagemIndex(null);
+                            }}
+                            className={`relative group border rounded-lg overflow-hidden ${
+                              draggedImagemIndex === idx ? "opacity-50 ring-2 ring-teal-500" : ""
+                            }`}
+                          >
                             <img
                               src={img.dataUrl || img.url}
                               alt={img.nome}
@@ -2080,6 +2140,7 @@ export default function EditarLaudoPage() {
                               role="button"
                               tabIndex={0}
                               aria-label={`Ampliar ${img.nome}`}
+                              draggable={false}
                               onKeyDown={(event) => {
                                 if (event.key === "Enter" || event.key === " ") {
                                   event.preventDefault();
@@ -2093,12 +2154,18 @@ export default function EditarLaudoPage() {
                             <div className="absolute top-2 left-2 bg-teal-600 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center">
                               {idx + 1}
                             </div>
+                            <div className="absolute bottom-14 left-2 rounded bg-black/65 p-1 text-white" title="Arraste para reordenar">
+                              <GripVertical className="h-4 w-4" />
+                            </div>
                             <button
                               onClick={async () => {
                                 if (confirm("Deseja remover esta imagem?")) {
                                   try {
                                     await api.delete(`/imagens/${img.id}`);
-                                    setImagens(imagens.filter(i => i.id !== img.id));
+                                    const restantes = imagens
+                                      .filter(i => i.id !== img.id)
+                                      .map((imagem, index) => ({ ...imagem, ordem: index }));
+                                    await salvarConfiguracaoImagens(restantes, restantes);
                                   } catch (e) {
                                     alert("Erro ao remover imagem");
                                   }
@@ -2107,9 +2174,20 @@ export default function EditarLaudoPage() {
                               className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                               title="Remover"
                             >
-                              
+                              <X className="h-4 w-4" />
                             </button>
-                            <p className="text-xs text-gray-600 p-2 truncate">{img.nome}</p>
+                            <div className="p-2">
+                              <p className="text-xs text-gray-600 truncate">{img.nome}</p>
+                              <label className="mt-2 flex items-center gap-2 text-xs font-medium text-gray-700">
+                                <input
+                                  type="checkbox"
+                                  checked={img.incluir_no_pdf !== false}
+                                  onChange={() => alternarImagemNoPdf(idx)}
+                                  className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                                />
+                                Incluir no PDF
+                              </label>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -2136,7 +2214,7 @@ export default function EditarLaudoPage() {
 
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                       <p className="text-sm text-blue-800">
-                        <strong>Dica:</strong> Clique em uma imagem para ampliá-la. As imagens serão inseridas automaticamente no PDF do laudo.
+                        <strong>Dica:</strong> Clique para ampliar, arraste para reordenar e desmarque as imagens que não devem entrar no PDF.
                       </p>
                     </div>
                   </div>

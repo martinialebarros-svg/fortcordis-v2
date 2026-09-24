@@ -1,5 +1,5 @@
 """Modelo para imagens de laudos"""
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, LargeBinary, Float
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, ForeignKey, LargeBinary, Float
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -28,6 +28,7 @@ class ImagemLaudo(Base):
     
     # Descrição/legenda
     descricao = Column(Text, default="")
+    incluir_no_pdf = Column(Boolean, nullable=False, default=True, server_default="1")
     
     # Auditoria
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -50,6 +51,7 @@ class ImagemTemporaria(Base):
     
     ordem = Column(Integer, default=0)
     descricao = Column(Text, default="")
+    incluir_no_pdf = Column(Boolean, nullable=False, default=True, server_default="1")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     

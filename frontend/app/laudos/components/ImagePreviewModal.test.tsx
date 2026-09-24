@@ -32,6 +32,18 @@ describe("ImagePreviewModal", () => {
     expect(screen.getByText("Imagem 2 de 2")).toBeInTheDocument();
   });
 
+  it("amplia e restaura a imagem sem alterar o arquivo", () => {
+    render(<Harness />);
+    const image = screen.getByRole("img", { name: "eco-1.jpg" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Aumentar zoom" }));
+    expect(image).toHaveStyle({ transform: "translate(0px, 0px) scale(1.5)" });
+    expect(screen.getByText("150%")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ajustar imagem à tela" }));
+    expect(image).toHaveStyle({ transform: "translate(0px, 0px) scale(1)" });
+  });
+
   it("fecha com Escape", () => {
     render(<Harness />);
 

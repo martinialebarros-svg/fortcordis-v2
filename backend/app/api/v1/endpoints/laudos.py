@@ -2909,6 +2909,7 @@ def obter_laudo(
             "nome": img.nome_arquivo,
             "ordem": img.ordem,
             "descricao": img.descricao,
+            "incluir_no_pdf": bool(img.incluir_no_pdf),
             "url": f"/imagens/{img.id}",
             "tamanho": img.tamanho_bytes
         })
@@ -4166,7 +4167,8 @@ def gerar_pdf_laudo(
 
         imagens = db.query(ImagemLaudo).filter(
             ImagemLaudo.laudo_id == laudo_id,
-            ImagemLaudo.ativo == 1
+            ImagemLaudo.ativo == 1,
+            ImagemLaudo.incluir_no_pdf.is_(True),
         ).order_by(ImagemLaudo.ordem).all()
 
         imagens_bytes = []
