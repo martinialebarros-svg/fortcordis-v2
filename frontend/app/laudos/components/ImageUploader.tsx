@@ -104,6 +104,10 @@ export default function ImageUploader({
 
   const processarArquivos = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    if (!sessionId) {
+      setError("A sessão de imagens ainda está sendo preparada. Tente novamente em instantes.");
+      return;
+    }
 
     setUploading(true);
     setError(null);
@@ -181,12 +185,12 @@ export default function ImageUploader({
     e.preventDefault();
     setIsDragging(false);
     processarArquivos(e.dataTransfer.files);
-  }, [imagens]);
+  }, [imagens, sessionId]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     processarArquivos(e.target.files);
     e.target.value = "";
-  }, [imagens]);
+  }, [imagens, sessionId]);
 
   const removerImagem = async (id: string) => {
     const imagem = imagens.find(img => img.id === id);
@@ -261,11 +265,17 @@ export default function ImageUploader({
           accept="image/*"
           multiple
           onChange={handleFileInput}
+          disabled={!sessionId || uploading}
           className="hidden"
           id="image-upload"
         />
         <label htmlFor="image-upload" className="cursor-pointer block">
-          {uploading ? (
+          {!sessionId ? (
+            <div className="flex flex-col items-center">
+              <Loader2 className="h-10 w-10 text-blue-500 animate-spin mb-3" />
+              <p className="text-sm text-gray-600">Preparando o envio das imagens...</p>
+            </div>
+          ) : uploading ? (
             <div className="flex flex-col items-center">
               <Loader2 className="h-10 w-10 text-blue-500 animate-spin mb-3" />
               <p className="text-sm text-gray-600">Enviando imagens...</p>
