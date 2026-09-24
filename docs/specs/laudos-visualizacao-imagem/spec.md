@@ -12,6 +12,7 @@
 - RF-008: permitir marcar ou desmarcar individualmente a inclusão de cada imagem no PDF sem excluir seu vínculo com o laudo.
 - RF-009: imagens existentes e novas devem iniciar incluídas no PDF; a preferência alterada deve sobreviver à associação da imagem temporária ao laudo.
 - RF-010: a geração do PDF deve respeitar a ordem e incluir somente imagens marcadas, enquanto a tela de edição continua exibindo todas as imagens ativas.
+- RF-011: no primeiro preenchimento do laudo, o upload só pode iniciar depois que a sessão temporária estiver pronta e deve usar essa mesma sessão para upload, reordenação, seleção e associação final.
 
 ## Requisitos não funcionais
 
@@ -36,3 +37,4 @@
 - CA-007: desmarcar uma imagem mantém o registro ativo e visível na edição, mas a remove da lista de bytes enviada ao renderizador do PDF.
 - CA-008: uma imagem legada sem escolha anterior permanece incluída depois da migração.
 - CA-009: não é possível atualizar por engano uma imagem pertencente a outro laudo ou a outra sessão temporária.
+- CA-010: ao abrir “Novo laudo”, aguardar a sessão e selecionar o primeiro arquivo, o upload envia o `session_id` atual e libera zoom, reordenação e seleção antes de o laudo ser salvo.

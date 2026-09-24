@@ -38,7 +38,10 @@ const initialImages = [
 describe("ImageUploader", () => {
   beforeEach(() => {
     mocks.put.mockReset();
+    mocks.post.mockReset();
+    mocks.delete.mockReset();
     mocks.put.mockResolvedValue({ data: {} });
+    mocks.post.mockResolvedValue({ data: { success: true, imagem_id: 31 } });
   });
 
   it("persiste seleção para o PDF e reordenação por arrastar", async () => {
@@ -80,5 +83,50 @@ describe("ImageUploader", () => {
         ],
       },
     ));
+  });
+
+  it("usa a sessão pronta no primeiro upload e habilita os controles antes de salvar o laudo", async () => {
+    const onImagensChange = vi.fn();
+    const { container, rerender } = render(
+      <ImageUploader
+        sessionId=""
+        imagensIniciais={[]}
+        onImagensChange={onImagensChange}
+      />
+    );
+
+    const inputInicial = container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(inputInicial.disabled).toBe(true);
+
+    rerender(
+      <ImageUploader
+        sessionId="sessao-primeiro-laudo"
+        imagensIniciais={[]}
+        onImagensChange={onImagensChange}
+      />
+    );
+
+    const arquivo = new File(["imagem"], "primeiro.jpg", { type: "image/jpeg" });
+    const inputPronto = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(inputPronto, { target: { files: [arquivo] } });
+
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    const formData = mocks.post.mock.calls[0][1] as FormData;
+    expect(formData.get("session_id")).toBe("sessao-primeiro-laudo");
+
+    const checkbox = await screen.findByRole("checkbox", { name: "Incluir no PDF" });
+    await waitFor(() => expect(checkbox).toBeEnabled());
+    fireEvent.click(checkbox);
+
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledWith(
+      "/imagens/temp/session/sessao-primeiro-laudo/configuracao",
+      {
+        imagens: [{ id: 31, ordem: 0, incluir_no_pdf: false }],
+      },
+    ));
+
+    fireEvent.click(screen.getByRole("button", { name: "Ampliar primeiro.jpg" }));
+    expect(screen.getByRole("dialog", { name: "Visualização ampliada de primeiro.jpg" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aumentar zoom" })).toBeEnabled();
   });
 });
