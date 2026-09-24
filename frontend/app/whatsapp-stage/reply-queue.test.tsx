@@ -178,6 +178,16 @@ describe("fila de resposta e conclusão de atendimento WhatsApp", () => {
     cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); window.localStorage.clear();
   });
 
+  it("mostra pendência do responsável e limpa o aviso ao trocar para conversa livre", async () => {
+    installApi({ conversations: [conversation("1", "Clínica Azul"), conversation("2", "Clínica Verde", null)] });
+    await openPage();
+    const notice = screen.getByRole("status", { name: "Resposta pendente da equipe" });
+    expect(notice).toHaveTextContent("Responsável: Atendente atual");
+    expect(notice).toHaveTextContent("Aguardando há 1 h 30 min");
+    await selectConversation("Clínica Verde");
+    expect(screen.queryByRole("status", { name: "Resposta pendente da equipe" })).toBeNull();
+  });
+
   it("combina pendência, responsável atual, não lidas, busca e status e limpa todos os filtros", async () => {
     const fetchMock = installApi();
     await openPage();

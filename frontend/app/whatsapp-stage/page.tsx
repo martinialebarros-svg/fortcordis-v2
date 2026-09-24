@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import DashboardLayout from "../layout-dashboard";
 import AppointmentQueue from "./AppointmentQueue";
+import WaitingForTeamNotice from "./WaitingForTeamNotice";
 import {
   CustomerServiceWindow,
   evaluateCustomerServiceWindow,
@@ -1426,6 +1427,17 @@ export default function WhatsAppStagePage() {
               <Info className="h-3.5 w-3.5" />
               <span>O bot viu esta mensagem e não respondeu: {BOT_SILENCIO_MOTIVOS[botConversationState.ultimo_silencio.motivo || ""] || botConversationState.ultimo_silencio.motivo || "motivo não registrado"}{botConversationState.ultimo_silencio.motivo === "pausado" && botConversationState.pausado_ate ? `, até ${formatDateTime(botConversationState.pausado_ate)}` : ""}.</span>
             </div> : null}
+
+            {selectedConversation ? <WaitingForTeamNotice
+              needsReply={selectedConversation.needs_reply}
+              ownerId={selectedConversation.last_agent_id}
+              ownerName={selectedConversation.assigned_agent_name || selectedAgent?.name}
+              waitingLabel={formatWaitingTime(selectedConversation.waiting_since, customerServiceWindowClock)}
+              paused={botConversationState?.pausado}
+              pausedUntil={botConversationState?.pausado_ate}
+              handoffReason={botConversationState?.handoff_motivo}
+              windowOpen={windowState.isOpen}
+            /> : null}
 
             <div className="fc-wa-composer"><div className="fc-wa-composer-tabs" role="tablist" aria-label="Modo de resposta">
               <button type="button" role="tab" aria-selected={composerMode === "message"} className={composerMode === "message" ? "active" : ""} onClick={() => setComposerMode("message")}><MessageSquare className="h-4 w-4" /> Mensagem</button>
