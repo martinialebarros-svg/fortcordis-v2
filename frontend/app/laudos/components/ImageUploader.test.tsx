@@ -125,6 +125,10 @@ describe("ImageUploader", () => {
       },
     ));
 
+    const controles = screen.getByTitle("Mover para baixo").parentElement;
+    expect(controles).toHaveClass("bottom-2", "right-2");
+    expect(controles).not.toHaveClass("inset-0");
+
     fireEvent.click(screen.getByRole("button", { name: "Ampliar primeiro.jpg" }));
     expect(screen.getByRole("dialog", { name: "Visualização ampliada de primeiro.jpg" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Aumentar zoom" })).toBeEnabled();

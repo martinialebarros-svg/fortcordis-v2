@@ -12,6 +12,7 @@
 ## Evidências automatizadas
 
 - O teste do primeiro laudo começa sem sessão, confirma que o seletor fica bloqueado, injeta a sessão pronta, realiza um upload realista e verifica o mesmo `session_id` no envio e na configuração antes do salvamento.
+- O teste também verifica que a faixa de controles não cobre toda a miniatura e que o clique de ampliação abre o modal sem acionar reordenação.
 - `npx vitest run app/laudos/components/ImageUploader.test.tsx app/laudos/components/ImagePreviewModal.test.tsx`: 5/5 testes passaram, cobrindo o primeiro upload com sessão temporária, abertura, navegação, fechamento por `Esc`, zoom/restauração, seleção para o PDF e reordenação por arraste.
 - `npx vitest run`: 419/419 testes do frontend passaram.
 - `npx tsc --noEmit --pretty false`, ESLint direcionado e `npm run build`: concluídos sem erros.
