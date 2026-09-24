@@ -20,6 +20,7 @@
 - NFR-003 (acessibilidade): miniaturas e controles devem operar por teclado e o modal deve identificar-se como diálogo.
 - NFR-004 (responsividade): a imagem ampliada deve respeitar os limites da janela sem distorção.
 - NFR-005 (compatibilidade): a migração deve marcar imagens legadas como incluídas no PDF por padrão.
+- NFR-005a (portabilidade): a migração deve usar `TRUE` como literal booleano no PostgreSQL e `1` no SQLite.
 - NFR-006 (consistência): ordem e seleção de um conjunto devem ser atualizadas atomicamente e restritas ao laudo ou sessão informados.
 - NFR-007 (cache): alterar ordem ou inclusão deve produzir uma nova chave de cache do PDF.
 - NFR-008 (prudência clínica): excluir do PDF é uma decisão de apresentação; a imagem original permanece vinculada e nenhuma interpretação clínica é gerada.
