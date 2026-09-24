@@ -53,6 +53,7 @@ def _carregar_stamp_cache(db: Session, laudo: Laudo, user_id: int) -> dict[str, 
 
     imagens_count = 0
     imagens_max_created = None
+    imagens_config: list[dict[str, Any]] = []
     try:
         imagens_count, imagens_max_created = db.query(
             func.count(ImagemLaudo.id),
@@ -61,6 +62,17 @@ def _carregar_stamp_cache(db: Session, laudo: Laudo, user_id: int) -> dict[str, 
             ImagemLaudo.laudo_id == laudo.id,
             ImagemLaudo.ativo == 1,
         ).first() or (0, None)
+        imagens_config = [
+            {
+                "id": imagem.id,
+                "ordem": imagem.ordem,
+                "incluir_no_pdf": bool(imagem.incluir_no_pdf),
+            }
+            for imagem in db.query(ImagemLaudo).filter(
+                ImagemLaudo.laudo_id == laudo.id,
+                ImagemLaudo.ativo == 1,
+            ).order_by(ImagemLaudo.ordem, ImagemLaudo.id).all()
+        ]
     except Exception:
         db.rollback()
 
@@ -94,6 +106,7 @@ def _carregar_stamp_cache(db: Session, laudo: Laudo, user_id: int) -> dict[str, 
         "requested_by_id": user_id,
         "imagens_count": int(imagens_count or 0),
         "imagens_max_created_at": _safe_iso(imagens_max_created),
+        "imagens_config": imagens_config,
         "config_sistema_id": getattr(config_sistema, "id", None),
         "config_sistema_updated_at": _safe_iso(getattr(config_sistema, "updated_at", None) or getattr(config_sistema, "created_at", None)),
         "config_usuario_id": getattr(config_usuario, "id", None),
@@ -112,6 +125,16 @@ def compute_laudo_pdf_cache_key(db: Session, laudo_id: int, user_id: int) -> str
     }
     serialized = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
     return hashlib.sha256(serialized).hexdigest()
+
+
+def _listar_imagens_incluidas_no_pdf(db: Session, laudo_id: int) -> list[Any]:
+    from app.models.imagem_laudo import ImagemLaudo
+
+    return db.query(ImagemLaudo).filter(
+        ImagemLaudo.laudo_id == laudo_id,
+        ImagemLaudo.ativo == 1,
+        ImagemLaudo.incluir_no_pdf.is_(True),
+    ).order_by(ImagemLaudo.ordem).all()
 
 
 def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> GeneratedLaudoPdf:
@@ -151,10 +174,7 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
         elif laudo.medico_solicitante:
             clinica_nome = laudo.medico_solicitante
 
-        imagens = db.query(ImagemLaudo).filter(
-            ImagemLaudo.laudo_id == laudo_id,
-            ImagemLaudo.ativo == 1,
-        ).order_by(ImagemLaudo.ordem).all()
+        imagens = _listar_imagens_incluidas_no_pdf(db, laudo_id)
 
         imagens_bytes: list[bytes] = []
         for img in imagens:

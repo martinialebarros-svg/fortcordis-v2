@@ -1966,7 +1966,7 @@ export default function NovoLaudoPage() {
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                       <p className="text-sm text-blue-800">
                         <strong>Dica:</strong> Clique em uma imagem para ampliá-la. As imagens serão inseridas automaticamente no PDF do laudo.
-                        Arraste para reordenar ou clique no X para remover.
+                        Arraste para reordenar, desmarque as que não devem entrar no PDF ou clique no X para remover.
                       </p>
                     </div>
                   </div>
