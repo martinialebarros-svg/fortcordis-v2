@@ -376,8 +376,8 @@ export default function ImageUploader({
                       </div>
                     )}
                   
-                  {/* Overlay com controles */}
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  {/* Controles posicionados fora do centro clicável da miniatura */}
+                  <div className="absolute bottom-2 right-2 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     <button
                       onClick={() => moverImagem(index, "up")}
                       disabled={index === 0 || uploading}
