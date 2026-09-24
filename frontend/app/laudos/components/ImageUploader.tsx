@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { Upload, X, Loader2, MoveUp, MoveDown } from "lucide-react";
 import api from "@/lib/axios";
+import ImagePreviewModal from "./ImagePreviewModal";
 
 interface Imagem {
   id: string;
@@ -33,6 +34,7 @@ export default function ImageUploader({
   const [imagens, setImagens] = useState<Imagem[]>(imagensIniciais);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
   const gerarId = () => Math.random().toString(36).substring(2, 15);
 
@@ -274,7 +276,17 @@ export default function ImageUploader({
                   <img
                     src={imagem.dataUrl}
                     alt={imagem.nome}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover cursor-zoom-in"
+                    onClick={() => setPreviewIndex(index)}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Ampliar ${imagem.nome}`}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setPreviewIndex(index);
+                      }
+                    }}
                   />
                   
                   {/* Número da ordem */}
@@ -336,6 +348,15 @@ export default function ImageUploader({
           </div>
         </div>
       )}
+      <ImagePreviewModal
+        images={imagens.map((imagem) => ({
+          id: imagem.id,
+          nome: imagem.nome,
+          src: imagem.dataUrl,
+        }))}
+        selectedIndex={previewIndex}
+        onSelectedIndexChange={setPreviewIndex}
+      />
     </div>
   );
 }

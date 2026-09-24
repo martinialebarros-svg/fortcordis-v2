@@ -19,6 +19,7 @@ import {
 import XmlUploader from "../../components/XmlUploader";
 import ImageHeaderUploader from "../../components/ImageHeaderUploader";
 import ImageUploader from "../../components/ImageUploader";
+import ImagePreviewModal from "../../components/ImagePreviewModal";
 import EcoStudyImportUploader from "../../components/EcoStudyImportUploader";
 import EcocardiogramaEstruturadoEditor from "../../components/EcocardiogramaEstruturadoEditor";
 import EcocardiogramaEstruturadoBiblioteca from "../../components/EcocardiogramaEstruturadoBiblioteca";
@@ -370,6 +371,7 @@ export default function EditarLaudoPage() {
   // Imagens
   const [imagens, setImagens] = useState<Imagem[]>([]);
   const [imagensTemp, setImagensTemp] = useState<any[]>([]);
+  const [previewImagemIndex, setPreviewImagemIndex] = useState<number | null>(null);
   const [sessionId] = useState<string>(() => Math.random().toString(36).substring(2, 15));
   const opcoesRitmoPaciente = incluirOpcaoAtual(OPCOES_RITMO, ecocardiogramaCabecalho.ritmo);
   const opcoesEstadoPaciente = incluirOpcaoAtual(
@@ -2073,7 +2075,17 @@ export default function EditarLaudoPage() {
                             <img
                               src={img.dataUrl || img.url}
                               alt={img.nome}
-                              className="w-full h-32 object-cover"
+                              className="w-full h-32 object-cover cursor-zoom-in"
+                              onClick={() => setPreviewImagemIndex(idx)}
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Ampliar ${img.nome}`}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setPreviewImagemIndex(idx);
+                                }
+                              }}
                               onError={(e) => {
                                 (e.target as HTMLImageElement).src = '/placeholder-image.png';
                               }}
@@ -2103,6 +2115,16 @@ export default function EditarLaudoPage() {
                       </div>
                     )}
 
+                    <ImagePreviewModal
+                      images={imagens.map((img) => ({
+                        id: img.id,
+                        nome: img.nome,
+                        src: img.dataUrl || img.url,
+                      }))}
+                      selectedIndex={previewImagemIndex}
+                      onSelectedIndexChange={setPreviewImagemIndex}
+                    />
+
                     <div className="border-t pt-6">
                       <h4 className="font-medium text-gray-900 mb-4">Adicionar Novas Imagens</h4>
                       <ImageUploader
@@ -2114,7 +2136,7 @@ export default function EditarLaudoPage() {
 
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                       <p className="text-sm text-blue-800">
-                        <strong>Dica:</strong> As imagens serão inseridas automaticamente no PDF do laudo.
+                        <strong>Dica:</strong> Clique em uma imagem para ampliá-la. As imagens serão inseridas automaticamente no PDF do laudo.
                       </p>
                     </div>
                   </div>
