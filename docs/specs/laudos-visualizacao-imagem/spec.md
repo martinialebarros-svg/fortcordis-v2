@@ -13,6 +13,7 @@
 - RF-009: imagens existentes e novas devem iniciar incluídas no PDF; a preferência alterada deve sobreviver à associação da imagem temporária ao laudo.
 - RF-010: a geração do PDF deve respeitar a ordem e incluir somente imagens marcadas, enquanto a tela de edição continua exibindo todas as imagens ativas.
 - RF-011: no primeiro preenchimento do laudo, o upload só pode iniciar depois que a sessão temporária estiver pronta e deve usar essa mesma sessão para upload, reordenação, seleção e associação final.
+- RF-012: a área central da miniatura deve abrir a visualização ampliada; os controles de ordenar e remover devem capturar cliques somente em sua própria faixa visível.
 
 ## Requisitos não funcionais
 
@@ -38,3 +39,4 @@
 - CA-008: uma imagem legada sem escolha anterior permanece incluída depois da migração.
 - CA-009: não é possível atualizar por engano uma imagem pertencente a outro laudo ou a outra sessão temporária.
 - CA-010: ao abrir “Novo laudo”, aguardar a sessão e selecionar o primeiro arquivo, o upload envia o `session_id` atual e libera zoom, reordenação e seleção antes de o laudo ser salvo.
+- CA-011: clicar no centro de uma imagem recém-carregada abre o modal sem mudar sua posição na lista.
