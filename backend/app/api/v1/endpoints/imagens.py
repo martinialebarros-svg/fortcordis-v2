@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -21,6 +22,16 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
 
 
+class ImagemConfiguracaoItem(BaseModel):
+    id: int
+    ordem: int = Field(ge=0)
+    incluir_no_pdf: bool = True
+
+
+class ImagensConfiguracaoPayload(BaseModel):
+    imagens: list[ImagemConfiguracaoItem]
+
+
 def allowed_file(filename: str) -> bool:
     """Verifica se a extensão do arquivo é permitida"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {ext.lstrip('.') for ext in ALLOWED_EXTENSIONS}
@@ -36,6 +47,7 @@ async def upload_imagem_temporaria(
     arquivo: UploadFile = File(...),
     descricao: str = Form(""),
     ordem: int = Form(0),
+    incluir_no_pdf: bool = Form(True),
     session_id: str = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -71,6 +83,7 @@ async def upload_imagem_temporaria(
         conteudo=conteudo,
         ordem=ordem,
         descricao=descricao,
+        incluir_no_pdf=incluir_no_pdf,
         expira_em=datetime.utcnow() + timedelta(hours=24)
     )
     
@@ -151,6 +164,7 @@ def listar_imagens_temporarias(
                 "descricao": img.descricao,
                 "ordem": img.ordem,
                 "tamanho": img.tamanho_bytes,
+                "incluir_no_pdf": bool(img.incluir_no_pdf),
                 "url_preview": f"/imagens/temp/{img.id}"
             }
             for img in imagens
@@ -178,7 +192,7 @@ def associar_imagens_ao_laudo(
     imagens_temp = db.query(ImagemTemporaria).filter(
         ImagemTemporaria.session_id == session_id,
         ImagemTemporaria.expira_em > datetime.utcnow()
-    ).all()
+    ).order_by(ImagemTemporaria.ordem).all()
     
     if not imagens_temp:
         db.commit()  # Commit da limpeza
@@ -200,6 +214,7 @@ def associar_imagens_ao_laudo(
             conteudo=img_temp.conteudo,
             ordem=ultima_ordem + count,  # Continuar ordem após imagens existentes
             descricao=img_temp.descricao,
+            incluir_no_pdf=img_temp.incluir_no_pdf,
             ativo=1
         )
         db.add(imagem_laudo)
@@ -237,12 +252,79 @@ def listar_imagens_do_laudo(
                 "ordem": img.ordem,
                 "pagina": img.pagina,
                 "tamanho": img.tamanho_bytes,
+                "incluir_no_pdf": bool(img.incluir_no_pdf),
                 "url": f"/imagens/{img.id}"
             }
             for img in imagens
         ],
         "total": len(imagens)
     }
+
+
+@router.put("/temp/session/{session_id}/configuracao")
+def atualizar_configuracao_imagens_temporarias(
+    session_id: str,
+    payload: ImagensConfiguracaoPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Atualiza ordem e inclusao no PDF das imagens de uma sessao temporaria."""
+    del current_user
+    ids = [item.id for item in payload.imagens]
+    if len(ids) != len(set(ids)):
+        raise HTTPException(status_code=422, detail="IDs de imagem duplicados")
+    imagens = (
+        db.query(ImagemTemporaria)
+        .filter(
+            ImagemTemporaria.session_id == session_id,
+            ImagemTemporaria.id.in_(ids),
+            ImagemTemporaria.expira_em > datetime.utcnow(),
+        )
+        .all()
+        if ids
+        else []
+    )
+    if len(imagens) != len(ids):
+        raise HTTPException(status_code=404, detail="Imagem temporária não encontrada nesta sessão")
+    por_id = {imagem.id: imagem for imagem in imagens}
+    for item in payload.imagens:
+        por_id[item.id].ordem = item.ordem
+        por_id[item.id].incluir_no_pdf = item.incluir_no_pdf
+    db.commit()
+    return {"message": "Configuração das imagens temporárias atualizada"}
+
+
+@router.put("/laudo/{laudo_id}/configuracao")
+def atualizar_configuracao_imagens_laudo(
+    laudo_id: int,
+    payload: ImagensConfiguracaoPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Atualiza atomicamente ordem e inclusao no PDF das imagens do laudo."""
+    del current_user
+    ids = [item.id for item in payload.imagens]
+    if len(ids) != len(set(ids)):
+        raise HTTPException(status_code=422, detail="IDs de imagem duplicados")
+    imagens = (
+        db.query(ImagemLaudo)
+        .filter(
+            ImagemLaudo.laudo_id == laudo_id,
+            ImagemLaudo.ativo == 1,
+            ImagemLaudo.id.in_(ids),
+        )
+        .all()
+        if ids
+        else []
+    )
+    if len(imagens) != len(ids):
+        raise HTTPException(status_code=404, detail="Imagem não encontrada neste laudo")
+    por_id = {imagem.id: imagem for imagem in imagens}
+    for item in payload.imagens:
+        por_id[item.id].ordem = item.ordem
+        por_id[item.id].incluir_no_pdf = item.incluir_no_pdf
+    db.commit()
+    return {"message": "Configuração das imagens do laudo atualizada"}
 
 
 @router.get("/{imagem_id}")

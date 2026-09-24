@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useEffect } from "react";
-import { Upload, X, Loader2, MoveUp, MoveDown } from "lucide-react";
+import { Upload, X, Loader2, MoveUp, MoveDown, GripVertical } from "lucide-react";
 import api from "@/lib/axios";
 import ImagePreviewModal from "./ImagePreviewModal";
 
@@ -17,6 +17,7 @@ interface Imagem {
   tempId?: number;
   uploaded: boolean;
   persisted?: boolean;
+  incluirNoPdf?: boolean;
 }
 
 interface ImageUploaderProps {
@@ -35,6 +36,7 @@ export default function ImageUploader({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   const gerarId = () => Math.random().toString(36).substring(2, 15);
 
@@ -44,8 +46,29 @@ export default function ImageUploader({
   };
 
   useEffect(() => {
-    setImagens(imagensIniciais);
+    setImagens(imagensIniciais.map((imagem) => ({
+      ...imagem,
+      incluirNoPdf: imagem.incluirNoPdf ?? true,
+    })));
   }, [imagensIniciais]);
+
+  const persistirConfiguracaoTemporaria = async (lista: Imagem[]) => {
+    const enviadas = lista.filter((imagem) => imagem.uploaded && imagem.tempId);
+    if (enviadas.length === 0) return;
+    try {
+      await api.put(`/imagens/temp/session/${sessionId}/configuracao`, {
+        imagens: enviadas.map((imagem) => ({
+          id: imagem.tempId,
+          ordem: imagem.ordem,
+          incluir_no_pdf: imagem.incluirNoPdf ?? true,
+        })),
+      });
+      setError(null);
+    } catch (err) {
+      console.error("Erro ao salvar configuração das imagens:", err);
+      setError("Não foi possível salvar a ordem ou a seleção para o PDF. Tente novamente.");
+    }
+  };
 
   const fazerUploadImagem = async (
     imagem: Imagem
@@ -58,6 +81,7 @@ export default function ImageUploader({
       formData.append("ordem", imagem.ordem.toString());
       formData.append("descricao", imagem.descricao || "");
       formData.append("session_id", sessionId);
+      formData.append("incluir_no_pdf", String(imagem.incluirNoPdf ?? true));
       
       const response = await api.post("/imagens/upload-temp", formData, {
         headers: {
@@ -115,6 +139,7 @@ export default function ImageUploader({
           tamanho: file.size,
           file,
           uploaded: false,
+          incluirNoPdf: true,
         };
 
         novasImagens.push(novaImagem);
@@ -183,19 +208,31 @@ export default function ImageUploader({
       .filter(img => img.id !== id)
       .map((img, idx) => ({ ...img, ordem: idx }));
     atualizarImagens(novasImagens);
+    await persistirConfiguracaoTemporaria(novasImagens);
+  };
+
+  const moverImagemPara = async (index: number, newIndex: number) => {
+    if (index === newIndex || index < 0 || newIndex < 0 || newIndex >= imagens.length) return;
+    const novasImagens = [...imagens];
+    const [movida] = novasImagens.splice(index, 1);
+    novasImagens.splice(newIndex, 0, movida);
+    const imagensReordenadas = novasImagens.map((img, i) => ({ ...img, ordem: i }));
+    atualizarImagens(imagensReordenadas);
+    await persistirConfiguracaoTemporaria(imagensReordenadas);
   };
 
   const moverImagem = (index: number, direcao: "up" | "down") => {
     if (direcao === "up" && index === 0) return;
     if (direcao === "down" && index === imagens.length - 1) return;
+    void moverImagemPara(index, direcao === "up" ? index - 1 : index + 1);
+  };
 
-    const novasImagens = [...imagens];
-    const newIndex = direcao === "up" ? index - 1 : index + 1;
-    
-    [novasImagens[index], novasImagens[newIndex]] = [novasImagens[newIndex], novasImagens[index]];
-    const imagensReordenadas = novasImagens.map((img, i) => ({ ...img, ordem: i }));
-    
-    atualizarImagens(imagensReordenadas);
+  const alternarInclusaoNoPdf = async (index: number) => {
+    const novasImagens = imagens.map((imagem, atual) =>
+      atual === index ? { ...imagem, incluirNoPdf: !(imagem.incluirNoPdf ?? true) } : imagem
+    );
+    atualizarImagens(novasImagens);
+    await persistirConfiguracaoTemporaria(novasImagens);
   };
 
   const formatarTamanho = (bytes: number) => {
@@ -269,7 +306,26 @@ export default function ImageUploader({
             {imagens.map((imagem, index) => (
               <div 
                 key={imagem.id}
-                className="relative group bg-white border rounded-lg overflow-hidden shadow-sm"
+                draggable={imagem.uploaded && !uploading}
+                onDragStart={(event) => {
+                  setDraggedIndex(index);
+                  event.dataTransfer.effectAllowed = "move";
+                }}
+                onDragEnd={() => setDraggedIndex(null)}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (draggedIndex !== null) void moverImagemPara(draggedIndex, index);
+                  setDraggedIndex(null);
+                }}
+                className={`relative group bg-white border rounded-lg overflow-hidden shadow-sm ${
+                  draggedIndex === index ? "opacity-50 ring-2 ring-teal-500" : ""
+                }`}
               >
                 {/* Preview */}
                 <div className="aspect-square bg-gray-100 relative">
@@ -281,6 +337,7 @@ export default function ImageUploader({
                     role="button"
                     tabIndex={0}
                     aria-label={`Ampliar ${imagem.nome}`}
+                    draggable={false}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
@@ -292,6 +349,9 @@ export default function ImageUploader({
                   {/* Número da ordem */}
                   <div className="absolute top-2 left-2 bg-teal-600 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center">
                     {index + 1}
+                  </div>
+                  <div className="absolute bottom-2 left-2 rounded bg-black/65 p-1 text-white" title="Arraste para reordenar">
+                    <GripVertical className="h-4 w-4" />
                   </div>
 
                   {/* Status de upload */}
@@ -310,7 +370,7 @@ export default function ImageUploader({
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <button
                       onClick={() => moverImagem(index, "up")}
-                      disabled={index === 0}
+                      disabled={index === 0 || uploading}
                       className="p-2 bg-white rounded-full hover:bg-gray-100 disabled:opacity-50"
                       title="Mover para cima"
                     >
@@ -318,7 +378,7 @@ export default function ImageUploader({
                     </button>
                     <button
                       onClick={() => moverImagem(index, "down")}
-                      disabled={index === imagens.length - 1}
+                      disabled={index === imagens.length - 1 || uploading}
                       className="p-2 bg-white rounded-full hover:bg-gray-100 disabled:opacity-50"
                       title="Mover para baixo"
                     >
@@ -342,6 +402,16 @@ export default function ImageUploader({
                   <p className="text-xs text-gray-400">
                     {formatarTamanho(imagem.tamanho)}
                   </p>
+                  <label className="mt-2 flex items-center gap-2 text-xs font-medium text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={imagem.incluirNoPdf ?? true}
+                      disabled={!imagem.uploaded || uploading}
+                      onChange={() => void alternarInclusaoNoPdf(index)}
+                      className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                    />
+                    Incluir no PDF
+                  </label>
                 </div>
               </div>
             ))}
