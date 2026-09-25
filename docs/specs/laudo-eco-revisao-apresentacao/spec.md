@@ -12,7 +12,7 @@
 - RF-008: a conclusão redigida pelo veterinário aparece uma única vez, antes das tabelas quantitativas, para leitura na primeira página.
 - RF-009: cada imagem aceita uma legenda opcional no fluxo de novo laudo e de edição; o editor limita novas entradas a 160 caracteres e preserva descrições legadas maiores, sem bloquear upload ou salvamento quando vazia.
 - RF-010: ordem, inclusão e legenda são persistidas na sessão ou laudo correspondente; o salvamento confirma a configuração antes de associar a imagem ao laudo.
-- RF-011: o PDF numera as imagens na ordem selecionada, repete identificação do paciente/data do exame na página de imagens e exibe somente a legenda explicitamente registrada; imagens sem legenda recebem apenas o número.
+- RF-011: o PDF numera as imagens na ordem selecionada, repete identificação do paciente/data do exame em toda página que contenha imagens, inclusive se uma grade continuar na página seguinte, e exibe somente a legenda explicitamente registrada; imagens sem legenda recebem apenas o número.
 - RF-012: alterar a legenda muda a chave de cache do PDF. Chamadas antigas de configuração sem `descricao` preservam a descrição existente.
 - RF-013: blocos qualitativos curtos permanecem com a análise quantitativa na página inicial quando há espaço, sem quebra causada por agrupamento aninhado.
 - RF-014: prévia, edição e renderização do PDF preservam todos os itens de cada campo qualitativo até o próximo campo conhecido ou seção, inclusive quando um campo contém múltiplos bullets.
@@ -36,7 +36,7 @@
 - CA-005: texto administrativo reconhecido aparece separado, enquanto achados clínicos permanecem nas observações.
 - CA-006: a conclusão aparece uma única vez antes da análise quantitativa no PDF.
 - CA-007: uma legenda opcional informada antes de salvar aparece sob a imagem correta no PDF, mesmo quando o laudo é salvo imediatamente após a edição.
-- CA-008: imagem sem legenda aparece numerada e sem texto clínico inferido; as seis imagens cabem na grade de uma página.
+- CA-008: imagem sem legenda aparece numerada e sem texto clínico inferido; seis imagens com legendas usuais cabem na grade de uma página. Quando legendas extensas fazem a grade continuar, cada página recebe título, paciente e data do exame.
 - CA-009: editar a legenda de uma imagem não altera a de outra; configurações sem campo de legenda não apagam descrições legadas.
 - CA-010: um laudo curto com uma medida, uma linha qualitativa e assinatura cabe em uma página; com seis imagens adicionadas, a grade numerada cabe na página seguinte.
 - CA-011: duas descrições de valvas no mesmo campo aparecem integralmente na prévia e no PDF; texto de uma seção seguinte não entra na avaliação qualitativa.

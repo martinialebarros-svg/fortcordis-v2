@@ -1589,10 +1589,6 @@ def gerar_pdf_laudo_eco(
             # o espaço disponível nela. Nos laudos curtos, mantém a grade de
             # imagens em página própria quando não houver altura suficiente.
             elements.append(CondPageBreak(190 * mm))
-            elements.append(criar_titulo_secao("IMAGENS"))
-            if identificacao_imagens:
-                elements.append(Paragraph(identificacao_imagens, create_pdf_styles()["Normal"]))
-            elements.append(Spacer(1, 3*mm))
             
             # Layout 2x3 (6 imagens por página) - similar ao modelo de referência
             IMG_WIDTH = 85*mm
@@ -1611,10 +1607,6 @@ def gerar_pdf_laudo_eco(
             for page_idx in range(0, len(imagens), 6):
                 if page_idx > 0:
                     elements.append(PageBreak())
-                    elements.append(criar_titulo_secao("IMAGENS"))
-                    if identificacao_imagens:
-                        elements.append(Paragraph(identificacao_imagens, create_pdf_styles()["Normal"]))
-                    elements.append(Spacer(1, 3*mm))
                 
                 # Pegar até 6 imagens para esta página
                 page_imagens = imagens[page_idx:page_idx + 6]
@@ -1679,8 +1671,19 @@ def gerar_pdf_laudo_eco(
                 # Criar tabela com as imagens
                 if table_data:
                     col_widths = [IMG_WIDTH + ESPACAMENTO, IMG_WIDTH + ESPACAMENTO]
-                    
-                    img_table = Table(table_data, colWidths=col_widths)
+                    styles = create_pdf_styles()
+                    header_rows = [[Paragraph("IMAGENS", styles["SecaoTitulo"]), ""]]
+                    if identificacao_imagens:
+                        header_rows.append([Paragraph(identificacao_imagens, styles["Normal"]), ""])
+
+                    # A tabela pode continuar na página seguinte quando as
+                    # legendas ocupam mais espaço. Repete título e paciente
+                    # junto às imagens que passarem para a próxima página.
+                    img_table = Table(
+                        header_rows + table_data,
+                        colWidths=col_widths,
+                        repeatRows=len(header_rows),
+                    )
                     img_table.setStyle(TableStyle([
                         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
@@ -1688,6 +1691,13 @@ def gerar_pdf_laudo_eco(
                         ('RIGHTPADDING', (0, 0), (-1, -1), ESPACAMENTO),
                         ('TOPPADDING', (0, 0), (-1, -1), ESPACAMENTO),
                         ('BOTTOMPADDING', (0, 0), (-1, -1), ESPACAMENTO),
+                        ('SPAN', (0, 0), (-1, 0)),
+                        ('BACKGROUND', (0, 0), (-1, 0), COR_PRIMARIA),
+                        ('LEFTPADDING', (0, 0), (-1, 0), 6),
+                        ('RIGHTPADDING', (0, 0), (-1, 0), 6),
+                        ('TOPPADDING', (0, 0), (-1, 0), 4),
+                        ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+                        *([('SPAN', (0, 1), (-1, 1))] if identificacao_imagens else []),
                     ]))
                     elements.append(img_table)
                     elements.append(Spacer(1, 3*mm))
