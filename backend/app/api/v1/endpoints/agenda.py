@@ -156,6 +156,7 @@ def _listar_bloqueios_ativos(db: Session) -> list[AgendaBloqueio]:
 
 
 def _ensure_agendamento_workflow_columns(db: Session) -> None:
+    """Compatibilidade legada executada no startup, nunca no caminho HTTP."""
     if db.info.get("_agenda_workflow_columns_checked"):
         return
 
@@ -175,6 +176,7 @@ def _ensure_agendamento_workflow_columns(db: Session) -> None:
         "excecao_deslocamento_concedida_por_nome": 'ALTER TABLE "agendamentos" ADD COLUMN excecao_deslocamento_concedida_por_nome VARCHAR(255)',
         "excecao_deslocamento_motivo": 'ALTER TABLE "agendamentos" ADD COLUMN excecao_deslocamento_motivo TEXT',
         "excecao_deslocamento_escopo": 'ALTER TABLE "agendamentos" ADD COLUMN excecao_deslocamento_escopo VARCHAR(64)',
+        "excecao_agenda_fechada_escopo": 'ALTER TABLE "agendamentos" ADD COLUMN excecao_agenda_fechada_escopo VARCHAR(100)',
     }
 
     faltantes = [sql for coluna, sql in alteracoes.items() if coluna not in colunas]
@@ -1424,7 +1426,6 @@ def _listar_agendamentos_ativos_periodo(
     *,
     agendamento_id_excluir: Optional[int] = None,
 ) -> list[dict]:
-    _ensure_agendamento_workflow_columns(db)
     data_sem_vazio = func.nullif(func.trim(Agendamento.data), "")
     query = (
         db.query(Agendamento)
@@ -2565,6 +2566,17 @@ def _motivo_agenda_fechada_confirmavel(mensagem: str) -> bool:
     )
 
 
+def _escopo_excecao_agenda_fechada(agendamento: Agendamento) -> str:
+    inicio = _to_local_naive(_coerce_datetime(agendamento.inicio))
+    fim = _to_local_naive(_coerce_datetime(agendamento.fim))
+    return f"{inicio.isoformat() if inicio else ''}|{fim.isoformat() if fim else ''}"
+
+
+def _excecao_agenda_fechada_ativa(agendamento: Agendamento) -> bool:
+    escopo = getattr(agendamento, "excecao_agenda_fechada_escopo", None)
+    return bool(escopo and escopo == _escopo_excecao_agenda_fechada(agendamento))
+
+
 def _validar_agendamento_no_funcionamento(
     db: Session,
     agendamento: Agendamento,
@@ -2792,7 +2804,6 @@ def _adquirir_lock_escrita_agenda(db: Session) -> None:
 
 
 def _fetch_related_names(db: Session, agendamento: Agendamento) -> dict:
-    _ensure_agendamento_workflow_columns(db)
     paciente_nome = None
     tutor_nome = None
     tutor_telefone = None
@@ -3055,6 +3066,7 @@ def _serialize_agendamento(
         "fim": fim_dt.strftime("%Y-%m-%d %H:%M:%S") if fim_dt else None,
         "status": _status_efetivo_agendamento(agendamento),
         "reserva_expira_em": reserva_expira_dt.isoformat() if reserva_expira_dt else None,
+        "excecao_agenda_fechada_ativa": _excecao_agenda_fechada_ativa(agendamento),
         "observacoes": agendamento.observacoes,
         "data": data,
         "hora": hora,
@@ -3082,7 +3094,6 @@ def _serialize_agendamento(
 
 
 def _query_agendamentos_com_relacionados(db: Session):
-    _ensure_agendamento_workflow_columns(db)
     return (
         db.query(
             Agendamento,
@@ -3577,7 +3588,6 @@ def listar_agendamentos(
     current_user: User = Depends(get_current_user)
 ):
     """Lista agendamentos com filtros e nomes dos relacionados"""
-    _ensure_agendamento_workflow_columns(db)
     query_ids = _aplicar_filtros_lista_agenda(
         db.query(Agendamento.id),
         data_inicio=data_inicio,
@@ -5709,7 +5719,6 @@ def obter_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Obtem um agendamento especifico"""
-    _ensure_agendamento_workflow_columns(db)
     agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
     if not agendamento:
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
@@ -5724,7 +5733,6 @@ def criar_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Cria novo agendamento"""
-    _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
     from app.services.whatsapp_bot_pedido_agenda import iniciar, vincular
     pedido, existente = iniciar(db, agendamento, current_user)
@@ -5796,6 +5804,8 @@ def criar_agendamento(
         db_agendamento,
         permitir_excecao_agenda_fechada=confirmar_agenda_fechada,
     )
+    if motivo_agenda_fechada:
+        db_agendamento.excecao_agenda_fechada_escopo = _escopo_excecao_agenda_fechada(db_agendamento)
     reservas_expiradas_revisadas = _validar_slot_disponivel(
         db,
         db_agendamento,
@@ -5926,7 +5936,6 @@ def atualizar_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Atualiza agendamento"""
-    _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
     _expirar_reservas_vencidas(db)
 
@@ -5955,6 +5964,9 @@ def atualizar_agendamento(
     confirmou_slot_reserva_expirada = bool(
         getattr(agendamento, "confirmar_slot_reserva_expirada", False)
     )
+    confirmar_agenda_fechada = bool(getattr(agendamento, "confirmar_agenda_fechada", False))
+    if confirmar_agenda_fechada and not _usuario_tem_papel(current_user, "admin"):
+        raise HTTPException(status_code=403, detail="Somente administradores podem confirmar agendamento com a agenda fechada.")
     excecao_operacional_concedida = bool(getattr(agendamento, "excecao_operacional_concedida", False))
     motivo_excecao_operacional = str(getattr(agendamento, "motivo_excecao_operacional", "") or "").strip()
     motivo_excecao_deslocamento = str(getattr(agendamento, "motivo_excecao_deslocamento", "") or "").strip()
@@ -5984,6 +5996,7 @@ def atualizar_agendamento(
     update_data = agendamento.model_dump(exclude_unset=True)
     update_data.pop("confirmar_conflito_deslocamento", None)
     update_data.pop("confirmar_slot_reserva_expirada", None)
+    update_data.pop("confirmar_agenda_fechada", None)
     update_data.pop("excecao_operacional_concedida", None)
     update_data.pop("motivo_excecao_operacional", None)
     update_data.pop("motivo_excecao_deslocamento", None)
@@ -6081,7 +6094,12 @@ def atualizar_agendamento(
             alterou_horario = alterou_horario or (clinica_original != clinica_atual)
 
         if alterou_horario or reativando_inativo:
-            _validar_agendamento_no_funcionamento(db, db_agendamento)
+            motivo_agenda_fechada = _validar_agendamento_no_funcionamento(
+                db, db_agendamento,
+                permitir_excecao_agenda_fechada=(confirmar_agenda_fechada or _excecao_agenda_fechada_ativa(db_agendamento)),
+            )
+            if motivo_agenda_fechada and confirmar_agenda_fechada:
+                db_agendamento.excecao_agenda_fechada_escopo = _escopo_excecao_agenda_fechada(db_agendamento)
             reservas_expiradas_revisadas = _validar_slot_disponivel(
                 db,
                 db_agendamento,
@@ -6096,7 +6114,12 @@ def atualizar_agendamento(
             )
     elif reativando_inativo:
         _apply_service_duration_if_needed(db, db_agendamento)
-        _validar_agendamento_no_funcionamento(db, db_agendamento)
+        motivo_agenda_fechada = _validar_agendamento_no_funcionamento(
+            db, db_agendamento,
+            permitir_excecao_agenda_fechada=(confirmar_agenda_fechada or _excecao_agenda_fechada_ativa(db_agendamento)),
+        )
+        if motivo_agenda_fechada and confirmar_agenda_fechada:
+            db_agendamento.excecao_agenda_fechada_escopo = _escopo_excecao_agenda_fechada(db_agendamento)
         reservas_expiradas_revisadas = _validar_slot_disponivel(
             db,
             db_agendamento,
@@ -6157,6 +6180,9 @@ def atualizar_agendamento(
                 "origem_atendimento": _normalizar_origem_atendimento(getattr(db_agendamento, "origem_atendimento", None)),
             },
             "override_conflito_deslocamento": override_conflito_deslocamento,
+            "excecao_agenda_fechada_reutilizada": bool(
+                not confirmar_agenda_fechada and _excecao_agenda_fechada_ativa(db_agendamento)
+            ),
             "confirmou_revisao_slot_reserva_expirada": bool(reservas_expiradas_revisadas),
             "confirmou_reativacao_reserva_expirada": bool(
                 reativando_expirado and confirmou_slot_reserva_expirada
@@ -6172,6 +6198,14 @@ def atualizar_agendamento(
         },
         request=request,
     )
+    if confirmar_agenda_fechada and _excecao_agenda_fechada_ativa(db_agendamento):
+        registrar_auditoria(
+            current_user=current_user, modulo="agenda", entidade="agendamento",
+            entidade_id=db_agendamento.id, acao="AGENDAMENTO_AGENDA_FECHADA_CONFIRMADO",
+            descricao=f"Administrador confirmou edicao fora do funcionamento - {_descricao_contexto_agendamento(contexto)}",
+            detalhes={"escopo": db_agendamento.excecao_agenda_fechada_escopo,
+                      "contexto_agendamento": contexto}, request=request,
+        )
     observacoes_atualizadas = str(db_agendamento.observacoes or "")
     if "[Assistente agenda] sugestao aceita" in observacoes_atualizadas:
         _registrar_evento_funil_assistente(
@@ -6242,7 +6276,6 @@ def atualizar_status(
     """Atualiza apenas o status do agendamento."""
     from decimal import Decimal
     from app.models.ordem_servico import OrdemServico
-    _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
     _expirar_reservas_vencidas(db)
 
@@ -6331,7 +6364,11 @@ def atualizar_status(
     if status_normalizado in AGENDA_STATUS_BLOQUEIAM_SLOT:
         _apply_service_duration_if_needed(db, db_agendamento)
         if reativando_inativo:
-            _validar_agendamento_no_funcionamento(db, db_agendamento)
+            _validar_agendamento_no_funcionamento(
+                db,
+                db_agendamento,
+                permitir_excecao_agenda_fechada=_excecao_agenda_fechada_ativa(db_agendamento),
+            )
         reservas_expiradas_revisadas = _validar_slot_disponivel(
             db,
             db_agendamento,
@@ -6705,7 +6742,6 @@ def reabilitar_reserva_expirada(
     conflito com outros agendamentos, a reserva volta a segurar o horario por
     mais um periodo, ate a clinica enviar os dados do paciente e do tutor.
     """
-    _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
     _expirar_reservas_vencidas(db)
 
@@ -6743,7 +6779,11 @@ def reabilitar_reserva_expirada(
     _apply_service_duration_if_needed(db, db_agendamento)
     _validar_regras_origem_agendamento(db, db_agendamento, contexto="reabilitar a reserva")
     _validar_prazo_reserva(db_agendamento)
-    _validar_agendamento_no_funcionamento(db, db_agendamento)
+    _validar_agendamento_no_funcionamento(
+        db,
+        db_agendamento,
+        permitir_excecao_agenda_fechada=_excecao_agenda_fechada_ativa(db_agendamento),
+    )
     reservas_expiradas_revisadas = _validar_slot_disponivel(
         db,
         db_agendamento,
@@ -6848,7 +6888,6 @@ def deletar_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Deleta agendamento quando o usuario e admin ou da recepcao."""
-    _ensure_agendamento_workflow_columns(db)
     if not usuario_pode_excluir_agendamento(current_user):
         raise HTTPException(
             status_code=403,

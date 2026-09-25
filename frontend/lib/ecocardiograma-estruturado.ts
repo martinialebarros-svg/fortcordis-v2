@@ -53,6 +53,38 @@ export function criarQualitativaEcoLegadaVazia(): QualitativaEcoLegada {
   };
 }
 
+export function extrairQualitativaEcoDaDescricao(descricao: string): QualitativaEcoLegada {
+  const resultado = criarQualitativaEcoLegadaVazia();
+  const linhas = String(descricao || "").split(/\r?\n/);
+  let dentroDaSecao = false;
+  let campoAtual: keyof QualitativaEcoLegada | null = null;
+  let conteudo: string[] = [];
+
+  const guardar = () => {
+    if (campoAtual) resultado[campoAtual] = conteudo.join("\n").trim();
+  };
+
+  for (const linha of linhas) {
+    if (/^\s*##/.test(linha)) {
+      if (dentroDaSecao) break;
+      const normalizada = linha.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      dentroDaSecao = normalizada.includes("qualitativa") && normalizada.includes("avalia");
+      continue;
+    }
+    if (!dentroDaSecao) continue;
+    const marcador = linha.match(/^\s*-\s*(valvas|camaras|funcao|pericardio|vasos|ad_vd)\s*:\s*(.*)$/i);
+    if (marcador) {
+      guardar();
+      campoAtual = marcador[1].toLowerCase() as keyof QualitativaEcoLegada;
+      conteudo = marcador[2] ? [marcador[2]] : [];
+    } else if (campoAtual) {
+      conteudo.push(linha);
+    }
+  }
+  guardar();
+  return resultado;
+}
+
 export function criarEcocardiogramaEstruturadoInicial(): EcocardiogramaEstruturadoPersistido {
   return {
     versao: 1,

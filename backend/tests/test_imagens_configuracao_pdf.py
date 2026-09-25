@@ -25,6 +25,7 @@ from app.models.imagem_laudo import ImagemLaudo, ImagemTemporaria  # noqa: E402
 from app.services.laudo_pdf_service import (  # noqa: E402
     _carregar_stamp_cache,
     _listar_imagens_incluidas_no_pdf,
+    _preparar_imagens_pdf,
 )
 
 MIGRATION_PATH = BACKEND_DIR / "migrations" / "versions" / "20260924_91_imagens_incluir_no_pdf.py"
@@ -95,9 +96,41 @@ class ImagensConfiguracaoPdfTest(unittest.TestCase):
             3,
         )
         self.assertEqual(stamp["imagens_config"], [
-            {"id": 2, "ordem": 0, "incluir_no_pdf": True},
-            {"id": 1, "ordem": 1, "incluir_no_pdf": False},
+            {"id": 2, "ordem": 0, "incluir_no_pdf": True, "descricao": ""},
+            {"id": 1, "ordem": 1, "incluir_no_pdf": False, "descricao": ""},
         ])
+        imagens_bytes, imagens_eco = _preparar_imagens_pdf(_listar_imagens_incluidas_no_pdf(self.session, 7))
+        self.assertEqual(imagens_bytes, [b"b"])
+        self.assertEqual(imagens_eco, [{"conteudo": b"b", "descricao": ""}])
+
+    def test_legenda_opcional_persiste_sem_alterar_outra_imagem(self) -> None:
+        self.session.add_all([
+            ImagemLaudo(id=1, laudo_id=7, nome_arquivo="a.jpg", conteudo=b"a", ordem=0, descricao="Original"),
+            ImagemLaudo(id=2, laudo_id=7, nome_arquivo="b.jpg", conteudo=b"b", ordem=1, descricao="Preservar"),
+        ])
+        self.session.commit()
+
+        atualizar_configuracao_imagens_laudo(
+            7,
+            ImagensConfiguracaoPayload(imagens=[
+                ImagemConfiguracaoItem(id=1, ordem=0, descricao="  Doppler da IT  "),
+                ImagemConfiguracaoItem(id=2, ordem=1),
+            ]),
+            self.session,
+            SimpleNamespace(id=3),
+        )
+
+        self.assertEqual(self.session.get(ImagemLaudo, 1).descricao, "Doppler da IT")
+        self.assertEqual(self.session.get(ImagemLaudo, 2).descricao, "Preservar")
+
+        stamp = _carregar_stamp_cache(
+            self.session,
+            SimpleNamespace(id=7, tipo="ecocardiograma", status="Rascunho", updated_at=None, created_at=None, data_laudo=None),
+            3,
+        )
+        self.assertEqual(stamp["imagens_config"][0]["descricao"], "Doppler da IT")
+        _, imagens_eco = _preparar_imagens_pdf(_listar_imagens_incluidas_no_pdf(self.session, 7))
+        self.assertEqual(imagens_eco[0]["descricao"], "Doppler da IT")
 
     def test_configuracao_temporaria_fica_restrita_a_sessao(self) -> None:
         futuro = datetime.utcnow() + timedelta(hours=1)
@@ -118,6 +151,23 @@ class ImagensConfiguracaoPdfTest(unittest.TestCase):
 
         self.assertFalse(self.session.get(ImagemTemporaria, 10).incluir_no_pdf)
         self.assertTrue(self.session.get(ImagemTemporaria, 11).incluir_no_pdf)
+
+    def test_legenda_temporaria_e_restrita_a_sessao(self) -> None:
+        futuro = datetime.utcnow() + timedelta(hours=1)
+        self.session.add_all([
+            ImagemTemporaria(id=10, session_id="sessao-a", nome_arquivo="a.jpg", conteudo=b"a", ordem=0, expira_em=futuro),
+            ImagemTemporaria(id=11, session_id="sessao-b", nome_arquivo="b.jpg", conteudo=b"b", ordem=0, expira_em=futuro),
+        ])
+        self.session.commit()
+
+        atualizar_configuracao_imagens_temporarias(
+            "sessao-a",
+            ImagensConfiguracaoPayload(imagens=[ImagemConfiguracaoItem(id=10, ordem=0, descricao="Imagem apical")]),
+            self.session,
+            SimpleNamespace(id=3),
+        )
+        self.assertEqual(self.session.get(ImagemTemporaria, 10).descricao, "Imagem apical")
+        self.assertEqual(self.session.get(ImagemTemporaria, 11).descricao or "", "")
 
     def test_associacao_preserva_ordem_e_selecao_para_pdf(self) -> None:
         futuro = datetime.utcnow() + timedelta(hours=1)

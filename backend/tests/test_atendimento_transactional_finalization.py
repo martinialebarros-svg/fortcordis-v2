@@ -319,7 +319,6 @@ class AtendimentoTransactionalFinalizationTest(unittest.TestCase):
         registro, agendamento, *_ = self._seed_linked()
 
         with (
-            patch.object(agenda, "_ensure_agendamento_workflow_columns"),
             patch.object(agenda, "_adquirir_lock_escrita_agenda"),
             patch.object(agenda, "_expirar_reservas_vencidas"),
         ):
@@ -364,7 +363,6 @@ class AtendimentoTransactionalFinalizationTest(unittest.TestCase):
         )
 
         with (
-            patch.object(agenda, "_ensure_agendamento_workflow_columns"),
             patch.object(agenda, "_adquirir_lock_escrita_agenda"),
             patch.object(agenda, "_expirar_reservas_vencidas"),
         ):

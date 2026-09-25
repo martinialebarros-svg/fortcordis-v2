@@ -11,7 +11,7 @@ from app.db.database import get_db
 from app.models.referencia_eco import ReferenciaEco
 from app.models.user import User
 from app.core.security import get_current_user
-from app.utils.referencia_eco_defaults import aplicar_defaults_publicados_caninos
+from app.utils.referencia_eco_defaults import aplicar_defaults_publicados_caninos, normalizar_especie_referencia
 
 router = APIRouter()
 
@@ -42,16 +42,7 @@ _MAPEAMENTO_CSV_FELINOS = {
 
 def _normalizar_especie(especie: Optional[str]) -> Optional[str]:
     """Normaliza texto de especie para Canina/Felina."""
-    if not especie:
-        return None
-
-    valor = especie.strip().lower()
-    if valor.startswith("fel") or "gato" in valor or "cat" in valor:
-        return "Felina"
-    if valor.startswith("can") or "cao" in valor or "cão" in valor or "dog" in valor:
-        return "Canina"
-
-    return especie.strip()
+    return normalizar_especie_referencia(especie)
 
 
 def _aplicar_filtro_especie(query, especie: Optional[str]):
@@ -65,7 +56,7 @@ def _aplicar_filtro_especie(query, especie: Optional[str]):
     if especie_norm == "Felina":
         return query.filter(ReferenciaEco.especie.ilike("felin%"))
 
-    return query.filter(ReferenciaEco.especie.ilike(especie_norm))
+    return query.filter(func.lower(ReferenciaEco.especie) == especie_norm.lower())
 
 
 def _referencia_to_dict(r: ReferenciaEco, peso_kg_override: Optional[float] = None) -> dict:

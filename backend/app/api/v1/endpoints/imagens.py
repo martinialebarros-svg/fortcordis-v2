@@ -2,7 +2,7 @@
 import uuid
 import os
 from datetime import datetime, timedelta
-from typing import Any, List
+from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -26,6 +26,7 @@ class ImagemConfiguracaoItem(BaseModel):
     id: int
     ordem: int = Field(ge=0)
     incluir_no_pdf: bool = True
+    descricao: Optional[str] = None
 
 
 class ImagensConfiguracaoPayload(BaseModel):
@@ -268,7 +269,7 @@ def atualizar_configuracao_imagens_temporarias(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Atualiza ordem e inclusao no PDF das imagens de uma sessao temporaria."""
+    """Atualiza ordem, inclusao e legenda opcional das imagens temporarias."""
     del current_user
     ids = [item.id for item in payload.imagens]
     if len(ids) != len(set(ids)):
@@ -290,6 +291,8 @@ def atualizar_configuracao_imagens_temporarias(
     for item in payload.imagens:
         por_id[item.id].ordem = item.ordem
         por_id[item.id].incluir_no_pdf = item.incluir_no_pdf
+        if item.descricao is not None:
+            por_id[item.id].descricao = item.descricao.strip()
     db.commit()
     return {"message": "Configuração das imagens temporárias atualizada"}
 
@@ -301,7 +304,7 @@ def atualizar_configuracao_imagens_laudo(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Atualiza atomicamente ordem e inclusao no PDF das imagens do laudo."""
+    """Atualiza atomicamente ordem, inclusao e legenda opcional das imagens."""
     del current_user
     ids = [item.id for item in payload.imagens]
     if len(ids) != len(set(ids)):
@@ -323,6 +326,8 @@ def atualizar_configuracao_imagens_laudo(
     for item in payload.imagens:
         por_id[item.id].ordem = item.ordem
         por_id[item.id].incluir_no_pdf = item.incluir_no_pdf
+        if item.descricao is not None:
+            por_id[item.id].descricao = item.descricao.strip()
     db.commit()
     return {"message": "Configuração das imagens do laudo atualizada"}
 
