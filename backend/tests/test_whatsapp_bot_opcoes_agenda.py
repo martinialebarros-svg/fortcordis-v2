@@ -200,7 +200,7 @@ class OpcoesTests(unittest.TestCase):
             self.assertEqual(self.db.query(Pedido).count(),0)
             self.seed(); self.p.status='cancelado'; self.db.commit()
             result=gerar_resposta(self.db,wa_identity='test',conversation_id='49',corpo_mensagem='Qual a disponibilidade pra eco?',modo='auto',provider=provider)
-            self.assertIn('novo pedido',result.texto_gerado)
+            self.assertIn('nova solicitação de eco',result.texto_gerado)
             self.assertTrue(result.auto_elegivel)
             result=gerar_resposta(self.db,wa_identity='test',conversation_id='49',corpo_mensagem='Novo pedido',modo='auto',provider=provider)
             self.assertEqual(json.loads(result.tools_usadas)['solicitacao_agendamento']['status'],'coletando')

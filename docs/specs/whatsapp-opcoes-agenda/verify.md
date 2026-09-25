@@ -29,3 +29,15 @@ Cobertura: composição/duração exata, escopo, limite de três opções, corte
 - Guardrail SDD e `git diff --check` aprovados. Sem alterações frontend.
 - Revalidação geral concluída: 1418 testes e 297 subtestes aprovados, sete ignorados conforme condições do ambiente, em 54,56 s. Executada com `FORTCORDIS_PROCESS_ROLE=api` e SQLite em arquivo temporário, seguindo a configuração de banco/perfil do CI. Log: `/private/tmp/whatsapp-disponibilidade-full-final.log`.
 - A interrupção anterior não se repetiu com essa configuração. Isso não estabelece isoladamente a causa do erro nativo anterior.
+
+## Disponibilidade natural e convite contextual (25/09/2026)
+
+- Evidência do teste real: saudação “Bom dia” respondida e entregue às 08:57; pergunta “Qual a disponibilidade de horário pra eco” recebida às 08:58 e bloqueada por falta de fonte, com nova pausa. A variação não era reconhecida pela gramática anterior. Não houve criação de nova solicitação.
+- Gramática ampliada com “de horário(s)”, disponibilidade/horários com tem/têm/há, “Vocês têm”, saudação inicial e cortesia final, sempre na mensagem integral. Exame permanece literal; negações, sintomas, perguntas de preço, datas e textos mistos não entram no atalho.
+- Convite de novo pedido cancelado requer resposta enviada sem edição, recente e no mesmo escopo. “Sim” inicia coleta apenas do exame; “não” encerra o convite. ID/versão/status, agenda, tempo e resposta mais recente são revalidados. Nenhuma reserva ou pedido duplicado é criado na geração.
+- Worker exercitado com geração real e transporte simulado: “sim”/“não” superam cortesia; pausa, responsável humano, janela fechada e emergência continuam impedindo o fluxo administrativo. Nenhuma chamada ao provider nessas respostas determinísticas.
+- Testes focados: 60 aprovados, dois ignorados conforme condições do ambiente e 48 subtestes aprovados. Log: `/private/tmp/whatsapp-natural-focused.log`.
+- Revisão independente identificou que eventos de supressão/handoff com clínica nula poderiam deixar um convite anterior acessível. A consulta agora considera a última resposta da identidade/conversa e só depois valida a clínica. Regressão aprovada para supressão, encaminhamento e bloqueio posteriores, inclusive com “quero sim”. Arquivo específico: 12 testes e 45 subtestes aprovados.
+- Snapshot final: backend completo com 1431 testes e 348 subtestes aprovados, sete ignorados conforme condições do ambiente, em 54,93 s. Configuração `FORTCORDIS_PROCESS_ROLE=api` e SQLite temporário em arquivo. Log `/private/tmp/whatsapp-natural-full-final.log`.
+- `git diff --check` e guardrail SDD aprovados sobre os arquivos modificados e novos.
+- Nenhuma mensagem real, mudança de configuração, pausa de produção, commit ou publicação nesta etapa. Sem mudanças de frontend ou migração.

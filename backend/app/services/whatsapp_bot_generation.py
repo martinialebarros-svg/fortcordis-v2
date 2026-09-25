@@ -517,13 +517,18 @@ def gerar_resposta(
     pedido = ultimo(db, wa_identity, clinica_id) if match_type == "clinica" and clinica_id else None
     from app.services.whatsapp_bot_continuidade import resposta_pedido, novo_pedido, KEY as CONTINUIDADE_KEY
     from app.services.whatsapp_bot_agendamento import preparar, validar_texto, confirma_dados, KEY as COLETA_KEY
+    from app.services.whatsapp_bot_disponibilidade import convidar, responder as responder_convite
     from app.services.whatsapp_bot_opcoes_agenda import responder as responder_opcoes, apos_confirmacao, validar_renderizado, KEY as OPCOES_KEY
     administrative = responder_opcoes(db, pedido, coleta_anterior, corpo_mensagem, wa_identity, conversation_id) if match_type == 'clinica' and conversation_id else None
     if pedido and novo_pedido(corpo_mensagem):
         coleta, texto = preparar(None, None, 'nova solicitação', clinica_id, contexto)
         coleta['fila_anterior_id'] = pedido.id
         administrative = (texto, {COLETA_KEY: coleta})
-    elif pedido and administrative is None:
+    elif administrative is None and match_type == 'clinica' and clinica_id:
+        convite = responder_convite(db, pedido, corpo_mensagem, wa_identity, clinica_id, conversation_id, contexto)
+        if convite and validar_texto(convite[1].get(COLETA_KEY, {}), convite[0]).aprovado:
+            administrative = convite
+    if pedido and administrative is None:
         followup = resposta_pedido(db, pedido, corpo_mensagem, coleta_anterior)
         if followup:
             administrative = (followup[0], {CONTINUIDADE_KEY: followup[1]})
@@ -542,17 +547,24 @@ def gerar_resposta(
         from app.services.whatsapp_bot_fila import LABELS
         ativa = coleta_anterior and coleta_anterior.get('status') in ('coletando', 'aguardando_confirmacao')
         if pedido and not novo_pedido(corpo_mensagem) and not (ativa and coleta_anterior.get('fila_anterior_id') == pedido.id):
-            coleta = {'clinica_id': clinica_id, 'status': 'acompanhamento', 'pedido_id': pedido.id, 'dados': {}}
-            texto = ('Sua última solicitação está como “' + LABELS[pedido.status]
-                     + '”. Para iniciar outro pedido, escreva “novo pedido”. Para ajustes, fale com a equipe.')
+            convite = convidar(pedido, exame_disponibilidade, wa_identity, clinica_id, conversation_id)
+            if convite:
+                texto, audit = convite
+                coleta = {}
+            else:
+                coleta = {'clinica_id': clinica_id, 'status': 'acompanhamento', 'pedido_id': pedido.id, 'dados': {}}
+                texto = ('Sua última solicitação está como “' + LABELS[pedido.status]
+                         + '”. Para iniciar outro pedido, escreva “novo pedido”. Para ajustes, fale com a equipe.')
+                audit = {COLETA_KEY: coleta}
         else:
             update = SimpleNamespace(exame=exame_disponibilidade) if exame_disponibilidade else None
             coleta, texto = preparar(None if novo_pedido(corpo_mensagem) else coleta_anterior,
                                       update, corpo_mensagem, clinica_id, contexto)
             if pedido:
                 coleta['fila_anterior_id'] = pedido.id
+            audit = {COLETA_KEY: coleta}
         if validar_texto(coleta, texto).aprovado:
-            administrative = (texto, {COLETA_KEY: coleta})
+            administrative = (texto, audit)
     if administrative and COLETA_KEY in administrative[1] and conversation_id:
         texto, extra = apos_confirmacao(db, clinica_id, administrative[1][COLETA_KEY], administrative[0])
         administrative = (texto, {**administrative[1], **extra})
