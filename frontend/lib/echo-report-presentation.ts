@@ -116,12 +116,15 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
   const alerts: EchoCalculationAlert[] = [];
   const weight = number(weightKg);
   if (weight !== null && weight > 0) {
+    const selectedNormalizedKey = raw.VE_tecnica_relatorio === "2d"
+      ? "DIVEd_normalizado_2D"
+      : "DIVEd_normalizado";
     for (const [diameterKey, normalizedKey] of [["DIVEd", "DIVEd_normalizado"], ["DIVEd_2D", "DIVEd_normalizado_2D"]]) {
       const diameter = number(measurements[diameterKey]);
       if (diameter === null || diameter <= 0) continue;
       const calculated = Number(((diameter / 10) / weight ** 0.294).toFixed(2));
       const recorded = number(raw[normalizedKey]);
-      if (recorded !== null && Math.abs(recorded - calculated) > 0.05) {
+      if (normalizedKey === selectedNormalizedKey && recorded !== null && Math.abs(recorded - calculated) > 0.05) {
         alerts.push({ key: normalizedKey, recorded, calculated });
       }
       measurements[normalizedKey] = String(calculated);

@@ -11,6 +11,29 @@ describe("prévia de ecocardiograma", () => {
     expect(alerts).toEqual([{ key: "DIVEd_normalizado", recorded: 1.964, calculated: 2.18 }]);
   });
 
+  it("alerta somente sobre o DIVEd normalizado da técnica selecionada", () => {
+    const stored = {
+      DIVEd: "30",
+      DIVEd_normalizado: "9",
+      DIVEd_2D: "32",
+      DIVEd_normalizado_2D: "8",
+      VE_tecnica_relatorio: "2d",
+    };
+    const selected2D = prepareEchoReportMeasurements(stored, 10);
+    expect(selected2D.measurements).toMatchObject({
+      DIVEd_normalizado: "1.52",
+      DIVEd_normalizado_2D: "1.63",
+    });
+    expect(selected2D.alerts).toEqual([{
+      key: "DIVEd_normalizado_2D", recorded: 8, calculated: 1.63,
+    }]);
+
+    const selectedM = prepareEchoReportMeasurements({ ...stored, VE_tecnica_relatorio: "modo_m" }, 10);
+    expect(selectedM.alerts).toEqual([{
+      key: "DIVEd_normalizado", recorded: 9, calculated: 1.52,
+    }]);
+  });
+
   it("converte comprimentos legados em cm somente quando o conjunto sustenta a conversão", () => {
     const { measurements } = prepareEchoReportMeasurements({ DIVEd: "3", SIVd: "0.7", PLVEd: "0.8" }, 10);
     expect(measurements.DIVEd).toBe("30");

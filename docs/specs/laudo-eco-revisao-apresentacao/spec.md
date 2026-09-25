@@ -4,7 +4,7 @@
 
 - RF-001: a prévia agrupa apenas medidas ecocardiográficas registradas por VE, átrio/aorta, artéria pulmonar, Doppler e regurgitações, com rótulos clínicos, valores e unidades alinhados ao PDF.
 - RF-002: a prévia busca a referência existente de forma assíncrona por espécie e peso, mostra a linha de peso selecionada e só exibe faixa completa quando disponível. Falha da busca não bloqueia a prévia.
-- RF-003: a prévia usa a mesma regra do PDF para conversão de conjunto legado em cm e cálculo `DIVEd [cm] / peso^0,294`. Se o valor persistido diferir em mais de 0,05, sinaliza ambos os valores e o peso usado, sem gravar ou alterar o laudo.
+- RF-003: a prévia usa a mesma regra do PDF para conversão de conjunto legado em cm e cálculo `DIVEd [cm] / peso^0,294`. Se o valor persistido da técnica selecionada diferir em mais de 0,05, sinaliza ambos os valores e o peso usado, sem gravar ou alterar o laudo; medidas da técnica não selecionada não geram alerta visível.
 - RF-004: linhas iniciadas por `[Assistente agenda]` ou `[Reserva manual]` aparecem em registro operacional; as demais permanecem em observações clínicas.
 - RF-005: o PDF exibe apenas grupos e parâmetros com medida numérica não zero registrada; quando não há medidas, informa sua ausência.
 - RF-006: o PDF só exibe faixas completas obtidas da referência selecionada por espécie e peso. TAPSE pode usar a faixa auxiliar por peso já aplicada pelo serviço; MAPSE sem faixa cadastrada permanece indisponível, assim como qualquer parâmetro sem referência.
@@ -44,3 +44,4 @@
 - CA-012: um exemplo sintético de tamanho moderado ocupa duas páginas, com assinatura e seis imagens juntas na segunda; sem imagens, a última descrição qualitativa acompanha a assinatura.
 - CA-013: MAPSE sem faixa cadastrada mostra faixa indisponível e TAPSE fora dos pesos tabulados também; valores cadastrados permanecem intactos.
 - CA-014: ao digitar a legenda da primeira imagem enquanto a segunda ainda está sendo enviada, a conclusão do segundo upload mantém a legenda visível e a configuração salva contém os dois identificadores com a descrição correta.
+- CA-015: quando modo M e 2D têm DIVEd normalizado divergente, somente a técnica selecionada gera alerta na prévia, embora os dois cálculos permaneçam disponíveis para a apresentação adequada.
