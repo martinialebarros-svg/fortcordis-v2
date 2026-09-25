@@ -1417,8 +1417,6 @@ def gerar_pdf_laudo_eco(
             {'chave': 'VSF', 'label': 'VSF (Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
             {'chave': 'FE_Teicholz', 'label': 'FE (Teicholz)', 'unidade': '%', 'ref_min': 55, 'ref_max': 80},
             {'chave': 'DeltaD_FS', 'label': 'Delta D / %FS', 'unidade': '%', 'ref_min': 28, 'ref_max': 42},
-            {'chave': 'TAPSE', 'label': 'TAPSE (excursão sistólica do plano anular tricúspide)', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
-            {'chave': 'MAPSE', 'label': 'MAPSE (excursão sistólica do plano anular mitral)', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
         ]
         params_ve_modo_2d = [
             {'chave': 'DIVEd_2D', 'label': 'DIVEd 2D (Diâmetro interno do VE em diástole)', 'unidade': 'mm', 'ref_min': 16.0, 'ref_max': 24.0},
@@ -1432,6 +1430,10 @@ def gerar_pdf_laudo_eco(
             {'chave': 'VSF_2D', 'label': 'VSF 2D (Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
             {'chave': 'FE_Teicholz_2D', 'label': 'FE 2D (Teicholz)', 'unidade': '%', 'ref_min': 55, 'ref_max': 80},
             {'chave': 'DeltaD_FS_2D', 'label': 'Delta D / %FS 2D', 'unidade': '%', 'ref_min': 28, 'ref_max': 42},
+        ]
+        params_excursao_anular = [
+            {'chave': 'TAPSE', 'label': 'TAPSE (excursão sistólica do plano anular tricúspide)', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
+            {'chave': 'MAPSE', 'label': 'MAPSE (excursão sistólica do plano anular mitral)', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
         ]
         
         # Grupo: Átrio Esquerdo / Aorta - SEM Interpretação
@@ -1496,6 +1498,7 @@ def gerar_pdf_laudo_eco(
         referencia_eco = dados_pdf.get("referencia_eco")
         params_ve_modo_m = aplicar_referencia_eco(params_ve_modo_m, referencia_eco)
         params_ve_modo_2d = aplicar_referencia_eco(params_ve_modo_2d, referencia_eco)
+        params_excursao_anular = aplicar_referencia_eco(params_excursao_anular, referencia_eco)
         params_ae_aorta = aplicar_referencia_eco(params_ae_aorta, referencia_eco)
         params_ap_aorta = aplicar_referencia_eco(params_ap_aorta, referencia_eco)
         params_doppler_saidas = aplicar_referencia_eco(params_doppler_saidas, referencia_eco)
@@ -1519,6 +1522,7 @@ def gerar_pdf_laudo_eco(
 
         grupos_medidas = (
             (titulo_ve, params_ve_relatorio),
+            ("Excursão do plano anular", params_excursao_anular),
             ("Átrio esquerdo/ Aorta", params_ae_aorta),
             ("Artéria pulmonar/ Aorta", params_ap_aorta),
             ("Doppler - Saídas", params_doppler_saidas),

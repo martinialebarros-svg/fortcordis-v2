@@ -19,16 +19,19 @@ const mMode: Parameter[] = [
   parameter("VSF", "VSF · Teicholz", "ml", "esv"),
   parameter("FE_Teicholz", "FE · Teicholz", "%", "ef"),
   parameter("DeltaD_FS", "Encurtamento fracional · %FS", "%", "fs"),
-  parameter("TAPSE", "TAPSE", "mm", "tapse"),
-  parameter("MAPSE", "MAPSE", "mm", "mapse"),
 ];
-const mode2D: Parameter[] = mMode.slice(0, 11).map((item) => ({
+const mode2D: Parameter[] = mMode.map((item) => ({
   ...item,
   key: `${item.key}_2D`,
   label: `${item.label} · 2D`,
 }));
+const annularExcursion: Parameter[] = [
+  parameter("TAPSE", "TAPSE · excursão anular tricúspide", "mm", "tapse"),
+  parameter("MAPSE", "MAPSE · excursão anular mitral", "mm", "mapse"),
+];
 
 const otherGroups: { title: string; parameters: Parameter[] }[] = [
+  { title: "Excursão do plano anular", parameters: annularExcursion },
   { title: "Átrio esquerdo / aorta", parameters: [
     parameter("Aorta", "Aorta", "mm", "ao"),
     parameter("Atrio_esquerdo", "Átrio esquerdo", "mm", "la"),
@@ -76,7 +79,7 @@ const otherGroups: { title: string; parameters: Parameter[] }[] = [
 
 // TAPSE e MAPSE não permitem inferir cm a partir de outros diâmetros do exame.
 const lengthKeys = new Set([
-  ...mMode.filter((item) => item.unit === "mm" && item.key !== "TAPSE" && item.key !== "MAPSE").map((item) => item.key),
+  ...mMode.filter((item) => item.unit === "mm").map((item) => item.key),
   ...mode2D.filter((item) => item.unit === "mm").map((item) => item.key),
   "Aorta", "Atrio_esquerdo", "Ao_nivel_AP", "AP",
 ]);
