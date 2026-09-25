@@ -17,10 +17,11 @@ from app.models.user import User
 from app.utils.ecocardiograma_medidas import (
     extrair_medidas_ecocardiograma_da_descricao,
 )
+from app.utils.ecocardiograma_qualitativa import extrair_qualitativa_ecocardiograma_da_descricao
 from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
 
 
-LAUDO_PDF_RENDERER_VERSION = "2026-07-27-ve-2d-v2"
+LAUDO_PDF_RENDERER_VERSION = "2026-09-24-eco-presentation-v2"
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ def _carregar_stamp_cache(db: Session, laudo: Laudo, user_id: int) -> dict[str, 
                 "id": imagem.id,
                 "ordem": imagem.ordem,
                 "incluir_no_pdf": bool(imagem.incluir_no_pdf),
+                "descricao": imagem.descricao or "",
             }
             for imagem in db.query(ImagemLaudo).filter(
                 ImagemLaudo.laudo_id == laudo.id,
@@ -137,6 +139,26 @@ def _listar_imagens_incluidas_no_pdf(db: Session, laudo_id: int) -> list[Any]:
     ).order_by(ImagemLaudo.ordem).all()
 
 
+def _preparar_imagens_pdf(imagens: list[Any]) -> tuple[list[bytes], list[dict[str, Any]]]:
+    """Mantém bytes legados e associa legenda à mesma imagem ordenada no eco."""
+    imagens_bytes: list[bytes] = []
+    imagens_eco: list[dict[str, Any]] = []
+    for img in imagens:
+        conteudo_imagem = None
+        if img.conteudo:
+            conteudo_imagem = img.conteudo
+        elif img.caminho_arquivo and os.path.exists(img.caminho_arquivo):
+            with open(img.caminho_arquivo, "rb") as file_obj:
+                conteudo_imagem = file_obj.read()
+        if conteudo_imagem:
+            imagens_bytes.append(conteudo_imagem)
+            imagens_eco.append({
+                "conteudo": conteudo_imagem,
+                "descricao": img.descricao or "",
+            })
+    return imagens_bytes, imagens_eco
+
+
 def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> GeneratedLaudoPdf:
     from app.api.v1.endpoints import laudos as laudos_endpoint
     from app.models.clinica import Clinica
@@ -145,7 +167,10 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
     from app.models.paciente import Paciente
     from app.models.referencia_eco import ReferenciaEco
     from app.models.tutor import Tutor
-    from app.utils.referencia_eco_defaults import aplicar_defaults_publicados_caninos
+    from app.utils.referencia_eco_defaults import (
+        aplicar_defaults_publicados_caninos,
+        normalizar_especie_referencia,
+    )
     from app.utils.pdf_laudo import (
         gerar_pdf_laudo_eco,
         gerar_pdf_laudo_pressao,
@@ -175,14 +200,7 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
             clinica_nome = laudo.medico_solicitante
 
         imagens = _listar_imagens_incluidas_no_pdf(db, laudo_id)
-
-        imagens_bytes: list[bytes] = []
-        for img in imagens:
-            if img.conteudo:
-                imagens_bytes.append(img.conteudo)
-            elif img.caminho_arquivo and os.path.exists(img.caminho_arquivo):
-                with open(img.caminho_arquivo, "rb") as file_obj:
-                    imagens_bytes.append(file_obj.read())
+        imagens_bytes, imagens_eco = _preparar_imagens_pdf(imagens)
 
         config_sistema = None
         config_usuario = None
@@ -313,35 +331,20 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
             filename = f"{filename_base}__US_abdominal.pdf"
         else:
             medidas = extrair_medidas_ecocardiograma_da_descricao(laudo.descricao)
-            qualitativa: dict[str, Any] = {}
+            qualitativa = extrair_qualitativa_ecocardiograma_da_descricao(laudo.descricao)
             pressao_arterial = laudos_endpoint._extrair_pressao_arterial_de_anexos(laudo.anexos)
-            if laudo.descricao:
-                descricao = laudo.descricao
-                qualitativa_match = re.search(
-                    r"Avalia(?:Ã§|c)Ã£o Qualitativa[\s\n]*(-.*?)(?=\n##|\Z)",
-                    descricao,
-                    re.DOTALL,
-                )
-                if not qualitativa_match:
-                    qualitativa_match = re.search(
-                        r"Avaliacao Qualitativa[\s\n]*(-.*?)(?=\n##|\Z)",
-                        descricao,
-                        re.DOTALL,
-                    )
-                if qualitativa_match:
-                    qualitativa_texto = qualitativa_match.group(1)
-                    for match in re.finditer(r"-\s*(\w+):?\s*(.+?)(?=\n-|\Z)", qualitativa_texto, re.DOTALL):
-                        campo = match.group(1).lower().strip()
-                        valor = match.group(2).strip()
-                        if campo in ["valvas", "camaras", "funcao", "pericardio", "vasos", "ad_vd"]:
-                            qualitativa[campo] = valor
 
             referencia_eco = None
-            if paciente and paciente.especie and paciente.peso_kg is not None:
+            if paciente and paciente.especie and paciente.peso_kg and paciente.peso_kg > 0:
                 try:
-                    ref = db.query(ReferenciaEco).filter(
-                        ReferenciaEco.especie.ilike(paciente.especie)
-                    ).order_by(
+                    especie_ref = normalizar_especie_referencia(paciente.especie)
+                    if especie_ref == "Canina":
+                        filtro_especie = ReferenciaEco.especie.ilike("canin%")
+                    elif especie_ref == "Felina":
+                        filtro_especie = ReferenciaEco.especie.ilike("felin%")
+                    else:
+                        filtro_especie = ReferenciaEco.especie.ilike(paciente.especie)
+                    ref = db.query(ReferenciaEco).filter(filtro_especie).order_by(
                         func.abs(ReferenciaEco.peso_kg - float(paciente.peso_kg))
                     ).first()
                     if ref:
@@ -361,7 +364,7 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
                 "clinica": clinica_nome,
                 "referencia_eco": referencia_eco,
                 "pressao_arterial": pressao_arterial,
-                "imagens": imagens_bytes,
+                "imagens": imagens_eco,
                 "veterinario_nome": current_user.nome,
                 "veterinario_crmv": config_usuario.crmv if config_usuario else "",
             }

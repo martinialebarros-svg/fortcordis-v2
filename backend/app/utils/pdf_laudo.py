@@ -13,7 +13,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, Image, KeepTogether
+    PageBreak, CondPageBreak, Image, KeepTogether
 )
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
@@ -234,20 +234,20 @@ MAPEAMENTO_REFERENCIA_ECO = {
 
 def aplicar_referencia_eco(parametros: List[Dict], referencia_eco: Optional[Dict[str, Any]]) -> List[Dict]:
     """
-    Aplica os valores de referência vindos da tabela referencias_eco aos parâmetros do PDF.
+    Exibe apenas faixas disponíveis na referência selecionada para o paciente.
 
-    Quando a referência existe, qualquer faixa fixa hardcoded é removida e só permanecem
-    os campos realmente presentes na tabela para evitar mostrar valores inexistentes.
+    Limites fixos legados não podem ser aplicados indiscriminadamente a espécies,
+    pesos e métodos distintos.
     """
-    if not referencia_eco:
-        return parametros
-
     params_atualizados: List[Dict] = []
     for param in parametros:
         atualizado = dict(param)
+        atualizado["ref_min"] = None
+        atualizado["ref_max"] = None
+        atualizado.pop("ref_text", None)
 
         prefixo = MAPEAMENTO_REFERENCIA_ECO.get(str(param.get("chave", "")))
-        if prefixo:
+        if prefixo and referencia_eco:
             ref_min = referencia_eco.get(f"{prefixo}_min")
             ref_max = referencia_eco.get(f"{prefixo}_max")
             if ref_min is not None and ref_max is not None:
@@ -260,6 +260,14 @@ def aplicar_referencia_eco(parametros: List[Dict], referencia_eco: Optional[Dict
         params_atualizados.append(atualizado)
 
     return params_atualizados
+
+
+def filtrar_parametros_preenchidos(parametros: List[Dict], medidas: Dict[str, Any]) -> List[Dict]:
+    """Omite linhas sem valor numérico registrado (zero é ausência no formulário atual)."""
+    return [
+        param for param in parametros
+        if (_to_float(medidas.get(param["chave"])) or 0) != 0
+    ]
 
 
 def create_pdf_styles():
@@ -800,7 +808,7 @@ def criar_secao_ad_vd(texto: str) -> List:
     return elements
 
 
-def criar_secao_qualitativa(qualitativa: Dict[str, str]) -> List:
+def criar_secao_qualitativa(qualitativa: Dict[str, str], assinatura: Optional[List] = None) -> List:
     """Cria a seção de análise qualitativa com hierarquia visual por grupo."""
     elements = []
     styles = create_pdf_styles()
@@ -885,23 +893,26 @@ def criar_secao_qualitativa(qualitativa: Dict[str, str]) -> List:
         else:
             bloco.append(Paragraph(_esc(texto), bloco_texto_style))
 
-        grupos_renderizados.append(_bloco_sem_quebra(*bloco))
+        grupos_renderizados.append(bloco)
 
     if not grupos_renderizados:
         return elements
 
+    assinatura = assinatura or []
     elements.append(
         _bloco_sem_quebra(
             Spacer(1, 4 * mm),
             criar_titulo_secao("ANÁLISE QUALITATIVA"),
             Spacer(1, 2 * mm),
-            grupos_renderizados[0],
+            *grupos_renderizados[0],
+            *(assinatura if len(grupos_renderizados) == 1 else []),
         )
     )
     elements.append(Spacer(1, 1.5 * mm))
 
-    for grupo in grupos_renderizados[1:]:
-        elements.append(grupo)
+    for indice, grupo in enumerate(grupos_renderizados[1:], 1):
+        ultimo_grupo = indice == len(grupos_renderizados) - 1
+        elements.append(_bloco_sem_quebra(*grupo, *(assinatura if ultimo_grupo else [])))
         elements.append(Spacer(1, 1.5 * mm))
 
     return elements
@@ -1205,12 +1216,17 @@ def criar_secao_conclusao(conclusao: str) -> List:
     return elements
 
 
-def criar_secao_assinatura(nome_veterinario: str, crmv: str = "", temp_assinatura_path: str = None) -> List:
+def criar_secao_assinatura(
+    nome_veterinario: str,
+    crmv: str = "",
+    temp_assinatura_path: str = None,
+    compacto: bool = False,
+) -> List:
     """Cria a seção de assinatura"""
     elements = []
     styles = create_pdf_styles()
     
-    elements.append(Spacer(1, 10*mm))
+    elements.append(Spacer(1, (3 if compacto else 10)*mm))
     
     # Linha divisória antes da assinatura
     line_data = [['']]
@@ -1219,7 +1235,7 @@ def criar_secao_assinatura(nome_veterinario: str, crmv: str = "", temp_assinatur
         ('LINEBELOW', (0, 0), (-1, -1), 1, colors.grey),
     ]))
     elements.append(line_table)
-    elements.append(Spacer(1, 5*mm))
+    elements.append(Spacer(1, (2 if compacto else 5)*mm))
     
     # Se tem assinatura em imagem
     if temp_assinatura_path and os.path.exists(temp_assinatura_path):
@@ -1252,7 +1268,7 @@ def criar_secao_assinatura(nome_veterinario: str, crmv: str = "", temp_assinatur
     elements.append(Paragraph(f"<b>{_esc(nome_veterinario)}</b>", styles['Normal']))
     if crmv:
         elements.append(Paragraph(f"Médico Veterinário - CRMV: {_esc(crmv)}", styles['Normal']))
-    else:
+    elif nome_veterinario.strip().lower() != "médico veterinário":
         elements.append(Paragraph("Médico Veterinário", styles['Normal']))
     
     return elements
@@ -1358,8 +1374,29 @@ def gerar_pdf_laudo_eco(
         recalcular_dived_normalizado_para_pdf(dados_pdf)
         elements.extend(criar_cabecalho(dados_pdf, temp_logo_path))
 
+        # A conclusão já escrita pelo veterinário fica visível na primeira
+        # página, sem duplicação nem interpretação gerada pelo sistema.
+        conclusao = dados_pdf.get('conclusao', '')
+        elements.extend(criar_secao_conclusao(conclusao))
+        if conclusao and conclusao.strip():
+            elements.append(Spacer(1, 3 * mm))
+
         # 2. Análise Quantitativa (título com mesma largura das tabelas)
         elements.append(criar_titulo_secao("ANÁLISE QUANTITATIVA"))
+        elements.append(Spacer(1, 2*mm))
+        referencia_selecionada = dados_pdf.get("referencia_eco")
+        if referencia_selecionada:
+            especie_ref = _esc(referencia_selecionada.get("especie") or "")
+            peso_ref = _to_float(referencia_selecionada.get("peso_kg"))
+            peso_ref_texto = f", {peso_ref:g} kg" if peso_ref is not None else ""
+            nota_referencia = (
+                f"Referência selecionada do cadastro: {especie_ref}{peso_ref_texto}. "
+                "TAPSE pode usar faixa auxiliar por peso do sistema quando ausente no cadastro. "
+                "Traço indica faixa indisponível."
+            )
+        else:
+            nota_referencia = "Faixas de referência indisponíveis para este paciente; traço indica faixa indisponível."
+        elements.append(Paragraph(nota_referencia, create_pdf_styles()["Normal"]))
         elements.append(Spacer(1, 2*mm))
         
         # =================================================================
@@ -1480,129 +1517,104 @@ def gerar_pdf_laudo_eco(
             titulo_ve = "VE - Modo M"
             params_ve_relatorio = params_ve_modo_m
 
-        elements.append(
-            _bloco_sem_quebra(
-                criar_tabela_medidas(
-                    titulo_ve,
-                    params_ve_relatorio,
-                    dados_pdf,
-                    mostrar_referencia=True,
-                    mostrar_interpretacao=False,
-                ),
-                Spacer(1, 3 * mm),
-            )
+        grupos_medidas = (
+            (titulo_ve, params_ve_relatorio),
+            ("Átrio esquerdo/ Aorta", params_ae_aorta),
+            ("Artéria pulmonar/ Aorta", params_ap_aorta),
+            ("Doppler - Saídas", params_doppler_saidas),
+            ("Diastólica", params_diastolica),
+            ("Regurgitações", params_regurgitacoes),
         )
-        
-        # Átrio Esquerdo / Aorta: COM Referência, SEM Interpretação
-        elements.append(
-            _bloco_sem_quebra(
-                criar_tabela_medidas(
-                    "Átrio esquerdo/ Aorta",
-                    params_ae_aorta,
-                    dados_pdf,
-                    mostrar_referencia=True,
-                    mostrar_interpretacao=False,
-                ),
-                Spacer(1, 3 * mm),
+        grupos_preenchidos = [
+            (titulo, filtrar_parametros_preenchidos(parametros, medidas_pdf))
+            for titulo, parametros in grupos_medidas
+        ]
+        if not any(parametros for _, parametros in grupos_preenchidos):
+            elements.append(Paragraph("Medidas não registradas.", create_pdf_styles()["Normal"]))
+        for titulo, parametros in grupos_preenchidos:
+            if not parametros:
+                continue
+            elements.append(
+                _bloco_sem_quebra(
+                    criar_tabela_medidas(
+                        titulo,
+                        parametros,
+                        dados_pdf,
+                        mostrar_referencia=True,
+                        mostrar_interpretacao=False,
+                    ),
+                    Spacer(1, 3 * mm),
+                )
             )
-        )
-        
-        # Artéria Pulmonar / Aorta: COM Referência, SEM Interpretação
-        elements.append(
-            _bloco_sem_quebra(
-                criar_tabela_medidas(
-                    "Artéria pulmonar/ Aorta",
-                    params_ap_aorta,
-                    dados_pdf,
-                    mostrar_referencia=True,
-                    mostrar_interpretacao=False,
-                ),
-                Spacer(1, 3 * mm),
-            )
-        )
-        
-        # Doppler - Saídas: COM Referência, SEM Interpretação
-        elements.append(
-            _bloco_sem_quebra(
-                criar_tabela_medidas(
-                    "Doppler - Saídas",
-                    params_doppler_saidas,
-                    dados_pdf,
-                    mostrar_referencia=True,
-                    mostrar_interpretacao=False,
-                ),
-                Spacer(1, 3 * mm),
-            )
-        )
-        
-        # Diastólica: COM Referência, SEM Interpretação
-        elements.append(
-            _bloco_sem_quebra(
-                criar_tabela_medidas(
-                    "Diastólica",
-                    params_diastolica,
-                    dados_pdf,
-                    mostrar_referencia=True,
-                    mostrar_interpretacao=False,
-                ),
-                Spacer(1, 3 * mm),
-            )
-        )
-        
-        # Regurgitações: COM Referência, SEM Interpretação
-        elements.append(
-            _bloco_sem_quebra(
-                criar_tabela_medidas(
-                    "Regurgitações",
-                    params_regurgitacoes,
-                    dados_pdf,
-                    mostrar_referencia=True,
-                    mostrar_interpretacao=False,
-                ),
-                Spacer(1, 3 * mm),
-            )
-        )
         
         # 3. Análise Qualitativa
         qualitativa = dados_pdf.get('qualitativa', {})
-
-        if qualitativa and any(qualitativa.get(k, '').strip() for k in ['valvas', 'camaras', 'ad_vd', 'funcao', 'pericardio', 'vasos']):
-            elements.extend(criar_secao_qualitativa(qualitativa))
-
-        # 4. Conclusao
-        conclusao = dados_pdf.get('conclusao', '')
-        elements.extend(criar_secao_conclusao(conclusao))
-
-        # Pressao arterial anexada ao laudo ecocardiografico (quando existir)
-        # Deve aparecer apos a conclusao no PDF.
-        elements.extend(criar_secao_pressao_arterial(dados_pdf.get("pressao_arterial")))
-        
-        # 5. Assinatura
+        imagens = dados_pdf.get('imagens', [])
+        pressao_arterial = dados_pdf.get("pressao_arterial")
         vet_nome = nome_veterinario or dados_pdf.get('veterinario_nome') or "Médico Veterinário"
         vet_crmv = crmv or dados_pdf.get('veterinario_crmv') or ""
-        elements.extend(criar_secao_assinatura(vet_nome, vet_crmv, temp_assinatura_path))
+        assinatura = criar_secao_assinatura(vet_nome, vet_crmv, temp_assinatura_path, compacto=True)
+        qualitativa_preenchida = bool(qualitativa and any(
+            qualitativa.get(k, '').strip() for k in ['valvas', 'camaras', 'ad_vd', 'funcao', 'pericardio', 'vasos']
+        ))
+        assinatura_com_qualitativa = qualitativa_preenchida and not imagens and not pressao_arterial
+        if qualitativa_preenchida:
+            elements.extend(criar_secao_qualitativa(
+                qualitativa,
+                assinatura=assinatura if assinatura_com_qualitativa else None,
+            ))
+
+        # Pressao arterial anexada ao laudo ecocardiografico (quando existir).
+        elements.extend(criar_secao_pressao_arterial(pressao_arterial))
         
+        # 5. Assinatura
+        if not assinatura_com_qualitativa:
+            elements.extend(assinatura)
+
         # 6. Espaço antes das imagens (rodapé será adicionado automaticamente em todas as páginas)
         elements.append(Spacer(1, 5*mm))
         
         # 7. Imagens (se houver) - Layout conforme modelo de referência
-        imagens = dados_pdf.get('imagens', [])
         if imagens:
-            elements.append(PageBreak())
+            paciente_imagens = dados_pdf.get("paciente") or {}
+            nome_imagens = _esc(paciente_imagens.get("nome") or "")
+            data_imagens = _esc(paciente_imagens.get("data_exame") or "")
+            identificacao_imagens = " | ".join(
+                parte for parte in (
+                    f"Paciente: {nome_imagens}" if nome_imagens else "",
+                    f"Data do exame: {data_imagens}" if data_imagens else "",
+                ) if parte
+            )
+            # Se a assinatura precisou passar para uma página nova, aproveita
+            # o espaço disponível nela. Nos laudos curtos, mantém a grade de
+            # imagens em página própria quando não houver altura suficiente.
+            elements.append(CondPageBreak(190 * mm))
             elements.append(criar_titulo_secao("IMAGENS"))
-            elements.append(Spacer(1, 5*mm))
+            if identificacao_imagens:
+                elements.append(Paragraph(identificacao_imagens, create_pdf_styles()["Normal"]))
+            elements.append(Spacer(1, 3*mm))
             
             # Layout 2x3 (6 imagens por página) - similar ao modelo de referência
             IMG_WIDTH = 85*mm
-            IMG_HEIGHT = 70*mm
+            IMG_HEIGHT = 60*mm
             ESPACAMENTO = 3*mm
+            legenda_imagem_style = ParagraphStyle(
+                "LegendaImagemEco",
+                parent=create_pdf_styles()["Normal"],
+                fontSize=8,
+                leading=10,
+                alignment=1,
+                textColor=COR_CINZA_ESCURO,
+            )
             
             # Processar imagens em grupos de 6
             for page_idx in range(0, len(imagens), 6):
                 if page_idx > 0:
                     elements.append(PageBreak())
                     elements.append(criar_titulo_secao("IMAGENS"))
-                    elements.append(Spacer(1, 5*mm))
+                    if identificacao_imagens:
+                        elements.append(Paragraph(identificacao_imagens, create_pdf_styles()["Normal"]))
+                    elements.append(Spacer(1, 3*mm))
                 
                 # Pegar até 6 imagens para esta página
                 page_imagens = imagens[page_idx:page_idx + 6]
@@ -1611,8 +1623,10 @@ def gerar_pdf_laudo_eco(
                 table_data = []
                 row = []
                 
-                for idx, img_bytes in enumerate(page_imagens):
+                for idx, imagem_pdf in enumerate(page_imagens):
                     try:
+                        img_bytes = imagem_pdf.get("conteudo") if isinstance(imagem_pdf, dict) else imagem_pdf
+                        descricao_imagem = str(imagem_pdf.get("descricao") or "").strip() if isinstance(imagem_pdf, dict) else ""
                         if not img_bytes:
                             continue
                             
@@ -1640,7 +1654,12 @@ def gerar_pdf_laudo_eco(
                             draw_height = IMG_HEIGHT
                         
                         img = Image(temp_img.name, width=draw_width, height=draw_height)
-                        row.append(img)
+                        img.hAlign = "CENTER"
+                        numero_imagem = page_idx + idx + 1
+                        texto_legenda = f"<b>Imagem {numero_imagem}</b>"
+                        if descricao_imagem:
+                            texto_legenda += f" - {_esc(descricao_imagem)}"
+                        row.append([img, Spacer(1, 1*mm), Paragraph(texto_legenda, legenda_imagem_style)])
                         
                         # Cada linha tem 2 imagens
                         if len(row) == 2:

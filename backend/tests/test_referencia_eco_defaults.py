@@ -8,7 +8,6 @@ os.chdir(BACKEND_DIR)
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.utils.referencia_eco_defaults import aplicar_defaults_publicados_caninos
-from app.utils.referencia_eco_defaults import obter_mapse_canino_por_peso
 from app.utils.referencia_eco_defaults import obter_tapse_canino_por_peso
 
 
@@ -17,12 +16,7 @@ class ReferenciaEcoDefaultsTest(unittest.TestCase):
         self.assertEqual(obter_tapse_canino_por_peso(6.3), (8.5, 13.6))
         self.assertEqual(obter_tapse_canino_por_peso(13.3), (10.0, 16.0))
 
-    def test_obter_mapse_canino_por_peso_converte_cm_para_mm(self) -> None:
-        self.assertEqual(obter_mapse_canino_por_peso(10), (6.5, 7.5))
-        self.assertEqual(obter_mapse_canino_por_peso(20), (10.3, 11.3))
-        self.assertEqual(obter_mapse_canino_por_peso(45), (12.1, 18.1))
-
-    def test_aplicar_defaults_publicados_caninos_preenche_campos_ausentes(self) -> None:
+    def test_aplicar_defaults_caninos_nao_inventa_faixa_mapse(self) -> None:
         referencia = aplicar_defaults_publicados_caninos(
             {
                 "especie": "Canina",
@@ -37,8 +31,24 @@ class ReferenciaEcoDefaultsTest(unittest.TestCase):
 
         self.assertEqual(referencia["tapse_min"], 8.5)
         self.assertEqual(referencia["tapse_max"], 13.6)
-        self.assertEqual(referencia["mapse_min"], 6.5)
-        self.assertEqual(referencia["mapse_max"], 7.5)
+        self.assertIsNone(referencia["mapse_min"])
+        self.assertIsNone(referencia["mapse_max"])
+
+    def test_tapse_fora_da_tabela_nao_reutiliza_extremo(self) -> None:
+        for peso in (2.0, 50.0):
+            with self.subTest(peso=peso):
+                referencia = aplicar_defaults_publicados_caninos({
+                    "especie": "Canina", "peso_kg": peso,
+                    "tapse_min": None, "tapse_max": None,
+                })
+                self.assertIsNone(referencia["tapse_min"])
+                self.assertIsNone(referencia["tapse_max"])
+
+        referencia_45_kg = aplicar_defaults_publicados_caninos({
+            "especie": "Canina", "peso_kg": 45.0,
+            "tapse_min": None, "tapse_max": None,
+        })
+        self.assertEqual((referencia_45_kg["tapse_min"], referencia_45_kg["tapse_max"]), (14.8, 23.7))
 
     def test_aplicar_defaults_publicados_caninos_preserva_valores_existentes(self) -> None:
         referencia = aplicar_defaults_publicados_caninos(

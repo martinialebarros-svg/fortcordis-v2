@@ -29,6 +29,7 @@ import { ReferenciaComparison } from "../../components/ReferenciaComparison";
 import {
   criarEcocardiogramaEstruturadoInicial,
   derivarLegadoDeEcocardiogramaEstruturado,
+  extrairQualitativaEcoDaDescricao,
   hidratarEcocardiogramaEstruturadoDeLegado,
   montarDescricaoEcocardiograma,
   normalizarEcocardiogramaEstruturado,
@@ -385,6 +386,7 @@ export default function EditarLaudoPage() {
           id: imagem.id,
           ordem: index,
           incluir_no_pdf: imagem.incluir_no_pdf !== false,
+          descricao: imagem.descricao,
         })),
       });
     } catch (error) {
@@ -895,14 +897,7 @@ export default function EditarLaudoPage() {
       }
 
       // Extrair medidas e qualitativa da descrição
-      const qualitativaExtraida = {
-        valvas: "",
-        camaras: "",
-        funcao: "",
-        pericardio: "",
-        vasos: "",
-        ad_vd: "",
-      };
+      const qualitativaExtraida = extrairQualitativaEcoDaDescricao(laudoData.descricao || "");
 
       if (laudoData.descricao) {
         const descricao = laudoData.descricao;
@@ -913,15 +908,6 @@ export default function EditarLaudoPage() {
           descricao
         );
         setMedidas(medidasExtraidas);
-
-        // Extrair qualitativa
-        const regexQualitativa =
-          /-\s*(valvas|camaras|funcao|pericardio|vasos|ad_vd):\s*([\s\S]*?)(?=\n-\s*(?:valvas|camaras|funcao|pericardio|vasos|ad_vd):|$)/gi;
-        let match;
-        while ((match = regexQualitativa.exec(descricao)) !== null) {
-          const campo = match[1].toLowerCase() as keyof typeof qualitativaExtraida;
-          qualitativaExtraida[campo] = match[2].trim();
-        }
 
         setQualitativa(qualitativaExtraida);
       }
@@ -1080,6 +1066,27 @@ export default function EditarLaudoPage() {
       }
 
       if (!laudoId) return;
+      if (imagens.length > 0) {
+        await api.put(`/imagens/laudo/${laudoId}/configuracao`, {
+          imagens: imagens.map((imagem, index) => ({
+            id: imagem.id,
+            ordem: index,
+            incluir_no_pdf: imagem.incluir_no_pdf !== false,
+            descricao: imagem.descricao || "",
+          })),
+        });
+      }
+      const novasImagensEnviadas = imagensTemp.filter((imagem) => imagem.uploaded && imagem.tempId);
+      if (novasImagensEnviadas.length > 0) {
+        await api.put(`/imagens/temp/session/${sessionId}/configuracao`, {
+          imagens: novasImagensEnviadas.map((imagem) => ({
+            id: imagem.tempId,
+            ordem: imagem.ordem,
+            incluir_no_pdf: imagem.incluirNoPdf ?? true,
+            descricao: imagem.descricao || "",
+          })),
+        });
+      }
       await api.put(`/laudos/${laudoId}`, payload);
 
       // 4. Associar novas imagens ao laudo se houver
@@ -2178,6 +2185,28 @@ export default function EditarLaudoPage() {
                             </button>
                             <div className="p-2">
                               <p className="text-xs text-gray-600 truncate">{img.nome}</p>
+                              <label className="mt-2 block text-xs font-medium text-gray-700">
+                                Legenda opcional no PDF
+                                <input
+                                  type="text"
+                                  value={img.descricao || ""}
+                                  maxLength={160}
+                                  onFocus={(event) => { event.currentTarget.dataset.initialValue = img.descricao || ""; }}
+                                  onChange={(event) => setImagens(imagens.map((imagem) =>
+                                    imagem.id === img.id ? { ...imagem, descricao: event.target.value } : imagem
+                                  ))}
+                                  onBlur={(event) => {
+                                    const original = event.currentTarget.dataset.initialValue || "";
+                                    const anteriores = imagens.map((imagem) =>
+                                      imagem.id === img.id ? { ...imagem, descricao: original } : imagem
+                                    );
+                                    void salvarConfiguracaoImagens(imagens, anteriores);
+                                  }}
+                                  placeholder="Ex.: Doppler da regurgitação tricúspide"
+                                  aria-label={`Legenda da imagem ${idx + 1}`}
+                                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-xs text-gray-900"
+                                />
+                              </label>
                               <label className="mt-2 flex items-center gap-2 text-xs font-medium text-gray-700">
                                 <input
                                   type="checkbox"

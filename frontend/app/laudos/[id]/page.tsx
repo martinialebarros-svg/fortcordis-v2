@@ -6,6 +6,7 @@ import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import {
   getLaudoViewPath,
+  TIPO_LAUDO_ECOCARDIOGRAMA,
   TIPO_LAUDO_ELETROCARDIOGRAMA,
   TIPO_LAUDO_PRESSAO_ARTERIAL,
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
@@ -13,6 +14,10 @@ import {
 import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import { parseStoredEchoMeasurements } from "@/lib/echo-derived-measurements";
+import { extrairQualitativaEcoDaDescricao, type QualitativaEcoLegada } from "@/lib/ecocardiograma-estruturado";
+import { buildEchoReportGroups, prepareEchoReportMeasurements, splitReportObservations } from "@/lib/echo-report-presentation";
+import { useReferenciaEco } from "../hooks/useReferenciaEco";
+import type { ReferenciaEco } from "../types/referencia-eco";
 import {
   getTituloBotaoAvisoWhatsApp,
   podeAvisarWhatsApp,
@@ -27,6 +32,14 @@ import PortalLiberadoPara from "../components/PortalLiberadoPara";
 import { ArrowLeft, CheckCircle, Download, FileText, Loader2, MessageCircle, Printer, Send, Upload } from "lucide-react";
 
 const PORTAL_RELEASE_STATUS = "Liberado no portal";
+const ROTULOS_QUALITATIVOS: Record<keyof QualitativaEcoLegada, string> = {
+  valvas: "Valvas",
+  camaras: "Câmaras esquerdas",
+  ad_vd: "Câmaras direitas",
+  funcao: "Função",
+  pericardio: "Pericárdio",
+  vasos: "Vasos sanguíneos",
+};
 
 function isPortalReleased(status?: string) {
   return status === PORTAL_RELEASE_STATUS;
@@ -143,7 +156,9 @@ export default function VisualizarLaudoPage() {
   const [laudo, setLaudo] = useState<Laudo | null>(null);
   const [paciente, setPaciente] = useState<Paciente | null>(null);
   const [medidas, setMedidas] = useState<Record<string, string>>({});
-  const [qualitativa, setQualitativa] = useState<Record<string, string>>({});
+  const [qualitativa, setQualitativa] = useState<Partial<QualitativaEcoLegada>>({});
+  const [referenciaEco, setReferenciaEco] = useState<ReferenciaEco | null>(null);
+  const { buscarReferencia, loading: carregandoReferencia } = useReferenciaEco();
   const [liberandoPortal, setLiberandoPortal] = useState(false);
   const [avisandoWhatsApp, setAvisandoWhatsApp] = useState(false);
   const [seletorAvisoAberto, setSeletorAvisoAberto] = useState(false);
@@ -153,6 +168,10 @@ export default function VisualizarLaudoPage() {
   const [fileInputKey, setFileInputKey] = useState(0);
   const laudoEhEletrocardiograma = laudo?.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA;
   const laudoEhPressao = laudo?.tipo === TIPO_LAUDO_PRESSAO_ARTERIAL;
+  const laudoEhEco = laudo?.tipo === TIPO_LAUDO_ECOCARDIOGRAMA;
+  const { measurements: medidasExibidas, alerts: alertasCalculo } = prepareEchoReportMeasurements(medidas, paciente?.peso_kg);
+  const gruposMedidas = buildEchoReportGroups(medidasExibidas, referenciaEco);
+  const observacoes = splitReportObservations(laudo?.observacoes || "");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -163,6 +182,17 @@ export default function VisualizarLaudoPage() {
     if (!laudoId) return;
     carregarLaudo();
   }, [router, laudoId]);
+
+  useEffect(() => {
+    let active = true;
+    setReferenciaEco(null);
+    if (laudoEhEco && paciente?.especie && paciente.peso_kg > 0) {
+      buscarReferencia(paciente.especie, paciente.peso_kg).then((reference) => {
+        if (active) setReferenciaEco(reference);
+      });
+    }
+    return () => { active = false; };
+  }, [laudoEhEco, paciente?.especie, paciente?.peso_kg, buscarReferencia]);
 
   const carregarLaudo = async () => {
     if (!laudoId) return;
@@ -203,13 +233,7 @@ export default function VisualizarLaudoPage() {
         setMedidas(medidasExtraidas);
 
         // Extrair qualitativa
-        const qualitativaExtraida: Record<string, string> = {};
-        const regexQualitativa = /-\s*(valvas|camaras|funcao|pericardio|vasos|ad_vd):\s*(.+?)(?=\n-|$)/gi;
-        let match;
-        while ((match = regexQualitativa.exec(descricao)) !== null) {
-          qualitativaExtraida[match[1].toLowerCase()] = match[2].trim();
-        }
-        setQualitativa(qualitativaExtraida);
+        setQualitativa(extrairQualitativaEcoDaDescricao(descricao));
       }
     } catch (error) {
       console.error("Erro ao carregar laudo:", error);
@@ -725,39 +749,64 @@ export default function VisualizarLaudoPage() {
           )}
 
           {/* Medidas */}
-          {!laudoEhPressao && Object.keys(medidas).length > 0 && (
+          {laudoEhEco && gruposMedidas.length > 0 && (
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-3">Medidas Ecocardiográficas</h3>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 font-medium text-gray-700">Parâmetro</th>
-                      <th className="text-left py-2 font-medium text-gray-700">Valor</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(medidas).map(([chave, valor]) => (
-                      <tr key={chave} className="border-b border-gray-100 last:border-0">
-                        <td className="py-2 text-gray-600">{chave}</td>
-                        <td className="py-2 font-medium">{valor}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {alertasCalculo.length > 0 && (
+                <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="status">
+                  <p className="font-semibold">Conferir cálculo normalizado</p>
+                  {alertasCalculo.map((alerta) => (
+                    <p key={alerta.key} className="mt-1">
+                      {alerta.key === "DIVEd_normalizado_2D" ? "DIVEd normalizado (2D)" : "DIVEd normalizado"}: registro {alerta.recorded.toFixed(2)}; cálculo com o peso atual ({paciente?.peso_kg} kg) {alerta.calculated.toFixed(2)}. O PDF usa o valor recalculado.
+                    </p>
+                  ))}
+                </div>
+              )}
+              <p className="mb-3 text-xs text-gray-600">
+                {carregandoReferencia
+                  ? "Consultando faixas de referência por espécie e peso..."
+                  : referenciaEco
+                  ? `Referência selecionada por espécie e peso: cadastro de ${referenciaEco.especie}, ${referenciaEco.peso_kg} kg. TAPSE pode usar faixa auxiliar por peso do sistema quando ausente no cadastro.`
+                  : "Faixas de referência indisponíveis nesta prévia."}
+              </p>
+              {medidas.Remodelamento_AD && (
+                <p className="mb-3 text-xs text-gray-600">Premissa registrada para estimativa da pressão atrial direita: remodelamento de AD {medidas.Remodelamento_AD}.</p>
+              )}
+              <div className="space-y-4">
+                {gruposMedidas.map((grupo) => (
+                  <div key={grupo.title} className="overflow-x-auto rounded-lg bg-gray-50 p-4">
+                    <h4 className="mb-2 font-semibold text-gray-800">{grupo.title}</h4>
+                    <table className="w-full text-sm">
+                      <thead><tr className="border-b border-gray-200">
+                        <th className="py-2 text-left font-medium text-gray-700">Parâmetro</th>
+                        <th className="py-2 text-left font-medium text-gray-700">Valor</th>
+                        <th className="py-2 text-left font-medium text-gray-700">Referência</th>
+                      </tr></thead>
+                      <tbody>
+                        {grupo.rows.map((row) => (
+                          <tr key={row.key} className="border-b border-gray-100 last:border-0">
+                            <td className="py-2 pr-3 text-gray-700">{row.label}</td>
+                            <td className="py-2 pr-3 font-medium whitespace-nowrap">{row.value}</td>
+                            <td className="py-2 text-gray-600 whitespace-nowrap">{row.reference}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
           {/* Qualitativa */}
-          {!laudoEhPressao && Object.keys(qualitativa).length > 0 && (
+          {!laudoEhPressao && Object.values(qualitativa).some((value) => Boolean(value?.trim())) && (
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-3">Avaliação Qualitativa</h3>
               <div className="space-y-3">
-                {Object.entries(qualitativa).map(([chave, valor]) => (
+                {Object.entries(qualitativa).filter(([, valor]) => Boolean(valor?.trim())).map(([chave, valor]) => (
                   <div key={chave} className="bg-gray-50 rounded-lg p-3">
-                    <span className="font-medium text-gray-700 capitalize">{chave}:</span>
-                    <p className="text-gray-600 mt-1">{valor}</p>
+                    <span className="font-medium text-gray-700">{ROTULOS_QUALITATIVOS[chave as keyof QualitativaEcoLegada]}:</span>
+                    <p className="text-gray-600 mt-1 whitespace-pre-wrap">{valor}</p>
                   </div>
                 ))}
               </div>
@@ -775,11 +824,19 @@ export default function VisualizarLaudoPage() {
           )}
 
           {/* Observações */}
-          {laudo.observacoes && (
+          {observacoes.clinical && (
             <div className="mb-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Observações</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">Observações clínicas</h3>
               <div className="bg-gray-50 rounded-lg p-4 whitespace-pre-wrap">
-                {laudo.observacoes}
+                {observacoes.clinical}
+              </div>
+            </div>
+          )}
+          {observacoes.operational && (
+            <div className="mb-6">
+              <h3 className="text-base font-semibold text-gray-700 mb-2">Registro operacional</h3>
+              <div className="bg-slate-50 rounded-lg p-4 whitespace-pre-wrap text-sm text-slate-700">
+                {observacoes.operational}
               </div>
             </div>
           )}
