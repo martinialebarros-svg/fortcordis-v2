@@ -631,6 +631,30 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
                 )
 
             self.assertTrue(int(resposta.get("id") or 0) > 0)
+            self.assertTrue(resposta["excecao_agenda_fechada_ativa"])
+            reserva = db.query(Agendamento).filter(Agendamento.id == int(resposta["id"])).one()
+            self.assertTrue(agenda._excecao_agenda_fechada_ativa(reserva))
+            with patch.object(agenda, "registrar_auditoria", return_value=None), patch.object(
+                agenda, "_notificar_agenda_update", return_value=None
+            ), patch.object(
+                agenda, "_validar_deslocamento_agendamento", return_value=None
+            ), patch.object(
+                agenda, "_validar_paciente_tutor_para_status", return_value=None
+            ):
+                atualizada = agenda.atualizar_agendamento(
+                    agendamento_id=reserva.id,
+                    agendamento=agenda.AgendamentoUpdate(
+                        inicio=inicio, fim=inicio + timedelta(minutes=30), status="Agendado"
+                    ),
+                    request=SimpleNamespace(), db=db, current_user=usuario_admin,
+                )
+            self.assertEqual(atualizada["status"], "Agendado")
+            self.assertTrue(atualizada["excecao_agenda_fechada_ativa"])
+            reserva.fim = inicio + timedelta(minutes=45)
+            self.assertFalse(agenda._excecao_agenda_fechada_ativa(reserva))
+            with self.assertRaises(HTTPException) as horario_alterado:
+                agenda._validar_agendamento_no_funcionamento(db, reserva)
+            self.assertEqual(horario_alterado.exception.status_code, 422)
             self.assertTrue(
                 any(
                     call.kwargs.get("acao") == "AGENDAMENTO_AGENDA_FECHADA_CONFIRMADO"
