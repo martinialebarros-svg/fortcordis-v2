@@ -9,7 +9,7 @@
 | CA-003 | limite de quatro `SELECTs` no mesmo teste | ok_local |
 | CA-004 | suítes focadas, de Agenda e completa do backend | ok_local |
 | CA-005 | compilação, integridade do diff e avaliador do guardrail SDD | ok_local |
-| CA-006 | comparação autenticada em stage após publicação | pendente |
+| CA-006 | comparação autenticada da release `9e1415a` com 108 amostras | ok_stage |
 
 ## Evidência local
 
@@ -41,3 +41,22 @@ Release `c758af1`:
 
 Nenhuma escrita clínica, financeira ou operacional foi usada para produzir a
 linha de base.
+
+## Evidência de stage após a mudança
+
+Release `9e1415a`, publicada pelo workflow `36157588676`:
+
+- 108 amostras autenticadas e somente leitura de `/api/v1/agenda`;
+- p50 `67,31 ms`, p95 `115,50 ms`, p99 `323,93 ms` e máximo `352,69 ms`;
+- banco p95 `96,73 ms`, app p95 `30,71 ms`, consultas p95 `5` e pool p95
+  `0,05 ms`;
+- zero requisições acima de `1.200 ms` e zero 5xx;
+- em relação à linha de base, o p95 caiu `61,4%`, o banco p95 caiu `58,7%`,
+  o app p95 caiu `56,7%` e as consultas p95 caíram de `10` para `5`, atingindo
+  a meta de no máximo `6`.
+
+O smoke confirmou `200` no host canônico
+`app.stage.fortcordis.com.br/agenda`, redirecionamento do alias
+`stage.fortcordis.com.br` para o canônico e `401` na API protegida sem
+credenciais. O alias `www.stage.fortcordis.com.br` permaneceu sem resolução
+DNS, tratado como pendência independente do comportamento da aplicação.
