@@ -24,6 +24,7 @@ Status: in-progress
 | CA-014 | aceitacao | `test_sugestao_permite_encaixe_adjacente_a_ancora_registrada`, `test_validacao_permite_encaixe_adjacente_a_ancora_registrada` e `test_proximidade_usa_trecho_aderente_em_encaixe_adjacente` cobrem encaixe livre adjacente a ancora ja registrada por excecao operacional | ok |
 | CA-015 | aceitacao | `NovoAgendamentoModal` solicita confirmacao contextual ao admin; Agenda e FullCalendar abrem o formulario sem editar configuracoes | ok |
 | CA-016 / NFR-006 / NFR-007 | aceitacao e seguranca | `test_agenda_duracao_servico_create.py` cobre bloqueio sem confirmacao, rejeicao nao-admin e evento auditavel para admin | ok |
+| CA-018 / RF-019 | reserva em agenda fechada | Criacao persiste escopo do intervalo; edicao no mesmo intervalo reaproveita autorizacao; novo intervalo requer confirmacao admin; `test_agenda_duracao_servico_create.py` | ok local |
 | CA-017 | aceitacao | modal de recebimento da Agenda Lista oferece checkbox de recibo PDF para a clinica; baixa e envio oficial sao sequenciais, com chave de idempotencia, falha independente e rolagem em viewport reduzida | ok |
 | NFR-001 | nao funcional | cache de deslocamento por request mantido | ok |
 | NFR-002 | nao funcional | sem novos endpoints publicos; usa permissao de configuracoes existente | ok |

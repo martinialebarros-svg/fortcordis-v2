@@ -79,3 +79,5 @@ class Agendamento(Base):
     excecao_deslocamento_concedida_por_nome = Column(String, nullable=True)
     excecao_deslocamento_motivo = Column(Text, nullable=True)
     excecao_deslocamento_escopo = Column(String(64), nullable=True)
+    # Escopo do horario fechado autorizado pelo admin; dados do pet nao o alteram.
+    excecao_agenda_fechada_escopo = Column(String(100), nullable=True)

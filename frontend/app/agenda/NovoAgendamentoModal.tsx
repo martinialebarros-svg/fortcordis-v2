@@ -3177,14 +3177,22 @@ export default function NovoAgendamentoModal({
       let confirmarAgendaFechada = false;
       if (!validacaoHorario.valido) {
         const motivo = validacaoHorario.motivo || "Agenda fechada para este horario.";
-        if (isEditando || !isAdmin || !motivoAgendaFechadaConfirmavel(motivo)) {
-          throw new Error(motivo);
+        const inicioOriginal = isEditando ? parseAgendamentoInicio(agendamento) : null;
+        const fimOriginal = isEditando && agendamento?.fim
+          ? new Date(String(agendamento.fim).replace(" ", "T")) : null;
+        const excecaoExistente = Boolean(
+          isEditando && agendamento?.excecao_agenda_fechada_ativa &&
+          inicioOriginal?.getTime() === inicio.getTime() &&
+          fimOriginal?.getTime() === fim.getTime()
+        );
+        if (!excecaoExistente) {
+          if (!isAdmin || !motivoAgendaFechadaConfirmavel(motivo)) {
+            throw new Error(motivo);
+          }
+          const confirmou = await confirmarAgendamentoAgendaFechadaAdmin(motivo);
+          if (!confirmou) return;
+          confirmarAgendaFechada = true;
         }
-        const confirmou = await confirmarAgendamentoAgendaFechadaAdmin(motivo);
-        if (!confirmou) {
-          return;
-        }
-        confirmarAgendaFechada = true;
       }
 
       let pacienteId = formData.paciente_id ? parseInt(formData.paciente_id, 10) : NaN;
@@ -3326,7 +3334,7 @@ export default function NovoAgendamentoModal({
           confirmar_conflito_deslocamento: confirmarConflitoDeslocamento,
           confirmar_slot_reserva_expirada: confirmarSlotReservaExpirada,
         };
-        if (!isEditando && confirmarAgendaFechada) {
+        if (confirmarAgendaFechada) {
           payload.confirmar_agenda_fechada = true;
         }
         if (isEditando) {

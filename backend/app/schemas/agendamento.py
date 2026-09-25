@@ -59,6 +59,7 @@ class AgendamentoUpdate(BaseModel):
     reserva_expira_em: Optional[datetime] = None
     observacoes: Optional[str] = None
     confirmar_conflito_deslocamento: Optional[bool] = None
+    confirmar_agenda_fechada: Optional[bool] = None
     confirmar_slot_reserva_expirada: Optional[bool] = None
     excecao_operacional_concedida: Optional[bool] = None
     motivo_excecao_operacional: Optional[str] = None
@@ -81,6 +82,7 @@ class AgendamentoResponse(BaseModel):
     fim: Optional[str] = None  # Retorna como string
     status: str
     reserva_expira_em: Optional[str] = None
+    excecao_agenda_fechada_ativa: bool = False
     observacoes: Optional[str] = None
     data: Optional[str] = None
     hora: Optional[str] = None
