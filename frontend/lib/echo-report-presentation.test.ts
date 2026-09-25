@@ -55,9 +55,10 @@ describe("prévia de ecocardiograma", () => {
       Aorta: "13.1", TAPSE: "10", MAPSE: "8",
     });
     const groups = buildEchoReportGroups(measurements, null);
-    expect(groups[0].rows.find((row) => row.key === "TAPSE")?.value).toBe("10.00 mm");
-    expect(groups[0].rows.find((row) => row.key === "MAPSE")?.value).toBe("8.00 mm");
-    expect(groups[1].rows.find((row) => row.key === "Aorta")?.value).toBe("13.10 mm");
+    const annular = groups.find((group) => group.title === "Excursão do plano anular");
+    expect(annular?.rows.find((row) => row.key === "TAPSE")?.value).toBe("10.00 mm");
+    expect(annular?.rows.find((row) => row.key === "MAPSE")?.value).toBe("8.00 mm");
+    expect(groups.find((group) => group.title === "Átrio esquerdo / aorta")?.rows.find((row) => row.key === "Aorta")?.value).toBe("13.10 mm");
     expect(prepareEchoReportMeasurements({ ...raw, Aorta: "1.3" }, 10).measurements.Aorta).toBe("13");
   });
 
@@ -68,6 +69,24 @@ describe("prévia de ecocardiograma", () => {
     expect(groups[0].rows.map((row) => row.key)).toEqual(["DIVEd_2D", "FE_Teicholz_2D"]);
     expect(groups[0].rows[0]).toMatchObject({ value: "32.00 mm", reference: "20.00–40.00 mm" });
     expect(groups[0].rows[1].reference).toBe("—");
+  });
+
+  it("mantém TAPSE e MAPSE quando o VE é exibido em modo 2D", () => {
+    const groups = buildEchoReportGroups({
+      VE_tecnica_relatorio: "2d",
+      DIVEd_2D: "32",
+      TAPSE: "10",
+      MAPSE: "8",
+    }, null);
+
+    expect(groups[0].rows.map((row) => row.key)).toEqual(["DIVEd_2D"]);
+    expect(groups[1]).toMatchObject({
+      title: "Excursão do plano anular",
+      rows: [
+        { key: "TAPSE", value: "10.00 mm" },
+        { key: "MAPSE", value: "8.00 mm" },
+      ],
+    });
   });
 
   it("separa apenas linhas reconhecidas como administrativas", () => {

@@ -267,6 +267,20 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("E/E'", mode_2d_text)
         self.assertIn("14.00", mode_2d_text)
 
+    def test_annular_excursion_remains_in_pdf_with_2d_lv_technique(self) -> None:
+        payload = _base_report("2d")
+        payload["medidas"] = {
+            "VE_tecnica_relatorio": "2d", "DIVEd_2D": "32",
+            "TAPSE": "10", "MAPSE": "8",
+        }
+        text = _pdf_text(payload)
+
+        self.assertIn("VE - Modo 2D", text)
+        self.assertNotIn("VE - Modo M", text)
+        self.assertIn("Excursão do plano anular", text)
+        self.assertIn("TAPSE (excursão sistólica do plano anular tricúspide)\n10.00 mm", text)
+        self.assertIn("MAPSE (excursão sistólica do plano anular mitral)\n8.00 mm", text)
+
     def test_persisted_2d_measurements_generate_2d_block(self) -> None:
         payload = _base_report("modo_m")
         payload["medidas"] = extrair_medidas_ecocardiograma_da_descricao(

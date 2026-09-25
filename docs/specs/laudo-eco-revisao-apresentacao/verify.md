@@ -25,6 +25,7 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 | CA-014 | Teste com dois uploads retardados e componente pai controlado: editar a primeira legenda antes da segunda resposta preserva o texto e o envia na configuração com os dois IDs temporários | ok |
 | CA-015 | Teste com DIVEd modo M e 2D divergentes: ambas as medidas são recalculadas e somente a técnica escolhida gera aviso | ok |
 | CA-016 | Prévia e PDF com medidas legadas mistas: dimensões cm convertidas, TAPSE/MAPSE/Aorta já em mm preservados | ok |
+| CA-017 | Testes de prévia e PDF com técnica 2D selecionada mostram TAPSE e MAPSE em grupo próprio, sem trocar o bloco VE para modo M | ok |
 | NFR-001 | Revisão de fluxo: busca de referência apenas na visualização; configuração confirmada no salvamento somente quando há imagens | ok |
 | NFR-002 | Nenhuma escrita de medidas no helper; somente cópia para apresentação | ok |
 | NFR-003 | Inspeção do diff, testes focados e build | ok |
@@ -36,6 +37,8 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 - `frontend: vitest run app/laudos/components/ImageUploader.test.tsx --maxWorkers=2` após a correção de upload — 4 testes aprovados, incluindo a regressão de legenda digitada durante uploads sucessivos.
 - `frontend: vitest run lib/echo-report-presentation.test.ts --maxWorkers=2` após a correção de alertas — 5 testes aprovados, incluindo seleção entre modo M e 2D.
 - `frontend: vitest run lib/echo-report-presentation.test.ts --maxWorkers=2` após a correção de unidades mistas — 6 testes aprovados; `backend: python -m unittest tests.test_pdf_laudo_echo_measurements` — 11 testes aprovados.
+- `frontend: vitest run lib/echo-report-presentation.test.ts --maxWorkers=2` após o agrupamento de excursão anular — 7 testes aprovados; `backend: python -m unittest tests.test_pdf_laudo_echo_measurements` — 12 testes aprovados.
+- `frontend: vitest run --maxWorkers=2` após o agrupamento de excursão anular — suíte completa aprovada: 430/430; `npm run lint` e `tsc --noEmit` aprovados. `backend: python -m unittest tests.test_pdf_laudo_echo_measurements tests.test_ecocardiograma_qualitativa tests.test_referencia_eco_defaults tests.test_imagens_configuracao_pdf tests.test_ecocardiograma_medidas` — 28 testes aprovados.
 - `frontend: vitest run --maxWorkers=2` após a correção de unidades mistas — suíte completa aprovada: 429/429; `npm run lint` e `tsc --noEmit` aprovados. `backend: python -m unittest tests.test_pdf_laudo_echo_measurements tests.test_ecocardiograma_qualitativa tests.test_referencia_eco_defaults tests.test_imagens_configuracao_pdf tests.test_ecocardiograma_medidas` — 27 testes aprovados.
 - `frontend: vitest run --maxWorkers=2` após a correção de alertas — suíte completa aprovada: 428/428; `npm run lint` e `tsc --noEmit` aprovados.
 - `frontend: vitest run --maxWorkers=2` após a correção de upload — suíte completa aprovada: 427/427; `npm run lint` e `tsc --noEmit` aprovados.
