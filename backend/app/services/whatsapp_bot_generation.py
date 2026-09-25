@@ -533,6 +533,26 @@ def gerar_resposta(
             coleta['fila_anterior_id'] = pedido.id
         if validar_texto(coleta, texto).aprovado:
             administrative = (texto, {COLETA_KEY: coleta})
+    # Pergunta curta de disponibilidade entra na coleta sem depender da
+    # escolha de ferramenta do modelo. Nenhum horário é prometido aqui.
+    from app.services.whatsapp_bot_agendamento import exame_em_consulta_disponibilidade
+    exame_disponibilidade = exame_em_consulta_disponibilidade(corpo_mensagem)
+    if administrative is None and match_type == "clinica" and clinica_id and (exame_disponibilidade or novo_pedido(corpo_mensagem)):
+        from types import SimpleNamespace
+        from app.services.whatsapp_bot_fila import LABELS
+        ativa = coleta_anterior and coleta_anterior.get('status') in ('coletando', 'aguardando_confirmacao')
+        if pedido and not novo_pedido(corpo_mensagem) and not (ativa and coleta_anterior.get('fila_anterior_id') == pedido.id):
+            coleta = {'clinica_id': clinica_id, 'status': 'acompanhamento', 'pedido_id': pedido.id, 'dados': {}}
+            texto = ('Sua última solicitação está como “' + LABELS[pedido.status]
+                     + '”. Para iniciar outro pedido, escreva “novo pedido”. Para ajustes, fale com a equipe.')
+        else:
+            update = SimpleNamespace(exame=exame_disponibilidade) if exame_disponibilidade else None
+            coleta, texto = preparar(None if novo_pedido(corpo_mensagem) else coleta_anterior,
+                                      update, corpo_mensagem, clinica_id, contexto)
+            if pedido:
+                coleta['fila_anterior_id'] = pedido.id
+        if validar_texto(coleta, texto).aprovado:
+            administrative = (texto, {COLETA_KEY: coleta})
     if administrative and COLETA_KEY in administrative[1] and conversation_id:
         texto, extra = apos_confirmacao(db, clinica_id, administrative[1][COLETA_KEY], administrative[0])
         administrative = (texto, {**administrative[1], **extra})
