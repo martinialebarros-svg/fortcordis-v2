@@ -74,14 +74,39 @@ class BackgroundWorkerLifecycleTest(unittest.TestCase):
 
 
 class ApiProcessRoleTest(unittest.TestCase):
+    def test_agenda_schema_compatibility_uses_one_startup_session(self) -> None:
+        with patch.object(main, "SessionLocal") as session_factory:
+            with patch.object(
+                main.agenda,
+                "_ensure_agendamento_workflow_columns",
+            ) as ensure_columns:
+                main._ensure_agenda_schema_compat()
+
+        db = session_factory.return_value
+        ensure_columns.assert_called_once_with(db)
+        db.close.assert_called_once_with()
+
+    def test_agenda_schema_compatibility_closes_session_on_failure(self) -> None:
+        with patch.object(main, "SessionLocal") as session_factory:
+            with patch.object(
+                main.agenda,
+                "_ensure_agendamento_workflow_columns",
+                side_effect=RuntimeError("schema desatualizado"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "schema desatualizado"):
+                    main._ensure_agenda_schema_compat()
+
+        session_factory.return_value.close.assert_called_once_with()
+
     def test_api_role_does_not_start_or_stop_background_workers(self) -> None:
         with patch.object(main.settings, "FORTCORDIS_PROCESS_ROLE", "api"):
             with patch.object(main, "_ensure_financeiro_schema_compat"):
-                with patch.object(main, "validate_startup_or_raise"):
-                    with patch.object(main, "start_background_workers") as start:
-                        with patch.object(main, "shutdown_background_worker_services") as shutdown:
-                            main.startup_schema_compatibility()
-                            main.shutdown_background_workers()
+                with patch.object(main, "_ensure_agenda_schema_compat"):
+                    with patch.object(main, "validate_startup_or_raise"):
+                        with patch.object(main, "start_background_workers") as start:
+                            with patch.object(main, "shutdown_background_worker_services") as shutdown:
+                                main.startup_schema_compatibility()
+                                main.shutdown_background_workers()
 
         start.assert_not_called()
         shutdown.assert_not_called()
@@ -89,11 +114,12 @@ class ApiProcessRoleTest(unittest.TestCase):
     def test_all_role_preserves_local_worker_lifecycle(self) -> None:
         with patch.object(main.settings, "FORTCORDIS_PROCESS_ROLE", "all"):
             with patch.object(main, "_ensure_financeiro_schema_compat"):
-                with patch.object(main, "validate_startup_or_raise"):
-                    with patch.object(main, "start_background_workers") as start:
-                        with patch.object(main, "shutdown_background_worker_services") as shutdown:
-                            main.startup_schema_compatibility()
-                            main.shutdown_background_workers()
+                with patch.object(main, "_ensure_agenda_schema_compat"):
+                    with patch.object(main, "validate_startup_or_raise"):
+                        with patch.object(main, "start_background_workers") as start:
+                            with patch.object(main, "shutdown_background_worker_services") as shutdown:
+                                main.startup_schema_compatibility()
+                                main.shutdown_background_workers()
 
         start.assert_called_once_with()
         shutdown.assert_called_once_with()
