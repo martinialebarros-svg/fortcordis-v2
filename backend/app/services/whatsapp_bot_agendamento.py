@@ -159,3 +159,19 @@ def confirmacao_de_coleta_ativa(db, identity, message):
     ).order_by(WhatsAppBotResposta.id.desc()).first()
     state = carregar(db, identity, row.clinica_id) if row else None
     return bool(state and state.get('status') == 'aguardando_confirmacao' and state.get('resumo_enviado'))
+
+
+def exame_em_consulta_disponibilidade(message):
+    """Intenção administrativa explícita; texto misto segue a triagem normal.
+
+    Não infere horário nem sintomas. Devolve o nome literal do exame apenas
+    para perguntas curtas de disponibilidade, nunca uma confirmação de agenda.
+    """
+    text = str(message or '').strip().rstrip('?! .')
+    match = re.fullmatch(
+        r'(?:qual\s+(?:a\s+)?disponibilidade|(?:quais|qual)\s+hor[aá]rios?|tem\s+hor[aá]rio|h[aá]\s+hor[aá]rio)'
+        r'\s+(?:dispon[ií]ve(?:l|is)\s+)?(?:pra|para|de|do|pro)\s+(?:o\s+)?'
+        r'(eco|ecocardiograma|ecodopplercardiograma|eletro|eletrocardiograma|ecg|consulta cardiol[oó]gica)',
+        text, flags=re.IGNORECASE,
+    )
+    return match.group(1) if match else None

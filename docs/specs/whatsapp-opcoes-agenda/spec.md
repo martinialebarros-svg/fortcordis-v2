@@ -35,3 +35,8 @@ Nenhuma migração, segredo ou integração externa nova. A oferta não é um bl
 O histórico sintético de `AppointmentQueue.test.tsx` possui tipo explícito com
 ação, instante e campos opcionais de preferência/observação. Isso evita inferência
 `never[]` para o histórico vazio; não altera o componente, o contrato HTTP ou o bot.
+
+## Entrada explícita por disponibilidade
+Perguntas curtas e integrais como “Qual a disponibilidade pra eco?” são roteadas deterministicamente para coleta administrativa da clínica identificada, antes do provider. O nome literal do exame é preservado. O caminho não afirma disponibilidade, cria reserva ou consulta agenda antes da confirmação dos dados. Se há pedido anterior e não há nova coleta vinculada a ele, informa o status e orienta “novo pedido”, preservando a proteção contra duplicação. “Novo pedido” também inicia coleta quando não existe pedido anterior.
+
+O reconhecimento é conservador: mensagens mistas, negações, perguntas sobre preço ou horário de exame já agendado não entram nessa regra. As guardas de emergência, pausa e escopo do worker permanecem anteriores à geração. A correção não remove pausas já registradas em produção.

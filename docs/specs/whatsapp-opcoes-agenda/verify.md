@@ -18,3 +18,14 @@ Validação local concluída em 10/09/2026, sem mensagens reais, mudança de pro
 
 
 Cobertura: composição/duração exata, escopo, limite de três opções, corte de risco, preferências relativas, oferta não enviada/editada, expiração, número inválido, negação, pedido com atendente, complemento pendente, serviço alterado e reconsulta sem slot. Integração com motor real da agenda em SQLite isolado demonstra que um slot ocupado depois da oferta desaparece na revalidação. Preferência escolhida é idempotente e não altera o resumo nem vincula um agendamento. A interface destaca a escolha como sem reserva e retira o destaque após nova correção.
+
+## Regressão da consulta de disponibilidade (25/09/2026)
+- Reproduzido em produção: mensagem “Qual a disponibilidade pra eco?” gerou blocked/sem_fonte sem tentativa de ferramenta; nova pausa foi criada. Auditoria somente leitura.
+- Implementado encaminhamento determinístico de perguntas curtas de disponibilidade e início explícito de pedido; sem depender do provider para esse caminho.
+- Testes focados: 41 aprovados. Cobrem coleta sem promessa de horário, literal do exame, pedido anterior cancelado, comando novo pedido, ausência de chamada ao provider e rejeição de frases mistas/negações.
+- Nenhuma mensagem real ou remoção de pausa nesta entrega. Publicação ainda não realizada.
+- Suíte WhatsApp completa: 425 testes e 237 subtestes aprovados; 7 ignorados pelas condições do ambiente. Log `/private/tmp/whatsapp-disponibilidade-suite.log`.
+- Suíte geral interrompida por `Fatal Python error: Segmentation fault`, com thread de `assistente_ia_autonomy._worker_main`/SQLAlchemy na pilha; não considerada aprovada. Log `/private/tmp/whatsapp-disponibilidade-full.log`. Causa não determinada nesta entrega.
+- Guardrail SDD e `git diff --check` aprovados. Sem alterações frontend.
+- Revalidação geral concluída: 1418 testes e 297 subtestes aprovados, sete ignorados conforme condições do ambiente, em 54,56 s. Executada com `FORTCORDIS_PROCESS_ROLE=api` e SQLite em arquivo temporário, seguindo a configuração de banco/perfil do CI. Log: `/private/tmp/whatsapp-disponibilidade-full-final.log`.
+- A interrupção anterior não se repetiu com essa configuração. Isso não estabelece isoladamente a causa do erro nativo anterior.
