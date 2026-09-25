@@ -11,7 +11,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 os.chdir(BACKEND_DIR)
 sys.path.insert(0, str(BACKEND_DIR))
 
-from app.utils.pdf_laudo import gerar_pdf_laudo_eco  # noqa: E402
+from app.utils.pdf_laudo import gerar_pdf_laudo_eco, normalizar_medidas_para_pdf  # noqa: E402
 from app.utils.ecocardiograma_medidas import (  # noqa: E402
     extrair_medidas_ecocardiograma_da_descricao,
 )
@@ -63,6 +63,28 @@ def _pdf_text(payload: dict) -> str:
 
 
 class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
+    def test_legacy_mixed_units_keep_already_mm_values_in_pdf(self) -> None:
+        legacy = {
+            "DIVEd": "3", "SIVd": "0.7", "PLVEd": "0.8",
+            "DIVES": "1.5", "SIVs": "1", "PLVES": "1.3",
+            "Aorta": "13.1", "TAPSE": "10", "MAPSE": "8",
+            "VE_tecnica_relatorio": "modo_m",
+        }
+        normalized = normalizar_medidas_para_pdf(legacy)
+        self.assertEqual(normalized["DIVEd"], 30)
+        self.assertEqual(normalized["SIVd"], 7)
+        self.assertEqual(normalized["Aorta"], "13.1")
+        self.assertEqual(normalized["TAPSE"], "10")
+        self.assertEqual(normalized["MAPSE"], "8")
+        self.assertEqual(normalizar_medidas_para_pdf({**legacy, "Aorta": "1.3"})["Aorta"], 13)
+
+        payload = _base_report("modo_m")
+        payload["medidas"] = legacy
+        text = _pdf_text(payload)
+        self.assertIn("TAPSE (excursão sistólica do plano anular tricúspide)\n10.00 mm", text)
+        self.assertIn("MAPSE (excursão sistólica do plano anular mitral)\n8.00 mm", text)
+        self.assertIn("Aorta\n13.10 mm", text)
+
     def test_pdf_numbers_images_and_uses_only_recorded_captions(self) -> None:
         image_buffer = BytesIO()
         PILImage.new("RGB", (320, 240), "white").save(image_buffer, format="JPEG")
