@@ -187,3 +187,29 @@ class OpcoesTests(unittest.TestCase):
                 after=op.slots_seguros(op.consultar_dia(db,clinic.id,service,self.now.date()),service,self.now.date(),self.now)
                 self.assertNotIn(chosen,after)
         finally: db.close();engine.dispose();tmp.cleanup()
+
+    def test_consulta_disponibilidade_sem_modelo_e_sem_duplicar_pedido(self):
+        from app.services.whatsapp_bot_generation import gerar_resposta
+        context={'resolution':'matched','match_type':'clinica','clinicas':[{'id':9,'nome':'Teste'}]}
+        provider=Mock()
+        with patch('app.services.whatsapp_bot_generation._resolver_contexto',return_value=context), patch('app.services.whatsapp_bot_generation.resolve_modo_efetivo',return_value=('auto',None)):
+            result=gerar_resposta(self.db,wa_identity='test',conversation_id='49',corpo_mensagem='Qual a disponibilidade pra eco?',modo='auto',provider=provider)
+            self.assertTrue(result.auto_elegivel)
+            self.assertEqual(json.loads(result.tools_usadas)['solicitacao_agendamento']['dados'],{'exame':'eco'})
+            self.assertIn('nome do paciente',result.texto_gerado)
+            self.assertEqual(self.db.query(Pedido).count(),0)
+            self.seed(); self.p.status='cancelado'; self.db.commit()
+            result=gerar_resposta(self.db,wa_identity='test',conversation_id='49',corpo_mensagem='Qual a disponibilidade pra eco?',modo='auto',provider=provider)
+            self.assertIn('novo pedido',result.texto_gerado)
+            self.assertTrue(result.auto_elegivel)
+            result=gerar_resposta(self.db,wa_identity='test',conversation_id='49',corpo_mensagem='Novo pedido',modo='auto',provider=provider)
+            self.assertEqual(json.loads(result.tools_usadas)['solicitacao_agendamento']['status'],'coletando')
+        provider.generate.assert_not_called()
+        self.assertEqual(self.db.query(Pedido).count(),1)
+
+    def test_disponibilidade_nao_captura_mensagem_clinica_ou_mista(self):
+        from app.services.whatsapp_bot_agendamento import exame_em_consulta_disponibilidade as extrair
+        for text in ('Qual a disponibilidade pra eco?', 'Quais horários disponíveis para ecocardiograma?', 'Tem horário para ECG?'):
+            self.assertIsNotNone(extrair(text))
+        for text in ('Não quero horário para eco', 'Qual a disponibilidade pra eco? Meu pet está com falta de ar', 'Qual o valor do eco?', 'Qual horário do meu eco?', 'Qual a disponibilidade pra eco amanhã?'):
+            self.assertIsNone(extrair(text))
