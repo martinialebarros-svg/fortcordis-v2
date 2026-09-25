@@ -61,6 +61,7 @@ export default function ImageUploader({
           id: imagem.tempId,
           ordem: imagem.ordem,
           incluir_no_pdf: imagem.incluirNoPdf ?? true,
+          descricao: imagem.descricao,
         })),
       });
       setError(null);
@@ -412,6 +413,21 @@ export default function ImageUploader({
                   <p className="text-xs text-gray-400">
                     {formatarTamanho(imagem.tamanho)}
                   </p>
+                  <label className="mt-2 block text-xs font-medium text-gray-700">
+                    Legenda opcional no PDF
+                    <input
+                      type="text"
+                      value={imagem.descricao}
+                      maxLength={160}
+                      onChange={(event) => atualizarImagens(imagens.map((item) =>
+                        item.id === imagem.id ? { ...item, descricao: event.target.value } : item
+                      ))}
+                      onBlur={() => void persistirConfiguracaoTemporaria(imagens)}
+                      placeholder="Ex.: Doppler da regurgitação tricúspide"
+                      aria-label={`Legenda da imagem ${index + 1}`}
+                      className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-xs text-gray-900"
+                    />
+                  </label>
                   <label className="mt-2 flex items-center gap-2 text-xs font-medium text-gray-700">
                     <input
                       type="checkbox"

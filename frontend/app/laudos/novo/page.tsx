@@ -997,6 +997,20 @@ export default function NovoLaudoPage() {
         }
       }
 
+      // Garante que legendas e ordem opcionais cheguem ao PDF mesmo quando
+      // o usuário salva imediatamente após editar uma imagem.
+      const imagensEnviadas = imagens.filter((imagem) => imagem.uploaded && imagem.tempId);
+      if (imagensEnviadas.length > 0) {
+        await api.put(`/imagens/temp/session/${sessionId}/configuracao`, {
+          imagens: imagensEnviadas.map((imagem) => ({
+            id: imagem.tempId,
+            ordem: imagem.ordem,
+            incluir_no_pdf: imagem.incluirNoPdf ?? true,
+            descricao: imagem.descricao || "",
+          })),
+        });
+      }
+
       const payload =
         tipoLaudo === "ecocardiograma"
           ? montarPayloadEcocardiograma("Finalizado")
