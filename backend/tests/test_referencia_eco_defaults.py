@@ -2,16 +2,59 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+
+from fastapi import HTTPException
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 os.chdir(BACKEND_DIR)
 sys.path.insert(0, str(BACKEND_DIR))
+os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
+os.environ.setdefault("SECRET_KEY", "referencia-eco-defaults-test-secret-key-1234567890")
 
 from app.utils.referencia_eco_defaults import aplicar_defaults_publicados_caninos
-from app.utils.referencia_eco_defaults import obter_tapse_canino_por_peso
+from app.utils.referencia_eco_defaults import normalizar_especie_referencia, obter_tapse_canino_por_peso
+from app.api.v1.endpoints.referencias_eco import buscar_referencia_por_peso
+from app.models.referencia_eco import ReferenciaEco
 
 
 class ReferenciaEcoDefaultsTest(unittest.TestCase):
+    def test_aliases_explicitos_nao_transformam_outras_especies_em_felinos_ou_caninos(self) -> None:
+        for especie, esperada in (
+            ("Felina", "Felina"), ("Gato", "Felina"), ("Cat", "Felina"),
+            ("Caninos", "Canina"), ("Cão", "Canina"), ("Dogs", "Canina"),
+            ("Cattle", "Cattle"), ("Bobcat", "Bobcat"), ("Canguru", "Canguru"),
+        ):
+            with self.subTest(especie=especie):
+                self.assertEqual(normalizar_especie_referencia(especie), esperada)
+
+    def test_busca_de_referencia_nao_aplica_faixa_felina_a_cattle(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        ReferenciaEco.__table__.create(engine)
+        db = sessionmaker(bind=engine)()
+        try:
+            db.add_all([
+                ReferenciaEco(especie="Felina", peso_kg=5.0),
+                ReferenciaEco(especie="Canina", peso_kg=5.0),
+            ])
+            db.commit()
+            with self.assertRaises(HTTPException) as erro:
+                buscar_referencia_por_peso("Cattle", 5.0, db, SimpleNamespace())
+            self.assertEqual(erro.exception.status_code, 404)
+            self.assertEqual(
+                buscar_referencia_por_peso("Gato", 5.0, db, SimpleNamespace())["especie"],
+                "Felina",
+            )
+            self.assertEqual(
+                buscar_referencia_por_peso("Cão", 5.0, db, SimpleNamespace())["especie"],
+                "Canina",
+            )
+        finally:
+            db.close()
+            engine.dispose()
+
     def test_obter_tapse_canino_por_peso_usa_peso_publicado_mais_proximo(self) -> None:
         self.assertEqual(obter_tapse_canino_por_peso(6.3), (8.5, 13.6))
         self.assertEqual(obter_tapse_canino_por_peso(13.3), (10.0, 16.0))

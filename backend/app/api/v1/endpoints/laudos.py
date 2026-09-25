@@ -4330,7 +4330,7 @@ def gerar_pdf_laudo(
                     elif especie_ref == "Felina":
                         filtro_especie = ReferenciaEco.especie.ilike("felin%")
                     else:
-                        filtro_especie = ReferenciaEco.especie.ilike(paciente.especie)
+                        filtro_especie = func.lower(ReferenciaEco.especie) == especie_ref.lower()
                     ref = db.query(ReferenciaEco).filter(filtro_especie).order_by(
                         func.abs(ReferenciaEco.peso_kg - float(paciente.peso_kg))
                     ).first()

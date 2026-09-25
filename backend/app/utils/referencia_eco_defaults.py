@@ -32,9 +32,9 @@ def normalizar_especie_referencia(especie: Any) -> str | None:
     valor = valor.encode("ascii", "ignore").decode("ascii").lower()
     if not valor:
         return None
-    if valor.startswith("fel") or "gato" in valor or "cat" in valor:
+    if valor in {"felina", "felino", "felinos", "feline", "gato", "gatos", "cat", "cats"}:
         return "Felina"
-    if valor.startswith("can") or "cao" in valor or "dog" in valor:
+    if valor in {"canina", "canino", "caninos", "canine", "cao", "caes", "cachorro", "cachorros", "dog", "dogs"}:
         return "Canina"
     return valor_original
 
