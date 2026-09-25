@@ -74,8 +74,9 @@ const otherGroups: { title: string; parameters: Parameter[] }[] = [
   ] },
 ];
 
+// TAPSE e MAPSE não permitem inferir cm a partir de outros diâmetros do exame.
 const lengthKeys = new Set([
-  ...mMode.filter((item) => item.unit === "mm").map((item) => item.key),
+  ...mMode.filter((item) => item.unit === "mm" && item.key !== "TAPSE" && item.key !== "MAPSE").map((item) => item.key),
   ...mode2D.filter((item) => item.unit === "mm").map((item) => item.key),
   "Aorta", "Atrio_esquerdo", "Ao_nivel_AP", "AP",
 ]);
@@ -108,7 +109,9 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
     if (centimeters >= 3 && centimeters >= millimeters * 2) {
       for (const key of lengthKeys) {
         const value = number(raw[key]);
-        if (value !== null && value > 0) measurements[key] = String(Number((value * 10).toFixed(2)));
+        if (value !== null && value >= 0.3 && value <= 3.5) {
+          measurements[key] = String(Number((value * 10).toFixed(2)));
+        }
       }
     }
   }

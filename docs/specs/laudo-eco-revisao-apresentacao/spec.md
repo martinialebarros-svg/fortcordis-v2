@@ -20,6 +20,7 @@
 - RF-016: em relatórios que quebram após a análise qualitativa, a assinatura não ocupa sozinha uma página; com imagens, a grade pode aproveitar a página da assinatura, e sem imagens a última descrição qualitativa permanece com ela.
 - RF-017: o serviço não gera faixa auxiliar de MAPSE a partir de intervalos de confiança da média; valores explicitamente cadastrados continuam legíveis. TAPSE não aplica a tabela auxiliar fora dos pesos de 3 a 45 kg.
 - RF-018: respostas de uploads sucessivos atualizam somente o status da imagem correspondente e preservam legendas digitadas enquanto as demais imagens ainda são enviadas.
+- RF-019: a compatibilidade com dimensões legadas em cm converte apenas valores compatíveis com cm entre 0,3 e 3,5 em um conjunto coerente; valores já em mm permanecem intactos. TAPSE e MAPSE não são convertidos por inferência baseada nos diâmetros das câmaras.
 
 ## Requisitos não funcionais
 
@@ -45,3 +46,4 @@
 - CA-013: MAPSE sem faixa cadastrada mostra faixa indisponível e TAPSE fora dos pesos tabulados também; valores cadastrados permanecem intactos.
 - CA-014: ao digitar a legenda da primeira imagem enquanto a segunda ainda está sendo enviada, a conclusão do segundo upload mantém a legenda visível e a configuração salva contém os dois identificadores com a descrição correta.
 - CA-015: quando modo M e 2D têm DIVEd normalizado divergente, somente a técnica selecionada gera alerta na prévia, embora os dois cálculos permaneçam disponíveis para a apresentação adequada.
+- CA-016: em um conjunto legado misto, dimensões de câmaras em cm são convertidas e TAPSE, MAPSE e aorta já em mm mantêm seus valores na prévia e no PDF.

@@ -35,7 +35,8 @@ COR_PRETO = colors.black
 LARGURA_TABELAS = 180 * mm
 
 
-# Campos de comprimento que devem ser exibidos/comparados em mm.
+# Dimensões candidatas à conversão de laudos legados em cm.
+# TAPSE e MAPSE permanecem em mm sem unidade explícita no dado de origem.
 CHAVES_COMPRIMENTO_MM = {
     "DIVEd",
     "SIVd",
@@ -49,8 +50,6 @@ CHAVES_COMPRIMENTO_MM = {
     "DIVES_2D",
     "SIVs_2D",
     "PLVES_2D",
-    "TAPSE",
-    "MAPSE",
     "Aorta",
     "Atrio_esquerdo",
     "Ao_nivel_AP",
@@ -121,10 +120,11 @@ def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
     qtd_mm_like = sum(1 for v in valores_comprimento if v >= 5.0)
 
     # Heurística: maioria em faixa típica de cm e sem sinais fortes de mm.
+    # Mesmo nesse caso, valores já compatíveis com mm ficam intactos.
     if qtd_cm_like >= 3 and qtd_cm_like >= (qtd_mm_like * 2):
         for chave in CHAVES_COMPRIMENTO_MM:
             valor = _to_float(medidas_norm.get(chave))
-            if valor and valor > 0:
+            if valor is not None and 0.3 <= valor <= 3.5:
                 medidas_norm[chave] = round(valor * 10, 2)
 
     return medidas_norm

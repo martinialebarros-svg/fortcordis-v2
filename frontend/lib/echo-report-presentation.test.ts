@@ -41,6 +41,26 @@ describe("prévia de ecocardiograma", () => {
     expect(prepareEchoReportMeasurements({ DIVEd: "3", SIVd: "7", PLVEd: "8" }, 10).measurements.DIVEd).toBe("3");
   });
 
+  it("preserva TAPSE, MAPSE e aorta já em mm em um conjunto legado misto", () => {
+    const raw = {
+      DIVEd: "3", SIVd: "0.7", PLVEd: "0.8",
+      DIVES: "1.5", SIVs: "1", PLVES: "1.3",
+      Aorta: "13.1", TAPSE: "10", MAPSE: "8",
+      VE_tecnica_relatorio: "modo_m",
+    };
+    const { measurements } = prepareEchoReportMeasurements(raw, 10);
+
+    expect(measurements).toMatchObject({
+      DIVEd: "30", SIVd: "7", PLVEd: "8",
+      Aorta: "13.1", TAPSE: "10", MAPSE: "8",
+    });
+    const groups = buildEchoReportGroups(measurements, null);
+    expect(groups[0].rows.find((row) => row.key === "TAPSE")?.value).toBe("10.00 mm");
+    expect(groups[0].rows.find((row) => row.key === "MAPSE")?.value).toBe("8.00 mm");
+    expect(groups[1].rows.find((row) => row.key === "Aorta")?.value).toBe("13.10 mm");
+    expect(prepareEchoReportMeasurements({ ...raw, Aorta: "1.3" }, 10).measurements.Aorta).toBe("13");
+  });
+
   it("usa apenas o modo selecionado e exibe faixa disponível da referência", () => {
     const reference = { id: 1, especie: "Canina", peso_kg: 10, lvid_d_min: 20, lvid_d_max: 40 } as ReferenciaEco;
     const groups = buildEchoReportGroups({ VE_tecnica_relatorio: "2d", DIVEd: "30", DIVEd_2D: "32", FE_Teicholz_2D: "57" }, reference);
