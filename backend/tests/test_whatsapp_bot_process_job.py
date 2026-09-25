@@ -2,6 +2,8 @@ import os
 import sys
 import tempfile
 import unittest
+import json
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -567,6 +569,66 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
                     verify.close()
             finally:
                 engine.dispose()
+
+    def test_convite_novo_pedido_passa_pelo_worker_sem_furar_protecoes(self):
+        from app.services.whatsapp_bot_disponibilidade import convidar
+        scenarios = [
+            ('sim', False, None, 0, 'sent', 'continuidade_administrativa'),
+            ('não', False, None, 0, 'sent', 'continuidade_administrativa'),
+            ('sim', True, None, 0, 'suppressed', 'pausado'),
+            ('sim', False, 3, 0, 'suppressed', 'pausado'),
+            ('sim', False, None, 25, 'suppressed', 'janela_fechada'),
+            ('sim, meu cachorro está convulsionando', False, None, 0, 'handoff', 'emergencia'),
+        ]
+        for message, paused, agent, hours, decision, reason in scenarios:
+            with self.subTest(message=message, paused=paused, agent=agent, hours=hours), tempfile.TemporaryDirectory() as tmpdir:
+                factory, engine = self._build_session_factory(tmpdir)
+                try:
+                    with factory() as db, ExitStack() as stack:
+                        self._enable_bot(db)
+                        now = datetime.now(timezone.utc)
+                        db.add(WhatsAppBotConversaEstado(wa_identity='558588018899', modo='auto',
+                            pausado_ate=now + timedelta(hours=1) if paused else None))
+                        pedido = WhatsAppBotSolicitacao(id=1, resposta_id=1, wa_identity='558588018899',
+                            conversation_id='conv-1', clinica_id=9, resumo='Pedido anterior', status='cancelado',
+                            prazo_em=now, created_at=now, updated_at=now, versao=1, historico='[]')
+                        db.add(pedido); db.flush()
+                        text, audit = convidar(pedido, 'eco', '558588018899', 9, 'conv-1')
+                        db.add(WhatsAppBotResposta(job_id=100, wa_identity='558588018899', conversation_id='conv-1',
+                            clinica_id=9, decisao='sent', texto_gerado=text, texto_enviado=text,
+                            tools_usadas=json.dumps(audit), created_at=now))
+                        db.commit()
+                        job = self._make_job(db)
+                        stack.enter_context(patch.object(gates.settings, 'WHATSAPP_BOT_ENABLED', True))
+                        stack.enter_context(patch.object(gates.settings, 'WHATSAPP_BOT_AUTO_SEND_ENABLED', True))
+                        stack.enter_context(patch.object(gates, 'SessionLocal', factory))
+                        stack.enter_context(patch('app.services.whatsapp_bot_generation._resolver_contexto',
+                            return_value={'resolution':'matched', 'match_type':'clinica', 'clinicas':[{'id':9,'nome':'Teste'}]}))
+                        stack.enter_context(patch('app.services.whatsapp_bot_generation.resolve_modo_efetivo', return_value=('auto',None)))
+                        provider = stack.enter_context(patch('app.services.whatsapp_bot_generation.get_whatsapp_bot_reply_provider'))
+                        def delivered(_db, _job, resposta):
+                            resposta.decisao = 'sent'
+                            resposta.texto_enviado = resposta.texto_gerado
+                        deliver = stack.enter_context(patch.object(worker, 'deliver_automatic_reply', side_effect=delivered))
+                        self._run_with_node_mocks(db, job,
+                            conversation_row={'id':'conv-1', 'wa_phone_number':'558588018899', 'last_agent_id':agent,
+                                              'last_inbound_at':(now-timedelta(hours=hours)).isoformat()},
+                            message_row={'wa_message_id':'wamid.1', 'from_me':False, 'type':'text', 'body':message})
+                        result = db.query(WhatsAppBotResposta).filter_by(job_id=job.id).one()
+                        self.assertEqual((result.decisao, result.motivo), (decision, reason))
+                        self.assertEqual(deliver.call_count, int(decision == 'sent'))
+                        provider.assert_not_called()
+                        self.assertEqual(db.query(WhatsAppBotSolicitacao).count(), 1)
+                        self.assertEqual(pedido.status, 'cancelado')
+                        self.assertIsNone(pedido.agendamento_id)
+                        if message == 'sim' and decision == 'sent':
+                            coleta = json.loads(result.tools_usadas)['solicitacao_agendamento']
+                            self.assertEqual(coleta['dados'], {'exame':'eco'})
+                            self.assertEqual(coleta['status'], 'coletando')
+                        if message == 'não':
+                            self.assertNotIn('solicitacao_agendamento', json.loads(result.tools_usadas))
+                finally:
+                    engine.dispose()
 
     def test_cortesia_com_pergunta_junto_continua_gerando(self) -> None:
         """O portao nao pode engolir pergunta de verdade.

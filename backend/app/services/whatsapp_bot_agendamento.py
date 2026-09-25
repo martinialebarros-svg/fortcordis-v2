@@ -169,9 +169,13 @@ def exame_em_consulta_disponibilidade(message):
     """
     text = str(message or '').strip().rstrip('?! .')
     match = re.fullmatch(
-        r'(?:qual\s+(?:a\s+)?disponibilidade|(?:quais|qual)\s+hor[aá]rios?|tem\s+hor[aá]rio|h[aá]\s+hor[aá]rio)'
-        r'\s+(?:dispon[ií]ve(?:l|is)\s+)?(?:pra|para|de|do|pro)\s+(?:o\s+)?'
-        r'(eco|ecocardiograma|ecodopplercardiograma|eletro|eletrocardiograma|ecg|consulta cardiol[oó]gica)',
+        r'(?:(?:oi|ol[aá]|bom dia|boa tarde|boa noite)[,!.\s]+)?'
+        r'(?:qual\s+(?:[eé]\s+)?(?:a\s+)?disponibilidade(?:\s+de\s+hor[aá]rios?)?'
+        r'|(?:quais|qual)\s+(?:os?\s+)?hor[aá]rios?'
+        r'|(?:(?:voc[eê]s|vcs)\s+)?(?:t[eê]m|h[aá])\s+(?:disponibilidade(?:\s+de\s+hor[aá]rios?)?|hor[aá]rios?))'
+        r'\s+(?:dispon[ií]ve(?:l|is)\s+)?(?:pra|para|de|do|pro)\s+(?:(?:o|um)\s+)?'
+        r'(?P<exame>eco|ecocardiograma|ecodopplercardiograma|eletro|eletrocardiograma|ecg|consulta cardiol[oó]gica)'
+        r'(?:,?\s+por favor)?',
         text, flags=re.IGNORECASE,
     )
-    return match.group(1) if match else None
+    return match.group('exame') if match else None
