@@ -15,6 +15,7 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 | CA-006 | Extração de texto confirma conclusão única antes da análise quantitativa; PNG da primeira página conferido | ok |
 | CA-007 | Teste de legenda opcional no editor e persistência de configuração temporária antes de associar ao laudo | ok |
 | CA-008 | Teste de seis imagens numeradas, identificação do paciente/data, legenda ausente e texto escapado; segunda página renderizada e inspecionada | ok |
+| CA-008 (continuação) | Legendas legadas extensas dividem uma grade de seis imagens; teste confere título, paciente e data em ambas as páginas de imagens | ok |
 | CA-009 | Testes de edição da descrição, preservação quando omitida e isolamento por sessão/laudo | ok |
 | CA-010 | PDF curto gera uma página; com seis imagens gera duas, sem página narrativa quase vazia | ok |
 | CA-011 | Testes de parser multiline na prévia/backend e de presença dos itens no PDF | ok |
@@ -34,6 +35,8 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 - `frontend: tsc --noEmit` — aprovado.
 - `frontend: eslint` dos arquivos modificados de laudo, upload e helpers — aprovado.
 - `backend: python -m unittest tests.test_ecocardiograma_qualitativa tests.test_pdf_laudo_echo_measurements tests.test_referencia_eco_defaults` — 15 testes aprovados, incluindo 13 imagens em três páginas consecutivas, relatório moderado sem página isolada de assinatura e MAPSE sem faixa auxiliar inadequada.
+- `backend: python -m unittest tests.test_pdf_laudo_echo_measurements` após a correção da continuação — 10 testes aprovados, incluindo a regressão com seis imagens e legendas extensas que antes deixava a última página sem identificação.
+- `backend: python -m unittest tests.test_pdf_laudo_echo_measurements tests.test_ecocardiograma_qualitativa tests.test_referencia_eco_defaults tests.test_imagens_configuracao_pdf tests.test_ecocardiograma_medidas` — 26 testes aprovados após a correção. As páginas sintéticas 2 e 3 com legenda extensa foram renderizadas e conferidas visualmente.
 - `backend: python -m unittest tests.test_imagens_configuracao_pdf tests.test_ecocardiograma_medidas` — 10 testes aprovados em ambiente Python 3.12 temporário com as dependências de API; os 25 testes focados também passaram juntos no venv local antes do push.
 - `frontend: npm run lint` — aprovado.
 - `frontend: npm run build` — aprovado, 43 páginas geradas.
@@ -50,4 +53,4 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 
 ## Limite da evidência
 
-Sem publicação ou smoke autenticado de stage/produção neste ciclo. PDF sintético de duas páginas com seis imagens renderizado; ambas as páginas foram conferidas visualmente. O smoke do navegador usou somente dados sintéticos e não mede a latência real da confirmação de imagem ao salvar. O cadastro de referências ainda não registra bibliografia por faixa, portanto o PDF informa a origem operacional sem atribuição bibliográfica específica. O ambiente Python 3.9 local existente não importa módulos do backend que usam sintaxe mais nova; o teste da API foi executado com Python 3.12 e dependências temporárias em `/tmp`.
+O snapshot anterior foi publicado em stage e sua prévia autenticada foi conferida; a correção de continuação de imagens ainda requer publicação. PDF sintético de duas páginas com seis imagens renderizado; ambas as páginas foram conferidas visualmente. O smoke do navegador usou somente dados sintéticos e não mede a latência real da confirmação de imagem ao salvar. O cadastro de referências ainda não registra bibliografia por faixa, portanto o PDF informa a origem operacional sem atribuição bibliográfica específica. O ambiente Python 3.9 local existente não importa módulos do backend que usam sintaxe mais nova; o teste da API foi executado com Python 3.12 e dependências temporárias em `/tmp`.

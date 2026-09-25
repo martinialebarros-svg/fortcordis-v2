@@ -150,6 +150,36 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
             self.assertIn("Paciente: Paciente teste", text)
             self.assertIn("Data do exame: 2026-07-26", text)
         self.assertIn("Imagem 13", reader.pages[-1].extract_text() or "")
+
+    def test_image_grid_repeats_identification_when_long_captions_split_a_group(self) -> None:
+        image_buffer = BytesIO()
+        PILImage.new("RGB", (320, 240), "white").save(image_buffer, format="JPEG")
+        payload = _base_report("modo_m")
+        payload["medidas"] = {"DIVEd": "30", "VE_tecnica_relatorio": "modo_m"}
+        payload["imagens"] = [
+            {
+                "conteudo": image_buffer.getvalue(),
+                "descricao": "Doppler da valva " + "registro " * 30,
+            }
+            for _ in range(6)
+        ]
+
+        reader = PdfReader(BytesIO(gerar_pdf_laudo_eco(payload)))
+        image_pages = [
+            page.extract_text() or ""
+            for page in reader.pages
+            if "Imagem " in (page.extract_text() or "")
+        ]
+
+        self.assertEqual(len(image_pages), 2)
+        self.assertIn("Imagem 1", image_pages[0])
+        self.assertIn("Imagem 6", image_pages[1])
+        for text in image_pages:
+            self.assertIn("IMAGENS", text)
+            self.assertIn("Paciente: Paciente teste", text)
+            self.assertIn("Data do exame: 2026-07-26", text)
+
+
     def test_pdf_omits_unmeasured_rows_and_unavailable_reference_ranges(self) -> None:
         payload = _base_report("modo_m")
         payload["medidas"] = {"DIVEd": "30", "VE_tecnica_relatorio": "modo_m"}
