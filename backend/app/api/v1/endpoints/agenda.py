@@ -6364,7 +6364,11 @@ def atualizar_status(
     if status_normalizado in AGENDA_STATUS_BLOQUEIAM_SLOT:
         _apply_service_duration_if_needed(db, db_agendamento)
         if reativando_inativo:
-            _validar_agendamento_no_funcionamento(db, db_agendamento)
+            _validar_agendamento_no_funcionamento(
+                db,
+                db_agendamento,
+                permitir_excecao_agenda_fechada=_excecao_agenda_fechada_ativa(db_agendamento),
+            )
         reservas_expiradas_revisadas = _validar_slot_disponivel(
             db,
             db_agendamento,
@@ -6775,7 +6779,11 @@ def reabilitar_reserva_expirada(
     _apply_service_duration_if_needed(db, db_agendamento)
     _validar_regras_origem_agendamento(db, db_agendamento, contexto="reabilitar a reserva")
     _validar_prazo_reserva(db_agendamento)
-    _validar_agendamento_no_funcionamento(db, db_agendamento)
+    _validar_agendamento_no_funcionamento(
+        db,
+        db_agendamento,
+        permitir_excecao_agenda_fechada=_excecao_agenda_fechada_ativa(db_agendamento),
+    )
     reservas_expiradas_revisadas = _validar_slot_disponivel(
         db,
         db_agendamento,

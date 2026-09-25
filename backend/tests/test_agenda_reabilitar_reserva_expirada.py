@@ -91,6 +91,91 @@ class AgendaReabilitarReservaExpiradaTest(unittest.TestCase):
                 current_user=SimpleNamespace(id=1, nome="Recepcao"),
             )
 
+    def _criar_reserva_em_agenda_fechada(self, db, *, status, escopo_aprovado=True):
+        clinica, servico = self._criar_clinica_servico(db)
+        db.add(Configuracao(agenda_excecoes='[{"data":"2099-05-25","ativo":false,"motivo":"Feriado local"}]'))
+        db.commit()
+        inicio = INICIO_RESERVA + (timedelta(minutes=15) if not escopo_aprovado else timedelta())
+        reserva = Agendamento(
+            clinica_id=clinica.id,
+            servico_id=servico.id,
+            inicio=inicio,
+            fim=inicio + timedelta(minutes=30),
+            data=inicio.strftime("%Y-%m-%d"),
+            hora=inicio.strftime("%H:%M"),
+            status=status,
+            reserva_expira_em=(
+                datetime.now(agenda.LOCAL_TZ).replace(tzinfo=None) - timedelta(hours=1)
+                if status == "Expirado" else None
+            ),
+        )
+        # Simula a concessao anterior do admin para 11:00-11:30. Um horario
+        # posteriormente alterado nao pode herdar essa autorizacao.
+        reserva.excecao_agenda_fechada_escopo = (
+            f"{INICIO_RESERVA.isoformat()}|{(INICIO_RESERVA + timedelta(minutes=30)).isoformat()}"
+        )
+        db.add(reserva)
+        db.commit()
+        db.refresh(reserva)
+        return reserva
+
+    def test_status_reativa_agenda_fechada_apenas_no_intervalo_aprovado(self) -> None:
+        for escopo_aprovado in (True, False):
+            with self.subTest(escopo_aprovado=escopo_aprovado):
+                tmpdir, db, engine = self._build_session()
+                try:
+                    reserva = self._criar_reserva_em_agenda_fechada(
+                        db, status="Cancelado", escopo_aprovado=escopo_aprovado
+                    )
+                    with patch.object(agenda, "registrar_auditoria", return_value=None), patch.object(
+                        agenda, "_notificar_agenda_update", return_value=None
+                    ):
+                        if escopo_aprovado:
+                            resposta = agenda.atualizar_status(
+                                agendamento_id=reserva.id,
+                                request=SimpleNamespace(),
+                                status="Reservado",
+                                db=db,
+                                current_user=SimpleNamespace(id=1, nome="Recepcao"),
+                            )
+                            self.assertEqual(resposta["status"], "Reservado")
+                        else:
+                            with self.assertRaises(HTTPException) as erro:
+                                agenda.atualizar_status(
+                                    agendamento_id=reserva.id,
+                                    request=SimpleNamespace(),
+                                    status="Reservado",
+                                    db=db,
+                                    current_user=SimpleNamespace(id=1, nome="Recepcao"),
+                                )
+                            self.assertEqual(erro.exception.status_code, 422)
+                            self.assertIn("Agenda fechada", str(erro.exception.detail))
+                finally:
+                    db.close()
+                    engine.dispose()
+                    tmpdir.cleanup()
+
+    def test_reabilitar_reserva_em_agenda_fechada_apenas_no_intervalo_aprovado(self) -> None:
+        for escopo_aprovado in (True, False):
+            with self.subTest(escopo_aprovado=escopo_aprovado):
+                tmpdir, db, engine = self._build_session()
+                try:
+                    reserva = self._criar_reserva_em_agenda_fechada(
+                        db, status="Expirado", escopo_aprovado=escopo_aprovado
+                    )
+                    if escopo_aprovado:
+                        resposta = self._reabilitar(db, reserva.id, prazo_confirmacao_horas=6)
+                        self.assertEqual(resposta["status"], "Reservado")
+                    else:
+                        with self.assertRaises(HTTPException) as erro:
+                            self._reabilitar(db, reserva.id, prazo_confirmacao_horas=6)
+                        self.assertEqual(erro.exception.status_code, 422)
+                        self.assertIn("Agenda fechada", str(erro.exception.detail))
+                finally:
+                    db.close()
+                    engine.dispose()
+                    tmpdir.cleanup()
+
     def test_reabilita_reserva_expirada_sem_dados_do_paciente_com_novo_prazo(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:

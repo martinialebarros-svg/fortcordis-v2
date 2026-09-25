@@ -27,7 +27,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - RF-015: quando um agendamento ja registrado foi mantido como ancora operacional por excecao previa, um slot livre adjacente a essa ancora pode ser sugerido e salvo se o deslocamento real ate a ancora couber na folga do slot e estiver dentro de `nearby_anchor_max_travel_min`; nesse caso, o trecho nao adjacente herdado da excecao pode ser desconsiderado apenas para ranking/limite de proximidade, sem liberar slots que nao encostem na ancora.
 - RF-016: ao tentar criar agendamento em data fechada, feriado, excecao fechada ou fora da janela de funcionamento, o `admin` deve receber aviso com o motivo e poder confirmar somente aquele agendamento; perfis nao-admin permanecem bloqueados.
 - RF-017: a confirmacao de RF-016 nao pode alterar `agenda_semanal`, `agenda_feriados` ou `agenda_excecoes`; sobreposicao, prazo de reserva e conflito de deslocamento continuam validados normalmente.
-- RF-019: a autorizacao de agenda fechada concedida pelo admin ao criar uma reserva fica vinculada ao inicio e fim aprovados. Incluir tutor ou pet e confirmar a reserva no mesmo horario reutiliza essa autorizacao; mudar o intervalo exige nova confirmacao administrativa.
+- RF-019: a autorizacao de agenda fechada concedida pelo admin ao criar uma reserva fica vinculada ao inicio e fim aprovados. Incluir tutor ou pet, confirmar e reativar a reserva no mesmo horario reutiliza essa autorizacao em todos os fluxos de status; mudar o intervalo exige nova confirmacao administrativa.
 - RF-018: o modal de recebimento da Agenda Lista deve oferecer uma caixa, desmarcada por padrao, para enviar o recibo PDF oficial para a clinica pelo WhatsApp depois da baixa; falha no envio nao pode desfazer o recebimento e deve ser comunicada separadamente.
 
 ## 3) Requisitos nao funcionais (NFR)
@@ -88,6 +88,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - CA-015: admin consegue abrir o formulario em slot fechado e, ao salvar, visualiza o motivo do fechamento e so conclui apos confirmar; a configuracao da agenda nao e alterada.
 - CA-016: `POST /agenda` rejeita `confirmar_agenda_fechada=true` para nao-admin, mantem o bloqueio sem o campo e audita a criacao confirmada por admin com o motivo de fechamento.
 - CA-018: `PUT /agenda/{id}` aceita completar a reserva em horario fechado quando a autorizacao persistida corresponde ao intervalo; em outro intervalo exige `confirmar_agenda_fechada=true` de admin e registra a nova confirmacao.
+- CA-019: `PATCH /agenda/{id}/status` e `POST /agenda/{id}/reabilitar-reserva` respeitam a autorizacao persistida ao reativar no intervalo aprovado, inclusive para nao-admin; sem escopo correspondente, mantem o bloqueio de agenda fechada.
 - CA-017: na Agenda Lista, marcar o envio de recibo registra primeiro o recebimento e depois chama `POST /ordens-servico/{id}/whatsapp/recibo-pdf` com chave de idempotencia; o modal continua utilizavel em viewport reduzida e uma falha do WhatsApp informa que a baixa foi concluida.
 
 ## 7) Casos de borda
