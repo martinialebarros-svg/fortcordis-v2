@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Upload, X, Loader2, MoveUp, MoveDown, GripVertical } from "lucide-react";
 import api from "@/lib/axios";
 import ImagePreviewModal from "./ImagePreviewModal";
@@ -33,6 +33,7 @@ export default function ImageUploader({
 }: ImageUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [imagens, setImagens] = useState<Imagem[]>(imagensIniciais);
+  const imagensAtuais = useRef<Imagem[]>(imagensIniciais);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
@@ -40,16 +41,22 @@ export default function ImageUploader({
 
   const gerarId = () => Math.random().toString(36).substring(2, 15);
 
-  const atualizarImagens = (novasImagens: Imagem[]) => {
+  const atualizarImagens = (atualizacao: React.SetStateAction<Imagem[]>) => {
+    const novasImagens = typeof atualizacao === "function"
+      ? atualizacao(imagensAtuais.current)
+      : atualizacao;
+    imagensAtuais.current = novasImagens;
     setImagens(novasImagens);
     onImagensChange?.(novasImagens);
   };
 
   useEffect(() => {
-    setImagens(imagensIniciais.map((imagem) => ({
+    const iniciais = imagensIniciais.map((imagem) => ({
       ...imagem,
       incluirNoPdf: imagem.incluirNoPdf ?? true,
-    })));
+    }));
+    imagensAtuais.current = iniciais;
+    setImagens(iniciais);
   }, [imagensIniciais]);
 
   const persistirConfiguracaoTemporaria = async (lista: Imagem[]) => {
@@ -153,19 +160,17 @@ export default function ImageUploader({
       }
     }
 
-    let todasImagens = [...imagens, ...novasImagens];
-    atualizarImagens(todasImagens);
+    atualizarImagens((atuais) => [...atuais, ...novasImagens]);
 
     // Fazer upload das novas imagens
     for (const imagem of novasImagens) {
       const resultado = await fazerUploadImagem(imagem);
       if (resultado.success) {
-        todasImagens = todasImagens.map((img) =>
+        atualizarImagens((atuais) => atuais.map((img) =>
           img.id === imagem.id
             ? { ...img, uploaded: true, tempId: resultado.tempId }
             : img
-        );
-        atualizarImagens(todasImagens);
+        ));
       }
     }
 

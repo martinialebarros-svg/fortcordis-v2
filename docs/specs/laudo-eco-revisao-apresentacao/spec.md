@@ -19,6 +19,7 @@
 - RF-015: o download direto e o serviço de PDF em segundo plano usam a mesma legenda de imagem e a mesma seleção de referência por espécie e peso.
 - RF-016: em relatórios que quebram após a análise qualitativa, a assinatura não ocupa sozinha uma página; com imagens, a grade pode aproveitar a página da assinatura, e sem imagens a última descrição qualitativa permanece com ela.
 - RF-017: o serviço não gera faixa auxiliar de MAPSE a partir de intervalos de confiança da média; valores explicitamente cadastrados continuam legíveis. TAPSE não aplica a tabela auxiliar fora dos pesos de 3 a 45 kg.
+- RF-018: respostas de uploads sucessivos atualizam somente o status da imagem correspondente e preservam legendas digitadas enquanto as demais imagens ainda são enviadas.
 
 ## Requisitos não funcionais
 
@@ -42,3 +43,4 @@
 - CA-011: duas descrições de valvas no mesmo campo aparecem integralmente na prévia e no PDF; texto de uma seção seguinte não entra na avaliação qualitativa.
 - CA-012: um exemplo sintético de tamanho moderado ocupa duas páginas, com assinatura e seis imagens juntas na segunda; sem imagens, a última descrição qualitativa acompanha a assinatura.
 - CA-013: MAPSE sem faixa cadastrada mostra faixa indisponível e TAPSE fora dos pesos tabulados também; valores cadastrados permanecem intactos.
+- CA-014: ao digitar a legenda da primeira imagem enquanto a segunda ainda está sendo enviada, a conclusão do segundo upload mantém a legenda visível e a configuração salva contém os dois identificadores com a descrição correta.

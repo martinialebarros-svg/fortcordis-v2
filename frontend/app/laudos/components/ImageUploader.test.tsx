@@ -1,3 +1,4 @@
+import { useState, type ComponentProps } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ImageUploader from "./ImageUploader";
@@ -152,5 +153,61 @@ describe("ImageUploader", () => {
       },
     ));
     expect(onImagensChange).toHaveBeenCalled();
+  });
+
+  it("preserva a legenda digitada enquanto outro upload termina", async () => {
+    const concluirUploads: Array<(resultado: { data: { success: boolean; imagem_id: number } }) => void> = [];
+    mocks.post.mockImplementation(() => new Promise((resolve) => concluirUploads.push(resolve)));
+    const onImagensChange = vi.fn();
+    const Parent = () => {
+      const [imagens, setImagens] = useState<NonNullable<ComponentProps<typeof ImageUploader>["imagensIniciais"]>>([]);
+      return (
+        <ImageUploader
+          sessionId="sessao-1"
+          imagensIniciais={imagens}
+          onImagensChange={(atualizadas) => {
+            onImagensChange(atualizadas);
+            setImagens(atualizadas);
+          }}
+        />
+      );
+    };
+    const { container } = render(<Parent />);
+
+    const inputArquivo = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(inputArquivo, {
+      target: {
+        files: [
+          new File(["imagem a"], "a.jpg", { type: "image/jpeg" }),
+          new File(["imagem b"], "b.jpg", { type: "image/jpeg" }),
+        ],
+      },
+    });
+
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    concluirUploads[0]({ data: { success: true, imagem_id: 31 } });
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(2));
+
+    const legenda = screen.getByRole("textbox", { name: "Legenda da imagem 1" });
+    fireEvent.change(legenda, { target: { value: "Doppler da IT" } });
+    concluirUploads[1]({ data: { success: true, imagem_id: 32 } });
+
+    await waitFor(() => expect(screen.getAllByRole("checkbox", { name: "Incluir no PDF" })[1]).toBeEnabled());
+    expect(legenda).toHaveValue("Doppler da IT");
+    expect(onImagensChange.mock.lastCall?.[0][0]).toMatchObject({
+      descricao: "Doppler da IT",
+      tempId: 31,
+    });
+
+    fireEvent.blur(legenda);
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledWith(
+      "/imagens/temp/session/sessao-1/configuracao",
+      {
+        imagens: [
+          { id: 31, ordem: 0, incluir_no_pdf: true, descricao: "Doppler da IT" },
+          { id: 32, ordem: 1, incluir_no_pdf: true, descricao: "" },
+        ],
+      },
+    ));
   });
 });
