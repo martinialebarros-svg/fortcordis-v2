@@ -81,13 +81,6 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   Vmax_Pulm: { campo: "vmax_pulm", nome: "Vmax Pulmonar", categoria: "doppler" },
 };
 
-function normalizarEspecie(especie: string): string {
-  const valor = (especie || "").trim().toLowerCase();
-  if (valor.startsWith("fel") || valor.includes("gato") || valor.includes("cat")) return "Felina";
-  if (valor.startsWith("can") || valor.includes("cao") || valor.includes("dog")) return "Canina";
-  return especie || "Canina";
-}
-
 export function compararMedidasComReferencia(
   medidas: Record<string, string>,
   referencia: ReferenciaEco
@@ -164,9 +157,9 @@ export function useReferenciaEco() {
   const [loading, setLoading] = useState(false);
 
   const buscarReferencia = useCallback(async (especie: string, peso: number): Promise<ReferenciaEco | null> => {
-    const especieNormalizada = normalizarEspecie(especie);
+    const especieNormalizada = especie.trim();
     const pesoNormalizado = Number(peso);
-    if (!Number.isFinite(pesoNormalizado) || pesoNormalizado <= 0) {
+    if (!especieNormalizada || !Number.isFinite(pesoNormalizado) || pesoNormalizado <= 0) {
       return null;
     }
 

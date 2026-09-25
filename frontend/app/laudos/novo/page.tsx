@@ -2189,7 +2189,7 @@ export default function NovoLaudoPage() {
                     </div>
                     
                     <ReferenciaComparison 
-                      especie={paciente.especie === "Felina" ? "Felina" : "Canina"}
+                      especie={paciente.especie}
                       peso={parsePesoKg(paciente.peso) ?? undefined}
                       medidas={medidas}
                     />

@@ -2433,7 +2433,7 @@ export default function EditarLaudoPage() {
                     </div>
 
                     <ReferenciaComparison
-                      especie={pacienteForm.especie === "Felina" ? "Felina" : "Canina"}
+                      especie={pacienteForm.especie}
                       peso={parsePesoKg(pacienteForm.peso) ?? undefined}
                       medidas={medidas}
                     />

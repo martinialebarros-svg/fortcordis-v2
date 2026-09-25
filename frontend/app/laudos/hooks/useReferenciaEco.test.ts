@@ -1,7 +1,34 @@
-import { describe, expect, it } from "vitest";
-import { compararMedidasComReferencia } from "./useReferenciaEco";
+import { act, renderHook } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { compararMedidasComReferencia, useReferenciaEco } from "./useReferenciaEco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
 import type { ReferenciaEco } from "../types/referencia-eco";
+
+const mockGet = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/axios", () => ({ default: { get: mockGet } }));
+
+beforeEach(() => {
+  mockGet.mockReset();
+  mockGet.mockResolvedValue({ data: null });
+});
+
+describe("useReferenciaEco", () => {
+  it("envia especie sem transforma-la em referencia felina por substring", async () => {
+    const { result } = renderHook(() => useReferenciaEco());
+    await act(async () => {
+      await result.current.buscarReferencia("Cattle", 5);
+    });
+    expect(mockGet).toHaveBeenCalledWith("/referencias-eco/buscar/Cattle/5");
+  });
+
+  it("nao busca referencia sem especie", async () => {
+    const { result } = renderHook(() => useReferenciaEco());
+    await act(async () => {
+      expect(await result.current.buscarReferencia(" ", 5)).toBeNull();
+    });
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+});
 
 const referenciaCanina: ReferenciaEco = {
   id: 1,

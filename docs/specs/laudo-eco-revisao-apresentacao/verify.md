@@ -26,6 +26,7 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 | CA-015 | Teste com DIVEd modo M e 2D divergentes: ambas as medidas são recalculadas e somente a técnica escolhida gera aviso | ok |
 | CA-016 | Prévia e PDF com medidas legadas mistas: dimensões cm convertidas, TAPSE/MAPSE/Aorta já em mm preservados | ok |
 | CA-017 | Testes de prévia e PDF com técnica 2D selecionada mostram TAPSE e MAPSE em grupo próprio, sem trocar o bloco VE para modo M | ok |
+| CA-018 | Teste backend cobre aliases explícitos e busca por `Cattle` sem herdar faixa felina; teste do hook confirma que a prévia envia a espécie real e não busca espécie vazia; ambos os caminhos de PDF usam a mesma normalização | ok local |
 | NFR-001 | Revisão de fluxo: busca de referência apenas na visualização; configuração confirmada no salvamento somente quando há imagens | ok |
 | NFR-002 | Nenhuma escrita de medidas no helper; somente cópia para apresentação | ok |
 | NFR-003 | Inspeção do diff, testes focados e build | ok |

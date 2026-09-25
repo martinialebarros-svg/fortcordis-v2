@@ -49,3 +49,4 @@
 - CA-015: quando modo M e 2D têm DIVEd normalizado divergente, somente a técnica selecionada gera alerta na prévia, embora os dois cálculos permaneçam disponíveis para a apresentação adequada.
 - CA-016: em um conjunto legado misto, dimensões de câmaras em cm são convertidas e TAPSE, MAPSE e aorta já em mm mantêm seus valores na prévia e no PDF.
 - CA-017: ao selecionar modo 2D para o ventrículo esquerdo, TAPSE e MAPSE preenchidos continuam visíveis na prévia e no PDF, com valores e unidades preservados.
+- CA-018: a seleção de faixas ecocardiográficas usa apenas aliases explícitos de espécie. Espécies não reconhecidas, como `Cattle`, não recebem faixas felinas ou caninas na prévia, na consulta de referências ou no PDF; uma espécie sem cadastro mostra referência indisponível.

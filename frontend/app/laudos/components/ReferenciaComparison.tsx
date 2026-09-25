@@ -141,7 +141,7 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
         <span className="text-lg">📊</span>
         <div>
           <p className="font-medium text-teal-900">
-            Referência: {especie?.toLowerCase() === "canina" ? "Canino" : "Felino"} - {peso}kg
+            Referência: {referencia.especie || especie} - {peso}kg
           </p>
           <p className="text-sm text-teal-700">
             Valores de referência aplicados às medidas do paciente
