@@ -156,6 +156,7 @@ def _listar_bloqueios_ativos(db: Session) -> list[AgendaBloqueio]:
 
 
 def _ensure_agendamento_workflow_columns(db: Session) -> None:
+    """Compatibilidade legada executada no startup, nunca no caminho HTTP."""
     if db.info.get("_agenda_workflow_columns_checked"):
         return
 
@@ -1424,7 +1425,6 @@ def _listar_agendamentos_ativos_periodo(
     *,
     agendamento_id_excluir: Optional[int] = None,
 ) -> list[dict]:
-    _ensure_agendamento_workflow_columns(db)
     data_sem_vazio = func.nullif(func.trim(Agendamento.data), "")
     query = (
         db.query(Agendamento)
@@ -2792,7 +2792,6 @@ def _adquirir_lock_escrita_agenda(db: Session) -> None:
 
 
 def _fetch_related_names(db: Session, agendamento: Agendamento) -> dict:
-    _ensure_agendamento_workflow_columns(db)
     paciente_nome = None
     tutor_nome = None
     tutor_telefone = None
@@ -3082,7 +3081,6 @@ def _serialize_agendamento(
 
 
 def _query_agendamentos_com_relacionados(db: Session):
-    _ensure_agendamento_workflow_columns(db)
     return (
         db.query(
             Agendamento,
@@ -3577,7 +3575,6 @@ def listar_agendamentos(
     current_user: User = Depends(get_current_user)
 ):
     """Lista agendamentos com filtros e nomes dos relacionados"""
-    _ensure_agendamento_workflow_columns(db)
     query_ids = _aplicar_filtros_lista_agenda(
         db.query(Agendamento.id),
         data_inicio=data_inicio,
@@ -5709,7 +5706,6 @@ def obter_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Obtem um agendamento especifico"""
-    _ensure_agendamento_workflow_columns(db)
     agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
     if not agendamento:
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
@@ -5724,7 +5720,6 @@ def criar_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Cria novo agendamento"""
-    _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
     from app.services.whatsapp_bot_pedido_agenda import iniciar, vincular
     pedido, existente = iniciar(db, agendamento, current_user)
@@ -5926,7 +5921,6 @@ def atualizar_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Atualiza agendamento"""
-    _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
     _expirar_reservas_vencidas(db)
 
@@ -6242,7 +6236,6 @@ def atualizar_status(
     """Atualiza apenas o status do agendamento."""
     from decimal import Decimal
     from app.models.ordem_servico import OrdemServico
-    _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
     _expirar_reservas_vencidas(db)
 
@@ -6705,7 +6698,6 @@ def reabilitar_reserva_expirada(
     conflito com outros agendamentos, a reserva volta a segurar o horario por
     mais um periodo, ate a clinica enviar os dados do paciente e do tutor.
     """
-    _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
     _expirar_reservas_vencidas(db)
 
@@ -6848,7 +6840,6 @@ def deletar_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Deleta agendamento quando o usuario e admin ou da recepcao."""
-    _ensure_agendamento_workflow_columns(db)
     if not usuario_pode_excluir_agendamento(current_user):
         raise HTTPException(
             status_code=403,

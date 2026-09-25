@@ -55,7 +55,7 @@ from app.core.csrf import (
 from app.core.security_headers import build_security_headers
 from app.core.security import get_current_websocket_user
 from app.core.websocket import manager
-from app.db.database import engine, get_db
+from app.db.database import SessionLocal, engine, get_db
 from app.models import user, papel, agendamento
 from app.services.background_workers import (
     shutdown_background_workers as shutdown_background_worker_services,
@@ -231,6 +231,15 @@ def _ensure_financeiro_schema_compat() -> None:
                 )
     except Exception as exc:
         print(f"[schema-compat] Falha ao validar schema financeiro: {exc}")
+
+
+def _ensure_agenda_schema_compat() -> None:
+    """Executa a compatibilidade legada da Agenda uma unica vez no startup."""
+    db = SessionLocal()
+    try:
+        agenda._ensure_agendamento_workflow_columns(db)
+    finally:
+        db.close()
 
 
 def _resolve_cors_allow_origins() -> list[str]:
@@ -468,6 +477,7 @@ app.include_router(fiscal.router, prefix="/api/v1/fiscal", tags=["fiscal"])
 @app.on_event("startup")
 def startup_schema_compatibility() -> None:
     _ensure_financeiro_schema_compat()
+    _ensure_agenda_schema_compat()
     validate_startup_or_raise()
     if settings.FORTCORDIS_PROCESS_ROLE != "api":
         start_background_workers()

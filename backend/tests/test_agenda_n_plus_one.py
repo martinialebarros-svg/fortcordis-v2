@@ -5,6 +5,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -82,14 +83,16 @@ class AgendaNPlusOneTest(unittest.TestCase):
             self._seed_data(db)
             statements.clear()
 
-            resultado = agenda.listar_agendamentos(
-                data_inicio="2026-07-01",
-                data_fim="2026-07-31",
-                limit=50,
-                skip=0,
-                db=db,
-                current_user=SimpleNamespace(id=1),
-            )
+            with patch.object(agenda, "_ensure_agendamento_workflow_columns") as schema_compat:
+                resultado = agenda.listar_agendamentos(
+                    data_inicio="2026-07-01",
+                    data_fim="2026-07-31",
+                    limit=50,
+                    skip=0,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+            schema_compat.assert_not_called()
         finally:
             event.remove(engine, "before_cursor_execute", _capture_sql)
 
@@ -120,6 +123,19 @@ class AgendaNPlusOneTest(unittest.TestCase):
                 len(count_sem_joins),
                 1,
                 msg="COUNT da lista deve ocorrer sem joins para reduzir custo em períodos amplos.",
+            )
+
+            select_statements = [
+                sql
+                for sql in statements
+                if "select" in sql
+                and "sqlite_master" not in sql
+                and not sql.lstrip().startswith("pragma ")
+            ]
+            self.assertLessEqual(
+                len(select_statements),
+                4,
+                msg=f"Lista da Agenda deve usar no maximo quatro SELECTs, obtido: {len(select_statements)}",
             )
 
             lazy_related_selects = [
