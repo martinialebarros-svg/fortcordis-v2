@@ -158,6 +158,59 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("Médico Veterinário", image_page_text)
         self.assertIn("Imagem 6", image_page_text)
 
+    def test_long_report_keeps_signature_with_final_qualitative_group(self) -> None:
+        payload = _base_report("modo_m")
+        payload["conclusao"] = "\n".join(
+            f"* Conclusão demonstrativa {i}: texto sintético para testar a paginação."
+            for i in range(5)
+        )
+        payload["medidas"].update({
+            "SIVd": "8", "PLVEd": "8", "DIVES": "13", "SIVs": "12",
+            "PLVES": "14", "TAPSE": "10", "Aorta": "14", "Atrio_esquerdo": "20",
+            "AE_Ao": "1.43", "Vmax_aorta": "1.09", "Grad_aorta": "4.73",
+            "Vmax_pulmonar": "0.49", "Grad_pulmonar": "0.95",
+            "Onda_E": "0.95", "Onda_A": "0.67", "E_A": "1.42",
+            "TD": "136", "TRIV": "39", "E_TRIV": "2.44",
+            "IM_Vmax": "5.66", "IM_Grad": "128.14", "IT_Vmax": "3.12",
+            "IT_Grad": "38.94", "PAD_estimada": "5", "PSAP": "43.94",
+        })
+        payload["qualitativa"] = {
+            "valvas": "\n".join(
+                f"- Valva {i}: descrição demonstrativa com várias palavras para ocupar a página."
+                for i in range(4)
+            ),
+            "camaras": "\n".join(
+                f"- Câmara {i}: descrição demonstrativa com várias palavras para ocupar a página."
+                for i in range(3)
+            ),
+            "ad_vd": "\n".join(
+                f"- Câmara direita {i}: descrição demonstrativa para testar quebra de página."
+                for i in range(2)
+            ),
+            "funcao": "\n".join(
+                f"- Função {i}: descrição demonstrativa com várias palavras para ocupar a página."
+                for i in range(8)
+            ),
+            "pericardio": "Descrição demonstrativa de pericárdio para testar paginação.",
+            "vasos": "Marcador final da análise qualitativa; deve acompanhar a assinatura.",
+        }
+        image_buffer = BytesIO()
+        PILImage.new("RGB", (320, 240), "white").save(image_buffer, format="JPEG")
+        signature_buffer = BytesIO()
+        PILImage.new("RGB", (300, 100), "white").save(signature_buffer, format="PNG")
+        payload["imagens"] = [image_buffer.getvalue() for _ in range(12)]
+
+        reader = PdfReader(BytesIO(gerar_pdf_laudo_eco(
+            payload,
+            assinatura_bytes=signature_buffer.getvalue(),
+            nome_veterinario="Dra. Exemplo",
+        )))
+        pages = [page.extract_text() or "" for page in reader.pages]
+        signature_pages = [text for text in pages if "Dra. Exemplo" in text]
+        self.assertEqual(len(signature_pages), 1)
+        self.assertIn("Marcador final da análise qualitativa", signature_pages[0])
+        self.assertIn("Imagem 12", "\n".join(pages))
+
     def test_image_numbers_and_patient_identification_continue_across_pages(self) -> None:
         image_buffer = BytesIO()
         PILImage.new("RGB", (320, 240), "white").save(image_buffer, format="JPEG")
