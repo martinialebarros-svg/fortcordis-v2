@@ -1554,10 +1554,13 @@ def gerar_pdf_laudo_eco(
         vet_nome = nome_veterinario or dados_pdf.get('veterinario_nome') or "Médico Veterinário"
         vet_crmv = crmv or dados_pdf.get('veterinario_crmv') or ""
         assinatura = criar_secao_assinatura(vet_nome, vet_crmv, temp_assinatura_path, compacto=True)
+        secao_pressao = criar_secao_pressao_arterial(pressao_arterial)
         qualitativa_preenchida = bool(qualitativa and any(
             qualitativa.get(k, '').strip() for k in ['valvas', 'camaras', 'ad_vd', 'funcao', 'pericardio', 'vasos']
         ))
-        assinatura_com_qualitativa = qualitativa_preenchida and not imagens and not pressao_arterial
+        # A grade de imagens pode vir depois da assinatura sem separá-la do
+        # último grupo qualitativo quando a página narrativa fica cheia.
+        assinatura_com_qualitativa = qualitativa_preenchida and not secao_pressao
         if qualitativa_preenchida:
             elements.extend(criar_secao_qualitativa(
                 qualitativa,
@@ -1565,7 +1568,7 @@ def gerar_pdf_laudo_eco(
             ))
 
         # Pressao arterial anexada ao laudo ecocardiografico (quando existir).
-        elements.extend(criar_secao_pressao_arterial(pressao_arterial))
+        elements.extend(secao_pressao)
         
         # 5. Assinatura
         if not assinatura_com_qualitativa:

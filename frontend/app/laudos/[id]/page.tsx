@@ -766,7 +766,7 @@ export default function VisualizarLaudoPage() {
                 {carregandoReferencia
                   ? "Consultando faixas de referência por espécie e peso..."
                   : referenciaEco
-                  ? `Referência selecionada por espécie e peso: cadastro de ${referenciaEco.especie}, ${referenciaEco.peso_kg} kg. TAPSE pode usar faixa auxiliar por peso do sistema quando ausente no cadastro.`
+                  ? `Referência selecionada por espécie e peso: cadastro de ${referenciaEco.especie}, ${referenciaEco.peso_kg} kg.`
                   : "Faixas de referência indisponíveis nesta prévia."}
               </p>
               {medidas.Remodelamento_AD && (
