@@ -32,7 +32,7 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 | CA-020 | Navegador autenticado de stage em `/laudos/47` mostrou “Referência selecionada por espécie e peso: cadastro de Canina, 20 kg.”, medida/faixa de TAPSE e ausência da frase auxiliar; bundle servido confirmou o mesmo texto | ok stage |
 | CA-021 | Regressão sintética longa com 12 imagens falhou antes da correção porque a assinatura caiu na página seguinte ao último grupo; passou após agrupar os blocos. Páginas 3–5 do PDF sintético foram renderizadas e conferidas; testes curtos e moderados passaram | ok local |
 | CA-022 | Versão do renderizador de eco incrementada para `2026-09-26-eco-presentation-v4`; teste de cache do eco e das outras modalidades passou | ok local |
-| CA-023 | O PDF real de Mia emitido em produção após a versão v4 tem seis páginas: a página 4 contém apenas o último grupo qualitativo e a assinatura, enquanto as 12 imagens ocupam as páginas 5–6. A regressão sintética extensa com três itens finais ocupa cinco páginas após compactação moderada e fluxo contínuo de imagens; assinatura e último grupo permanecem juntos, imagens 1–6 e 7–12 nas páginas 4–5. Página 3 renderizada e conferida. | ok local; PDF real pós-v5 pendente |
+| CA-023 | O PDF real de Mia emitido em produção após a versão v4 tem seis páginas: a página 4 contém apenas o último grupo qualitativo e a assinatura, enquanto as 12 imagens ocupam as páginas 5–6. A regressão sintética extensa com três itens finais ocupa cinco páginas após compactação moderada e fluxo contínuo de imagens; assinatura e último grupo permanecem juntos, imagens 1–6 e 7–12 nas páginas 4–5. Página 3 renderizada e conferida. | ok local |
 | CA-024 | Versão do renderizador eco incrementada para `2026-09-26-eco-presentation-v5`; os 32 testes focados passaram, incluindo chaves de cache de eco e outras modalidades. | ok local |
 | NFR-001 | Revisão de fluxo: busca de referência apenas na visualização; configuração confirmada no salvamento somente quando há imagens | ok |
 | NFR-002 | Nenhuma escrita de medidas no helper; somente cópia para apresentação | ok |
@@ -74,6 +74,8 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 - O modelo e a importação CSV das referências não registram fonte, método de aquisição nem população por faixa. Há seleção da linha de peso mais próxima sem limite máximo de distância. As faixas persistidas de MAPSE e dos demais parâmetros precisam de auditoria clínica de origem antes de receber atribuição bibliográfica ou regra nova.
 
 ## Limite da evidência
+
+A regressão CA-023 foi fechada com dados sintéticos. A eficácia no laudo real de Mia somente poderá ser confirmada com um PDF emitido após a publicação da versão v5; o PDF anexado foi gerado na v4.
 
 As correções anteriores foram publicadas em stage, e a prévia autenticada foi conferida; a correção de unidades mistas ainda requer publicação. PDF sintético de duas páginas com seis imagens renderizado; ambas as páginas foram conferidas visualmente. O smoke do navegador usou somente dados sintéticos e não mede a latência real da confirmação de imagem ao salvar. O cadastro de referências ainda não registra bibliografia por faixa, portanto o PDF informa a origem operacional sem atribuição bibliográfica específica. O ambiente Python 3.9 local existente não importa módulos do backend que usam sintaxe mais nova; o teste da API foi executado com Python 3.12 e dependências temporárias em `/tmp`.
 
