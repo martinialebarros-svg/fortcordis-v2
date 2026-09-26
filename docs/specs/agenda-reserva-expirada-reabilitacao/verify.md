@@ -2,21 +2,21 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | `test_reabilita_reserva_expirada_sem_dados_do_paciente_com_novo_prazo` — reserva sem `paciente_id`, `prazo_confirmacao_horas=6` → `status="Reservado"`, prazo entre +5h45 e +6h15, `prazo_encurtado=false` | passou |
-| CA-002 | `test_reabilitacao_usa_prazo_padrao_de_tres_horas_quando_nao_informado` — prazo entre +2h45 e +3h15 | passou |
-| CA-003 | `test_reabilitacao_bloqueada_quando_slot_foi_ocupado_por_outro_agendamento` — `409` "Horario indisponivel"; após rollback a reserva segue com status efetivo `Expirado` e prazo no passado | passou |
-| CA-004 | `test_reabilitacao_exige_revisao_de_outra_reserva_expirada_sobreposta` — `409 CONFIRMACAO_SLOT_RESERVA_EXPIRADA` com o id da outra reserva; repetindo com `confirmar_slot_reserva_expirada=True` conclui | passou |
-| CA-005 | `test_reabilitacao_recusa_agendamento_que_nao_esta_expirado` — `409` "Somente reservas expiradas" | passou |
-| CA-006 | `test_prazo_encurtado_para_terminar_antes_do_horario_reservado` — início em +1h, pedido de 3h → prazo `inicio - 5min`, `encurtado=True` | passou |
-| CA-007 | `test_reabilitacao_recusada_quando_horario_esta_proximo_demais` — início em +2min → `409` "proximo demais" | passou |
-| CA-008 | `test_prazo_explicito_invalido_e_recusado_pela_validacao_de_reserva` — `reserva_expira_em` depois do início → `422` "anterior ao horario reservado" | passou |
-| CA-009 | `agenda-reabilitar-reserva.test.ts` › `podeReabilitarReserva` | passou |
-| CA-010 | `agenda-reabilitar-reserva.test.ts` › `normalizarPrazoReabilitacaoHoras` (aceita `"3"`, `"0,5"`, `72`; rejeita `""`, `"abc"`, `0.25`, `73`) | passou |
-| CA-011 | `agenda-reabilitar-reserva.test.ts` › `calcularPrazoReabilitacao` (cabe / encurtado / indisponível / início desconhecido) | passou |
-| CA-012 | `agenda-reabilitar-reserva.test.ts` › `parseDataHoraAgenda` | passou |
-| RF-014/RF-015/RF-016 (botão, modal e confirmação nas duas telas) | revisão de código + `tsc`/`eslint`/`next build`; sem ambiente com API e dados reais nesta sessão para clique de ponta a ponta | passou (revisão de código) |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | `test_reabilita_reserva_expirada_sem_dados_do_paciente_com_novo_prazo` — reserva sem `paciente_id`, `prazo_confirmacao_horas=6` → `status="Reservado"`, prazo entre +5h45 e +6h15, `prazo_encurtado=false` | passou |
+| CA-002 | aceitacao | `test_reabilitacao_usa_prazo_padrao_de_tres_horas_quando_nao_informado` — prazo entre +2h45 e +3h15 | passou |
+| CA-003 | aceitacao | `test_reabilitacao_bloqueada_quando_slot_foi_ocupado_por_outro_agendamento` — `409` "Horario indisponivel"; após rollback a reserva segue com status efetivo `Expirado` e prazo no passado | passou |
+| CA-004 | aceitacao | `test_reabilitacao_exige_revisao_de_outra_reserva_expirada_sobreposta` — `409 CONFIRMACAO_SLOT_RESERVA_EXPIRADA` com o id da outra reserva; repetindo com `confirmar_slot_reserva_expirada=True` conclui | passou |
+| CA-005 | aceitacao | `test_reabilitacao_recusa_agendamento_que_nao_esta_expirado` — `409` "Somente reservas expiradas" | passou |
+| CA-006 | aceitacao | `test_prazo_encurtado_para_terminar_antes_do_horario_reservado` — início em +1h, pedido de 3h → prazo `inicio - 5min`, `encurtado=True` | passou |
+| CA-007 | aceitacao | `test_reabilitacao_recusada_quando_horario_esta_proximo_demais` — início em +2min → `409` "proximo demais" | passou |
+| CA-008 | aceitacao | `test_prazo_explicito_invalido_e_recusado_pela_validacao_de_reserva` — `reserva_expira_em` depois do início → `422` "anterior ao horario reservado" | passou |
+| CA-009 | aceitacao | `agenda-reabilitar-reserva.test.ts` › `podeReabilitarReserva` | passou |
+| CA-010 | aceitacao | `agenda-reabilitar-reserva.test.ts` › `normalizarPrazoReabilitacaoHoras` (aceita `"3"`, `"0,5"`, `72`; rejeita `""`, `"abc"`, `0.25`, `73`) | passou |
+| CA-011 | aceitacao | `agenda-reabilitar-reserva.test.ts` › `calcularPrazoReabilitacao` (cabe / encurtado / indisponível / início desconhecido) | passou |
+| CA-012 | aceitacao | `agenda-reabilitar-reserva.test.ts` › `parseDataHoraAgenda` | passou |
+| RF-014/RF-015/RF-016 (botão, modal e confirmação nas duas telas) | funcional | revisão de código + `tsc`/`eslint`/`next build`; sem ambiente com API e dados reais nesta sessão para clique de ponta a ponta | passou (revisão de código) |
 
 ## Comandos executados
 

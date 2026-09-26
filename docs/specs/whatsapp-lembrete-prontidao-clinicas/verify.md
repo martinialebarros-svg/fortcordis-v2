@@ -2,13 +2,13 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | `test_list_clinicas_prontidao_whatsapp_lembrete_classifica_por_motivo`: clínica sem número → `motivo: "sem_numero"` | passou |
-| CA-002 | mesmo teste: clínica com `whatsapps=["123"]` → `motivo: "numero_invalido"` | passou |
-| CA-003 | `test_list_clinicas_prontidao_whatsapp_lembrete_usa_telefone_como_fallback`: `whatsapps=[""]` + `telefone` válido → conta em `total_prontas` | passou |
-| CA-004 | mesmo teste de classificação: clínica `ativo=False` sem número não aparece nem em `total_clinicas_ativas` nem em `problemas` | passou |
-| CA-005 | função é puramente de leitura (`db.query(...).all()`); nenhum `db.add`/`db.commit` no código | revisão de código |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | `test_list_clinicas_prontidao_whatsapp_lembrete_classifica_por_motivo`: clínica sem número → `motivo: "sem_numero"` | passou |
+| CA-002 | aceitacao | mesmo teste: clínica com `whatsapps=["123"]` → `motivo: "numero_invalido"` | passou |
+| CA-003 | aceitacao | `test_list_clinicas_prontidao_whatsapp_lembrete_usa_telefone_como_fallback`: `whatsapps=[""]` + `telefone` válido → conta em `total_prontas` | passou |
+| CA-004 | aceitacao | mesmo teste de classificação: clínica `ativo=False` sem número não aparece nem em `total_clinicas_ativas` nem em `problemas` | passou |
+| CA-005 | aceitacao | função é puramente de leitura (`db.query(...).all()`); nenhum `db.add`/`db.commit` no código | revisão de código |
 
 ## Comandos executados
 

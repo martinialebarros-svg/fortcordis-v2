@@ -2,20 +2,20 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | Consulta usa `search` em telefone, assunto e última mensagem; UI testa envio de `search=Animal+Care` | passou |
-| CA-002 | Testes DOM e inspeção visual local em 1600x900 e 390x844 | passou |
-| CA-003 | Rotas existentes preservadas; `test:auth-policy` confirma proteção | passou |
-| CA-004 | `isConversationStatus` coberto por `test:inbox-ui`; write usa lock e auditoria | passou |
-| CA-005 | `page.test.tsx` valida bloqueio após janela encerrada | passou |
-| CA-006 | `test:inbox-ui` valida 11 modelos e `meta_approval_live: null` | passou |
-| CA-007 | `page.test.tsx` preenche variáveis e copia preview para o rascunho | passou |
-| CA-008 | Comandos de validação abaixo | passou |
-| CA-009 | `test_whatsapp_conversation_context` resolve clínica e relações de agenda/OS | passou |
-| CA-010 | `test_whatsapp_conversation_context` resolve tutor, pets e relações | passou |
-| CA-011 | Backend e `page.test.tsx` validam número duplicado sem vínculo implícito | passou |
-| CA-012 | `page.test.tsx` descarta resposta atrasada após troca de conversa | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | Consulta usa `search` em telefone, assunto e última mensagem; UI testa envio de `search=Animal+Care` | passou |
+| CA-002 | aceitacao | Testes DOM e inspeção visual local em 1600x900 e 390x844 | passou |
+| CA-003 | aceitacao | Rotas existentes preservadas; `test:auth-policy` confirma proteção | passou |
+| CA-004 | aceitacao | `isConversationStatus` coberto por `test:inbox-ui`; write usa lock e auditoria | passou |
+| CA-005 | aceitacao | `page.test.tsx` valida bloqueio após janela encerrada | passou |
+| CA-006 | aceitacao | `test:inbox-ui` valida 11 modelos e `meta_approval_live: null` | passou |
+| CA-007 | aceitacao | `page.test.tsx` preenche variáveis e copia preview para o rascunho | passou |
+| CA-008 | aceitacao | Comandos de validação abaixo | passou |
+| CA-009 | aceitacao | `test_whatsapp_conversation_context` resolve clínica e relações de agenda/OS | passou |
+| CA-010 | aceitacao | `test_whatsapp_conversation_context` resolve tutor, pets e relações | passou |
+| CA-011 | aceitacao | Backend e `page.test.tsx` validam número duplicado sem vínculo implícito | passou |
+| CA-012 | aceitacao | `page.test.tsx` descarta resposta atrasada após troca de conversa | passou |
 
 ## Comandos previstos
 

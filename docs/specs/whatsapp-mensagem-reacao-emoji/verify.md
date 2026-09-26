@@ -2,11 +2,11 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | `scripts/test-webhook-message-body.ts`: `{type:"reaction", reaction:{emoji:"👍"}}` → `"Reagiu com 👍"` | passou |
-| CA-002 | Mesmo script: `{type:"reaction", reaction:{emoji:""}}` e `{type:"reaction"}` (sem campo `reaction`) → `"Removeu a reação"` | passou |
-| CA-003 | Mesmo script: `text`, `image` (com/sem legenda), `audio` continuam iguais; tipo desconhecido continua vazio | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | `scripts/test-webhook-message-body.ts`: `{type:"reaction", reaction:{emoji:"👍"}}` → `"Reagiu com 👍"` | passou |
+| CA-002 | aceitacao | Mesmo script: `{type:"reaction", reaction:{emoji:""}}` e `{type:"reaction"}` (sem campo `reaction`) → `"Removeu a reação"` | passou |
+| CA-003 | aceitacao | Mesmo script: `text`, `image` (com/sem legenda), `audio` continuam iguais; tipo desconhecido continua vazio | passou |
 
 ## Comandos executados
 
