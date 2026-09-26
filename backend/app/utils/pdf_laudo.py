@@ -829,14 +829,14 @@ def criar_secao_qualitativa(qualitativa: Dict[str, str], assinatura: Optional[Li
         "QualitativaItemBody",
         parent=styles["QualitativaTexto"],
         leftIndent=9 * mm,
-        spaceAfter=1.5 * mm,
+        spaceAfter=0.25 * mm,
         leading=12,
     )
     bloco_texto_style = ParagraphStyle(
         "QualitativaBlocoTexto",
         parent=styles["QualitativaTexto"],
         leftIndent=4 * mm,
-        spaceAfter=1.5 * mm,
+        spaceAfter=0.25 * mm,
         leading=12,
     )
 
@@ -908,12 +908,12 @@ def criar_secao_qualitativa(qualitativa: Dict[str, str], assinatura: Optional[Li
             *(assinatura if len(grupos_renderizados) == 1 else []),
         )
     )
-    elements.append(Spacer(1, 1.5 * mm))
+    elements.append(Spacer(1, 0.5 * mm))
 
     for indice, grupo in enumerate(grupos_renderizados[1:], 1):
         ultimo_grupo = indice == len(grupos_renderizados) - 1
         elements.append(_bloco_sem_quebra(*grupo, *(assinatura if ultimo_grupo else [])))
-        elements.append(Spacer(1, 1.5 * mm))
+        elements.append(Spacer(1, 0.5 * mm))
 
     return elements
 
@@ -1588,10 +1588,10 @@ def gerar_pdf_laudo_eco(
                     f"Data do exame: {data_imagens}" if data_imagens else "",
                 ) if parte
             )
-            # Se a assinatura precisou passar para uma página nova, aproveita
-            # o espaço disponível nela. Nos laudos curtos, mantém a grade de
-            # imagens em página própria quando não houver altura suficiente.
-            elements.append(CondPageBreak(190 * mm))
+            # Aproveita a página da assinatura quando houver espaço para uma
+            # linha completa de imagens; evita iniciar a grade espremida no
+            # rodapé da narrativa.
+            elements.append(CondPageBreak(130 * mm))
             
             # Layout 2x3 (6 imagens por página) - similar ao modelo de referência
             IMG_WIDTH = 85*mm
@@ -1606,11 +1606,9 @@ def gerar_pdf_laudo_eco(
                 textColor=COR_CINZA_ESCURO,
             )
             
-            # Processar imagens em grupos de 6
+            # Processar imagens em grupos de 6, deixando o fluxo da tabela
+            # continuar na página seguinte sem criar uma página quase vazia.
             for page_idx in range(0, len(imagens), 6):
-                if page_idx > 0:
-                    elements.append(PageBreak())
-                
                 # Pegar até 6 imagens para esta página
                 page_imagens = imagens[page_idx:page_idx + 6]
                 

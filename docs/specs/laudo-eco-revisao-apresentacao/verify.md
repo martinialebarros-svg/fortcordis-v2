@@ -32,6 +32,8 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 | CA-020 | Navegador autenticado de stage em `/laudos/47` mostrou “Referência selecionada por espécie e peso: cadastro de Canina, 20 kg.”, medida/faixa de TAPSE e ausência da frase auxiliar; bundle servido confirmou o mesmo texto | ok stage |
 | CA-021 | Regressão sintética longa com 12 imagens falhou antes da correção porque a assinatura caiu na página seguinte ao último grupo; passou após agrupar os blocos. Páginas 3–5 do PDF sintético foram renderizadas e conferidas; testes curtos e moderados passaram | ok local |
 | CA-022 | Versão do renderizador de eco incrementada para `2026-09-26-eco-presentation-v4`; teste de cache do eco e das outras modalidades passou | ok local |
+| CA-023 | O PDF real de Mia emitido em produção após a versão v4 tem seis páginas: a página 4 contém apenas o último grupo qualitativo e a assinatura, enquanto as 12 imagens ocupam as páginas 5–6. A regressão sintética extensa com três itens finais ocupa cinco páginas após compactação moderada e fluxo contínuo de imagens; assinatura e último grupo permanecem juntos, imagens 1–6 e 7–12 nas páginas 4–5. Página 3 renderizada e conferida. | ok local; PDF real pós-v5 pendente |
+| CA-024 | Versão do renderizador eco incrementada para `2026-09-26-eco-presentation-v5`; os 32 testes focados passaram, incluindo chaves de cache de eco e outras modalidades. | ok local |
 | NFR-001 | Revisão de fluxo: busca de referência apenas na visualização; configuração confirmada no salvamento somente quando há imagens | ok |
 | NFR-002 | Nenhuma escrita de medidas no helper; somente cópia para apresentação | ok |
 | NFR-003 | Inspeção do diff, testes focados e build | ok |
@@ -39,6 +41,7 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 
 ## Comandos locais
 
+- Nesta continuação: `backend: python -m unittest tests.test_pdf_laudo_echo_measurements tests.test_ecocardiograma_medidas tests.test_ecocardiograma_qualitativa tests.test_imagens_configuracao_pdf tests.test_referencia_eco_defaults` — 32 testes aprovados; `git diff --check` aprovado. O PDF de produção v4 de Mia foi inspecionado por texto e renderização; o caso sintético v5 foi renderizado para revisão de legibilidade.
 - Nesta iteração: `backend: python -m unittest tests.test_pdf_laudo_echo_measurements tests.test_ecocardiograma_medidas tests.test_ecocardiograma_qualitativa tests.test_imagens_configuracao_pdf tests.test_referencia_eco_defaults` — 32 testes aprovados; `frontend: vitest run lib/echo-report-presentation.test.ts lib/echo-qualitative.test.ts --maxWorkers=2` — 9 testes aprovados; `tsc --noEmit`, `eslint app/laudos/[id]/page.tsx` e `npm run build` aprovados. A primeira tentativa de build falhou na resposta de `next/font` e a repetição passou sem alteração de código.
 - `frontend: vitest run lib/echo-qualitative.test.ts lib/echo-report-presentation.test.ts app/laudos/components/ImageUploader.test.tsx` — 9 testes aprovados.
 - `frontend: vitest run app/laudos/components/ImageUploader.test.tsx --maxWorkers=2` após a correção de upload — 4 testes aprovados, incluindo a regressão de legenda digitada durante uploads sucessivos.
