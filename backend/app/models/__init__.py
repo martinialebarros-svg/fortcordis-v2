@@ -1,3 +1,27 @@
+"""Registro ORM dos modelos.
+
+Importar este pacote e o que popula `Base.metadata`, e e desse metadata que
+`backend/setup_database.py` parte no `create_all()`. Nao existe lista de modelos
+em nenhum outro lugar — foi para acabar com uma lista paralela morta que este
+arquivo passou a importar `configuracao`.
+
+O que isso **nao** significa: estar aqui nao e o que faz a tabela existir.
+Tabela nova no FortCordis vem por **migracao versionada** em
+`backend/migrations/versions/`. Toda tabela criada desde 2026 tem migracao
+propria, inclusive as registradas neste arquivo; o `create_all` so chega antes
+por rodar primeiro em `setup_database.py`, e a migracao correspondente vira
+no-op (cada uma guarda com `_table_exists`).
+
+Por isso quatro modulos de modelo nao aparecem aqui e funcionam normalmente:
+`agenda_formalizacao`, `alerta_interno`, `fiscal` e `whatsapp_bot`. As tabelas
+deles nascem por migracao.
+
+Regra pratica ao adicionar modelo: escreva a migracao — e ela que cria a tabela
+nos ambientes. Registrar aqui e sobre o ORM, e nao substitui a migracao. A
+excecao historica sao as tabelas anteriores ao runner de migracoes (caso de
+`configuracoes`), em que o `create_all` segue sendo o unico criador.
+"""
+
 from app.models.user import User
 from app.models.papel import Papel
 from app.models.agendamento import Agendamento
@@ -29,6 +53,7 @@ from app.models.eco_study_import_job import EcoStudyImportJob
 from app.models.tabela_preco import TabelaPreco, PrecoServico, PrecoServicoClinica
 from app.models.ordem_servico import OrdemServico
 from app.models.referencia_eco import ReferenciaEco
+from app.models.configuracao import Configuracao, ConfiguracaoUsuario
 from app.models.papel_permissao import PapelPermissao
 from app.models.atendimento_clinico import (
     AnexoAtendimento,
