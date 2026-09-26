@@ -192,7 +192,10 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
                 for i in range(8)
             ),
             "pericardio": "Descrição demonstrativa de pericárdio para testar paginação.",
-            "vasos": "Marcador final da análise qualitativa; deve acompanhar a assinatura.",
+            "vasos": "\n".join(
+                f"- Marcador final {i} da análise qualitativa; deve acompanhar a assinatura."
+                for i in range(3)
+            ),
         }
         image_buffer = BytesIO()
         PILImage.new("RGB", (320, 240), "white").save(image_buffer, format="JPEG")
@@ -208,7 +211,10 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         pages = [page.extract_text() or "" for page in reader.pages]
         signature_pages = [text for text in pages if "Dra. Exemplo" in text]
         self.assertEqual(len(signature_pages), 1)
-        self.assertIn("Marcador final da análise qualitativa", signature_pages[0])
+        self.assertIn("Marcador final 2 da análise qualitativa", signature_pages[0])
+        self.assertEqual(len(pages), 5)
+        self.assertIn("Imagem 1", pages[3])
+        self.assertIn("Imagem 12", pages[4])
         self.assertIn("Imagem 12", "\n".join(pages))
 
     def test_image_numbers_and_patient_identification_continue_across_pages(self) -> None:
