@@ -25,6 +25,7 @@
 - RF-021: alterações no texto do PDF ecocardiográfico incrementam sua versão do renderizador na chave de cache, para que laudos já emitidos sejam gerados novamente sem modificar os dados clínicos armazenados ou invalidar o cache das outras modalidades.
 - RF-022: a prévia identifica o cadastro de referência selecionado sem exibir a nota auxiliar sobre TAPSE, mantendo as faixas medidas nas tabelas.
 - RF-023: quando o laudo ecocardiográfico tem imagens e não tem anexo de pressão arterial, a assinatura acompanha o último grupo qualitativo na mesma página; a grade de imagens pode começar após esse conjunto e continua identificada em cada página.
+- RF-024: a análise qualitativa usa espaçamento compacto e legível para evitar uma página quase vazia contendo apenas o último grupo e a assinatura; se a narrativa ocupar outra página, a grade aproveita o espaço disponível após a assinatura sem quebrar compulsoriamente após cada conjunto de seis imagens.
 
 ## Requisitos não funcionais
 
@@ -57,3 +58,5 @@
 - CA-020: a prévia do laudo mostra a espécie e o peso do cadastro selecionado sem a frase auxiliar sobre TAPSE; os valores e as faixas de referência não são alterados.
 - CA-021: um laudo sintético longo com assinatura e 12 imagens mantém a assinatura na mesma página do último grupo qualitativo, sem perder a última imagem ou a identificação do paciente nas páginas de imagens; casos curtos e moderados mantêm a paginação esperada.
 - CA-022: a versão do renderizador de ecocardiogramas avança após a mudança de paginação para regenerar PDFs em cache sem invalidar as demais modalidades.
+- CA-023: um laudo sintético extenso com três descrições no último grupo, assinatura e 12 imagens ocupa cinco páginas: o último grupo e a assinatura ficam juntos, e as imagens 1–6 e 7–12 ocupam as duas páginas seguintes, respectivamente.
+- CA-024: a nova paginação incrementa apenas a versão de cache do PDF ecocardiográfico, preservando as chaves de cache das outras modalidades.
