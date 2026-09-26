@@ -8,7 +8,7 @@
 - RF-004: linhas iniciadas por `[Assistente agenda]` ou `[Reserva manual]` aparecem em registro operacional; as demais permanecem em observações clínicas.
 - RF-005: o PDF exibe apenas grupos e parâmetros com medida numérica não zero registrada; quando não há medidas, informa sua ausência.
 - RF-006: o PDF só exibe faixas completas obtidas da referência selecionada por espécie e peso. TAPSE pode usar a faixa auxiliar por peso já aplicada pelo serviço; MAPSE sem faixa cadastrada permanece indisponível, assim como qualquer parâmetro sem referência.
-- RF-007: o PDF informa o cadastro selecionado e a possibilidade de faixa auxiliar por peso para TAPSE, sem atribuir bibliografia ausente dos dados nem criar interpretação diagnóstica.
+- RF-007: o PDF informa o cadastro selecionado sem a nota explicativa sobre faixa auxiliar de TAPSE ou traço; as faixas e a ausência delas continuam representadas nas tabelas, sem atribuir bibliografia ausente dos dados nem criar interpretação diagnóstica.
 - RF-008: a conclusão redigida pelo veterinário aparece uma única vez, antes das tabelas quantitativas, para leitura na primeira página.
 - RF-009: cada imagem aceita uma legenda opcional no fluxo de novo laudo e de edição; o editor limita novas entradas a 160 caracteres e preserva descrições legadas maiores, sem bloquear upload ou salvamento quando vazia.
 - RF-010: ordem, inclusão e legenda são persistidas na sessão ou laudo correspondente; o salvamento confirma a configuração antes de associar a imagem ao laudo.

@@ -1389,11 +1389,7 @@ def gerar_pdf_laudo_eco(
             especie_ref = _esc(referencia_selecionada.get("especie") or "")
             peso_ref = _to_float(referencia_selecionada.get("peso_kg"))
             peso_ref_texto = f", {peso_ref:g} kg" if peso_ref is not None else ""
-            nota_referencia = (
-                f"Referência selecionada do cadastro: {especie_ref}{peso_ref_texto}. "
-                "TAPSE pode usar faixa auxiliar por peso do sistema quando ausente no cadastro. "
-                "Traço indica faixa indisponível."
-            )
+            nota_referencia = f"Referência selecionada do cadastro: {especie_ref}{peso_ref_texto}."
         else:
             nota_referencia = "Faixas de referência indisponíveis para este paciente; traço indica faixa indisponível."
         elements.append(Paragraph(nota_referencia, create_pdf_styles()["Normal"]))
