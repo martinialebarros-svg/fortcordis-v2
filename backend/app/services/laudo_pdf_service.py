@@ -22,6 +22,7 @@ from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_p
 
 
 LAUDO_PDF_RENDERER_VERSION = "2026-09-24-eco-presentation-v2"
+LAUDO_PDF_ECO_RENDERER_VERSION = "2026-09-26-eco-presentation-v3"
 
 
 @dataclass(frozen=True)
@@ -122,7 +123,11 @@ def compute_laudo_pdf_cache_key(db: Session, laudo_id: int, user_id: int) -> str
         raise ValueError("Laudo nao encontrado")
 
     payload = {
-        "pdf_renderer_version": LAUDO_PDF_RENDERER_VERSION,
+        "pdf_renderer_version": (
+            LAUDO_PDF_ECO_RENDERER_VERSION
+            if str(getattr(laudo, "tipo", "") or "").lower() == "ecocardiograma"
+            else LAUDO_PDF_RENDERER_VERSION
+        ),
         **_carregar_stamp_cache(db, laudo, user_id),
     }
     serialized = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")

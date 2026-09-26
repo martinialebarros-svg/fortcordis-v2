@@ -18,6 +18,7 @@ os.environ.setdefault(
 )
 
 from app.services.laudo_pdf_service import (  # noqa: E402
+    LAUDO_PDF_ECO_RENDERER_VERSION,
     LAUDO_PDF_RENDERER_VERSION,
     compute_laudo_pdf_cache_key,
 )
@@ -78,9 +79,36 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
         self.assertNotIn("VE_tecnica_relatorio", measurements)
 
     def test_cache_do_pdf_inclui_versao_do_renderizador(self) -> None:
+        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-09-26-eco-presentation-v3")
         database = MagicMock()
         database.query.return_value.filter.return_value.first.return_value = (
-            SimpleNamespace(id=7)
+            SimpleNamespace(id=7, tipo="ecocardiograma")
+        )
+        stamp = {"laudo_id": 7, "laudo_updated_at": "2026-07-27T10:00:00"}
+
+        with patch(
+            "app.services.laudo_pdf_service._carregar_stamp_cache",
+            return_value=stamp,
+        ):
+            cache_key = compute_laudo_pdf_cache_key(database, 7, 3)
+
+        expected_payload = {
+            "pdf_renderer_version": LAUDO_PDF_ECO_RENDERER_VERSION,
+            **stamp,
+        }
+        expected = hashlib.sha256(
+            json.dumps(
+                expected_payload,
+                sort_keys=True,
+                ensure_ascii=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(cache_key, expected)
+
+    def test_cache_de_outra_modalidade_preserva_versao_anterior(self) -> None:
+        database = MagicMock()
+        database.query.return_value.filter.return_value.first.return_value = (
+            SimpleNamespace(id=7, tipo="pressao_arterial")
         )
         stamp = {"laudo_id": 7, "laudo_updated_at": "2026-07-27T10:00:00"}
 
@@ -95,11 +123,7 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
             **stamp,
         }
         expected = hashlib.sha256(
-            json.dumps(
-                expected_payload,
-                sort_keys=True,
-                ensure_ascii=True,
-            ).encode("utf-8")
+            json.dumps(expected_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
         ).hexdigest()
         self.assertEqual(cache_key, expected)
 

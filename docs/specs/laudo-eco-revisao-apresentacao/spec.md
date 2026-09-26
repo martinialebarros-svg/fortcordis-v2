@@ -22,6 +22,7 @@
 - RF-018: respostas de uploads sucessivos atualizam somente o status da imagem correspondente e preservam legendas digitadas enquanto as demais imagens ainda são enviadas.
 - RF-019: a compatibilidade com dimensões legadas em cm converte apenas valores compatíveis com cm entre 0,3 e 3,5 em um conjunto coerente; valores já em mm permanecem intactos. TAPSE e MAPSE não são convertidos por inferência baseada nos diâmetros das câmaras.
 - RF-020: TAPSE e MAPSE registrados aparecem em grupo próprio na prévia e no PDF, independentemente da técnica escolhida para as medidas do ventrículo esquerdo.
+- RF-021: alterações no texto do PDF ecocardiográfico incrementam sua versão do renderizador na chave de cache, para que laudos já emitidos sejam gerados novamente sem modificar os dados clínicos armazenados ou invalidar o cache das outras modalidades.
 
 ## Requisitos não funcionais
 
@@ -50,3 +51,4 @@
 - CA-016: em um conjunto legado misto, dimensões de câmaras em cm são convertidas e TAPSE, MAPSE e aorta já em mm mantêm seus valores na prévia e no PDF.
 - CA-017: ao selecionar modo 2D para o ventrículo esquerdo, TAPSE e MAPSE preenchidos continuam visíveis na prévia e no PDF, com valores e unidades preservados.
 - CA-018: a seleção de faixas ecocardiográficas usa apenas aliases explícitos de espécie. Espécies não reconhecidas, como `Cattle`, não recebem faixas felinas ou caninas na prévia, na consulta de referências ou no PDF; uma espécie sem cadastro mostra referência indisponível.
+- CA-019: após retirar a nota sobre TAPSE e traço, um PDF anteriormente guardado em cache não é reutilizado; a nova renderização conserva as medidas e as faixas de referência.
