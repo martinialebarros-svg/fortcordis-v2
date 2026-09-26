@@ -106,6 +106,7 @@ function referenceRange(reference: ReferenciaEco | null, item: Parameter): strin
 export function prepareEchoReportMeasurements(raw: Record<string, string>, weightKg: unknown) {
   const measurements = { ...raw };
   const lengths = [...lengthKeys].map((key) => number(raw[key])).filter((value): value is number => value !== null && value > 0);
+  const ambiguousKeys = new Set<string>();
   if (lengths.length >= 3) {
     const centimeters = lengths.filter((value) => value >= 0.3 && value <= 3.5).length;
     const millimeters = lengths.filter((value) => value >= 5).length;
@@ -113,11 +114,13 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
       for (const key of lengthKeys) {
         const value = number(raw[key]);
         if (value !== null && value >= 0.3 && value <= 3.5) {
-          measurements[key] = String(Number((value * 10).toFixed(2)));
+          ambiguousKeys.add(key);
         }
       }
     }
   }
+  if (ambiguousKeys.has("DIVEd")) delete measurements.DIVEd_normalizado;
+  if (ambiguousKeys.has("DIVEd_2D")) delete measurements.DIVEd_normalizado_2D;
 
   const alerts: EchoCalculationAlert[] = [];
   const weight = number(weightKg);
@@ -126,6 +129,9 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
       ? "DIVEd_normalizado_2D"
       : "DIVEd_normalizado";
     for (const [diameterKey, normalizedKey] of [["DIVEd", "DIVEd_normalizado"], ["DIVEd_2D", "DIVEd_normalizado_2D"]]) {
+      if (ambiguousKeys.has(diameterKey)) {
+        continue;
+      }
       const diameter = number(measurements[diameterKey]);
       if (diameter === null || diameter <= 0) continue;
       const calculated = Number(((diameter / 10) / weight ** 0.294).toFixed(2));
@@ -136,10 +142,10 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
       measurements[normalizedKey] = String(calculated);
     }
   }
-  return { measurements, alerts };
+  return { measurements, alerts, ambiguousKeys };
 }
 
-export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null): EchoReportGroup[] {
+export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null, ambiguousKeys: Set<string> = new Set()): EchoReportGroup[] {
   const selected2D = measurements.VE_tecnica_relatorio === "2d";
   const groups = [
     { title: selected2D ? "Ventrículo esquerdo · modo 2D" : "Ventrículo esquerdo · modo M", parameters: selected2D ? mode2D : mMode },
@@ -157,8 +163,10 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
     }).map((item) => ({
       key: item.key,
       label: item.label,
-      value: `${number(measurements[item.key])?.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`,
-      reference: referenceRange(reference, item),
+      value: ambiguousKeys.has(item.key)
+        ? `${number(measurements[item.key])?.toFixed(2)} (unidade a confirmar)`
+        : `${number(measurements[item.key])?.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`,
+      reference: ambiguousKeys.has(item.key) ? "—" : referenceRange(reference, item),
     })),
   })).filter((group) => group.rows.length > 0);
 }

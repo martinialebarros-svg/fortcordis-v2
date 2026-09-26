@@ -169,8 +169,8 @@ export default function VisualizarLaudoPage() {
   const laudoEhEletrocardiograma = laudo?.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA;
   const laudoEhPressao = laudo?.tipo === TIPO_LAUDO_PRESSAO_ARTERIAL;
   const laudoEhEco = laudo?.tipo === TIPO_LAUDO_ECOCARDIOGRAMA;
-  const { measurements: medidasExibidas, alerts: alertasCalculo } = prepareEchoReportMeasurements(medidas, paciente?.peso_kg);
-  const gruposMedidas = buildEchoReportGroups(medidasExibidas, referenciaEco);
+  const { measurements: medidasExibidas, alerts: alertasCalculo, ambiguousKeys } = prepareEchoReportMeasurements(medidas, paciente?.peso_kg);
+  const gruposMedidas = buildEchoReportGroups(medidasExibidas, referenciaEco, ambiguousKeys);
   const observacoes = splitReportObservations(laudo?.observacoes || "");
 
   useEffect(() => {
@@ -752,6 +752,11 @@ export default function VisualizarLaudoPage() {
           {laudoEhEco && gruposMedidas.length > 0 && (
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-3">Medidas Ecocardiográficas</h3>
+              {ambiguousKeys.size > 0 && (
+                <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="status">
+                  Unidade a confirmar nas medidas indicadas. Confira o exame de origem antes de interpretar essas dimensões; o PDF mantém os valores registrados.
+                </p>
+              )}
               {alertasCalculo.length > 0 && (
                 <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="status">
                   <p className="font-semibold">Conferir cálculo normalizado</p>

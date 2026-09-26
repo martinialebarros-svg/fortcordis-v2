@@ -97,37 +97,25 @@ def _esc(valor: Any) -> str:
     return xml_escape(str(valor))
 
 
+def medidas_com_unidade_ambigua(medidas: Dict[str, Any]) -> set[str]:
+    """Identifica o conjunto que antes seria convertido sem unidade de origem."""
+    valores = {
+        chave: _to_float((medidas or {}).get(chave))
+        for chave in CHAVES_COMPRIMENTO_MM
+    }
+    positivos = [valor for valor in valores.values() if valor is not None and valor > 0]
+    candidatos = {chave for chave, valor in valores.items() if valor is not None and 0.3 <= valor <= 3.5}
+    milimetricos = sum(valor >= 5 for valor in positivos)
+    if len(positivos) >= 3 and len(candidatos) >= 3 and len(candidatos) >= 2 * milimetricos:
+        return candidatos
+    return set()
+
+
 def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Normaliza medidas para garantir consistência de unidade no PDF.
-
-    - Padrão atual: comprimentos em mm.
-    - Compatibilidade: converte automaticamente de cm->mm quando detectar
-      conjunto claramente em cm (laudos antigos).
+    Preserva os valores gravados. Magnitude não comprova unidade em laudos legados.
     """
-    medidas_norm = dict(medidas or {})
-
-    valores_comprimento = []
-    for chave in CHAVES_COMPRIMENTO_MM:
-        valor = _to_float(medidas_norm.get(chave))
-        if valor and valor > 0:
-            valores_comprimento.append(valor)
-
-    if len(valores_comprimento) < 3:
-        return medidas_norm
-
-    qtd_cm_like = sum(1 for v in valores_comprimento if 0.3 <= v <= 3.5)
-    qtd_mm_like = sum(1 for v in valores_comprimento if v >= 5.0)
-
-    # Heurística: maioria em faixa típica de cm e sem sinais fortes de mm.
-    # Mesmo nesse caso, valores já compatíveis com mm ficam intactos.
-    if qtd_cm_like >= 3 and qtd_cm_like >= (qtd_mm_like * 2):
-        for chave in CHAVES_COMPRIMENTO_MM:
-            valor = _to_float(medidas_norm.get(chave))
-            if valor is not None and 0.3 <= valor <= 3.5:
-                medidas_norm[chave] = round(valor * 10, 2)
-
-    return medidas_norm
+    return dict(medidas or {})
 
 
 def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:
@@ -149,6 +137,9 @@ def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:
         ("DIVEd", "DIVEd_normalizado"),
         ("DIVEd_2D", "DIVEd_normalizado_2D"),
     ):
+        if diameter_key in dados_pdf.get("unidades_ambiguas", set()):
+            medidas.pop(normalized_key, None)
+            continue
         dived_mm = _to_float(medidas.get(diameter_key))
         if dived_mm is None or dived_mm <= 0:
             continue
@@ -616,6 +607,7 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
         
         valor = dados.get('medidas', {}).get(chave, 0)
         valor_float = _to_float(valor) or 0
+        unidade_ambigua = chave in dados.get('unidades_ambiguas', set())
         
         # Formata valor
         if valor_float == 0:
@@ -624,10 +616,10 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
             interp_str = ""
             interp_color = COR_PRETO
         else:
-            valor_str = f"{valor_float:.2f} {unidade}".strip()
-            ref_str = (ref_text if ref_text else formatar_referencia(ref_min, ref_max, unidade)) if mostrar_referencia else ""
+            valor_str = f"{valor_float:.2f} (unidade a confirmar)" if unidade_ambigua else f"{valor_float:.2f} {unidade}".strip()
+            ref_str = "--" if unidade_ambigua else ((ref_text if ref_text else formatar_referencia(ref_min, ref_max, unidade)) if mostrar_referencia else "")
             
-            if ref_min is not None and ref_max is not None and not (ref_min == 0 and ref_max == 0):
+            if not unidade_ambigua and ref_min is not None and ref_max is not None and not (ref_min == 0 and ref_max == 0):
                 interp_str, interp_color = interpretar_parametro(valor_float, ref_min, ref_max)
             else:
                 interp_str = ""
@@ -1371,6 +1363,7 @@ def gerar_pdf_laudo_eco(
         # 1. Cabeçalho: logo + título, depois dados do paciente
         dados_pdf = dict(dados)
         dados_pdf["medidas"] = normalizar_medidas_para_pdf(dados.get("medidas", {}))
+        dados_pdf["unidades_ambiguas"] = medidas_com_unidade_ambigua(dados_pdf["medidas"])
         recalcular_dived_normalizado_para_pdf(dados_pdf)
         elements.extend(criar_cabecalho(dados_pdf, temp_logo_path))
 
@@ -1384,6 +1377,12 @@ def gerar_pdf_laudo_eco(
         # 2. Análise Quantitativa (título com mesma largura das tabelas)
         elements.append(criar_titulo_secao("ANÁLISE QUANTITATIVA"))
         elements.append(Spacer(1, 2*mm))
+        if dados_pdf["unidades_ambiguas"]:
+            elements.append(Paragraph(
+                "Unidade a confirmar nas medidas indicadas; confira o exame de origem antes de interpretar essas dimensões.",
+                create_pdf_styles()["Normal"],
+            ))
+            elements.append(Spacer(1, 2*mm))
         referencia_selecionada = dados_pdf.get("referencia_eco")
         if referencia_selecionada:
             especie_ref = _esc(referencia_selecionada.get("especie") or "")
