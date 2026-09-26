@@ -29,6 +29,9 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 | CA-018 | Teste backend cobre aliases explícitos e busca por `Cattle` sem herdar faixa felina; teste do hook confirma que a prévia envia a espécie real e não busca espécie vazia; ambos os caminhos de PDF usam a mesma normalização | ok local |
 | RF-007 | PDF sintético com referência selecionada conserva espécie/peso e faixas medidas, sem a nota sobre TAPSE ou traço | ok local |
 | CA-019 | Versão do renderizador de eco incrementada para `2026-09-26-eco-presentation-v3`; testes da chave de cache confirmam invalidação do eco e preservação das outras modalidades, e teste do PDF confirma ausência da nota | ok local |
+| CA-020 | Prévia conserva espécie/peso da referência e omite a frase auxiliar de TAPSE; validar também na rota autenticada após a publicação | pendente browser |
+| CA-021 | Regressão sintética longa com 12 imagens falhou antes da correção porque a assinatura caiu na página seguinte ao último grupo; passou após agrupar os blocos. Páginas 3–5 do PDF sintético foram renderizadas e conferidas; testes curtos e moderados passaram | ok local |
+| CA-022 | Versão do renderizador de eco incrementada para `2026-09-26-eco-presentation-v4`; teste de cache do eco e das outras modalidades passou | ok local |
 | NFR-001 | Revisão de fluxo: busca de referência apenas na visualização; configuração confirmada no salvamento somente quando há imagens | ok |
 | NFR-002 | Nenhuma escrita de medidas no helper; somente cópia para apresentação | ok |
 | NFR-003 | Inspeção do diff, testes focados e build | ok |
@@ -36,6 +39,7 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 
 ## Comandos locais
 
+- Nesta iteração: `backend: python -m unittest tests.test_pdf_laudo_echo_measurements tests.test_ecocardiograma_medidas tests.test_ecocardiograma_qualitativa tests.test_imagens_configuracao_pdf tests.test_referencia_eco_defaults` — 32 testes aprovados; `frontend: vitest run lib/echo-report-presentation.test.ts lib/echo-qualitative.test.ts --maxWorkers=2` — 9 testes aprovados; `tsc --noEmit`, `eslint app/laudos/[id]/page.tsx` e `npm run build` aprovados. A primeira tentativa de build falhou na resposta de `next/font` e a repetição passou sem alteração de código.
 - `frontend: vitest run lib/echo-qualitative.test.ts lib/echo-report-presentation.test.ts app/laudos/components/ImageUploader.test.tsx` — 9 testes aprovados.
 - `frontend: vitest run app/laudos/components/ImageUploader.test.tsx --maxWorkers=2` após a correção de upload — 4 testes aprovados, incluindo a regressão de legenda digitada durante uploads sucessivos.
 - `frontend: vitest run lib/echo-report-presentation.test.ts --maxWorkers=2` após a correção de alertas — 5 testes aprovados, incluindo seleção entre modo M e 2D.

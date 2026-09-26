@@ -23,6 +23,8 @@
 - RF-019: a compatibilidade com dimensões legadas em cm converte apenas valores compatíveis com cm entre 0,3 e 3,5 em um conjunto coerente; valores já em mm permanecem intactos. TAPSE e MAPSE não são convertidos por inferência baseada nos diâmetros das câmaras.
 - RF-020: TAPSE e MAPSE registrados aparecem em grupo próprio na prévia e no PDF, independentemente da técnica escolhida para as medidas do ventrículo esquerdo.
 - RF-021: alterações no texto do PDF ecocardiográfico incrementam sua versão do renderizador na chave de cache, para que laudos já emitidos sejam gerados novamente sem modificar os dados clínicos armazenados ou invalidar o cache das outras modalidades.
+- RF-022: a prévia identifica o cadastro de referência selecionado sem exibir a nota auxiliar sobre TAPSE, mantendo as faixas medidas nas tabelas.
+- RF-023: quando o laudo ecocardiográfico tem imagens e não tem anexo de pressão arterial, a assinatura acompanha o último grupo qualitativo na mesma página; a grade de imagens pode começar após esse conjunto e continua identificada em cada página.
 
 ## Requisitos não funcionais
 
@@ -52,3 +54,6 @@
 - CA-017: ao selecionar modo 2D para o ventrículo esquerdo, TAPSE e MAPSE preenchidos continuam visíveis na prévia e no PDF, com valores e unidades preservados.
 - CA-018: a seleção de faixas ecocardiográficas usa apenas aliases explícitos de espécie. Espécies não reconhecidas, como `Cattle`, não recebem faixas felinas ou caninas na prévia, na consulta de referências ou no PDF; uma espécie sem cadastro mostra referência indisponível.
 - CA-019: após retirar a nota sobre TAPSE e traço, um PDF anteriormente guardado em cache não é reutilizado; a nova renderização conserva as medidas e as faixas de referência.
+- CA-020: a prévia do laudo mostra a espécie e o peso do cadastro selecionado sem a frase auxiliar sobre TAPSE; os valores e as faixas de referência não são alterados.
+- CA-021: um laudo sintético longo com assinatura e 12 imagens mantém a assinatura na mesma página do último grupo qualitativo, sem perder a última imagem ou a identificação do paciente nas páginas de imagens; casos curtos e moderados mantêm a paginação esperada.
+- CA-022: a versão do renderizador de ecocardiogramas avança após a mudança de paginação para regenerar PDFs em cache sem invalidar as demais modalidades.
