@@ -228,6 +228,8 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("20.00 - 40.00 mm", text)
         self.assertNotIn("3.50 - 5.50 mm", text)
         self.assertIn("Referência selecionada do cadastro", text)
+        self.assertNotIn("TAPSE pode usar faixa auxiliar por peso do sistema", text)
+        self.assertNotIn("Traço indica faixa indisponível", text)
 
     def test_pdf_keeps_measured_mapse_without_unsupported_auxiliary_range(self) -> None:
         payload = _base_report("modo_m")
