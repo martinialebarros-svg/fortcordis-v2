@@ -1,3 +1,5 @@
+import { echoLengthInMm, isEchoLengthKey } from "./echo-unit-provenance";
+
 export type RightAtrialRemodeling =
   | ""
   | "ausente"
@@ -91,6 +93,13 @@ function normalizeStoredMeasurement(
     const normalized = text.toLowerCase();
     return ["ausente", "leve", "moderado", "importante"].includes(normalized)
       ? normalized
+      : null;
+  }
+  if (key.startsWith("unidade_confirmada_")) {
+    const measurementKey = key.slice("unidade_confirmada_".length);
+    const unit = text.toLowerCase();
+    return isEchoLengthKey(measurementKey) && (unit === "cm" || unit === "mm")
+      ? unit
       : null;
   }
 
@@ -201,7 +210,7 @@ export function deriveAutomaticEchoMeasurements(
     ["DIVEd", "DIVEd_normalizado"],
     ["DIVEd_2D", "DIVEd_normalizado_2D"],
   ] as const) {
-    const diameterMm = parsePositiveNumber(measurements[diameterKey]);
+    const diameterMm = echoLengthInMm(measurements, diameterKey);
     if (diameterMm !== null && weight !== null) {
       derived[normalizedKey] = formatDerivedValue(
         diameterMm / 10 / weight ** 0.294
@@ -254,8 +263,8 @@ export function deriveLeftVentricularFunctionForReference(
       derived[fields.ef] = formatDerivedPercentage(((edv - esv) / edv) * 100);
     }
 
-    const lvidD = parsePositiveNumber(measurements[fields.lvidD]);
-    const lvidS = parsePositiveNumber(measurements[fields.lvidS]);
+    const lvidD = echoLengthInMm(measurements, fields.lvidD);
+    const lvidS = echoLengthInMm(measurements, fields.lvidS);
     if (
       !String(measurements[fields.fs] ?? "").trim() &&
       lvidD !== null &&

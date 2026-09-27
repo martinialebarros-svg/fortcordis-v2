@@ -1,4 +1,5 @@
 import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
+import { ambiguousEchoLengthKeys, confirmedEchoUnit, confirmedUnitKey, ECHO_LENGTH_KEYS } from "./echo-unit-provenance";
 
 type Parameter = { key: string; label: string; unit?: string; reference?: string };
 export type EchoReportRow = { key: string; label: string; value: string; reference: string };
@@ -78,11 +79,7 @@ const otherGroups: { title: string; parameters: Parameter[] }[] = [
 ];
 
 // TAPSE e MAPSE não permitem inferir cm a partir de outros diâmetros do exame.
-const lengthKeys = new Set([
-  ...mMode.filter((item) => item.unit === "mm").map((item) => item.key),
-  ...mode2D.filter((item) => item.unit === "mm").map((item) => item.key),
-  "Aorta", "Atrio_esquerdo", "Ao_nivel_AP", "AP",
-]);
+const lengthKeys = new Set<string>(ECHO_LENGTH_KEYS);
 
 function number(value: unknown): number | null {
   if (value === null || value === undefined || String(value).trim() === "") return null;
@@ -105,18 +102,11 @@ function referenceRange(reference: ReferenciaEco | null, item: Parameter): strin
 
 export function prepareEchoReportMeasurements(raw: Record<string, string>, weightKg: unknown) {
   const measurements = { ...raw };
-  const lengths = [...lengthKeys].map((key) => number(raw[key])).filter((value): value is number => value !== null && value > 0);
-  const ambiguousKeys = new Set<string>();
-  if (lengths.length >= 3) {
-    const centimeters = lengths.filter((value) => value >= 0.3 && value <= 3.5).length;
-    const millimeters = lengths.filter((value) => value >= 5).length;
-    if (centimeters >= 3 && centimeters >= millimeters * 2) {
-      for (const key of lengthKeys) {
-        const value = number(raw[key]);
-        if (value !== null && value >= 0.3 && value <= 3.5) {
-          ambiguousKeys.add(key);
-        }
-      }
+  const ambiguousKeys = ambiguousEchoLengthKeys(raw);
+  for (const key of lengthKeys) {
+    if (confirmedEchoUnit(raw, key) === "cm") {
+      const value = number(raw[key]);
+      if (value !== null && value > 0) measurements[key] = String(value * 10);
     }
   }
   if (ambiguousKeys.has("DIVEd")) delete measurements.DIVEd_normalizado;
@@ -152,6 +142,7 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
     ...otherGroups,
   ];
   const known = new Set(["VE_tecnica_relatorio", "Remodelamento_AD", ...mMode.map((item) => item.key), ...mode2D.map((item) => item.key)]);
+  for (const key of ECHO_LENGTH_KEYS) known.add(confirmedUnitKey(key));
   for (const group of otherGroups) for (const item of group.parameters) known.add(item.key);
   const unknown: Parameter[] = Object.keys(measurements).filter((key) => !known.has(key)).map((key) => parameter(key, key));
   if (unknown.length) groups.push({ title: "Outras medidas registradas", parameters: unknown });
