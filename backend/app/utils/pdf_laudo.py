@@ -19,6 +19,10 @@ from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.utils import ImageReader
+from app.utils.echo_unit_provenance import (
+    ambiguous_echo_length_keys,
+    normalize_confirmed_echo_lengths,
+)
 
 
 # Cores do tema - preto e cinza com fontes brancas (teste)
@@ -33,28 +37,6 @@ COR_PRETO = colors.black
 
 # Largura do conteúdo (igual à soma das colunas das tabelas de dados)
 LARGURA_TABELAS = 180 * mm
-
-
-# Dimensões candidatas à conversão de laudos legados em cm.
-# TAPSE e MAPSE permanecem em mm sem unidade explícita no dado de origem.
-CHAVES_COMPRIMENTO_MM = {
-    "DIVEd",
-    "SIVd",
-    "PLVEd",
-    "DIVES",
-    "SIVs",
-    "PLVES",
-    "DIVEd_2D",
-    "SIVd_2D",
-    "PLVEd_2D",
-    "DIVES_2D",
-    "SIVs_2D",
-    "PLVES_2D",
-    "Aorta",
-    "Atrio_esquerdo",
-    "Ao_nivel_AP",
-    "AP",
-}
 
 
 def _to_float(valor: Any) -> Optional[float]:
@@ -99,23 +81,14 @@ def _esc(valor: Any) -> str:
 
 def medidas_com_unidade_ambigua(medidas: Dict[str, Any]) -> set[str]:
     """Identifica o conjunto que antes seria convertido sem unidade de origem."""
-    valores = {
-        chave: _to_float((medidas or {}).get(chave))
-        for chave in CHAVES_COMPRIMENTO_MM
-    }
-    positivos = [valor for valor in valores.values() if valor is not None and valor > 0]
-    candidatos = {chave for chave, valor in valores.items() if valor is not None and 0.3 <= valor <= 3.5}
-    milimetricos = sum(valor >= 5 for valor in positivos)
-    if len(positivos) >= 3 and len(candidatos) >= 3 and len(candidatos) >= 2 * milimetricos:
-        return candidatos
-    return set()
+    return ambiguous_echo_length_keys(medidas or {})
 
 
 def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
     """
     Preserva os valores gravados. Magnitude não comprova unidade em laudos legados.
     """
-    return dict(medidas or {})
+    return normalize_confirmed_echo_lengths(medidas or {})
 
 
 def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:
@@ -131,14 +104,14 @@ def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:
     paciente_dict = paciente if isinstance(paciente, dict) else {}
 
     peso_kg = _to_float_peso(paciente_dict.get("peso"))
-    if peso_kg is None or peso_kg <= 0:
-        return
     for diameter_key, normalized_key in (
         ("DIVEd", "DIVEd_normalizado"),
         ("DIVEd_2D", "DIVEd_normalizado_2D"),
     ):
         if diameter_key in dados_pdf.get("unidades_ambiguas", set()):
             medidas.pop(normalized_key, None)
+            continue
+        if peso_kg is None or peso_kg <= 0:
             continue
         dived_mm = _to_float(medidas.get(diameter_key))
         if dived_mm is None or dived_mm <= 0:
@@ -1362,8 +1335,8 @@ def gerar_pdf_laudo_eco(
         
         # 1. Cabeçalho: logo + título, depois dados do paciente
         dados_pdf = dict(dados)
+        dados_pdf["unidades_ambiguas"] = medidas_com_unidade_ambigua(dados.get("medidas", {}))
         dados_pdf["medidas"] = normalizar_medidas_para_pdf(dados.get("medidas", {}))
-        dados_pdf["unidades_ambiguas"] = medidas_com_unidade_ambigua(dados_pdf["medidas"])
         recalcular_dived_normalizado_para_pdf(dados_pdf)
         elements.extend(criar_cabecalho(dados_pdf, temp_logo_path))
 

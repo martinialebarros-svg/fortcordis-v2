@@ -17,6 +17,7 @@ import EcoStudyImportUploader from "../components/EcoStudyImportUploader";
 import EcocardiogramaEstruturadoEditor from "../components/EcocardiogramaEstruturadoEditor";
 import EcocardiogramaEstruturadoBiblioteca from "../components/EcocardiogramaEstruturadoBiblioteca";
 import EchoVoiceAssistant from "../components/EchoVoiceAssistant";
+import EchoUnitReview from "../components/EchoUnitReview";
 import { Save, ArrowLeft, Heart, User, Activity, BookOpen, Settings, Image as ImageIcon, Minus, Plus, FolderOpen } from "lucide-react";
 import { ReferenciaComparison } from "../components/ReferenciaComparison";
 import {
@@ -36,6 +37,7 @@ import {
 } from "@/lib/echo-derived-measurements";
 import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
 import { calendarDateInput, operationalTodayDateInput } from "@/lib/calendar-date";
+import { confirmedUnitKey, echoLengthInMm, echoLengthInputLabel, mergeImportedEchoMeasurements, updateEchoMeasurement } from "@/lib/echo-unit-provenance";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -459,13 +461,13 @@ export default function NovoLaudoPage() {
   }, []);
 
   useEffect(() => {
-    const aorta = parseNumero(medidas["Aorta"]);
-    const atrioEsquerdo = parseNumero(medidas["Atrio_esquerdo"]);
-    const aoNivelAp = parseNumero(medidas["Ao_nivel_AP"]);
-    const arteriaPulmonar = parseNumero(medidas["AP"]);
+    const aorta = echoLengthInMm(medidas, "Aorta");
+    const atrioEsquerdo = echoLengthInMm(medidas, "Atrio_esquerdo");
+    const aoNivelAp = echoLengthInMm(medidas, "Ao_nivel_AP");
+    const arteriaPulmonar = echoLengthInMm(medidas, "AP");
     const eDoppler = parseNumero(medidas["e_doppler"]);
     const aDoppler = parseNumero(medidas["a_doppler"]);
-    const divedMm = parseNumero(medidas["DIVEd"]);
+    const divedMm = echoLengthInMm(medidas, "DIVEd");
     const peso = parsePesoKg(paciente.peso);
 
     const aeAoCalculado =
@@ -512,25 +514,7 @@ export default function NovoLaudoPage() {
         ...atualizacoes,
       }));
     }
-  }, [
-    medidas["Aorta"],
-    medidas["Atrio_esquerdo"],
-    medidas["Ao_nivel_AP"],
-    medidas["AP"],
-    medidas["Onda_E"],
-    medidas["Onda_A"],
-    medidas["TRIV"],
-    medidas["e_doppler"],
-    medidas["a_doppler"],
-    medidas["DIVEd"],
-    medidas["DIVEd_2D"],
-    medidas["IM_Vmax"],
-    medidas["IT_Vmax"],
-    medidas["IA_Vmax"],
-    medidas["IP_Vmax"],
-    medidas["Remodelamento_AD"],
-    paciente.peso,
-  ]);
+  }, [medidas, paciente.peso]);
 
   const carregarClinicas = async () => {
     try {
@@ -787,7 +771,7 @@ export default function NovoLaudoPage() {
     
     if (dados.medidas) {
       const medidasFormatadas = mapearCamposMedidas(dados.medidas);
-      setMedidas((anteriores) => ({ ...anteriores, ...medidasFormatadas }));
+      setMedidas((anteriores) => mergeImportedEchoMeasurements(anteriores, medidasFormatadas));
     } else {
     }
 
@@ -934,7 +918,7 @@ export default function NovoLaudoPage() {
     skipped: string[];
   }) => {
     if (Object.keys(patch.measurements).length) {
-      setMedidas((previous) => ({ ...previous, ...patch.measurements }));
+      setMedidas((previous) => mergeImportedEchoMeasurements(previous, patch.measurements));
     }
     if (Object.keys(patch.fields).length) {
       setEcocardiogramaEstruturado((previous) => ({
@@ -1058,7 +1042,7 @@ export default function NovoLaudoPage() {
   };
 
   const handleMedidaChange = (key: string, value: string) => {
-    setMedidas(prev => ({ ...prev, [key]: value }));
+    setMedidas(prev => updateEchoMeasurement(prev, key, value));
   };
 
   return (
@@ -1527,6 +1511,10 @@ export default function NovoLaudoPage() {
 
                 {aba === "medidas" && (
                   <div className="space-y-6">
+                    <EchoUnitReview
+                      measurements={medidas}
+                      onConfirm={(key, unit) => handleMedidaChange(confirmedUnitKey(key), unit)}
+                    />
                     <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
                       <label className="block text-sm font-semibold text-gray-900">
                         Técnica do estudo do ventrículo esquerdo exibida no PDF
@@ -1554,7 +1542,7 @@ export default function NovoLaudoPage() {
                         <h4 className="font-semibold text-gray-900 text-sm">VE - Modo M</h4>
                         
                         <MedidaInput 
-                          label="DIVEd (mm - Diâmetro interno do VE em diástole)"
+                          label={echoLengthInputLabel("DIVEd (mm - Diâmetro interno do VE em diástole)", medidas, "DIVEd")}
                           value={medidas["DIVEd"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd", v)}
                         />
@@ -1566,27 +1554,27 @@ export default function NovoLaudoPage() {
                           reference="Ref.: 1.27-1.73"
                         />
                         <MedidaInput 
-                          label="SIVd (mm - Septo interventricular em diástole)"
+                          label={echoLengthInputLabel("SIVd (mm - Septo interventricular em diástole)", medidas, "SIVd")}
                           value={medidas["SIVd"] || ""}
                           onChange={(v) => handleMedidaChange("SIVd", v)}
                         />
                         <MedidaInput 
-                          label="PLVEd (mm - Parede livre do VE em diástole)"
+                          label={echoLengthInputLabel("PLVEd (mm - Parede livre do VE em diástole)", medidas, "PLVEd")}
                           value={medidas["PLVEd"] || ""}
                           onChange={(v) => handleMedidaChange("PLVEd", v)}
                         />
                         <MedidaInput 
-                          label="DIVÉs (mm - Diâmetro interno do VE em sístole)"
+                          label={echoLengthInputLabel("DIVÉs (mm - Diâmetro interno do VE em sístole)", medidas, "DIVES")}
                           value={medidas["DIVES"] || ""}
                           onChange={(v) => handleMedidaChange("DIVES", v)}
                         />
                         <MedidaInput 
-                          label="SIVs (mm - Septo interventricular em sístole)"
+                          label={echoLengthInputLabel("SIVs (mm - Septo interventricular em sístole)", medidas, "SIVs")}
                           value={medidas["SIVs"] || ""}
                           onChange={(v) => handleMedidaChange("SIVs", v)}
                         />
                         <MedidaInput 
-                          label="PLVÉs (mm - Parede livre do VE em sístole)"
+                          label={echoLengthInputLabel("PLVÉs (mm - Parede livre do VE em sístole)", medidas, "PLVES")}
                           value={medidas["PLVES"] || ""}
                           onChange={(v) => handleMedidaChange("PLVES", v)}
                         />
@@ -1627,12 +1615,12 @@ export default function NovoLaudoPage() {
                         <h4 className="font-semibold text-gray-900 text-sm">Átrio esquerdo/ Aorta</h4>
                         
                         <MedidaInput 
-                          label="Aorta (mm)"
+                          label={echoLengthInputLabel("Aorta (mm)", medidas, "Aorta")}
                           value={medidas["Aorta"] || ""}
                           onChange={(v) => handleMedidaChange("Aorta", v)}
                         />
                         <MedidaInput 
-                          label="Átrio esquerdo (mm)"
+                          label={echoLengthInputLabel("Átrio esquerdo (mm)", medidas, "Atrio_esquerdo")}
                           value={medidas["Atrio_esquerdo"] || ""}
                           onChange={(v) => handleMedidaChange("Atrio_esquerdo", v)}
                         />
@@ -1731,12 +1719,12 @@ export default function NovoLaudoPage() {
                         <h4 className="font-semibold text-gray-900 text-sm">Artéria pulmonar/ Aorta</h4>
                         
                         <MedidaInput 
-                          label="AP (mm - Artéria pulmonar)"
+                          label={echoLengthInputLabel("AP (mm - Artéria pulmonar)", medidas, "AP")}
                           value={medidas["AP"] || ""}
                           onChange={(v) => handleMedidaChange("AP", v)}
                         />
                         <MedidaInput 
-                          label="Ao (mm - Aorta - nível AP)"
+                          label={echoLengthInputLabel("Ao (mm - Aorta - nível AP)", medidas, "Ao_nivel_AP")}
                           value={medidas["Ao_nivel_AP"] || ""}
                           onChange={(v) => handleMedidaChange("Ao_nivel_AP", v)}
                         />
@@ -1832,7 +1820,7 @@ export default function NovoLaudoPage() {
                       <h4 className="mb-4 text-sm font-semibold text-gray-900">VE - Modo 2D</h4>
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         <MedidaInput
-                          label="DIVEd 2D (mm - Diâmetro interno do VE em diástole)"
+                          label={echoLengthInputLabel("DIVEd 2D (mm - Diâmetro interno do VE em diástole)", medidas, "DIVEd_2D")}
                           value={medidas["DIVEd_2D"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd_2D", v)}
                         />
@@ -1844,27 +1832,27 @@ export default function NovoLaudoPage() {
                           reference="Ref.: 1.27-1.73"
                         />
                         <MedidaInput
-                          label="SIVd 2D (mm)"
+                          label={echoLengthInputLabel("SIVd 2D (mm)", medidas, "SIVd_2D")}
                           value={medidas["SIVd_2D"] || ""}
                           onChange={(v) => handleMedidaChange("SIVd_2D", v)}
                         />
                         <MedidaInput
-                          label="PLVEd 2D (mm)"
+                          label={echoLengthInputLabel("PLVEd 2D (mm)", medidas, "PLVEd_2D")}
                           value={medidas["PLVEd_2D"] || ""}
                           onChange={(v) => handleMedidaChange("PLVEd_2D", v)}
                         />
                         <MedidaInput
-                          label="DIVEs 2D (mm)"
+                          label={echoLengthInputLabel("DIVEs 2D (mm)", medidas, "DIVES_2D")}
                           value={medidas["DIVES_2D"] || ""}
                           onChange={(v) => handleMedidaChange("DIVES_2D", v)}
                         />
                         <MedidaInput
-                          label="SIVs 2D (mm)"
+                          label={echoLengthInputLabel("SIVs 2D (mm)", medidas, "SIVs_2D")}
                           value={medidas["SIVs_2D"] || ""}
                           onChange={(v) => handleMedidaChange("SIVs_2D", v)}
                         />
                         <MedidaInput
-                          label="PLVEs 2D (mm)"
+                          label={echoLengthInputLabel("PLVEs 2D (mm)", medidas, "PLVES_2D")}
                           value={medidas["PLVES_2D"] || ""}
                           onChange={(v) => handleMedidaChange("PLVES_2D", v)}
                         />

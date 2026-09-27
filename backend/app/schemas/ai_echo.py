@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.utils.echo_unit_provenance import ECHO_LENGTH_KEYS, CONFIRMED_UNIT_PREFIX
 
 
 EchoFieldKey = Literal[
@@ -86,6 +87,24 @@ EchoMeasurementFieldKey = Literal[
 ]
 
 
+def _validate_measurement_context(value: dict[str, str]) -> dict[str, str]:
+    allowed = set(EchoMeasurementFieldKey.__args__)
+    confirmed_keys = {f"{CONFIRMED_UNIT_PREFIX}{key}" for key in ECHO_LENGTH_KEYS}
+    unknown = sorted(set(value).difference(allowed | confirmed_keys))
+    if unknown:
+        raise ValueError(f"Campos de medida desconhecidos: {', '.join(unknown)}")
+    normalized = {key: str(text or "").strip() for key, text in value.items()}
+    invalid_units = sorted(
+        key for key in normalized if key in confirmed_keys and normalized[key] not in {"cm", "mm"}
+    )
+    if invalid_units:
+        raise ValueError(f"Unidades de medida inválidas: {', '.join(invalid_units)}")
+    oversized = sorted(key for key, text in normalized.items() if len(text) > 80)
+    if oversized:
+        raise ValueError(f"Valores de medida muito longos: {', '.join(oversized)}")
+    return normalized
+
+
 class StrictSchema(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -143,15 +162,7 @@ class EchoStructureRequest(StrictSchema):
     @field_validator("current_measurements")
     @classmethod
     def validate_measurement_keys(cls, value: dict[str, str]) -> dict[str, str]:
-        allowed = set(EchoMeasurementFieldKey.__args__)
-        unknown = sorted(set(value).difference(allowed))
-        if unknown:
-            raise ValueError(f"Campos de medida desconhecidos: {', '.join(unknown)}")
-        normalized = {key: str(text or "").strip() for key, text in value.items()}
-        oversized = sorted(key for key, text in normalized.items() if len(text) > 80)
-        if oversized:
-            raise ValueError(f"Valores de medida muito longos: {', '.join(oversized)}")
-        return normalized
+        return _validate_measurement_context(value)
 
 
 class EchoApplyRequest(StrictSchema):
@@ -189,11 +200,7 @@ class EchoApplyRequest(StrictSchema):
     @field_validator("current_measurements")
     @classmethod
     def validate_measurement_keys(cls, value: dict[str, str]) -> dict[str, str]:
-        allowed = set(EchoMeasurementFieldKey.__args__)
-        unknown = sorted(set(value).difference(allowed))
-        if unknown:
-            raise ValueError(f"Campos de medida desconhecidos: {', '.join(unknown)}")
-        return {key: str(text or "") for key, text in value.items()}
+        return _validate_measurement_context(value)
 
 
 class EchoFeedbackRequest(StrictSchema):

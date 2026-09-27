@@ -46,6 +46,8 @@ from app.schemas.ai_echo import (
     EchoStructureRequest,
 )
 from app.services import ai_echo_providers, ai_echo_service
+from app.services.ai_echo_context import safe_measurement_context
+from app.utils.echo_unit_provenance import clinically_safe_echo_measurements
 from app.services.ai_echo_providers import AIEchoProviderError, StructuringResult
 from app.services.ai_echo_validation import (
     _NORMAL_FIELD_SUGGESTIONS,
@@ -85,6 +87,32 @@ def empty_output(**overrides):
 
 
 class AIEchoVoiceAssistantTest(unittest.TestCase):
+    def test_confirmed_units_are_safe_in_ai_context(self) -> None:
+        raw = {
+            "DIVEd": "2,5", "SIVd": "3", "DIVES": "1,5", "Atrio_esquerdo": "2,0",
+            "DIVEd_normalizado": "0,2", "unidade_confirmada_DIVEd": "cm",
+            "unidade_confirmada_SIVd": "mm",
+        }
+        validated = EchoStructureRequest.model_validate(
+            {"edited_transcript": "Medidas do exame.", "current_measurements": raw}
+        )
+        safe = clinically_safe_echo_measurements(validated.current_measurements)
+        self.assertEqual(safe["DIVEd"], "25.0")
+        self.assertEqual(safe["SIVd"], "3")
+        self.assertNotIn("DIVES", safe)
+        self.assertNotIn("Atrio_esquerdo", safe)
+        self.assertNotIn("DIVEd_normalizado", safe)
+        self.assertNotIn("unidade_confirmada_DIVEd", safe)
+        context = safe_measurement_context(raw)
+        self.assertEqual(context["DIVEd"]["unit"], "mm")
+        self.assertEqual(context["DIVEd"]["value"], "25.0")
+        self.assertNotIn("DIVES", context)
+        with self.assertRaises(ValidationError):
+            EchoStructureRequest.model_validate(
+                {"edited_transcript": "Medidas do exame.",
+                 "current_measurements": {"unidade_confirmada_DIVEd": "metros"}}
+            )
+
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
         db_path = Path(self.tmpdir.name) / "ai-echo.db"

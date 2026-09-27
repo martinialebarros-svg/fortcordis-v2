@@ -98,6 +98,24 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertNotIn("SIVd (Septo interventricular em diástole)\n30.00 mm", text)
         self.assertNotIn("DIVEd normalizado (DIVEd [cm] / peso^0,294)", text)
 
+    def test_confirmed_units_are_converted_individually_without_changing_raw_values(self) -> None:
+        measurements = {
+            "DIVEd": "2.5", "DIVES": "1.5", "Atrio_esquerdo": "2.0", "SIVd": "3.0",
+            "unidade_confirmada_DIVEd": "cm", "unidade_confirmada_SIVd": "mm",
+        }
+        self.assertEqual(measurements["DIVEd"], "2.5")
+        self.assertEqual(normalizar_medidas_para_pdf(measurements)["DIVEd"], "25.0")
+        self.assertEqual(normalizar_medidas_para_pdf(measurements)["SIVd"], "3.0")
+        self.assertEqual(medidas_com_unidade_ambigua(measurements), {"DIVES", "Atrio_esquerdo"})
+
+        payload = _base_report("modo_m")
+        payload["medidas"] = measurements
+        text = _pdf_text(payload)
+        self.assertIn("DIVEd (Diâmetro interno do VE em diástole)\n25.00 mm", text)
+        self.assertIn("SIVd (Septo interventricular em diástole)\n3.00 mm", text)
+        self.assertIn("DIVEs (Diâmetro interno do VE em sístole)\n1.50 (unidade a\nconfirmar)", text)
+        self.assertIn("DIVEd normalizado (DIVEd [cm] / peso^0,294)", text)
+
     def test_pdf_numbers_images_and_uses_only_recorded_captions(self) -> None:
         image_buffer = BytesIO()
         PILImage.new("RGB", (320, 240), "white").save(image_buffer, format="JPEG")

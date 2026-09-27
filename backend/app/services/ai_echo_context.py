@@ -11,6 +11,9 @@ from app.utils.referencia_eco_defaults import (
     aplicar_defaults_publicados_caninos,
     normalizar_especie_referencia,
 )
+from app.utils.echo_unit_provenance import (
+    clinically_safe_echo_measurements,
+)
 
 
 ECHO_MEASUREMENT_UNITS: dict[str, str] = {
@@ -273,7 +276,8 @@ def safe_measurement_context(
         if isinstance(reference_context, dict)
         else {}
     )
-    for key, value in (current_measurements or {}).items():
+    normalized_measurements = clinically_safe_echo_measurements(current_measurements or {})
+    for key, value in normalized_measurements.items():
         normalized = str(value or "").strip()
         if key not in ECHO_MEASUREMENT_UNITS:
             continue

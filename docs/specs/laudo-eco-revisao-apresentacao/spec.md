@@ -26,6 +26,11 @@
 - RF-022: a prévia identifica o cadastro de referência selecionado sem exibir a nota auxiliar sobre TAPSE, mantendo as faixas medidas nas tabelas.
 - RF-023: quando o laudo ecocardiográfico tem imagens e não tem anexo de pressão arterial, a assinatura acompanha o último grupo qualitativo na mesma página; a grade de imagens pode começar após esse conjunto e continua identificada em cada página.
 - RF-024: a análise qualitativa usa espaçamento compacto e legível para evitar uma página quase vazia contendo apenas o último grupo e a assinatura; se a narrativa ocupar outra página, a grade aproveita o espaço disponível após a assinatura sem quebrar compulsoriamente após cada conjunto de seis imagens.
+- RF-025: quando um conjunto de dimensões pode ter sido registrado em cm ou mm sem metadado, os formulários de novo laudo e edição exibem controles opcionais de confirmação por medida. Laudos com dimensões usuais em mm não mostram esses controles nem ganham etapa de salvamento.
+- RF-026: a confirmação explícita `cm` ou `mm` é persistida junto da medida no laudo; o número original permanece intacto. A prévia, a aba de referências e o PDF convertem apenas medidas confirmadas em cm para apresentação em mm e mantêm as demais ambíguas sem faixa automática.
+- RF-027: alterar uma medida no formulário ou substituí-la por nova importação remove a confirmação anterior dessa medida, inclusive quando o novo exame traz o mesmo número.
+- RF-028: DIVEd normalizado e as relações estruturais calculadas no formulário usam apenas dimensões com unidade conhecida; uma unidade não confirmada não produz novo valor derivado. A versão de cache do PDF eco avança para refletir a confirmação persistida.
+- RF-029: a assistência por voz aceita os metadados de confirmação, converte dimensões confirmadas em cm antes da interpretação e exclui dimensões incertas e valores normalizados que possam estar obsoletos.
 
 ## Requisitos não funcionais
 
@@ -53,6 +58,10 @@
 - CA-015: quando modo M e 2D têm DIVEd normalizado divergente, somente a técnica selecionada gera alerta na prévia, embora os dois cálculos permaneçam disponíveis para a apresentação adequada.
 - CA-016: em um conjunto legado misto sem unidade de origem, dimensões ambíguas conservam o número registrado e mostram unidade a confirmar; TAPSE, MAPSE e aorta já em mm mantêm seus valores na prévia e no PDF.
 - CA-025: em um conjunto legado com DIVEd 2,5, DIVES 1,5, átrio esquerdo 2,0 e SIVd já em mm 3,0, prévia e PDF não apresentam SIVd como 30 mm, nem calculam DIVEd normalizado com unidade incerta.
+- CA-026: no mesmo conjunto, confirmar somente DIVEd como cm e SIVd como mm apresenta 25 mm e 3 mm, calcula DIVEd normalizado pelo peso, preserva os números brutos e mantém DIVES/átrio esquerdo como unidade a confirmar.
+- CA-027: a confirmação sobrevive ao salvamento e leitura do laudo; mudar ou reimportar a medida retira a confirmação antiga, e metadados de unidade inválidos não são aceitos pelo parser.
+- CA-028: a aba de referências não compara dimensões ambíguas, mas compara dimensões explicitamente confirmadas após conversão quando necessário.
+- CA-029: um laudo normal em mm não apresenta controles de confirmação; o cache do PDF eco usa nova versão, sem alterar a versão das outras modalidades.
 - CA-017: ao selecionar modo 2D para o ventrículo esquerdo, TAPSE e MAPSE preenchidos continuam visíveis na prévia e no PDF, com valores e unidades preservados.
 - CA-018: a seleção de faixas ecocardiográficas usa apenas aliases explícitos de espécie. Espécies não reconhecidas, como `Cattle`, não recebem faixas felinas ou caninas na prévia, na consulta de referências ou no PDF; uma espécie sem cadastro mostra referência indisponível.
 - CA-019: após retirar a nota sobre TAPSE e traço, um PDF anteriormente guardado em cache não é reutilizado; a nova renderização conserva as medidas e as faixas de referência.

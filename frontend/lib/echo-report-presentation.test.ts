@@ -75,6 +75,23 @@ describe("prévia de ecocardiograma", () => {
     });
   });
 
+  it("aplica somente as unidades confirmadas e mantém o restante sem comparação", () => {
+    const raw = {
+      DIVEd: "2.5", DIVES: "1.5", Atrio_esquerdo: "2.0", SIVd: "3.0",
+      unidade_confirmada_DIVEd: "cm", unidade_confirmada_SIVd: "mm",
+    };
+    const reference = { id: 1, especie: "Canina", peso_kg: 10, lvid_d_min: 20, lvid_d_max: 40, ivs_d_min: 4, ivs_d_max: 10 } as ReferenciaEco;
+    const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(raw, 10);
+    expect(raw.DIVEd).toBe("2.5");
+    expect(measurements).toMatchObject({ DIVEd: "25", SIVd: "3.0", DIVEd_normalizado: "1.27" });
+    expect(ambiguousKeys).toEqual(new Set(["DIVES", "Atrio_esquerdo"]));
+    const groups = buildEchoReportGroups(measurements, reference, ambiguousKeys);
+    expect(groups[0].rows.find((row) => row.key === "DIVEd")).toMatchObject({ value: "25.00 mm", reference: "20.00–40.00 mm" });
+    expect(groups[0].rows.find((row) => row.key === "SIVd")).toMatchObject({ value: "3.00 mm", reference: "4.00–10.00 mm" });
+    expect(groups[0].rows.find((row) => row.key === "DIVES")).toMatchObject({ value: "1.50 (unidade a confirmar)", reference: "—" });
+    expect(groups.some((group) => group.title === "Outras medidas registradas")).toBe(false);
+  });
+
   it("usa apenas o modo selecionado e exibe faixa disponível da referência", () => {
     const reference = { id: 1, especie: "Canina", peso_kg: 10, lvid_d_min: 20, lvid_d_max: 40 } as ReferenciaEco;
     const groups = buildEchoReportGroups({ VE_tecnica_relatorio: "2d", DIVEd: "30", DIVEd_2D: "32", FE_Teicholz_2D: "57" }, reference);
