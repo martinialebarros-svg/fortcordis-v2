@@ -34,10 +34,12 @@ describe("prévia de ecocardiograma", () => {
     }]);
   });
 
-  it("converte comprimentos legados em cm somente quando o conjunto sustenta a conversão", () => {
-    const { measurements } = prepareEchoReportMeasurements({ DIVEd: "3", SIVd: "0.7", PLVEd: "0.8" }, 10);
-    expect(measurements.DIVEd).toBe("30");
-    expect(measurements.DIVEd_normalizado).toBe("1.52");
+  it("mantém medidas legadas sem unidade como ambíguas e não calcula DIVEd normalizado", () => {
+    const { measurements, ambiguousKeys } = prepareEchoReportMeasurements({ DIVEd: "3", SIVd: "0.7", PLVEd: "0.8" }, 10);
+    expect(measurements.DIVEd).toBe("3");
+    expect(measurements.DIVEd_normalizado).toBeUndefined();
+    expect(ambiguousKeys.has("SIVd")).toBe(true);
+    expect(prepareEchoReportMeasurements({ DIVEd: "3", SIVd: "0.7", PLVEd: "0.8", DIVEd_normalizado: "1.52" }, null).measurements.DIVEd_normalizado).toBeUndefined();
     expect(prepareEchoReportMeasurements({ DIVEd: "3", SIVd: "7", PLVEd: "8" }, 10).measurements.DIVEd).toBe("3");
   });
 
@@ -51,7 +53,7 @@ describe("prévia de ecocardiograma", () => {
     const { measurements } = prepareEchoReportMeasurements(raw, 10);
 
     expect(measurements).toMatchObject({
-      DIVEd: "30", SIVd: "7", PLVEd: "8",
+      DIVEd: "3", SIVd: "0.7", PLVEd: "0.8",
       Aorta: "13.1", TAPSE: "10", MAPSE: "8",
     });
     const groups = buildEchoReportGroups(measurements, null);
@@ -59,7 +61,18 @@ describe("prévia de ecocardiograma", () => {
     expect(annular?.rows.find((row) => row.key === "TAPSE")?.value).toBe("10.00 mm");
     expect(annular?.rows.find((row) => row.key === "MAPSE")?.value).toBe("8.00 mm");
     expect(groups.find((group) => group.title === "Átrio esquerdo / aorta")?.rows.find((row) => row.key === "Aorta")?.value).toBe("13.10 mm");
-    expect(prepareEchoReportMeasurements({ ...raw, Aorta: "1.3" }, 10).measurements.Aorta).toBe("13");
+    expect(prepareEchoReportMeasurements({ ...raw, Aorta: "1.3" }, 10).measurements.Aorta).toBe("1.3");
+  });
+
+  it("não multiplica SIVd de 3 mm em conjunto legado misto", () => {
+    const raw = { DIVEd: "2.5", DIVES: "1.5", Atrio_esquerdo: "2.0", SIVd: "3.0" };
+    const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(raw, 10);
+    const groups = buildEchoReportGroups(measurements, null, ambiguousKeys);
+    expect(measurements.SIVd).toBe("3.0");
+    expect(measurements.DIVEd_normalizado).toBeUndefined();
+    expect(groups[0].rows.find((row) => row.key === "SIVd")).toMatchObject({
+      value: "3.00 (unidade a confirmar)", reference: "—",
+    });
   });
 
   it("usa apenas o modo selecionado e exibe faixa disponível da referência", () => {

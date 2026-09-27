@@ -11,7 +11,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 os.chdir(BACKEND_DIR)
 sys.path.insert(0, str(BACKEND_DIR))
 
-from app.utils.pdf_laudo import gerar_pdf_laudo_eco, normalizar_medidas_para_pdf  # noqa: E402
+from app.utils.pdf_laudo import gerar_pdf_laudo_eco, normalizar_medidas_para_pdf, medidas_com_unidade_ambigua  # noqa: E402
 from app.utils.ecocardiograma_medidas import (  # noqa: E402
     extrair_medidas_ecocardiograma_da_descricao,
 )
@@ -71,12 +71,13 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
             "VE_tecnica_relatorio": "modo_m",
         }
         normalized = normalizar_medidas_para_pdf(legacy)
-        self.assertEqual(normalized["DIVEd"], 30)
-        self.assertEqual(normalized["SIVd"], 7)
+        self.assertEqual(normalized["DIVEd"], "3")
+        self.assertEqual(normalized["SIVd"], "0.7")
+        self.assertIn("SIVd", medidas_com_unidade_ambigua(legacy))
         self.assertEqual(normalized["Aorta"], "13.1")
         self.assertEqual(normalized["TAPSE"], "10")
         self.assertEqual(normalized["MAPSE"], "8")
-        self.assertEqual(normalizar_medidas_para_pdf({**legacy, "Aorta": "1.3"})["Aorta"], 13)
+        self.assertEqual(normalizar_medidas_para_pdf({**legacy, "Aorta": "1.3"})["Aorta"], "1.3")
 
         payload = _base_report("modo_m")
         payload["medidas"] = legacy
@@ -84,6 +85,18 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("TAPSE (excursão sistólica do plano anular tricúspide)\n10.00 mm", text)
         self.assertIn("MAPSE (excursão sistólica do plano anular mitral)\n8.00 mm", text)
         self.assertIn("Aorta\n13.10 mm", text)
+        self.assertIn("SIVd (Septo interventricular em diástole)\n0.70 (unidade a\nconfirmar)", text)
+
+    def test_ambiguous_septum_is_not_multiplied_or_compared_with_reference(self) -> None:
+        measurements = {"DIVEd": "2.5", "DIVES": "1.5", "Atrio_esquerdo": "2.0", "SIVd": "3.0"}
+        self.assertEqual(normalizar_medidas_para_pdf(measurements)["SIVd"], "3.0")
+        self.assertIn("SIVd", medidas_com_unidade_ambigua(measurements))
+        payload = _base_report("modo_m")
+        payload["medidas"] = measurements
+        text = _pdf_text(payload)
+        self.assertIn("SIVd (Septo interventricular em diástole)\n3.00 (unidade a\nconfirmar)", text)
+        self.assertNotIn("SIVd (Septo interventricular em diástole)\n30.00 mm", text)
+        self.assertNotIn("DIVEd normalizado (DIVEd [cm] / peso^0,294)", text)
 
     def test_pdf_numbers_images_and_uses_only_recorded_captions(self) -> None:
         image_buffer = BytesIO()
