@@ -39,6 +39,7 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 | CA-027 | Testes de parser e persistência da descrição, edição de medida, reimportação do mesmo número e unidade inválida; confirmação anterior é retirada quando o dado de origem muda. | ok local |
 | CA-028 | Testes da aba de referências e da apresentação: só dimensões com unidade conhecida participam da comparação, e cm confirmado é convertido antes dela. | ok local |
 | CA-029 | Testes do painel mostram ausência em conjunto usual de mm; versão do cache do PDF ecocardiográfico avançou para `2026-09-27-eco-unit-confirmation-v7`. | ok local |
+| CA-030 | Teste do componente com paciente de 10,8 kg e linha retornada de 11 kg confirma os dois rótulos distintos; ESLint e TypeScript passaram. | ok local |
 | NFR-001 | Revisão de fluxo: busca de referência apenas na visualização; configuração confirmada no salvamento somente quando há imagens | ok |
 | NFR-002 | Nenhuma escrita de medidas no helper; somente cópia para apresentação | ok |
 | NFR-003 | Inspeção do diff, testes focados e build | ok |
@@ -82,8 +83,10 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 
 ## Limite da evidência
 
-A regressão CA-023 foi fechada com dados sintéticos. A eficácia no laudo real de Mia somente poderá ser confirmada com um PDF emitido após a publicação da versão v5; o PDF anexado foi gerado na v4.
+A regressão CA-023 foi fechada com dados sintéticos e conferida no PDF real de Mia baixado em 27/09/2026, após a publicação da versão v5. O documento tem cinco páginas: análise quantitativa nas páginas 1–2, último grupo qualitativo com assinatura na página 3, e imagens 1–6 e 7–12 nas páginas 4–5. Essa conferência atesta a paginação, não a correção clínica das descrições.
 
-A correção conservadora de unidades mistas foi publicada em produção; a confirmação explícita por medida desta continuação está validada localmente e ainda requer teste em stage. PDF sintético de duas páginas com seis imagens renderizado na iteração anterior; ambas as páginas foram conferidas visualmente. O smoke do navegador anterior usou somente dados sintéticos e não mede a latência real da confirmação de imagem ao salvar. O cadastro de referências ainda não registra bibliografia por faixa, portanto o PDF informa a origem operacional sem atribuição bibliográfica específica.
+A confirmação explícita de unidades por medida foi testada com o laudo sintético persistido `/laudos/50` em stage: a prévia e o PDF do servidor mostraram DIVEd de 2,5 cm como 25 mm, SIVd de 3 mm como 3 mm, e DIVEs/átrio esquerdo sem unidade como valores a confirmar, sem faixas automáticas. A PR #253 promoveu a mudança para produção no commit `6f4cf33a`, com CI e deploy concluídos, arquivos de execução preservados/restaurados e smoke HTTP do domínio e API protegida. O teste sintético não mede a latência real de salvamento nem valida interpretação clínica de pacientes. O cadastro de referências ainda não registra bibliografia por faixa, portanto o PDF informa a origem operacional sem atribuição bibliográfica específica.
+
+No PDF de Mia, DIVEs de 12,04 mm está abaixo da faixa cadastrada de 15–27 mm e PLVEs de 17,36 mm acima de 8–15 mm, enquanto a narrativa chama as dimensões internas e espessuras parietais do VE de normais. Isso é uma possível discordância para revisão pelo veterinário; a faixa cadastrada não traz fonte/método suficientes para correção automática do texto. O novo rótulo da aba de referências está validado apenas localmente e não foi publicado.
 
 A conversão conservadora de dados legados evita multiplicar TAPSE e MAPSE por inferência de outras medidas. Valores antigos dessas duas medidas que tenham sido armazenados em cm sem indicação de unidade ainda exigem conferência do exame de origem; o sistema não tem metadado suficiente para identificá-los automaticamente.

@@ -20,6 +20,8 @@ const CATEGORIAS = {
   doppler: { label: "Doppler", icon: "〰️" },
 };
 
+const formatarPeso = (valor: number) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(valor);
+
 export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaComparisonProps) {
   const { buscarReferencia, compararMedidas, loading } = useReferenciaEco();
   const [referencia, setReferencia] = useState<any>(null);
@@ -150,10 +152,10 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
         <span className="text-lg">📊</span>
         <div>
           <p className="font-medium text-teal-900">
-            Referência: {referencia.especie || especie} - {peso}kg
+            Referência selecionada: {referencia.especie || especie}, cadastro de {formatarPeso(referencia.peso_kg)} kg
           </p>
           <p className="text-sm text-teal-700">
-            Valores de referência aplicados às medidas do paciente
+            Peso do paciente: {typeof peso === "number" ? formatarPeso(peso) : "—"} kg. Valores cadastrados usados para comparação das medidas.
           </p>
           {Object.keys(medidasDerivadasParaReferencia).length > 0 && (
             <p className="text-xs text-teal-700 mt-1">
