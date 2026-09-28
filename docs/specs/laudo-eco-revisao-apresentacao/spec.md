@@ -32,6 +32,7 @@
 - RF-028: DIVEd normalizado e as relações estruturais calculadas no formulário usam apenas dimensões com unidade conhecida; uma unidade não confirmada não produz novo valor derivado. A versão de cache do PDF eco avança para refletir a confirmação persistida.
 - RF-029: a assistência por voz aceita os metadados de confirmação, converte dimensões confirmadas em cm antes da interpretação e exclui dimensões incertas e valores normalizados que possam estar obsoletos.
 - RF-030: a aba de referências distingue o peso aferido do paciente do peso da linha de cadastro selecionada para comparação; o cabeçalho usa o peso retornado pela referência, como já fazem a prévia e o PDF.
+- RF-031: a aba de referências descreve cada resultado apenas como dentro, acima ou abaixo da faixa cadastrada; quando não há limites completos, informa que a faixa não está cadastrada. Os formulários de novo laudo e edição lembram que a adequação da faixa ao paciente e ao método deve ser conferida antes da interpretação.
 
 ## Requisitos não funcionais
 
@@ -64,6 +65,7 @@
 - CA-028: a aba de referências não compara dimensões ambíguas, mas compara dimensões explicitamente confirmadas após conversão quando necessário.
 - CA-029: um laudo normal em mm não apresenta controles de confirmação; o cache do PDF eco usa nova versão, sem alterar a versão das outras modalidades.
 - CA-030: com paciente de 10,8 kg e referência de Canina, 11 kg, a aba exibe ambos os pesos em seus papéis corretos, sem alterar os limites ou as medidas comparadas.
+- CA-031: medidas abaixo, dentro e acima de uma faixa completa mantêm seus resultados numéricos e status internos, mas os rótulos visíveis não afirmam normalidade ou expectativa clínica; faixa ausente não recebe classificação. Nenhuma medida, limite, conclusão ou PDF é alterado.
 - CA-017: ao selecionar modo 2D para o ventrículo esquerdo, TAPSE e MAPSE preenchidos continuam visíveis na prévia e no PDF, com valores e unidades preservados.
 - CA-018: a seleção de faixas ecocardiográficas usa apenas aliases explícitos de espécie. Espécies não reconhecidas, como `Cattle`, não recebem faixas felinas ou caninas na prévia, na consulta de referências ou no PDF; uma espécie sem cadastro mostra referência indisponível.
 - CA-019: após retirar a nota sobre TAPSE e traço, um PDF anteriormente guardado em cache não é reutilizado; a nova renderização conserva as medidas e as faixas de referência.

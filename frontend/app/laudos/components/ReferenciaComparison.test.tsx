@@ -15,5 +15,7 @@ describe("identificação da referência ecocardiográfica", () => {
 
     expect(await screen.findByText("Referência selecionada: Canina, cadastro de 11 kg")).toBeInTheDocument();
     expect(screen.getByText(/Peso do paciente: 10,8 kg/)).toBeInTheDocument();
+    expect(screen.getByText("Dentro da faixa")).toBeInTheDocument();
+    expect(screen.queryByText("Normal")).not.toBeInTheDocument();
   });
 });
