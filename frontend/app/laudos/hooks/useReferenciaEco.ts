@@ -119,7 +119,7 @@ export function compararMedidasComReferencia(
         referencia_min: refMin,
         referencia_max: refMax,
         status: "nao_avaliado",
-        interpretacao: "Sem referencia definida",
+        interpretacao: "Faixa não cadastrada",
         categoria: mapeamento.categoria,
       };
       return;
@@ -130,13 +130,13 @@ export function compararMedidasComReferencia(
 
     if (valorNumerico < refMin) {
       status = "diminuido";
-      interpretacao = `Abaixo do esperado (< ${refMin})`;
+      interpretacao = `Abaixo da faixa cadastrada (< ${refMin})`;
     } else if (valorNumerico > refMax) {
       status = "aumentado";
-      interpretacao = `Acima do esperado (> ${refMax})`;
+      interpretacao = `Acima da faixa cadastrada (> ${refMax})`;
     } else {
       status = "normal";
-      interpretacao = "Dentro da faixa normal";
+      interpretacao = "Dentro da faixa cadastrada";
     }
 
     comparacoes[key] = {

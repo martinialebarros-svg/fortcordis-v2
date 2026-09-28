@@ -202,7 +202,7 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
                     <div>
                       <p className="font-medium text-sm">{item.nome}</p>
                       <p className="text-xs text-gray-500">
-                        Ref: {faixaRef}
+                        Faixa cadastrada: {faixaRef}
                       </p>
                     </div>
                   </div>
@@ -224,15 +224,15 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
       <div className="flex gap-4 text-sm mt-4 p-3 bg-gray-50 rounded-lg">
         <div className="flex items-center gap-1">
           <CheckCircle className="w-4 h-4 text-green-500" />
-          <span>Normal</span>
+          <span>Dentro da faixa</span>
         </div>
         <div className="flex items-center gap-1">
           <ArrowUp className="w-4 h-4 text-red-500" />
-          <span>Aumentado</span>
+          <span>Acima da faixa</span>
         </div>
         <div className="flex items-center gap-1">
           <ArrowDown className="w-4 h-4 text-blue-500" />
-          <span>Diminuído</span>
+          <span>Abaixo da faixa</span>
         </div>
       </div>
     </div>

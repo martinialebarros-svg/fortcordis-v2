@@ -40,6 +40,7 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 | CA-028 | Testes da aba de referências e da apresentação: só dimensões com unidade conhecida participam da comparação, e cm confirmado é convertido antes dela. | ok local |
 | CA-029 | Testes do painel mostram ausência em conjunto usual de mm; versão do cache do PDF ecocardiográfico avançou para `2026-09-27-eco-unit-confirmation-v7`. | ok local |
 | CA-030 | Teste do componente com paciente de 10,8 kg e linha retornada de 11 kg confirma os dois rótulos distintos; ESLint e TypeScript passaram. | ok local |
+| CA-031 | Teste do comparador com medida abaixo, dentro, acima e sem faixa confirma linguagem descritiva e preservação dos status internos; teste do componente confere a legenda sem “Normal”. Notas dos dois formulários revisadas. | ok local |
 | NFR-001 | Revisão de fluxo: busca de referência apenas na visualização; configuração confirmada no salvamento somente quando há imagens | ok |
 | NFR-002 | Nenhuma escrita de medidas no helper; somente cópia para apresentação | ok |
 | NFR-003 | Inspeção do diff, testes focados e build | ok |
@@ -82,6 +83,8 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 - O modelo e a importação CSV das referências não registram fonte, método de aquisição nem população por faixa. Há seleção da linha de peso mais próxima sem limite máximo de distância. As faixas persistidas de MAPSE e dos demais parâmetros precisam de auditoria clínica de origem antes de receber atribuição bibliográfica ou regra nova.
 
 ## Limite da evidência
+
+A linguagem neutra de CA-031 é motivada pelas diretrizes da ASVCP para intervalos de referência (Friedrichs et al., 2012; DOI: 10.1111/vcp.12006) e pelo estudo de intervalos de predição ecocardiográficos em cães de Esser et al. (2020; DOI: 10.1111/jvim.15914), que descreve influência de peso e raça. Essas publicações não validam automaticamente as linhas atuais do cadastro FortCordis; o modelo ainda não registra a fonte, a população nem o método de cada faixa.
 
 A regressão CA-023 foi fechada com dados sintéticos e conferida no PDF real de Mia baixado em 27/09/2026, após a publicação da versão v5. O documento tem cinco páginas: análise quantitativa nas páginas 1–2, último grupo qualitativo com assinatura na página 3, e imagens 1–6 e 7–12 nas páginas 4–5. Essa conferência atesta a paginação, não a correção clínica das descrições.
 
