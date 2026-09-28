@@ -41,6 +41,18 @@ const referenciaCanina: ReferenciaEco = {
 };
 
 describe("compararMedidasComReferencia", () => {
+  it("descreve a posição numérica sem chamar a faixa cadastrada de normalidade clínica", () => {
+    const abaixo = compararMedidasComReferencia({ FE_Teicholz: "50" }, referenciaCanina).FE_Teicholz;
+    const dentro = compararMedidasComReferencia({ FE_Teicholz: "70" }, referenciaCanina).FE_Teicholz;
+    const acima = compararMedidasComReferencia({ FE_Teicholz: "90" }, referenciaCanina).FE_Teicholz;
+    const semFaixa = compararMedidasComReferencia({ SIVd: "8" }, referenciaCanina).SIVd;
+
+    expect(abaixo).toMatchObject({ status: "diminuido", interpretacao: "Abaixo da faixa cadastrada (< 55)" });
+    expect(dentro).toMatchObject({ status: "normal", interpretacao: "Dentro da faixa cadastrada" });
+    expect(acima).toMatchObject({ status: "aumentado", interpretacao: "Acima da faixa cadastrada (> 80)" });
+    expect(semFaixa).toMatchObject({ status: "nao_avaliado", interpretacao: "Faixa não cadastrada" });
+  });
+
   it("interpreta FE e encurtamento 2D calculados a partir das medidas do VE", () => {
     const medidas2D = {
       VDF_2D: "82",

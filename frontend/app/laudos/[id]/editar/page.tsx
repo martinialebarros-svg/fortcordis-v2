@@ -2414,9 +2414,8 @@ export default function EditarLaudoPage() {
 
                     <div className="p-4 bg-blue-50 rounded-lg">
                       <p className="text-sm text-blue-800">
-                        <strong>Nota:</strong> As tabelas de referência são usadas para comparar automaticamente
-                        as medidas do paciente com os valores normais. Clique em &quot;Editar Tabelas&quot; para gerenciar
-                        os valores de referência.
+                        <strong>Nota:</strong> A comparação é numérica com as faixas cadastradas. Confirme a adequação
+                        da faixa ao paciente e ao método de medida antes de interpretar. Use &quot;Editar Tabelas&quot; para gerenciar os limites.
                       </p>
                     </div>
 
