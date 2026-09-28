@@ -53,7 +53,7 @@ describe("compararMedidasComReferencia", () => {
     expect(semFaixa).toMatchObject({ status: "nao_avaliado", interpretacao: "Faixa não cadastrada" });
   });
 
-  it("interpreta FE e encurtamento 2D calculados a partir das medidas do VE", () => {
+  it("mantém FE, encurtamento e dimensões 2D visíveis sem aplicar faixas de Modo M", () => {
     const medidas2D = {
       VDF_2D: "82",
       VSF_2D: "47",
@@ -68,18 +68,14 @@ describe("compararMedidasComReferencia", () => {
       referenciaCanina
     );
 
-    expect(comparacoes.FE_Teicholz_2D).toMatchObject({
-      referencia_min: 55,
-      referencia_max: 80,
-      status: "diminuido",
-      categoria: "funcao",
-    });
-    expect(comparacoes.DeltaD_FS_2D).toMatchObject({
-      referencia_min: 28,
-      referencia_max: 42,
-      status: "diminuido",
-      categoria: "funcao",
-    });
+    for (const key of ["DIVEd_2D", "DIVES_2D", "VDF_2D", "VSF_2D", "FE_Teicholz_2D", "DeltaD_FS_2D"]) {
+      expect(comparacoes[key]).toMatchObject({
+        referencia_min: null,
+        referencia_max: null,
+        status: "nao_avaliado",
+        interpretacao: "Faixa não cadastrada",
+      });
+    }
   });
 
   it("preserva FE e encurtamento 2D informados pelo equipamento", () => {

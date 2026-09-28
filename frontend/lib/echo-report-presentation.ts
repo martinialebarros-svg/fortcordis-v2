@@ -25,6 +25,7 @@ const mode2D: Parameter[] = mMode.map((item) => ({
   ...item,
   key: `${item.key}_2D`,
   label: `${item.label} · 2D`,
+  reference: undefined,
 }));
 const annularExcursion: Parameter[] = [
   parameter("TAPSE", "TAPSE · excursão anular tricúspide", "mm", "tapse"),

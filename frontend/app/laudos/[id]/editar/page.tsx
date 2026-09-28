@@ -1697,7 +1697,9 @@ export default function EditarLaudoPage() {
                           value={medidas["DIVEd_normalizado"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd_normalizado", v)}
                           readOnly
-                          reference="Ref.: 1.27-1.73"
+                          reference={pacienteForm.especie === "Canina" && (parsePesoKg(pacienteForm.peso) ?? 0) >= 2.2 && (parsePesoKg(pacienteForm.peso) ?? 0) <= 95
+                            ? "Cornell 2004 (amostra de cães adultos, Modo M): 1,27–1,85"
+                            : "Faixa aplicável não cadastrada"}
                         />
                         <MedidaInput
                           label={echoLengthInputLabel("SIVd (mm - Septo interventricular em diástole)", medidas, "SIVd")}
@@ -1975,7 +1977,7 @@ export default function EditarLaudoPage() {
                           value={medidas["DIVEd_normalizado_2D"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd_normalizado_2D", v)}
                           readOnly
-                          reference="Ref.: 1.27-1.73"
+                          reference="Faixa 2D não cadastrada"
                         />
                         <MedidaInput
                           label={echoLengthInputLabel("SIVd 2D (mm)", medidas, "SIVd_2D")}

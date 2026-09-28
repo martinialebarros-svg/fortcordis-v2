@@ -92,12 +92,12 @@ describe("prévia de ecocardiograma", () => {
     expect(groups.some((group) => group.title === "Outras medidas registradas")).toBe(false);
   });
 
-  it("usa apenas o modo selecionado e exibe faixa disponível da referência", () => {
+  it("usa apenas o modo selecionado sem atribuir a faixa Modo M à medida 2D", () => {
     const reference = { id: 1, especie: "Canina", peso_kg: 10, lvid_d_min: 20, lvid_d_max: 40 } as ReferenciaEco;
     const groups = buildEchoReportGroups({ VE_tecnica_relatorio: "2d", DIVEd: "30", DIVEd_2D: "32", FE_Teicholz_2D: "57" }, reference);
     expect(groups[0].title).toContain("2D");
     expect(groups[0].rows.map((row) => row.key)).toEqual(["DIVEd_2D", "FE_Teicholz_2D"]);
-    expect(groups[0].rows[0]).toMatchObject({ value: "32.00 mm", reference: "20.00–40.00 mm" });
+    expect(groups[0].rows[0]).toMatchObject({ value: "32.00 mm", reference: "—" });
     expect(groups[0].rows[1].reference).toBe("—");
   });
 

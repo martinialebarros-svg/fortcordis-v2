@@ -321,6 +321,22 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertNotIn("TAPSE pode usar faixa auxiliar por peso do sistema", text)
         self.assertNotIn("Traço indica faixa indisponível", text)
 
+    def test_pdf_does_not_apply_m_mode_ranges_to_2d(self) -> None:
+        payload = _base_report("2d")
+        payload["medidas"] = {
+            "VE_tecnica_relatorio": "2d", "DIVEd_2D": "32", "FE_Teicholz_2D": "57",
+        }
+        payload["referencia_eco"] = {
+            "especie": "Canina", "peso_kg": 10,
+            "lvid_d_min": 20, "lvid_d_max": 40,
+            "ef_min": 50, "ef_max": 85,
+        }
+        text = _pdf_text(payload)
+        self.assertIn("DIVEd 2D (Diâmetro interno do VE em diástole)\n32.00 mm\n--", text)
+        self.assertIn("FE 2D (Teicholz)\n57.00 %\n--", text)
+        self.assertNotIn("20.00 - 40.00 mm", text)
+        self.assertNotIn("50.00 - 85.00 %", text)
+
     def test_pdf_keeps_measured_mapse_without_unsupported_auxiliary_range(self) -> None:
         payload = _base_report("modo_m")
         payload["medidas"] = {
