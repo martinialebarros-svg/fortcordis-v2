@@ -56,6 +56,7 @@ from app.services.ai_echo_validation import (
     validate_and_enrich_clinical_output,
 )
 from app.utils.paciente_helpers import extrair_idade_paciente
+from app.utils.echo_unit_provenance import clinically_safe_echo_measurements
 
 logger = logging.getLogger(__name__)
 
@@ -605,6 +606,7 @@ def _process_structure(
     session_id: str,
     current_measurements: dict[str, str] | None = None,
 ) -> None:
+    current_measurements = clinically_safe_echo_measurements(current_measurements or {})
     db = SessionLocal()
     started = _utcnow()
     processing_step = "structuring_load"

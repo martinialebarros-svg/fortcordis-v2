@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveAutomaticEchoMeasurements } from "./echo-derived-measurements";
+import { deriveAutomaticEchoMeasurements, parseStoredEchoMeasurements } from "./echo-derived-measurements";
 
 describe("deriveAutomaticEchoMeasurements", () => {
   it("calcula E/A, E/TRIV e E/e' automaticamente a partir das medidas de origem", () => {
@@ -34,5 +34,15 @@ describe("deriveAutomaticEchoMeasurements", () => {
     expect(automaticas).not.toHaveProperty("E_A");
     expect(automaticas).not.toHaveProperty("E_TRIV");
     expect(automaticas).not.toHaveProperty("E_E_linha");
+  });
+
+  it("lê unidade confirmada e calcula DIVEd normalizado somente com unidade conhecida", () => {
+    const description = "## Medidas Ecocardiograficas\n- DIVEd: 2.5\n- SIVd: 3.0\n- PLVEd: 0.8\n- unidade_confirmada_DIVEd: cm\n- unidade_confirmada_SIVd: mm\n\n## Avaliacao Qualitativa";
+    const parsed = parseStoredEchoMeasurements(null, description);
+    expect(parsed.unidade_confirmada_DIVEd).toBe("cm");
+    expect(parsed.unidade_confirmada_SIVd).toBe("mm");
+    expect(deriveAutomaticEchoMeasurements(parsed, 10).DIVEd_normalizado).toBe("1.27");
+    expect(deriveAutomaticEchoMeasurements({ DIVEd: "2.5", SIVd: "3.0", PLVEd: "0.8" }, 10).DIVEd_normalizado).toBe("");
+    expect(parseStoredEchoMeasurements(null, description.replace("cm", "metros"))).not.toHaveProperty("unidade_confirmada_DIVEd");
   });
 });

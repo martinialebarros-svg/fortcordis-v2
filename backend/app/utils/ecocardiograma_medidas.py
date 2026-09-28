@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from app.utils.echo_unit_provenance import ECHO_LENGTH_KEYS, CONFIRMED_UNIT_PREFIX
 
 
 LV_M_MODE_KEYS = {
@@ -104,6 +105,13 @@ def extrair_medidas_ecocardiograma_da_descricao(
             normalized = raw_value.lower()
             if normalized in {"ausente", "leve", "moderado", "importante"}:
                 measurements[key] = normalized
+            continue
+
+        if key.startswith(CONFIRMED_UNIT_PREFIX):
+            measurement_key = key[len(CONFIRMED_UNIT_PREFIX):]
+            unit = raw_value.lower()
+            if measurement_key in ECHO_LENGTH_KEYS and unit in {"cm", "mm"}:
+                measurements[key] = unit
             continue
 
         if _NUMERIC_VALUE_PATTERN.fullmatch(raw_value):

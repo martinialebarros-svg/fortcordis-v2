@@ -5,6 +5,7 @@ import { CheckCircle, AlertCircle, AlertTriangle, ArrowUp, ArrowDown, Minus } fr
 import { useReferenciaEco } from "../hooks/useReferenciaEco";
 import { ComparacaoMedida } from "../types/referencia-eco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
+import { prepareEchoReportMeasurements } from "@/lib/echo-report-presentation";
 
 interface ReferenciaComparisonProps {
   especie?: "Canina" | "Felina" | string;
@@ -23,13 +24,21 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
   const { buscarReferencia, compararMedidas, loading } = useReferenciaEco();
   const [referencia, setReferencia] = useState<any>(null);
   const [comparacoes, setComparacoes] = useState<Record<string, ComparacaoMedida>>({});
+  const medidasSeguras = useMemo(
+    () => {
+      const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(medidas, peso);
+      for (const key of ambiguousKeys) delete measurements[key];
+      return measurements;
+    },
+    [medidas, peso]
+  );
   const medidasDerivadasParaReferencia = useMemo(
-    () => deriveLeftVentricularFunctionForReference(medidas),
-    [medidas]
+    () => deriveLeftVentricularFunctionForReference(medidasSeguras),
+    [medidasSeguras]
   );
   const medidasParaReferencia = useMemo(
-    () => ({ ...medidas, ...medidasDerivadasParaReferencia }),
-    [medidas, medidasDerivadasParaReferencia]
+    () => ({ ...medidasSeguras, ...medidasDerivadasParaReferencia }),
+    [medidasSeguras, medidasDerivadasParaReferencia]
   );
 
   useEffect(() => {
