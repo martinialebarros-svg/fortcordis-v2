@@ -257,6 +257,10 @@ confirma que o `try/catch` de persistência não alimenta mais
 
 ## Decisão de release
 
+### Atualização de dependência em 28/09/2026
+
+O quality-gate de stage do commit `61169dec` parou em `npm audit --omit=dev`: Multer 2.3.0 entrou na faixa vulnerável de GHSA-3pph-fpjx-jg34, cuja correção oficial é 2.4.0. `package.json` e lockfile passam a resolver 2.4.0. O fluxo de anexos e o limite de 8 MB não mudam. `npm ci --ignore-scripts`, `npm audit --omit=dev` (zero vulnerabilidades), `npm run test:message-attachment` e `npx tsc --noEmit -p .` passaram localmente. O novo deploy de stage ainda precisa de verificação.
+
 - [x] Aprovado para produção — confirmado pelo usuário com um PDF real
   após o ajuste de `client_max_body_size` no Nginx (Adendo 3).
 - [ ] Aprovado para stage.

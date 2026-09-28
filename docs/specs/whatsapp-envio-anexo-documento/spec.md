@@ -75,6 +75,7 @@ partir do texto digitado no composer.
   `status: "failed"` — um anexo cujo envio falhou nunca teve o
   `media_id` persistido, então o botão "Baixar documento" sempre
   resultaria em 404 se exibido.
+- RF-017: o backend de anexos usa Multer 2.4.0 ou superior para corrigir a falha de limpeza de arquivos em uploads interrompidos (GHSA-3pph-fpjx-jg34), preservando o limite de 8 MB e os contratos de envio existentes.
 
 ## Requisitos não funcionais (NFR)
 
