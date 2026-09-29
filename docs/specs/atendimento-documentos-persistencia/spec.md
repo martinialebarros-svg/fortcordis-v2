@@ -30,6 +30,10 @@ Abas antigas que nao enviem versao recebem 428 e devem recarregar; backend e fro
 4. Horario de emissao e exibido em Fortaleza e nao substituido pelo horario de edicao.
 5. Auditoria permite reconstruir operacoes futuras e falhas nao deixam escrita sem auditoria.
 
+## Gate automatizado
+
+Os workflows de stage e producao instalam `backend/requirements-test.txt` alem das dependencias de runtime. A suite unittest existente permanece obrigatoria. As regressoes pytest de documentos sao executadas explicitamente, incluindo as duas disputas simultaneas em PostgreSQL 16 descartavel no runner, banco `document_test` e schemas isolados. Nenhum banco remoto participa desses testes.
+
 ## Limites e rollback
 
 Nao restaurar o documento real investigado nem reemitir o parecer da paciente nesta etapa. Conteudo clinico preservado fora do repositorio. Nenhum envio externo.
