@@ -28,7 +28,7 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   // === VOLUMES E FUNÇÃO ===
   VDF: { campo: "edv", nome: "VDF (Volume diastólico final)", categoria: "funcao" },
   VSF: { campo: "esv", nome: "VSF (Volume sistólico final)", categoria: "funcao" },
-  FE_Teicholz: { campo: "ef", nome: "FE (Fração de ejeção - Teicholz)", categoria: "funcao" },
+  FE_Teicholz: { campo: "", nome: "FE (Fração de ejeção - Teicholz)", categoria: "funcao" },
   DeltaD_FS: { campo: "fs", nome: "Delta D / %FS (Encurtamento)", categoria: "funcao" },
   VDF_2D: { campo: "", nome: "VDF 2D (Volume diastólico final)", categoria: "funcao" },
   VSF_2D: { campo: "", nome: "VSF 2D (Volume sistólico final)", categoria: "funcao" },
@@ -67,8 +67,8 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   IVSs: { campo: "ivs_s", nome: "SIVs (Septo interventricular sístole)", categoria: "estrutural" },
   LVPWd: { campo: "lvpw_d", nome: "PLVEd (Parede livre VE diástole)", categoria: "estrutural" },
   LVPWs: { campo: "lvpw_s", nome: "PLVÉs (Parede livre VE sístole)", categoria: "estrutural" },
-  FS: { campo: "fs", nome: "Delta D / %FS (Encurtamento)", categoria: "funcao" },
-  EF: { campo: "ef", nome: "FE (Fração de ejeção)", categoria: "funcao" },
+  FS: { campo: "", nome: "Delta D / %FS (método não identificado)", categoria: "funcao" },
+  EF: { campo: "", nome: "FE (método não identificado)", categoria: "funcao" },
   EDV: { campo: "edv", nome: "VDF (Volume diastólico final)", categoria: "funcao" },
   ESV: { campo: "esv", nome: "VSF (Volume sistólico final)", categoria: "funcao" },
   SV: { campo: "sv", nome: "SV (Volume sistólico)", categoria: "funcao" },
@@ -102,8 +102,9 @@ export function compararMedidasComReferencia(
     const minKey = `${mapeamento.campo}_min` as keyof ReferenciaEco;
     const maxKey = `${mapeamento.campo}_max` as keyof ReferenciaEco;
 
-    const refMinRaw = mapeamento.campo ? referencia[minKey] as number | null | undefined : null;
-    const refMaxRaw = mapeamento.campo ? referencia[maxKey] as number | null | undefined : null;
+    const podeComparar = mapeamento.campo !== "fs" || Boolean(referencia.fs_source);
+    const refMinRaw = mapeamento.campo && podeComparar ? referencia[minKey] as number | null | undefined : null;
+    const refMaxRaw = mapeamento.campo && podeComparar ? referencia[maxKey] as number | null | undefined : null;
     let refMin = typeof refMinRaw === "number" ? refMinRaw : null;
     let refMax = typeof refMaxRaw === "number" ? refMaxRaw : null;
     if (key === "e_doppler" || key === "a_doppler") {
@@ -291,10 +292,8 @@ export const mapeamentoParametros: Record<string, string> = {
   "PLVES": "lvpw_s",
   "VDF": "edv",
   "VSF": "esv",
-  "FE_Teicholz": "ef",
+  // FE Teichholz e medidas 2D não têm intervalo validado no cadastro.
   "DeltaD_FS": "fs",
-  "FE_Teicholz_2D": "ef",
-  "DeltaD_FS_2D": "fs",
   "Aorta": "ao",
   "Atrio_esquerdo": "la",
   "AE_Ao": "la_ao",
@@ -312,8 +311,6 @@ export const mapeamentoParametros: Record<string, string> = {
   "IVSs": "ivs_s",
   "LVPWd": "lvpw_d",
   "LVPWs": "lvpw_s",
-  "FS": "fs",
-  "EF": "ef",
   "Ao": "ao",
   "LA": "la",
   "LA_Ao": "la_ao",

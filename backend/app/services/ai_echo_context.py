@@ -158,20 +158,9 @@ REFERENCE_FIELD_MAP: dict[str, tuple[str, str, str]] = {
     "SIVs": ("ivs_s_min", "ivs_s_max", "mm"),
     "PLVEd": ("lvpw_d_min", "lvpw_d_max", "mm"),
     "PLVES": ("lvpw_s_min", "lvpw_s_max", "mm"),
-    "DIVEd_2D": ("lvid_d_min", "lvid_d_max", "mm"),
-    "DIVES_2D": ("lvid_s_min", "lvid_s_max", "mm"),
-    "SIVd_2D": ("ivs_d_min", "ivs_d_max", "mm"),
-    "SIVs_2D": ("ivs_s_min", "ivs_s_max", "mm"),
-    "PLVEd_2D": ("lvpw_d_min", "lvpw_d_max", "mm"),
-    "PLVES_2D": ("lvpw_s_min", "lvpw_s_max", "mm"),
     "VDF": ("edv_min", "edv_max", "mL"),
-    "VDF_2D": ("edv_min", "edv_max", "mL"),
     "VSF": ("esv_min", "esv_max", "mL"),
-    "VSF_2D": ("esv_min", "esv_max", "mL"),
-    "FE_Teicholz": ("ef_min", "ef_max", "%"),
-    "FE_Teicholz_2D": ("ef_min", "ef_max", "%"),
     "DeltaD_FS": ("fs_min", "fs_max", "%"),
-    "DeltaD_FS_2D": ("fs_min", "fs_max", "%"),
     "TAPSE": ("tapse_min", "tapse_max", "mm"),
     "MAPSE": ("mapse_min", "mapse_max", "mm"),
     "Aorta": ("ao_min", "ao_max", "mm"),
@@ -254,6 +243,8 @@ def load_echo_reference_context(
             "max": maximum,
             "unit": unit,
         }
+        if measurement_key == "DeltaD_FS" and resolved_reference.get("fs_source"):
+            ranges[measurement_key]["source"] = resolved_reference["fs_source"]
 
     return {
         "source": "tabela_de_referencia_carregada",

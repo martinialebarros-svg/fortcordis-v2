@@ -101,6 +101,17 @@ describe("prévia de ecocardiograma", () => {
     expect(groups[0].rows[1].reference).toBe("—");
   });
 
+  it("mostra FS de modo M com fonte e FE Teichholz sem faixa", () => {
+    const reference = {
+      id: 1, especie: "Canina", peso_kg: 10,
+      fs_min: 20.7, fs_max: 51.9, fs_source: "Visser et al. 2019",
+      ef_min: 50, ef_max: 85,
+    } as ReferenciaEco;
+    const rows = buildEchoReportGroups({ DeltaD_FS: "30", FE_Teicholz: "70" }, reference)[0].rows;
+    expect(rows.find((row) => row.key === "DeltaD_FS")?.reference).toBe("20.70–51.90 %");
+    expect(rows.find((row) => row.key === "FE_Teicholz")?.reference).toBe("—");
+  });
+
   it("mantém TAPSE e MAPSE quando o VE é exibido em modo 2D", () => {
     const groups = buildEchoReportGroups({
       VE_tecnica_relatorio: "2d",

@@ -38,19 +38,29 @@ const referenciaCanina: ReferenciaEco = {
   ef_max: 80,
   fs_min: 28,
   fs_max: 42,
+  fs_source: "Visser et al. 2019; modo M",
 };
 
 describe("compararMedidasComReferencia", () => {
   it("descreve a posição numérica sem chamar a faixa cadastrada de normalidade clínica", () => {
-    const abaixo = compararMedidasComReferencia({ FE_Teicholz: "50" }, referenciaCanina).FE_Teicholz;
-    const dentro = compararMedidasComReferencia({ FE_Teicholz: "70" }, referenciaCanina).FE_Teicholz;
-    const acima = compararMedidasComReferencia({ FE_Teicholz: "90" }, referenciaCanina).FE_Teicholz;
+    const abaixo = compararMedidasComReferencia({ DeltaD_FS: "25" }, referenciaCanina).DeltaD_FS;
+    const dentro = compararMedidasComReferencia({ DeltaD_FS: "35" }, referenciaCanina).DeltaD_FS;
+    const acima = compararMedidasComReferencia({ DeltaD_FS: "50" }, referenciaCanina).DeltaD_FS;
     const semFaixa = compararMedidasComReferencia({ SIVd: "8" }, referenciaCanina).SIVd;
 
-    expect(abaixo).toMatchObject({ status: "diminuido", interpretacao: "Abaixo da faixa cadastrada (< 55)" });
+    expect(abaixo).toMatchObject({ status: "diminuido", interpretacao: "Abaixo da faixa cadastrada (< 28)" });
     expect(dentro).toMatchObject({ status: "normal", interpretacao: "Dentro da faixa cadastrada" });
-    expect(acima).toMatchObject({ status: "aumentado", interpretacao: "Acima da faixa cadastrada (> 80)" });
+    expect(acima).toMatchObject({ status: "aumentado", interpretacao: "Acima da faixa cadastrada (> 42)" });
     expect(semFaixa).toMatchObject({ status: "nao_avaliado", interpretacao: "Faixa não cadastrada" });
+  });
+
+  it("não classifica FE Teichholz nem FS sem fonte compatível", () => {
+    const comparison = compararMedidasComReferencia(
+      { FE_Teicholz: "40", DeltaD_FS: "20" },
+      { ...referenciaCanina, fs_source: undefined },
+    );
+    expect(comparison.FE_Teicholz.status).toBe("nao_avaliado");
+    expect(comparison.DeltaD_FS.status).toBe("nao_avaliado");
   });
 
   it("mantém FE, encurtamento e dimensões 2D visíveis sem aplicar faixas de Modo M", () => {
