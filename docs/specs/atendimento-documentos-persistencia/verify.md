@@ -54,3 +54,11 @@ Servicos locais de teste e PostgreSQL descartavel encerrados. Worktree preservad
 ## Preparacao de PR
 
 A base remota stage `db028844f3dcdd63ef54cb16fc5c0d09a809c791` possui a mesma arvore de arquivos da base validada `19134e1e`. O PR mantem apenas a correcao e a SDD; cronologia detalhada e identificadores do caso ficam locais porque o repositorio e publico.
+
+## Integracao do gate de deploy
+
+O PR #264 foi integrado em stage no SHA `aaae16b8a771b2a234092c89fa92a41ec1716352`. O workflow `36638283650` bloqueou o deploy antes de acessar o VPS: a descoberta unittest importou os dois modulos pytest, mas o runner instalava somente requirements de runtime. Foram 1471 testes descobertos, dois erros de importacao por dependencia ausente. Frontend CI e Migration CI passaram.
+
+Correcao do gate: dependencia pytest fixada em requirements de teste; execucao explicita das regressoes de persistencia e concorrencia PostgreSQL, alem da suite unittest. Aplicada aos dois workflows para manter a futura promocao compativel; isso nao executa nem autoriza publicacao em producao.
+
+Validacao da correcao do gate: suite unittest completa aprovada (1469 testes, 7 skips); 7 regressoes pytest aprovadas, incluindo PostgreSQL 16 local descartavel. YAML dos dois workflows e diff check aprovados.
