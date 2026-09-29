@@ -17,6 +17,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "atendimento-documentos-auditoria-test-secret-key-1234567890")
 
+from app.models.auditoria_evento import AuditoriaEvento
 from app.models.atendimento_clinico import AtendimentoClinico, DocumentoAtendimento
 from app.schemas.atendimento import DocumentoAtendimentoUpdatePayload
 from app.services.atendimento import document_crud_service
@@ -33,7 +34,7 @@ class AtendimentoDocumentosAuditoriaTest(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         db_path = Path(self.tmpdir.name) / "atendimento-documentos-auditoria.db"
         self.engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
-        for table in (AtendimentoClinico.__table__, DocumentoAtendimento.__table__):
+        for table in (AtendimentoClinico.__table__, DocumentoAtendimento.__table__, AuditoriaEvento.__table__):
             table.create(self.engine, checkfirst=True)
         self.db = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)()
         self.user = SimpleNamespace(id=17, nome="Dra. Teste")
@@ -63,19 +64,19 @@ class AtendimentoDocumentosAuditoriaTest(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def test_atualizar_documento_com_mudanca_gera_auditoria_com_antes_e_depois(self) -> None:
-        with patch.object(document_crud_service, "registrar_auditoria") as auditoria_mock:
+        with patch.object(document_crud_service, "auditar_documento") as auditoria_mock:
             document_crud_service.atualizar_documento_atendimento(
                 self.db,
                 self.atendimento,
                 self.atendimento.id,
                 self.documento.id,
-                DocumentoAtendimentoUpdatePayload(corpo="Recomendo 3 dias de repouso."),
+                DocumentoAtendimentoUpdatePayload(versao=document_crud_service.versao_documento(self.documento), corpo="Recomendo 3 dias de repouso."),
                 current_user=self.user,
             )
 
         auditoria_mock.assert_called_once()
         kwargs = auditoria_mock.call_args.kwargs
-        self.assertEqual(kwargs["acao"], "DOCUMENTO_ATENDIMENTO_ATUALIZADO")
+        self.assertEqual(auditoria_mock.call_args.args[2], "DOCUMENTO_ATENDIMENTO_ATUALIZADO")
         self.assertEqual(kwargs["current_user"], self.user)
         alteracoes = kwargs["detalhes"]["alteracoes"]
         self.assertEqual(alteracoes["corpo"]["antes"], "Recomendo 10 dias de repouso.")
@@ -83,37 +84,36 @@ class AtendimentoDocumentosAuditoriaTest(unittest.TestCase):
         self.assertNotIn("titulo", alteracoes)
 
     def test_atualizar_documento_sem_mudanca_nao_gera_auditoria(self) -> None:
-        with patch.object(document_crud_service, "registrar_auditoria") as auditoria_mock:
+        with patch.object(document_crud_service, "auditar_documento") as auditoria_mock:
             document_crud_service.atualizar_documento_atendimento(
                 self.db,
                 self.atendimento,
                 self.atendimento.id,
                 self.documento.id,
-                DocumentoAtendimentoUpdatePayload(corpo="Recomendo 10 dias de repouso."),
+                DocumentoAtendimentoUpdatePayload(versao=document_crud_service.versao_documento(self.documento), corpo="Recomendo 10 dias de repouso."),
                 current_user=self.user,
             )
         auditoria_mock.assert_not_called()
 
     def test_excluir_documento_e_auditado_com_conteudo_e_responsavel(self) -> None:
         documento_id = self.documento.id
-        with patch.object(document_crud_service, "registrar_auditoria") as auditoria_mock:
+        with patch.object(document_crud_service, "auditar_documento") as auditoria_mock:
             resposta = document_crud_service.excluir_documento_atendimento(
-                self.db, self.atendimento.id, documento_id, current_user=self.user
+                self.db, self.atendimento.id, documento_id, current_user=self.user,
+                versao=document_crud_service.versao_documento(self.documento)
             )
 
         self.assertEqual(resposta["id"], documento_id)
-        self.assertIsNone(
-            self.db.query(DocumentoAtendimento).filter_by(id=documento_id).first()
-        )
+        self.assertEqual(self.db.get(DocumentoAtendimento, documento_id).status, "arquivado")
 
         auditoria_mock.assert_called_once()
         kwargs = auditoria_mock.call_args.kwargs
-        self.assertEqual(kwargs["acao"], "DOCUMENTO_ATENDIMENTO_EXCLUIDO")
+        self.assertEqual(auditoria_mock.call_args.args[2], "DOCUMENTO_ATENDIMENTO_ARQUIVADO")
         self.assertEqual(kwargs["current_user"], self.user)
-        self.assertEqual(kwargs["entidade_id"], documento_id)
-        self.assertEqual(kwargs["detalhes"]["conteudo_excluido"]["titulo"], "Atestado de repouso")
+        self.assertEqual(auditoria_mock.call_args.args[1].id, documento_id)
+        self.assertEqual(kwargs["detalhes"]["conteudo_preservado"]["titulo"], "Atestado de repouso")
         self.assertEqual(
-            kwargs["detalhes"]["conteudo_excluido"]["corpo"], "Recomendo 10 dias de repouso."
+            kwargs["detalhes"]["conteudo_preservado"]["corpo"], "Recomendo 10 dias de repouso."
         )
 
 

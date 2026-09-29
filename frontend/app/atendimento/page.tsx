@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { validarPdfDocumento, iniciarDownloadDocumento, reconciliarDocumentoSalvo, documentoPersistido as exigirDocumentoPersistido } from "@/lib/atendimento-documentos";
 import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { extractApiErrorMessage, extractApiErrorMessageSync } from "@/lib/api-error";
 import {
@@ -240,6 +241,7 @@ type DocumentoAtendimentoTemplate = {
 };
 
 type DocumentoAtendimento = {
+  versao?: string;
   id: number;
   atendimento_id: number;
   template_id?: number | null;
@@ -254,6 +256,8 @@ type DocumentoAtendimento = {
 };
 
 type DocumentoAtendimentoForm = {
+  versao?: string;
+  atendimento_id?: number;
   id: number | null;
   template_id: number | null;
   titulo: string;
@@ -995,6 +999,8 @@ const emptyDocumentoTemplateForm = (): DocumentoTemplateForm => ({
 });
 
 const hydrateDocumentoForm = (item?: Partial<DocumentoAtendimento> | null): DocumentoAtendimentoForm => ({
+  versao: item?.versao,
+  atendimento_id: item?.atendimento_id,
   id: item?.id ?? null,
   template_id: item?.template_id ?? null,
   titulo: item?.titulo || "",
@@ -1621,6 +1627,11 @@ export default function AtendimentoPage() {
   const [anexoForm, setAnexoForm] = useState({ tipo: "imagem", descricao: "", url: "" });
   const [anexoArquivos, setAnexoArquivos] = useState<File[]>([]);
   const [documentoTemplateSelecionado, setDocumentoTemplateSelecionado] = useState("");
+  const [documentoPdfDownload, setDocumentoPdfDownload] = useState<{ url: string; filename: string; atendimentoId: number } | null>(null);
+  const documentosRequestRef = useRef(0);
+  useEffect(() => () => {
+    if (documentoPdfDownload) window.URL.revokeObjectURL(documentoPdfDownload.url);
+  }, [documentoPdfDownload]);
   const [documentoClinicoForm, setDocumentoClinicoForm] = useState<DocumentoAtendimentoForm>(emptyDocumentoAtendimentoForm());
   const [documentoTemplateForm, setDocumentoTemplateForm] = useState<DocumentoTemplateForm>(emptyDocumentoTemplateForm());
   const [showDocumentoTemplateEditor, setShowDocumentoTemplateEditor] = useState(false);
@@ -5726,6 +5737,7 @@ export default function AtendimentoPage() {
   };
 
   const mergeDocumentoClinico = (documento: DocumentoAtendimento) => {
+    if (selecionadoRef.current !== documento.atendimento_id) return;
     setForm((current) => ({
       ...current,
       documentos: [documento, ...current.documentos.filter((item) => item.id !== documento.id)],
@@ -5733,9 +5745,12 @@ export default function AtendimentoPage() {
   };
 
   const recarregarDocumentosAtendimento = async (atendimentoId: number) => {
+    const requestId = ++documentosRequestRef.current;
     const response = await api.get(`/atendimentos/${atendimentoId}/documentos`);
     const documentos = (response.data?.documentos || []) as DocumentoAtendimento[];
-    setForm((current) => ({ ...current, documentos }));
+    if (requestId === documentosRequestRef.current && selecionadoRef.current === atendimentoId) {
+      setForm((current) => ({ ...current, documentos }));
+    }
     return documentos;
   };
 
@@ -5784,7 +5799,7 @@ export default function AtendimentoPage() {
       const documento = response.data as DocumentoAtendimento;
       mergeDocumentoClinico(documento);
       const documentosAtualizados = await recarregarDocumentosAtendimento(atendimentoId);
-      const documentoPersistido = documentosAtualizados.find((item) => item.id === documento.id) || documento;
+      const documentoPersistido = exigirDocumentoPersistido(documentosAtualizados, documento.id);
       setDocumentoClinicoForm(hydrateDocumentoForm(documentoPersistido));
       const variaveisVazias = documento.variaveis_vazias || [];
       setSucesso(
@@ -5815,6 +5830,9 @@ export default function AtendimentoPage() {
     setSalvandoDocumentoClinico(true);
 
     try {
+      if (documentoClinicoForm.id && documentoClinicoForm.atendimento_id !== selecionadoRef.current) {
+        throw new Error("Este documento pertence a outro atendimento. Reabra o documento correto.");
+      }
       const atendimentoId = await obterAtendimentoIdParaDocumento();
       if (!atendimentoId) return null;
 
@@ -5822,7 +5840,7 @@ export default function AtendimentoPage() {
         template_id: documentoClinicoForm.template_id || undefined,
         titulo,
         corpo,
-        status: documentoClinicoForm.status || "rascunho",
+        versao: documentoClinicoForm.versao,
       };
       const response = documentoClinicoForm.id
         ? await api.put(`/atendimentos/${atendimentoId}/documentos/${documentoClinicoForm.id}`, payload)
@@ -5830,8 +5848,10 @@ export default function AtendimentoPage() {
       const documento = response.data as DocumentoAtendimento;
       mergeDocumentoClinico(documento);
       const documentosAtualizados = await recarregarDocumentosAtendimento(atendimentoId);
-      const documentoPersistido = documentosAtualizados.find((item) => item.id === documento.id) || documento;
-      setDocumentoClinicoForm(hydrateDocumentoForm(documentoPersistido));
+      const documentoPersistido = exigirDocumentoPersistido(documentosAtualizados, documento.id);
+      if (selecionadoRef.current === atendimentoId) {
+        setDocumentoClinicoForm((atual) => reconciliarDocumentoSalvo(atual, documentoClinicoForm, hydrateDocumentoForm(documentoPersistido)));
+      }
       if (!options?.quiet) {
         setSucesso("Documento salvo com sucesso.");
       }
@@ -5885,35 +5905,26 @@ export default function AtendimentoPage() {
         `/atendimentos/${documentoParaPdf.atendimento_id}/documentos/${documentoParaPdf.id}/pdf`,
         {
           responseType: "blob",
-          params: { impressao: Date.now() },
+          params: { impressao: Date.now(), versao: documentoParaPdf.versao },
         }
       );
       const filename = parseDownloadFilename(
         response.headers?.["content-disposition"],
         `documento_atendimento_${documentoParaPdf.atendimento_id}_${documentoParaPdf.id}.pdf`
       );
-      const blob = new Blob([response.data], { type: "application/pdf" });
+      const blob = response.data as Blob;
+      await validarPdfDocumento(blob);
       const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(downloadUrl);
+      setDocumentoPdfDownload({ url: downloadUrl, filename, atendimentoId: documentoParaPdf.atendimento_id });
+      iniciarDownloadDocumento(downloadUrl, filename);
 
-      const emitido = {
-        ...documentoParaPdf,
-        status: "emitido",
-        emitido_at: new Date().toISOString(),
-      };
-      mergeDocumentoClinico(emitido);
       const documentosAtualizados = await recarregarDocumentosAtendimento(documentoParaPdf.atendimento_id);
-      const documentoPersistido = documentosAtualizados.find((item) => item.id === documentoParaPdf.id) || emitido;
-      if (documentoClinicoForm.id === documentoParaPdf.id) {
-        setDocumentoClinicoForm(hydrateDocumentoForm(documentoPersistido));
+      const documentoPersistido = exigirDocumentoPersistido(documentosAtualizados, documentoParaPdf.id);
+      if (selecionadoRef.current === documentoParaPdf.atendimento_id) {
+        const enviado = { ...documentoClinicoForm, id: documentoParaPdf.id };
+        setDocumentoClinicoForm((atual) => reconciliarDocumentoSalvo(atual, enviado, hydrateDocumentoForm(documentoPersistido)));
       }
-      setSucesso("PDF do documento gerado com sucesso.");
+      setSucesso("PDF recebido; download solicitado ao navegador. Use Abrir PDF para conferir o arquivo.");
       setErro("");
     } catch (e: any) {
       setErro(await extractApiErrorMessage(e, "Falha ao gerar o PDF do documento."));
@@ -5925,24 +5936,35 @@ export default function AtendimentoPage() {
   const excluirDocumentoClinico = async (documento: DocumentoAtendimento) => {
     if (
       !(await confirmarAcao({
-        titulo: "Remover documento?",
-        descricao: `Remover o documento "${documento.titulo}"? Esta acao nao pode ser desfeita.`,
+        titulo: "Arquivar documento?",
+        descricao: `Arquivar o documento "${documento.titulo}"? O texto sera preservado e podera ser restaurado.`,
         variante: "destructive",
-        confirmLabel: "Remover",
+        confirmLabel: "Arquivar",
       }))
     ) {
       return;
     }
     try {
-      await api.delete(`/atendimentos/${documento.atendimento_id}/documentos/${documento.id}`);
+      await api.delete(`/atendimentos/${documento.atendimento_id}/documentos/${documento.id}`, { params: { versao: documento.versao } });
       await recarregarDocumentosAtendimento(documento.atendimento_id);
       if (documentoClinicoForm.id === documento.id) {
         setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
       }
-      setSucesso("Documento removido com sucesso.");
+      setSucesso("Documento arquivado. O texto permanece disponivel em Arquivados.");
       setErro("");
     } catch (e: any) {
-      setErro(extractApiErrorMessageSync(e, "Erro ao remover documento."));
+      setErro(extractApiErrorMessageSync(e, "Erro ao arquivar documento."));
+    }
+  };
+
+  const restaurarDocumentoClinico = async (documento: DocumentoAtendimento) => {
+    try {
+      await api.post(`/atendimentos/${documento.atendimento_id}/documentos/${documento.id}/restaurar`, { versao: documento.versao });
+      await recarregarDocumentosAtendimento(documento.atendimento_id);
+      setSucesso("Documento restaurado.");
+      setErro("");
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Erro ao restaurar documento."));
     }
   };
 
@@ -8411,6 +8433,9 @@ export default function AtendimentoPage() {
                     showDocumentoTemplateEditor={showDocumentoTemplateEditor}
                     salvandoDocumentoClinico={salvandoDocumentoClinico}
                     salvandoDocumentoTemplate={salvandoDocumentoTemplate}
+                    documentoPdfDownload={documentoPdfDownload?.atendimentoId === selecionado ? documentoPdfDownload : null}
+                    restaurarDocumentoClinico={restaurarDocumentoClinico}
+                    atualizarListaDocumentos={() => selecionado && recarregarDocumentosAtendimento(selecionado).catch((e) => setErro(extractApiErrorMessageSync(e, "Erro ao atualizar documentos.")))}
                     salvarDocumentoClinico={salvarDocumentoClinico}
                     salvarDocumentoTemplate={salvarDocumentoTemplate}
                     selecionarDocumentoClinico={selecionarDocumentoClinico}
