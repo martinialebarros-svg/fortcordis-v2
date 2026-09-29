@@ -22,6 +22,7 @@ from app.models.atendimento_clinico import (
     DocumentoAtendimento,
     DocumentoAtendimentoTemplate,
 )
+from app.models.auditoria_evento import AuditoriaEvento
 from app.models.clinica import Clinica
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
@@ -37,6 +38,7 @@ class AtendimentoDocumentosTest(unittest.TestCase):
         db_path = Path(tmpdir.name) / "atendimento-documentos.db"
         engine = create_engine(f"sqlite:///{db_path}")
         for table in (
+            AuditoriaEvento.__table__,
             Paciente.__table__,
             Tutor.__table__,
             Clinica.__table__,

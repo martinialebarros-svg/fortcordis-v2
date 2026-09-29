@@ -2,6 +2,7 @@ import { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { formatDate } from "@/lib/atendimento-utils";
 import AtendimentoDocumentosSection from "./AtendimentoDocumentosSection";
 
 afterEach(() => {
@@ -10,7 +11,7 @@ afterEach(() => {
 
 function noop() {}
 
-function Harness({ uploadArquivosAnexoGeral }: { uploadArquivosAnexoGeral: (files: File[]) => Promise<void> }) {
+function Harness({ uploadArquivosAnexoGeral, extra = {} }: { uploadArquivosAnexoGeral: (files: File[]) => Promise<void>; extra?: Record<string, unknown> }) {
   const [anexoArquivos, setAnexoArquivos] = useState<File[]>([]);
   const [anexoForm, setAnexoForm] = useState({ tipo: "documento", descricao: "", url: "" });
 
@@ -62,6 +63,7 @@ function Harness({ uploadArquivosAnexoGeral }: { uploadArquivosAnexoGeral: (file
       abrirAtendimento={noop}
       api={{ post: vi.fn() }}
       form={{ documentos: [], evolucoes: [] }}
+      {...extra}
     />
   );
 }
@@ -119,4 +121,33 @@ describe("AtendimentoDocumentosSection - selecao multipla de anexos", () => {
     expect(screen.getByText(/raio-x-torax\.pdf/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Enviar arquivo" })).toBeInTheDocument();
   });
+});
+
+
+describe("documentos preservados", () => {
+  it("mostra emissao real em Fortaleza e arquivo restauravel", () => {
+    const restore = vi.fn();
+    render(<Harness uploadArquivosAnexoGeral={async () => {}} extra={{
+      formatDate,
+      restaurarDocumentoClinico: restore,
+      form: { documentos: [{ id: 10, titulo: "Parecer de teste", status: "arquivado", emitido_at: "2026-09-29T17:00:56+00:00", updated_at: "2026-09-29T17:10:28+00:00" }], evolucoes: [] },
+    }} />);
+    expect(screen.getByText(/Emissao:.*14:00:56/)).toBeTruthy();
+    expect(screen.getByText("Arquivados (1)")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "PDF" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Restaurar" }));
+    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ id: 10 }));
+    expect(screen.queryByRole("button", { name: "Remover" })).toBeNull();
+  });
+  it("disponibiliza abrir e baixar novamente", () => {
+    render(<Harness uploadArquivosAnexoGeral={async () => {}} extra={{ documentoPdfDownload: { url: "blob:pdf", filename: "teste.pdf" } }} />);
+    expect(screen.getByRole("link", { name: "Abrir PDF" })).toHaveAttribute("href", "blob:pdf");
+    expect(screen.getByRole("link", { name: "Baixar novamente" })).toHaveAttribute("download", "teste.pdf");
+  });
+});
+
+it("emissao nao declara download nem entrega", () => {
+  render(<Harness uploadArquivosAnexoGeral={async () => {}} extra={{ documentoClinicoForm: { id: 10, titulo: "Teste", corpo: "Teste", status: "emitido" } }} />);
+  expect(screen.getByText(/Isso nao confirma o download nem a entrega/)).toBeTruthy();
+  expect(screen.queryByText(/gerado e entregue/)).toBeNull();
 });

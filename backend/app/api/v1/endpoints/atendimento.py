@@ -92,6 +92,11 @@ from app.services.atendimento.document_template_crud_service import (
     restaurar_template_documento,
 )
 from app.services.atendimento.document_crud_service import (
+    agora_documento,
+    auditar_documento,
+    validar_versao_documento,
+    validar_documento_ativo,
+    restaurar_documento_atendimento as restaurar_documento_atendimento_service,
     atualizar_documento_atendimento as atualizar_documento_atendimento_service,
     excluir_documento_atendimento as excluir_documento_atendimento_service,
     listar_documentos_atendimento as listar_documentos_atendimento_service,
@@ -3130,8 +3135,9 @@ def criar_documento_atendimento(
     payload: DocumentoAtendimentoCreatePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    request: Request = None,
 ):
-    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).with_for_update().first()
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
@@ -3174,11 +3180,13 @@ def criar_documento_atendimento(
         status="rascunho",
         criado_por_id=current_user.id,
         criado_por_nome=current_user.nome,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
+        created_at=agora_documento(),
+        updated_at=agora_documento(),
     )
     db.add(documento)
-    atendimento.updated_at = datetime.now()
+    atendimento.updated_at = agora_documento()
+    auditar_documento(db, documento, "DOCUMENTO_ATENDIMENTO_CRIADO", current_user=current_user,
+                      request=request, detalhes={"titulo": titulo, "corpo": corpo})
     db.commit()
     db.refresh(documento)
     resultado = serializar_documento_atendimento_service(documento)
@@ -3215,11 +3223,22 @@ def excluir_documento_atendimento(
     atendimento_id: int,
     documento_id: int,
     request: Request,
+    versao: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     return excluir_documento_atendimento_service(
-        db, atendimento_id, documento_id, current_user=current_user, request=request
+        db, atendimento_id, documento_id, current_user=current_user, request=request, versao=versao
+    )
+
+
+@router.post("/{atendimento_id}/documentos/{documento_id}/restaurar")
+def restaurar_documento_atendimento(
+    atendimento_id: int, documento_id: int, payload: DocumentoAtendimentoUpdatePayload,
+    request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    return restaurar_documento_atendimento_service(
+        db, atendimento_id, documento_id, current_user=current_user, versao=payload.versao, request=request
     )
 
 
@@ -3545,6 +3564,7 @@ def gerar_pdf_documento_atendimento(
     atendimento_id: int,
     documento_id: int,
     request: Request,
+    versao: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     current_user = _autenticar_usuario_pdf(request, db)
@@ -3553,7 +3573,9 @@ def gerar_pdf_documento_atendimento(
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
     branding = _obter_branding_pdf_documento(db, current_user)
-    documento = obter_documento_atendimento_ou_404_service(db, atendimento_id, documento_id)
+    documento = obter_documento_atendimento_ou_404_service(db, atendimento_id, documento_id, bloquear=True)
+    validar_versao_documento(documento, versao)
+    validar_documento_ativo(documento)
     paciente, tutor, clinica = atualizar_documento_template_se_contexto_mudou_service(
         db,
         atendimento,
@@ -3574,8 +3596,11 @@ def gerar_pdf_documento_atendimento(
     )
 
     documento.status = "emitido"
-    documento.emitido_at = datetime.now()
-    documento.updated_at = datetime.now()
+    documento.emitido_at = agora_documento()
+    documento.updated_at = agora_documento()
+    auditar_documento(db, documento, "DOCUMENTO_ATENDIMENTO_PDF_GERADO", current_user=current_user,
+                      request=request, detalhes={"titulo": documento.titulo, "corpo": documento.corpo,
+                                               "pdf_bytes": len(pdf_bytes), "emitido_at": documento.emitido_at})
     db.commit()
 
     paciente_nome = _nome_arquivo_limpo(paciente.nome if paciente else "", f"paciente_{atendimento.paciente_id}")
@@ -4403,9 +4428,12 @@ def excluir_atendimento(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).with_for_update().first()
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    if db.query(DocumentoAtendimento.id).filter(DocumentoAtendimento.atendimento_id == atendimento_id).first():
+        raise HTTPException(status_code=409, detail="Atendimento possui documentos clinicos preservados e nao pode ser excluido. Arquive os documentos individualmente.")
 
     exames_do_atendimento = db.query(Exame).filter(Exame.atendimento_id == atendimento_id).all()
     # Um exame pode estar liberado no portal parceiro mesmo com o atendimento
@@ -4490,10 +4518,6 @@ def excluir_atendimento(
         for item in itens:
             db.delete(item)
         db.delete(prescricao)
-
-    documentos = db.query(DocumentoAtendimento).filter(DocumentoAtendimento.atendimento_id == atendimento_id).all()
-    for documento in documentos:
-        db.delete(documento)
 
     registrar_auditoria(
         current_user=current_user,
