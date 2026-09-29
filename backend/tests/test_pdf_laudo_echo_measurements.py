@@ -74,7 +74,8 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("20.70 - 51.90 %", text)
         self.assertNotIn("50.00 - 85.00 %", text)
         self.assertIn("Visser et al. 2019", text)
-        self.assertIn("FE Teichholz: intervalo de referência não validado", text)
+        self.assertNotIn("FE Teichholz: intervalo de referência não validado", text)
+        self.assertIn("66.00 %", text)
 
     def test_legacy_mixed_units_keep_already_mm_values_in_pdf(self) -> None:
         legacy = {
