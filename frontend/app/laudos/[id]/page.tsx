@@ -777,9 +777,6 @@ export default function VisualizarLaudoPage() {
               {referenciaEco?.fs_source && medidasExibidas.DeltaD_FS && medidasExibidas.VE_tecnica_relatorio !== "2d" && (
                 <p className="mb-2 text-xs text-gray-600">FS (modo M): {referenciaEco.fs_source}.</p>
               )}
-              {medidasExibidas.FE_Teicholz && medidasExibidas.VE_tecnica_relatorio !== "2d" && (
-                <p className="mb-2 text-xs text-gray-600">FE Teichholz: intervalo de referência não validado para este método.</p>
-              )}
               {medidas.Remodelamento_AD && (
                 <p className="mb-3 text-xs text-gray-600">Premissa registrada para estimativa da pressão atrial direita: remodelamento de AD {medidas.Remodelamento_AD}.</p>
               )}

@@ -1360,11 +1360,6 @@ def gerar_pdf_laudo_eco(
             fonte_fs = referencia_selecionada.get("fs_source")
             if fonte_fs:
                 elements.append(Paragraph(f"FS (Modo M): {_esc(fonte_fs)}.", create_pdf_styles()["Normal"]))
-        if modo_m_referencia and _to_float(medidas_referencia.get("FE_Teicholz")):
-            elements.append(Paragraph(
-                "FE Teichholz: intervalo de referência não validado para este método.",
-                create_pdf_styles()["Normal"],
-            ))
         elements.append(Spacer(1, 2*mm))
         
         # =================================================================
