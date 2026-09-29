@@ -87,3 +87,7 @@ Nenhum.
 - [x] Aprovado para stage.
 - [x] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
+
+## Atualizacao de contrato em 2026-09-29
+
+O contrato de documentos foi ampliado por [atendimento-documentos-persistencia](../atendimento-documentos-persistencia/spec.md), com verificacao em [verify](../atendimento-documentos-persistencia/verify.md). As regras historicas acima sobre exclusao definitiva, auditoria best-effort, compatibilidade sem versao e datas de emissao deixam de reger o fluxo alterado: documentos sao arquivados/restaurados; mutacoes e PDF exigem versao; auditoria participa da transacao; emitido_at vem com UTC explicito; a interface conserva o PDF recebido para abertura e nova tentativa de download. A protecao de digitação durante save tambem cobre o editor de documentos.

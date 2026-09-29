@@ -164,6 +164,7 @@ class DocumentoAtendimentoCreatePayload(BaseModel):
 
 
 class DocumentoAtendimentoUpdatePayload(BaseModel):
+    versao: Optional[str] = Field(default=None, max_length=64)
     titulo: Optional[str] = Field(default=None, max_length=255)
     corpo: Optional[str] = None
     status: Optional[str] = Field(default=None, max_length=40)

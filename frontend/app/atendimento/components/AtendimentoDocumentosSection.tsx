@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import {
   AlertTriangle,
+  Archive,
   Bold,
   Download,
   Edit3,
@@ -77,6 +78,9 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
     cancelarUploadAnexo,
     criarDocumentoClinicoDeTemplate,
     documentTemplates,
+    documentoPdfDownload,
+    restaurarDocumentoClinico,
+    atualizarListaDocumentos,
     documentoClinicoForm,
     documentoTemplateForm,
     documentoTemplateSelecionado,
@@ -160,11 +164,13 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
       )
     : documentosAtendimento;
   const documentosRascunho = documentosFiltrados.filter(
-    (documento: AtendimentoDocumentosSectionProps) => documento.status !== "emitido"
+    (documento: AtendimentoDocumentosSectionProps) => documento.status !== "emitido" && documento.status !== "arquivado"
   );
   const documentosEmitidos = documentosFiltrados.filter(
     (documento: AtendimentoDocumentosSectionProps) => documento.status === "emitido"
   );
+
+  const documentosArquivados = documentosFiltrados.filter((documento: AtendimentoDocumentosSectionProps) => documento.status === "arquivado");
 
   const renderDocumentoCard = (documento: AtendimentoDocumentosSectionProps) => (
     <div key={documento.id} className="rounded-[18px] border border-slate-200 bg-white p-3">
@@ -176,15 +182,16 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
               documento.status === "emitido" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"
             }`}
           >
-            {documento.status === "emitido" ? "Emitido" : "Rascunho"}
+            {documento.status === "arquivado" ? "Arquivado" : documento.status === "emitido" ? "Emitido" : "Rascunho"}
           </span>
-          {documento.updated_at ? <span>{formatDate(documento.updated_at)}</span> : null}
+          {(documento.emitido_at || documento.updated_at) ? <span>{documento.emitido_at ? "Emissao: " : "Atualizacao: "}{formatDate(documento.emitido_at || documento.updated_at)}</span> : null}
         </div>
       </button>
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() => selecionarDocumentoClinico(documento)}
+          disabled={documento.status === "arquivado"}
           className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700 hover:bg-slate-200"
         >
           <Edit3 className="h-3.5 w-3.5" />
@@ -193,7 +200,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
         <button
           type="button"
           onClick={() => baixarPdfDocumentoClinico(documento)}
-          disabled={gerandoDocumentoPdfId === documento.id}
+          disabled={gerandoDocumentoPdfId === documento.id || documento.status === "arquivado"}
           className="inline-flex items-center gap-1 rounded-lg bg-blue-100 px-2 py-1 text-xs text-blue-700 hover:bg-blue-200 disabled:opacity-50"
         >
           {gerandoDocumentoPdfId === documento.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
@@ -201,11 +208,11 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
         </button>
         <button
           type="button"
-          onClick={() => excluirDocumentoClinico(documento)}
+          onClick={() => documento.status === "arquivado" ? restaurarDocumentoClinico(documento) : excluirDocumentoClinico(documento)}
           className="inline-flex items-center gap-1 rounded-lg bg-red-100 px-2 py-1 text-xs text-red-700 hover:bg-red-200"
         >
-          <Trash2 className="h-3.5 w-3.5" />
-          Remover
+          <Archive className="h-3.5 w-3.5" />
+          {documento.status === "arquivado" ? "Restaurar" : "Arquivar"}
         </button>
       </div>
     </div>
@@ -231,6 +238,14 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
 
   return (
     <>
+      {documentoPdfDownload ? (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm">
+          PDF recebido. Confira o arquivo antes de considerar a entrega concluida.
+          <a className="ml-3 underline" href={documentoPdfDownload.url} target="_blank" rel="noopener noreferrer">Abrir PDF</a>
+          <a className="ml-3 underline" href={documentoPdfDownload.url} download={documentoPdfDownload.filename}>Baixar novamente</a>
+        </div>
+      ) : null}
+      <button type="button" onClick={atualizarListaDocumentos} disabled={!selecionado} className="text-sm text-blue-700 underline">Atualizar lista de documentos</button>
       <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm space-y-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -333,6 +348,12 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                       </div>
                     </div>
                   ) : null}
+                  {documentosArquivados.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Arquivados ({documentosArquivados.length})</p>
+                      {documentosArquivados.map((documento: AtendimentoDocumentosSectionProps) => renderDocumentoCard(documento))}
+                    </div>
+                  ) : null}
                   {documentosEmitidos.length > 0 ? (
                     <div className="space-y-2">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -354,8 +375,8 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                 <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>
-                    Este documento ja foi emitido (PDF gerado e entregue). Alteracoes aqui nao mudam o PDF
-                    ja entregue - so um novo PDF gerado reflete essas mudancas.
+                    Um PDF deste documento ja foi gerado. Isso nao confirma o download nem a entrega.
+                    Alteracoes no texto so aparecem em um novo PDF.
                   </span>
                 </div>
               ) : null}
@@ -369,6 +390,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                 </div>
               ) : null}
               <input
+                readOnly={documentoClinicoForm.status === "arquivado"}
                 value={documentoClinicoForm.titulo}
                 onChange={(event) => setDocumentoClinicoForm({ ...documentoClinicoForm, titulo: event.target.value })}
                 placeholder="Titulo do documento"
@@ -402,6 +424,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                   </button>
                 </div>
                 <textarea
+                  readOnly={documentoClinicoForm.status === "arquivado"}
                   ref={documentoCorpoRef}
                   value={documentoClinicoForm.corpo}
                   onChange={(event) => setDocumentoClinicoForm({ ...documentoClinicoForm, corpo: event.target.value })}
@@ -414,7 +437,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                 <button
                   type="button"
                   onClick={() => salvarDocumentoClinico()}
-                  disabled={salvandoDocumentoClinico || !documentoClinicoForm.titulo.trim() || !documentoClinicoForm.corpo.trim()}
+                  disabled={documentoClinicoForm.status === "arquivado" || salvandoDocumentoClinico || !documentoClinicoForm.titulo.trim() || !documentoClinicoForm.corpo.trim()}
                   className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm text-white hover:bg-teal-700 disabled:opacity-50"
                 >
                   {salvandoDocumentoClinico ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -423,7 +446,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                 <button
                   type="button"
                   onClick={() => baixarPdfDocumentoClinico()}
-                  disabled={(gerandoDocumentoPdfId != null && gerandoDocumentoPdfId === documentoClinicoForm.id) || !documentoClinicoForm.titulo.trim() || !documentoClinicoForm.corpo.trim()}
+                  disabled={documentoClinicoForm.status === "arquivado" || (gerandoDocumentoPdfId != null && gerandoDocumentoPdfId === documentoClinicoForm.id) || !documentoClinicoForm.titulo.trim() || !documentoClinicoForm.corpo.trim()}
                   className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
                 >
                   {gerandoDocumentoPdfId === documentoClinicoForm.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
