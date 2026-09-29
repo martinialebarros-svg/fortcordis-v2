@@ -61,4 +61,4 @@ O PR #264 foi integrado em stage no SHA `aaae16b8a771b2a234092c89fa92a41ec171635
 
 Correcao do gate: dependencia pytest fixada em requirements de teste; execucao explicita das regressoes de persistencia e concorrencia PostgreSQL, alem da suite unittest. Aplicada aos dois workflows para manter a futura promocao compativel; isso nao executa nem autoriza publicacao em producao.
 
-Validacao da correcao do gate: suite unittest completa aprovada (1469 testes, 8 skips); 7 regressoes pytest aprovadas, incluindo PostgreSQL 16 local descartavel. YAML dos dois workflows e diff check aprovados.
+Validacao da correcao do gate: suite unittest completa aprovada (1469 testes, 7 skips); 7 regressoes pytest aprovadas, incluindo PostgreSQL 16 local descartavel. YAML dos dois workflows e diff check aprovados.
