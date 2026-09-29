@@ -24,6 +24,7 @@ interface Referencia {
   lvpw_s_max?: number;
   fs_min?: number;
   fs_max?: number;
+  fs_source?: string;
   ef_min?: number;
   ef_max?: number;
   ao_min?: number;
@@ -148,7 +149,7 @@ export default function ReferenciasEcoPage() {
           <div>
             <span className="fc-eco-kicker"><BookOpen className="h-4 w-4" />Biblioteca diagnóstica</span>
             <h1>Referências Ecocardiográficas</h1>
-            <p>Faixas de normalidade organizadas por espécie, peso e medida cardíaca.</p>
+            <p>Faixas cadastradas por espécie, peso e medida cardíaca.</p>
           </div>
           <div className="fc-eco-species-tabs" role="tablist" aria-label="Espécie das referências">
             {[
@@ -168,6 +169,12 @@ export default function ReferenciasEcoPage() {
             ))}
           </div>
         </header>
+
+        <p className="text-sm text-slate-600">
+          FS: modo M, intervalo de Visser et al. (2019) em cães adultos de 2,6 a 67,8 kg;
+          Häggström et al. (2016) em gatos adultos de raça pura. FE por Teichholz:
+          intervalo indisponível por falta de validação compatível com o método.
+        </p>
 
         <section className="fc-eco-metrics" aria-label="Resumo da base de referências">
           <div className="fc-eco-metric fc-eco-metric-cordis">
@@ -290,7 +297,7 @@ export default function ReferenciasEcoPage() {
 
                         return (
                           <td key={campo.key}>
-                            {editando === ref.id ? (
+                            {editando === ref.id && campo.key !== "fs" && campo.key !== "ef" ? (
                               <div className="fc-eco-range-inputs">
                                 <input
                                   type="number"
@@ -310,8 +317,8 @@ export default function ReferenciasEcoPage() {
                                 />
                               </div>
                             ) : (
-                              <span className="fc-eco-range-value">
-                                {min !== undefined && max !== undefined ? `${min} – ${max}` : "—"}
+                              <span className="fc-eco-range-value" title={campo.key === "fs" ? ref.fs_source : undefined}>
+                                {min != null && max != null ? `${min} – ${max}` : "—"}
                               </span>
                             )}
                           </td>

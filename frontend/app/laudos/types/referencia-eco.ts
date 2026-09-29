@@ -20,6 +20,8 @@ export interface ReferenciaEco {
   // Função
   fs_min?: number;
   fs_max?: number;
+  fs_source?: string;
+  ef_reference_note?: string;
   ef_min?: number;
   ef_max?: number;
   tapse_min?: number;

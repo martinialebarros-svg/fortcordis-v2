@@ -63,6 +63,19 @@ def _pdf_text(payload: dict) -> str:
 
 
 class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
+    def test_pdf_uses_sourced_fs_and_omits_teichholz_ef_interval(self) -> None:
+        payload = _base_report("modo_m")
+        payload["referencia_eco"] = aplicar_defaults_publicados_caninos({
+            "especie": "Canina", "peso_kg": 10,
+            "fs_min": 25, "fs_max": 45,
+            "ef_min": 50, "ef_max": 85,
+        })
+        text = _pdf_text(payload)
+        self.assertIn("20.70 - 51.90 %", text)
+        self.assertNotIn("50.00 - 85.00 %", text)
+        self.assertIn("Visser et al. 2019", text)
+        self.assertIn("FE Teichholz: intervalo de referência não validado", text)
+
     def test_legacy_mixed_units_keep_already_mm_values_in_pdf(self) -> None:
         legacy = {
             "DIVEd": "3", "SIVd": "0.7", "PLVEd": "0.8",

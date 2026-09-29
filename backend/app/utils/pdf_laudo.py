@@ -163,7 +163,6 @@ MAPEAMENTO_REFERENCIA_ECO = {
     "PLVES": "lvpw_s",
     "VDF": "edv",
     "VSF": "esv",
-    "FE_Teicholz": "ef",
     "DeltaD_FS": "fs",
     "TAPSE": "tapse",
     "MAPSE": "mapse",
@@ -201,7 +200,7 @@ def aplicar_referencia_eco(parametros: List[Dict], referencia_eco: Optional[Dict
         atualizado.pop("ref_text", None)
 
         prefixo = MAPEAMENTO_REFERENCIA_ECO.get(str(param.get("chave", "")))
-        if prefixo and referencia_eco:
+        if prefixo and referencia_eco and (prefixo != "fs" or referencia_eco.get("fs_source")):
             ref_min = referencia_eco.get(f"{prefixo}_min")
             ref_max = referencia_eco.get(f"{prefixo}_max")
             if ref_min is not None and ref_max is not None:
@@ -1355,6 +1354,17 @@ def gerar_pdf_laudo_eco(
         else:
             nota_referencia = "Faixas de referência indisponíveis para este paciente; traço indica faixa indisponível."
         elements.append(Paragraph(nota_referencia, create_pdf_styles()["Normal"]))
+        medidas_referencia = dados_pdf.get("medidas") or {}
+        modo_m_referencia = str(medidas_referencia.get("VE_tecnica_relatorio") or "").lower() != "2d"
+        if modo_m_referencia and referencia_selecionada and _to_float(medidas_referencia.get("DeltaD_FS")):
+            fonte_fs = referencia_selecionada.get("fs_source")
+            if fonte_fs:
+                elements.append(Paragraph(f"FS (Modo M): {_esc(fonte_fs)}.", create_pdf_styles()["Normal"]))
+        if modo_m_referencia and _to_float(medidas_referencia.get("FE_Teicholz")):
+            elements.append(Paragraph(
+                "FE Teichholz: intervalo de referência não validado para este método.",
+                create_pdf_styles()["Normal"],
+            ))
         elements.append(Spacer(1, 2*mm))
         
         # =================================================================
