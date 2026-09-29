@@ -18,9 +18,68 @@ from app.utils.referencia_eco_defaults import aplicar_defaults_publicados_canino
 from app.utils.referencia_eco_defaults import normalizar_especie_referencia, obter_tapse_canino_por_peso
 from app.api.v1.endpoints.referencias_eco import buscar_referencia_por_peso
 from app.models.referencia_eco import ReferenciaEco
+from app.services.ai_echo_context import load_echo_reference_context
 
 
 class ReferenciaEcoDefaultsTest(unittest.TestCase):
+    def test_canine_m_mode_fs_uses_visser_only_for_matching_default_and_weight(self) -> None:
+        result = aplicar_defaults_publicados_caninos({
+            "especie": "Canina", "peso_kg": 10, "fs_min": 25, "fs_max": 45,
+            "ef_min": 50, "ef_max": 85,
+        })
+        self.assertEqual((result["fs_min"], result["fs_max"]), (20.7, 51.9))
+        self.assertIn("Visser", result["fs_source"])
+        self.assertIsNone(result["ef_min"])
+        self.assertIsNone(result["ef_max"])
+        repeated = aplicar_defaults_publicados_caninos(result)
+        self.assertEqual((repeated["fs_min"], repeated["fs_max"]), (20.7, 51.9))
+        for weight, minimum, maximum in ((2.5, 25, 45), (68, 25, 45), (10, 30, 50)):
+            with self.subTest(weight=weight, minimum=minimum):
+                unsafe = aplicar_defaults_publicados_caninos({
+                    "especie": "Canina", "peso_kg": weight,
+                    "fs_min": minimum, "fs_max": maximum,
+                })
+                self.assertIsNone(unsafe["fs_min"])
+                self.assertIsNone(unsafe["fs_max"])
+
+    def test_feline_fs_preserves_only_haggstrom_table_values(self) -> None:
+        for weight, upper in ((1.5, 62), (9.5, 63), (10.5, 63)):
+            with self.subTest(weight=weight):
+                result = aplicar_defaults_publicados_caninos({
+                    "especie": "Felina", "peso_kg": weight,
+                    "fs_min": 28, "fs_max": upper,
+                    "ef_min": 72, "ef_max": 85,
+                })
+                self.assertEqual((result["fs_min"], result["fs_max"]), (28, upper))
+                self.assertIn("Häggström", result["fs_source"])
+                self.assertIsNone(result["ef_min"])
+        unsupported = aplicar_defaults_publicados_caninos({
+            "especie": "Felina", "peso_kg": 5,
+            "fs_min": 40, "fs_max": 62,
+        })
+        self.assertIsNone(unsupported["fs_min"])
+
+    def test_ai_context_does_not_attach_m_mode_or_ef_range_to_2d(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        ReferenciaEco.__table__.create(engine)
+        db = sessionmaker(bind=engine)()
+        try:
+            db.add(ReferenciaEco(
+                especie="Canina", peso_kg=10,
+                fs_min=25, fs_max=45, ef_min=50, ef_max=85,
+                lvid_d_min=20, lvid_d_max=40,
+            ))
+            db.commit()
+            ranges = load_echo_reference_context(db, species="Canina", weight_kg=10)["ranges"]
+            self.assertEqual(ranges["DeltaD_FS"]["min"], 20.7)
+            self.assertNotIn("FE_Teicholz", ranges)
+            self.assertNotIn("FE_Teicholz_2D", ranges)
+            self.assertNotIn("DeltaD_FS_2D", ranges)
+            self.assertNotIn("DIVEd_2D", ranges)
+        finally:
+            db.close()
+            engine.dispose()
+
     def test_aliases_explicitos_nao_transformam_outras_especies_em_felinos_ou_caninos(self) -> None:
         for especie, esperada in (
             ("Felina", "Felina"), ("Gato", "Felina"), ("Cat", "Felina"),

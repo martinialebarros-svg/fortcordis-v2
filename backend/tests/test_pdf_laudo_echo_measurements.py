@@ -63,6 +63,19 @@ def _pdf_text(payload: dict) -> str:
 
 
 class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
+    def test_pdf_uses_sourced_fs_and_omits_teichholz_ef_interval(self) -> None:
+        payload = _base_report("modo_m")
+        payload["referencia_eco"] = aplicar_defaults_publicados_caninos({
+            "especie": "Canina", "peso_kg": 10,
+            "fs_min": 25, "fs_max": 45,
+            "ef_min": 50, "ef_max": 85,
+        })
+        text = _pdf_text(payload)
+        self.assertIn("20.70 - 51.90 %", text)
+        self.assertNotIn("50.00 - 85.00 %", text)
+        self.assertIn("Visser et al. 2019", text)
+        self.assertIn("FE Teichholz: intervalo de referência não validado", text)
+
     def test_legacy_mixed_units_keep_already_mm_values_in_pdf(self) -> None:
         legacy = {
             "DIVEd": "3", "SIVd": "0.7", "PLVEd": "0.8",
@@ -320,6 +333,22 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("Referência selecionada do cadastro", text)
         self.assertNotIn("TAPSE pode usar faixa auxiliar por peso do sistema", text)
         self.assertNotIn("Traço indica faixa indisponível", text)
+
+    def test_pdf_does_not_apply_m_mode_ranges_to_2d(self) -> None:
+        payload = _base_report("2d")
+        payload["medidas"] = {
+            "VE_tecnica_relatorio": "2d", "DIVEd_2D": "32", "FE_Teicholz_2D": "57",
+        }
+        payload["referencia_eco"] = {
+            "especie": "Canina", "peso_kg": 10,
+            "lvid_d_min": 20, "lvid_d_max": 40,
+            "ef_min": 50, "ef_max": 85,
+        }
+        text = _pdf_text(payload)
+        self.assertIn("DIVEd 2D (Diâmetro interno do VE em diástole)\n32.00 mm\n--", text)
+        self.assertIn("FE 2D (Teicholz)\n57.00 %\n--", text)
+        self.assertNotIn("20.00 - 40.00 mm", text)
+        self.assertNotIn("50.00 - 85.00 %", text)
 
     def test_pdf_keeps_measured_mapse_without_unsupported_auxiliary_range(self) -> None:
         payload = _base_report("modo_m")

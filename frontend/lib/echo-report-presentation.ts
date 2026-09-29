@@ -18,13 +18,14 @@ const mMode: Parameter[] = [
   parameter("PLVES", "PLVEs · parede livre do VE em sístole", "mm", "lvpw_s"),
   parameter("VDF", "VDF · Teicholz", "ml", "edv"),
   parameter("VSF", "VSF · Teicholz", "ml", "esv"),
-  parameter("FE_Teicholz", "FE · Teicholz", "%", "ef"),
+  parameter("FE_Teicholz", "FE · Teicholz", "%"),
   parameter("DeltaD_FS", "Encurtamento fracional · %FS", "%", "fs"),
 ];
 const mode2D: Parameter[] = mMode.map((item) => ({
   ...item,
   key: `${item.key}_2D`,
   label: `${item.label} · 2D`,
+  reference: undefined,
 }));
 const annularExcursion: Parameter[] = [
   parameter("TAPSE", "TAPSE · excursão anular tricúspide", "mm", "tapse"),
@@ -89,6 +90,7 @@ function number(value: unknown): number | null {
 
 function referenceRange(reference: ReferenciaEco | null, item: Parameter): string {
   if (!reference || !item.reference) return "—";
+  if (item.reference === "fs" && !reference.fs_source) return "—";
   const fields = reference as unknown as Record<string, unknown>;
   let min = number(fields[`${item.reference}_min`]);
   let max = number(fields[`${item.reference}_max`]);

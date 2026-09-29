@@ -17,20 +17,23 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   DIVES: { campo: "lvid_s", nome: "DIVÉs (Diâmetro interno VE sístole)", categoria: "estrutural" },
   SIVs: { campo: "ivs_s", nome: "SIVs (Septo interventricular sístole)", categoria: "estrutural" },
   PLVES: { campo: "lvpw_s", nome: "PLVÉs (Parede livre VE sístole)", categoria: "estrutural" },
-  DIVEd_2D: { campo: "lvid_d", nome: "DIVEd 2D (Diâmetro interno VE diástole)", categoria: "estrutural" },
-  SIVd_2D: { campo: "ivs_d", nome: "SIVd 2D (Septo interventricular diástole)", categoria: "estrutural" },
-  PLVEd_2D: { campo: "lvpw_d", nome: "PLVEd 2D (Parede livre VE diástole)", categoria: "estrutural" },
-  DIVES_2D: { campo: "lvid_s", nome: "DIVEs 2D (Diâmetro interno VE sístole)", categoria: "estrutural" },
-  SIVs_2D: { campo: "ivs_s", nome: "SIVs 2D (Septo interventricular sístole)", categoria: "estrutural" },
-  PLVES_2D: { campo: "lvpw_s", nome: "PLVEs 2D (Parede livre VE sístole)", categoria: "estrutural" },
+  // O cadastro não identifica método 2D; manter a medida visível, sem aplicar limite de Modo M.
+  DIVEd_2D: { campo: "", nome: "DIVEd 2D (Diâmetro interno VE diástole)", categoria: "estrutural" },
+  SIVd_2D: { campo: "", nome: "SIVd 2D (Septo interventricular diástole)", categoria: "estrutural" },
+  PLVEd_2D: { campo: "", nome: "PLVEd 2D (Parede livre VE diástole)", categoria: "estrutural" },
+  DIVES_2D: { campo: "", nome: "DIVEs 2D (Diâmetro interno VE sístole)", categoria: "estrutural" },
+  SIVs_2D: { campo: "", nome: "SIVs 2D (Septo interventricular sístole)", categoria: "estrutural" },
+  PLVES_2D: { campo: "", nome: "PLVEs 2D (Parede livre VE sístole)", categoria: "estrutural" },
   
   // === VOLUMES E FUNÇÃO ===
   VDF: { campo: "edv", nome: "VDF (Volume diastólico final)", categoria: "funcao" },
   VSF: { campo: "esv", nome: "VSF (Volume sistólico final)", categoria: "funcao" },
-  FE_Teicholz: { campo: "ef", nome: "FE (Fração de ejeção - Teicholz)", categoria: "funcao" },
+  FE_Teicholz: { campo: "", nome: "FE (Fração de ejeção - Teicholz)", categoria: "funcao" },
   DeltaD_FS: { campo: "fs", nome: "Delta D / %FS (Encurtamento)", categoria: "funcao" },
-  FE_Teicholz_2D: { campo: "ef", nome: "FE 2D (Fração de ejeção - Teicholz)", categoria: "funcao" },
-  DeltaD_FS_2D: { campo: "fs", nome: "Delta D / %FS 2D (Encurtamento)", categoria: "funcao" },
+  VDF_2D: { campo: "", nome: "VDF 2D (Volume diastólico final)", categoria: "funcao" },
+  VSF_2D: { campo: "", nome: "VSF 2D (Volume sistólico final)", categoria: "funcao" },
+  FE_Teicholz_2D: { campo: "", nome: "FE 2D (Fração de ejeção - Teicholz)", categoria: "funcao" },
+  DeltaD_FS_2D: { campo: "", nome: "Delta D / %FS 2D (Encurtamento)", categoria: "funcao" },
   TAPSE: { campo: "tapse", nome: "TAPSE", categoria: "funcao" },
   MAPSE: { campo: "mapse", nome: "MAPSE", categoria: "funcao" },
   
@@ -64,8 +67,8 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   IVSs: { campo: "ivs_s", nome: "SIVs (Septo interventricular sístole)", categoria: "estrutural" },
   LVPWd: { campo: "lvpw_d", nome: "PLVEd (Parede livre VE diástole)", categoria: "estrutural" },
   LVPWs: { campo: "lvpw_s", nome: "PLVÉs (Parede livre VE sístole)", categoria: "estrutural" },
-  FS: { campo: "fs", nome: "Delta D / %FS (Encurtamento)", categoria: "funcao" },
-  EF: { campo: "ef", nome: "FE (Fração de ejeção)", categoria: "funcao" },
+  FS: { campo: "", nome: "Delta D / %FS (método não identificado)", categoria: "funcao" },
+  EF: { campo: "", nome: "FE (método não identificado)", categoria: "funcao" },
   EDV: { campo: "edv", nome: "VDF (Volume diastólico final)", categoria: "funcao" },
   ESV: { campo: "esv", nome: "VSF (Volume sistólico final)", categoria: "funcao" },
   SV: { campo: "sv", nome: "SV (Volume sistólico)", categoria: "funcao" },
@@ -99,8 +102,9 @@ export function compararMedidasComReferencia(
     const minKey = `${mapeamento.campo}_min` as keyof ReferenciaEco;
     const maxKey = `${mapeamento.campo}_max` as keyof ReferenciaEco;
 
-    const refMinRaw = referencia[minKey] as number | null | undefined;
-    const refMaxRaw = referencia[maxKey] as number | null | undefined;
+    const podeComparar = mapeamento.campo !== "fs" || Boolean(referencia.fs_source);
+    const refMinRaw = mapeamento.campo && podeComparar ? referencia[minKey] as number | null | undefined : null;
+    const refMaxRaw = mapeamento.campo && podeComparar ? referencia[maxKey] as number | null | undefined : null;
     let refMin = typeof refMinRaw === "number" ? refMinRaw : null;
     let refMax = typeof refMaxRaw === "number" ? refMaxRaw : null;
     if (key === "e_doppler" || key === "a_doppler") {
@@ -288,10 +292,8 @@ export const mapeamentoParametros: Record<string, string> = {
   "PLVES": "lvpw_s",
   "VDF": "edv",
   "VSF": "esv",
-  "FE_Teicholz": "ef",
+  // FE Teichholz e medidas 2D não têm intervalo validado no cadastro.
   "DeltaD_FS": "fs",
-  "FE_Teicholz_2D": "ef",
-  "DeltaD_FS_2D": "fs",
   "Aorta": "ao",
   "Atrio_esquerdo": "la",
   "AE_Ao": "la_ao",
@@ -309,8 +311,6 @@ export const mapeamentoParametros: Record<string, string> = {
   "IVSs": "ivs_s",
   "LVPWd": "lvpw_d",
   "LVPWs": "lvpw_s",
-  "FS": "fs",
-  "EF": "ef",
   "Ao": "ao",
   "LA": "la",
   "LA_Ao": "la_ao",
