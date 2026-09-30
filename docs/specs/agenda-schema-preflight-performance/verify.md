@@ -60,3 +60,14 @@ O smoke confirmou `200` no host canônico
 `stage.fortcordis.com.br` para o canônico e `401` na API protegida sem
 credenciais. O alias `www.stage.fortcordis.com.br` permaneceu sem resolução
 DNS, tratado como pendência independente do comportamento da aplicação.
+
+## Promoção e revalidação de produção
+
+- A mudança e sua evidência foram promovidas pelo PR #232 no snapshot
+  `62a9ec48`; o deploy de produção `36198504375` terminou com sucesso em
+  2026-09-25.
+- Em 2026-09-30, o painel autenticado de produção no release atual `3ef1d879`
+  mostrou 32 amostras da rota principal, p95 de `369,81 ms`, consultas p95 `7`
+  e zero 5xx. O valor permanece abaixo da meta de 1.200 ms, embora a amostra
+  atual seja menor e a carga de produção não seja comparável diretamente à
+  coleta controlada de stage.

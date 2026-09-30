@@ -63,3 +63,16 @@
 - A evidência direciona a próxima otimização para a inspeção de schema ainda
   presente no caminho crítico da rota principal; o trabalho está especificado
   em `agenda-schema-preflight-performance`.
+
+## Validação de produção — 2026-09-30
+
+- PERF-21 e a otimização PERF-22 chegaram a produção pelo PR #232, snapshot
+  `62a9ec48`; o deploy `36198504375` terminou com sucesso.
+- O painel autenticado do release atual `3ef1d879` continuou separando as cinco
+  leituras da Agenda e exibindo banco, aplicação e consultas, sem 5xx.
+- Na janela de 24 horas, a rota principal tinha 32 amostras e p95 de
+  `369,81 ms`; `configuracao` 8 amostras e p95 `302,56 ms`; `relacionados` 11
+  e p95 `157,76 ms`; `resumo-financeiro` 4 e p95 `355,39 ms`; `stream` 12 e
+  p95 `153,35 ms`.
+- A amostra do release atual comprova a operação da instrumentação em produção,
+  mas não substitui a comparação representativa de 100 leituras feita em stage.

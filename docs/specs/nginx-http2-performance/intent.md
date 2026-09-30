@@ -23,7 +23,7 @@ Habilitar HTTP/2 de forma controlada nos quatro vhosts HTTPS que compartilham o 
 - Criar backup, validar a configuracao, recarregar Nginx e testar a negociacao HTTP/2.
 - Restaurar automaticamente o backup se qualquer etapa falhar.
 
-## Bloqueio confirmado em stage
+## Historico do bloqueio e desfecho
 
 Em 2026-09-03, a alteracao isolada de `fortcordis-stage` passou em
 `nginx -t`, mas a conexao local continuou em HTTP/1.1; o helper restaurou o
@@ -35,9 +35,14 @@ Na tentativa atomica anterior, a negociacao continuou em HTTP/1.1 mesmo apos
 `nginx -t`; a rotina restaurou o backup e o deploy reverteu stage. O inventario
 somente-leitura de 2026-09-06 encontrou quatro vhosts ativos no socket
 `0.0.0.0:443`: `fortcordis-app`, `fortcordis-stage`, `fortcordis-com-br` e
-`fortcordis-www`. Todos estao sem HTTP/2. A autorizacao atual cobre os quatro
-arquivos em uma escrita atomica; uma falha em configuracao, reload ou ALPN deve
-restaurar todo o conjunto.
+`fortcordis-www`. Naquele momento, todos estavam sem HTTP/2. A operacao
+autorizada cobriu os quatro arquivos em uma escrita atomica; uma falha em
+configuracao, reload ou ALPN restauraria todo o conjunto.
+
+O snapshot `f5165ddd` resolveu a corrida de troca dos workers e foi publicado
+em stage e producao em 2026-09-06. A revalidacao externa de 2026-09-30 confirmou
+HTTP/2 nos seis hosts e ALPN `h2` nos quatro hosts canonicos. O bloqueio esta
+encerrado; backups e rollback continuam como protecao para futuras mudancas.
 
 ## Fora de escopo
 

@@ -28,8 +28,9 @@
 - [x] Smoke autenticado em stage concluído no release `75a58ba`: Ordens e
   Cobranças apareceram como grupos distintos, com ao menos 20 amostras cada,
   `truncated=false`, p95 abaixo de 1.200 ms e zero 5xx.
-- [ ] A janela operacional preferencial de 100 amostras e a validação em
-  produção permanecem registradas em
+- [x] A janela controlada de stage atingiu 108 amostras de Ordens e 101 de
+  Cobranças no release `dff65007`, com p95 abaixo de 1.200 ms e zero 5xx.
+- [ ] A validação representativa por release em produção permanece registrada em
   `docs/specs/financeiro-runtime-latency-observability/verify.md`.
 
 ## Extensão PERF-20 — visibilidade da cauda máxima
@@ -50,4 +51,4 @@
 - [x] Painel exibe p95 de aplicação e consultas sem dados sensíveis.
 - [x] Migração idempotente, 1.413 testes backend, 409 testes Vitest, 9 testes
   Node, lint, typecheck, build, diff e guardrail SDD aprovados localmente.
-- [ ] Stage coleta janela representativa por rota antes de qualquer otimização.
+- [x] Stage coletou janela representativa por rota antes de qualquer otimização.
