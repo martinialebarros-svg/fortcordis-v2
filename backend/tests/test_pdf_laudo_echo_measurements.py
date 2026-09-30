@@ -68,11 +68,12 @@ def _pdf_text(payload: dict) -> str:
 class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
     def test_primary_bibliography_follows_qualitative_analysis_in_smaller_type(self) -> None:
         payload = _base_report("modo_m")
+        payload["paciente"]["peso"] = "15"
         payload["qualitativa"] = {"vasos": "Descrição qualitativa de teste."}
         payload["medidas"]["TAPSE"] = "12"
         payload["medidas"]["MAPSE"] = "8"
         payload["referencia_eco"] = aplicar_defaults_publicados_caninos({
-            "especie": "Canina", "peso_kg": 10,
+            "especie": "Canina", "peso_kg": 15,
             "fs_min": 25, "fs_max": 45,
             "tapse_min": None, "tapse_max": None,
         })
@@ -86,6 +87,8 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("Schober & Luis Fuentes (2001)", text)
         self.assertNotIn("Spalla et al.", text)
         self.assertNotIn("ECOS Vet", text)
+        self.assertNotIn("Faixas selecionadas no cadastro", text)
+        self.assertNotIn("O cadastro não identifica a publicação", text)
         self.assertLess(create_pdf_styles()["ReferenciaTexto"].fontSize, create_pdf_styles()["Normal"].fontSize)
         last_page = reader.pages[-1].extract_text() or ""
         self.assertIn("Descrição qualitativa de teste", last_page)
@@ -103,13 +106,14 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertNotIn("Cornell et al.", text)
         self.assertNotIn("Pariaut et al.", text)
 
-    def test_bibliography_does_not_attribute_unknown_catalog_range_to_a_paper(self) -> None:
+    def test_2d_unknown_catalog_range_adds_no_bibliography_or_catalog_note(self) -> None:
         payload = _base_report("2d")
         payload["medidas"] = {"DIVEd_2D": "32", "VE_tecnica_relatorio": "2d"}
         payload["referencia_eco"] = {"especie": "Canina", "peso_kg": 10, "lvid_d_min": 20, "lvid_d_max": 40}
         text = _pdf_text(payload)
         self.assertNotIn("Cornell et al.", text)
-        self.assertIn("O cadastro não identifica a publicação correspondente a cada intervalo", text)
+        self.assertNotIn("REFERÊNCIAS BIBLIOGRÁFICAS", text)
+        self.assertNotIn("Faixas selecionadas no cadastro", text)
         self.assertNotIn("ECOS Vet", text)
 
     def test_pdf_uses_sourced_fs_and_omits_teichholz_ef_interval(self) -> None:
@@ -382,7 +386,7 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
 
         self.assertIn("20.00 - 40.00 mm", text)
         self.assertNotIn("3.50 - 5.50 mm", text)
-        self.assertIn("Faixas selecionadas no cadastro", text)
+        self.assertNotIn("Faixas selecionadas no cadastro", text)
         self.assertNotIn("TAPSE pode usar faixa auxiliar por peso do sistema", text)
         self.assertNotIn("Traço indica faixa indisponível", text)
 
