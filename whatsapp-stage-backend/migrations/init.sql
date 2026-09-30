@@ -213,6 +213,21 @@ ALTER TABLE approved_template_messages
 CREATE INDEX IF NOT EXISTS ix_approved_template_messages_subject
   ON approved_template_messages (subject_type, subject_id, created_at);
 
+CREATE TABLE IF NOT EXISTS report_pdf_messages (
+  id BIGSERIAL PRIMARY KEY,
+  laudo_id BIGINT NOT NULL,
+  conversation_id BIGINT NOT NULL REFERENCES conversations(id),
+  destination VARCHAR(32) NOT NULL,
+  idempotency_key VARCHAR(128) NOT NULL UNIQUE,
+  request_hash VARCHAR(64) NOT NULL,
+  filename VARCHAR(160) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  wa_media_id VARCHAR(160),
+  wa_message_id VARCHAR(160) UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Cliques em botoes de modelos aprovados genericos (fora do fluxo dedicado
 -- de reserva). Payloads sao opacos e ja vem com a "acao" da definicao do
 -- catalogo (approvedTemplates.ts) gravada em button_bindings.
