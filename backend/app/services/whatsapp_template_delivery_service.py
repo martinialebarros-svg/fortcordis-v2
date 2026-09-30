@@ -145,3 +145,44 @@ def send_approved_document_template(
     if not isinstance(payload, dict) or not payload.get("message_id") or not payload.get("media_id"):
         raise WhatsAppTemplateDeliveryError("Resposta invalida do servico do WhatsApp para o PDF.")
     return payload
+
+
+def send_report_pdf_in_customer_window(
+    *, laudo_id: int, destination: str, idempotency_key: str,
+    document_bytes: bytes, filename: str,
+) -> dict[str, Any]:
+    """Send a report PDF only while the recipient's 24-hour service window is open."""
+    if not settings.WHATSAPP_AGENDA_ENABLED:
+        raise HTTPException(status_code=503, detail="WhatsApp nao esta habilitado.")
+    token = str(settings.WHATSAPP_AGENDA_INTERNAL_TOKEN or "").strip()
+    base_url = str(settings.WHATSAPP_AGENDA_SERVICE_URL or "").strip().rstrip("/")
+    if not token or not base_url:
+        raise HTTPException(status_code=503, detail="Integracao interna do WhatsApp nao configurada.")
+    if not document_bytes or len(document_bytes) > 8 * 1024 * 1024 or not document_bytes.startswith(b"%PDF"):
+        raise WhatsAppTemplateDeliveryError("O laudo precisa ser um PDF valido de ate 8 MiB.")
+    safe_filename = re.sub(r"[^a-zA-Z0-9._-]+", "_", filename).lstrip(".")
+    if not safe_filename or not safe_filename.lower().endswith(".pdf"):
+        raise WhatsAppTemplateDeliveryError("Nome de arquivo PDF invalido.")
+    try:
+        response = httpx.post(
+            f"{base_url}/automation/report-pdf",
+            data={"laudo_id": str(laudo_id), "destination": destination,
+                  "idempotency_key": idempotency_key, "filename": safe_filename},
+            files={"document": (safe_filename, document_bytes, "application/pdf")},
+            headers={"X-WhatsApp-Internal-Token": token},
+            timeout=max(30, int(settings.WHATSAPP_AGENDA_TIMEOUT_SECONDS or 15)),
+        )
+    except httpx.HTTPError as exc:
+        raise WhatsAppTemplateDeliveryError("Servico do WhatsApp indisponivel para enviar o laudo.") from exc
+    if response.status_code >= 400:
+        try:
+            detail = response.json().get("error")
+        except Exception:
+            detail = None
+        if response.status_code == 409:
+            raise HTTPException(status_code=409, detail=str(detail or "Envio indisponivel nesta conversa."))
+        raise WhatsAppTemplateDeliveryError(str(detail or "Falha ao enviar o laudo pelo WhatsApp."))
+    payload = response.json()
+    if not isinstance(payload, dict) or not payload.get("message_id"):
+        raise WhatsAppTemplateDeliveryError("Resposta invalida do servico do WhatsApp.")
+    return payload

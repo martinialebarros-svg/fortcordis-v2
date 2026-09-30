@@ -63,6 +63,7 @@ from app.services.whatsapp_agenda_service import normalize_whatsapp_number
 from app.services.whatsapp_template_delivery_service import (
     WhatsAppTemplateDeliveryError,
     send_approved_utility_template,
+    send_report_pdf_in_customer_window,
 )
 from app.utils.ecocardiograma_medidas import (
     extrair_medidas_ecocardiograma_da_descricao,
@@ -1989,12 +1990,22 @@ def listar_laudos(
         },
     )
 
+    agendamento_ids = [laudo.agendamento_id for laudo in laudos_rows if laudo.agendamento_id]
+    from app.models.agendamento import Agendamento
+    domiciliar_ids = {
+        item.id for item in db.query(Agendamento).filter(
+            Agendamento.id.in_(agendamento_ids),
+            Agendamento.origem_atendimento == "domiciliar",
+        ).all()
+    } if agendamento_ids else set()
+
     resultado = []
     for laudo, paciente_nome, tutor_nome, clinica_nome, veterinario_parceiro_nome in rows:
         resultado.append({
             "id": laudo.id,
             "paciente_id": laudo.paciente_id,
             "agendamento_id": laudo.agendamento_id,
+            "atendimento_domiciliar": laudo.agendamento_id in domiciliar_ids,
             "paciente_nome": paciente_nome or "Desconhecido",
             "paciente_tutor": tutor_nome or "",
             "clinica": clinica_nome or "",
@@ -4026,6 +4037,66 @@ def revogar_link_laudo_portal(
         "revogados": revogados,
         "dispositivos_revogados": dispositivos_revogados,
     }
+
+
+@router.post("/laudos/{laudo_id}/whatsapp-tutor")
+def enviar_laudo_domiciliar_ao_tutor(
+    laudo_id: int,
+    payload: PortalReportWhatsAppRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.models.agendamento import Agendamento
+    from app.models.paciente import Paciente
+    from app.models.tutor import Tutor
+
+    laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
+    if laudo is None:
+        raise HTTPException(status_code=404, detail="Laudo nao encontrado.")
+    if laudo.status not in {"Finalizado", PORTAL_RELEASED_STATUS}:
+        raise HTTPException(status_code=409, detail="Finalize o laudo antes de enviar o PDF.")
+    agendamento = db.query(Agendamento).filter(Agendamento.id == laudo.agendamento_id).first() if laudo.agendamento_id else None
+    if agendamento is None or agendamento.origem_atendimento != "domiciliar":
+        raise HTTPException(status_code=409, detail="Envio ao tutor disponivel apenas para atendimento domiciliar.")
+    paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
+    if paciente is None or not paciente.tutor_id or (agendamento.tutor_id and agendamento.tutor_id != paciente.tutor_id):
+        raise HTTPException(status_code=409, detail="Tutor do paciente nao confirmado para este atendimento.")
+    tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first()
+    destination = normalize_whatsapp_number(tutor.whatsapp) if tutor and tutor.whatsapp else None
+    if not destination:
+        raise HTTPException(status_code=409, detail="Tutor sem WhatsApp cadastrado.")
+    if payload.destination and normalize_whatsapp_number(payload.destination) != destination:
+        raise HTTPException(status_code=422, detail="O numero informado nao pertence ao tutor do paciente.")
+
+    pdf_externo = _extrair_pdf_externo_laudo(laudo.anexos)
+    if pdf_externo:
+        anexo = _buscar_anexo_pdf_externo_laudo(db, laudo)
+        if anexo is None:
+            raise HTTPException(status_code=409, detail="PDF original do laudo indisponivel.")
+        with open(anexo.caminho_arquivo, "rb") as arquivo:
+            pdf_bytes = arquivo.read(8 * 1024 * 1024 + 1)
+        filename = f"laudo_{laudo.id}.pdf"
+    else:
+        pdf = render_laudo_pdf(db, laudo.id, current_user)
+        pdf_bytes, filename = pdf.content, pdf.filename
+
+    try:
+        result = send_report_pdf_in_customer_window(
+            laudo_id=laudo.id, destination=destination,
+            idempotency_key=payload.idempotency_key,
+            document_bytes=pdf_bytes, filename=filename,
+        )
+    except WhatsAppTemplateDeliveryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    registrar_auditoria(
+        current_user=current_user, modulo="laudos", entidade="laudo", entidade_id=laudo.id,
+        acao="LAUDO_DOMICILIAR_PDF_WHATSAPP_ENVIADO",
+        descricao="PDF do laudo domiciliar enviado ao tutor pelo WhatsApp oficial.",
+        detalhes={"destination_suffix": destination[-4:], "provider_message_id": result.get("message_id"),
+                  "idempotent": bool(result.get("idempotent"))}, request=request,
+    )
+    return result
 
 
 @router.post("/laudos/{laudo_id}/pdf-jobs", response_model=dict)
