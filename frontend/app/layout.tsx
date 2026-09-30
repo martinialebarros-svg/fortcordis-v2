@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import { APP_BASE_URL, APP_PREVIEW_IMAGE, buildPortalMetadata } from "@/lib/portal-metadata";
 import { DashboardShell } from "./layout-dashboard";
 import "./globals.css";
 
-const inter = Inter({
+const inter = localFont({
+  src: "../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
   variable: "--font-inter",
-  subsets: ["latin"],
+  weight: "100 900",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
