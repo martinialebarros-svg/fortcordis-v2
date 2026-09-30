@@ -32,9 +32,9 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   VSF: { campo: "esv", nome: "VSF (Volume sistólico final)", categoria: "funcao" },
   FE_Teicholz: { campo: "", nome: "FE (Fração de ejeção - Teicholz)", categoria: "funcao" },
   DeltaD_FS: { campo: "fs", nome: "Delta D / %FS (Encurtamento)", categoria: "funcao" },
-  VDF_2D: { campo: "", nome: "VDF 2D (Volume diastólico final)", categoria: "funcao" },
-  VSF_2D: { campo: "", nome: "VSF 2D (Volume sistólico final)", categoria: "funcao" },
-  FE_Teicholz_2D: { campo: "", nome: "FE 2D (Fração de ejeção - Teicholz)", categoria: "funcao" },
+  VDF_2D: { campo: "", nome: "VDF 2D (Teichholz)", categoria: "funcao" },
+  VSF_2D: { campo: "", nome: "VSF 2D (Teichholz)", categoria: "funcao" },
+  FE_Teicholz_2D: { campo: "", nome: "FE 2D (Teichholz)", categoria: "funcao" },
   DeltaD_FS_2D: { campo: "", nome: "Delta D / %FS 2D (Encurtamento)", categoria: "funcao" },
   TAPSE: { campo: "tapse", nome: "TAPSE", categoria: "funcao" },
   MAPSE: { campo: "mapse", nome: "MAPSE", categoria: "funcao" },
@@ -85,6 +85,29 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   Vmax_Ao: { campo: "vmax_ao", nome: "Vmax Aorta", categoria: "doppler" },
   Vmax_Pulm: { campo: "vmax_pulm", nome: "Vmax Pulmonar", categoria: "doppler" },
 };
+
+const PAREDES_2D = new Set(["SIVd_2D", "SIVs_2D", "PLVEd_2D", "PLVES_2D"]);
+const TEICHOLZ_2D = new Set(["VDF_2D", "VSF_2D", "FE_Teicholz_2D"]);
+
+function motivoSemFaixa2D(
+  key: string,
+  especie: string,
+  pesoPacienteKg: number | undefined,
+  plano2D: Echo2DView | "",
+  fsCompativelComPar: boolean,
+): string {
+  if (PAREDES_2D.has(key)) return "Sem intervalo 2D por peso para esta espessura nas fontes adotadas";
+  if (TEICHOLZ_2D.has(key)) return "Teichholz: intervalos 2D de Simpson não são aplicáveis";
+  if (!/^canin/i.test(especie)) return "Sem faixa 2D desta população nas fontes adotadas";
+  if (!plano2D) return "Confirme cão adulto e vista 2D para comparar";
+  if (!Number.isFinite(pesoPacienteKg) || pesoPacienteKg === undefined || pesoPacienteKg < 2.6 || pesoPacienteKg > 67.8) {
+    return "Peso fora da população estudada (2,6 a 67,8 kg)";
+  }
+  if (key === "DeltaD_FS_2D" && !fsCompativelComPar) {
+    return "Encurtamento exige DIVEd e DIVEs 2D compatíveis";
+  }
+  return "Sem faixa 2D aplicável nas fontes adotadas";
+}
 
 export function compararMedidasComReferencia(
   medidas: Record<string, string>,
@@ -138,7 +161,7 @@ export function compararMedidasComReferencia(
         referencia_max: refMax,
         status: "nao_avaliado",
         interpretacao: key.endsWith("_2D")
-          ? "Sem faixa 2D aplicável à técnica informada"
+          ? motivoSemFaixa2D(key, referencia.especie, pesoPacienteKg, plano2D, fsCompativelComPar)
           : "Faixa não cadastrada",
         categoria: mapeamento.categoria,
       };

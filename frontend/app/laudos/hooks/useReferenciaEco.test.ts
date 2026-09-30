@@ -83,9 +83,10 @@ describe("compararMedidasComReferencia", () => {
         referencia_min: null,
         referencia_max: null,
         status: "nao_avaliado",
-        interpretacao: "Sem faixa 2D aplicável à técnica informada",
       });
     }
+    expect(comparacoes.DIVEd_2D.interpretacao).toBe("Confirme cão adulto e vista 2D para comparar");
+    expect(comparacoes.FE_Teicholz_2D.interpretacao).toBe("Teichholz: intervalos 2D de Simpson não são aplicáveis");
   });
 
   it("usa faixas 2D publicadas apenas para diâmetros e FEC caninos com vista confirmada", () => {
@@ -119,6 +120,10 @@ describe("compararMedidasComReferencia", () => {
     for (const key of ["SIVd_2D", "PLVEd_2D", "FE_Teicholz_2D"]) {
       expect(result[key]).toMatchObject({ status: "nao_avaliado", referencia_min: null, referencia_max: null });
     }
+    expect(result.SIVd_2D.interpretacao).toBe("Sem intervalo 2D por peso para esta espessura nas fontes adotadas");
+    expect(result.PLVEd_2D.interpretacao).toBe("Sem intervalo 2D por peso para esta espessura nas fontes adotadas");
+    expect(result.FE_Teicholz_2D.interpretacao).toBe("Teichholz: intervalos 2D de Simpson não são aplicáveis");
+    expect(result.FE_Teicholz_2D.nome).toBe("FE 2D (Teichholz)");
     expect(compararMedidasComReferencia(
       { ...medidas, DeltaD_FS_2D: "45" }, referencia, "eixo_curto", 13.6,
     ).DeltaD_FS_2D.status).toBe("nao_avaliado");
@@ -139,6 +144,10 @@ describe("compararMedidasComReferencia", () => {
     ] as const) {
       expect(compararMedidasComReferencia(medidas, referencia, "eixo_curto", peso).DIVES_2D.status).toBe("nao_avaliado");
     }
+    expect(compararMedidasComReferencia(medidas, referenciaCanina, "eixo_curto", 2.5).DIVEd_2D.interpretacao)
+      .toBe("Peso fora da população estudada (2,6 a 67,8 kg)");
+    expect(compararMedidasComReferencia({ ...medidas, DeltaD_FS_2D: "20" }, referenciaCanina, "eixo_curto", 13.6).DeltaD_FS_2D.interpretacao)
+      .toBe("Encurtamento exige DIVEd e DIVEs 2D compatíveis");
   });
 
   it("preserva FE e encurtamento 2D informados pelo equipamento", () => {
