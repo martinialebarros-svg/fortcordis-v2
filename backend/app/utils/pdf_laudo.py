@@ -23,6 +23,7 @@ from app.utils.echo_unit_provenance import (
     ambiguous_echo_length_keys,
     normalize_confirmed_echo_lengths,
 )
+from app.utils.referencia_eco_defaults import normalizar_especie_referencia
 
 
 # Cores do tema - preto e cinza com fontes brancas (teste)
@@ -335,6 +336,24 @@ def create_pdf_styles():
         textColor=COR_CINZA_MEDIO,
         alignment=1,
         fontName='Helvetica-Oblique'
+    ))
+    styles.add(ParagraphStyle(
+        'ReferenciaTitulo',
+        parent=styles['Normal'],
+        fontSize=8.5,
+        leading=10,
+        spaceAfter=2,
+        textColor=COR_CINZA_ESCURO,
+        fontName='Helvetica-Bold',
+    ))
+    styles.add(ParagraphStyle(
+        'ReferenciaTexto',
+        parent=styles['Normal'],
+        fontSize=8,
+        leading=10,
+        spaceAfter=1,
+        textColor=COR_CINZA_ESCURO,
+        fontName='Helvetica',
     ))
     
     return styles
@@ -872,6 +891,78 @@ def criar_secao_qualitativa(qualitativa: Dict[str, str], assinatura: Optional[Li
     return elements
 
 
+def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
+    """Relaciona estudos primários pertinentes, sem atribuir faixas legadas a eles."""
+    paciente = dados_pdf.get("paciente") or {}
+    medidas = dados_pdf.get("medidas") or {}
+    referencia = dados_pdf.get("referencia_eco") or {}
+    if not referencia:
+        return []
+    especie = normalizar_especie_referencia(paciente.get("especie") or "")
+    modo_m = str(medidas.get("VE_tecnica_relatorio") or "").lower() != "2d"
+    tem_modo_m = modo_m and any(_to_float(medidas.get(chave)) for chave in (
+        "DIVEd", "DIVES", "SIVd", "SIVs", "PLVEd", "PLVES",
+    ))
+    tapse = _to_float(medidas.get("TAPSE")) is not None
+    mapse = _to_float(medidas.get("MAPSE")) is not None
+
+    estudos: List[str] = []
+    if especie == "Canina":
+        if tem_modo_m:
+            estudos.append(
+                "Cornell et al. (2004). Allometric scaling of M-mode cardiac measurements "
+                "in normal adult dogs. DOI: 10.1111/j.1939-1676.2004.tb02551.x."
+            )
+        if modo_m and _to_float(medidas.get("DeltaD_FS")) is not None and referencia.get("fs_source"):
+            estudos.append(
+                "Visser et al. (2019). Echocardiographic quantitation of left heart size "
+                "and function in 122 healthy dogs. DOI: 10.1111/jvim.15562."
+            )
+        if tapse:
+            estudos.append(
+                "Pariaut et al. (2012). Tricuspid annular plane systolic excursion "
+                "in dogs. DOI: 10.1111/j.1939-1676.2012.00981.x."
+            )
+            if referencia.get("tapse_source") == "Visser et al. 2015":
+                estudos.append(
+                    "Visser et al. (2015). Echocardiographic assessment of right "
+                    "ventricular systolic function in conscious healthy dogs. "
+                    "DOI: 10.1016/j.jvc.2014.10.003."
+                )
+        if mapse:
+            estudos.append(
+                "Schober &amp; Luis Fuentes (2001). Mitral annulus motion in normal dogs "
+                "and dogs with cardiac disease. DOI: 10.1111/j.1740-8261.2001.tb00904.x."
+            )
+    elif especie == "Felina":
+        if tem_modo_m or (modo_m and referencia.get("fs_source") and _to_float(medidas.get("DeltaD_FS")) is not None):
+            estudos.append(
+                "Häggström et al. (2016). Effect of body weight on echocardiographic "
+                "measurements in 19,866 pure-bred cats. DOI: 10.1111/jvim.14569."
+            )
+        if tapse or mapse:
+            estudos.append(
+                "Spalla et al. (2017). Mitral and tricuspid annular plane systolic "
+                "excursion in cats with hypertrophic cardiomyopathy. DOI: 10.1111/jvim.14697."
+            )
+
+    styles = create_pdf_styles()
+    elementos = [Spacer(1, 3 * mm)]
+    if estudos:
+        elementos.append(Paragraph("REFERÊNCIAS BIBLIOGRÁFICAS", styles["ReferenciaTitulo"]))
+        elementos.extend(Paragraph(estudo, styles["ReferenciaTexto"]) for estudo in estudos)
+    if referencia:
+        especie_ref = _esc(referencia.get("especie") or "")
+        peso_ref = _to_float(referencia.get("peso_kg"))
+        peso_ref_texto = f", {peso_ref:g} kg" if peso_ref is not None else ""
+        elementos.append(Paragraph(
+            f"Faixas selecionadas no cadastro: {especie_ref}{peso_ref_texto}. "
+            "O cadastro não identifica a publicação correspondente a cada intervalo.",
+            styles["ReferenciaTexto"],
+        ))
+    return elementos
+
+
 def criar_secao_pressao_arterial(pressao: Optional[Dict[str, Any]]) -> List:
     """Cria secao de pressao arterial para laudo eco quando houver dados anexados."""
     elements = []
@@ -1346,21 +1437,12 @@ def gerar_pdf_laudo_eco(
             ))
             elements.append(Spacer(1, 2*mm))
         referencia_selecionada = dados_pdf.get("referencia_eco")
-        if referencia_selecionada:
-            especie_ref = _esc(referencia_selecionada.get("especie") or "")
-            peso_ref = _to_float(referencia_selecionada.get("peso_kg"))
-            peso_ref_texto = f", {peso_ref:g} kg" if peso_ref is not None else ""
-            nota_referencia = f"Referência selecionada do cadastro: {especie_ref}{peso_ref_texto}."
-        else:
-            nota_referencia = "Faixas de referência indisponíveis para este paciente; traço indica faixa indisponível."
-        elements.append(Paragraph(nota_referencia, create_pdf_styles()["Normal"]))
-        medidas_referencia = dados_pdf.get("medidas") or {}
-        modo_m_referencia = str(medidas_referencia.get("VE_tecnica_relatorio") or "").lower() != "2d"
-        if modo_m_referencia and referencia_selecionada and _to_float(medidas_referencia.get("DeltaD_FS")):
-            fonte_fs = referencia_selecionada.get("fs_source")
-            if fonte_fs:
-                elements.append(Paragraph(f"FS (Modo M): {_esc(fonte_fs)}.", create_pdf_styles()["Normal"]))
-        elements.append(Spacer(1, 2*mm))
+        if not referencia_selecionada:
+            elements.append(Paragraph(
+                "Faixas de referência indisponíveis para este paciente; traço indica faixa indisponível.",
+                create_pdf_styles()["Normal"],
+            ))
+            elements.append(Spacer(1, 2 * mm))
         
         # =================================================================
         # Definição dos parâmetros - Layout conforme modelo de referência
@@ -1521,6 +1603,7 @@ def gerar_pdf_laudo_eco(
         vet_nome = nome_veterinario or dados_pdf.get('veterinario_nome') or "Médico Veterinário"
         vet_crmv = crmv or dados_pdf.get('veterinario_crmv') or ""
         assinatura = criar_secao_assinatura(vet_nome, vet_crmv, temp_assinatura_path, compacto=True)
+        referencias = criar_secao_referencias_eco(dados_pdf)
         secao_pressao = criar_secao_pressao_arterial(pressao_arterial)
         qualitativa_preenchida = bool(qualitativa and any(
             qualitativa.get(k, '').strip() for k in ['valvas', 'camaras', 'ad_vd', 'funcao', 'pericardio', 'vasos']
@@ -1531,7 +1614,7 @@ def gerar_pdf_laudo_eco(
         if qualitativa_preenchida:
             elements.extend(criar_secao_qualitativa(
                 qualitativa,
-                assinatura=assinatura if assinatura_com_qualitativa else None,
+                assinatura=assinatura + referencias if assinatura_com_qualitativa else None,
             ))
 
         # Pressao arterial anexada ao laudo ecocardiografico (quando existir).
@@ -1540,6 +1623,8 @@ def gerar_pdf_laudo_eco(
         # 5. Assinatura
         if not assinatura_com_qualitativa:
             elements.extend(assinatura)
+            if referencias:
+                elements.append(_bloco_sem_quebra(*referencias))
 
         # 6. Espaço antes das imagens (rodapé será adicionado automaticamente em todas as páginas)
         elements.append(Spacer(1, 5*mm))

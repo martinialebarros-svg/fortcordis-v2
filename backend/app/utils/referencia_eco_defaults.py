@@ -67,6 +67,7 @@ def aplicar_defaults_publicados_caninos(
 ) -> dict[str, Any]:
     resultado = dict(referencia)
     resultado.pop("fs_source", None)
+    resultado.pop("tapse_source", None)
     especie = normalizar_especie_referencia(resultado.get("especie"))
     peso_resolvido = _coerce_positive_float(peso_kg)
     if peso_resolvido is None:
@@ -122,6 +123,7 @@ def aplicar_defaults_publicados_caninos(
         tapse_min, tapse_max = obter_tapse_canino_por_peso(peso_resolvido)
         resultado["tapse_min"] = tapse_min
         resultado["tapse_max"] = tapse_max
+        resultado["tapse_source"] = "Visser et al. 2015"
 
     # Schober e Luis Fuentes (2001) publicaram ICs das médias de MAPSE,
     # não intervalos de referência individuais; não preencher MAPSE com esses ICs.
