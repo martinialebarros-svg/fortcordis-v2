@@ -77,6 +77,7 @@ export interface ReferenciaEco {
 export interface ComparacaoMedida {
   nome: string;
   valor_medido: string;
+  fonte?: string;
   referencia_min: number | null;
   referencia_max: number | null;
   status: "normal" | "aumentado" | "diminuido" | "nao_avaliado";

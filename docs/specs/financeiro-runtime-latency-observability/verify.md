@@ -9,7 +9,7 @@
 | CA-003 | testes focados ignoram detalhe, método ausente e não-GET, inclusive com prefixo sobreposto | ok |
 | CA-004 | `test_http_latency_monitor_warns_when_endpoint_limits_are_exceeded` | ok |
 | CA-005 | 25 testes focados, suíte backend completa e avaliação do guardrail SDD | ok |
-| CA-006 | release correto, rotas separadas, `truncated=false`, amostra preliminar >= 20, p95 abaixo de 1.200 ms e zero 5xx em stage | parcial — stage aprovado; janela operacional preferencial de 100 amostras e produção permanecem pendentes |
+| CA-006 | release correto, rotas separadas, `truncated=false`, amostra controlada >= 100, p95 abaixo de 1.200 ms e zero 5xx em stage | ok_stage_controlado — produção permanece em observação por release |
 
 ## Validações executadas em 2026-09-19
 
@@ -70,6 +70,40 @@ Smokes HTTP externos após o deploy:
 - [x] Confirmar em stage as duas rotas exatas, separadas e no release correto.
 - [x] Executar somente `GET`, sem pagamentos, baixas, envios ou exclusões.
 - [x] Obter ao menos 20 amostras por rota/release com `truncated=false`.
-- [ ] Preferir 100 amostras por rota/release antes de comparar releases ou
-  concluir sobre a cauda p99.
-- [ ] Validar em produção somente após promover o snapshot exato de stage.
+- [x] Obter 100 amostras controladas por rota/release em stage antes de
+  interpretar a cauda p99.
+- [x] Confirmar em produção que as duas rotas permanecem separadas no painel.
+- [ ] Obter janela representativa por release em produção antes de comparar a
+  cauda ou propor nova otimização.
+
+## Janela controlada de stage — 2026-09-30
+
+- Release validado: `dff6500760cdbcfbe537feacee8e8a3c820515ba`.
+- Coleta autenticada, sequencial e somente `GET`, sem pagamento, baixa, envio,
+  exclusao ou escrita operacional.
+- O painel estava em `truncated=false` e ambas as rotas permaneceram separadas.
+
+| Rota exata | Amostras | p50 | p95 | p99 | Máximo | Banco p95 | App p95 | Consultas p95 | Pool p95 | 5xx |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `/api/v1/ordens-servico` | 108 | 70,88 ms | 335,33 ms | 409,16 ms | 4.692,42 ms | 91,04 ms | 125,86 ms | 46 | 1,11 ms | 0 |
+| `/api/v1/ordens-servico/cobrancas` | 101 | 54,25 ms | 76,97 ms | 126,23 ms | 304,35 ms | 44,27 ms | 30,18 ms | 4 | 0,03 ms | 0 |
+
+As duas rotas atendem a meta inicial de p95 abaixo de 1.200 ms. Ordens teve um
+pico isolado de 4.692,42 ms que elevou o maximo sem deslocar p95 ou p99; ele
+permanece como sinal de cauda para observacao, nao como prova de regressao.
+As recargas sinteticas registraram 46 consultas p95 para Ordens, enquanto a
+producao registrou 5 no mesmo grupo. A diferenca nao reproduz, por si so, um
+N+1 do endpoint: o teste unitario da listagem limita a rota a duas consultas de
+negocio, e a coleta de stage repetiu a interface em cadencia curta. Antes de
+qualquer PERF novo, a contagem deve ser reproduzida com uma unica requisicao
+instrumentada ou em trafego operacional.
+
+## Leitura de producao — 2026-09-30
+
+- A instrumentacao esta publicada e separa as duas rotas no painel real.
+- Nas ultimas 24 horas, o release `5e7b8f25` registrou 9 amostras de Ordens
+  (p95 240,70 ms) e 13 de Cobrancas (p95 221,33 ms), ambas sem 5xx.
+- O release atual `3ef1d879` ainda tinha apenas 3 amostras de Cobrancas
+  (p95 187,44 ms) e nenhuma de Ordens. A quantidade e insuficiente para fechar
+  comparacao por release; a validacao de producao continua pendente sem gerar
+  carga artificial ampla no ambiente real.

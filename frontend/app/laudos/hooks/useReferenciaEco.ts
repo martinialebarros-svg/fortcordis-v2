@@ -2,6 +2,8 @@
 
 import { useState, useCallback } from "react";
 import api from "@/lib/axios";
+import { getCanine2DReference } from "@/lib/echo-2d-reference";
+import type { Echo2DView } from "@/lib/echo-2d-reference";
 import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 
 // Mapeamento de parâmetros das medidas para os campos da referência
@@ -86,7 +88,9 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
 
 export function compararMedidasComReferencia(
   medidas: Record<string, string>,
-  referencia: ReferenciaEco
+  referencia: ReferenciaEco,
+  plano2D: Echo2DView | "" = "",
+  pesoPacienteKg?: number,
 ): Record<string, ComparacaoMedida> {
   const comparacoes: Record<string, ComparacaoMedida> = {};
 
@@ -102,9 +106,19 @@ export function compararMedidasComReferencia(
     const minKey = `${mapeamento.campo}_min` as keyof ReferenciaEco;
     const maxKey = `${mapeamento.campo}_max` as keyof ReferenciaEco;
 
+    const lvidD2D = Number.parseFloat(String(medidas.DIVEd_2D ?? "").replace(",", "."));
+    const lvidS2D = Number.parseFloat(String(medidas.DIVES_2D ?? "").replace(",", "."));
+    const fsDoPar = lvidD2D > 0 && lvidS2D > 0 && lvidS2D <= lvidD2D
+      ? ((lvidD2D - lvidS2D) / lvidD2D) * 100
+      : null;
+    const fsCompativelComPar = key !== "DeltaD_FS_2D" ||
+      (fsDoPar !== null && Math.abs(valorNumerico - fsDoPar) <= 1);
+    const faixa2D = /^canin/i.test(referencia.especie) && fsCompativelComPar
+      ? getCanine2DReference(key, pesoPacienteKg, plano2D)
+      : null;
     const podeComparar = mapeamento.campo !== "fs" || Boolean(referencia.fs_source);
-    const refMinRaw = mapeamento.campo && podeComparar ? referencia[minKey] as number | null | undefined : null;
-    const refMaxRaw = mapeamento.campo && podeComparar ? referencia[maxKey] as number | null | undefined : null;
+    const refMinRaw = faixa2D?.min ?? (mapeamento.campo && podeComparar ? referencia[minKey] as number | null | undefined : null);
+    const refMaxRaw = faixa2D?.max ?? (mapeamento.campo && podeComparar ? referencia[maxKey] as number | null | undefined : null);
     let refMin = typeof refMinRaw === "number" ? refMinRaw : null;
     let refMax = typeof refMaxRaw === "number" ? refMaxRaw : null;
     if (key === "e_doppler" || key === "a_doppler") {
@@ -123,7 +137,9 @@ export function compararMedidasComReferencia(
         referencia_min: refMin,
         referencia_max: refMax,
         status: "nao_avaliado",
-        interpretacao: "Faixa não cadastrada",
+        interpretacao: key.endsWith("_2D")
+          ? "Sem faixa 2D aplicável à técnica informada"
+          : "Faixa não cadastrada",
         categoria: mapeamento.categoria,
       };
       return;
@@ -134,13 +150,13 @@ export function compararMedidasComReferencia(
 
     if (valorNumerico < refMin) {
       status = "diminuido";
-      interpretacao = `Abaixo da faixa cadastrada (< ${refMin})`;
+      interpretacao = `Abaixo da faixa ${faixa2D ? "2D publicada" : "cadastrada"} (< ${refMin})`;
     } else if (valorNumerico > refMax) {
       status = "aumentado";
-      interpretacao = `Acima da faixa cadastrada (> ${refMax})`;
+      interpretacao = `Acima da faixa ${faixa2D ? "2D publicada" : "cadastrada"} (> ${refMax})`;
     } else {
       status = "normal";
-      interpretacao = "Dentro da faixa cadastrada";
+      interpretacao = faixa2D ? "Dentro da faixa 2D publicada" : "Dentro da faixa cadastrada";
     }
 
     comparacoes[key] = {
@@ -151,6 +167,7 @@ export function compararMedidasComReferencia(
       status,
       interpretacao,
       categoria: mapeamento.categoria,
+      fonte: faixa2D?.source,
     };
   });
 

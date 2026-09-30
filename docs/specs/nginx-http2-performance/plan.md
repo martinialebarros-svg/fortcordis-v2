@@ -23,6 +23,10 @@
 11. A tentativa `34059287314` confirmou modulo e quatro vhosts, mas o primeiro
     probe ocorreu cerca de 0,2 segundo apos o reload. Repetir a validacao com
     cinco probes limitados, em intervalo de um segundo, antes do rollback.
+12. Concluido no snapshot `f5165ddd`: stage `34060147592` e producao
+    `34061319523` aprovaram a espera dos workers e a negociacao HTTP/2. A
+    revalidacao de 2026-09-30 confirmou `h2`; nao repetir a escrita sem nova
+    evidencia de regressao.
 
 ## Rollback
 

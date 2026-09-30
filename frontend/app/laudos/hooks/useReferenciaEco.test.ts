@@ -83,8 +83,61 @@ describe("compararMedidasComReferencia", () => {
         referencia_min: null,
         referencia_max: null,
         status: "nao_avaliado",
-        interpretacao: "Faixa não cadastrada",
+        interpretacao: "Sem faixa 2D aplicável à técnica informada",
       });
+    }
+  });
+
+  it("usa faixas 2D publicadas apenas para diâmetros e FEC caninos com vista confirmada", () => {
+    const medidas = {
+      DIVEd_2D: "33.53",
+      DIVES_2D: "22.87",
+      SIVd_2D: "8.36",
+      PLVEd_2D: "10.29",
+      FE_Teicholz_2D: "60",
+      DeltaD_FS_2D: "31.8",
+    };
+    const referencia = {
+      ...referenciaCanina,
+      peso_kg: 15,
+      lvid_d_min: 21,
+      lvid_d_max: 30,
+      lvid_s_min: 12,
+      lvid_s_max: 20,
+      ivs_d_min: 5,
+      ivs_d_max: 8,
+    };
+    const result = compararMedidasComReferencia(medidas, referencia, "eixo_curto", 13.6);
+
+    for (const key of ["DIVEd_2D", "DIVES_2D", "DeltaD_FS_2D"]) {
+      expect(result[key]).toMatchObject({ status: "normal", interpretacao: "Dentro da faixa 2D publicada" });
+      expect(result[key].fonte).toContain("Visser et al. 2019; 2D, eixo curto");
+    }
+    expect([result.DIVEd_2D.referencia_min, result.DIVEd_2D.referencia_max]).toEqual([26.01, 36.73]);
+    expect([result.DIVES_2D.referencia_min, result.DIVES_2D.referencia_max]).toEqual([15.58, 25.87]);
+    expect([result.DeltaD_FS_2D.referencia_min, result.DeltaD_FS_2D.referencia_max]).toEqual([21.9, 49.3]);
+    for (const key of ["SIVd_2D", "PLVEd_2D", "FE_Teicholz_2D"]) {
+      expect(result[key]).toMatchObject({ status: "nao_avaliado", referencia_min: null, referencia_max: null });
+    }
+    expect(compararMedidasComReferencia(
+      { ...medidas, DeltaD_FS_2D: "45" }, referencia, "eixo_curto", 13.6,
+    ).DeltaD_FS_2D.status).toBe("nao_avaliado");
+  });
+
+  it("não transfere faixas 2D entre planos, espécies ou pesos fora da amostra", () => {
+    const medidas = { DIVEd_2D: "47.27", DIVES_2D: "26", DeltaD_FS_2D: "45" };
+    const curto = compararMedidasComReferencia(medidas, referenciaCanina, "eixo_curto", 13.6);
+    const longo = compararMedidasComReferencia(medidas, referenciaCanina, "eixo_longo", 13.6);
+    expect(curto.DIVES_2D.referencia_max).not.toBe(longo.DIVES_2D.referencia_max);
+    expect(curto.DeltaD_FS_2D.status).toBe("normal");
+    expect(longo.DeltaD_FS_2D.status).toBe("aumentado");
+
+    for (const [referencia, peso] of [
+      [{ ...referenciaCanina, especie: "Felina" as const }, 13.6],
+      [referenciaCanina, 2.5],
+      [referenciaCanina, 67.9],
+    ] as const) {
+      expect(compararMedidasComReferencia(medidas, referencia, "eixo_curto", peso).DIVES_2D.status).toBe("nao_avaliado");
     }
   });
 
