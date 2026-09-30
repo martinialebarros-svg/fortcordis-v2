@@ -23,6 +23,8 @@ Status: done
 | CA-008 | aceitacao | Browser em 1280x720 e 390x844: `scroll-behavior: smooth`, `animation-timeline: view()`, destinos com margem e copy acentuada | ok |
 | CA-009 | aceitacao | Revisao da hierarquia de copy em `frontend/app/page.tsx`, `frontend/app/area-pacientes/page.tsx` e `frontend/app/clinica-parceira/page.tsx` | ok |
 | NFR-005 | nao funcional | `prefers-reduced-motion: reduce` restaura rolagem automatica e remove animacoes de entrada | ok |
+| NFR-006 | nao funcional | `next/font/local` em `app/layout.tsx` e `app/page.tsx`, com WOFF2 de `@fontsource-variable` instalado por `npm ci` | ok |
+| CA-010 | aceitacao | `npm run build`, `npx tsc --noEmit`, ESLint dos arquivos alterados e ausencia de `next/font/google` nas paginas afetadas | ok |
 
 ## 2) Testes automatizados executados
 

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { headers } from "next/headers";
-import { Fraunces, Manrope } from "next/font/google";
+import localFont from "next/font/local";
 import {
   ArrowRight,
   BadgeCheck,
@@ -23,16 +23,18 @@ import {
   resolveRequestHost,
 } from "@/lib/host-routing";
 
-const displayFont = Fraunces({
-  subsets: ["latin"],
+const displayFont = localFont({
+  src: "../node_modules/@fontsource-variable/fraunces/files/fraunces-latin-wght-normal.woff2",
   variable: "--font-display",
-  weight: ["500", "600", "700"],
+  weight: "100 900",
+  display: "swap",
 });
 
-const textFont = Manrope({
-  subsets: ["latin"],
+const textFont = localFont({
+  src: "../node_modules/@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2",
   variable: "--font-manrope",
-  weight: ["400", "500", "600", "700"],
+  weight: "200 800",
+  display: "swap",
 });
 
 function getAppHost(host: string) {

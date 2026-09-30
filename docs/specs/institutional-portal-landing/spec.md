@@ -31,6 +31,7 @@ Criar a experiencia institucional inicial da Fort Cordis no frontend Next.js. A 
 - NFR-003 (UX/performance): o hero institucional deve usar asset local otimizado e chamadas claras para tutor e clinica.
 - NFR-004 (compatibilidade): o roteamento por host existente deve ser mantido.
 - NFR-005 (acessibilidade): animacoes de entrada e rolagem suave devem respeitar `prefers-reduced-motion`.
+- NFR-006 (build reproduzivel): Inter, Fraunces e Manrope devem ser carregadas de arquivos locais versionados como dependencias do frontend, sem consulta ao Google Fonts durante o build da VPS.
 
 ## 4) Contratos tecnicos
 
@@ -97,6 +98,7 @@ Regras recomendadas:
 - CA-008: navegacao por ancora e animacoes sao suaves, sem overflow, e a copy publica auditada da home, area do tutor e clinica parceira nao exibe palavras sem diacriticos necessarios.
 - CA-009: home, area do tutor e clinica parceira apresentam primeiro os beneficios do servico e
   reservam a linguagem de protecao de dados para pontos de apoio da jornada.
+- CA-010: o build do frontend passa com as mesmas familias tipograficas locais e sem importacoes de `next/font/google` nas paginas afetadas.
 
 ## 7) Casos de borda
 
