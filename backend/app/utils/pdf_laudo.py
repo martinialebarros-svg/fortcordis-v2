@@ -946,20 +946,13 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
                 "excursion in cats with hypertrophic cardiomyopathy. DOI: 10.1111/jvim.14697."
             )
 
+    if not estudos:
+        return []
+
     styles = create_pdf_styles()
     elementos = [Spacer(1, 3 * mm)]
-    if estudos:
-        elementos.append(Paragraph("REFERÊNCIAS BIBLIOGRÁFICAS", styles["ReferenciaTitulo"]))
-        elementos.extend(Paragraph(estudo, styles["ReferenciaTexto"]) for estudo in estudos)
-    if referencia:
-        especie_ref = _esc(referencia.get("especie") or "")
-        peso_ref = _to_float(referencia.get("peso_kg"))
-        peso_ref_texto = f", {peso_ref:g} kg" if peso_ref is not None else ""
-        elementos.append(Paragraph(
-            f"Faixas selecionadas no cadastro: {especie_ref}{peso_ref_texto}. "
-            "O cadastro não identifica a publicação correspondente a cada intervalo.",
-            styles["ReferenciaTexto"],
-        ))
+    elementos.append(Paragraph("REFERÊNCIAS BIBLIOGRÁFICAS", styles["ReferenciaTitulo"]))
+    elementos.extend(Paragraph(estudo, styles["ReferenciaTexto"]) for estudo in estudos)
     return elementos
 
 
