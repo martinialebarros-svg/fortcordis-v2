@@ -19,6 +19,7 @@ import { requireApiAuth } from "./middleware/auth";
 import { sendAgendaReservation } from "./controllers/agendaAutomationController";
 import { sendApprovedUtilityTemplate } from "./controllers/templateAutomationController";
 import { sendApprovedDocumentTemplate } from "./controllers/documentTemplateAutomationController";
+import { sendReportPdfInCustomerWindow } from "./controllers/reportPdfAutomationController";
 import { listApprovedTemplateCatalog } from "./controllers/templateCatalogController";
 import { executeSmokeCleanup, previewSmokeCleanup } from "./controllers/smokeCleanupController";
 
@@ -86,6 +87,7 @@ app.post(
   uploadAttachment.single("document"),
   asyncHandler(sendApprovedDocumentTemplate)
 );
+app.post("/automation/report-pdf", uploadAttachment.single("document"), asyncHandler(sendReportPdfInCustomerWindow));
 
 app.get("/admin/whatsapp-smoke-cleanup/preview", asyncHandler(previewSmokeCleanup));
 app.post("/admin/whatsapp-smoke-cleanup/execute", asyncHandler(executeSmokeCleanup));

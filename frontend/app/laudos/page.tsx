@@ -53,6 +53,7 @@ interface Laudo {
   paciente_tutor?: string;
   clinica?: string;
   clinic_id?: number | null;
+  atendimento_domiciliar?: boolean;
   veterinario_parceiro_id?: number | null;
   veterinario_parceiro_nome?: string;
   tipo: string;
@@ -212,6 +213,7 @@ export default function LaudosPage() {
   const [laudoParaAvisar, setLaudoParaAvisar] = useState<Laudo | null>(null);
   const [toastWhatsapp, setToastWhatsapp] = useState<{ texto: string; classe: string } | null>(null);
   const toastWhatsappTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const envioTutorKeysRef = useRef<Record<number, string>>({});
   const laudosRequestIdRef = useRef(0);
   const novoLaudoMenuRef = useRef<HTMLDivElement | null>(null);
   const [novoLaudoMenuAberto, setNovoLaudoMenuAberto] = useState(false);
@@ -571,6 +573,31 @@ export default function LaudosPage() {
         );
       }
       mostrarToastWhatsapp(detail, "border-rose-200 bg-rose-50 text-rose-900");
+    } finally {
+      setAvisandoLaudoId(null);
+    }
+  };
+
+  const enviarLaudoDomiciliarPorWhatsApp = async (laudo: Laudo) => {
+    if (!confirm(`Enviar o PDF do laudo de ${laudo.paciente_nome} ao WhatsApp cadastrado do tutor ${laudo.paciente_tutor}? Confirme que o tutor autorizou este contato.`)) {
+      return;
+    }
+    const idempotencyKey = envioTutorKeysRef.current[laudo.id] || (
+      typeof globalThis.crypto?.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : `laudo-tutor-${laudo.id}-${Date.now()}`
+    );
+    envioTutorKeysRef.current[laudo.id] = idempotencyKey;
+    setAvisandoLaudoId(laudo.id);
+    try {
+      await api.post(`/laudos/${laudo.id}/whatsapp-tutor`, { idempotency_key: idempotencyKey });
+      delete envioTutorKeysRef.current[laudo.id];
+      mostrarToastWhatsapp("PDF do laudo enviado ao tutor pelo WhatsApp oficial.", "border-teal-200 bg-teal-50 text-teal-900");
+    } catch (error) {
+      mostrarToastWhatsapp(
+        extractApiErrorMessageSync(error, "Erro ao enviar o PDF do laudo ao tutor."),
+        "border-rose-200 bg-rose-50 text-rose-900"
+      );
     } finally {
       setAvisandoLaudoId(null);
     }
@@ -1011,6 +1038,17 @@ export default function LaudosPage() {
                               aria-label={`${getTituloBotaoAvisoWhatsApp(laudo)} sobre o laudo de ${
                                 laudo.paciente_nome || `paciente ${laudo.paciente_id}`
                               }`}
+                            >
+                              <MessageCircle className="w-4 h-4" />
+                            </button>
+                          )}
+                          {laudo.atendimento_domiciliar && (laudo.status === "Finalizado" || isPortalReleased(laudo.status)) && (
+                            <button
+                              onClick={() => enviarLaudoDomiciliarPorWhatsApp(laudo)}
+                              disabled={avisandoLaudoId === laudo.id}
+                              className="fc-clinical-action"
+                              title="Enviar PDF do laudo ao tutor pelo WhatsApp oficial (janela de 24 horas)"
+                              aria-label={`Enviar PDF do laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`} ao tutor pelo WhatsApp`}
                             >
                               <MessageCircle className="w-4 h-4" />
                             </button>
