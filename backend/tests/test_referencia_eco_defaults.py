@@ -133,6 +133,7 @@ class ReferenciaEcoDefaultsTest(unittest.TestCase):
 
         self.assertEqual(referencia["tapse_min"], 8.5)
         self.assertEqual(referencia["tapse_max"], 13.6)
+        self.assertEqual(referencia["tapse_source"], "Visser et al. 2015")
         self.assertIsNone(referencia["mapse_min"])
         self.assertIsNone(referencia["mapse_max"])
 
