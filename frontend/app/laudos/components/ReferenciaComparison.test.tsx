@@ -23,6 +23,8 @@ describe("identificação da referência ecocardiográfica", () => {
     compararMedidas.mockClear();
     render(<ReferenciaComparison especie="Canina" peso={13.6} medidas={{ DIVEd_2D: "33.53", DIVES_2D: "22.87" }} />);
     const vista = await screen.findByLabelText("Confirme cão adulto e vista 2D do ventrículo esquerdo");
+    expect(screen.getByText(/Septo e parede não têm faixa 2D por peso nas fontes adotadas/)).toBeInTheDocument();
+    expect(screen.getByText(/Teichholz não são comparados aos intervalos obtidos por Simpson/)).toBeInTheDocument();
     expect(vista).toHaveValue("");
     fireEvent.change(vista, { target: { value: "eixo_curto" } });
     await waitFor(() => expect(compararMedidas).toHaveBeenLastCalledWith(
