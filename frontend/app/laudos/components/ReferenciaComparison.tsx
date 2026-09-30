@@ -186,7 +186,8 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
           <p className="text-xs text-blue-800">
             Confirme que DIVEd e DIVEs 2D foram medidos na mesma vista. Só esses diâmetros e o encurtamento
             compatível com esse par serão comparados com faixas 2D específicas de Visser et al. (2019), para cães adultos
-            entre 2,6 e 67,8 kg. O cadastro de Modo M não será usado para as demais medidas 2D.
+            entre 2,6 e 67,8 kg. Septo e parede não têm faixa 2D por peso nas fontes adotadas; volumes e FE por
+            Teichholz não são comparados aos intervalos obtidos por Simpson.
           </p>
         </div>
       )}
@@ -228,7 +229,9 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
                     <div>
                       <p className="font-medium text-sm">{item.nome}</p>
                       <p className="text-xs text-gray-500">
-                        {item.key.endsWith("_2D") ? "Faixa 2D publicada" : "Faixa cadastrada"}: {faixaRef}
+                        {item.key.endsWith("_2D")
+                          ? (semReferenciaDefinida ? "Faixa 2D" : "Faixa 2D publicada")
+                          : "Faixa cadastrada"}: {faixaRef}
                       </p>
                       {item.fonte && <p className="text-xs text-gray-500">{item.fonte}</p>}
                     </div>
