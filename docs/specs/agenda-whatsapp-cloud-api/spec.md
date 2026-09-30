@@ -33,6 +33,7 @@ Status: stage-br-phone-alias-fix
 - NFR-011 (versao Graph): o servico e o runtime de stage usam Graph API `v26.0`, alinhada a configuracao corrente do app FortZap.
 - NFR-012 (cutover sem indisponibilidade): producao usa servico `fortcordis-whatsapp-backend` na porta local `3020`; stage permanece ativo ate o health e o smoke de producao passarem.
 - NFR-013 (isolamento por ambiente): producao preserva e valida sua propria identidade Meta; stage usa app, WABA e numero de teste distintos e nenhum deploy copia configuracao Meta entre ambientes.
+- NFR-014 (dependencias): o cliente HTTP Axios do servico WhatsApp deve usar uma versao sem alertas de seguranca conhecidos na auditoria das dependencias de producao; a atualizacao nao altera contratos da Graph API.
 
 ## 3) Contratos
 
@@ -97,6 +98,7 @@ Status: stage-br-phone-alias-fix
 - CA-017: o workflow de producao executa `scripts/deploy_prod_vps.sh` a partir do snapshot de `origin/main` que sera publicado, mantendo o checkout anterior intacto ate o proprio script registrar o hash de rollback.
 - CA-018: a excecao para certificado autoassinado e explicita, limitada ao PostgreSQL do runtime de producao, exige `sslmode=require`, preserva TLS e falha fechado para valores invalidos, conexao sem TLS ou certificados configurados explicitamente.
 - CA-019: a troca manual no Painel da Meta ocorre apenas depois do deploy aprovado, usa o verify token protegido e confirma que a URL de producao e o campo `messages` permanecem ativos.
+- CA-020: o build e o teste de retry do servico WhatsApp passam com a versao atualizada do Axios, e `npm audit --omit=dev` nao encontra vulnerabilidades.
 
 ## 7) Fora de escopo
 

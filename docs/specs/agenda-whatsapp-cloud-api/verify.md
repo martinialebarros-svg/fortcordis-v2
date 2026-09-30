@@ -26,6 +26,7 @@ Status: production-cutover-in-progress
 | CA-017 | workflow busca e executa o script de deploy diretamente do snapshot remoto, sem depender da copia antiga presente no checkout do VPS | passou por inspecao + parse YAML |
 | CA-018 | `test-database-config.ts` cobre padrao seguro, excecao TLS escopada e recusas; deploy valida o booleano antes de gravar o ambiente | passou localmente |
 | CA-019 | Painel do App e obrigatorio para Webhooks do WhatsApp; callback de producao e `messages` foram conferidos visualmente | passou |
+| CA-020 | Axios 1.20.0: `npm run build`, `npm run test:whatsapp-retry` e `npm audit --omit=dev` | passou localmente em 30/09/2026; nova pipeline pendente |
 
 ## Comandos executados
 
