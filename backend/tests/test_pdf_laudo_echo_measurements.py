@@ -11,7 +11,10 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 os.chdir(BACKEND_DIR)
 sys.path.insert(0, str(BACKEND_DIR))
 
-from app.utils.pdf_laudo import gerar_pdf_laudo_eco, normalizar_medidas_para_pdf, medidas_com_unidade_ambigua  # noqa: E402
+from app.utils.pdf_laudo import (  # noqa: E402
+    create_pdf_styles, gerar_pdf_laudo_eco,
+    normalizar_medidas_para_pdf, medidas_com_unidade_ambigua,
+)
 from app.utils.ecocardiograma_medidas import (  # noqa: E402
     extrair_medidas_ecocardiograma_da_descricao,
 )
@@ -63,6 +66,52 @@ def _pdf_text(payload: dict) -> str:
 
 
 class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
+    def test_primary_bibliography_follows_qualitative_analysis_in_smaller_type(self) -> None:
+        payload = _base_report("modo_m")
+        payload["qualitativa"] = {"vasos": "Descrição qualitativa de teste."}
+        payload["medidas"]["TAPSE"] = "12"
+        payload["medidas"]["MAPSE"] = "8"
+        payload["referencia_eco"] = aplicar_defaults_publicados_caninos({
+            "especie": "Canina", "peso_kg": 10,
+            "fs_min": 25, "fs_max": 45,
+            "tapse_min": None, "tapse_max": None,
+        })
+
+        reader = PdfReader(BytesIO(gerar_pdf_laudo_eco(payload)))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        self.assertLess(text.index("ANÁLISE QUALITATIVA"), text.index("REFERÊNCIAS BIBLIOGRÁFICAS"))
+        self.assertLess(text.index("Descrição qualitativa de teste"), text.index("Cornell et al. (2004)"))
+        self.assertIn("Pariaut et al. (2012)", text)
+        self.assertIn("Visser et al. (2015)", text)
+        self.assertIn("Schober & Luis Fuentes (2001)", text)
+        self.assertNotIn("Spalla et al.", text)
+        self.assertNotIn("ECOS Vet", text)
+        self.assertLess(create_pdf_styles()["ReferenciaTexto"].fontSize, create_pdf_styles()["Normal"].fontSize)
+        last_page = reader.pages[-1].extract_text() or ""
+        self.assertIn("Descrição qualitativa de teste", last_page)
+        self.assertIn("Médico Veterinário", last_page)
+        self.assertIn("REFERÊNCIAS BIBLIOGRÁFICAS", last_page)
+
+    def test_feline_bibliography_uses_feline_studies_only(self) -> None:
+        payload = _base_report("modo_m")
+        payload["paciente"]["especie"] = "Felina"
+        payload["medidas"] = {"DIVEd": "15", "TAPSE": "9", "VE_tecnica_relatorio": "modo_m"}
+        payload["referencia_eco"] = {"especie": "Felina", "peso_kg": 4}
+        text = _pdf_text(payload)
+        self.assertIn("Häggström et al. (2016)", text)
+        self.assertIn("Spalla et al. (2017)", text)
+        self.assertNotIn("Cornell et al.", text)
+        self.assertNotIn("Pariaut et al.", text)
+
+    def test_bibliography_does_not_attribute_unknown_catalog_range_to_a_paper(self) -> None:
+        payload = _base_report("2d")
+        payload["medidas"] = {"DIVEd_2D": "32", "VE_tecnica_relatorio": "2d"}
+        payload["referencia_eco"] = {"especie": "Canina", "peso_kg": 10, "lvid_d_min": 20, "lvid_d_max": 40}
+        text = _pdf_text(payload)
+        self.assertNotIn("Cornell et al.", text)
+        self.assertIn("O cadastro não identifica a publicação correspondente a cada intervalo", text)
+        self.assertNotIn("ECOS Vet", text)
+
     def test_pdf_uses_sourced_fs_and_omits_teichholz_ef_interval(self) -> None:
         payload = _base_report("modo_m")
         payload["referencia_eco"] = aplicar_defaults_publicados_caninos({
@@ -73,7 +122,9 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         text = _pdf_text(payload)
         self.assertIn("20.70 - 51.90 %", text)
         self.assertNotIn("50.00 - 85.00 %", text)
-        self.assertIn("Visser et al. 2019", text)
+        self.assertIn("Visser et al. (2019)", text)
+        self.assertIn("10.1111/jvim.15562", text)
+        self.assertNotIn("ECOS Vet", text)
         self.assertNotIn("FE Teichholz: intervalo de referência não validado", text)
         self.assertIn("66.00 %", text)
 
@@ -331,7 +382,7 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
 
         self.assertIn("20.00 - 40.00 mm", text)
         self.assertNotIn("3.50 - 5.50 mm", text)
-        self.assertIn("Referência selecionada do cadastro", text)
+        self.assertIn("Faixas selecionadas no cadastro", text)
         self.assertNotIn("TAPSE pode usar faixa auxiliar por peso do sistema", text)
         self.assertNotIn("Traço indica faixa indisponível", text)
 
