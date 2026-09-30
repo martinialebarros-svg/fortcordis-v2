@@ -6,6 +6,7 @@ import { useReferenciaEco } from "../hooks/useReferenciaEco";
 import { ComparacaoMedida } from "../types/referencia-eco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
 import { prepareEchoReportMeasurements } from "@/lib/echo-report-presentation";
+import type { Echo2DView } from "@/lib/echo-2d-reference";
 
 interface ReferenciaComparisonProps {
   especie?: "Canina" | "Felina" | string;
@@ -26,6 +27,7 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
   const { buscarReferencia, compararMedidas, loading } = useReferenciaEco();
   const [referencia, setReferencia] = useState<any>(null);
   const [comparacoes, setComparacoes] = useState<Record<string, ComparacaoMedida>>({});
+  const [plano2D, setPlano2D] = useState<Echo2DView | "">("");
   const medidasSeguras = useMemo(
     () => {
       const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(medidas, peso);
@@ -66,12 +68,12 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
 
   useEffect(() => {
     if (referencia) {
-      const comps = compararMedidas(medidasParaReferencia, referencia);
+      const comps = compararMedidas(medidasParaReferencia, referencia, plano2D, peso);
       setComparacoes(comps);
       return;
     }
     setComparacoes({});
-  }, [medidasParaReferencia, referencia, compararMedidas]);
+  }, [medidasParaReferencia, referencia, compararMedidas, plano2D, peso]);
 
   if (loading) {
     return (
@@ -97,6 +99,7 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
 
   // Agrupar comparações por categoria
   const porCategoria: Record<string, Array<{key: string} & ComparacaoMedida>> = {};
+  const temMedidas2D = Object.keys(medidasParaReferencia).some((key) => key.endsWith("_2D"));
   Object.entries(comparacoes).forEach(([key, comp]) => {
     const categoria = comp.categoria || "outros";
     if (!porCategoria[categoria]) {
@@ -165,6 +168,29 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
         </div>
       </div>
 
+      {temMedidas2D && /^canin/i.test(referencia.especie) && (
+        <div className="p-3 bg-blue-50 rounded-lg space-y-2">
+          <label htmlFor="plano-referencia-2d" className="block text-sm font-medium text-blue-900">
+            Confirme cão adulto e vista 2D do ventrículo esquerdo
+          </label>
+          <select
+            id="plano-referencia-2d"
+            value={plano2D}
+            onChange={(event) => setPlano2D(event.target.value as Echo2DView | "")}
+            className="w-full sm:w-auto rounded border border-blue-200 bg-white p-2 text-sm text-gray-900"
+          >
+            <option value="">Vista não confirmada</option>
+            <option value="eixo_curto">Cão adulto; eixo curto direito, músculos papilares</option>
+            <option value="eixo_longo">Cão adulto; eixo longo direito, quatro câmaras</option>
+          </select>
+          <p className="text-xs text-blue-800">
+            Confirme que DIVEd e DIVEs 2D foram medidos na mesma vista. Só esses diâmetros e o encurtamento
+            compatível com esse par serão comparados com faixas 2D específicas de Visser et al. (2019), para cães adultos
+            entre 2,6 e 67,8 kg. O cadastro de Modo M não será usado para as demais medidas 2D.
+          </p>
+        </div>
+      )}
+
       {Object.keys(porCategoria).length === 0 ? (
         <div className="text-center py-8 text-gray-500">
           <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-yellow-400" />
@@ -202,8 +228,9 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
                     <div>
                       <p className="font-medium text-sm">{item.nome}</p>
                       <p className="text-xs text-gray-500">
-                        Faixa cadastrada: {faixaRef}
+                        {item.key.endsWith("_2D") ? "Faixa 2D publicada" : "Faixa cadastrada"}: {faixaRef}
                       </p>
+                      {item.fonte && <p className="text-xs text-gray-500">{item.fonte}</p>}
                     </div>
                   </div>
                   <div className="text-right">

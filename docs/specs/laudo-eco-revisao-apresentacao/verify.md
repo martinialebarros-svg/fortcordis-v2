@@ -43,6 +43,7 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 | CA-031 | Teste do comparador com medida abaixo, dentro, acima e sem faixa confirma linguagem descritiva e preservação dos status internos; teste do componente confere a legenda sem “Normal”. Notas dos dois formulários revisadas. | ok local |
 | CA-035 | PDF sintético canino/felino: artigos primários por espécie e medida, sem fonte secundária; bibliografia após análise qualitativa em 8 pt. Regressões curta, moderada e longa preservam a paginação sem referência selecionada; versão do cache eco `2026-09-29-eco-bibliography-v11`. | ok local |
 | CA-036 | PDF sintético com referência canina de 15 kg mantém os artigos e omite a frase operacional do cadastro; caso 2D sem estudo pertinente não cria seção bibliográfica. Cache eco `2026-09-29-eco-bibliography-v12`. | ok local |
+| CA-037 | Testes focados do comparador e do seletor 2D confirmam uso de limites por plano/peso apenas para diâmetros e FEC caninos compatíveis, preservando os bloqueios para dados sem método ou população aplicável. TypeScript, ESLint e build aprovados. | ok local |
 | NFR-001 | Revisão de fluxo: busca de referência apenas na visualização; configuração confirmada no salvamento somente quando há imagens | ok |
 | NFR-002 | Nenhuma escrita de medidas no helper; somente cópia para apresentação | ok |
 | NFR-003 | Inspeção do diff, testes focados e build | ok |
@@ -50,6 +51,7 @@ Base do worktree isolado: `origin/stage` em `370507c8`; os commits de WhatsApp, 
 
 ## Comandos locais
 
+- CA-037 (30/09/2026): 10 testes focados de `useReferenciaEco` e `ReferenciaComparison` aprovados; `npx tsc --noEmit`, ESLint dos arquivos alterados, `npm run build` e `git diff --check` aprovados. O cálculo para 13,6 kg reproduz os limites publicados de Visser et al. (2019, Tabela 2) para 2D em eixo curto. Nenhum dado clínico persistido, PDF ou cadastro Modo M foi alterado. A aplicação no navegador de stage e produção depende de publicação posterior.
 - CA-036: 44 testes backend focados aprovados; `compileall` e `git diff --check` aprovados. O PDF sintético de 15 kg foi conferido quanto à ausência da frase de cadastro e à preservação dos artigos após a análise qualitativa.
 - Validação de CA-035: 44 testes backend focados aprovados; `compileall`, `git diff --check` e guardrail SDD aprovados. Um PDF sintético canino com medidas Modo M, FEC, TAPSE e MAPSE foi renderizado e inspecionado: análise qualitativa, assinatura e bibliografia permaneceram juntas na página 2, com as referências em fonte menor. Nenhum dado real foi modificado.
 - Nesta continuação em worktree isolado de `origin/stage` (`1fc75e26`): `backend: python -m unittest tests.test_pdf_laudo_echo_measurements tests.test_ecocardiograma_medidas tests.test_ai_echo_voice_assistant tests.test_ecocardiograma_qualitativa tests.test_referencia_eco_defaults` — 87 testes aprovados; `frontend: vitest run --maxWorkers=2` — 440/440 testes aprovados; `tsc --noEmit`, ESLint dos arquivos alterados, `npm run build`, `compileall`, `git diff --check` e guardrail SDD aprovados. Nenhum laudo real foi alterado.
