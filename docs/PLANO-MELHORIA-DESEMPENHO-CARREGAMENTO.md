@@ -81,27 +81,19 @@ Objetivo: impedir espera infinita e recuperar o Financeiro, rota mais critica da
 | ID | Tarefa | Estado | Criterio de conclusao |
 | --- | --- | --- | --- |
 | PERF-15 | Separar API web e workers periodicos | concluido em producao | workers nao competem no mesmo processo da API |
-| PERF-16 | Habilitar e validar HTTP/2 no Nginx | diagnostico em stage: tentativa recebeu HTTP/1.1 e foi revertida automaticamente | `curl --http2` negocia HTTP/2 nos dominios e aliases de stage, app e institucional |
+| PERF-16 | Habilitar e validar HTTP/2 no Nginx | concluido em producao | `curl --http2` negocia HTTP/2 nos dominios e aliases de stage, app e institucional |
 | PERF-17 | Persistir p50/p95/p99, tempo de banco e espera de pool | concluido em producao | painel administrativo, retenção limitada e comparação por release implementados e validados autenticadamente |
 | PERF-18 | Tornar o gate autenticado e sensivel a latencia | concluido em producao | 401/403 nao contam como sucesso e p95 excedido bloqueia release |
-| PERF-19 | Isolar p50/p95 das leituras de Ordens e Cobrancas | validado em stage; amostra operacional preliminar | cinco monitores atuais preservados, dois grupos exatos no painel e p95 operacional abaixo de 1,2 s |
+| PERF-19 | Isolar p50/p95 das leituras de Ordens e Cobrancas | validado em stage com amostra controlada; producao em observacao | cinco monitores atuais preservados, dois grupos exatos no painel e p95 operacional abaixo de 1,2 s |
+| PERF-20 | Exibir maximo e leituras acima de 1,2 s | concluido em producao | painel diferencia p95 da cauda e explicita a quantidade de leituras lentas |
+| PERF-21 | Separar as leituras da Agenda e medir custo de aplicacao | concluido em producao | cinco rotas exatas, banco, aplicacao e consultas aparecem separadamente |
+| PERF-22 | Mover preflight de schema da Agenda para o startup | concluido em producao | rota principal deixa de introspectar schema por requisicao e mantem no maximo seis consultas p95 |
 
-A tentativa atomica anterior criou backup, passou em `nginx -t` e ainda assim
-a negociacao permaneceu em HTTP/1.1; a rotina restaurou a configuracao. O
-inventario somente-leitura de 2026-09-06 confirmou novamente que
-`fortcordis-app`, `fortcordis-stage`, `fortcordis-com-br` e `fortcordis-www`
-compartilham `0.0.0.0:443`, todos sem diretiva HTTP/2, e que `app.stage` e
-`app` continuam em HTTP/1.1. A autorizacao atual cobre o conjunto completo:
-a proxima execucao de stage altera os quatro arquivos de forma atomica, valida
-`nginx -t`, exige ALPN HTTP/2 para cada host-alvo e restaura todos os backups
-se qualquer verificacao falhar.
-
-Em 2026-09-06, duas tentativas controladas passaram em `nginx -t`, mas o
-primeiro probe local de `app.stage`, executado logo apos o reload, continuou em
-HTTP/1.1. Os backups e o checkout de stage foram restaurados automaticamente.
-A segunda confirmou modulo HTTP/2 e os quatro vhosts. A proxima tentativa
-verifica ate cinco vezes, com intervalo de um segundo, antes de concluir a
-falha; tambem preserva comentarios finais em diretivas `listen`.
+O PERF-16 foi concluido em 2026-09-06 pelo snapshot `f5165ddd`: os workflows de
+stage `34060147592` e producao `34061319523` terminaram com sucesso depois que
+o helper passou a aguardar a troca gradual dos workers. Em 2026-09-30, uma nova
+verificacao externa confirmou HTTP/2 e ALPN `h2` em `app.stage`, `app`, nos
+dominios institucionais `.com.br` e `.com` e nos respectivos aliases `www`.
 
 ## 5. Metas de aceitacao
 
@@ -129,8 +121,8 @@ As metas devem ser recalibradas depois que a telemetria persistente estiver disp
 - Em 2026-09-06, `origin/main` e `origin/stage` foram reconciliados no snapshot `3aef3d7`; qualquer promocao futura continua exigindo nova prova de ancestralidade e de que o stage validado e o commit exato promovido.
 - A telemetria persistente foi validada autenticadamente em producao em 2026-09-06. Antes do gate, a Agenda teve 478 amostras, sem 5xx, com p50 de 139,52 ms, p95 de 2.661,86 ms e p99 de 5.026,37 ms. O PERF-18 foi publicado no mesmo dia: o canario autenticado do release `3aef3d7` mediu p95 de 459,24 ms (5/5 leituras) e o painel, apos o deploy, registrou p95 de 455,36 ms (8 amostras), ambos abaixo do limite de 1.200 ms e sem 5xx.
 - Alteracoes de Nginx, processos e banco exigem validacao em stage antes de producao.
-- PERF-15 foi publicado em 2026-09-02 com worker systemd separado, runtime gate e canario autenticado aprovados. PERF-16 deve manter backup e rollback do vhost antes do reload do Nginx.
-- Em 2026-09-06, o inventario confirmou que `app.stage`, `app`, `fortcordis.com.br` e `fortcordis.com` mapeiam para quatro vhosts do mesmo listener. A autorizacao atual permite a alteracao atomica dos quatro; o helper mantem backup e rollback integral para `nginx -t`, reload ou ALPN HTTP/2 invalido.
+- PERF-15 foi publicado em 2026-09-02 com worker systemd separado, runtime gate e canario autenticado aprovados. PERF-16 foi publicado em 2026-09-06 e o helper preserva backup e rollback integral para `nginx -t`, reload ou ALPN HTTP/2 invalido.
+- Em 2026-09-30, os seis hosts externos verificados responderam `200` por HTTP/2; `app.stage`, `app`, `fortcordis.com.br` e `fortcordis.com` negociaram ALPN `h2` diretamente.
 - PERF-18 foi validado em stage e producao com workflows terminais, smoke autenticado de Agenda/Desempenho e endpoints protegidos respondendo 401 sem sessao. O canario mede somente latencia e contrato agregado; nao registra payloads, dados clinicos nem segredos.
 - Em 2026-09-19, o PERF-19 foi validado autenticadamente em stage no release
   `75a58ba` (workflow `35471139175`). Ordens registrou 21 amostras, p50 de
@@ -139,6 +131,19 @@ As metas devem ser recalibradas depois que a telemetria persistente estiver disp
   truncada. O p99 de Cobrancas chegou a 2.889,97 ms, portanto a etapa comprova
   instrumentacao e p95 preliminar abaixo do limiar, mas a cauda deve ser
   reavaliada em uma janela operacional preferencial de 100 amostras.
+- Em 2026-09-30, uma janela controlada do PERF-19 foi concluida em stage no
+  release `dff65007`, somente com leituras autenticadas e sequenciais. Ordens
+  registrou 108 amostras, p50 de 70,88 ms, p95 de 335,33 ms, p99 de 409,16 ms,
+  maximo de 4.692,42 ms e zero 5xx. Cobrancas registrou 101 amostras, p50 de
+  54,25 ms, p95 de 76,97 ms, p99 de 126,23 ms, maximo de 304,35 ms e zero 5xx.
+  O p95 de ambas ficou abaixo de 1.200 ms; o pico isolado de Ordens permanece
+  visivel como cauda, sem justificar nova otimizacao sem recorrencia. As 46
+  consultas p95 observadas em Ordens durante as recargas sinteticas nao se
+  repetem na producao, que registrou 5 consultas p95; portanto nao ha evidencia
+  suficiente para classificar N+1 ou abrir uma correcao nova.
+- PERF-21 e PERF-22 foram publicados em producao pelo PR #232. A validacao de
+  stage do PERF-22 comparou 127 amostras antes e 108 depois: p95 caiu de
+  298,95 ms para 115,50 ms, consultas p95 de 10 para 5 e zero 5xx.
 
 ## 8. Referencias existentes
 

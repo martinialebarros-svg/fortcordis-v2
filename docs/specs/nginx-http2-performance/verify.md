@@ -20,7 +20,7 @@ python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEA
 - Modulo HTTP/2 indisponivel: interrompe antes de criar backup ou escrever vhost.
 - Mais de um vhost para qualquer host esperado: interrompe sem modificar nenhum arquivo.
 
-## Validacao de rollout pendente
+## Validacao de rollout
 
 ### Tentativa isolada de stage - 2026-09-03
 
@@ -88,3 +88,19 @@ Antes da nova tentativa, o inventario somente-leitura deve listar todos os vhost
   foi concluido com sucesso.
 - A proxima versao permite ate cinco probes locais e externos, separados por
   um segundo, antes de concluir que a ativacao falhou.
+
+### Ativacao concluida em stage e producao (2026-09-06)
+
+- O snapshot `f5165ddd` aguardou a troca gradual dos workers e concluiu a
+  verificacao HTTP/2 sem acionar rollback.
+- O workflow de stage `34060147592` e o workflow de producao `34061319523`
+  terminaram com sucesso no mesmo snapshot.
+- O mecanismo de backup e rollback integral dos quatro vhosts permaneceu ativo.
+
+### Revalidacao externa (2026-09-30)
+
+- `app.stage.fortcordis.com.br`, `app.fortcordis.com.br`,
+  `fortcordis.com.br`, `www.fortcordis.com.br`, `fortcordis.com` e
+  `www.fortcordis.com` responderam `200` com HTTP/2.
+- Os quatro hosts canonicos negociaram ALPN `h2` diretamente.
+- PERF-16 esta concluido; uma nova escrita de Nginx nao e necessaria.
