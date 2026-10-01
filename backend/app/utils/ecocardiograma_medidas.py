@@ -101,6 +101,11 @@ def extrair_medidas_ecocardiograma_da_descricao(
                 measurements[key] = normalized
             continue
 
+        if key == "VE_vista_2D":
+            if raw_value in {"eixo_curto", "eixo_longo"}:
+                measurements[key] = raw_value
+            continue
+
         if key == "Remodelamento_AD":
             normalized = raw_value.lower()
             if normalized in {"ausente", "leve", "moderado", "importante"}:

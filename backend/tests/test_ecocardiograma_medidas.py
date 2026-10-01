@@ -37,6 +37,7 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
 - VDF_2D: 96
 - FE_Teicholz_2D: 57
 - VE_tecnica_relatorio: 2d
+- VE_vista_2D: eixo_curto
 - Remodelamento_AD: moderado
 
 ## Avaliacao Qualitativa
@@ -50,8 +51,15 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
         self.assertEqual(measurements["VDF_2D"], "96")
         self.assertEqual(measurements["FE_Teicholz_2D"], "57")
         self.assertEqual(measurements["VE_tecnica_relatorio"], "2d")
+        self.assertEqual(measurements["VE_vista_2D"], "eixo_curto")
         self.assertEqual(measurements["Remodelamento_AD"], "moderado")
         self.assertNotIn("funcao", measurements)
+
+    def test_vista_2d_confirmada_sobrevive_salvamento_e_rejeita_valor_invalido(self) -> None:
+        saved = _montar_descricao_ecocardiograma({"VE_vista_2D": "eixo_longo", "DIVEd_2D": "32"}, {})
+        self.assertEqual(extrair_medidas_ecocardiograma_da_descricao(saved)["VE_vista_2D"], "eixo_longo")
+        invalid = saved.replace("eixo_longo", "vista_desconhecida")
+        self.assertNotIn("VE_vista_2D", extrair_medidas_ecocardiograma_da_descricao(invalid))
 
     def test_infere_2d_em_laudo_legado_com_apenas_essa_serie(self) -> None:
         measurements = extrair_medidas_ecocardiograma_da_descricao(
@@ -107,7 +115,7 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
         )
 
     def test_cache_do_pdf_inclui_versao_do_renderizador(self) -> None:
-        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-09-29-eco-bibliography-v12")
+        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-09-30-eco-2d-citation-v13")
         database = MagicMock()
         database.query.return_value.filter.return_value.first.return_value = (
             SimpleNamespace(id=7, tipo="ecocardiograma")

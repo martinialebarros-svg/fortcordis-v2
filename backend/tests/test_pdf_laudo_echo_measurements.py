@@ -116,6 +116,42 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertNotIn("Faixas selecionadas no cadastro", text)
         self.assertNotIn("ECOS Vet", text)
 
+    def test_confirmed_2d_view_adds_only_applicable_visser_ranges_and_citation(self) -> None:
+        payload = _base_report("2d")
+        payload["paciente"]["peso"] = "13.6"
+        payload["medidas"] = {
+            "VE_tecnica_relatorio": "2d", "VE_vista_2D": "eixo_curto",
+            "DIVEd_2D": "33.53", "DIVES_2D": "22.87", "DeltaD_FS_2D": "31.8",
+            "SIVd_2D": "8.36", "FE_Teicholz_2D": "61",
+        }
+        payload["referencia_eco"] = {"especie": "Canina", "peso_kg": 15, "lvid_d_min": 30, "lvid_d_max": 40}
+        text = _pdf_text(payload)
+        self.assertIn("26.01 - 36.73 mm", text)
+        self.assertIn("15.58 - 25.87 mm", text)
+        self.assertIn("21.90 - 49.30 %", text)
+        self.assertIn("Visser et al. (2019)", text)
+        self.assertNotIn("Cornell et al.", text)
+        self.assertIn("SIVd 2D (Septo interventricular em diástole)\n8.36 mm\n--", text)
+        self.assertIn("FE 2D (Teicholz)\n61.00 %\n--", text)
+
+        payload["medidas"]["VE_vista_2D"] = ""
+        without_view = _pdf_text(payload)
+        self.assertNotIn("Visser et al. (2019)", without_view)
+        self.assertNotIn("26.01 - 36.73 mm", without_view)
+
+    def test_2d_fs_requires_same_diameter_pair_and_study_weight(self) -> None:
+        payload = _base_report("2d")
+        payload["medidas"] = {
+            "VE_tecnica_relatorio": "2d", "VE_vista_2D": "eixo_curto",
+            "DIVEd_2D": "33.53", "DIVES_2D": "22.87", "DeltaD_FS_2D": "50",
+        }
+        payload["referencia_eco"] = {"especie": "Canina", "peso_kg": 10}
+        text = _pdf_text(payload)
+        self.assertNotIn("21.90 - 49.30 %", text)
+        payload["paciente"]["peso"] = "80"
+        text = _pdf_text(payload)
+        self.assertNotIn("Visser et al. (2019)", text)
+
     def test_pdf_uses_sourced_fs_and_omits_teichholz_ef_interval(self) -> None:
         payload = _base_report("modo_m")
         payload["referencia_eco"] = aplicar_defaults_publicados_caninos({

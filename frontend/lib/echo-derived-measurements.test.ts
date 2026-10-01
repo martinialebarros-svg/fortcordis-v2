@@ -45,4 +45,10 @@ describe("deriveAutomaticEchoMeasurements", () => {
     expect(deriveAutomaticEchoMeasurements({ DIVEd: "2.5", SIVd: "3.0", PLVEd: "0.8" }, 10).DIVEd_normalizado).toBe("");
     expect(parseStoredEchoMeasurements(null, description.replace("cm", "metros"))).not.toHaveProperty("unidade_confirmada_DIVEd");
   });
+
+  it("preserva somente vistas 2D explicitamente confirmadas", () => {
+    const description = "## Medidas Ecocardiograficas\n- DIVEd_2D: 33.53\n- VE_vista_2D: eixo_curto\n\n## Avaliacao Qualitativa";
+    expect(parseStoredEchoMeasurements(null, description).VE_vista_2D).toBe("eixo_curto");
+    expect(parseStoredEchoMeasurements(null, description.replace("eixo_curto", "desconhecida"))).not.toHaveProperty("VE_vista_2D");
+  });
 });

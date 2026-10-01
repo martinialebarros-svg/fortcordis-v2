@@ -88,7 +88,7 @@ EchoMeasurementFieldKey = Literal[
 
 
 def _validate_measurement_context(value: dict[str, str]) -> dict[str, str]:
-    allowed = set(EchoMeasurementFieldKey.__args__)
+    allowed = set(EchoMeasurementFieldKey.__args__) | {"VE_vista_2D"}
     confirmed_keys = {f"{CONFIRMED_UNIT_PREFIX}{key}" for key in ECHO_LENGTH_KEYS}
     unknown = sorted(set(value).difference(allowed | confirmed_keys))
     if unknown:
@@ -99,6 +99,8 @@ def _validate_measurement_context(value: dict[str, str]) -> dict[str, str]:
     )
     if invalid_units:
         raise ValueError(f"Unidades de medida inválidas: {', '.join(invalid_units)}")
+    if normalized.get("VE_vista_2D") and normalized["VE_vista_2D"] not in {"eixo_curto", "eixo_longo"}:
+        raise ValueError("Vista 2D inválida")
     oversized = sorted(key for key, text in normalized.items() if len(text) > 80)
     if oversized:
         raise ValueError(f"Valores de medida muito longos: {', '.join(oversized)}")

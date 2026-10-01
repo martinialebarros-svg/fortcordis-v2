@@ -2425,6 +2425,7 @@ export default function EditarLaudoPage() {
                       especie={pacienteForm.especie}
                       peso={parsePesoKg(pacienteForm.peso) ?? undefined}
                       medidas={medidas}
+                      onMedidaChange={handleMedidaChange}
                     />
                   </div>
                 )}

@@ -113,6 +113,23 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                  "current_measurements": {"unidade_confirmada_DIVEd": "metros"}}
             )
 
+    def test_confirmed_2d_view_does_not_break_ai_context(self) -> None:
+        request = EchoStructureRequest.model_validate({
+            "edited_transcript": "Medidas do exame.",
+            "current_measurements": {"DIVEd_2D": "33.53", "VE_vista_2D": "eixo_curto"},
+        })
+        self.assertEqual(request.current_measurements["VE_vista_2D"], "eixo_curto")
+        self.assertNotIn("VE_vista_2D", safe_measurement_context(request.current_measurements))
+        EchoStructureRequest.model_validate({
+            "edited_transcript": "Medidas do exame.",
+            "current_measurements": {"VE_vista_2D": ""},
+        })
+        with self.assertRaises(ValidationError):
+            EchoStructureRequest.model_validate({
+                "edited_transcript": "Medidas do exame.",
+                "current_measurements": {"VE_vista_2D": "desconhecida"},
+            })
+
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
         db_path = Path(self.tmpdir.name) / "ai-echo.db"
