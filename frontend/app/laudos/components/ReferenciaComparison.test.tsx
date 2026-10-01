@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ReferenciaComparison } from "./ReferenciaComparison";
 
@@ -11,7 +12,7 @@ vi.mock("../hooks/useReferenciaEco", () => ({
 
 describe("identificação da referência ecocardiográfica", () => {
   it("distingue o peso do paciente da linha de cadastro selecionada", async () => {
-    render(<ReferenciaComparison especie="Canina" peso={10.8} medidas={{}} />);
+    render(<ReferenciaComparison especie="Canina" peso={10.8} medidas={{}} onMedidaChange={vi.fn()} />);
 
     expect(await screen.findByText("Referência selecionada: Canina, cadastro de 11 kg")).toBeInTheDocument();
     expect(screen.getByText(/Peso do paciente: 10,8 kg/)).toBeInTheDocument();
@@ -21,7 +22,12 @@ describe("identificação da referência ecocardiográfica", () => {
 
   it("exige confirmação da vista antes de pedir comparação das medidas 2D", async () => {
     compararMedidas.mockClear();
-    render(<ReferenciaComparison especie="Canina" peso={13.6} medidas={{ DIVEd_2D: "33.53", DIVES_2D: "22.87" }} />);
+    function Example() {
+      const [medidas, setMedidas] = useState({ DIVEd_2D: "33.53", DIVES_2D: "22.87" });
+      return <ReferenciaComparison especie="Canina" peso={13.6} medidas={medidas}
+        onMedidaChange={(key, value) => setMedidas((current) => ({ ...current, [key]: value }))} />;
+    }
+    render(<Example />);
     const vista = await screen.findByLabelText("Confirme cão adulto e vista 2D do ventrículo esquerdo");
     expect(screen.getByText(/Septo e parede não têm faixa 2D por peso nas fontes adotadas/)).toBeInTheDocument();
     expect(screen.getByText(/Teichholz não são comparados aos intervalos obtidos por Simpson/)).toBeInTheDocument();

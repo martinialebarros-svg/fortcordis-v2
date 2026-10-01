@@ -12,6 +12,7 @@ interface ReferenciaComparisonProps {
   especie?: "Canina" | "Felina" | string;
   peso?: number;
   medidas: Record<string, string>;
+  onMedidaChange: (key: string, value: string) => void;
 }
 
 const CATEGORIAS = {
@@ -23,11 +24,13 @@ const CATEGORIAS = {
 
 const formatarPeso = (valor: number) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(valor);
 
-export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaComparisonProps) {
+export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }: ReferenciaComparisonProps) {
   const { buscarReferencia, compararMedidas, loading } = useReferenciaEco();
   const [referencia, setReferencia] = useState<any>(null);
   const [comparacoes, setComparacoes] = useState<Record<string, ComparacaoMedida>>({});
-  const [plano2D, setPlano2D] = useState<Echo2DView | "">("");
+  const plano2D: Echo2DView | "" = medidas.VE_vista_2D === "eixo_curto" || medidas.VE_vista_2D === "eixo_longo"
+    ? medidas.VE_vista_2D
+    : "";
   const medidasSeguras = useMemo(
     () => {
       const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(medidas, peso);
@@ -176,7 +179,7 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
           <select
             id="plano-referencia-2d"
             value={plano2D}
-            onChange={(event) => setPlano2D(event.target.value as Echo2DView | "")}
+            onChange={(event) => onMedidaChange("VE_vista_2D", event.target.value)}
             className="w-full sm:w-auto rounded border border-blue-200 bg-white p-2 text-sm text-gray-900"
           >
             <option value="">Vista não confirmada</option>

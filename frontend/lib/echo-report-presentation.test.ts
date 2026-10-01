@@ -101,6 +101,22 @@ describe("prévia de ecocardiograma", () => {
     expect(groups[0].rows[1].reference).toBe("—");
   });
 
+  it("repete na prévia as faixas 2D publicadas somente com vista persistida", () => {
+    const reference = { id: 1, especie: "Canina", peso_kg: 15 } as ReferenciaEco;
+    const measures = {
+      VE_tecnica_relatorio: "2d", VE_vista_2D: "eixo_curto",
+      DIVEd_2D: "33.53", DIVES_2D: "22.87", DeltaD_FS_2D: "31.8",
+      SIVd_2D: "8.36", FE_Teicholz_2D: "61",
+    };
+    const rows = buildEchoReportGroups(measures, reference, new Set(), 13.6)[0].rows;
+    expect(rows.find((row) => row.key === "DIVEd_2D")?.reference).toBe("26.01–36.73 mm");
+    expect(rows.find((row) => row.key === "DIVES_2D")?.reference).toBe("15.58–25.87 mm");
+    expect(rows.find((row) => row.key === "DeltaD_FS_2D")?.reference).toBe("21.90–49.30 %");
+    expect(rows.find((row) => row.key === "SIVd_2D")?.reference).toBe("—");
+    expect(rows.find((row) => row.key === "FE_Teicholz_2D")?.reference).toBe("—");
+    expect(buildEchoReportGroups({ ...measures, VE_vista_2D: "" }, reference, new Set(), 13.6)[0].rows[0].reference).toBe("—");
+  });
+
   it("mostra FS de modo M com fonte e FE Teichholz sem faixa", () => {
     const reference = {
       id: 1, especie: "Canina", peso_kg: 10,
