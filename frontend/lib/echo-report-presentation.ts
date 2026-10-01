@@ -1,4 +1,5 @@
 import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
+import { getCanine2DReference, type Echo2DView } from "./echo-2d-reference";
 import { ambiguousEchoLengthKeys, confirmedEchoUnit, confirmedUnitKey, ECHO_LENGTH_KEYS } from "./echo-unit-provenance";
 
 type Parameter = { key: string; label: string; unit?: string; reference?: string };
@@ -137,8 +138,16 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
   return { measurements, alerts, ambiguousKeys };
 }
 
-export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null, ambiguousKeys: Set<string> = new Set()): EchoReportGroup[] {
+export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null, ambiguousKeys: Set<string> = new Set(), weightKg?: number): EchoReportGroup[] {
   const selected2D = measurements.VE_tecnica_relatorio === "2d";
+  const view = measurements.VE_vista_2D === "eixo_curto" || measurements.VE_vista_2D === "eixo_longo"
+    ? measurements.VE_vista_2D as Echo2DView : "";
+  const d = number(measurements.DIVEd_2D);
+  const s = number(measurements.DIVES_2D);
+  const fs = number(measurements.DeltaD_FS_2D);
+  const fsMatchesPair = d !== null && s !== null && fs !== null && d > 0 && s > 0 && s <= d
+    && !ambiguousKeys.has("DIVEd_2D") && !ambiguousKeys.has("DIVES_2D")
+    && Math.abs(fs - (d - s) / d * 100) <= 1;
   const groups = [
     { title: selected2D ? "Ventrículo esquerdo · modo 2D" : "Ventrículo esquerdo · modo M", parameters: selected2D ? mode2D : mMode },
     ...otherGroups,
@@ -159,7 +168,13 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
       value: ambiguousKeys.has(item.key)
         ? `${number(measurements[item.key])?.toFixed(2)} (unidade a confirmar)`
         : `${number(measurements[item.key])?.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`,
-      reference: ambiguousKeys.has(item.key) ? "—" : referenceRange(reference, item),
+      reference: ambiguousKeys.has(item.key) ? "—" : (() => {
+        const twoD = selected2D && reference && /^canin/i.test(reference.especie)
+          && (item.key !== "DeltaD_FS_2D" || fsMatchesPair)
+          ? getCanine2DReference(item.key, weightKg, view) : null;
+        return twoD ? `${twoD.min.toFixed(2)}–${twoD.max.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`
+          : referenceRange(reference, item);
+      })(),
     })),
   })).filter((group) => group.rows.length > 0);
 }

@@ -2181,6 +2181,7 @@ export default function NovoLaudoPage() {
                       especie={paciente.especie}
                       peso={parsePesoKg(paciente.peso) ?? undefined}
                       medidas={medidas}
+                      onMedidaChange={handleMedidaChange}
                     />
                   </div>
                 )}

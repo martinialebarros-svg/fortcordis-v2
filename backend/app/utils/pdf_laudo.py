@@ -1,6 +1,7 @@
 """Geração de PDF de laudos ecocardiográficos"""
 import os
 import re
+import math
 import tempfile
 from io import BytesIO
 from datetime import datetime
@@ -214,6 +215,50 @@ def aplicar_referencia_eco(parametros: List[Dict], referencia_eco: Optional[Dict
         params_atualizados.append(atualizado)
 
     return params_atualizados
+
+
+def referencias_2d_caninas_publicadas(dados_pdf: Dict[str, Any]) -> Dict[str, Tuple[float, float]]:
+    """Visser 2019, tabelas 1-2: apenas medidas 2D com vista confirmada."""
+    paciente = dados_pdf.get("paciente") or {}
+    medidas = dados_pdf.get("medidas") or {}
+    if not dados_pdf.get("referencia_eco") or normalizar_especie_referencia(paciente.get("especie") or "") != "Canina":
+        return {}
+    if medidas.get("VE_tecnica_relatorio") != "2d":
+        return {}
+    vista = medidas.get("VE_vista_2D")
+    if vista not in {"eixo_curto", "eixo_longo"}:
+        return {}
+    peso = _to_float_peso(paciente.get("peso"))
+    if peso is None or not math.isfinite(peso) or not 2.6 <= peso <= 67.8:
+        return {}
+
+    limites = {
+        "eixo_curto": {"DIVEd_2D": (1.14, 1.61, 0.316), "DIVES_2D": (0.56, 0.93, 0.392), "DeltaD_FS_2D": (21.9, 49.3, None)},
+        "eixo_longo": {"DIVEd_2D": (1.15, 1.55, 0.316), "DIVES_2D": (0.68, 1.09, 0.351), "DeltaD_FS_2D": (19.1, 41.7, None)},
+    }[vista]
+    ambiguas = dados_pdf.get("unidades_ambiguas") or set()
+    faixas = {}
+    for chave in ("DIVEd_2D", "DIVES_2D"):
+        valor = _to_float(medidas.get(chave))
+        if chave in ambiguas or valor is None or not math.isfinite(valor) or valor <= 0:
+            continue
+        minimo, maximo, expoente = limites[chave]
+        faixas[chave] = (round(minimo * 10 * peso ** expoente, 2), round(maximo * 10 * peso ** expoente, 2))
+
+    d = _to_float(medidas.get("DIVEd_2D"))
+    s = _to_float(medidas.get("DIVES_2D"))
+    fs = _to_float(medidas.get("DeltaD_FS_2D"))
+    if ("DIVEd_2D" in faixas and "DIVES_2D" in faixas and d and s and fs is not None
+            and math.isfinite(fs) and 0 < s <= d and abs(fs - (d - s) / d * 100) <= 1):
+        minimo, maximo, _ = limites["DeltaD_FS_2D"]
+        faixas["DeltaD_FS_2D"] = (minimo, maximo)
+    return faixas
+
+
+def aplicar_referencias_2d_publicadas(parametros: List[Dict], dados_pdf: Dict[str, Any]) -> List[Dict]:
+    faixas = referencias_2d_caninas_publicadas(dados_pdf)
+    return [{**param, **({"ref_min": faixas[param["chave"]][0], "ref_max": faixas[param["chave"]][1]}
+                       if param["chave"] in faixas else {})} for param in parametros]
 
 
 def filtrar_parametros_preenchidos(parametros: List[Dict], medidas: Dict[str, Any]) -> List[Dict]:
@@ -908,6 +953,11 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
 
     estudos: List[str] = []
     if especie == "Canina":
+        if referencias_2d_caninas_publicadas(dados_pdf):
+            estudos.append(
+                "Visser et al. (2019). Echocardiographic quantitation of left heart size "
+                "and function in 122 healthy dogs. DOI: 10.1111/jvim.15562."
+            )
         if tem_modo_m:
             estudos.append(
                 "Cornell et al. (2004). Allometric scaling of M-mode cardiac measurements "
@@ -1536,6 +1586,7 @@ def gerar_pdf_laudo_eco(
         referencia_eco = dados_pdf.get("referencia_eco")
         params_ve_modo_m = aplicar_referencia_eco(params_ve_modo_m, referencia_eco)
         params_ve_modo_2d = aplicar_referencia_eco(params_ve_modo_2d, referencia_eco)
+        params_ve_modo_2d = aplicar_referencias_2d_publicadas(params_ve_modo_2d, dados_pdf)
         params_excursao_anular = aplicar_referencia_eco(params_excursao_anular, referencia_eco)
         params_ae_aorta = aplicar_referencia_eco(params_ae_aorta, referencia_eco)
         params_ap_aorta = aplicar_referencia_eco(params_ap_aorta, referencia_eco)

@@ -89,6 +89,9 @@ function normalizeStoredMeasurement(
     const normalized = text.toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
     return normalized === "modo_m" || normalized === "2d" ? normalized : null;
   }
+  if (key === "VE_vista_2D") {
+    return text === "eixo_curto" || text === "eixo_longo" ? text : null;
+  }
   if (key === "Remodelamento_AD") {
     const normalized = text.toLowerCase();
     return ["ausente", "leve", "moderado", "importante"].includes(normalized)

@@ -170,7 +170,7 @@ export default function VisualizarLaudoPage() {
   const laudoEhPressao = laudo?.tipo === TIPO_LAUDO_PRESSAO_ARTERIAL;
   const laudoEhEco = laudo?.tipo === TIPO_LAUDO_ECOCARDIOGRAMA;
   const { measurements: medidasExibidas, alerts: alertasCalculo, ambiguousKeys } = prepareEchoReportMeasurements(medidas, paciente?.peso_kg);
-  const gruposMedidas = buildEchoReportGroups(medidasExibidas, referenciaEco, ambiguousKeys);
+  const gruposMedidas = buildEchoReportGroups(medidasExibidas, referenciaEco, ambiguousKeys, paciente?.peso_kg);
   const observacoes = splitReportObservations(laudo?.observacoes || "");
 
   useEffect(() => {
