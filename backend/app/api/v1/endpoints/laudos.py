@@ -3015,6 +3015,8 @@ def atualizar_laudo(
     if not laudo:
         raise HTTPException(status_code=404, detail="Laudo nao encontrado")
 
+    aplicar_qualitativa_estruturada = laudo_data.pop("aplicar_qualitativa_estruturada", False) is True
+    aplicar_conclusao_estruturada = laudo_data.pop("aplicar_conclusao_estruturada", False) is True
     tipo_estruturado = (laudo_data.get("tipo_laudo") or laudo_data.get("tipo") or laudo.tipo or "").strip().lower()
     if "paciente" in laudo_data and isinstance(laudo_data["paciente"], dict):
         if tipo_estruturado == "ultrassonografia_abdominal":
@@ -3029,15 +3031,17 @@ def atualizar_laudo(
                 laudo_data.get("ecocardiograma_estruturado")
             )
             if (
-                ecocardiograma_estruturado
+                (aplicar_qualitativa_estruturada or aplicar_conclusao_estruturada)
+                and ecocardiograma_estruturado
                 and ecocardiograma_estruturado.get("usar_no_laudo")
             ):
                 legado = _derivar_legado_de_ecocardiograma_estruturado(
                     ecocardiograma_estruturado
                 )
-                qualitativa = legado["qualitativa"]
-                conteudo = dict(conteudo)
-                if legado["conclusao"]:
+                if aplicar_qualitativa_estruturada:
+                    qualitativa = legado["qualitativa"]
+                if aplicar_conclusao_estruturada:
+                    conteudo = dict(conteudo)
                     conteudo["conclusao"] = legado["conclusao"]
 
             agendamento_id = laudo_data.get("agendamento_id")
@@ -3150,15 +3154,20 @@ def atualizar_laudo(
         )
         if (
             (laudo_data.get("tipo") or laudo.tipo or "").strip().lower() == "ecocardiograma"
+            and (aplicar_qualitativa_estruturada or aplicar_conclusao_estruturada)
             and ecocardiograma_estruturado
             and ecocardiograma_estruturado.get("usar_no_laudo")
         ):
             legado = _derivar_legado_de_ecocardiograma_estruturado(ecocardiograma_estruturado)
-            laudo_data.setdefault(
-                "descricao",
-                _montar_descricao_ecocardiograma({}, legado["qualitativa"]),
-            )
-            if legado["conclusao"]:
+            if aplicar_qualitativa_estruturada:
+                laudo_data.setdefault(
+                    "descricao",
+                    _montar_descricao_ecocardiograma(
+                        extrair_medidas_ecocardiograma_da_descricao(laudo.descricao),
+                        legado["qualitativa"],
+                    ),
+                )
+            if aplicar_conclusao_estruturada:
                 laudo_data.setdefault("diagnostico", legado["conclusao"])
 
     for field, value in laudo_data.items():

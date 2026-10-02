@@ -30,11 +30,12 @@ import { ReferenciaComparison } from "../../components/ReferenciaComparison";
 import {
   criarEcocardiogramaEstruturadoInicial,
   derivarLegadoDeEcocardiogramaEstruturado,
+  EcocardiogramaEstruturadoPersistido,
   extrairQualitativaEcoDaDescricao,
   hidratarEcocardiogramaEstruturadoDeLegado,
   montarDescricaoEcocardiograma,
   normalizarEcocardiogramaEstruturado,
-  qualitativaEcoLegadaIgual,
+  resolverTextoClinicoNaEdicao,
   serializarEcocardiogramaEstruturado,
 } from "@/lib/ecocardiograma-estruturado";
 import { listarTodasClinicas } from "@/lib/clinicas";
@@ -312,6 +313,8 @@ export default function EditarLaudoPage() {
   const [ecocardiogramaEstruturado, setEcocardiogramaEstruturado] = useState(
     criarEcocardiogramaEstruturadoInicial()
   );
+  const [qualitativaEstruturadaAplicada, setQualitativaEstruturadaAplicada] = useState(false);
+  const [conclusaoEstruturadaAplicada, setConclusaoEstruturadaAplicada] = useState(false);
   const [ecocardiogramaCabecalho, setEcocardiogramaCabecalho] = useState<EcocardiogramaCabecalho>({
     ritmo: "",
     estado: "",
@@ -436,16 +439,22 @@ export default function EditarLaudoPage() {
     saveRacasCustomPorEspecie(racasCustomPorEspecie);
   }, [racasLoaded, racasCustomPorEspecie]);
 
-  useEffect(() => {
-    if (!ecocardiogramaEstruturado.usar_no_laudo) return;
-    const legado = derivarLegadoDeEcocardiogramaEstruturado(ecocardiogramaEstruturado);
-    setQualitativa((prev) =>
-      qualitativaEcoLegadaIgual(prev, legado.qualitativa) ? prev : legado.qualitativa
-    );
-    if (legado.conclusao) {
-      setDiagnostico((prev) => (prev === legado.conclusao ? prev : legado.conclusao));
+  const handleEcocardiogramaEstruturadoChange = (next: EcocardiogramaEstruturadoPersistido) => {
+    const chavesAlteradas = Object.keys({ ...ecocardiogramaEstruturado.textos, ...next.textos })
+      .filter((key) => ecocardiogramaEstruturado.textos[key] !== next.textos[key]);
+    const ativadoAgora = next.usar_no_laudo && !ecocardiogramaEstruturado.usar_no_laudo;
+    setEcocardiogramaEstruturado(next);
+    if (!next.usar_no_laudo || (!chavesAlteradas.length && !ativadoAgora)) return;
+    const legado = derivarLegadoDeEcocardiogramaEstruturado(next);
+    if (ativadoAgora || chavesAlteradas.some((key) => key !== "conclusao")) {
+      setQualitativa(legado.qualitativa);
+      setQualitativaEstruturadaAplicada(true);
     }
-  }, [ecocardiogramaEstruturado]);
+    if (ativadoAgora || chavesAlteradas.includes("conclusao")) {
+      setDiagnostico(legado.conclusao);
+      setConclusaoEstruturadaAplicada(true);
+    }
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -903,6 +912,8 @@ export default function EditarLaudoPage() {
           laudoData.diagnostico || ""
         )
       );
+      setQualitativaEstruturadaAplicada(false);
+      setConclusaoEstruturadaAplicada(false);
     } catch (error) {
       console.error("Erro ao carregar laudo:", error);
       alert("Erro ao carregar laudo.");
@@ -989,14 +1000,17 @@ export default function EditarLaudoPage() {
       const ecoEstruturadoPayload = laudoEhPressao
         ? null
         : serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado);
-      const legadoEco = ecoEstruturadoPayload
-        ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
-        : null;
-      const qualitativaPayload = legadoEco?.qualitativa || qualitativa;
-      const diagnosticoPayload =
-        ecoEstruturadoPayload?.usar_no_laudo
-          ? legadoEco?.conclusao || diagnostico
-          : diagnostico;
+      const textoClinico = resolverTextoClinicoNaEdicao(
+        ecoEstruturadoPayload,
+        qualitativa,
+        diagnostico,
+        {
+          qualitativa: qualitativaEstruturadaAplicada,
+          conclusao: conclusaoEstruturadaAplicada,
+        }
+      );
+      const qualitativaPayload = textoClinico.qualitativa;
+      const diagnosticoPayload = textoClinico.conclusao;
 
       // 2. Montar descricao do laudo conforme tipo
       let descricao = "";
@@ -1033,6 +1047,8 @@ export default function EditarLaudoPage() {
         pressao_arterial: pressaoPayload,
         ecocardiograma_cabecalho: laudoEhPressao ? null : ecocardiogramaCabecalho,
         ecocardiograma_estruturado: ecoEstruturadoPayload,
+        aplicar_qualitativa_estruturada: qualitativaEstruturadaAplicada,
+        aplicar_conclusao_estruturada: conclusaoEstruturadaAplicada,
       };
 
       // Adicionar clinic_id se selecionado
@@ -1105,15 +1121,15 @@ export default function EditarLaudoPage() {
       setMedidas((previous) => mergeImportedEchoMeasurements(previous, patch.measurements));
     }
     if (Object.keys(patch.fields).length) {
-      setEcocardiogramaEstruturado((previous) => ({
-        ...previous,
+      handleEcocardiogramaEstruturadoChange({
+        ...ecocardiogramaEstruturado,
         usar_no_laudo: true,
         textos: {
-          ...previous.textos,
+          ...ecocardiogramaEstruturado.textos,
           ...patch.fields,
         },
         updated_at: new Date().toISOString(),
-      }));
+      });
     }
     setAba(Object.keys(patch.fields).length ? "qualitativa" : "medidas");
     setStatus("Rascunho");
@@ -2061,13 +2077,13 @@ export default function EditarLaudoPage() {
                     <div className="mb-4">
                       <h3 className="font-medium text-gray-900">Qualitativa Detalhada</h3>
                       <span className="text-sm text-gray-500">
-                        Use o editor estruturado como fonte principal. O bloco qualitativo legado eh gerado automaticamente ao salvar para compatibilidade do PDF.
+                        O texto clinico salvo e preservado ao editar medidas e referencias. Edite os campos estruturados para atualizar a analise no laudo.
                       </span>
                     </div>
 
                     <EcocardiogramaEstruturadoEditor
                       value={ecocardiogramaEstruturado}
-                      onChange={setEcocardiogramaEstruturado}
+                      onChange={handleEcocardiogramaEstruturadoChange}
                     />
 
                     {ecocardiogramaEstruturado.usar_no_laudo ? (
