@@ -85,3 +85,14 @@
 - CA-022: a versão do renderizador de ecocardiogramas avança após a mudança de paginação para regenerar PDFs em cache sem invalidar as demais modalidades.
 - CA-023: um laudo sintético extenso com três descrições no último grupo, assinatura e 12 imagens ocupa cinco páginas: o último grupo e a assinatura ficam juntos, e as imagens 1–6 e 7–12 ocupam as duas páginas seguintes, respectivamente.
 - CA-024: a nova paginação incrementa apenas a versão de cache do PDF ecocardiográfico, preservando as chaves de cache das outras modalidades.
+
+## Incremento: preservar texto clínico em edições técnicas (2026-10-01)
+
+- RF-035: ao abrir um ecocardiograma existente com editor estruturado ativo, preservar a avaliação qualitativa e a conclusão oficiais armazenadas, mesmo quando os textos estruturados divergirem.
+- RF-036: alterar medidas, vista 2D, referências ou imagens e salvar não pode aplicar automaticamente texto estruturado à avaliação ou à conclusão; o PDF e a cópia do portal devem usar os textos oficiais preservados.
+- RF-037: editar ou aplicar explicitamente um achado estruturado atualiza somente a avaliação qualitativa; editar ou aplicar explicitamente a conclusão estruturada atualiza a conclusão. Ativar o uso do estruturado aplica ambos os blocos.
+- RF-038: `PUT /laudos/{id}` aceita `aplicar_qualitativa_estruturada` e `aplicar_conclusao_estruturada` como sinais explícitos independentes, ambos falsos por padrão. A criação de laudos conserva seu comportamento atual.
+- NFR-005: a aplicação explícita da qualitativa preserva as medidas já registradas na descrição quando o cliente não envia uma nova descrição.
+- CA-035: um laudo existente com texto clínico revisado e estruturado ativo mantém avaliação e conclusão após salvar apenas a vista 2D; a faixa de referência pode mudar sem reescrever a interpretação.
+- CA-036: aplicar somente um achado estruturado mantém a conclusão revisada; aplicar a conclusão altera somente a conclusão.
+- CA-037: os sinalizadores de aplicação são consumidos pela API e não são persistidos como campos do laudo.

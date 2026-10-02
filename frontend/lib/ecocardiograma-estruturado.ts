@@ -280,6 +280,22 @@ export function derivarLegadoDeEcocardiogramaEstruturado(
   return { qualitativa, conclusao };
 }
 
+export function resolverTextoClinicoNaEdicao(
+  estruturado: EcocardiogramaEstruturadoPersistido | null,
+  qualitativaSalva: QualitativaEcoLegada,
+  conclusaoSalva: string,
+  aplicar: { qualitativa: boolean; conclusao: boolean }
+): { qualitativa: QualitativaEcoLegada; conclusao: string } {
+  if (!estruturado?.usar_no_laudo || (!aplicar.qualitativa && !aplicar.conclusao)) {
+    return { qualitativa: qualitativaSalva, conclusao: conclusaoSalva };
+  }
+  const derivado = derivarLegadoDeEcocardiogramaEstruturado(estruturado);
+  return {
+    qualitativa: aplicar.qualitativa ? derivado.qualitativa : qualitativaSalva,
+    conclusao: aplicar.conclusao ? derivado.conclusao : conclusaoSalva,
+  };
+}
+
 export function montarDescricaoEcocardiograma(
   medidas: Record<string, string>,
   qualitativa: QualitativaEcoLegada

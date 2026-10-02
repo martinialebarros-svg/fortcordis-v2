@@ -117,3 +117,11 @@ A confirmação explícita de unidades por medida foi testada com o laudo sinté
 No PDF de Mia, DIVEs de 12,04 mm está abaixo da faixa cadastrada de 15–27 mm e PLVEs de 17,36 mm acima de 8–15 mm, enquanto a narrativa chama as dimensões internas e espessuras parietais do VE de normais. Isso é uma possível discordância para revisão pelo veterinário; a faixa cadastrada não traz fonte/método suficientes para correção automática do texto. O novo rótulo da aba de referências está validado apenas localmente e não foi publicado.
 
 A conversão conservadora de dados legados evita multiplicar TAPSE e MAPSE por inferência de outras medidas. Valores antigos dessas duas medidas que tenham sido armazenados em cm sem indicação de unidade ainda exigem conferência do exame de origem; o sistema não tem metadado suficiente para identificá-los automaticamente.
+
+## Verificação do incremento de preservação clínica (2026-10-01)
+
+- CA-035: testes da API confirmam que a edição técnica conserva `descricao` e `diagnostico` com estruturado ativo e divergente; teste do seletor de texto no frontend confirma o mesmo comportamento no envio. Em stage, conferir com laudo sintético antes/depois do salvamento da vista 2D e nos PDFs gerados.
+- CA-036: testes independentes confirmam que aplicar somente um achado preserva a conclusão e as medidas; aplicar a conclusão atualiza seu campo. Revisar na interface em stage.
+- CA-037: teste da API confirma que os sinalizadores de aplicação não viram atributos do laudo.
+- Validação local: 35 testes Python (`test_laudos_ecocardiograma_estruturado`, `test_pdf_laudo_qualitativa` e `test_pdf_laudo_echo_measurements`) e 8 testes Vitest focados passaram; TypeScript sem emissão, ESLint direcionado e `git diff --check` passaram.
+- O build de produção do frontend compilou, validou tipos e gerou 43 páginas; `py_compile` e `git diff --check` passaram. O guardrail SDD será executado sobre o commit antes da publicação. Depois da publicação em stage, comparar laudo e PDF sintéticos sem usar um paciente real para esta regressão.
