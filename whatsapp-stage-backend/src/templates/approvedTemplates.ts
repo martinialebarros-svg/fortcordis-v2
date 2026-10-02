@@ -88,6 +88,16 @@ export const APPROVED_UTILITY_TEMPLATES = {
     quickReplies: [],
     buttonActions: []
   },
+  homeReportPdf: {
+    name: "laudo_domiciliar_pdf_tutor",
+    // Submeter como Utilidade, pt_BR, cabecalho DOCUMENT. Nunca enviar antes da aprovacao.
+    metaId: "PENDING_META_APPROVAL",
+    headerType: "document",
+    body: "Olá, {{1}}. O laudo do atendimento domiciliar de {{2}} está anexado em PDF. " +
+      "Se tiver dúvidas sobre o resultado, fale com a equipe Fort Cordis.",
+    quickReplies: [],
+    buttonActions: []
+  },
   receiptAvailable: {
     name: "recibo_disponivel",
     metaId: "934407008986859",

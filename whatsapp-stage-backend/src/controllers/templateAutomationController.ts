@@ -16,7 +16,7 @@ import { logger } from "../utils/logger";
 import { canonicalWhatsAppIdentity } from "../utils/phoneNumber";
 
 type UtilityTemplateKey = Exclude<ApprovedUtilityTemplateKey, "reservation">;
-type SubjectType = "agendamento" | "exame" | "ordem_servico" | "clinica";
+type SubjectType = "agendamento" | "exame" | "laudo" | "ordem_servico" | "clinica";
 
 interface UtilityTemplateRequest {
   template_key: UtilityTemplateKey;
@@ -44,6 +44,7 @@ const SUBJECT_BY_TEMPLATE: Record<UtilityTemplateKey, SubjectType> = {
   appointmentFormalized: "agendamento",
   portalReportAvailable: "exame",
   portalReportLink: "exame",
+  homeReportPdf: "laudo",
   receiptAvailable: "ordem_servico",
   receiptPdf: "ordem_servico",
   receiptPdfBulk: "ordem_servico",

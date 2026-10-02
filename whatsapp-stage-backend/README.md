@@ -104,7 +104,10 @@ docker-compose up -d --build
 - `POST /automation/agenda/reservations` (envia `reserva_de_agendamento` com quick replies)
 - `POST /automation/templates` (envia modelo de texto aprovado, com idempotencia e referencia de dominio)
 - `POST /automation/document-templates` (recebe PDF em memoria, faz upload na Cloud API e envia
-  modelo de recibo com cabecalho de documento)
+  modelo de recibo ou laudo domiciliar com cabecalho de documento). O modelo
+  `laudo_domiciliar_pdf_tutor` usa pt_BR, categoria Utilidade, cabecalho DOCUMENT
+  e variaveis nome do tutor/pet. Habilitar `WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED=true`
+  apenas depois de aprovado na conta Meta daquele ambiente.
 
 ## Autenticacao e ACL
 
