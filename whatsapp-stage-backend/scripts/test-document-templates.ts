@@ -7,7 +7,7 @@ import {
 
 async function run(): Promise<void> {
   process.env.DATABASE_URL ||= "postgres://postgres:postgres@127.0.0.1:5432/fortcordis_stage";
-  const { parseDocumentTemplateRequest, validatePdfDocument } = await import(
+  const { parseDocumentTemplateRequest, validatePdfDocument, sendApprovedDocumentTemplate } = await import(
     "../src/controllers/documentTemplateAutomationController"
   );
 
@@ -54,6 +54,38 @@ async function run(): Promise<void> {
   );
   assert.deepStrictEqual(parsed.subject_ids, [123]);
   assert.strictEqual(parsed.document_sha256.length, 64);
+  const reportParsed = parseDocumentTemplateRequest(
+    {
+      template_key: "homeReportPdf",
+      subject_type: "laudo",
+      subject_ids: "[7]",
+      destination: "558588281436",
+      idempotency_key: "home-report-pdf-7",
+      parameters: JSON.stringify(["Tutor teste", "Pet teste"]),
+      filename: "laudo_7.pdf"
+    },
+    { ...file, originalname: "laudo_7.pdf" }
+  );
+  assert.deepStrictEqual(reportParsed.subject_ids, [7]);
+  assert.throws(() => parseDocumentTemplateRequest({
+    template_key: "homeReportPdf", subject_type: "ordem_servico", subject_ids: "[7]",
+    destination: "558588281436", idempotency_key: "home-report-invalid",
+    parameters: JSON.stringify(["Tutor teste", "Pet teste"]), filename: "laudo_7.pdf"
+  }, file), /requires subject_type 'laudo'/);
+  let pendingStatus = 0;
+  let pendingBody: Record<string, unknown> = {};
+  await sendApprovedDocumentTemplate({
+    body: {
+      template_key: "homeReportPdf", subject_type: "laudo", subject_ids: "[7]",
+      destination: "558588281436", idempotency_key: "home-report-pending-7",
+      parameters: JSON.stringify(["Tutor teste", "Pet teste"]), filename: "laudo_7.pdf"
+    }, file: { ...file, originalname: "laudo_7.pdf" }
+  } as any, {
+    status(code: number) { pendingStatus = code; return this; },
+    json(value: Record<string, unknown>) { pendingBody = value; return this; }
+  } as any);
+  assert.strictEqual(pendingStatus, 503);
+  assert.strictEqual(pendingBody.code, "TEMPLATE_PENDING_APPROVAL");
 
   const originalPost = axios.post;
   const requests: Array<{ url: string; payload: any }> = [];
@@ -108,6 +140,18 @@ async function run(): Promise<void> {
     assert.strictEqual(messagePayload.template.components[1].parameters.length, 7);
     assert.strictEqual(messagePayload.template.components[2].type, "button");
 
+    await sendWhatsAppApprovedUtilityTemplateWithRetry({
+      phoneNumberId: "1279142515283484",
+      accessToken: "secret-token",
+      to: "558588281436",
+      templateKey: "homeReportPdf",
+      bodyParameters: reportParsed.parameters,
+      quickReplyPayloads: [],
+      documentHeader: { mediaId: upload.id, filename: reportParsed.filename }
+    });
+    assert.strictEqual(requests[2].payload.template.name, "laudo_domiciliar_pdf_tutor");
+    assert.strictEqual(requests[2].payload.template.components[0].parameters[0].type, "document");
+
     await assert.rejects(
       () =>
         sendWhatsAppApprovedUtilityTemplateWithRetry({
@@ -120,7 +164,7 @@ async function run(): Promise<void> {
         }),
       /requires a document header/
     );
-    assert.strictEqual(requests.length, 2);
+    assert.strictEqual(requests.length, 3);
   } finally {
     axios.post = originalPost;
   }

@@ -61,7 +61,10 @@ from app.services.portal_clinic_notification_service import notify_clinic_report
 from app.services.portal_partner_notification_service import notify_partner_report_released
 from app.services.whatsapp_agenda_service import normalize_whatsapp_number
 from app.services.whatsapp_template_delivery_service import (
+    WhatsAppCustomerWindowClosed,
+    WhatsAppTemplatePendingApproval,
     WhatsAppTemplateDeliveryError,
+    send_approved_document_template,
     send_approved_utility_template,
     send_report_pdf_in_customer_window,
 )
@@ -4090,12 +4093,25 @@ def enviar_laudo_domiciliar_ao_tutor(
         pdf = render_laudo_pdf(db, laudo.id, current_user)
         pdf_bytes, filename = pdf.content, pdf.filename
 
+    delivery_mode = "janela_24h"
     try:
-        result = send_report_pdf_in_customer_window(
-            laudo_id=laudo.id, destination=destination,
-            idempotency_key=payload.idempotency_key,
-            document_bytes=pdf_bytes, filename=filename,
-        )
+        try:
+            result = send_report_pdf_in_customer_window(
+                laudo_id=laudo.id, destination=destination,
+                idempotency_key=payload.idempotency_key,
+                document_bytes=pdf_bytes, filename=filename,
+            )
+        except WhatsAppCustomerWindowClosed:
+            delivery_mode = "modelo_aprovado"
+            result = send_approved_document_template(
+                template_key="homeReportPdf", subject_type="laudo",
+                subject_id=laudo.id, subject_ids=[laudo.id], destination=destination,
+                parameters=[str(tutor.nome or "Tutor")[:120], str(paciente.nome or "Paciente")[:120]],
+                idempotency_key=payload.idempotency_key,
+                document_bytes=pdf_bytes, filename=filename,
+            )
+    except WhatsAppTemplatePendingApproval as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except WhatsAppTemplateDeliveryError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     registrar_auditoria(
@@ -4103,7 +4119,7 @@ def enviar_laudo_domiciliar_ao_tutor(
         acao="LAUDO_DOMICILIAR_PDF_WHATSAPP_ENVIADO",
         descricao="PDF do laudo domiciliar enviado ao tutor pelo WhatsApp oficial.",
         detalhes={"destination_suffix": destination[-4:], "provider_message_id": result.get("message_id"),
-                  "idempotent": bool(result.get("idempotent"))}, request=request,
+                  "idempotent": bool(result.get("idempotent")), "delivery_mode": delivery_mode}, request=request,
     )
     return result
 

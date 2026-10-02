@@ -1047,7 +1047,7 @@ export default function LaudosPage() {
                               onClick={() => enviarLaudoDomiciliarPorWhatsApp(laudo)}
                               disabled={avisandoLaudoId === laudo.id}
                               className="fc-clinical-action"
-                              title="Enviar PDF do laudo ao tutor pelo WhatsApp oficial (janela de 24 horas)"
+                              title="Enviar PDF do laudo ao tutor pelo WhatsApp oficial"
                               aria-label={`Enviar PDF do laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`} ao tutor pelo WhatsApp`}
                             >
                               <MessageCircle className="w-4 h-4" />

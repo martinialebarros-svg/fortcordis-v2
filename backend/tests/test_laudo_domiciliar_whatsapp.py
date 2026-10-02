@@ -63,8 +63,8 @@ def test_envia_pdf_gerado_ao_numero_cadastrado_do_tutor():
     db = _db_with(
         SimpleNamespace(id=7, status="Finalizado", agendamento_id=3, paciente_id=2, anexos=None),
         SimpleNamespace(origem_atendimento="domiciliar", tutor_id=5),
-        SimpleNamespace(tutor_id=5),
-        SimpleNamespace(whatsapp="(85) 99999-1234"),
+        SimpleNamespace(tutor_id=5, nome="Pet teste"),
+        SimpleNamespace(whatsapp="(85) 99999-1234", nome="Tutor teste"),
     )
     with patch.object(laudos, "render_laudo_pdf", return_value=SimpleNamespace(content=b"%PDF-test", filename="laudo.pdf")), \
          patch.object(laudos, "send_report_pdf_in_customer_window", return_value={"message_id": "wamid.1"}) as send, \
@@ -83,6 +83,28 @@ def test_servico_recusa_pdf_invalido_antes_da_rede():
         with pytest.raises(WhatsAppTemplateDeliveryError):
             send_report_pdf_in_customer_window(laudo_id=7, destination="5585999991234",
                 idempotency_key="chave-teste-123", document_bytes=b"nao e pdf", filename="laudo.pdf")
+
+
+def test_servico_distingue_janela_fechada_de_outro_conflito():
+    from app.services.whatsapp_template_delivery_service import (
+        WhatsAppCustomerWindowClosed, send_report_pdf_in_customer_window,
+    )
+    with patch("app.services.whatsapp_template_delivery_service.settings") as settings, \
+         patch("app.services.whatsapp_template_delivery_service.httpx.post") as post:
+        settings.WHATSAPP_AGENDA_ENABLED = True
+        settings.WHATSAPP_AGENDA_INTERNAL_TOKEN = "test-token"
+        settings.WHATSAPP_AGENDA_SERVICE_URL = "http://localhost"
+        post.return_value = SimpleNamespace(status_code=409, json=lambda: {
+            "code": "CUSTOMER_WINDOW_CLOSED", "error": "Janela fechada"
+        })
+        with pytest.raises(WhatsAppCustomerWindowClosed):
+            send_report_pdf_in_customer_window(laudo_id=7, destination="5585999991234",
+                idempotency_key="chave-teste-123", document_bytes=b"%PDF-test", filename="laudo.pdf")
+        post.return_value = SimpleNamespace(status_code=409, json=lambda: {"error": "Envio incerto"})
+        with pytest.raises(HTTPException) as error:
+            send_report_pdf_in_customer_window(laudo_id=7, destination="5585999991234",
+                idempotency_key="chave-teste-123", document_bytes=b"%PDF-test", filename="laudo.pdf")
+        assert error.value.status_code == 409
 
 
 def test_lista_identifica_apenas_laudo_com_agendamento_domiciliar():
@@ -127,8 +149,8 @@ def test_envia_pdf_externo_original_sem_renderizar(tmp_path):
     db = _db_with(
         SimpleNamespace(id=7, status="Finalizado", agendamento_id=3, paciente_id=2, anexos="external"),
         SimpleNamespace(origem_atendimento="domiciliar", tutor_id=5),
-        SimpleNamespace(tutor_id=5),
-        SimpleNamespace(whatsapp="85999991234"),
+        SimpleNamespace(tutor_id=5, nome="Pet teste"),
+        SimpleNamespace(whatsapp="85999991234", nome="Tutor teste"),
     )
     with patch.object(laudos, "_extrair_pdf_externo_laudo", return_value={"anexo_id": 10}), \
          patch.object(laudos, "_buscar_anexo_pdf_externo_laudo", return_value=SimpleNamespace(caminho_arquivo=str(original))), \
@@ -138,3 +160,39 @@ def test_envia_pdf_externo_original_sem_renderizar(tmp_path):
         assert _send(db)["message_id"] == "wamid.2"
     render.assert_not_called()
     assert send.call_args.kwargs["document_bytes"] == b"%PDF-original"
+
+
+def test_janela_fechada_usa_modelo_de_documento_para_o_tutor():
+    from app.services.whatsapp_template_delivery_service import WhatsAppCustomerWindowClosed
+
+    db = _db_with(
+        SimpleNamespace(id=7, status="Finalizado", agendamento_id=3, paciente_id=2, anexos=None),
+        SimpleNamespace(origem_atendimento="domiciliar", tutor_id=5),
+        SimpleNamespace(tutor_id=5, nome="Pet teste"),
+        SimpleNamespace(whatsapp="85999991234", nome="Tutor teste"),
+    )
+    with patch.object(laudos, "render_laudo_pdf", return_value=SimpleNamespace(content=b"%PDF-test", filename="laudo.pdf")), \
+         patch.object(laudos, "send_report_pdf_in_customer_window", side_effect=WhatsAppCustomerWindowClosed("fechada")), \
+         patch.object(laudos, "send_approved_document_template", return_value={"message_id": "wamid.template"}) as send, \
+         patch.object(laudos, "registrar_auditoria") as audit:
+        assert _send(db)["message_id"] == "wamid.template"
+    assert send.call_args.kwargs["template_key"] == "homeReportPdf"
+    assert send.call_args.kwargs["subject_type"] == "laudo"
+    assert send.call_args.kwargs["parameters"] == ["Tutor teste", "Pet teste"]
+    assert audit.call_args.kwargs["detalhes"]["delivery_mode"] == "modelo_aprovado"
+
+
+def test_falha_ou_envio_incerto_na_janela_nao_dispara_modelo():
+    db = _db_with(
+        SimpleNamespace(id=7, status="Finalizado", agendamento_id=3, paciente_id=2, anexos=None),
+        SimpleNamespace(origem_atendimento="domiciliar", tutor_id=5),
+        SimpleNamespace(tutor_id=5, nome="Pet teste"),
+        SimpleNamespace(whatsapp="85999991234", nome="Tutor teste"),
+    )
+    with patch.object(laudos, "render_laudo_pdf", return_value=SimpleNamespace(content=b"%PDF-test", filename="laudo.pdf")), \
+         patch.object(laudos, "send_report_pdf_in_customer_window", side_effect=HTTPException(status_code=409, detail="Envio incerto")), \
+         patch.object(laudos, "send_approved_document_template") as send:
+        with pytest.raises(HTTPException) as error:
+            _send(db)
+    assert error.value.status_code == 409
+    send.assert_not_called()

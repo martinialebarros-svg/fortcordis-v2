@@ -15,11 +15,11 @@ import {
 import { logger } from "../utils/logger";
 import { canonicalWhatsAppIdentity } from "../utils/phoneNumber";
 
-type DocumentTemplateKey = "receiptPdf" | "receiptPdfBulk";
+type DocumentTemplateKey = "receiptPdf" | "receiptPdfBulk" | "homeReportPdf";
 
 interface DocumentTemplateRequest {
   template_key: DocumentTemplateKey;
-  subject_type: "ordem_servico";
+  subject_type: "ordem_servico" | "laudo";
   subject_id: number;
   subject_ids: number[];
   destination: string;
@@ -105,14 +105,15 @@ export function parseDocumentTemplateRequest(
   file: Express.Multer.File | undefined
 ): DocumentTemplateRequest {
   const templateKey = cleanText(body.template_key, "template_key", 80) as DocumentTemplateKey;
-  if (templateKey !== "receiptPdf" && templateKey !== "receiptPdfBulk") {
+  if (templateKey !== "receiptPdf" && templateKey !== "receiptPdfBulk" && templateKey !== "homeReportPdf") {
     throw new Error("template_key is not an approved document template");
   }
   if (!templateRequiresDocumentHeader(templateKey)) {
     throw new Error(`template '${templateKey}' does not accept a document header`);
   }
-  if (cleanText(body.subject_type, "subject_type", 40) !== "ordem_servico") {
-    throw new Error(`template '${templateKey}' requires subject_type 'ordem_servico'`);
+  const subjectType = templateKey === "homeReportPdf" ? "laudo" : "ordem_servico";
+  if (cleanText(body.subject_type, "subject_type", 40) !== subjectType) {
+    throw new Error(`template '${templateKey}' requires subject_type '${subjectType}'`);
   }
 
   const subjectIds = Array.from(
@@ -145,7 +146,7 @@ export function parseDocumentTemplateRequest(
   const filename = sanitizePdfFilename(body.filename || file?.originalname);
   return {
     template_key: templateKey,
-    subject_type: "ordem_servico",
+    subject_type: subjectType,
     subject_id: subjectIds[0],
     subject_ids: subjectIds,
     destination: normalizeDestination(body.destination),
@@ -289,7 +290,7 @@ async function persistSentMessage(
         waMessageId,
         renderedBody,
         JSON.stringify({
-          source: "template.ordem_servico",
+          source: `template.${payload.subject_type}`,
           template_key: payload.template_key,
           template_name: definition.name,
           subject_type: payload.subject_type,
@@ -319,6 +320,12 @@ export async function sendApprovedDocumentTemplate(req: Request, res: Response):
     payload = parseDocumentTemplateRequest(req.body as Record<string, unknown>, req.file);
   } catch (error) {
     res.status(422).json({ error: error instanceof Error ? error.message : "invalid document request" });
+    return;
+  }
+
+  if (payload.template_key === "homeReportPdf" &&
+      process.env.WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED !== "true") {
+    res.status(503).json({ code: "TEMPLATE_PENDING_APPROVAL", error: "O modelo de laudo ao tutor ainda nao esta habilitado para esta conta da Meta." });
     return;
   }
 

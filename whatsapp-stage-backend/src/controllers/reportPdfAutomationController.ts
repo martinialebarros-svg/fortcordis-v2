@@ -26,14 +26,55 @@ export async function sendReportPdfInCustomerWindow(req: Request, res: Response)
     return;
   }
   const identity = canonicalWhatsAppIdentity(destination);
+  const hash = createHash("sha256").update(JSON.stringify({
+    reportId, destination, filename,
+    document_sha256: createHash("sha256").update(file.buffer).digest("hex")
+  })).digest("hex");
+  const previous = await query<Delivery>(
+    "SELECT * FROM report_pdf_messages WHERE idempotency_key = $1", [idempotencyKey]
+  );
+  if (previous.rows[0]) {
+    if (previous.rows[0].request_hash !== hash) {
+      res.status(409).json({ error: "Chave de envio ja usada com outro PDF." });
+      return;
+    }
+    if (previous.rows[0].status === "sent" && previous.rows[0].wa_message_id) {
+      res.json({ message_id: previous.rows[0].wa_message_id, media_id: previous.rows[0].wa_media_id, idempotent: true });
+      return;
+    }
+    if (previous.rows[0].status !== "failed") {
+      res.status(409).json({ error: "Envio anterior pendente ou incerto. Verifique a conversa antes de repetir." });
+      return;
+    }
+  }
+  const templateDelivery = await query<{
+    subject_type: string; subject_id: string; destination: string; document_sha256: string | null;
+    document_filename: string | null; processing_status: string; wa_message_id: string | null; wa_media_id: string | null;
+  }>("SELECT subject_type, subject_id, destination, document_sha256, document_filename, processing_status, wa_message_id, wa_media_id FROM approved_template_messages WHERE idempotency_key = $1", [idempotencyKey]);
+  if (templateDelivery.rows[0]) {
+    const prior = templateDelivery.rows[0];
+    if (prior.subject_type !== "laudo" || Number(prior.subject_id) !== reportId || prior.destination !== destination
+        || prior.document_filename !== filename
+        || prior.document_sha256 !== createHash("sha256").update(file.buffer).digest("hex")) {
+      res.status(409).json({ error: "Chave de envio ja usada com outro documento." });
+      return;
+    }
+    if (prior.processing_status === "sent" && prior.wa_message_id) {
+      res.json({ message_id: prior.wa_message_id, media_id: prior.wa_media_id, idempotent: true });
+      return;
+    }
+    if (prior.processing_status !== "failed") {
+      res.status(409).json({ error: "Envio anterior pendente ou incerto. Verifique a conversa antes de repetir." });
+      return;
+    }
+  }
   const conversation = await query<{ id: string; last_inbound_at: Date | null }>(
     "SELECT id, last_inbound_at FROM conversations WHERE wa_phone_number = $1", [identity]
   );
   if (!conversation.rows[0] || !describeCustomerServiceWindow(conversation.rows[0].last_inbound_at).is_open) {
-    res.status(409).json({ error: "A janela de atendimento do tutor esta fechada. Aguarde uma mensagem dele antes de enviar o PDF." });
+    res.status(409).json({ code: "CUSTOMER_WINDOW_CLOSED", error: "A janela de atendimento do tutor esta fechada." });
     return;
   }
-  const hash = createHash("sha256").update(JSON.stringify({ reportId, destination, filename })).digest("hex");
   let reserved: { row: Delivery; idempotent: boolean };
   try {
     reserved = await withTransaction(async (client) => {
