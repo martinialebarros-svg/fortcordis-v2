@@ -38,6 +38,12 @@ async function main() {
   let uncertainSend = false;
   const db = dbService as any;
   db.query = async (sql: string, params: unknown[]) => {
+    if (sql.startsWith("SELECT * FROM report_pdf_messages")) {
+      return { rows: deliveries.has(String(params[0])) ? [deliveries.get(String(params[0]))] : [] };
+    }
+    if (sql.includes("FROM approved_template_messages")) {
+      return { rows: [] };
+    }
     if (sql.includes("FROM conversations")) {
       return { rows: [{ id: "1", last_inbound_at: inbound }] };
     }

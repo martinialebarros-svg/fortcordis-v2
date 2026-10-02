@@ -18,6 +18,7 @@ ApprovedUtilityTemplateKey = Literal[
     "appointmentFormalized",
     "portalReportAvailable",
     "portalReportLink",
+    "homeReportPdf",
     "receiptAvailable",
     "receiptPdf",
     "receiptPdfBulk",
@@ -27,10 +28,18 @@ ApprovedUtilityTemplateKey = Literal[
     "portalClinicInviteLoginAccess",
     "portalClinicInviteTemporaryPassword",
 ]
-ApprovedTemplateSubject = Literal["agendamento", "exame", "ordem_servico", "clinica"]
+ApprovedTemplateSubject = Literal["agendamento", "exame", "laudo", "ordem_servico", "clinica"]
 
 
 class WhatsAppTemplateDeliveryError(RuntimeError):
+    pass
+
+
+class WhatsAppCustomerWindowClosed(WhatsAppTemplateDeliveryError):
+    pass
+
+
+class WhatsAppTemplatePendingApproval(WhatsAppTemplateDeliveryError):
     pass
 
 
@@ -86,7 +95,8 @@ def send_approved_utility_template(
 
 def send_approved_document_template(
     *,
-    template_key: Literal["receiptPdf", "receiptPdfBulk"],
+    template_key: Literal["receiptPdf", "receiptPdfBulk", "homeReportPdf"],
+    subject_type: Literal["ordem_servico", "laudo"] = "ordem_servico",
     subject_id: int,
     subject_ids: Sequence[int],
     destination: str,
@@ -105,9 +115,11 @@ def send_approved_document_template(
 
     normalized_ids = list(dict.fromkeys(int(item) for item in subject_ids))
     if not normalized_ids or subject_id not in normalized_ids:
-        raise WhatsAppTemplateDeliveryError("Referencias de OS invalidas para o recibo PDF.")
+        raise WhatsAppTemplateDeliveryError("Referencia invalida para o PDF.")
+    if (template_key == "homeReportPdf") != (subject_type == "laudo"):
+        raise WhatsAppTemplateDeliveryError("Modelo de documento incompatível com o tipo de registro.")
     if not document_bytes or len(document_bytes) > 8 * 1024 * 1024 or not document_bytes.startswith(b"%PDF"):
-        raise WhatsAppTemplateDeliveryError("O recibo precisa ser um PDF valido de ate 8 MiB.")
+        raise WhatsAppTemplateDeliveryError("O documento precisa ser um PDF valido de ate 8 MiB.")
 
     safe_filename = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(filename or "").strip()).lstrip(".")
     if not safe_filename or not safe_filename.lower().endswith(".pdf"):
@@ -115,7 +127,7 @@ def send_approved_document_template(
 
     form = {
         "template_key": template_key,
-        "subject_type": "ordem_servico",
+        "subject_type": subject_type,
         "subject_id": str(subject_id),
         "subject_ids": json.dumps(normalized_ids),
         "destination": destination,
@@ -136,10 +148,14 @@ def send_approved_document_template(
 
     if response.status_code >= 400:
         try:
-            provider_detail = response.json().get("error")
+            error_payload = response.json()
+            provider_detail = error_payload.get("error")
         except Exception:
+            error_payload = {}
             provider_detail = None
-        raise WhatsAppTemplateDeliveryError(str(provider_detail or "Falha ao enviar o recibo PDF pelo WhatsApp."))
+        if error_payload.get("code") == "TEMPLATE_PENDING_APPROVAL":
+            raise WhatsAppTemplatePendingApproval(str(provider_detail or "Modelo aguarda aprovacao da Meta."))
+        raise WhatsAppTemplateDeliveryError(str(provider_detail or "Falha ao enviar o PDF pelo WhatsApp."))
 
     payload = response.json()
     if not isinstance(payload, dict) or not payload.get("message_id") or not payload.get("media_id"):
@@ -176,9 +192,13 @@ def send_report_pdf_in_customer_window(
         raise WhatsAppTemplateDeliveryError("Servico do WhatsApp indisponivel para enviar o laudo.") from exc
     if response.status_code >= 400:
         try:
-            detail = response.json().get("error")
+            error_payload = response.json()
+            detail = error_payload.get("error")
         except Exception:
+            error_payload = {}
             detail = None
+        if response.status_code == 409 and error_payload.get("code") == "CUSTOMER_WINDOW_CLOSED":
+            raise WhatsAppCustomerWindowClosed(str(detail or "Janela de atendimento encerrada."))
         if response.status_code == 409:
             raise HTTPException(status_code=409, detail=str(detail or "Envio indisponivel nesta conversa."))
         raise WhatsAppTemplateDeliveryError(str(detail or "Falha ao enviar o laudo pelo WhatsApp."))
