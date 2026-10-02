@@ -12,6 +12,7 @@
 - [x] Teste do modelo: PDF, destinatario, `subject_type=laudo`, variaveis tutor/pet e gate desligado validados sem requisicao a Meta.
 - [x] PostgreSQL temporario: modelo simulado persiste mensagem, repeticao com a mesma chave retorna o mesmo resultado e envio comum reconhece a chave ja concluida pelo modelo.
 - [x] Build do servico WhatsApp, testes locais de documento/laudo, 17 testes backend focados, typecheck/lint e build frontend em 2026-10-01.
+- [x] O teste do catalogo de modelos inclui `homeReportPdf` e deriva a contagem esperada do catalogo declarado; a primeira execucao do gate de stage apontou a contagem fixa antiga de 16.
 - [ ] Modelo `laudo_domiciliar_pdf_tutor` aprovado nas contas Meta de stage e producao. Gate `WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED` permanece desligado ate comprovacao por ambiente.
 - [ ] Teste autenticado com destinatario controlado e envio real somente com autorizacao explicita.
 - [x] Sobre `origin/stage` de 2026-09-30: suite de laudos do backend com 139 testes; frontend com 453 testes Vitest e 9 testes Node.
