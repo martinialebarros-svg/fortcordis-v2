@@ -18,6 +18,7 @@ from app.models.papel import Papel
 from app.models.papel_permissao import PapelPermissao
 from app.models.user import User
 from app.services.runtime_observability import get_persisted_http_latency_summary
+from app.services.frontend_performance import get_frontend_performance_summary
 
 router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -555,6 +556,18 @@ def obter_latencia_http_persistida(
 
     _ = current_user
     return get_persisted_http_latency_summary(db, hours=hours)
+
+
+@router.get("/observability/frontend-performance")
+def obter_desempenho_frontend_persistido(
+    hours: int = Query(default=24, ge=1, le=168),
+    current_user: User = Depends(require_papel("admin")),
+    db: Session = Depends(get_db),
+):
+    """Resumo RUM por rota e release, sem amostras individuais ou identidade."""
+
+    _ = current_user
+    return get_frontend_performance_summary(db, hours=hours)
 
 
 @router.get("/papeis", response_model=List[PapelAdminResponse])

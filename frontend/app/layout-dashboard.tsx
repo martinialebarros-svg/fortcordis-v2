@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import api from "@/lib/axios";
+import FrontendPerformanceMonitor from "@/components/observability/FrontendPerformanceMonitor";
 import { FortinhoProvider } from "@/components/fortinho/FortinhoProvider";
 import { usesDashboardShell } from "@/lib/dashboard-shell-routes";
 import {
@@ -381,6 +382,7 @@ function DashboardFrame({
 
   const dashboardContent = (
     <div className="fc-app-shell">
+        <FrontendPerformanceMonitor enabled={authChecked && Boolean(user)} />
         <PushNotificationsBootstrap enabled={authChecked && Boolean(user)} />
         <DashboardPushSnoozeHandler enabled={authChecked && Boolean(user)} />
         <DashboardOverlayCleanup />

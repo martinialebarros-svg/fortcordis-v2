@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
+import { useRoutePerformanceReady } from "@/lib/use-route-performance-ready";
 import api from "@/lib/axios";
 import {
   getLaudoEditPath,
@@ -208,6 +209,7 @@ export default function LaudosPage() {
   const [loadingLaudos, setLoadingLaudos] = useState(true);
   const [loadingExames, setLoadingExames] = useState(true);
   const [loadingMoreLaudos, setLoadingMoreLaudos] = useState(false);
+  useRoutePerformanceReady(loadingPendentes || loadingAgilidade || loadingLaudos || loadingExames);
   const [liberandoLaudoId, setLiberandoLaudoId] = useState<number | null>(null);
   const [avisandoLaudoId, setAvisandoLaudoId] = useState<number | null>(null);
   const [laudoParaAvisar, setLaudoParaAvisar] = useState<Laudo | null>(null);

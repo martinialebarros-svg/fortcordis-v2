@@ -10,6 +10,7 @@ import {
   type DashboardSection,
 } from "@/lib/dashboard-loading";
 import type { LucideIcon } from "lucide-react";
+import { useRoutePerformanceReady } from "@/lib/use-route-performance-ready";
 import {
   Activity,
   ArrowRight,
@@ -415,6 +416,12 @@ export default function DashboardPage() {
   const isLoading = DASHBOARD_SECTIONS.some((section) => sectionStates[section] === "loading");
   const hasLoadedSection = DASHBOARD_SECTIONS.some((section) => sectionStates[section] === "success");
   const failedSections = DASHBOARD_SECTIONS.filter((section) => sectionStates[section] === "failed");
+  const dashboardOutcome = failedSections.length === 0
+    ? "ready"
+    : failedSections.length === DASHBOARD_SECTIONS.length
+      ? "error"
+      : "partial";
+  useRoutePerformanceReady(isLoading, dashboardOutcome);
   const displayValue = (section: DashboardSection, value: number) =>
     sectionStates[section] === "success" ? value : "—";
   const detailForSection = (section: DashboardSection, defaultDetail: string) => {
