@@ -2,14 +2,14 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | Teste `edita e desativa um atendente na secao Configurar equipe` em `page.test.tsx`: altera nome/perfil e confirma `PATCH /whatsapp/agents/7` com o corpo esperado e a lista recarregada | passou |
-| CA-002 | Mesmo teste: clique em "Desativar" confirma `PATCH` com `{ "active": false }` e a mensagem "Atendente desativado." | passou |
-| CA-003 | `handleUpdateAgent` bloqueia o submit e mostra "Email do atendente é obrigatório." quando `editAgentEmail` está vazio, antes de chamar `requestJson` | passou (inspeção de código, mesmo padrão de `handleCreateAgent`) |
-| CA-004 | `curl -X PATCH http://127.0.0.1:3000/agents/9999` retornou `404` | passou |
-| CA-005 | `curl -X PATCH http://127.0.0.1:3000/agents/1 -d '{"email":""}'` retornou `400` com `{"error":"email must be a non-empty string"}` | passou |
-| CA-006 | Screenshot do usuário em `app.stage.fortcordis.com.br` revelou o formulário de edição herdando `sm:grid-cols-2` de `.fc-wa-team-admin form` (Nome/Email lado a lado, Perfil e Salvar/Cancelar na mesma linha). Corrigido com `.fc-wa-agent-list .fc-wa-agent-edit form { grid-cols-1 }` (especificidade maior, sem media query, vence a regra herdada em qualquer largura) e `.fc-wa-agent-edit { sm:col-span-2 }`. Confirmado no CSS compilado do build de produção (`grid-template-columns:repeat(1,minmax(0,1fr))` e `grid-column:span 2/span 2`) | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | Teste `edita e desativa um atendente na secao Configurar equipe` em `page.test.tsx`: altera nome/perfil e confirma `PATCH /whatsapp/agents/7` com o corpo esperado e a lista recarregada | passou |
+| CA-002 | aceitacao | Mesmo teste: clique em "Desativar" confirma `PATCH` com `{ "active": false }` e a mensagem "Atendente desativado." | passou |
+| CA-003 | aceitacao | `handleUpdateAgent` bloqueia o submit e mostra "Email do atendente é obrigatório." quando `editAgentEmail` está vazio, antes de chamar `requestJson` | passou (inspeção de código, mesmo padrão de `handleCreateAgent`) |
+| CA-004 | aceitacao | `curl -X PATCH http://127.0.0.1:3000/agents/9999` retornou `404` | passou |
+| CA-005 | aceitacao | `curl -X PATCH http://127.0.0.1:3000/agents/1 -d '{"email":""}'` retornou `400` com `{"error":"email must be a non-empty string"}` | passou |
+| CA-006 | aceitacao | Screenshot do usuário em `app.stage.fortcordis.com.br` revelou o formulário de edição herdando `sm:grid-cols-2` de `.fc-wa-team-admin form` (Nome/Email lado a lado, Perfil e Salvar/Cancelar na mesma linha). Corrigido com `.fc-wa-agent-list .fc-wa-agent-edit form { grid-cols-1 }` (especificidade maior, sem media query, vence a regra herdada em qualquer largura) e `.fc-wa-agent-edit { sm:col-span-2 }`. Confirmado no CSS compilado do build de produção (`grid-template-columns:repeat(1,minmax(0,1fr))` e `grid-column:span 2/span 2`) | passou |
 
 ## Comandos previstos
 

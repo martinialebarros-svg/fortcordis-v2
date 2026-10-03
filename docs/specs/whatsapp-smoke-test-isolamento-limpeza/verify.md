@@ -2,12 +2,12 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | `scripts/test-smoke-cleanup.ts`: conversa/agente de controle (`Contato real ...`/`Atendente Real ...`) permanecem no banco depois do `execute` | passou |
-| CA-002 | Mesmo script: conversa de smoke, mensagem (`wamid.smoke.<id>.inbound`), `message_status_events` e `webhook_events` associados somem depois do `execute` | passou |
-| CA-003 | Mesmo script: `execute` com `papeis: ["recepcao"]` retorna `403` sem apagar nada; só com `papeis: ["admin"]` a exclusão acontece | passou |
-| CA-004 | `.github/workflows/deploy.yml` com `ENABLE_WHATSAPP_STAGE_SMOKE=0`; `deploy_prod_vps.sh` só roda o smoke quando essa variável é `"1"` (inspeção de código) | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | `scripts/test-smoke-cleanup.ts`: conversa/agente de controle (`Contato real ...`/`Atendente Real ...`) permanecem no banco depois do `execute` | passou |
+| CA-002 | aceitacao | Mesmo script: conversa de smoke, mensagem (`wamid.smoke.<id>.inbound`), `message_status_events` e `webhook_events` associados somem depois do `execute` | passou |
+| CA-003 | aceitacao | Mesmo script: `execute` com `papeis: ["recepcao"]` retorna `403` sem apagar nada; só com `papeis: ["admin"]` a exclusão acontece | passou |
+| CA-004 | aceitacao | `.github/workflows/deploy.yml` com `ENABLE_WHATSAPP_STAGE_SMOKE=0`; `deploy_prod_vps.sh` só roda o smoke quando essa variável é `"1"` (inspeção de código) | passou |
 
 ## Bug encontrado e corrigido antes do deploy
 

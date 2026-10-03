@@ -2,14 +2,14 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | `test_mensagem_recebida_esta_no_catalogo_de_acoes` | passou |
-| CA-002 | `test_build_title_usa_contato_quando_disponivel` (com e sem contato) | passou |
-| CA-003 | `test_build_body_trunca_em_160_caracteres` (300 chars → 160) | passou |
-| CA-004 | `test_send_whatsapp_message_push_notification_monta_payload_correto`: `assertNotIn("exclude_user_id", kwargs)` | passou |
-| CA-005 | `curl` local sem header `X-FortCordis-WhatsApp-Token` → `401 {"detail":"Credencial interna do WhatsApp invalida."}` | passou |
-| CA-006 | Inspeção de código: `alternarTipoPushAgenda` agora inclui `TIPOS_PUSH_WHATSAPP_OPCOES` na reconstrução (bug corrigido antes do deploy, sem esse fix o checkbox seria descartado ao salvar) | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | `test_mensagem_recebida_esta_no_catalogo_de_acoes` | passou |
+| CA-002 | aceitacao | `test_build_title_usa_contato_quando_disponivel` (com e sem contato) | passou |
+| CA-003 | aceitacao | `test_build_body_trunca_em_160_caracteres` (300 chars → 160) | passou |
+| CA-004 | aceitacao | `test_send_whatsapp_message_push_notification_monta_payload_correto`: `assertNotIn("exclude_user_id", kwargs)` | passou |
+| CA-005 | aceitacao | `curl` local sem header `X-FortCordis-WhatsApp-Token` → `401 {"detail":"Credencial interna do WhatsApp invalida."}` | passou |
+| CA-006 | aceitacao | Inspeção de código: `alternarTipoPushAgenda` agora inclui `TIPOS_PUSH_WHATSAPP_OPCOES` na reconstrução (bug corrigido antes do deploy, sem esse fix o checkbox seria descartado ao salvar) | passou |
 
 ## Comandos executados
 

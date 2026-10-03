@@ -16,16 +16,16 @@
 
 ## Matriz funcional
 
-| Requisitos | Evidência | Resultado |
-|---|---|---|
-| RF-001–003 | Banco real: pendência independente de seen, filtros combinados e validação, contador global e espera mais antiga; sucesso sent/delivered/read versus pending/failed; retry com mesmo ID; timestamps empatados. UI com total global, filtros pessoais e limpeza. | PASSOU |
-| RF-004 | Fechamento registra marco; nova inbound reabre; duplicação de payload e de wa_message_id não reabre; backfill e migração reaplicada preservam o marco. Webhook assinado sintético. | PASSOU |
-| RF-005 | Fechamento com token divergente retorna 409 e não altera status, incluindo transações concorrentes; UI envia o token string do histórico sem arredondar bigint e recarrega após conflito. | PASSOU |
-| RF-006–007 | Conclusão e GET novo para próxima pendência com filtros; nenhuma pendência e falha de consulta dão feedback; seleção/filtros durante PATCH ou GET não redirecionam; repetição bloqueada; texto e anexo preservados. | PASSOU |
-| RF-008 | Dois claims simultâneos: um sucesso e um conflito; mesma pessoa é idempotente; transferência legada preservada. UI usa o ID vinculado ao email e preserva o colega que assumiu primeiro. | PASSOU |
-| RF-009–012 | CRUD/validação, atalho único inclusive inativo, desativação/reativação, 404/422/409, versões concorrentes, seeds editados/renomeados/desativados preservados. HTTP 401 sem token; perfil de leitura obtém GET200 e escrita403; perfil de escrita cria com201, core simulado. | PASSOU |
-| RF-013–015 | Busca sem acentos, categoria, atalho final, inserção sem envio; gestão fora do form de envio; bloqueio de inserção pela janela; conflito de edição preserva texto, recuperação de leitura e falha de rede; leitura atrasada não apaga cadastro salvo. | PASSOU |
-| RF-016 | Favoritos filtram e persistem somente IDs por usuário; trocar de usuário isola preferências. | PASSOU |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| RF-001–003 | funcional | Banco real: pendência independente de seen, filtros combinados e validação, contador global e espera mais antiga; sucesso sent/delivered/read versus pending/failed; retry com mesmo ID; timestamps empatados. UI com total global, filtros pessoais e limpeza. | PASSOU |
+| RF-004 | funcional | Fechamento registra marco; nova inbound reabre; duplicação de payload e de wa_message_id não reabre; backfill e migração reaplicada preservam o marco. Webhook assinado sintético. | PASSOU |
+| RF-005 | funcional | Fechamento com token divergente retorna 409 e não altera status, incluindo transações concorrentes; UI envia o token string do histórico sem arredondar bigint e recarrega após conflito. | PASSOU |
+| RF-006–007 | funcional | Conclusão e GET novo para próxima pendência com filtros; nenhuma pendência e falha de consulta dão feedback; seleção/filtros durante PATCH ou GET não redirecionam; repetição bloqueada; texto e anexo preservados. | PASSOU |
+| RF-008 | funcional | Dois claims simultâneos: um sucesso e um conflito; mesma pessoa é idempotente; transferência legada preservada. UI usa o ID vinculado ao email e preserva o colega que assumiu primeiro. | PASSOU |
+| RF-009–012 | funcional | CRUD/validação, atalho único inclusive inativo, desativação/reativação, 404/422/409, versões concorrentes, seeds editados/renomeados/desativados preservados. HTTP 401 sem token; perfil de leitura obtém GET200 e escrita403; perfil de escrita cria com201, core simulado. | PASSOU |
+| RF-013–015 | funcional | Busca sem acentos, categoria, atalho final, inserção sem envio; gestão fora do form de envio; bloqueio de inserção pela janela; conflito de edição preserva texto, recuperação de leitura e falha de rede; leitura atrasada não apaga cadastro salvo. | PASSOU |
+| RF-016 | funcional | Favoritos filtram e persistem somente IDs por usuário; trocar de usuário isola preferências. | PASSOU |
 
 ## Verificações executadas
 

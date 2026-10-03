@@ -14,21 +14,21 @@
 
 ## Matriz de integração e regressão
 
-| Critério | Evidência executada | Resultado |
-|---|---|---|
-| CA-001 | Contrato backend com cinco conversas, páginas de dois itens, filtros e resumo global, incluindo `mine`. | PASSOU |
-| CA-002 | Contratos com `agent_id`, `unread=true/false`, combinações, parâmetros inválidos e telefone formatado com/sem DDI/nono dígito. UI envia os filtros corretos. | PASSOU |
-| CA-003 | Timers simulados: debounce 300 ms, polling 15 s, aba oculta/visível e resposta antiga ignorada. Refresh após POST usa a busca/filtros atuais. | PASSOU |
-| CA-004 | Seleção e rascunho mantidos quando a conversa sai do resultado da fila. | PASSOU |
-| CA-005 | Backend com 65 mensagens no mesmo timestamp: últimas 50, 15 anteriores, sem duplicatas, legado ASC preservado. UI preserva histórico no polling e recupera a lacuna entre 100 mensagens carregadas e um total novo de 151. | PASSOU |
-| CA-006 | Resposta atrasada do histórico de A descartada após selecionar B. | PASSOU |
-| CA-007 | Texto e File isolados por conversa, preservados na alternância; ausência de seleção e desmontagem do hook verificadas. | PASSOU |
-| CA-008 | Sucesso limpa somente o snapshot enviado, inclusive em outra conversa; novas edições de texto/arquivo sobrevivem. | PASSOU |
-| CA-009 | Submit duplo produz um POST; rejeições HTTP e de rede mantêm texto/arquivo e liberam a trava. | PASSOU |
-| CA-010 | Resposta rápida acrescentada ao texto existente, sem envio automático ou descarte de arquivo. | PASSOU |
-| CA-011 | Destino escolhido para transferência sobrevive ao polling e é enviado ao endpoint correto. | PASSOU |
-| CA-012 | Sugestão A desaparece ao selecionar B; edição sobrevive ao polling; novo resposta_id encerra edição antiga; ação pendente de A não injeta seu estado em B. | PASSOU |
-| CA-013 | Regressões existentes da página, contexto, anexos, janela de 24 horas, autenticação e reenvio idempotente do bot. | PASSOU |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | Contrato backend com cinco conversas, páginas de dois itens, filtros e resumo global, incluindo `mine`. | PASSOU |
+| CA-002 | aceitacao | Contratos com `agent_id`, `unread=true/false`, combinações, parâmetros inválidos e telefone formatado com/sem DDI/nono dígito. UI envia os filtros corretos. | PASSOU |
+| CA-003 | aceitacao | Timers simulados: debounce 300 ms, polling 15 s, aba oculta/visível e resposta antiga ignorada. Refresh após POST usa a busca/filtros atuais. | PASSOU |
+| CA-004 | aceitacao | Seleção e rascunho mantidos quando a conversa sai do resultado da fila. | PASSOU |
+| CA-005 | aceitacao | Backend com 65 mensagens no mesmo timestamp: últimas 50, 15 anteriores, sem duplicatas, legado ASC preservado. UI preserva histórico no polling e recupera a lacuna entre 100 mensagens carregadas e um total novo de 151. | PASSOU |
+| CA-006 | aceitacao | Resposta atrasada do histórico de A descartada após selecionar B. | PASSOU |
+| CA-007 | aceitacao | Texto e File isolados por conversa, preservados na alternância; ausência de seleção e desmontagem do hook verificadas. | PASSOU |
+| CA-008 | aceitacao | Sucesso limpa somente o snapshot enviado, inclusive em outra conversa; novas edições de texto/arquivo sobrevivem. | PASSOU |
+| CA-009 | aceitacao | Submit duplo produz um POST; rejeições HTTP e de rede mantêm texto/arquivo e liberam a trava. | PASSOU |
+| CA-010 | aceitacao | Resposta rápida acrescentada ao texto existente, sem envio automático ou descarte de arquivo. | PASSOU |
+| CA-011 | aceitacao | Destino escolhido para transferência sobrevive ao polling e é enviado ao endpoint correto. | PASSOU |
+| CA-012 | aceitacao | Sugestão A desaparece ao selecionar B; edição sobrevive ao polling; novo resposta_id encerra edição antiga; ação pendente de A não injeta seu estado em B. | PASSOU |
+| CA-013 | aceitacao | Regressões existentes da página, contexto, anexos, janela de 24 horas, autenticação e reenvio idempotente do bot. | PASSOU |
 
 ## Verificações técnicas
 

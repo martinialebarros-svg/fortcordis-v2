@@ -2,11 +2,11 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | Teste `pré-seleciona o atendente logado pelo email ao assumir uma conversa sem responsável` em `page.test.tsx`: usuário `Eu@FortCordis.com ` (com espaço/maiúsculas) casa com atendente `eu@fortcordis.com` (id "9") | passou |
-| CA-002 | Teste `usa o primeiro atendente ativo quando o email logado não corresponde a nenhum atendente`: sem correspondência, seleciona id "5" (primeiro ativo, pulando o inativo "3") | passou |
-| CA-003 | Coberto pelo mesmo teste acima: atendente inativo "3" (mesmo que estivesse antes na lista) nunca é selecionado | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | Teste `pré-seleciona o atendente logado pelo email ao assumir uma conversa sem responsável` em `page.test.tsx`: usuário `Eu@FortCordis.com ` (com espaço/maiúsculas) casa com atendente `eu@fortcordis.com` (id "9") | passou |
+| CA-002 | aceitacao | Teste `usa o primeiro atendente ativo quando o email logado não corresponde a nenhum atendente`: sem correspondência, seleciona id "5" (primeiro ativo, pulando o inativo "3") | passou |
+| CA-003 | aceitacao | Coberto pelo mesmo teste acima: atendente inativo "3" (mesmo que estivesse antes na lista) nunca é selecionado | passou |
 
 ## Comandos executados
 
