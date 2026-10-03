@@ -64,6 +64,13 @@ jobs:
         run: |
           python -m unittest discover -s backend/tests -p "test_*.py"
 
+      - name: Test WhatsApp triage regressions
+        env:
+          FORTCORDIS_PROCESS_ROLE: api
+          DATABASE_URL: sqlite:///./fortcordis-ci.db
+          SECRET_KEY: whatsapp-triage-ci-secret-key-1234567890
+        run: python -m pytest -q backend/tests/test_whatsapp_bot_reacoes.py backend/tests/test_whatsapp_bot_mensagens_automaticas.py backend/tests/test_whatsapp_bot_saudacoes_agrupadas.py
+
       - name: Test document persistence and PostgreSQL concurrency
         env:
           FORTCORDIS_PROCESS_ROLE: api
@@ -143,6 +150,7 @@ jobs:
           npm run test:conversation-reply-queue
           npm run test:quick-replies
           npm run test:follow-ups
+          WHATSAPP_ACCESS_TOKEN=synthetic-test-token PHONE_NUMBER_ID=synthetic-number npm run test:bot-auto
 
   sdd-guardrail:
     runs-on: ubuntu-latest

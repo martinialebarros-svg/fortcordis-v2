@@ -1,5 +1,12 @@
 # Verificação
 
+## Saudações consecutivas (02/10/2026)
+
+- O incidente foi reproduzido antes da correção: o worker recebia `Oi\nBoa tarde\nQual a disponibilidade pra eco`, ignorava a regra determinística e terminava em `blocked/sem_fonte`.
+- `test_whatsapp_bot_saudacoes_agrupadas.py` executa o worker, geração, persistência e entrega com transporte externo simulado. Exercita `Ola → Oi → Boa tarde → pergunta → convite → sim`, sem chamar provider e sem criar pausa, alerta ou alterar o pedido cancelado anterior. A nova coleta contém somente o exame.
+- Emergência em fragmento dentro de 120 segundos, limite de 121 segundos, solicitação humana, pausa, atribuição humana e janela fechada continuam protegidos. Sintomas, negação e preço não entram no atalho administrativo.
+- Validação inicial: 55 testes e 65 subtestes aprovados; dois testes condicionais ignorados. Validação integrada registrada em `../whatsapp-chatbot-atendimento/verify.md`. Não houve publicação nem envio real nesta etapa.
+
 ## Preparação local de 13/09/2026
 
 Tipagem explícita do histórico sintético em `AppointmentQueue.test.tsx` para

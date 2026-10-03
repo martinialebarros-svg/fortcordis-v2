@@ -24,6 +24,58 @@ Em caso de emergência fora do nosso horário de atendimento, indicamos levar o 
     "Casa Pet Ce agradece seu contato. Como podemos ajudar?",
     "Lynda Pet Clinica agradece o seu contato! Como posso ajudar? Assim que possível iremos tirar suas dúvidas!",
     "Consultório Animale Petshop agradece seu contato. Como podemos ajudar?",
+    # Avisos completos revisados na auditoria de 26/09 a 02/10/2026.
+    """Olá!! Seja Bem Vindo a *Clínica Veterinária Popular Vitoria's Pet*
+
+Dispomos de serviços a PREÇO POPULAR:
+Consultas, Vacinas,Exames laboratoriais e de Imagem, Cirurgias eletivas e de emergência, Testes rápidos, Farmácia completa e muito mais !!! 🏅🐾
+
+_Nossos horários de funcionamento:_
+_Segunda a Sexta de 8 as 18h_
+_Sábado 8 as 12h_
+
+‎Agradecemos seu contato. Como podemos ajudar?""",
+    """Agradecemos sua mensagem. Não estamos disponíveis no momento, mas responderemos assim que possível.
+
+Se for emergência buscar atendimento veterinário mais próximo e disponível.
+
+🕐 HORÁRIO DE FUNCIONAMENTO DA LOJA
+
+🛑 *SEGUNDA A SÁBADO*
+🕐 08:00 ÀS 12:00
+🕐 14:00 ÀS 19:00
+
+🛑 *DOMINGO E FERIADOS*
+🕐 08:00 às 12:00
+🕐 A TARDE - FECHADO
+
+🐶😻❤️""",
+    """A gente tá descansando agora 🌙 Nosso atendimento é:
+
+📅 Seg a sex: 9h às 18h
+📅 Sábado: 8h às 17h
+
+⚠️ Se for emergência agora (sangramento, convulsão, dificuldade pra respirar ou ingestão de algo tóxico), procure um pronto-socorro veterinário 24h imediatamente.
+
+Mas se puder esperar até abrirmos, deixa tudo registrado aqui — assim eu já organizo seu atendimento e você fica no topo da fila da manhã ⭐""",
+    """Olá!! estamos fora do horário de atendimento
+
+Em caso de emergência fora do horário de funcionamento, indicamos se dirigir às clínicas 24horas mais próximas.
+
+Nosso horário de funcionamento é:
+Seg-sex das 08h as 18h
+Sáb das 08h as 12h
+
+Conosco a saúde do seu pet tem Vitória garantida 🥇""",
+    """Olá, tudo bem?! No momento não estamos disponíveis.
+
+Nosso horário de funcionamento:
+
+*Segundas:* 13:30h às 17:30h
+*Terça a Sábado:* 08:30h às 17:30h
+* Domingo:* Fechado
+
+Em caso de emergência, sugerimos levar o seu pet em uma clínica 24h.""",
 )
 
 

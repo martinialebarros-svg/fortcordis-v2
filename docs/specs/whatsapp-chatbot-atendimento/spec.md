@@ -1,5 +1,14 @@
 # Spec - whatsapp-chatbot-atendimento
 
+## Reações recebidas e contexto conversacional (02/10/2026)
+
+- Reações recebidas (`type=reaction`) permanecem no histórico e nas notificações, mas não criam jobs nem substituem perguntas pendentes no debounce. O campo opcional `message_type` do gatilho é repassado à fila; outros tipos mantêm o tratamento existente.
+- O worker e a reconciliação usam `bot_context=true` nos GETs de conversas e mensagens. Esse parâmetro é exclusivo da autenticação interna (403 para outros chamadores; 422 para valor inválido). A visão exclui somente reações recebidas; mantém tipos nulos legados, outros tipos e toda atividade enviada, inclusive reações humanas. A visão padrão da interface e a revisão `MAX(id)` continuam integrais. A contagem/paginação do contexto usa o mesmo filtro das mensagens retornadas.
+- A reserva de envio `bot_auto` revalida a última mensagem efetiva com o mesmo filtro, o responsável, a janela e a identidade do inbound original. Um texto novo, áudio, imagem ou atividade humana continua invalidando a resposta anterior. Uma reação recebida isolada não invalida a pergunta pendente nem a idempotência. Tanto a janela da conversa quanto a idade da mensagem efetiva devem permitir resposta; reação recente não libera resposta a texto antigo.
+- A reconciliação só recupera mensagens efetivas com data válida dentro da janela de reconciliação; reação recente não ressuscita perguntas antigas.
+- Jobs legados de reação são encerrados sem alerta/pausa. Se o Node ainda anterior retornar uma reação posterior ao job de uma pergunta, o worker adia esse job por no mínimo 30 segundos, sem consumir tentativas, criar resposta ou pausar a conversa. Isso permite a transição entre serviços sem perder a pergunta; o erro operacional permanece visível no job até o contexto ser atualizado. Uma visão sem mensagens efetivas encerra o job como conversa atualizada.
+- Não há migração, remoção de mensagens, liberação de pausas existentes ou ampliação do piloto. A verificação de publicação deve exercitar os dois serviços: contexto sem reações e reserva automática coerente. A regressão PostgreSQL de `test:bot-auto` integra as validações de stage e produção com transporte simulado e dados sintéticos.
+
 Data: 2026-08-20
 Responsavel: Martiniano + Claude
 Status: draft
