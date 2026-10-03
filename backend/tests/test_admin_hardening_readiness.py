@@ -95,6 +95,29 @@ class AdminHardeningReadinessTest(unittest.TestCase):
         ]
         self.assertIn("admin", captured_values)
 
+    def test_frontend_observability_summary_is_restricted_to_admin(self) -> None:
+        expected = {"available": True, "groups": []}
+        with patch.object(admin, "get_frontend_performance_summary", return_value=expected) as summary:
+            payload = admin.obter_desempenho_frontend_persistido(
+                hours=24,
+                current_user=_FakeAdminUser(),
+                db=object(),
+            )
+
+        self.assertIs(payload, expected)
+        summary.assert_called_once_with(ANY, hours=24)
+        route = next(
+            route
+            for route in admin.router.routes
+            if getattr(route, "path", "") == "/observability/frontend-performance"
+        )
+        role_dependency = route.dependant.dependencies[0].call
+        captured_values = [
+            cell.cell_contents
+            for cell in (getattr(role_dependency, "__closure__", None) or [])
+        ]
+        self.assertIn("admin", captured_values)
+
 
 if __name__ == "__main__":
     unittest.main()

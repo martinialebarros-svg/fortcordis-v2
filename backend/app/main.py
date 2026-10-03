@@ -30,6 +30,7 @@ from app.api.v1.endpoints import (
     laudos,
     logistica,
     ordens_servico,
+    observability,
     pacientes,
     portal,
     portal_clinic_auth,
@@ -414,6 +415,7 @@ async def monitor_runtime_http_status(request: Request, call_next):
 # Rotas REST
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(observability.router, prefix="/api/v1/observability", tags=["observability"])
 app.include_router(alertas_internos.router, prefix="/api/v1/alertas-internos", tags=["alertas_internos"])
 app.include_router(
     assistente_ia.router,

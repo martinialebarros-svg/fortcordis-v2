@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent a
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
+import { useRoutePerformanceReady } from "@/lib/use-route-performance-ready";
 import api from "@/lib/axios";
 import { validarPdfDocumento, iniciarDownloadDocumento, reconciliarDocumentoSalvo, documentoPersistido as exigirDocumentoPersistido } from "@/lib/atendimento-documentos";
 import { loadStableCatalog } from "@/lib/stable-catalog-cache";
@@ -7534,6 +7535,8 @@ export default function AtendimentoPage() {
     setSucessoPopup(null);
     setSucesso("");
   };
+
+  useRoutePerformanceReady(loading);
 
   if (loading) {
     return (
