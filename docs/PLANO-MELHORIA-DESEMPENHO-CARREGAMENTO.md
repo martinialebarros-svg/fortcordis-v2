@@ -88,7 +88,7 @@ Objetivo: impedir espera infinita e recuperar o Financeiro, rota mais critica da
 | PERF-20 | Exibir maximo e leituras acima de 1,2 s | concluido em producao | painel diferencia p95 da cauda e explicita a quantidade de leituras lentas |
 | PERF-21 | Separar as leituras da Agenda e medir custo de aplicacao | concluido em producao | cinco rotas exatas, banco, aplicacao e consultas aparecem separadamente |
 | PERF-22 | Mover preflight de schema da Agenda para o startup | concluido em producao | rota principal deixa de introspectar schema por requisicao e mantem no maximo seis consultas p95 |
-| PERF-23 | Medir o tempo percebido no navegador | implementado e validado localmente; stage pendente | quatro paginas prioritarias registram estrutura, conteudo, timeout e cancelamento sem dados sensiveis |
+| PERF-23 | Medir o tempo percebido no navegador | validado em stage no release `87df427b`; producao pendente | quatro paginas prioritarias registram estrutura, conteudo, timeout e cancelamento sem dados sensiveis; baseline inicial indica observar a cauda de Atendimento |
 
 O PERF-16 foi concluido em 2026-09-06 pelo snapshot `f5165ddd`: os workflows de
 stage `34060147592` e producao `34061319523` terminaram com sucesso depois que
