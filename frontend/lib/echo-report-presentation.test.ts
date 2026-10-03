@@ -18,20 +18,33 @@ describe("prévia de ecocardiograma", () => {
       DIVEd_2D: "32",
       DIVEd_normalizado_2D: "8",
       VE_tecnica_relatorio: "2d",
+      VE_vista_2D: "eixo_curto",
     };
-    const selected2D = prepareEchoReportMeasurements(stored, 10);
+    const selected2D = prepareEchoReportMeasurements(stored, 10, "Canina");
     expect(selected2D.measurements).toMatchObject({
       DIVEd_normalizado: "1.52",
-      DIVEd_normalizado_2D: "1.63",
+      DIVEd_normalizado_2D: "1.55",
     });
     expect(selected2D.alerts).toEqual([{
-      key: "DIVEd_normalizado_2D", recorded: 8, calculated: 1.63,
+      key: "DIVEd_normalizado_2D", recorded: 8, calculated: 1.55,
     }]);
 
-    const selectedM = prepareEchoReportMeasurements({ ...stored, VE_tecnica_relatorio: "modo_m" }, 10);
+    const selectedM = prepareEchoReportMeasurements({ ...stored, VE_tecnica_relatorio: "modo_m" }, 10, "Canina");
     expect(selectedM.alerts).toEqual([{
       key: "DIVEd_normalizado", recorded: 9, calculated: 1.52,
     }]);
+  });
+
+  it("mostra índice de Visser 2D e sua faixa somente com espécie, vista e peso aplicáveis", () => {
+    const raw = { VE_tecnica_relatorio: "2d", VE_vista_2D: "eixo_curto", DIVEd_2D: "33.53", DIVEd_normalizado_2D: "1.56" };
+    const { measurements, alerts, ambiguousKeys } = prepareEchoReportMeasurements(raw, 13.6, "Canina");
+    expect(measurements.DIVEd_normalizado_2D).toBe("1.47");
+    expect(alerts).toEqual([{ key: "DIVEd_normalizado_2D", recorded: 1.56, calculated: 1.47 }]);
+    const reference = { especie: "Canina", peso_kg: 15 } as ReferenciaEco;
+    expect(buildEchoReportGroups(measurements, reference, ambiguousKeys, 13.6)[0].rows
+      .find((row) => row.key === "DIVEd_normalizado_2D")?.reference).toBe("1.14–1.61");
+    expect(prepareEchoReportMeasurements(raw, 13.6, "Felina").measurements.DIVEd_normalizado_2D).toBeUndefined();
+    expect(prepareEchoReportMeasurements({ ...raw, VE_vista_2D: "" }, 13.6, "Canina").measurements.DIVEd_normalizado_2D).toBeUndefined();
   });
 
   it("mantém medidas legadas sem unidade como ambíguas e não calcula DIVEd normalizado", () => {

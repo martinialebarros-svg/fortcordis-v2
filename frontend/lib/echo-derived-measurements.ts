@@ -1,4 +1,5 @@
 import { echoLengthInMm, isEchoLengthKey } from "./echo-unit-provenance";
+import { calculateCanine2DNormalizedLVIDd, type Echo2DView } from "./echo-2d-reference";
 
 export type RightAtrialRemodeling =
   | ""
@@ -156,7 +157,8 @@ export function parseStoredEchoMeasurements(
 
 export function deriveAutomaticEchoMeasurements(
   measurements: Record<string, string>,
-  weightKg: unknown
+  weightKg: unknown,
+  species = "",
 ): Record<string, string> {
   const derived: Record<string, string> = {};
 
@@ -209,19 +211,17 @@ export function deriveAutomaticEchoMeasurements(
   }
 
   const weight = parsePositiveNumber(weightKg);
-  for (const [diameterKey, normalizedKey] of [
-    ["DIVEd", "DIVEd_normalizado"],
-    ["DIVEd_2D", "DIVEd_normalizado_2D"],
-  ] as const) {
-    const diameterMm = echoLengthInMm(measurements, diameterKey);
-    if (diameterMm !== null && weight !== null) {
-      derived[normalizedKey] = formatDerivedValue(
-        diameterMm / 10 / weight ** 0.294
-      );
-    } else {
-      derived[normalizedKey] = "";
-    }
-  }
+  const divedM = echoLengthInMm(measurements, "DIVEd");
+  derived.DIVEd_normalizado = divedM !== null && weight !== null
+    ? formatDerivedValue(divedM / 10 / weight ** 0.294) : "";
+  const view = measurements.VE_vista_2D === "eixo_curto" || measurements.VE_vista_2D === "eixo_longo"
+    ? measurements.VE_vista_2D as Echo2DView : "";
+  const normalized2D = calculateCanine2DNormalizedLVIDd(
+    echoLengthInMm(measurements, "DIVEd_2D"), weight, view, species,
+  );
+  // Sem aplicabilidade comprovada, preservar o valor histórico no registro;
+  // a prévia e o PDF omitem esse índice para evitar atribuir-lhe Visser.
+  if (normalized2D !== null) derived.DIVEd_normalizado_2D = formatDerivedValue(normalized2D);
 
   const hasMMode = hasAnyMeasurement(measurements, LV_M_MODE_KEYS);
   const has2D = hasAnyMeasurement(measurements, LV_2D_KEYS);

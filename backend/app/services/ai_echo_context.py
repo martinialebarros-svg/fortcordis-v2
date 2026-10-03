@@ -25,7 +25,7 @@ ECHO_MEASUREMENT_UNITS: dict[str, str] = {
     "SIVs": "mm",
     "PLVES": "mm",
     "DIVEd_2D": "mm",
-    "DIVEd_normalizado_2D": "cm/kg^0,294",
+    "DIVEd_normalizado_2D": "cm/kg^0,316",
     "SIVd_2D": "mm",
     "PLVEd_2D": "mm",
     "DIVES_2D": "mm",
@@ -269,6 +269,10 @@ def safe_measurement_context(
     )
     normalized_measurements = clinically_safe_echo_measurements(current_measurements or {})
     for key, value in normalized_measurements.items():
+        # Registros antigos usam Cornell (0,294) e novos usam Visser (0,316).
+        # Sem proveniência por valor, o índice 2D persistido não é evidência segura para a IA.
+        if key == "DIVEd_normalizado_2D":
+            continue
         normalized = str(value or "").strip()
         if key not in ECHO_MEASUREMENT_UNITS:
             continue

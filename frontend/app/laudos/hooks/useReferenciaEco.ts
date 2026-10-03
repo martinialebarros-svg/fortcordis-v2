@@ -21,6 +21,7 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   PLVES: { campo: "lvpw_s", nome: "PLVÉs (Parede livre VE sístole)", categoria: "estrutural" },
   // O cadastro não identifica método 2D; manter a medida visível, sem aplicar limite de Modo M.
   DIVEd_2D: { campo: "", nome: "DIVEd 2D (Diâmetro interno VE diástole)", categoria: "estrutural" },
+  DIVEd_normalizado_2D: { campo: "", nome: "DIVEd normalizado 2D (Visser)", categoria: "estrutural" },
   SIVd_2D: { campo: "", nome: "SIVd 2D (Septo interventricular diástole)", categoria: "estrutural" },
   PLVEd_2D: { campo: "", nome: "PLVEd 2D (Parede livre VE diástole)", categoria: "estrutural" },
   DIVES_2D: { campo: "", nome: "DIVEs 2D (Diâmetro interno VE sístole)", categoria: "estrutural" },
