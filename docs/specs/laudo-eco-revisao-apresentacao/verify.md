@@ -1,5 +1,12 @@
 # Verify - Revisão da apresentação do laudo ecocardiográfico
 
+## Incremento: conferência em PDFs reais e índice 2D de Visser (2026-10-03)
+
+- Fontes observadas: PDFs reais de Billy (canino 2D, 13,6 kg), Cotó (canino Modo M, 23 kg) e Miolo (felino Modo M, 2,3 kg). Em Billy, o PDF anterior mostrava DIVEd normalizado 2D de 1,56 por peso^0,294; a fórmula e o intervalo 2D de Visser et al. (2019), Tabela 2, dão 1,47 e 1,14–1,61 no eixo curto. Em Miolo, tabela/imagem mostram FE 95% e FEC 67%, enquanto a narrativa cita 97% e 71%; a narrativa também cita velocidade aórtica acima de 3 m/s e a tabela exibe Vmax aorta 0,69 m/s. Essa última diferença exige conferir o local da aferição, não correção diagnóstica automática.
+- Verificação focada: 29 testes Vitest de derivação, prévia, referências e avisos textuais e 22 testes Python de geração do PDF passaram. TypeScript, lint direcionado, build do Next.js com 43 páginas, `compileall` e `git diff --check` passaram. O PDF sintético de uma página foi renderizado e inspecionado: índice 1,47, faixa 1,14–1,61, análise qualitativa legível e Visser et al. (2019) após a assinatura, sem corte ou sobreposição.
+- Limite: os PDFs reais foram lidos sem alterar seus dados; o novo PDF sintético verifica renderização, não reinterpreta os pacientes. A publicação em stage e produção é etapa separada.
+- Conferência adicional: o aviso aparece na aba qualitativa dos dois editores e na visualização de laudo salvo; sem divergência, o componente não renderiza. Índices 2D persistidos antes desta mudança são excluídos do contexto da IA por não terem proveniência da fórmula no registro.
+
 Data: 2026-09-25
 Status: validação local concluída
 

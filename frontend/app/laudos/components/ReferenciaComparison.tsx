@@ -33,11 +33,11 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
     : "";
   const medidasSeguras = useMemo(
     () => {
-      const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(medidas, peso);
+      const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(medidas, peso, especie);
       for (const key of ambiguousKeys) delete measurements[key];
       return measurements;
     },
-    [medidas, peso]
+    [medidas, peso, especie]
   );
   const medidasDerivadasParaReferencia = useMemo(
     () => deriveLeftVentricularFunctionForReference(medidasSeguras),

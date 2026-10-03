@@ -95,8 +95,8 @@ def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
 
 def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:
     """
-    Recalcula DIVEd normalizado no PDF:
-    DIVEd normalizado = (DIVEd em cm) / (peso^0,294).
+    Recalcula o índice de Modo M por Cornell (expoente 0,294) e o índice
+    canino 2D por Visser (expoente 0,316) somente com vista aplicável.
     """
     medidas = dados_pdf.get("medidas")
     if not isinstance(medidas, dict):
@@ -106,20 +106,19 @@ def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:
     paciente_dict = paciente if isinstance(paciente, dict) else {}
 
     peso_kg = _to_float_peso(paciente_dict.get("peso"))
-    for diameter_key, normalized_key in (
-        ("DIVEd", "DIVEd_normalizado"),
-        ("DIVEd_2D", "DIVEd_normalizado_2D"),
-    ):
-        if diameter_key in dados_pdf.get("unidades_ambiguas", set()):
-            medidas.pop(normalized_key, None)
-            continue
-        if peso_kg is None or peso_kg <= 0:
-            continue
-        dived_mm = _to_float(medidas.get(diameter_key))
-        if dived_mm is None or dived_mm <= 0:
-            continue
-        dived_cm = dived_mm / 10.0
-        medidas[normalized_key] = round(dived_cm / (peso_kg ** 0.294), 2)
+    ambiguas = dados_pdf.get("unidades_ambiguas", set())
+    if "DIVEd" in ambiguas:
+        medidas.pop("DIVEd_normalizado", None)
+    elif peso_kg is not None and peso_kg > 0:
+        dived_m = _to_float(medidas.get("DIVEd"))
+        if dived_m is not None and dived_m > 0:
+            medidas["DIVEd_normalizado"] = round(dived_m / 10 / peso_kg ** 0.294, 2)
+
+    if "DIVEd_normalizado_2D" not in referencias_2d_caninas_publicadas(dados_pdf):
+        medidas.pop("DIVEd_normalizado_2D", None)
+    else:
+        dived_2d = _to_float(medidas.get("DIVEd_2D"))
+        medidas["DIVEd_normalizado_2D"] = round(dived_2d / 10 / peso_kg ** 0.316, 2)
 
 
 def _bloco_sem_quebra(*flowables):
@@ -244,6 +243,10 @@ def referencias_2d_caninas_publicadas(dados_pdf: Dict[str, Any]) -> Dict[str, Tu
             continue
         minimo, maximo, expoente = limites[chave]
         faixas[chave] = (round(minimo * 10 * peso ** expoente, 2), round(maximo * 10 * peso ** expoente, 2))
+
+    if "DIVEd_2D" in faixas:
+        minimo, maximo, _ = limites["DIVEd_2D"]
+        faixas["DIVEd_normalizado_2D"] = (minimo, maximo)
 
     d = _to_float(medidas.get("DIVEd_2D"))
     s = _to_float(medidas.get("DIVES_2D"))
@@ -1508,7 +1511,7 @@ def gerar_pdf_laudo_eco(
         ]
         params_ve_modo_2d = [
             {'chave': 'DIVEd_2D', 'label': 'DIVEd 2D (Diâmetro interno do VE em diástole)', 'unidade': 'mm', 'ref_min': 16.0, 'ref_max': 24.0},
-            {'chave': 'DIVEd_normalizado_2D', 'label': 'DIVEd normalizado 2D (DIVEd [cm] / peso^0,294)', 'unidade': '', 'ref_min': 1.27, 'ref_max': 1.73},
+            {'chave': 'DIVEd_normalizado_2D', 'label': 'DIVEd normalizado 2D - Visser (DIVEd [cm] / peso^0,316)', 'unidade': '', 'ref_min': None, 'ref_max': None},
             {'chave': 'SIVd_2D', 'label': 'SIVd 2D (Septo interventricular em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
             {'chave': 'PLVEd_2D', 'label': 'PLVEd 2D (Parede livre do VE em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
             {'chave': 'DIVES_2D', 'label': 'DIVEs 2D (Diâmetro interno do VE em sístole)', 'unidade': 'mm', 'ref_min': 9.0, 'ref_max': 16.0},

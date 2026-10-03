@@ -29,6 +29,7 @@ import {
 import { getConfirmacaoRevogarVeterinario } from "@/lib/laudo-portal-destinos";
 import AvisoWhatsAppDialog from "../components/AvisoWhatsAppDialog";
 import PortalLiberadoPara from "../components/PortalLiberadoPara";
+import EchoNarrativeConsistencyNotice from "../components/EchoNarrativeConsistencyNotice";
 import { ArrowLeft, CheckCircle, Download, FileText, Loader2, MessageCircle, Printer, Send, Upload } from "lucide-react";
 
 const PORTAL_RELEASE_STATUS = "Liberado no portal";
@@ -169,7 +170,7 @@ export default function VisualizarLaudoPage() {
   const laudoEhEletrocardiograma = laudo?.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA;
   const laudoEhPressao = laudo?.tipo === TIPO_LAUDO_PRESSAO_ARTERIAL;
   const laudoEhEco = laudo?.tipo === TIPO_LAUDO_ECOCARDIOGRAMA;
-  const { measurements: medidasExibidas, alerts: alertasCalculo, ambiguousKeys } = prepareEchoReportMeasurements(medidas, paciente?.peso_kg);
+  const { measurements: medidasExibidas, alerts: alertasCalculo, ambiguousKeys } = prepareEchoReportMeasurements(medidas, paciente?.peso_kg, paciente?.especie);
   const gruposMedidas = buildEchoReportGroups(medidasExibidas, referenciaEco, ambiguousKeys, paciente?.peso_kg);
   const observacoes = splitReportObservations(laudo?.observacoes || "");
 
@@ -746,6 +747,14 @@ export default function VisualizarLaudoPage() {
                 </div>
               ) : null}
             </div>
+          )}
+
+          {laudoEhEco && (
+            <EchoNarrativeConsistencyNotice
+              measurements={medidas}
+              qualitative={qualitativa}
+              conclusion={laudo.diagnostico || ""}
+            />
           )}
 
           {/* Medidas */}
