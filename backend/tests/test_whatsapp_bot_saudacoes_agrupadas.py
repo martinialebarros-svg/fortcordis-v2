@@ -182,7 +182,11 @@ class SaudacoesAgrupadasWorkerTests(unittest.TestCase):
         self.assertIn("nova solicitação de eco", invitation.texto_enviado)
         self.assertIn("Nenhum horário foi reservado", invitation.texto_enviado)
         self.assertEqual(self.post.call_count, 1)
-        self.assertEqual(self.post.call_args.kwargs["json"]["metadata"]["inbound_wa_message_id"], messages[-1]["wa_message_id"])
+        self.assertEqual(self.post.call_args.kwargs["json"]["metadata"], {
+            "origem": "bot", "source": "bot_auto", "resposta_id": str(invitation.id),
+            "idempotency_key": f"whatsapp-bot-resposta-{invitation.id}",
+            "inbound_wa_message_id": messages[-1]["wa_message_id"],
+        })
         self.assert_no_handoff()
         self.assert_no_business_mutations()
 
@@ -196,6 +200,31 @@ class SaudacoesAgrupadasWorkerTests(unittest.TestCase):
         self.assertEqual(state["fila_anterior_id"], self.pedido.id)
         self.assertIn("nome do paciente", answer.texto_enviado)
         self.assertEqual(self.post.call_count, 2)
+        self.assertEqual(self.post.call_args.kwargs["json"]["metadata"], {
+            "origem": "bot", "source": "bot_auto", "resposta_id": str(answer.id),
+            "idempotency_key": f"whatsapp-bot-resposta-{answer.id}",
+            "inbound_wa_message_id": messages[-1]["wa_message_id"],
+        })
+        self.provider_factory.assert_not_called()
+        self.provider.generate.assert_not_called()
+        self.assert_no_handoff()
+        self.assert_no_business_mutations()
+
+    def test_worker_suggest_persiste_convite_sem_enviar(self):
+        # O worker continua lendo a conversa do Node, mas a decisão em
+        # suggest persiste somente um rascunho mesmo com envio auto habilitado.
+        self.estado.modo = "suggest"
+        self.db.commit()
+        result = self.run_job([
+            self.message("Oi", 100), self.message("Boa tarde", 60), self.message(QUESTION),
+        ])
+        self.assertEqual((result.decisao, result.motivo), ("draft", "continuidade_administrativa"))
+        self.assertIn(CONVITE_KEY, json.loads(result.tools_usadas))
+        self.assertIn("nova solicitação de eco", result.texto_gerado)
+        self.assertIsNone(result.texto_enviado)
+        self.assertEqual(result.clinica_id, 9)
+        self.assertEqual(self.get.call_count, 2)
+        self.post.assert_not_called()
         self.provider_factory.assert_not_called()
         self.provider.generate.assert_not_called()
         self.assert_no_handoff()
