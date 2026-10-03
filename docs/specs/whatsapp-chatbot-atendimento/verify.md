@@ -1,5 +1,18 @@
 # Verify - whatsapp-chatbot-atendimento
 
+## Triagem após auditoria de 26/09 a 02/10/2026
+
+- Escopo: cinco avisos institucionais adicionais revisados, saudações consecutivas em perguntas de disponibilidade e reações recebidas sem nova pausa/handoff. Nenhum envio externo, alteração de configuração ou publicação nesta etapa.
+- `test_whatsapp_bot_reacoes.py`: webhook real e fila SQLite preservam a pergunta pendente; reação não cria job; nova pergunta continua substituindo a anterior. Jobs de reação legados não renovam pausa; visão vazia não causa erro. Reconciliação preserva perguntas recentes e ignora antigas. Node legado adia pergunta sem consumir tentativas.
+- `test_whatsapp_bot_saudacoes_agrupadas.py`: sequência real completa, geração e entrega com HTTP simulado, sem LLM, com dados anteriores preservados e guardas de emergência/humano/pausa/janela.
+- `test-bot-auto.ts` usa PostgreSQL local isolado e simula transporte: autenticação interna, filtro opt-in, interface padrão completa, paginação/revisão, pergunta seguida de reação, idempotência, reação humana e novas mensagens invalidando resposta; texto de 25 horas com reação recente permanece bloqueado. Build TypeScript, contratos de bot, ordenação, fila de respostas e inbox aprovados.
+- Revisão independente apontou dois casos corrigidos: publicação com Node anterior não pode consumir/perder job de pergunta; reação recente não pode reativar pergunta antiga. Não é necessário mudar a ordem de restart para preservar o job durante a transição.
+- Backend completo: **1516 testes e 383 subtestes aprovados, 9 ignorados**, em 63,35 segundos, com `FORTCORDIS_PROCESS_ROLE=api` e SQLite temporário. Log local: `/private/tmp/fortcordis-triagem-suite.SFBhzq/pytest.log`.
+- Depois da suíte completa, foi acrescentado um teste de cinco ciclos reais do runner durante a transição do Node; a suíte específica final de reações passou com **10 testes**, sem nova alteração de código de produção. O teste demonstra que o job continua pendente, sem consumir tentativas ou produzir erros/handoff.
+- `git diff --check`, guardrail SDD incluindo os dois novos arquivos de teste e parse dos dois workflows aprovados. `test:bot-auto` foi adicionado aos dois workflows com `PHONE_NUMBER_ID` e token sintéticos; Graph permanece simulado.
+- Snapshot local isolado em `whatsapp-triagem/fortcordis-v2`, base `643f3e45`. Sem commit, publicação ou teste externo nesta etapa; pausas e responsáveis existentes em produção permanecem intactos.
+- Preparação de publicação: os dois workflows executam explicitamente via pytest os arquivos de reações, avisos institucionais e saudações agrupadas, além do contrato Node/PostgreSQL. O `unittest discover` geral não coleta as funções pytest desses arquivos.
+
 Data: 2026-08-20
 Responsavel: Martiniano + Claude
 Status: draft

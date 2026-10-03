@@ -1,13 +1,113 @@
 import tempfile
+import unicodedata
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
+
+import pytest
 
 from tests import test_whatsapp_bot_process_job as cases
 from app.services.whatsapp_bot_mensagens_automaticas import AVISOS, mensagem_automatica
 from app.services import whatsapp_bot_worker_service as worker
 from app.models.whatsapp_bot import WhatsAppBotResposta, WhatsAppBotConversaEstado
 from app.models.alerta_interno import AlertaInterno
+
+
+# Corpos observados na auditoria, independentes da allowlist da implementação.
+# Se uma entrada for removida/alterada em AVISOS, estes casos precisam falhar.
+AVISOS_AUDITADOS = {
+    '769': """Olá!! Seja Bem Vindo a *Clínica Veterinária Popular Vitoria's Pet*
+
+Dispomos de serviços a PREÇO POPULAR:\x20
+Consultas, Vacinas,Exames laboratoriais e de Imagem, Cirurgias eletivas e de emergência, Testes rápidos, Farmácia completa e muito mais !!! 🏅🐾
+
+_Nossos horários de funcionamento:_
+_Segunda a Sexta de 8 as 18h_
+_Sábado 8 as 12h_\x20
+
+
+‎Agradecemos seu contato. Como podemos ajudar?""",
+    '783': """Agradecemos sua mensagem. Não estamos disponíveis no momento, mas responderemos assim que possível.
+
+Se for emergência buscar atendimento veterinário mais próximo e disponível.
+
+🕐 HORÁRIO DE FUNCIONAMENTO DA LOJA
+
+🛑 *SEGUNDA A SÁBADO*
+🕐 08:00 ÀS 12:00\x20
+🕐 14:00 ÀS 19:00
+
+🛑 *DOMINGO E FERIADOS*
+🕐  08:00 às 12:00
+🕐 A TARDE - FECHADO\x20
+
+🐶😻❤️""",
+    '804': """A gente tá descansando agora 🌙  Nosso atendimento é:\x20
+
+📅 Seg a sex: 9h às 18h\x20
+📅 Sábado: 8h às 17h\x20\x20
+
+⚠️ Se for emergência agora (sangramento, convulsão, dificuldade pra respirar ou ingestão de algo tóxico), procure um pronto-socorro veterinário 24h imediatamente.\x20\x20
+
+Mas se puder esperar até abrirmos, deixa tudo registrado aqui — assim eu já organizo seu atendimento e você fica no topo da fila da manhã ⭐""",
+    '807': """Olá!! estamos fora do horário de atendimento\x20\x20
+
+Em caso de emergência fora do horário de funcionamento, indicamos se dirigir às clínicas 24horas mais próximas.
+
+Nosso horário de funcionamento é:
+Seg-sex das 08h as 18h\x20
+Sáb das 08h as 12h
+
+Conosco a saúde do seu pet tem Vitória garantida 🥇""",
+    '810': """Olá, tudo bem?! No momento não estamos disponíveis.
+
+Nosso horário de funcionamento:
+
+*Segundas:* 13:30h às 17:30h
+*Terça a Sábado:* 08:30h às 17:30h
+* Domingo:* Fechado\x20
+
+
+
+Em caso de emergência, sugerimos levar o seu pet em uma clínica 24h.""",
+}
+
+
+@pytest.mark.parametrize('texto', AVISOS_AUDITADOS.values(), ids=AVISOS_AUDITADOS.keys())
+def test_avisos_auditados_reconhecidos_apenas_inteiros(texto):
+    from app.services.whatsapp_bot_mensagens_automaticas import sem_aviso_automatico
+
+    sem_acentos = ''.join(c for c in unicodedata.normalize('NFKD', texto)
+                         if not unicodedata.combining(c))
+    apresentacao = '🚨 ** ' + ' \t '.join(sem_acentos.upper().split()) + ' ** !!!'
+    for body in (texto, apresentacao):
+        item = {'type': 'text', 'from_me': False, 'body': body}
+        assert mensagem_automatica(item)
+        assert sem_aviso_automatico(item)['body'] == ''
+        assert item['body'] == body
+        assert not mensagem_automatica({**item, 'from_me': True})
+        assert not mensagem_automatica({**item, 'type': 'image'})
+        for relato in ('Meu pet está com falta de ar.', 'Quero falar com um humano.',
+                       'Preciso de um laudo.'):
+            for misto in (body + '\n' + relato, relato + '\n' + body):
+                mixed_item = {**item, 'body': misto}
+                assert not mensagem_automatica(mixed_item)
+                assert sem_aviso_automatico(mixed_item)['body'] == misto
+
+
+@pytest.mark.parametrize('relato', (
+    'Meu pet está em emergência.',
+    'Meu gato está com falta de ar.',
+    'Meu cachorro está com convulsão.',
+    'Estamos fora do expediente, mas meu pet está com falta de ar.',
+))
+def test_relato_real_nunca_e_aviso_automatico(relato):
+    from app.services.whatsapp_bot_gates import detecta_emergencia
+    from app.services.whatsapp_bot_mensagens_automaticas import sem_aviso_automatico
+
+    item = {'type': 'text', 'from_me': False, 'body': relato}
+    assert not mensagem_automatica(item)
+    assert detecta_emergencia(sem_aviso_automatico(item)['body'])
 
 
 def test_reconhecimento_exato_sem_ocultar_complementos():
@@ -29,6 +129,13 @@ def test_worker_avisos_fragmentos_e_pausas():
                 'created_at': (now + timedelta(seconds=offset)).isoformat()}
     scenarios = [
         *[(texto, [], False, 'mensagem_automatica') for texto in AVISOS],
+        *[(texto, [], True, 'mensagem_automatica') for texto in AVISOS_AUDITADOS.values()],
+        *[(texto + '\nMeu pet está com falta de ar.', [], True, 'emergencia')
+          for texto in AVISOS_AUDITADOS.values()],
+        *[(texto, [msg('Meu pet está com falta de ar.', -10)], True, 'emergencia')
+          for texto in AVISOS_AUDITADOS.values()],
+        *[('Meu pet está com falta de ar.', [msg(texto, -10)], True, 'emergencia')
+          for texto in AVISOS_AUDITADOS.values()],
         (AVISOS[0], [msg('meu pet está com falta de ar', -10)], True, 'emergencia'),
         ('meu pet está com falta de ar', [msg(AVISOS[0], -10)], True, 'emergencia'),
         (AVISOS[0] + '\nmeu pet está com falta de ar', [], True, 'emergencia'),

@@ -1,5 +1,5 @@
 # Contrato
-- Lista explícita de sete avisos institucionais conhecidos. Normalização tolera acentos, caixa, emoji e pontuação; preserva palavras e números. Não usar correspondência parcial, nomes genéricos ou classificação por LLM.
+- Lista explícita de doze avisos institucionais conhecidos. Inclui os cinco avisos completos revisados na auditoria de 26/09 a 02/10/2026 que dispararam falsos alertas de emergência. Normalização tolera acentos, caixa, emoji e pontuação; preserva palavras e números. Não usar correspondência parcial, nomes genéricos ou classificação por LLM.
 - Somente mensagens textuais recebidas podem ser reconhecidas. Texto adicional no mesmo corpo impede a classificação integral; conteúdo desconhecido segue os portões normais.
 - O worker conserva mensagens originais no serviço WhatsApp. Usa cópias com corpo vazio para avisos reconhecidos antes de agrupar fragmentos; mantém limites existentes de tipo, direção, tempo e quantidade.
 - Aviso sozinho registra `suppressed/mensagem_automatica`, sem geração, envio, alerta ou criação/renovação de pausa.

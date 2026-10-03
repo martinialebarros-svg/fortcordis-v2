@@ -263,7 +263,7 @@ class WhatsAppBotWorkerServiceTest(unittest.TestCase):
                 messages_response.raise_for_status = Mock()
                 messages_response.json = Mock(return_value={
                     "data": [
-                        {"wa_message_id": "wamid.reconciliado", "from_me": False, "type": "text"},
+                        {"wa_message_id": "wamid.reconciliado", "from_me": False, "type": "text", "created_at": now_iso},
                     ]
                 })
 
@@ -321,7 +321,7 @@ class WhatsAppBotWorkerServiceTest(unittest.TestCase):
                 ultima_pagina = Mock()
                 ultima_pagina.raise_for_status = Mock()
                 ultima_pagina.json = Mock(return_value={
-                    "data": [{"wa_message_id": "wamid.RECENTE", "from_me": False, "type": "text"}],
+                    "data": [{"wa_message_id": "wamid.RECENTE", "from_me": False, "type": "text", "created_at": now_iso}],
                     "pagination": {"page": 350, "limit": 1, "total": 350},
                 })
 
@@ -340,7 +340,7 @@ class WhatsAppBotWorkerServiceTest(unittest.TestCase):
 
                 self.assertEqual(result, {"checked": 1, "enqueued": 1})
                 # A ultima chamada tem que pedir a pagina 350, nao a 1.
-                self.assertEqual(get_mock.call_args_list[-1].kwargs["params"], {"limit": 1, "page": 350})
+                self.assertEqual(get_mock.call_args_list[-1].kwargs["params"], {"limit": 1, "page": 350, "bot_context": "true"})
 
                 verify = SessionFactory()
                 try:

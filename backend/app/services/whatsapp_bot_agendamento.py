@@ -166,10 +166,12 @@ def exame_em_consulta_disponibilidade(message):
 
     Não infere horário nem sintomas. Devolve o nome literal do exame apenas
     para perguntas curtas de disponibilidade, nunca uma confirmação de agenda.
+    O prefixo aceita saudações consecutivas, inclusive vindas de fragmentos;
+    qualquer outro conteúdo continua na triagem normal, sem ser descartado.
     """
     text = str(message or '').strip().rstrip('?! .')
     match = re.fullmatch(
-        r'(?:(?:oi|ol[aá]|bom dia|boa tarde|boa noite)[,!.\s]+)?'
+        r'(?:(?:oi|ol[aá]|bom dia|boa tarde|boa noite)[,!.\s]+)*'
         r'(?:qual\s+(?:[eé]\s+)?(?:a\s+)?disponibilidade(?:\s+de\s+hor[aá]rios?)?'
         r'|(?:quais|qual)\s+(?:os?\s+)?hor[aá]rios?'
         r'|(?:(?:voc[eê]s|vcs)\s+)?(?:t[eê]m|h[aá])\s+(?:disponibilidade(?:\s+de\s+hor[aá]rios?)?|hor[aá]rios?))'

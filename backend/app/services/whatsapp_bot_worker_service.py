@@ -222,7 +222,23 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
 
     last_message = _last_message_from_conversation(conversation)
     if last_message is None:
-        raise RuntimeError(f"Nenhuma mensagem encontrada no servico WhatsApp para o job {job.id}.")
+        # A visão do bot pode ficar vazia numa conversa só com reações
+        # recebidas. Encerra também jobs antigos desses eventos sem handoff.
+        _record_resposta(db, job, decisao="suppressed", motivo="conversa_atualizada")
+        job.status = "done"
+        return "done"
+    if last_message.get("type") == "reaction" and not last_message.get("from_me"):
+        # Node anterior ainda pode ignorar bot_context durante uma publicação.
+        # Não perder a pergunta nem gastar retries enquanto ele é atualizado.
+        if last_message.get("wa_message_id") != job.wa_message_id:
+            job.status = "pending"
+            job.scheduled_for = _utc_now() + timedelta(seconds=max(30, _worker_poll_seconds()))
+            job.last_error = "Aguardando contexto do WhatsApp sem reacoes recebidas."
+            return "deferred"
+        # Um job legado da própria reação não representa uma solicitação.
+        _record_resposta(db, job, decisao="suppressed", motivo="sem_pergunta")
+        job.status = "done"
+        return "done"
 
     # Usa apenas textos recentes e contíguos. Emergência de um fragmento
     # anterior deve continuar prioritária mesmo com o bot pausado.
@@ -455,7 +471,7 @@ def run_whatsapp_bot_worker_due_once(*, limit: int = 50) -> dict[str, int]:
 
             if result == "done":
                 done += 1
-            else:
+            elif result == "error":
                 errors += 1
 
             db.commit()
@@ -502,7 +518,7 @@ def _fetch_recently_active_conversations(
     try:
         response = httpx.get(
             f"{base_url}/conversations",
-            params={"limit": 100},
+            params={"limit": 100, "bot_context": "true"},
             headers=headers,
             timeout=timeout,
         )
@@ -531,7 +547,7 @@ def _fetch_last_message(
     def _pagina(page: int) -> dict[str, Any]:
         response = httpx.get(
             f"{base_url}/conversations/{conversation_id}/messages",
-            params={"limit": 1, "page": page},
+            params={"limit": 1, "page": page, "bot_context": "true"},
             headers=headers,
             timeout=timeout,
         )
@@ -618,7 +634,7 @@ def _fetch_historico(
     def _pagina(page: int) -> dict[str, Any]:
         response = httpx.get(
             f"{base_url}/conversations/{conversation_id}/messages",
-            params={"limit": quantidade, "page": page},
+            params={"limit": quantidade, "page": page, "bot_context": "true"},
             headers=headers,
             timeout=timeout,
         )
@@ -655,7 +671,7 @@ def _fetch_conversation_by_phone(
     try:
         response = httpx.get(
             f"{base_url}/conversations",
-            params={"phone": wa_identity, "limit": 1},
+            params={"phone": wa_identity, "limit": 1, "bot_context": "true"},
             headers=headers,
             timeout=timeout,
         )
@@ -701,6 +717,13 @@ def run_reconciliation_sweep(db: Session) -> dict[str, int]:
         if not last_message or last_message.get("from_me"):
             continue
 
+        # Uma reação pode atualizar a atividade da conversa, mas não deve
+        # ressuscitar uma pergunta antiga na visão filtrada do bot.
+        message_time = _parse_conversation_timestamp(last_message.get("created_at"))
+        cutoff = _utc_now() - timedelta(minutes=_reconcile_window_minutes())
+        if message_time is None or message_time < cutoff:
+            continue
+
         wa_message_id = str(last_message.get("wa_message_id") or "").strip()
         if not wa_message_id:
             continue
@@ -710,6 +733,7 @@ def run_reconciliation_sweep(db: Session) -> dict[str, int]:
             wa_identity=wa_identity,
             conversation_id=conversation_id,
             wa_message_id=wa_message_id,
+            message_type=last_message.get("type"),
         ):
             enqueued += 1
 
