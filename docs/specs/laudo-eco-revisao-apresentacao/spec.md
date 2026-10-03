@@ -8,6 +8,7 @@
 - RF-042: índices 2D persistidos antes da troca de fórmula não entram como evidência no contexto da IA, pois o registro não informa se usou expoente 0,294 ou 0,316. A IA pode continuar usando o DIVEd 2D bruto com unidade conhecida.
 - CA-040: para os valores reais de Billy (13,6 kg, DIVEd 2D 33,53 mm, eixo curto), o índice visível é 1,47, com faixa 1,14–1,61. Sem vista, com espécie felina ou fora da população, a linha do índice 2D não aparece. Modo M segue inalterado.
 - CA-041: com o padrão numérico do PDF real de Miolo (FE 95%, FEC 67%, Vmax aorta 0,69 m/s e narrativa de 97%, 71% e acima de 3 m/s), três avisos de conferência aparecem. Valores concordantes, arredondamento de até um ponto e técnica ventricular não selecionada não geram aviso.
+- CA-042: o teste do cache do PDF verifica a versão `2026-10-03-eco-2d-visser-index-v14`, que força a regeneração dos PDFs ecocardiográficos após a mudança da fórmula 2D.
 
 ## Requisitos
 

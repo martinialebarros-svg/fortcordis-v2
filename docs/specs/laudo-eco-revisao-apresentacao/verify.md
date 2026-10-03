@@ -6,6 +6,7 @@
 - Verificação focada: 29 testes Vitest de derivação, prévia, referências e avisos textuais e 22 testes Python de geração do PDF passaram. TypeScript, lint direcionado, build do Next.js com 43 páginas, `compileall` e `git diff --check` passaram. O PDF sintético de uma página foi renderizado e inspecionado: índice 1,47, faixa 1,14–1,61, análise qualitativa legível e Visser et al. (2019) após a assinatura, sem corte ou sobreposição.
 - Limite: os PDFs reais foram lidos sem alterar seus dados; o novo PDF sintético verifica renderização, não reinterpreta os pacientes. A publicação em stage e produção é etapa separada.
 - Conferência adicional: o aviso aparece na aba qualitativa dos dois editores e na visualização de laudo salvo; sem divergência, o componente não renderiza. Índices 2D persistidos antes desta mudança são excluídos do contexto da IA por não terem proveniência da fórmula no registro.
+- Correção da primeira execução do CI em stage: a suíte completa encontrou uma asserção de versão do cache ainda fixada em `2026-09-30-eco-2d-citation-v13`; o teste foi alinhado a `2026-10-03-eco-2d-visser-index-v14`. O deploy da primeira execução foi bloqueado; a nova execução deve comprovar a suíte completa e a publicação.
 
 Data: 2026-09-25
 Status: validação local concluída
