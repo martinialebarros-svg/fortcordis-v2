@@ -90,8 +90,9 @@ export const APPROVED_UTILITY_TEMPLATES = {
   },
   homeReportPdf: {
     name: "laudo_domiciliar_pdf_tutor",
-    // Submeter como Utilidade, pt_BR, cabecalho DOCUMENT. Nunca enviar antes da aprovacao.
-    metaId: "PENDING_META_APPROVAL",
+    // Ativo nas WABAs de producao (ID abaixo) e teste (974976974892713).
+    // O envio usa o nome do modelo; a flag de runtime controla sua ativacao.
+    metaId: "1445021354358408",
     headerType: "document",
     body: "Olá, {{1}}. O laudo do atendimento domiciliar de {{2}} está anexado em PDF. " +
       "Se tiver dúvidas sobre o resultado, fale com a equipe Fort Cordis.",
