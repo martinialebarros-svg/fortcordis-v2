@@ -28,6 +28,7 @@ set -euo pipefail
 #   WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID=<id-publico-do-ambiente>
 #   WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION=0|1
 #   WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED=true|false
+#   WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED=true|false (somente apos aprovacao na WABA)
 #   WHATSAPP_RUNTIME_LABEL=Stage
 #   ENABLE_WHATSAPP_STAGE_SMOKE=1
 #   WHATSAPP_DEFAULT_ALLOWED_PAPEIS=admin,recepcao,veterinario,cardiologista
@@ -852,6 +853,14 @@ deploy_whatsapp_stage_backend() {
 
   ensure_whatsapp_stage_env_file
   validate_whatsapp_stage_meta_config
+  if [[ -n "${WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED:-}" ]]; then
+    if [[ "${WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED}" != "true" && "${WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED}" != "false" ]]; then
+      echo "[ERROR] WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED must be true or false." >&2
+      return 1
+    fi
+    upsert_env_key "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED" "${WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED}"
+    log "WhatsApp ${WHATSAPP_RUNTIME_LABEL} home report template gate set to ${WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED}."
+  fi
   ensure_whatsapp_stage_service_unit
 
   log "WhatsApp ${WHATSAPP_RUNTIME_LABEL} backend: install deps + migrations"

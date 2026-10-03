@@ -377,6 +377,7 @@ jobs:
             WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION=0 \
             WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED=false \
             WHATSAPP_RUNTIME_LABEL=Production \
+            WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED=true \
             ENABLE_WHATSAPP_STAGE_SMOKE=0 \
             bash "$DEPLOY_SCRIPT_DIR/scripts/deploy_prod_vps.sh"
         EOF
