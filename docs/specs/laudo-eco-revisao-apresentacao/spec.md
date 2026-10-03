@@ -1,5 +1,15 @@
 # Spec - Revisão da apresentação do laudo ecocardiográfico
 
+## Incremento: índice 2D de Visser e conferência do texto em PDFs reais (2026-10-03)
+
+- RF-039: para cães adultos com vista 2D confirmada, peso entre 2,6 e 67,8 kg e DIVEd 2D em unidade conhecida, o formulário, a prévia e o PDF calculam `DIVEd [cm] / peso^0,316`. A faixa normalizada é 1,14–1,61 no eixo curto e 1,15–1,55 no eixo longo, conforme Visser et al. (2019). A linha não é gerada para felinos, vista não confirmada, peso fora da população ou medida com unidade ambígua. O índice Modo M mantém a fórmula já usada, com expoente 0,294; seu corte de estadiamento não é transferido ao índice 2D de Visser.
+- RF-040: a aba Referências e o PDF usam a mesma faixa 2D normalizada e identificam a publicação pertinente. O PDF ecocardiográfico recebe nova versão de cache; nenhuma medida ou interpretação clínica armazenada é alterada apenas por abrir a prévia ou baixar o PDF.
+- RF-041: os editores de novo laudo e edição, assim como a visualização do laudo salvo, mostram aviso discreto e não bloqueante quando o texto oficial cita FE ou FEC mais de um ponto percentual distante da medida da técnica selecionada, ou afirma velocidade aórtica acima de um limite que conflita com a Vmax aórtica tabulada. O aviso pede conferir o local da velocidade; não diagnostica erro, não reescreve texto e não interfere no salvamento.
+- RF-042: índices 2D persistidos antes da troca de fórmula não entram como evidência no contexto da IA, pois o registro não informa se usou expoente 0,294 ou 0,316. A IA pode continuar usando o DIVEd 2D bruto com unidade conhecida.
+- CA-040: para os valores reais de Billy (13,6 kg, DIVEd 2D 33,53 mm, eixo curto), o índice visível é 1,47, com faixa 1,14–1,61. Sem vista, com espécie felina ou fora da população, a linha do índice 2D não aparece. Modo M segue inalterado.
+- CA-041: com o padrão numérico do PDF real de Miolo (FE 95%, FEC 67%, Vmax aorta 0,69 m/s e narrativa de 97%, 71% e acima de 3 m/s), três avisos de conferência aparecem. Valores concordantes, arredondamento de até um ponto e técnica ventricular não selecionada não geram aviso.
+- CA-042: o teste do cache do PDF verifica a versão `2026-10-03-eco-2d-visser-index-v14`, que força a regeneração dos PDFs ecocardiográficos após a mudança da fórmula 2D.
+
 ## Requisitos
 
 - RF-001: a prévia agrupa apenas medidas ecocardiográficas registradas por VE, átrio/aorta, artéria pulmonar, Doppler e regurgitações, com rótulos clínicos, valores e unidades alinhados ao PDF.

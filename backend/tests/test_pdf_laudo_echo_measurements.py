@@ -129,15 +129,22 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("26.01 - 36.73 mm", text)
         self.assertIn("15.58 - 25.87 mm", text)
         self.assertIn("21.90 - 49.30 %", text)
+        self.assertIn("DIVEd normalizado 2D - Visser (DIVEd [cm] / peso^0,316)\n1.47\n1.14 - 1.61", text)
         self.assertIn("Visser et al. (2019)", text)
         self.assertNotIn("Cornell et al.", text)
         self.assertIn("SIVd 2D (Septo interventricular em diástole)\n8.36 mm\n--", text)
         self.assertIn("FE 2D (Teicholz)\n61.00 %\n--", text)
 
         payload["medidas"]["VE_vista_2D"] = ""
+        payload["medidas"]["DIVEd_normalizado_2D"] = "1.56"
         without_view = _pdf_text(payload)
         self.assertNotIn("Visser et al. (2019)", without_view)
         self.assertNotIn("26.01 - 36.73 mm", without_view)
+        self.assertNotIn("DIVEd normalizado 2D - Visser", without_view)
+
+        payload["medidas"]["VE_vista_2D"] = "eixo_curto"
+        payload["paciente"]["especie"] = "Felina"
+        self.assertNotIn("DIVEd normalizado 2D - Visser", _pdf_text(payload))
 
     def test_2d_fs_requires_same_diameter_pair_and_study_weight(self) -> None:
         payload = _base_report("2d")

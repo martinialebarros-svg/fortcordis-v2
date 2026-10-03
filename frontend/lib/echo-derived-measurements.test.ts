@@ -50,5 +50,7 @@ describe("deriveAutomaticEchoMeasurements", () => {
     const description = "## Medidas Ecocardiograficas\n- DIVEd_2D: 33.53\n- VE_vista_2D: eixo_curto\n\n## Avaliacao Qualitativa";
     expect(parseStoredEchoMeasurements(null, description).VE_vista_2D).toBe("eixo_curto");
     expect(parseStoredEchoMeasurements(null, description.replace("eixo_curto", "desconhecida"))).not.toHaveProperty("VE_vista_2D");
+    expect(deriveAutomaticEchoMeasurements({ DIVEd_2D: "33.53", VE_vista_2D: "eixo_curto" }, 13.6, "Canina").DIVEd_normalizado_2D).toBe("1.47");
+    expect(deriveAutomaticEchoMeasurements({ DIVEd_2D: "33.53", VE_vista_2D: "eixo_curto" }, 13.6, "Felina")).not.toHaveProperty("DIVEd_normalizado_2D");
   });
 });

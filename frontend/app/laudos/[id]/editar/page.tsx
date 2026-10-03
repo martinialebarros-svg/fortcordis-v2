@@ -25,6 +25,8 @@ import EcocardiogramaEstruturadoEditor from "../../components/EcocardiogramaEstr
 import EcocardiogramaEstruturadoBiblioteca from "../../components/EcocardiogramaEstruturadoBiblioteca";
 import EchoVoiceAssistant from "../../components/EchoVoiceAssistant";
 import EchoUnitReview from "../../components/EchoUnitReview";
+import EchoNarrativeConsistencyNotice from "../../components/EchoNarrativeConsistencyNotice";
+import { calculateCanine2DNormalizedLVIDd, getCanine2DReference, type Echo2DView } from "@/lib/echo-2d-reference";
 import { ArrowLeft, Save, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus, FolderOpen, GripVertical, X } from "lucide-react";
 import { ReferenciaComparison } from "../../components/ReferenciaComparison";
 import {
@@ -515,7 +517,7 @@ export default function EditarLaudoPage() {
     if (divedNormalizadoCalculado !== null && medidas["DIVEd_normalizado"] !== divedNormalizadoCalculado) {
       atualizacoes.DIVEd_normalizado = divedNormalizadoCalculado;
     }
-    const automaticas = deriveAutomaticEchoMeasurements(medidas, pacienteForm.peso);
+    const automaticas = deriveAutomaticEchoMeasurements(medidas, pacienteForm.peso, pacienteForm.especie);
     Object.entries(automaticas).forEach(([key, value]) => {
       if (medidas[key] !== value) atualizacoes[key] = value;
     });
@@ -526,7 +528,7 @@ export default function EditarLaudoPage() {
         ...atualizacoes,
       }));
     }
-  }, [medidas, pacienteForm.peso]);
+  }, [medidas, pacienteForm.peso, pacienteForm.especie]);
 
   const laudoEhPressao = (laudo?.tipo || "").toLowerCase() === TIPO_LAUDO_PRESSAO_ARTERIAL;
 
@@ -927,7 +929,7 @@ export default function EditarLaudoPage() {
     try {
       const medidasPayload = {
         ...medidas,
-        ...deriveAutomaticEchoMeasurements(medidas, pacienteForm.peso),
+        ...deriveAutomaticEchoMeasurements(medidas, pacienteForm.peso, pacienteForm.especie),
       };
       if (
         hasAnyMeasurement(medidasPayload, LV_M_MODE_KEYS) &&
@@ -1166,6 +1168,22 @@ export default function EditarLaudoPage() {
       </DashboardLayout>
     );
   }
+
+  const textoParaConferencia = resolverTextoClinicoNaEdicao(
+    serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado),
+    qualitativa,
+    diagnostico,
+    { qualitativa: qualitativaEstruturadaAplicada, conclusao: conclusaoEstruturadaAplicada },
+  );
+  const vistaIndice2D = medidas.VE_vista_2D === "eixo_curto" || medidas.VE_vista_2D === "eixo_longo"
+    ? medidas.VE_vista_2D as Echo2DView : "";
+  const pesoIndice2D = parsePesoKg(pacienteForm.peso);
+  const indice2D = calculateCanine2DNormalizedLVIDd(
+    echoLengthInMm(medidas, "DIVEd_2D"), pesoIndice2D, vistaIndice2D, pacienteForm.especie,
+  );
+  const faixaIndice2D = indice2D === null ? null : getCanine2DReference(
+    "DIVEd_normalizado_2D", pesoIndice2D ?? undefined, vistaIndice2D,
+  );
 
   return (
     <DashboardLayout>
@@ -1988,13 +2006,13 @@ export default function EditarLaudoPage() {
                           value={medidas["DIVEd_2D"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd_2D", v)}
                         />
-                        <MedidaInput
-                          label="DIVEd normalizado 2D (DIVEd [cm] / peso^0,294)"
-                          value={medidas["DIVEd_normalizado_2D"] || ""}
+                        {faixaIndice2D && <MedidaInput
+                          label="DIVEd normalizado 2D · Visser (DIVEd [cm] / peso^0,316)"
+                          value={indice2D?.toFixed(2) || ""}
                           onChange={(v) => handleMedidaChange("DIVEd_normalizado_2D", v)}
                           readOnly
-                          reference="Faixa 2D não cadastrada"
-                        />
+                          reference={`Visser et al. 2019: ${faixaIndice2D.min.toFixed(2)}–${faixaIndice2D.max.toFixed(2)}`}
+                        />}
                         <MedidaInput
                           label={echoLengthInputLabel("SIVd 2D (mm)", medidas, "SIVd_2D")}
                           value={medidas["SIVd_2D"] || ""}
@@ -2074,6 +2092,11 @@ export default function EditarLaudoPage() {
 
                 {aba === "qualitativa" && (
                   <div className="space-y-4">
+                    {!laudoEhPressao && <EchoNarrativeConsistencyNotice
+                      measurements={medidas}
+                      qualitative={textoParaConferencia.qualitativa}
+                      conclusion={textoParaConferencia.conclusao}
+                    />}
                     <div className="mb-4">
                       <h3 className="font-medium text-gray-900">Qualitativa Detalhada</h3>
                       <span className="text-sm text-gray-500">

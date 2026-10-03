@@ -1,5 +1,5 @@
 import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
-import { getCanine2DReference, type Echo2DView } from "./echo-2d-reference";
+import { calculateCanine2DNormalizedLVIDd, getCanine2DReference, type Echo2DView } from "./echo-2d-reference";
 import { ambiguousEchoLengthKeys, confirmedEchoUnit, confirmedUnitKey, ECHO_LENGTH_KEYS } from "./echo-unit-provenance";
 
 type Parameter = { key: string; label: string; unit?: string; reference?: string };
@@ -28,6 +28,7 @@ const mode2D: Parameter[] = mMode.map((item) => ({
   label: `${item.label} · 2D`,
   reference: undefined,
 }));
+mode2D.find((item) => item.key === "DIVEd_normalizado_2D")!.label = "DIVEd normalizado · 2D, Visser · DIVEd [cm] / peso^0,316";
 const annularExcursion: Parameter[] = [
   parameter("TAPSE", "TAPSE · excursão anular tricúspide", "mm", "tapse"),
   parameter("MAPSE", "MAPSE · excursão anular mitral", "mm", "mapse"),
@@ -103,7 +104,7 @@ function referenceRange(reference: ReferenciaEco | null, item: Parameter): strin
   return `${min.toFixed(2)}–${max.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`;
 }
 
-export function prepareEchoReportMeasurements(raw: Record<string, string>, weightKg: unknown) {
+export function prepareEchoReportMeasurements(raw: Record<string, string>, weightKg: unknown, species = "") {
   const measurements = { ...raw };
   const ambiguousKeys = ambiguousEchoLengthKeys(raw);
   for (const key of lengthKeys) {
@@ -114,6 +115,13 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
   }
   if (ambiguousKeys.has("DIVEd")) delete measurements.DIVEd_normalizado;
   if (ambiguousKeys.has("DIVEd_2D")) delete measurements.DIVEd_normalizado_2D;
+  const view = raw.VE_vista_2D === "eixo_curto" || raw.VE_vista_2D === "eixo_longo"
+    ? raw.VE_vista_2D as Echo2DView : "";
+  const dived2D = number(measurements.DIVEd_2D);
+  const visser2D = ambiguousKeys.has("DIVEd_2D") ? null : calculateCanine2DNormalizedLVIDd(
+    dived2D, number(weightKg), view, species,
+  );
+  if (visser2D === null) delete measurements.DIVEd_normalizado_2D;
 
   const alerts: EchoCalculationAlert[] = [];
   const weight = number(weightKg);
@@ -127,7 +135,9 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
       }
       const diameter = number(measurements[diameterKey]);
       if (diameter === null || diameter <= 0) continue;
-      const calculated = Number(((diameter / 10) / weight ** 0.294).toFixed(2));
+      const calculated = normalizedKey === "DIVEd_normalizado_2D"
+        ? visser2D : Number(((diameter / 10) / weight ** 0.294).toFixed(2));
+      if (calculated === null) continue;
       const recorded = number(raw[normalizedKey]);
       if (normalizedKey === selectedNormalizedKey && recorded !== null && Math.abs(recorded - calculated) > 0.05) {
         alerts.push({ key: normalizedKey, recorded, calculated });

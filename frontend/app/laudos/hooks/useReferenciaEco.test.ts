@@ -92,6 +92,7 @@ describe("compararMedidasComReferencia", () => {
   it("usa faixas 2D publicadas apenas para diâmetros e FEC caninos com vista confirmada", () => {
     const medidas = {
       DIVEd_2D: "33.53",
+      DIVEd_normalizado_2D: "1.47",
       DIVES_2D: "22.87",
       SIVd_2D: "8.36",
       PLVEd_2D: "10.29",
@@ -110,11 +111,12 @@ describe("compararMedidasComReferencia", () => {
     };
     const result = compararMedidasComReferencia(medidas, referencia, "eixo_curto", 13.6);
 
-    for (const key of ["DIVEd_2D", "DIVES_2D", "DeltaD_FS_2D"]) {
+    for (const key of ["DIVEd_2D", "DIVEd_normalizado_2D", "DIVES_2D", "DeltaD_FS_2D"]) {
       expect(result[key]).toMatchObject({ status: "normal", interpretacao: "Dentro da faixa 2D publicada" });
       expect(result[key].fonte).toContain("Visser et al. 2019; 2D, eixo curto");
     }
     expect([result.DIVEd_2D.referencia_min, result.DIVEd_2D.referencia_max]).toEqual([26.01, 36.73]);
+    expect([result.DIVEd_normalizado_2D.referencia_min, result.DIVEd_normalizado_2D.referencia_max]).toEqual([1.14, 1.61]);
     expect([result.DIVES_2D.referencia_min, result.DIVES_2D.referencia_max]).toEqual([15.58, 25.87]);
     expect([result.DeltaD_FS_2D.referencia_min, result.DeltaD_FS_2D.referencia_max]).toEqual([21.9, 49.3]);
     for (const key of ["SIVd_2D", "PLVEd_2D", "FE_Teicholz_2D"]) {
