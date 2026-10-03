@@ -96,6 +96,9 @@ class DisponibilidadeTests(unittest.TestCase):
             "Vocês têm horário para eco?": "eco",
             "Quais horários disponíveis para ecocardiograma?": "ecocardiograma",
             "Qual a disponibilidade pra eco?": "eco",
+            "Oi\nBoa tarde\nQual a disponibilidade pra eco": "eco",
+            "Ola\nOi\nBoa tarde\nQual a disponibilidade pra eco": "eco",
+            "Olá! Bom dia, Oi. Quais horários para ECG?": "ECG",
         }
         for message, expected in cases.items():
             with self.subTest(message=message):
@@ -110,6 +113,14 @@ class DisponibilidadeTests(unittest.TestCase):
             "Qual o horário do meu eco?",
             "Qual a disponibilidade de horário pra eco amanhã?",
             "Qual o valor do eco?",
+            "Oi\nNão quero\nQual a disponibilidade pra eco",
+            "Oi\nBoa tarde\nQual a disponibilidade pra eco e qual o valor?",
+            "Oi\nMeu pet está tossindo\nQual a disponibilidade pra eco",
+            "Oi\nMeu pet está com falta de ar\nQual a disponibilidade pra eco",
+            "Oi\nQuero falar com um atendente\nQual a disponibilidade pra eco",
+            "Oi? Boa tarde. Qual a disponibilidade pra eco",
+            "Oiboa tarde Qual a disponibilidade pra eco",
+            "Obrigada\nQual a disponibilidade pra eco",
         ):
             with self.subTest(message=message):
                 self.assertIsNone(exame_em_consulta_disponibilidade(message))

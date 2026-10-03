@@ -1,5 +1,9 @@
 # Opções de agenda no WhatsApp
 
+## Saudações consecutivas (02/10/2026)
+
+Saudações conhecidas consecutivas no início da pergunta de disponibilidade são aceitas, inclusive quando originadas de mensagens agrupadas. O agrupamento mantém seu limite de dois minutos, direção, tipo e quantidade; nenhum fragmento clínico ou pedido humano é descartado. A triagem do corpo integral continua anterior ao reconhecimento administrativo. Os convites e confirmações de novo pedido preservam todos os requisitos abaixo.
+
 ## Fluxo
 
 Somente clínicas identificadas no fluxo real do worker recebem opções após confirmar os dados da solicitação. A coleta deve estar completa e seu resumo previamente enviado. Os modos, teto diário, janela de WhatsApp e controle humano existentes continuam aplicados. Simulação sem conversa real mantém o fluxo anterior.

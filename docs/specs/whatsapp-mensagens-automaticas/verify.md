@@ -1,5 +1,14 @@
 # Verificação
 
+## Regressões da auditoria de 26/09 a 02/10/2026
+
+- Os cinco avisos adicionais possuem fixtures independentes da lista de produção, com os corpos completos revisados. Reconhecimento integral tolera somente apresentação; um complemento clínico, pedido administrativo ou solicitação humana antes/depois impede a classificação como aviso.
+- Testes do worker preservam emergência no mesmo corpo ou em outro fragmento, mesmo quando a conversa está pausada. Aviso sozinho não chama o gerador, envio, handoff ou pausa e não cria alerta.
+- Validação inicial: 29 testes e 6 subtestes aprovados (avisos e processamento do worker). Validação integrada desta etapa registrada em `../whatsapp-chatbot-atendimento/verify.md`.
+- Alteração local; nenhuma mensagem real, limpeza de pausas ou publicação foi realizada nesta etapa.
+
+## Evidência da implementação inicial
+
 - Testes focados: 18 aprovados (worker e reconhecimento). Teste adicional de limites e preservação dos fragmentos: suíte específica com 3 testes aprovada.
 - Casos incluem os sete avisos revisados; textos com sintomas/pedido adicionados não são reconhecidos como aviso; urgência real antes/depois de aviso continua prioritária; pausa existente é preservada; nenhum envio ou nova pausa é produzido pelo aviso sozinho.
 - Agrupamento mantém limites de dois minutos, direção e tipo. Dados originais permanecem intactos.

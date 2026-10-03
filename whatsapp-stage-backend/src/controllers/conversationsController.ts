@@ -103,6 +103,24 @@ const REPLY_QUEUE_JOINS_SQL = `
 `;
 const NEEDS_REPLY_SQL = "(reply_queue.id IS NOT NULL)";
 
+// Reactions remain visible in the inbox and its revision frontier. Only the
+// bot's conversational context ignores inbound reactions; human activity still
+// invalidates an automatic reply. IS DISTINCT FROM keeps legacy NULL types.
+const BOT_CONTEXT_MESSAGE_SQL = "(m.from_me IS DISTINCT FROM FALSE OR m.type IS DISTINCT FROM 'reaction')";
+
+function resolveBotContext(req: Request, res: Response): boolean | null {
+  const value = req.query.bot_context;
+  if (value !== undefined && value !== "true" && value !== "false") {
+    res.status(422).json({ error: "bot_context must be true or false" });
+    return null;
+  }
+  if (value === "true" && req.authUser?.authSource !== "internal_token") {
+    res.status(403).json({ error: "bot_context requires internal authentication" });
+    return null;
+  }
+  return value === "true";
+}
+
 function isPositiveBigInt(value: unknown): value is string {
   return typeof value === "string"
     && /^[1-9]\d*$/.test(value)
@@ -137,6 +155,8 @@ async function touchConversation(conversationId: string): Promise<void> {
 }
 
 export async function listConversations(req: Request, res: Response): Promise<void> {
+  const botContext = resolveBotContext(req, res);
+  if (botContext === null) return;
   const page = parsePositiveInt(req.query.page as string | undefined, 1);
   const limit = Math.min(parsePositiveInt(req.query.limit as string | undefined, 20), 100);
   const offset = (page - 1) * limit;
@@ -243,6 +263,7 @@ export async function listConversations(req: Request, res: Response): Promise<vo
       SELECT m.body, m.created_at, m.from_me, m.type, m.wa_message_id, m.metadata
       FROM messages m
       WHERE m.conversation_id = c.id
+        ${botContext ? `AND ${BOT_CONTEXT_MESSAGE_SQL}` : ""}
       ORDER BY m.created_at DESC, m.id DESC
       LIMIT 1
     ) last_message ON true
@@ -429,6 +450,8 @@ export async function markConversationSeen(req: Request, res: Response): Promise
 }
 
 export async function listConversationMessages(req: Request, res: Response): Promise<void> {
+  const botContext = resolveBotContext(req, res);
+  if (botContext === null) return;
   const conversationId = req.params.id;
   const page = parsePositiveInt(req.query.page as string | undefined, 1);
   const limit = Math.min(parsePositiveInt(req.query.limit as string | undefined, 50), 200);
@@ -451,16 +474,18 @@ export async function listConversationMessages(req: Request, res: Response): Pro
   }
 
   const totalResult = await query<{ total: string; last_message_id: string | null }>(
-    `SELECT COUNT(*)::text AS total, MAX(id)::text AS last_message_id FROM messages WHERE conversation_id = $1`,
+    `SELECT COUNT(*) ${botContext ? `FILTER (WHERE ${BOT_CONTEXT_MESSAGE_SQL})` : ""}::text AS total,
+      MAX(m.id)::text AS last_message_id FROM messages m WHERE m.conversation_id = $1`,
     [conversationId]
   );
 
   const dataResult = await query(
     `
-      SELECT *
-      FROM messages
-      WHERE conversation_id = $1
-      ORDER BY created_at ${sortDirection}, id ${sortDirection}
+      SELECT m.*
+      FROM messages m
+      WHERE m.conversation_id = $1
+        ${botContext ? `AND ${BOT_CONTEXT_MESSAGE_SQL}` : ""}
+      ORDER BY m.created_at ${sortDirection}, m.id ${sortDirection}
       LIMIT $2
       OFFSET $3
     `,
@@ -610,12 +635,15 @@ export async function reservePendingTextMessage(
       const current = await client.query<{
         last_agent_id: string | null; last_inbound_at: Date | string | null;
         wa_message_id: string | null; from_me: boolean | null;
+        message_created_at: Date | string | null;
       }>(`
-        SELECT c.last_agent_id, c.last_inbound_at, m.wa_message_id, m.from_me
+        SELECT c.last_agent_id, c.last_inbound_at, m.wa_message_id, m.from_me,
+          m.created_at AS message_created_at
         FROM conversations c
         LEFT JOIN LATERAL (
-          SELECT wa_message_id, from_me FROM messages WHERE conversation_id = c.id
-          ORDER BY created_at DESC, id DESC LIMIT 1
+          SELECT m.wa_message_id, m.from_me, m.created_at FROM messages m WHERE m.conversation_id = c.id
+            AND ${BOT_CONTEXT_MESSAGE_SQL}
+          ORDER BY m.created_at DESC, m.id DESC LIMIT 1
         ) m ON true
         WHERE c.id = $1 FOR UPDATE OF c
       `, [conversationId]);
@@ -623,7 +651,8 @@ export async function reservePendingTextMessage(
       if (process.env.WHATSAPP_BOT_AUTO_SEND_ENABLED !== "true" || !latest
           || latest.last_agent_id || latest.from_me !== false
           || latest.wa_message_id !== metadata.inbound_wa_message_id
-          || !describeCustomerServiceWindow(latest.last_inbound_at).is_open) {
+          || !describeCustomerServiceWindow(latest.last_inbound_at).is_open
+          || !describeCustomerServiceWindow(latest.message_created_at).is_open) {
         return { id: "", wa_message_id: null, status: "bot_conversation_changed", idempotent: true };
       }
     }

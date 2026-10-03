@@ -352,6 +352,7 @@ def notify_whatsapp_inbound_message(
                 wa_identity=payload.wa_phone_number,
                 conversation_id=payload.conversation_id,
                 wa_message_id=payload.wa_message_id,
+                message_type=payload.message_type,
             )
     except Exception:
         logger.exception(

@@ -35,6 +35,7 @@ def enqueue_job_for_inbound_message(
     wa_identity: str,
     conversation_id: str,
     wa_message_id: str,
+    message_type: Optional[str] = None,
     now: Optional[datetime] = None,
 ) -> bool:
     """RF-002/RF-003/RF-004: cria um job com debounce para uma mensagem inbound.
@@ -44,6 +45,10 @@ def enqueue_job_for_inbound_message(
     e afetado). Retorna True se um job novo foi criado, False em caso de
     dedupe ou payload incompleto.
     """
+    # Reações não são novas solicitações. Não podem substituir um texto
+    # ainda aguardando o debounce, nem criar handoff por tipo não suportado.
+    if message_type == "reaction":
+        return False
     now = now or _utc_now()
     wa_identity = str(wa_identity or "").strip()
     conversation_id = str(conversation_id or "").strip()

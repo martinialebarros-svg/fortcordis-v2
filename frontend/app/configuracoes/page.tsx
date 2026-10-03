@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { useRoutePerformanceReady } from "@/lib/use-route-performance-ready";
 import { formatCalendarDate } from "@/lib/calendar-date";
 import {
   PUBLICOS_CONHECIMENTO,
@@ -309,6 +310,37 @@ interface LatenciaRuntimeResumo {
   groups: LatenciaRuntimeGrupo[];
 }
 
+interface DesempenhoFrontendGrupo {
+  route_group: string;
+  release_id: string;
+  navigation_type: "initial" | "client";
+  sample_count: number;
+  shell_p50_ms: number | null;
+  shell_p95_ms: number | null;
+  shell_p99_ms: number | null;
+  content_p50_ms: number | null;
+  content_p95_ms: number | null;
+  content_p99_ms: number | null;
+  content_max_ms: number | null;
+  slow_content_count: number;
+  ready_count: number;
+  partial_count: number;
+  error_count: number;
+  timeout_count: number;
+  cancelled_count: number;
+  last_seen_at: string | null;
+}
+
+interface DesempenhoFrontendResumo {
+  available: boolean;
+  hours: number;
+  retention_days: number;
+  query_max_samples: number;
+  slow_content_threshold_ms: number;
+  truncated: boolean;
+  groups: DesempenhoFrontendGrupo[];
+}
+
 export default function ConfiguracoesPage() {
   const router = useRouter();
   const [aba, setAba] = useState<"empresa" | "usuario" | "usuarios" | "observabilidade">("empresa");
@@ -378,6 +410,7 @@ export default function ConfiguracoesPage() {
   const [somenteLeituraAgenda, setSomenteLeituraAgenda] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [latenciaRuntime, setLatenciaRuntime] = useState<LatenciaRuntimeResumo | null>(null);
+  const [desempenhoFrontend, setDesempenhoFrontend] = useState<DesempenhoFrontendResumo | null>(null);
   const [statusLatenciaRuntime, setStatusLatenciaRuntime] = useState<"idle" | "loading" | "error">("idle");
   const [erroLatenciaRuntime, setErroLatenciaRuntime] = useState("");
   const [janelaLatenciaRuntime, setJanelaLatenciaRuntime] = useState<6 | 24 | 168>(24);
@@ -732,26 +765,56 @@ export default function ConfiguracoesPage() {
     try {
       setStatusLatenciaRuntime("loading");
       setErroLatenciaRuntime("");
-      const response = await api.get("/admin/observability/http-latency", {
-        params: { hours: janelaLatenciaRuntime },
-      });
-      const payload = response?.data || {};
-      setLatenciaRuntime({
-        available: payload.available === true,
-        hours: Number(payload.hours) || janelaLatenciaRuntime,
-        retention_days: Number(payload.retention_days) || 14,
-        query_max_samples: Number(payload.query_max_samples) || 0,
-        slow_request_threshold_ms: Number(payload.slow_request_threshold_ms) || 1200,
-        truncated: payload.truncated === true,
-        groups: Array.isArray(payload.groups)
-          ? payload.groups.map((group: Record<string, any>) => ({
-              ...group,
-              max_ms: Number.isFinite(Number(group.max_ms)) ? Number(group.max_ms) : null,
-              slow_request_count: Number(group.slow_request_count) || 0,
-            }))
-          : [],
-      });
-      setStatusLatenciaRuntime("idle");
+      const [httpResult, frontendResult] = await Promise.allSettled([
+        api.get("/admin/observability/http-latency", {
+          params: { hours: janelaLatenciaRuntime },
+        }),
+        api.get("/admin/observability/frontend-performance", {
+          params: { hours: janelaLatenciaRuntime },
+        }),
+      ]);
+      const falhas: string[] = [];
+
+      if (httpResult.status === "fulfilled") {
+        const payload = httpResult.value?.data || {};
+        setLatenciaRuntime({
+          available: payload.available === true,
+          hours: Number(payload.hours) || janelaLatenciaRuntime,
+          retention_days: Number(payload.retention_days) || 14,
+          query_max_samples: Number(payload.query_max_samples) || 0,
+          slow_request_threshold_ms: Number(payload.slow_request_threshold_ms) || 1200,
+          truncated: payload.truncated === true,
+          groups: Array.isArray(payload.groups)
+            ? payload.groups.map((group: Record<string, any>) => ({
+                ...group,
+                max_ms: Number.isFinite(Number(group.max_ms)) ? Number(group.max_ms) : null,
+                slow_request_count: Number(group.slow_request_count) || 0,
+              }))
+            : [],
+        });
+      } else {
+        setLatenciaRuntime(null);
+        falhas.push("Não foi possível carregar a telemetria da API.");
+      }
+
+      if (frontendResult.status === "fulfilled") {
+        const frontendPayload = frontendResult.value?.data || {};
+        setDesempenhoFrontend({
+          available: frontendPayload.available === true,
+          hours: Number(frontendPayload.hours) || janelaLatenciaRuntime,
+          retention_days: Number(frontendPayload.retention_days) || 14,
+          query_max_samples: Number(frontendPayload.query_max_samples) || 0,
+          slow_content_threshold_ms: Number(frontendPayload.slow_content_threshold_ms) || 3000,
+          truncated: frontendPayload.truncated === true,
+          groups: Array.isArray(frontendPayload.groups) ? frontendPayload.groups : [],
+        });
+      } else {
+        setDesempenhoFrontend(null);
+        falhas.push("Não foi possível carregar a telemetria do navegador.");
+      }
+
+      setErroLatenciaRuntime(falhas.join(" "));
+      setStatusLatenciaRuntime(falhas.length > 0 ? "error" : "idle");
     } catch (error: any) {
       const detalhe = error?.response?.data?.detail;
       setErroLatenciaRuntime(
@@ -1582,6 +1645,8 @@ export default function ConfiguracoesPage() {
   const agendaSemanalAtual = normalizarAgendaSemanal(configEmpresa.agenda_semanal);
   const agendaRotaRegrasAtual =
     configEmpresa.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
+
+  useRoutePerformanceReady(loading);
 
   if (loading) {
     return (
@@ -3635,6 +3700,89 @@ export default function ConfiguracoesPage() {
                                 {grupo.error_5xx_count}
                               </span>
                             </td>
+                            <td className="px-3 py-2 text-xs text-gray-500">{formatarDataHora(grupo.last_seen_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="fc-settings-card">
+              <div className="mb-5">
+                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-teal-600" />
+                  Tempo percebido no navegador
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Navegações reais agregadas por página e release. Não inclui URL completa, usuário, paciente ou conteúdo clínico.
+                </p>
+              </div>
+
+              {!desempenhoFrontend?.available ? (
+                <div className="p-4 rounded-lg bg-amber-50 text-amber-800 text-sm">
+                  A telemetria do navegador ainda não está disponível neste release.
+                </div>
+              ) : desempenhoFrontend.groups.length === 0 ? (
+                <div className="py-8 text-center text-gray-500">
+                  Nenhuma navegação monitorada nas últimas {desempenhoFrontend.hours} horas.
+                </div>
+              ) : (
+                <>
+                  <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                    <span>Retenção: {desempenhoFrontend.retention_days} dias</span>
+                    <span>
+                      Lento: conteúdo acima de {formatarMilissegundos(desempenhoFrontend.slow_content_threshold_ms)}
+                    </span>
+                    {desempenhoFrontend.truncated ? (
+                      <span className="text-amber-700">A consulta atingiu o limite de amostras.</span>
+                    ) : null}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50 text-gray-600">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium">Página</th>
+                          <th className="text-left px-3 py-2 font-medium">Navegação</th>
+                          <th className="text-left px-3 py-2 font-medium">Release</th>
+                          <th className="text-right px-3 py-2 font-medium">Amostras</th>
+                          <th className="text-right px-3 py-2 font-medium">Estrutura p95</th>
+                          <th className="text-right px-3 py-2 font-medium">Conteúdo p50</th>
+                          <th className="text-right px-3 py-2 font-medium">Conteúdo p95</th>
+                          <th className="text-right px-3 py-2 font-medium">Conteúdo p99</th>
+                          <th className="text-right px-3 py-2 font-medium">Máximo</th>
+                          <th className="text-right px-3 py-2 font-medium">Lentas</th>
+                          <th className="text-right px-3 py-2 font-medium">Parciais</th>
+                          <th className="text-right px-3 py-2 font-medium">Timeouts</th>
+                          <th className="text-right px-3 py-2 font-medium">Canceladas</th>
+                          <th className="text-right px-3 py-2 font-medium">Erros</th>
+                          <th className="text-left px-3 py-2 font-medium">Última amostra</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {desempenhoFrontend.groups.map((grupo) => (
+                          <tr
+                            key={`${grupo.route_group}-${grupo.release_id}-${grupo.navigation_type}`}
+                            className="border-t border-gray-100"
+                          >
+                            <td className="px-3 py-2 font-mono text-xs text-gray-800">{grupo.route_group}</td>
+                            <td className="px-3 py-2 text-gray-700">
+                              {grupo.navigation_type === "initial" ? "Entrada" : "Interna"}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs text-gray-700">{grupo.release_id}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{grupo.sample_count}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.shell_p95_ms)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.content_p50_ms)}</td>
+                            <td className="px-3 py-2 text-right font-medium text-gray-900">{formatarMilissegundos(grupo.content_p95_ms)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.content_p99_ms)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{formatarMilissegundos(grupo.content_max_ms)}</td>
+                            <td className="px-3 py-2 text-right text-amber-700">{grupo.slow_content_count}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{grupo.partial_count}</td>
+                            <td className="px-3 py-2 text-right text-red-700">{grupo.timeout_count}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{grupo.cancelled_count}</td>
+                            <td className="px-3 py-2 text-right text-red-700">{grupo.error_count}</td>
                             <td className="px-3 py-2 text-xs text-gray-500">{formatarDataHora(grupo.last_seen_at)}</td>
                           </tr>
                         ))}
