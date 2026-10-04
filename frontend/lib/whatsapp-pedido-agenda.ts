@@ -1,9 +1,11 @@
+import type { PreferenciaAgenda } from "@/lib/agenda-preferencias";
+
 export interface PedidoAgenda {
   pedido_id: number;
   versao: number;
   clinica_id: number;
   resumo: string;
-  dados_coletados?: { paciente?: string | null; tutor?: string | null };
+  dados_coletados?: { paciente?: string | null; tutor?: string | null; preferencia_agenda?: PreferenciaAgenda | null };
   paciente: { id: number; nome: string; tutor_id: number; tutor: string } | null;
   tutor: { id: number; nome: string } | null;
   servico_id: number | null;

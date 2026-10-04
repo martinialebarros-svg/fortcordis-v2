@@ -235,3 +235,12 @@ git diff --check
 - respostas sem ferramenta passam a registrar status e motivo de incompletude por caso, sem executar nenhuma ferramenta real.
 - 11 testes focais e a suite completa com 369 testes foram aprovados;
 - `py_compile`, `pip check` e `git diff --check` aprovados.
+
+
+## Preferências e compactação — 04/10/2026
+
+Alteração local integrada ao contrato de `../agenda-preferencias-compactacao/spec.md`.
+A evidência de testes desta etapa está centralizada em
+`../agenda-preferencias-compactacao/verify.md`; registros de releases anteriores
+neste arquivo não significam publicação desta mudança. Não houve envio real,
+migration, edição de agendamentos ou alteração de configuração em produção.

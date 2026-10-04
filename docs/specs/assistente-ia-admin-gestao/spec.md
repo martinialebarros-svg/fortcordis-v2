@@ -129,6 +129,17 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 
 ## 4) Persistencia
 
+### Preferência na disponibilidade (04/10/2026)
+
+`verificar_disponibilidade` aceita o objeto opcional `preferencia` da Agenda:
+datas inclusivas em par (máximo 31 dias), turno qualquer/manhã/tarde e faixa de
+horários opcional em par. A enumeração de datas respeita o período antes de
+chamar o motor; cada consulta usa o mesmo contrato e os candidatos compactos do
+núcleo da Agenda. Preferência limita o intervalo completo do serviço e não pode
+ser ampliada por fallback silencioso. Isso não autoriza agendamento, reserva,
+envio ou qualquer escrita; permanecem os controles de aprovação existentes.
+Ver `../agenda-preferencias-compactacao/spec.md`.
+
 - existentes: `assistente_ia_conversas`, `assistente_ia_mensagens`, `assistente_ia_acoes_pendentes`;
 - novos no copiloto: `assistente_ia_memorias`, `assistente_ia_conhecimento_documentos`, `assistente_ia_feedbacks`, `assistente_ia_rascunhos_clinicos`, `agenda_bloqueios`;
 - novos na autonomia segura: `assistente_ia_conhecimento_trechos`, `assistente_ia_missoes`, `assistente_ia_execucoes` e colunas semanticas em `assistente_ia_conhecimento_documentos`;

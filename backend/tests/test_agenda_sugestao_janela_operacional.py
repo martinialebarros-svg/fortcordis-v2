@@ -558,7 +558,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
-    def test_sugestoes_horario_priorizam_slot_apos_fim_da_ancora_com_margem_segura(self) -> None:
+    def test_sugestoes_horario_priorizam_limite_exato_com_transicao(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
             self._seed_config(db, excecoes=[])
@@ -591,7 +591,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self.assertTrue(resposta["ok"])
             self.assertGreater(len(resposta["items"]), 0)
             primeiro = resposta["items"][0]
-            self.assertEqual(str(primeiro.get("inicio") or ""), "2099-05-25 09:30")
+            self.assertEqual(str(primeiro.get("inicio") or ""), "2099-05-25 08:35")
             self.assertEqual(int(primeiro.get("preferencia_ancora_ordem", 99)), 0)
         finally:
             db.close()
@@ -637,8 +637,8 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 for item in itens
                 if bool(item.get("adjacente_ancora"))
             }
-            self.assertEqual(itens_adjacentes.get("2099-05-25 09:30"), "antes_ancora")
-            self.assertEqual(itens_adjacentes.get("2099-05-25 10:30"), "apos_ancora")
+            self.assertEqual(itens_adjacentes.get("2099-05-25 09:35"), "antes_ancora")
+            self.assertEqual(itens_adjacentes.get("2099-05-25 10:25"), "apos_ancora")
             self.assertFalse(bool(next(item for item in itens if item["inicio"] == "2099-05-25 11:00")["adjacente_ancora"]))
         finally:
             db.close()

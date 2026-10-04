@@ -38,6 +38,7 @@ from app.models.tabela_preco import TabelaPreco
 from app.models.tutor import Tutor
 from app.models.user import User
 from app.schemas.agendamento import AgendamentoCreate, AgendamentoUpdate
+from app.schemas.agenda_preferencia import AgendaPreferencia
 from app.services.assistente_ia_management import (
     clinical_report_context,
     create_memory,
@@ -798,6 +799,7 @@ def verificar_disponibilidade(
     servico: str,
     data_inicio: Optional[str],
     dias: int,
+    preferencia: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     clinica_obj, error = _resolve_named_record(
         ctx.db,
@@ -817,27 +819,41 @@ def verificar_disponibilidade(
         return error
 
     try:
-        inicio = _parse_iso_date(data_inicio, default=datetime.now(LOCAL_TZ).date())
+        criterio = AgendaPreferencia.model_validate(preferencia) if preferencia is not None else None
+        inicio = _parse_iso_date(
+            (criterio.data_inicio if criterio else None) or data_inicio,
+            default=datetime.now(LOCAL_TZ).date(),
+        )
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     hoje = datetime.now(LOCAL_TZ).date()
     if inicio < hoje:
         inicio = hoje
     dias = max(1, min(14, int(dias or 7)))
+    if criterio and criterio.data_fim:
+        fim = date.fromisoformat(criterio.data_fim)
+        if fim < hoje:
+            return {"ok": False, "error": "O periodo da preferencia ja terminou. Informe um novo intervalo."}
+        dias = (fim - inicio).days + 1
+    else:
+        fim = inicio + timedelta(days=dias - 1)
 
     slots: list[dict[str, Any]] = []
     dias_consultados: list[dict[str, Any]] = []
     for offset in range(dias):
         data_ref = inicio + timedelta(days=offset)
+        if criterio and not criterio.permite_data(data_ref):
+            continue
         payload = agenda.SugestaoHorarioPayload(
             data=data_ref.isoformat(),
             origem_atendimento="clinica_parceira",
             clinica_id=int(clinica_obj.id),
             servico_id=int(servico_obj.id),
             duracao_minutos=int(servico_obj.duracao_minutos or 30),
-            intervalo_minutos=30,
+            intervalo_minutos=15,
             limite=6,
             perfil_deslocamento="comercial",
+            preferencia=criterio,
         )
         try:
             result = agenda.sugerir_horarios_agenda(
@@ -857,6 +873,21 @@ def verificar_disponibilidade(
 
         day_items = result.get("items") if isinstance(result, dict) else []
         day_items = day_items if isinstance(day_items, list) else []
+        if criterio:
+            inicio_min, fim_min = criterio.limites_horarios()
+            inicio_local = datetime.combine(data_ref, time.min, tzinfo=LOCAL_TZ)
+            limite_inicio = inicio_local + timedelta(minutes=inicio_min)
+            limite_fim = inicio_local + timedelta(minutes=fim_min)
+            filtrados = []
+            for item in day_items:
+                try:
+                    item_inicio = _as_local_datetime(datetime.fromisoformat(str(item['inicio']).replace('Z', '+00:00')))
+                    item_fim = _as_local_datetime(datetime.fromisoformat(str(item['fim']).replace('Z', '+00:00')))
+                    if limite_inicio <= item_inicio < item_fim <= limite_fim:
+                        filtrados.append(item)
+                except (ValueError, TypeError, KeyError):
+                    continue
+            day_items = filtrados
         dias_consultados.append(
             {
                 "data": data_ref.isoformat(),
@@ -892,12 +923,18 @@ def verificar_disponibilidade(
         },
         "periodo": {
             "inicio": inicio.isoformat(),
+            "fim": fim.isoformat(),
             "dias_solicitados": dias,
         },
+        "preferencia": criterio.model_dump(exclude_none=True) if criterio else None,
         "slots": slots,
         "dias_consultados": dias_consultados,
         "dados_pessoais_incluidos": False,
-        "orientacao": "Os slots sao candidatos operacionais e devem ser confirmados novamente antes de criar um agendamento.",
+        "orientacao": (
+            "Nenhuma opcao encontrada dentro da preferencia solicitada. Consulte o administrador antes de ampliar o periodo ou turno."
+            if criterio and not slots else
+            "Os slots sao candidatos operacionais e devem ser confirmados novamente antes de criar um agendamento."
+        ),
     }
 
 
@@ -3200,16 +3237,29 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "name": "verificar_disponibilidade",
-        "description": "Consulta slots futuros com as regras reais de agenda, duracao e deslocamento. Nao cria nem reserva horario.",
+        "description": "Consulta slots futuros com as regras reais de agenda, duracao e deslocamento. Use preferencia para restringir datas, manha, tarde ou horas antes de ordenar as opcoes. Converta esta semana/proxima semana em datas locais de Fortaleza; semana vai de segunda a domingo. Nao amplia a preferencia automaticamente e nao cria nem reserva horario.",
         "parameters": {
             "type": "object",
             "properties": {
                 "clinica": {"type": "string"},
                 "servico": {"type": "string"},
-                "data_inicio": {"type": ["string", "null"], "description": "Data YYYY-MM-DD ou null para hoje."},
-                "dias": {"type": "integer", "minimum": 1, "maximum": 14},
+                "data_inicio": {"type": ["string", "null"], "description": "Data YYYY-MM-DD ou null para hoje. Usada somente quando preferencia nao define datas."},
+                "dias": {"type": "integer", "minimum": 1, "maximum": 14, "description": "Horizonte quando preferencia nao define datas. Com datas explicitas, consulta exclusivamente aquele intervalo de ate 31 dias."},
+                "preferencia": {
+                    "type": ["object", "null"],
+                    "description": "Restricoes obrigatorias do pedido ou null. Informe cada par de datas/horas completo ou ambos null. O periodo tem no maximo 31 dias e todo o atendimento deve caber no turno e nas horas.",
+                    "properties": {
+                        "data_inicio": {"type": ["string", "null"], "description": "Data YYYY-MM-DD."},
+                        "data_fim": {"type": ["string", "null"], "description": "Ultima data inclusiva YYYY-MM-DD."},
+                        "turno": {"type": "string", "enum": ["qualquer", "manha", "tarde"]},
+                        "hora_inicio": {"type": ["string", "null"], "description": "HH:MM local."},
+                        "hora_fim": {"type": ["string", "null"], "description": "Limite do termino HH:MM local."},
+                    },
+                    "required": ["data_inicio", "data_fim", "turno", "hora_inicio", "hora_fim"],
+                    "additionalProperties": False,
+                },
             },
-            "required": ["clinica", "servico", "data_inicio", "dias"],
+            "required": ["clinica", "servico", "data_inicio", "dias", "preferencia"],
             "additionalProperties": False,
         },
         "strict": True,
@@ -3610,6 +3660,7 @@ def execute_tool(
             servico=arguments["servico"],
             data_inicio=arguments.get("data_inicio"),
             dias=arguments["dias"],
+            preferencia=arguments.get("preferencia"),
         )
     if name == "consultar_deslocamento_clinicas":
         return consultar_deslocamento_clinicas(
