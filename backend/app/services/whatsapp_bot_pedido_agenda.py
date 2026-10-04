@@ -28,13 +28,37 @@ def obter(db, pedido_id, user, lock=False):
     return row
 
 
-def dados_coletados(db, row):
+def coleta_do_pedido(db, row):
     response=db.get(WhatsAppBotResposta,row.resposta_id)
+    if (not response or response.clinica_id != row.clinica_id or response.wa_identity != row.wa_identity
+            or str(response.conversation_id) != str(row.conversation_id)):
+        return {}
     try:
         state=json.loads(response.tools_usadas or '{}').get('solicitacao_agendamento',{}) if response else {}
     except (ValueError,TypeError):
         state={}
-    return state.get('dados',{}) if isinstance(state,dict) and state.get('clinica_id') == row.clinica_id else {}
+    return state if isinstance(state,dict) and state.get('clinica_id') == row.clinica_id else {}
+
+
+def dados_coletados(db, row):
+    dados = coleta_do_pedido(db, row).get('dados', {})
+    return dados if isinstance(dados, dict) else {}
+
+
+def preferencia_do_pedido(coleta, historico):
+    from app.services.whatsapp_bot_opcoes_agenda import interpretar_preferencia
+    dados = coleta.get('dados', {})
+    literal = dados.get('preferencia') if isinstance(dados, dict) else None
+    if not literal:
+        return None
+    try:
+        events = json.loads(historico or '[]')
+        # Um complemento livre pode ter revogado a preferência original.
+        if any(e.get('acao') == 'complemento_cliente' and not e.get('horario_preferido') for e in events):
+            return None
+        return interpretar_preferencia(literal, coleta.get('preferencia_recebida_em'))
+    except (ValueError, TypeError, AttributeError):
+        return None
 
 
 def divergencias(db, row, pet, tutor):
@@ -51,7 +75,11 @@ def preparar(db, pedido_id, user):
     clinic=db.get(Clinica,row.clinica_id)
     if not clinic or not clinic.ativo:
         raise HTTPException(409, 'Clínica indisponível; revise o cadastro antes de agendar.')
-    dados=dados_coletados(db, row)
+    coleta=coleta_do_pedido(db, row)
+    dados=coleta.get('dados', {})
+    if not isinstance(dados, dict):
+        dados={}
+    preferencia=preferencia_do_pedido(coleta, row.historico)
     # Nomes nunca viram cadastro automaticamente. O par paciente/tutor precisa
     # ser unico, ativo e constar do contexto da clinica atualmente resolvida.
     from app.services.whatsapp_bot_generation import _resolver_contexto, _escopo_da_persona
@@ -67,11 +95,13 @@ def preparar(db, pedido_id, user):
     services=[s for s in db.query(Servico).filter(Servico.ativo.is_(True)).all() if dados.get('exame') and normalizar(s.nome)==normalizar(dados['exame'])]
     service=services[0] if len(services)==1 else None
     return {'pedido_id':row.id,'versao':row.versao,'clinica_id':row.clinica_id,'resumo':row.resumo,
-        'dados_coletados': {k: dados.get(k) for k in ('paciente', 'tutor')},
+        'dados_coletados': {**{k: dados.get(k) for k in ('paciente', 'tutor')},
+            'preferencia_horario': dados.get('preferencia'), 'preferencia_agenda': preferencia},
         'paciente':{'id':pet.id,'nome':pet.nome,'tutor_id':tutor.id,'tutor':tutor.nome} if pet else None,
         'tutor':{'id':tutor.id,'nome':tutor.nome} if tutor else None,
         'servico_id':service.id if service else None,
-        'avisos':([] if pet else ['Selecione paciente e tutor: não houve identificação única e segura.']) + ([] if service else ['Selecione o exame no catálogo.'])}
+        'avisos':([] if pet else ['Selecione paciente e tutor: não houve identificação única e segura.']) + ([] if service else ['Selecione o exame no catálogo.'])
+            + (['Revise a preferência de horário com a clínica antes de buscar opções.'] if dados.get('preferencia') and preferencia is None else [])}
 
 
 def iniciar(db, request, user):

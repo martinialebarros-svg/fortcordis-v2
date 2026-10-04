@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle, Pencil, Plus, Trash2, Send, Loader2 } from "lucide-react";
 import api from "@/lib/axios";
 import { divergenciasPedido, camposPedidoAgenda, type PedidoAgenda } from "@/lib/whatsapp-pedido-agenda";
+import AgendaPreferenciasCampos from "@/components/agenda/AgendaPreferenciasCampos";
+import {
+  dataFortaleza, filtrosDePreferencia, resolverPreferenciaAgenda,
+  type FiltrosPreferenciaAgenda,
+} from "@/lib/agenda-preferencias";
 import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import {
@@ -859,7 +864,6 @@ export default function NovoAgendamentoModal({
   agendaSemanal,
   agendaFeriados,
   agendaExcecoes,
-  intervaloSlotMinutos = 30,
   isAdmin = false,
 }: NovoAgendamentoModalProps) {
   const fortinho = useFortinho();
@@ -888,6 +892,8 @@ export default function NovoAgendamentoModal({
   const [mensagemProximidade, setMensagemProximidade] = useState<string>("");
   const [sugestaoProximidade, setSugestaoProximidade] = useState<SugestaoProximidadeResponse | null>(null);
   const [dataContatoAssistente, setDataContatoAssistente] = useState<string>("");
+  const [referenciaPreferencia, setReferenciaPreferencia] = useState(() => dataFortaleza());
+  const [filtrosPreferencia, setFiltrosPreferencia] = useState<FiltrosPreferenciaAgenda>(() => filtrosDePreferencia());
   const [interacaoProximidade, setInteracaoProximidade] = useState({
     clinica: false,
     servico: false,
@@ -895,6 +901,7 @@ export default function NovoAgendamentoModal({
   });
   const popupProximidadeHistoricoRef = useRef<Record<string, number>>({});
   const sequenciaConsultaProximidadeRef = useRef(0);
+  const sequenciaConsultaOfertasRef = useRef(0);
   const sequenciaBuscaTutorRef = useRef(0);
   const [modalTutorAberto, setModalTutorAberto] = useState(false);
   const [modalAnimalAberto, setModalAnimalAberto] = useState(false);
@@ -926,9 +933,9 @@ export default function NovoAgendamentoModal({
   const [editandoWhatsappDestinatario, setEditandoWhatsappDestinatario] = useState(false);
   const [whatsappsDestinatarioEdicao, setWhatsappsDestinatarioEdicao] = useState<string[]>([""]);
   const [salvandoWhatsappDestinatario, setSalvandoWhatsappDestinatario] = useState(false);
-  const intervaloSugestaoMinutos = Number.isFinite(intervaloSlotMinutos)
-    ? Math.max(5, Math.min(120, Math.round(intervaloSlotMinutos)))
-    : 30;
+  // A resolução operacional independe do tamanho visual das linhas da agenda.
+  const intervaloSugestaoMinutos = 15;
+  const preferenciaResolvida = resolverPreferenciaAgenda(filtrosPreferencia, referenciaPreferencia);
 
   const [formData, setFormData] = useState<FormDataAgenda>(
     buildInitialFormData(defaultDate, defaultTime)
@@ -1118,7 +1125,9 @@ export default function NovoAgendamentoModal({
     if (!isOpen || isEditando) return;
     setDivergenciaAceita("");
     setFormData({ ...buildInitialFormData(defaultDate, defaultTime), ...(pedidoWhatsApp ? camposPedidoAgenda(pedidoWhatsApp) : {}) });
-    setDataContatoAssistente((atual) => atual || hojeLocalIso());
+    setDataContatoAssistente((atual) => atual || dataFortaleza());
+    setReferenciaPreferencia(dataFortaleza());
+    setFiltrosPreferencia(filtrosDePreferencia(pedidoWhatsApp?.dados_coletados?.preferencia_agenda));
     setTutorSelecionado(pedidoWhatsApp?.tutor?.nome || "");
     setSugestoesHorario([]);
     setOfertasPanoramicasConsultadas(false);
@@ -1134,8 +1143,16 @@ export default function NovoAgendamentoModal({
     setSugestaoProximidade(null);
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
-    sequenciaConsultaProximidadeRef.current = 0;
+    sequenciaConsultaProximidadeRef.current += 1;
+    sequenciaConsultaOfertasRef.current += 1;
+    setCarregandoSugestoes(false);
   }, [defaultDate, defaultTime, isEditando, isOpen, pedidoWhatsApp]);
+
+  useEffect(() => {
+    if (!isOpen || !isEditando) return;
+    setReferenciaPreferencia(dataFortaleza());
+    setFiltrosPreferencia(filtrosDePreferencia());
+  }, [isOpen, isEditando, agendamento?.id]);
 
   // Preenche formulario ao abrir/atualizar no modo de edicao.
   useEffect(() => {
@@ -1194,7 +1211,9 @@ export default function NovoAgendamentoModal({
     setMensagemSugestoes("");
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
-    sequenciaConsultaProximidadeRef.current = 0;
+    sequenciaConsultaProximidadeRef.current += 1;
+    sequenciaConsultaOfertasRef.current += 1;
+    setCarregandoSugestoes(false);
   }, [agendamento, isEditando, isOpen, pacientes]);
 
   // Carregar dados dos selects
@@ -1245,7 +1264,9 @@ export default function NovoAgendamentoModal({
     setSalvandoWhatsappDestinatario(false);
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
-    sequenciaConsultaProximidadeRef.current = 0;
+    sequenciaConsultaProximidadeRef.current += 1;
+    sequenciaConsultaOfertasRef.current += 1;
+    setCarregandoSugestoes(false);
   }, [defaultDate, defaultTime, isOpen]);
 
   useEffect(() => {
@@ -1581,6 +1602,9 @@ export default function NovoAgendamentoModal({
   };
 
   const resetFluxoAssistente = (preservarMensagemProximidade = true) => {
+    sequenciaConsultaProximidadeRef.current += 1;
+    sequenciaConsultaOfertasRef.current += 1;
+    setCarregandoSugestoes(false);
     setSugestoesHorario([]);
     setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
@@ -1594,6 +1618,13 @@ export default function NovoAgendamentoModal({
       setMensagemProximidade("");
       setSugestaoProximidade(null);
     }
+  };
+
+  const alterarPreferencia = (filtros: FiltrosPreferenciaAgenda) => {
+    resetFluxoAssistente(false);
+    setFiltrosPreferencia(filtros);
+    popupProximidadeHistoricoRef.current = {};
+    if (!isEditando) setFormData((prev) => ({ ...prev, hora: "" }));
   };
 
   const handleOrigemAtendimentoChange = (origem: OrigemAtendimento) => {
@@ -1640,6 +1671,7 @@ export default function NovoAgendamentoModal({
   };
 
   const buscarSugestaoProximidade = async (clinicaId: string, dataISO: string) => {
+    if (preferenciaResolvida.erro) return;
     const clinicaIdNum = Number.parseInt(clinicaId, 10);
     const tutorIdNum = Number.parseInt(formData.tutor_id || "", 10);
     if (!Number.isFinite(clinicaIdNum)) {
@@ -1690,6 +1722,7 @@ export default function NovoAgendamentoModal({
         servico_id: formData.servico_id ? Number.parseInt(formData.servico_id, 10) : null,
         duracao_minutos: obterDuracaoServicoSelecionado(),
         intervalo_minutos: intervaloSugestaoMinutos,
+        preferencia: preferenciaResolvida.preferencia,
         limite_sugestoes_operacionais: 8,
         perfil_deslocamento: "comercial",
         limite_minutos: LIMITE_MINUTOS_PROXIMIDADE,
@@ -1817,10 +1850,12 @@ export default function NovoAgendamentoModal({
         mood: acimaDoLimite ? "alert" : "thinking",
         gesture: "point-right",
       });
+      if (consultaId !== sequenciaConsultaProximidadeRef.current) return;
 
       if (confirmou && dataSugerida) {
         try {
           const { items, itensIgnorados } = await buscarSugestoesOperacionais(dataSugerida);
+          if (consultaId !== sequenciaConsultaProximidadeRef.current) return;
           setItensIgnoradosJanela(itensIgnorados);
           setSugestoesHorario(items);
           setOfertasPanoramicasConsultadas(true);
@@ -1876,6 +1911,7 @@ export default function NovoAgendamentoModal({
               : "Data de proximidade aplicada. Clique em Sugerir horarios para encontrar um horario operacional."
           );
         } catch {
+          if (consultaId !== sequenciaConsultaProximidadeRef.current) return;
           setFormData((prev) => ({
             ...prev,
             data: dataSugerida,
@@ -1951,7 +1987,8 @@ export default function NovoAgendamentoModal({
     : tutorTemGeorreferenciamento(tutores.find((tutor) => tutor.id.toString() === formData.tutor_id) || null);
 
   useEffect(() => {
-    if (!isOpen) return;
+    // No modo novo, primeiro a recepção informa as preferências e então solicita ofertas.
+    if (!isOpen || !isEditando) return;
     if (!formData.servico_id) {
       setMensagemProximidade("Selecione o servico para ativar o assistente inteligente de proximidade.");
       setSugestaoProximidade(null);
@@ -1996,6 +2033,8 @@ export default function NovoAgendamentoModal({
     atendimentoDomiciliar,
     formData.tutor_id,
     tutorSelecionadoGeorreferenciadoAtual,
+    isEditando,
+    filtrosPreferencia,
   ]);
 
   const pacientesFiltradosPorTutor = formData.tutor_id
@@ -2108,6 +2147,7 @@ export default function NovoAgendamentoModal({
       servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
       duracao_minutos: obterDuracaoServicoSelecionado(),
       intervalo_minutos: intervaloSugestaoMinutos,
+      preferencia: preferenciaResolvida.preferencia,
       limite: 8,
       perfil_deslocamento: "comercial",
       ignorar_agendamento_id: isEditando ? agendamento?.id : null,
@@ -2264,6 +2304,14 @@ export default function NovoAgendamentoModal({
   };
 
   const buscarSugestoesHorario = async () => {
+    if (preferenciaResolvida.erro) {
+      setErroSugestoes(preferenciaResolvida.erro);
+      return;
+    }
+    const consultaId = ++sequenciaConsultaOfertasRef.current;
+    setDecisaoAssistente("pendente");
+    setMotivoSemOpcao("");
+    setExcecaoConcedida(false);
     setMensagemSugestoes("");
     setErroSugestoes("");
     setSugestoesHorario([]);
@@ -2310,11 +2358,14 @@ export default function NovoAgendamentoModal({
         servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
         duracao_minutos: obterDuracaoServicoSelecionado(),
         intervalo_minutos: intervaloSugestaoMinutos,
+        preferencia: preferenciaResolvida.preferencia,
         limite: 8,
         perfil_deslocamento: "comercial",
         limite_minutos: LIMITE_MINUTOS_PROXIMIDADE,
         ignorar_agendamento_id: isEditando ? agendamento?.id : null,
       });
+
+      if (consultaId !== sequenciaConsultaOfertasRef.current) return;
 
       const dados = response?.data || null;
       const panorama = dados?.panorama_ofertas || null;
@@ -2348,10 +2399,11 @@ export default function NovoAgendamentoModal({
         setMensagemSugestoes(mensagemOrquestrada);
       }
     } catch (error: any) {
+      if (consultaId !== sequenciaConsultaOfertasRef.current) return;
       const detail = error?.response?.data?.detail;
       setErroSugestoes(typeof detail === "string" ? detail : "Falha ao buscar sugestoes de horario.");
     } finally {
-      setCarregandoSugestoes(false);
+      if (consultaId === sequenciaConsultaOfertasRef.current) setCarregandoSugestoes(false);
     }
   };
 
@@ -4026,6 +4078,13 @@ export default function NovoAgendamentoModal({
             )}
           </div>
 
+          <AgendaPreferenciasCampos
+            value={filtrosPreferencia}
+            referencia={referenciaPreferencia}
+            onChange={alterarPreferencia}
+            disabled={loading}
+          />
+
           {/* Data e Hora */}
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -4071,7 +4130,7 @@ export default function NovoAgendamentoModal({
               <button
                 type="button"
                 onClick={buscarSugestoesHorario}
-                disabled={carregandoSugestoes || (!isEditando && !assistenteProntoParaSugerir)}
+                disabled={carregandoSugestoes || Boolean(preferenciaResolvida.erro) || (!isEditando && !assistenteProntoParaSugerir)}
                 className="w-full md:w-auto px-3 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
               >
                 {rotuloBotaoAssistente}

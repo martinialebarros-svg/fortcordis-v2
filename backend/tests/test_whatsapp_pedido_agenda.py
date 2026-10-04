@@ -131,11 +131,48 @@ class PedidoAgendaTests(unittest.TestCase):
             result=preparar(self.db,self.pedido.id,self.user)
             self.assertEqual(result['paciente']['id'],1);self.assertEqual(result['tutor']['id'],1);self.assertEqual(result['servico_id'],1)
             self.assertNotIn('inicio',result)
-            self.assertEqual(result['dados_coletados'], {'paciente':'Rex', 'tutor':'Maria'})
+            self.assertEqual(result['dados_coletados'], {'paciente':'Rex', 'tutor':'Maria',
+                'preferencia_horario':'amanhã', 'preferencia_agenda':None})
             self.db.add(Paciente(id=2,nome='Rex',tutor_id=1,ativo=1));self.db.commit();ctx['pets'].append({'id':2})
             self.assertIsNone(preparar(self.db,self.pedido.id,self.user)['paciente'])
         with patch('app.services.whatsapp_bot_generation._resolver_contexto',return_value={'resolution':'ambiguous'}):
             self.assertIsNone(preparar(self.db,self.pedido.id,self.user)['paciente'])
+
+    def test_prefill_carries_safe_week_preference_anchored_to_original_message(self):
+        response = self.db.get(Resposta, self.pedido.resposta_id)
+        audit = json.loads(response.tools_usadas)
+        state = audit['solicitacao_agendamento']
+        state['dados']['preferencia'] = 'na próxima semana à tarde'
+        state['preferencia_recebida_em'] = '2026-10-05T01:00:00Z'
+        response.tools_usadas = json.dumps(audit)
+        self.db.commit()
+        with patch('app.services.whatsapp_bot_generation._resolver_contexto', return_value={'resolution': 'ambiguous'}):
+            result = preparar(self.db, self.pedido.id, self.user)
+        self.assertEqual(result['dados_coletados']['preferencia_agenda'],
+            {'data_inicio': '2026-10-05', 'data_fim': '2026-10-11', 'turno': 'tarde'})
+        self.assertNotIn('inicio', result)
+        self.assertEqual(self.db.query(Agendamento).count(), 0)
+
+    def test_prefill_does_not_guess_unknown_corrected_or_other_conversation_preference(self):
+        response = self.db.get(Resposta, self.pedido.resposta_id)
+        audit = json.loads(response.tools_usadas)
+        state = audit['solicitacao_agendamento']
+        state['preferencia_recebida_em'] = '2026-10-04T10:00:00-03:00'
+        with patch('app.services.whatsapp_bot_generation._resolver_contexto', return_value={'resolution': 'ambiguous'}):
+            for text in ('depois do almoço, menos terça', 'na próxima semana pela manhã'):
+                state['dados']['preferencia'] = text
+                response.tools_usadas = json.dumps(audit)
+                if text.startswith('na próxima'):
+                    self.pedido.historico = json.dumps([{'acao': 'complemento_cliente', 'observacao': 'Só na sexta'}])
+                self.db.commit()
+                result = preparar(self.db, self.pedido.id, self.user)
+                self.assertIsNone(result['dados_coletados']['preferencia_agenda'])
+                self.assertTrue(any('preferência' in aviso for aviso in result['avisos']))
+            response.conversation_id = 'outra'
+            self.db.commit()
+            result = preparar(self.db, self.pedido.id, self.user)
+        self.assertIsNone(result['dados_coletados']['preferencia_horario'])
+        self.assertIsNone(result['servico_id'])
 
     def test_migration_preserves_legacy_rows(self):
         self.db.rollback()

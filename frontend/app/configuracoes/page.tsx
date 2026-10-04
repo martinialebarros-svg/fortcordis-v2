@@ -2401,6 +2401,19 @@ export default function ConfiguracoesPage() {
                     />
                   </div>
                   <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Intervalo entre pacientes na mesma clínica (min)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={agendaRotaRegrasAtual.thresholds.same_location_transition_min}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) => atualizarRegraRotaThreshold("same_location_transition_min", Number(e.target.value || 0))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Tempo entre atendimentos no mesmo local. Não altera a duração do serviço nem a margem de deslocamento.</p>
+                  </div>
+                  <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Inicio da janela fim de rota</label>
                     <input
                       type="time"

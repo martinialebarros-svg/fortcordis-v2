@@ -1,12 +1,13 @@
 """Opções administrativas da agenda: nunca reserva, cadastra ou altera agendamentos."""
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from app.models.servico import Servico
 from app.models.whatsapp_bot import WhatsAppBotResposta
+from app.schemas.agenda_preferencia import AgendaPreferencia
 from app.services.whatsapp_bot_agendamento import normalizar
 from app.services.whatsapp_bot_servico_match import procedimentos_do_pedido, procedimentos_do_servico
 
@@ -21,17 +22,27 @@ def local(value):
     return parsed.replace(tzinfo=TZ) if parsed.tzinfo is None else parsed.astimezone(TZ)
 
 
-def periodo(preferencia, recebida_em, now):
-    """Só interpreta formas explícitas; texto desconhecido fica para a equipe."""
+def interpretar_preferencia(preferencia, recebida_em=None, now=None):
+    """Converte apenas expressões completas; ressalvas ficam para a equipe."""
+    now = local(now or datetime.now(TZ))
     text = normalizar(preferencia).strip(' .!')
     anchor = local(recebida_em).date() if recebida_em else now.date()
-    turno = 'manha' if re.search(r'\bmanha\b', text) else 'tarde' if re.search(r'\btarde\b', text) else None
-    clean = re.sub(r'\b(pela|de|a|no periodo da|da)\s+(manha|tarde)\b', '', text).strip()
-    if clean in ('manha', 'tarde'): clean = ''
+    turnos = re.findall(r'\b(manha|tarde)\b', text)
+    if len(turnos) > 1:
+        raise ValueError('Preferência precisa de revisão humana')
+    turno = turnos[0] if turnos else 'qualquer'
+    clean = re.sub(r'\b(?:(?:pela|de|a|no periodo da|durante a|da)\s+)?(?:manha|tarde)\b', '', text).strip(' ,')
+    dates = None
     if clean in ('', 'qualquer dia', 'sem preferencia', 'qualquer dia e horario'):
-        dates = [now.date() + timedelta(days=i) for i in range(7)]
+        pass
     elif clean in ('hoje', 'amanha'):
         dates = [anchor + timedelta(days=int(clean == 'amanha'))]
+    elif clean in ('esta semana', 'nesta semana', 'essa semana', 'nessa semana',
+                   'proxima semana', 'na proxima semana', 'semana que vem', 'na semana que vem', 'semanaquevem'):
+        monday = anchor - timedelta(days=anchor.weekday())
+        if 'proxima' in clean or 'vem' in clean:
+            monday += timedelta(days=7)
+        dates = [monday, monday + timedelta(days=6)]
     else:
         weekdays = {'segunda':0,'terca':1,'quarta':2,'quinta':3,'sexta':4,'sabado':5,'domingo':6}
         weekday = clean.removesuffix('-feira')
@@ -41,9 +52,29 @@ def periodo(preferencia, recebida_em, now):
             dates = [datetime.strptime(clean, '%d/%m/%Y').date()]
         else:
             raise ValueError('Preferência precisa de revisão humana')
-    if any(d < now.date() or d > now.date()+timedelta(days=13) for d in dates):
+    values = {'turno': turno}
+    if dates:
+        if not recebida_em and not re.fullmatch(r'\d{2}/\d{2}/\d{4}', clean):
+            raise ValueError('Preferência relativa sem data de recebimento')
+        values.update(data_inicio=dates[0].isoformat(), data_fim=dates[-1].isoformat())
+    return AgendaPreferencia(**values).model_dump(exclude_none=True)
+
+
+def periodo(preferencia, recebida_em, now):
+    criteria = interpretar_preferencia(preferencia, recebida_em, now)
+    dates = datas_da_preferencia(criteria, now)
+    return dates, None if criteria['turno'] == 'qualquer' else criteria['turno']
+
+
+def datas_da_preferencia(preferencia, now):
+    now = local(now)
+    criteria = AgendaPreferencia.model_validate(preferencia)
+    inicio = date.fromisoformat(criteria.data_inicio) if criteria.data_inicio else now.date()
+    fim = date.fromisoformat(criteria.data_fim) if criteria.data_fim else now.date() + timedelta(days=6)
+    inicio = max(inicio, now.date())
+    if fim < inicio or fim > now.date() + timedelta(days=13):
         raise ValueError('Preferência fora da janela de consulta')
-    return dates, turno
+    return [inicio + timedelta(days=i) for i in range((fim - inicio).days + 1)]
 
 
 def servico_exato(db, exame):
@@ -57,19 +88,26 @@ def servico_exato(db, exame):
     return encontrados[0]
 
 
-def consultar_dia(db, clinic_id, service, day):
+def consultar_dia(db, clinic_id, service, day, preferencia=None):
     from app.api.v1.endpoints.agenda import SugestaoHorarioPayload, sugerir_horarios_agenda
     result = sugerir_horarios_agenda(payload=SugestaoHorarioPayload(
         data=day.isoformat(), clinica_id=clinic_id, servico_id=service.id,
         duracao_minutos=service.duracao_minutos, origem_atendimento='clinica_parceira',
-        intervalo_minutos=15, limite=50, perfil_deslocamento='comercial'), db=db, current_user=None)
+        intervalo_minutos=15, limite=50, perfil_deslocamento='comercial',
+        preferencia=preferencia), db=db, current_user=None)
     if not result.get('ok'):
         raise ValueError('Consulta indisponível')
     # Retorno interno tem contexto de outros pacientes. Somente horários saem daqui.
     return result.get('items') or []
 
 
-def slots_seguros(items, service, day, now, turno=None):
+def slots_seguros(items, service, day, now, turno=None, preferencia=None):
+    criteria = AgendaPreferencia.model_validate(preferencia or {'turno': turno or 'qualquer'})
+    if not criteria.permite_data(day):
+        return []
+    inicio_min, fim_min = criteria.limites_horarios()
+    limite_inicio = datetime.combine(day, time.min, tzinfo=TZ) + timedelta(minutes=inicio_min)
+    limite_fim = datetime.combine(day, time.min, tzinfo=TZ) + timedelta(minutes=fim_min)
     slots = []
     for item in items:
         try:
@@ -78,9 +116,7 @@ def slots_seguros(items, service, day, now, turno=None):
                 continue
             if fim-inicio != timedelta(minutes=service.duracao_minutos):
                 continue
-            if turno == 'manha' and (inicio.hour >= 12 or fim.hour > 12 or (fim.hour == 12 and fim.minute)):
-                continue
-            if turno == 'tarde' and not (12 <= inicio.hour < 18 and (fim.hour < 18 or (fim.hour == 18 and fim.minute == 0))):
+            if inicio < limite_inicio or fim > limite_fim:
                 continue
             slots.append({'inicio':inicio.isoformat(), 'fim':fim.isoformat()})
         except (KeyError, TypeError, ValueError):
@@ -93,16 +129,18 @@ def oferecer(db, clinic_id, coleta, pedido_id=None, now=None):
     audit = {'estado':'indisponivel', 'pedido_id':pedido_id, 'clinica_id':clinic_id}
     try:
         service = servico_exato(db, coleta['dados']['exame'])
-        dates, turno = periodo(coleta['dados']['preferencia'], coleta.get('preferencia_recebida_em'), now)
+        preferencia = interpretar_preferencia(coleta['dados']['preferencia'], coleta.get('preferencia_recebida_em'), now)
+        dates = datas_da_preferencia(preferencia, now)
         slots = []
         for day in dates:
-            for slot in slots_seguros(consultar_dia(db, clinic_id, service, day), service, day, now, turno):
+            for slot in slots_seguros(consultar_dia(db, clinic_id, service, day, preferencia=preferencia),
+                                      service, day, now, preferencia=preferencia):
                 if slot not in slots: slots.append(slot)
                 if len(slots) == 3: break
             if len(slots) == 3: break
         if not slots: return FALLBACK, audit
         audit.update(estado='oferta', pedido_versao=1, servico_id=service.id, duracao=service.duracao_minutos,
-                     expira_em=(now+timedelta(minutes=15)).isoformat(), slots=slots)
+                     expira_em=(now+timedelta(minutes=15)).isoformat(), slots=slots, preferencia_agenda=preferencia)
         lines = [f'{i}. {local(s["inicio"]).strftime("%d/%m/%Y às %H:%M")}' for i,s in enumerate(slots,1)]
         return ('Opções encontradas na agenda (horário de Fortaleza):\n'+'\n'.join(lines)+
                 '\nResponda com o número da opção em até 15 minutos. Vou conferir novamente e encaminhar sua escolha à equipe. Ainda não há reserva; a equipe confirma o agendamento.'), audit
@@ -167,7 +205,9 @@ def responder(db, pedido, coleta, message, identity, conversation_id, now=None):
         if not service or not service.ativo or service.duracao_minutos != oferta['duracao']:
             raise ValueError('Serviço alterado')
         day = local(slot['inicio']).date()
-        available = slots_seguros(consultar_dia(db, pedido.clinica_id, service, day), service, day, now)
+        preferencia = oferta.get('preferencia_agenda')
+        available = slots_seguros(consultar_dia(db, pedido.clinica_id, service, day, preferencia=preferencia),
+                                  service, day, now, preferencia=preferencia)
         if slot not in available: raise ValueError('Horário alterado')
     except (HTTPException, ValueError, TimeoutError):
         return 'Não consegui revalidar esse horário. Nenhuma reserva foi feita. Escreva “ver horários” para consultar novas opções ou fale com a equipe.', {KEY:{'estado':'indisponivel','pedido_id':pedido.id}}

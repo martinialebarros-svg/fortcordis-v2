@@ -14,7 +14,7 @@ São consultados até sete dias, com até três opções distintas sem risco adi
 
 ## Preferência e limites
 
-Preferências aceitas deterministicamente: sem preferência, qualquer dia, manhã/tarde; hoje, amanhã, dia da semana ou data explícita DD/MM/AAAA, combináveis com manhã/tarde. Datas relativas usam a data original de recebimento, em Fortaleza. Datas passadas e além de 13 dias, horários exatos, exceções em texto livre ou preferências ambíguas ficam para a equipe. Não se presume que “amanhã” signifique manhã. Turnos limitam o intervalo completo do exame.
+Preferências aceitas deterministicamente: sem preferência, qualquer dia, manhã/tarde; hoje, amanhã, dia da semana, esta semana, próxima semana/semana que vem ou data explícita DD/MM/AAAA, combináveis com manhã/tarde. Datas relativas usam a data original de recebimento, em Fortaleza. Próxima semana resolve a segunda a domingo seguintes; partes já passadas de uma semana não se tornam sugestões retroativas. Datas fora da janela de consulta, horários exatos, exceções em texto livre ou preferências ambíguas ficam para a equipe. Não se presume que “amanhã” signifique manhã. Turnos limitam o intervalo completo do exame e entram no motor antes do ranking/corte.
 
 A mensagem apresenta os candidatos em Fortaleza, orienta a responder com o número e informa ausência de reserva e confirmação final pela equipe. A auditoria `opcoes_agenda` guarda clínica, serviço/duração, versão do pedido, início/fim e expiração. Não altera o resumo original da coleta.
 
@@ -22,7 +22,12 @@ A mensagem apresenta os candidatos em Fortaleza, orienta a responder com o núme
 
 Aceita apenas um número de 1 a 9, opcionalmente precedido de “opção”, “quero a opção” ou “prefiro a opção”; perguntas ou frases com ressalvas não escolhem implicitamente. O índice deve existir na última oferta enviada e íntegra da mesma identidade, clínica e conversa, vinculada ao pedido atual. Rascunho não enviado e oferta editada pelo atendente não autorizam escolha pela numeração original. Expiração de 15 minutos, mudança de versão, serviço inativo/duração alterada, pedido atribuído ou concluído invalidam a escolha.
 
-A opção escolhida passa novamente pela mesma sugestão operacional do dia. Ausência na nova consulta significa indisponibilidade, mesmo que ainda possa existir como alternativa fora da lista retornada: comportamento conservador. A resposta só reconhece a escolha após a reconsulta; ela não garante que o horário continuará livre. A equipe deve revalidar no fluxo normal ao agendar.
+A opção escolhida passa novamente pela mesma sugestão operacional do dia, conservando a preferência usada na oferta. Ausência na nova consulta significa indisponibilidade, mesmo que ainda possa existir como alternativa fora da lista retornada: comportamento conservador. A resposta só reconhece a escolha após a reconsulta; ela não garante que o horário continuará livre. A equipe deve revalidar no fluxo normal ao agendar.
+
+Preferência seguramente interpretada também acompanha a preparação do pedido em
+`dados_coletados.preferencia_agenda`, permitindo ao modal preencher os filtros
+antes de gerar. Preferências ambíguas não são inventadas nem viram configuração
+permanente da clínica. Contrato comum em `../agenda-preferencias-compactacao/spec.md`.
 
 A preferência revalidada é persistida pelo worker como complemento do cliente, com alerta interno e versão incrementada, usando a deduplicação por job e lock existentes. O registro preserva o pedido, seu resumo e todos os agendamentos. Se a versão/responsável mudar entre reconsulta e persistência, a escolha fica como observação para revisão, sem destaque de horário aceito, e a resposta informa a mudança. Nova correção invalida a lista e remove o destaque da escolha anterior na interface. Uma escolha não deve ser repetida com base em uma oferta já consumida.
 

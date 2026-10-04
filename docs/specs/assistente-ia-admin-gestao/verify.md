@@ -37,13 +37,13 @@ Status: in_progress
 | CA-027 | laboratorio inclui contrato determinista e confirma zero chamadas a `execute_tool` | aprovado em teste focal |
 | CA-028 | inspecao automatica cobre as novas rotas com guard admin | aprovado em teste focal |
 | CA-029 | migration 55 executada duas vezes no mesmo SQLite | aprovado em teste focal |
-| CA-030 | suite, frontend, migration, deploy e canario de stage | aprovado em stage; producao pendente |
+| CA-030 | suite, frontend, migration e canario de stage; commit 366f8985 ancestral de main, deploy de producao 37204262210 aprovado | aprovado em stage e producao |
 | CA-031 | inspecao automatica de todas as rotas, incluindo as tres rotas Clinicas 360, com guard admin | aprovado em teste focal |
 | CA-032 | teste focal do agregador confirma agenda, financeiro, debitos, preferencias, alertas e fontes | aprovado |
 | CA-033 | assercoes percorrem o payload e confirmam ausencia de campos ou textos operacionais de paciente/tutor | aprovado |
 | CA-034 | teste focal compara duas clinicas e confirma lideres e contrato compartilhado | aprovado |
 | CA-035 | 15 casos no dataset e definicoes estritas para consulta e comparacao | aprovado |
-| CA-036 | ESLint, TypeScript, build e smoke de stage confirmam busca, periodo, perfil, comparacao, conversa e fontes | aprovado em stage; producao pendente |
+| CA-036 | ESLint, TypeScript, build e smoke de stage; commit f2b8b23c ancestral de main, deploy de producao 37204262210 aprovado | aprovado em stage e producao |
 | CA-037 | teste focal confirma um plano por alerta suportado e prioridade critica para debito vencido | aprovado |
 | CA-038 | assercoes confirmam ausencia de execucao, envio e escrita automatica em plano e passos | aprovado |
 | CA-039 | teste de autonomia confirma missao `clinic_360` tipada, periodo limitado e rejeicao sem clinica | aprovado |
@@ -82,7 +82,7 @@ Status: in_progress
 | CA-054 | teste prepara vinculo sem escrita e chama atualizacao oficial apenas apos aprovacao, sem enviar horario no payload | aprovado |
 | CA-055 | teste reutiliza mensagem identica sem resposta e preserva apenas um comando no historico | aprovado |
 | CA-056 | 25 casos versionados, incluindo falhas reais e duas formas do pedido de previsao, com schemas estritos e laboratorio sem executar ferramentas | aprovado |
-| CA-057 | faixa mobile explicita `minmax(0, 1fr)`, filhos com `min-w-0`, quebra de texto e layout desktop preservado; lint, TypeScript e build aprovados | aprovado localmente; viewport live pendente |
+| CA-057 | fonte identica em main/stage; viewport live de 663 e 390 px com conversa, textarea e contenedores sem overflow interno; lint, TypeScript e build aprovados | aprovado em viewport live |
 | CA-058 | conversa `4353140f-485c-48a2-bda1-375b85ca50be`: agenda + resumo na primeira resposta, mensagem seguinte `failed` e POST `/chat` 502 apos teto de ferramentas | aprovado em auditoria somente leitura de producao |
 | CA-059 | teste focal aplica preco negociado de R$ 150,00, tabela Metropolitana de R$ 200,00, exclui cancelado e totaliza R$ 350,00 | aprovado |
 | CA-060 | serializacao do resultado nao contem paciente/tutor e declara `dados_pessoais_incluidos=false` | aprovado |
@@ -235,3 +235,35 @@ git diff --check
 - respostas sem ferramenta passam a registrar status e motivo de incompletude por caso, sem executar nenhuma ferramenta real.
 - 11 testes focais e a suite completa com 369 testes foram aprovados;
 - `py_compile`, `pip check` e `git diff --check` aprovados.
+
+
+## Preferências e compactação — 04/10/2026
+
+Alteração local integrada ao contrato de `../agenda-preferencias-compactacao/spec.md`.
+A evidência de testes desta etapa está centralizada em
+`../agenda-preferencias-compactacao/verify.md`; registros de releases anteriores
+neste arquivo não significam publicação desta mudança. Não houve envio real,
+migration, edição de agendamentos ou alteração de configuração em produção.
+
+## Reconciliação das evidências de release — 04/10/2026
+
+O gate da promoção da Agenda encontrou três estados históricos ainda abertos.
+As verificações abaixo fecham esses registros com evidência, sem label de exceção:
+
+- CA-030: `366f8985` (aprendizado supervisionado) é ancestral de `origin/main`
+  `bc80e26bf93f19fd3e0105701a1fdf980fae462a`.
+- CA-036: `f2b8b23c` (Clínicas 360) e sua promoção `b1ae3985` também são
+  ancestrais desse main. Os testes funcionais em stage permanecem documentados
+  nas seções históricas acima.
+- [Deploy de produção 37204262210](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/37204262210)
+  concluiu com sucesso para `bc80e26b`; logs confirmam HEAD instalado, canary
+  autenticado e restore drill. A VPS foi conferida nesse mesmo commit.
+- CA-057: a correção `947b592a` e sua promoção `e311c04f` são ancestrais do
+  main. `frontend/app/assistente-ia/page.tsx` é idêntico entre main e o stage
+  `a44b3de0`, onde a sessão autenticada foi conferida em viewport real:
+  663 px (documento 648; seção da conversa 598; textarea 436) e 390 px
+  (documento 375; seção 341; textarea 172). Em cada contêiner medido,
+  `scrollWidth == clientWidth`; a inspeção visual mostrou texto quebrado e
+  controles dentro da conversa. O viewport foi restaurado depois da leitura.
+- Nenhuma conversa foi enviada, missão criada ou ação administrativa aprovada
+  nesta conferência. A reconciliação não modifica código nem amplia a entrega.
