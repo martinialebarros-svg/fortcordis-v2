@@ -87,5 +87,6 @@ o JSON existente de regras e as preferências transitam no pedido/consulta.
 
 Não reduz duração clínica, não move pacientes automaticamente e não atribui
 ganho financeiro a minutos fragmentados. Publicação e validação operacional em
-stage permanecem etapas posteriores. Rollback por reversão do código; o campo
+stage foram concluídas em 04/10/2026, conforme verify.md; produção segue pelo PR
+protegido de promoção. Rollback por reversão do código; o campo
 aditivo no JSON é ignorável por versões anteriores.
