@@ -190,6 +190,7 @@ class OpenAIClinicalStructuringProvider:
                         "reference_context": reference_context or {},
                         "current_measurements": safe_measurement_context(
                             current_measurements,
+                            species=(exam_context or {}).get("species"),
                             reference_context=reference_context,
                         ),
                     },

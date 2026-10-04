@@ -41,8 +41,8 @@ describe("deriveAutomaticEchoMeasurements", () => {
     const parsed = parseStoredEchoMeasurements(null, description);
     expect(parsed.unidade_confirmada_DIVEd).toBe("cm");
     expect(parsed.unidade_confirmada_SIVd).toBe("mm");
-    expect(deriveAutomaticEchoMeasurements(parsed, 10).DIVEd_normalizado).toBe("1.27");
-    expect(deriveAutomaticEchoMeasurements({ DIVEd: "2.5", SIVd: "3.0", PLVEd: "0.8" }, 10).DIVEd_normalizado).toBe("");
+    expect(deriveAutomaticEchoMeasurements(parsed, 10, "Canina").DIVEd_normalizado).toBe("1.27");
+    expect(deriveAutomaticEchoMeasurements({ DIVEd: "2.5", SIVd: "3.0", PLVEd: "0.8" }, 10, "Canina").DIVEd_normalizado).toBe("");
     expect(parseStoredEchoMeasurements(null, description.replace("cm", "metros"))).not.toHaveProperty("unidade_confirmada_DIVEd");
   });
 
@@ -52,5 +52,15 @@ describe("deriveAutomaticEchoMeasurements", () => {
     expect(parseStoredEchoMeasurements(null, description.replace("eixo_curto", "desconhecida"))).not.toHaveProperty("VE_vista_2D");
     expect(deriveAutomaticEchoMeasurements({ DIVEd_2D: "33.53", VE_vista_2D: "eixo_curto" }, 13.6, "Canina").DIVEd_normalizado_2D).toBe("1.47");
     expect(deriveAutomaticEchoMeasurements({ DIVEd_2D: "33.53", VE_vista_2D: "eixo_curto" }, 13.6, "Felina")).not.toHaveProperty("DIVEd_normalizado_2D");
+  });
+
+  it("não calcula o índice de Cornell em felinos; deriva função atrial e gradiente da VSVE", () => {
+    const raw = { DIVEd: "15", AE_diametro_max: "18", AE_diametro_min: "13.5", Vmax_VSVE: "2.5" };
+    const derived = deriveAutomaticEchoMeasurements(raw, 4, "Felina");
+    expect(derived).not.toHaveProperty("DIVEd_normalizado");
+    expect(derived.Fracao_encurtamento_AE).toBe("25");
+    expect(derived.Grad_VSVE).toBe("25");
+    expect(deriveAutomaticEchoMeasurements({ ...raw, AE_diametro_min: "19" }, 4, "Felina"))
+      .not.toHaveProperty("Fracao_encurtamento_AE");
   });
 });

@@ -106,6 +106,39 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertNotIn("Cornell et al.", text)
         self.assertNotIn("Pariaut et al.", text)
 
+    def test_feline_pdf_omits_canine_index_and_derives_atrial_and_lvot_markers(self) -> None:
+        payload = _base_report("modo_m")
+        payload["paciente"].update({"especie": "Felina", "peso": "2.3"})
+        payload["medidas"] = {
+            "DIVEd": "11.46", "DIVEd_normalizado": "0.90",
+            "AE_diametro_max": "18", "AE_diametro_min": "13.5",
+            "Fluxo_auricular": "0.18", "Vmax_aorta": "0.69", "Vmax_VSVE": "2.5",
+            "VE_tecnica_relatorio": "modo_m",
+        }
+        payload["referencia_eco"] = {"especie": "Felina", "peso_kg": 2.3}
+        text = _pdf_text(payload)
+        self.assertNotIn("DIVEd normalizado (DIVEd [cm] / peso^0,294)", text)
+        self.assertEqual(payload["medidas"]["DIVEd_normalizado"], "0.90")
+        self.assertIn("AE - diâmetro máximo\n18.00 mm", text)
+        self.assertIn("AE - diâmetro mínimo\n13.50 mm", text)
+        self.assertIn("Fração de encurtamento do AE\n25.00 %\n--", text)
+        self.assertIn("Velocidade máxima do apêndice atrial esquerdo\n0.18 m/s\n--", text)
+        self.assertIn("Vmax via de saída do VE\n2.50 m/s\n--", text)
+        self.assertIn("Gradiente via de saída do VE (4 × V²)\n25.00 mmHg", text)
+        self.assertIn("Vmax aorta\n0.69 m/s", text)
+        self.assertIn("Fuentes et al. (2020)", text)
+        self.assertIn("Schober et al. (2006)", text)
+        self.assertNotIn("Cornell et al.", text)
+
+    def test_feline_pdf_does_not_derive_atrial_fraction_from_inverted_diameters(self) -> None:
+        payload = _base_report("modo_m")
+        payload["paciente"]["especie"] = "Felina"
+        payload["medidas"] = {"AE_diametro_max": "13.5", "AE_diametro_min": "18"}
+        text = _pdf_text(payload)
+        self.assertIn("AE - diâmetro máximo\n13.50 mm", text)
+        self.assertIn("AE - diâmetro mínimo\n18.00 mm", text)
+        self.assertNotIn("Fração de encurtamento do AE", text)
+
     def test_2d_unknown_catalog_range_adds_no_bibliography_or_catalog_note(self) -> None:
         payload = _base_report("2d")
         payload["medidas"] = {"DIVEd_2D": "32", "VE_tecnica_relatorio": "2d"}

@@ -120,6 +120,13 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
         })
         self.assertEqual(request.current_measurements["VE_vista_2D"], "eixo_curto")
         self.assertNotIn("VE_vista_2D", safe_measurement_context(request.current_measurements))
+        feline = safe_measurement_context(
+            {"DIVEd_normalizado": "0.90", "AE_diametro_max": "18", "Vmax_VSVE": "2.5"},
+            species="Felina",
+        )
+        self.assertNotIn("DIVEd_normalizado", feline)
+        self.assertIn("AE_diametro_max", feline)
+        self.assertIn("Vmax_VSVE", feline)
         EchoStructureRequest.model_validate({
             "edited_transcript": "Medidas do exame.",
             "current_measurements": {"VE_vista_2D": ""},

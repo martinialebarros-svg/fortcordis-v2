@@ -5,7 +5,7 @@ import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
 describe("prévia de ecocardiograma", () => {
   it("recalcula DIVEd normalizado com o peso atual e expõe divergência sem alterar o registro", () => {
     const stored = { DIVEd: "47.19", DIVEd_normalizado: "1.964", VE_tecnica_relatorio: "modo_m" };
-    const { measurements, alerts } = prepareEchoReportMeasurements(stored, 13.9);
+    const { measurements, alerts } = prepareEchoReportMeasurements(stored, 13.9, "Canina");
     expect(stored.DIVEd_normalizado).toBe("1.964");
     expect(measurements.DIVEd_normalizado).toBe("2.18");
     expect(alerts).toEqual([{ key: "DIVEd_normalizado", recorded: 1.964, calculated: 2.18 }]);
@@ -47,6 +47,28 @@ describe("prévia de ecocardiograma", () => {
     expect(prepareEchoReportMeasurements({ ...raw, VE_vista_2D: "" }, 13.6, "Canina").measurements.DIVEd_normalizado_2D).toBeUndefined();
   });
 
+  it("omite Cornell da prévia felina, mesmo se o índice antigo estiver salvo", () => {
+    const raw = { VE_tecnica_relatorio: "modo_m", DIVEd: "11.46", DIVEd_normalizado: "0.90" };
+    const { measurements, alerts } = prepareEchoReportMeasurements(raw, 2.3, "Felina");
+    expect(raw.DIVEd_normalizado).toBe("0.90");
+    expect(measurements.DIVEd_normalizado).toBeUndefined();
+    expect(alerts).toEqual([]);
+    expect(buildEchoReportGroups(measurements, null)[0].rows.map((row) => row.key)).not.toContain("DIVEd_normalizado");
+  });
+
+  it("deriva função atrial e gradiente da VSVE na prévia sem alterar o registro", () => {
+    const raw = { AE_diametro_max: "18", AE_diametro_min: "13.5", Vmax_VSVE: "2.5" };
+    const { measurements } = prepareEchoReportMeasurements(raw, 4, "Felina");
+    expect(measurements.Fracao_encurtamento_AE).toBe("25");
+    expect(measurements.Grad_VSVE).toBe("25");
+    expect(raw).not.toHaveProperty("Fracao_encurtamento_AE");
+    const groups = buildEchoReportGroups(measurements, null);
+    expect(groups.find((group) => group.title === "Átrio esquerdo / aorta")?.rows
+      .find((row) => row.key === "Fracao_encurtamento_AE")?.reference).toBe("—");
+    expect(prepareEchoReportMeasurements({ ...raw, AE_diametro_min: "19" }, 4, "Felina")
+      .measurements.Fracao_encurtamento_AE).toBeUndefined();
+  });
+
   it("mantém medidas legadas sem unidade como ambíguas e não calcula DIVEd normalizado", () => {
     const { measurements, ambiguousKeys } = prepareEchoReportMeasurements({ DIVEd: "3", SIVd: "0.7", PLVEd: "0.8" }, 10);
     expect(measurements.DIVEd).toBe("3");
@@ -79,7 +101,7 @@ describe("prévia de ecocardiograma", () => {
 
   it("não multiplica SIVd de 3 mm em conjunto legado misto", () => {
     const raw = { DIVEd: "2.5", DIVES: "1.5", Atrio_esquerdo: "2.0", SIVd: "3.0" };
-    const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(raw, 10);
+    const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(raw, 10, "Canina");
     const groups = buildEchoReportGroups(measurements, null, ambiguousKeys);
     expect(measurements.SIVd).toBe("3.0");
     expect(measurements.DIVEd_normalizado).toBeUndefined();
@@ -94,7 +116,7 @@ describe("prévia de ecocardiograma", () => {
       unidade_confirmada_DIVEd: "cm", unidade_confirmada_SIVd: "mm",
     };
     const reference = { id: 1, especie: "Canina", peso_kg: 10, lvid_d_min: 20, lvid_d_max: 40, ivs_d_min: 4, ivs_d_max: 10 } as ReferenciaEco;
-    const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(raw, 10);
+    const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(raw, 10, "Canina");
     expect(raw.DIVEd).toBe("2.5");
     expect(measurements).toMatchObject({ DIVEd: "25", SIVd: "3.0", DIVEd_normalizado: "1.27" });
     expect(ambiguousKeys).toEqual(new Set(["DIVES", "Atrio_esquerdo"]));

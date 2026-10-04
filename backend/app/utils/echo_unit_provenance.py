@@ -9,7 +9,7 @@ from typing import Any
 ECHO_LENGTH_KEYS = {
     "DIVEd", "SIVd", "PLVEd", "DIVES", "SIVs", "PLVES",
     "DIVEd_2D", "SIVd_2D", "PLVEd_2D", "DIVES_2D", "SIVs_2D", "PLVES_2D",
-    "Aorta", "Atrio_esquerdo", "Ao_nivel_AP", "AP",
+    "Aorta", "Atrio_esquerdo", "AE_diametro_max", "AE_diametro_min", "Ao_nivel_AP", "AP",
 }
 CONFIRMED_UNIT_PREFIX = "unidade_confirmada_"
 

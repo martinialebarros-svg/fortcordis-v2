@@ -5,6 +5,7 @@ Adiciona mais flexibilidade na busca de parâmetros e melhor logging.
 import re
 from typing import Dict, Any, Optional
 from bs4 import BeautifulSoup
+from .xml_parser import buscar_velocidade_por_name
 
 def _parse_data_iso(data_str: str) -> str:
     """Converte data do formato brasileiro (DD/MM/YYYY) ou americano (MM/DD/YYYY) para ISO (YYYY-MM-DD)."""
@@ -180,7 +181,7 @@ def buscar_parametro_por_name(soup, possible_names: list, tipo_valor: str = "ave
         is_ratio = "/" in matched_name_l or "ratio" in matched_name_l
         is_comprimento = any(termo in matched_name_l for termo in [
             "div", "siv", "plv", "lvid", "lvpw", "ivs", "ao",
-            "ap", "tapse", "mapse", "root", "diam", "atri"
+            "ap", "tapse", "mapse", "root", "diam", "atri", "ladmax", "ladmin"
         ]) or bool(re.search(r"(^|[\s/_\.-])(la|ae)([\s/_\.-]|$)", matched_name_l))
         is_comprimento = is_comprimento and not is_ratio
 
@@ -426,18 +427,18 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     
     # --- Medidas 2D ---
     # Ao Root Diam -> Aorta
-    val = buscar_parametro_flexivel(soup, ["2D/Ao Root Diam", "Ao Root Diam", "Ao Root", "AO ROOT", "Ao"])
+    val = buscar_parametro_por_name(soup, ["2D/Ao Root Diam", "Ao Root Diam", "Ao Root", "AO ROOT", "Ao"])
     if val: medidas["Aorta"] = val
     
     # Ao (nível AP) - mesma medida mas pode ter nome diferente
-    val = buscar_parametro_flexivel(
+    val = buscar_parametro_por_name(
         soup,
         ["Ao", "Aorta", "AO", "Ao AP", "Ao nivel AP", "Ao no nivel AP", "2D/Ao AP"],
     )
     if val: medidas["Ao_nivel_AP"] = val
     
     # LA (Left Atrium / AE) -> Átrio esquerdo
-    val = buscar_parametro_flexivel(soup, ["2D/LA", "LA", "Left Atrium", "D. AE", "AE", "Atrium"])
+    val = buscar_parametro_por_name(soup, ["2D/LA", "LA", "Left Atrium", "D. AE", "AE", "Atrium"])
     if val:
         # Fallback defensivo para XMLs onde LA/AE vem em cm e não foi detectado pela regra geral.
         medidas["Atrio_esquerdo"] = val * 10 if 0 < val < 5 else val
@@ -445,6 +446,16 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     # LA/Ao Ratio -> AE/Ao
     val = buscar_parametro_flexivel(soup, ["2D/LA/Ao", "LA/Ao", "LA/AO", "AE/Ao", "AE/AO"])
     if val: medidas["AE_Ao"] = val
+    for key, names in (
+        ("AE_diametro_max", ["LADmax", "LAD max", "LA Diameter max", "AE Diametro max"]),
+        ("AE_diametro_min", ["LADmin", "LAD min", "LA Diameter min", "AE Diametro min"]),
+    ):
+        val = buscar_parametro_por_name(soup, names)
+        if val: medidas[key] = val
+    val = buscar_velocidade_por_name(soup, ["LAA Vmax", "LAA peak", "LAapp peak"])
+    if val: medidas["Fluxo_auricular"] = val
+    val = buscar_parametro_por_name(soup, ["LA FS", "LAFS", "AE FS"])
+    if val: medidas["Fracao_encurtamento_AE"] = val
     
     # AP (Artéria pulmonar)
     val = buscar_parametro_flexivel(
@@ -588,11 +599,15 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     val = buscar_parametro_flexivel(soup, ["MR dp/dt", "Mitral Regurg dp/dt", "MR dpdt"])
     if val: medidas["MR_dp_dt"] = val
     
-    # Aórtica -> Doppler Saídas
-    val = buscar_parametro_flexivel(soup, ["LVOT Vmax P", "Vmáx VSVE", "LVOT Vmax", "Aortic Vmax", "Vmax aorta"])
+    # Distinguir a via de saída do VE da medida valvar/aórtica.
+    val = buscar_velocidade_por_name(soup, ["LVOT Vmax P", "Vmáx VSVE", "LVOT Vmax"])
+    if val: medidas["Vmax_VSVE"] = val
+    val = buscar_velocidade_por_name(soup, ["Aortic Vmax", "Vmax aorta"])
     if val: medidas["Vmax_aorta"] = val
     
-    val = buscar_parametro_flexivel(soup, ["LVOT maxPG", "máxPG VSVE", "LVOT max PG", "Aortic maxPG", "Gradiente aorta"])
+    val = buscar_parametro_flexivel(soup, ["LVOT maxPG", "máxPG VSVE", "LVOT max PG"])
+    if val: medidas["Grad_VSVE"] = val
+    val = buscar_parametro_flexivel(soup, ["Aortic maxPG", "Gradiente aorta"])
     if val: medidas["Grad_aorta"] = val
     
     # Pulmonar -> Doppler Saídas
