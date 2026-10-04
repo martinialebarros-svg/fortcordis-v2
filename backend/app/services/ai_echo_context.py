@@ -44,8 +44,12 @@ ECHO_MEASUREMENT_UNITS: dict[str, str] = {
     "Aorta": "mm",
     "Atrio_esquerdo": "mm",
     "AE_Ao": "adimensional",
+    "AE_diametro_max": "mm",
+    "AE_diametro_min": "mm",
     "Fracao_encurtamento_AE": "%",
     "Fluxo_auricular": "m/s",
+    "Vmax_VSVE": "m/s",
+    "Grad_VSVE": "mmHg",
     "Onda_E": "m/s",
     "Onda_A": "m/s",
     "E_A": "adimensional",
@@ -116,8 +120,12 @@ ECHO_MEASUREMENT_METHODS: dict[str, str] = {
     "Aorta": "modo bidimensional",
     "Atrio_esquerdo": "modo bidimensional",
     "AE_Ao": "modo bidimensional",
-    "Fracao_encurtamento_AE": "modo bidimensional",
+    "AE_diametro_max": "vista e metodo de aquisicao a confirmar",
+    "AE_diametro_min": "vista e metodo de aquisicao a confirmar",
+    "Fracao_encurtamento_AE": "calculada dos diametros informados; confirmar a mesma vista",
     "Fluxo_auricular": "Doppler pulsado",
+    "Vmax_VSVE": "Doppler espectral, via de saída do VE",
+    "Grad_VSVE": "Bernoulli simplificada, via de saída do VE",
     "Onda_E": "Doppler pulsado transmitral",
     "Onda_A": "Doppler pulsado transmitral",
     "E_A": "Doppler pulsado transmitral",
@@ -259,6 +267,7 @@ def load_echo_reference_context(
 def safe_measurement_context(
     current_measurements: dict[str, str] | None,
     *,
+    species: str | None = None,
     reference_context: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     safe: dict[str, dict[str, Any]] = {}
@@ -268,10 +277,15 @@ def safe_measurement_context(
         else {}
     )
     normalized_measurements = clinically_safe_echo_measurements(current_measurements or {})
+    resolved_species = normalizar_especie_referencia(
+        species or (reference_context or {}).get("species")
+    )
     for key, value in normalized_measurements.items():
         # Registros antigos usam Cornell (0,294) e novos usam Visser (0,316).
         # Sem proveniência por valor, o índice 2D persistido não é evidência segura para a IA.
         if key == "DIVEd_normalizado_2D":
+            continue
+        if key == "DIVEd_normalizado" and resolved_species != "Canina":
             continue
         normalized = str(value or "").strip()
         if key not in ECHO_MEASUREMENT_UNITS:

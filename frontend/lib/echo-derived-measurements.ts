@@ -61,6 +61,15 @@ export function calculateBernoulliGradient(velocity: unknown): number | null {
   return parsed === null ? null : 4 * parsed ** 2;
 }
 
+export function calculateLeftAtrialFractionalShortening(
+  measurements: Record<string, string>
+): number | null {
+  const laMax = echoLengthInMm(measurements, "AE_diametro_max");
+  const laMin = echoLengthInMm(measurements, "AE_diametro_min");
+  return laMax !== null && laMin !== null && laMin <= laMax
+    ? (laMax - laMin) / laMax * 100 : null;
+}
+
 export function estimateRightAtrialPressure(
   remodeling: unknown
 ): number | null {
@@ -212,8 +221,20 @@ export function deriveAutomaticEchoMeasurements(
 
   const weight = parsePositiveNumber(weightKg);
   const divedM = echoLengthInMm(measurements, "DIVEd");
-  derived.DIVEd_normalizado = divedM !== null && weight !== null
-    ? formatDerivedValue(divedM / 10 / weight ** 0.294) : "";
+  if (/^canin/i.test(species.trim())) {
+    derived.DIVEd_normalizado = divedM !== null && weight !== null
+      ? formatDerivedValue(divedM / 10 / weight ** 0.294) : "";
+  }
+  if (/^felin/i.test(species.trim())) {
+    const laFraction = calculateLeftAtrialFractionalShortening(measurements);
+    if (laFraction !== null) {
+      derived.Fracao_encurtamento_AE = formatDerivedValue(laFraction);
+    }
+  }
+  const lvotVelocity = parsePositiveNumber(measurements.Vmax_VSVE);
+  if (lvotVelocity !== null) {
+    derived.Grad_VSVE = formatDerivedValue(4 * lvotVelocity ** 2);
+  }
   const view = measurements.VE_vista_2D === "eixo_curto" || measurements.VE_vista_2D === "eixo_longo"
     ? measurements.VE_vista_2D as Echo2DView : "";
   const normalized2D = calculateCanine2DNormalizedLVIDd(

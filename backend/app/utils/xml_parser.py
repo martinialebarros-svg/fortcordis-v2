@@ -184,7 +184,7 @@ def buscar_parametro_por_name(soup, possible_names: list, tipo_valor: str = "ave
         is_ratio = "/" in matched_name_l or "ratio" in matched_name_l
         is_comprimento = any(termo in matched_name_l for termo in [
             "div", "siv", "plv", "lvid", "lvpw", "ivs", "ao",
-            "ap", "tapse", "mapse", "root", "diam", "atri"
+            "ap", "tapse", "mapse", "root", "diam", "atri", "ladmax", "ladmin"
         ]) or bool(re.search(r"(^|[\s/_\.-])(la|ae)([\s/_\.-]|$)", matched_name_l))
         is_comprimento = is_comprimento and not is_ratio
 
@@ -221,6 +221,28 @@ def buscar_parametro_por_name(soup, possible_names: list, tipo_valor: str = "ave
             if val is not None:
                 return _normalizar_unidade_comprimento(val, unit, meas_name_l)
 
+    return None
+
+
+def buscar_velocidade_por_name(soup, possible_names: list) -> Optional[float]:
+    """Lê velocidade por rótulo exato e converte cm/s explícito para m/s."""
+    names = {_normalize_param_name(name) for name in possible_names}
+    for item in [*soup.find_all("measpar"), *soup.find_all("parameter")]:
+        name_node = item.find("name") if item.name == "measpar" else None
+        item_name = (name_node.get_text() if name_node else item.get("NAME") or item.get("Name") or item.get("name") or "")
+        if _normalize_param_name(item_name) not in names:
+            continue
+        value_node = item.find("aver") or item.find("val") or item.find("value")
+        value = _parse_num(value_node.get_text() if value_node else item.get_text())
+        if value is None:
+            continue
+        unit_node = item.find("unit") or (item.parent.find("unit") if item.name == "measpar" else None)
+        unit = str((unit_node.get_text() if unit_node else "") or (value_node.get("unit") if value_node else "") or item.get("unit") or "")
+        unit = unit.strip().lower().replace(" ", "")
+        if unit == "cm/s":
+            return value / 100
+        if unit in {"", "m/s"}:
+            return value
     return None
 
 def _vmax_from_maxpg(maxpg: Optional[float]) -> Optional[float]:
@@ -397,6 +419,16 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     # LA/Ao Ratio -> AE/Ao
     val = buscar_parametro_por_name(soup, ["2D/LA/Ao", "LA/Ao", "LA/AO", "AE/Ao", "AE/AO"])
     if val: medidas["AE_Ao"] = val
+    for key, names in (
+        ("AE_diametro_max", ["LADmax", "LAD max", "LA Diameter max", "AE Diametro max"]),
+        ("AE_diametro_min", ["LADmin", "LAD min", "LA Diameter min", "AE Diametro min"]),
+    ):
+        val = buscar_parametro_por_name(soup, names)
+        if val: medidas[key] = val
+    val = buscar_velocidade_por_name(soup, ["LAA Vmax", "LAA peak", "LAapp peak"])
+    if val: medidas["Fluxo_auricular"] = val
+    val = buscar_parametro_por_name(soup, ["LA FS", "LAFS", "AE FS"])
+    if val: medidas["Fracao_encurtamento_AE"] = val
     
     # AP (Artéria pulmonar)
     val = buscar_parametro_por_name(
@@ -540,11 +572,15 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     val = buscar_parametro_por_name(soup, ["MR dp/dt", "Mitral Regurg dp/dt", "MR dpdt"])
     if val: medidas["MR_dp_dt"] = val
     
-    # Aórtica -> Doppler Saídas
-    val = buscar_parametro_por_name(soup, ["LVOT Vmax P", "Vmáx VSVE", "LVOT Vmax", "Aortic Vmax", "Vmax aorta"])
+    # Distinguir a via de saída do VE da medida valvar/aórtica.
+    val = buscar_velocidade_por_name(soup, ["LVOT Vmax P", "Vmáx VSVE", "LVOT Vmax"])
+    if val: medidas["Vmax_VSVE"] = val
+    val = buscar_velocidade_por_name(soup, ["Aortic Vmax", "Vmax aorta"])
     if val: medidas["Vmax_aorta"] = val
     
-    val = buscar_parametro_por_name(soup, ["LVOT maxPG", "máxPG VSVE", "LVOT max PG", "Aortic maxPG", "Gradiente aorta"])
+    val = buscar_parametro_por_name(soup, ["LVOT maxPG", "máxPG VSVE", "LVOT max PG"])
+    if val: medidas["Grad_VSVE"] = val
+    val = buscar_parametro_por_name(soup, ["Aortic maxPG", "Gradiente aorta"])
     if val: medidas["Grad_aorta"] = val
     
     # Pulmonar -> Doppler Saídas

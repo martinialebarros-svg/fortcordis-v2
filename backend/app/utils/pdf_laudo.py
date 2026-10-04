@@ -95,8 +95,8 @@ def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
 
 def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:
     """
-    Recalcula o índice de Modo M por Cornell (expoente 0,294) e o índice
-    canino 2D por Visser (expoente 0,316) somente com vista aplicável.
+    Recalcula os índices caninos de Modo M por Cornell (expoente 0,294)
+    e de 2D por Visser (expoente 0,316) somente quando aplicáveis.
     """
     medidas = dados_pdf.get("medidas")
     if not isinstance(medidas, dict):
@@ -104,10 +104,11 @@ def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:
 
     paciente = dados_pdf.get("paciente")
     paciente_dict = paciente if isinstance(paciente, dict) else {}
+    especie = normalizar_especie_referencia(paciente_dict.get("especie"))
 
     peso_kg = _to_float_peso(paciente_dict.get("peso"))
     ambiguas = dados_pdf.get("unidades_ambiguas", set())
-    if "DIVEd" in ambiguas:
+    if especie != "Canina" or "DIVEd" in ambiguas:
         medidas.pop("DIVEd_normalizado", None)
     elif peso_kg is not None and peso_kg > 0:
         dived_m = _to_float(medidas.get("DIVEd"))
@@ -119,6 +120,24 @@ def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:
     else:
         dived_2d = _to_float(medidas.get("DIVEd_2D"))
         medidas["DIVEd_normalizado_2D"] = round(dived_2d / 10 / peso_kg ** 0.316, 2)
+
+
+def recalcular_marcadores_felinos_para_pdf(dados_pdf: Dict[str, Any]) -> None:
+    """Deriva apenas índices com medidas de origem conhecidas, sem alterar o laudo salvo."""
+    medidas = dados_pdf.get("medidas")
+    if not isinstance(medidas, dict):
+        return
+    paciente = dados_pdf.get("paciente")
+    especie = normalizar_especie_referencia(paciente.get("especie") if isinstance(paciente, dict) else None)
+    ambiguas = dados_pdf.get("unidades_ambiguas", set())
+    if especie == "Felina" and not {"AE_diametro_max", "AE_diametro_min"}.intersection(ambiguas):
+        ae_max = _to_float(medidas.get("AE_diametro_max"))
+        ae_min = _to_float(medidas.get("AE_diametro_min"))
+        if ae_max is not None and ae_min is not None and 0 < ae_min <= ae_max:
+            medidas["Fracao_encurtamento_AE"] = round((ae_max - ae_min) / ae_max * 100, 2)
+    vmax_vsve = _to_float(medidas.get("Vmax_VSVE"))
+    if vmax_vsve is not None and vmax_vsve > 0:
+        medidas["Grad_VSVE"] = round(4 * vmax_vsve ** 2, 2)
 
 
 def _bloco_sem_quebra(*flowables):
@@ -998,6 +1017,24 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
                 "Spalla et al. (2017). Mitral and tricuspid annular plane systolic "
                 "excursion in cats with hypertrophic cardiomyopathy. DOI: 10.1111/jvim.14697."
             )
+        if any(_to_float(medidas.get(key)) is not None for key in (
+            "AE_diametro_max", "AE_diametro_min", "Fracao_encurtamento_AE",
+            "Fluxo_auricular", "Vmax_VSVE",
+        )):
+            estudos.append(
+                "Fuentes et al. (2020). ACVIM consensus statement on cardiomyopathies "
+                "in cats. DOI: 10.1111/jvim.15745."
+            )
+        if _to_float(medidas.get("Fluxo_auricular")) is not None:
+            estudos.append(
+                "Schober et al. (2006). Left atrial appendage flow velocity and "
+                "spontaneous echo contrast in cats. DOI: 10.1111/j.1939-1676.2006.tb02831.x."
+            )
+        if _to_float(medidas.get("Fracao_encurtamento_AE")) is not None:
+            estudos.append(
+                "Kochie et al. (2021). Effects of pimobendan on left atrial transport "
+                "function in cats. DOI: 10.1111/jvim.15976."
+            )
 
     if not estudos:
         return []
@@ -1464,6 +1501,7 @@ def gerar_pdf_laudo_eco(
         dados_pdf["unidades_ambiguas"] = medidas_com_unidade_ambigua(dados.get("medidas", {}))
         dados_pdf["medidas"] = normalizar_medidas_para_pdf(dados.get("medidas", {}))
         recalcular_dived_normalizado_para_pdf(dados_pdf)
+        recalcular_marcadores_felinos_para_pdf(dados_pdf)
         elements.extend(criar_cabecalho(dados_pdf, temp_logo_path))
 
         # A conclusão já escrita pelo veterinário fica visível na primeira
@@ -1535,10 +1573,12 @@ def gerar_pdf_laudo_eco(
         ]
         # Medidas específicas felinos (dentro da mesma tabela AE/Ao)
         paciente_especie = (dados_pdf.get("paciente") or {}).get("especie") or ""
-        if paciente_especie.lower() == "felina":
+        if normalizar_especie_referencia(paciente_especie) == "Felina":
             params_ae_aorta.extend([
-                {'chave': 'Fracao_encurtamento_AE', 'label': 'Fração de encurtamento do AE (átrio esquerdo)', 'unidade': '%', 'ref_min': 21.0, 'ref_max': 25.0},
-                {'chave': 'Fluxo_auricular', 'label': 'Fluxo auricular', 'unidade': 'm/s', 'ref_text': '>0,25 m/s'},
+                {'chave': 'AE_diametro_max', 'label': 'AE - diâmetro máximo', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
+                {'chave': 'AE_diametro_min', 'label': 'AE - diâmetro mínimo', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
+                {'chave': 'Fracao_encurtamento_AE', 'label': 'Fração de encurtamento do AE', 'unidade': '%', 'ref_min': None, 'ref_max': None},
+                {'chave': 'Fluxo_auricular', 'label': 'Velocidade máxima do apêndice atrial esquerdo', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
             ])
         
         # Grupo: Artéria Pulmonar / Aorta - SEM Interpretação
@@ -1552,6 +1592,8 @@ def gerar_pdf_laudo_eco(
         params_doppler_saidas = [
             {'chave': 'Vmax_aorta', 'label': 'Vmax aorta', 'unidade': 'm/s', 'ref_min': 0.00, 'ref_max': 2.20},
             {'chave': 'Grad_aorta', 'label': 'Gradiente aorta', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
+            {'chave': 'Vmax_VSVE', 'label': 'Vmax via de saída do VE', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'Grad_VSVE', 'label': 'Gradiente via de saída do VE (4 × V²)', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
             {'chave': 'Vmax_pulmonar', 'label': 'Vmax pulmonar', 'unidade': 'm/s', 'ref_min': 0.00, 'ref_max': 2.20},
             {'chave': 'Grad_pulmonar', 'label': 'Gradiente pulmonar', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
         ]
