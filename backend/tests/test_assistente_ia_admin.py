@@ -1043,6 +1043,61 @@ class AssistenteIAAdminTest(unittest.TestCase):
         self.assertEqual(len(result["slots"]), 1)
         self.assertNotIn("telefone", str(result).lower())
 
+    def test_disponibilidade_preferencia_governa_datas_e_chega_antes_do_ranking(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            preferencia = {'data_inicio': '2099-01-10', 'data_fim': '2099-01-11', 'turno': 'tarde'}
+
+            def suggest(*, payload, **_kwargs):
+                self.assertEqual(payload.preferencia.model_dump(exclude_none=True), preferencia)
+                self.assertEqual(payload.intervalo_minutos, 15)
+                return {'items': [
+                    {'inicio': f'{payload.data}T09:00:00-03:00', 'fim': f'{payload.data}T09:30:00-03:00'},
+                    {'inicio': f'{payload.data}T13:00:00-03:00', 'fim': f'{payload.data}T13:30:00-03:00', 'paciente': 'Não expor'},
+                    {'inicio': f'{payload.data}T17:45:00-03:00', 'fim': f'{payload.data}T18:15:00-03:00'},
+                    {'inicio': '2099-01-12T13:00:00-03:00', 'fim': '2099-01-12T13:30:00-03:00'},
+                ]}
+
+            with patch.object(assistente_ia_tools.agenda, 'sugerir_horarios_agenda', side_effect=suggest) as engine:
+                result = assistente_ia_tools.execute_tool(self._context(db, conversation), name='verificar_disponibilidade', arguments={
+                    'clinica': 'Animal Care', 'servico': 'Ecocardiograma',
+                    'data_inicio': '2099-01-01', 'dias': 1, 'preferencia': preferencia,
+                })
+        self.assertEqual([call.kwargs['payload'].data for call in engine.call_args_list], ['2099-01-10', '2099-01-11'])
+        self.assertEqual(result['periodo'], {'inicio': '2099-01-10', 'fim': '2099-01-11', 'dias_solicitados': 2})
+        self.assertEqual([item['inicio'] for item in result['slots']], ['2099-01-10T13:00:00-03:00', '2099-01-11T13:00:00-03:00'])
+        self.assertNotIn('Não expor', str(result))
+
+    def test_disponibilidade_nao_amplia_preferencia_sem_resultado_ou_invalida(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            ctx = self._context(db, conversation)
+            with patch.object(assistente_ia_tools.agenda, 'sugerir_horarios_agenda', return_value={'items': []}) as engine:
+                result = assistente_ia_tools.verificar_disponibilidade(ctx, clinica='Animal Care', servico='Ecocardiograma',
+                    data_inicio=None, dias=7, preferencia={'data_inicio': '2099-01-10', 'data_fim': '2099-01-11', 'turno': 'tarde'})
+                self.assertEqual(engine.call_count, 2)
+                self.assertEqual(result['slots'], [])
+                self.assertIn('antes de ampliar', result['orientacao'])
+                engine.reset_mock()
+                for preferencia in ({'data_inicio': '2099-01-10', 'turno': 'manha'},
+                                    {'data_inicio': '2099-01-10', 'data_fim': '2099-03-01'},
+                                    {'hora_inicio': '14:00', 'turno': 'tarde'},
+                                    {'turno': 'tarde', 'hora_inicio': '08:00', 'hora_fim': '10:00'}):
+                    with self.subTest(preferencia=preferencia):
+                        result = assistente_ia_tools.verificar_disponibilidade(ctx, clinica='Animal Care', servico='Ecocardiograma',
+                            data_inicio=None, dias=7, preferencia=preferencia)
+                        self.assertFalse(result['ok'])
+                engine.assert_not_called()
+
+    def test_disponibilidade_tool_schema_preserva_contrato_estrito(self) -> None:
+        definition = next(item for item in assistente_ia_tools.TOOL_DEFINITIONS if item['name'] == 'verificar_disponibilidade')
+        schema = definition['parameters']
+        preferencia = schema['properties']['preferencia']
+        self.assertTrue(definition['strict'])
+        self.assertEqual(set(schema['required']), set(schema['properties']))
+        self.assertEqual(set(preferencia['required']), set(preferencia['properties']))
+        self.assertFalse(preferencia['additionalProperties'])
+
     def test_exclusao_fica_pendente_e_pode_ser_rejeitada_sem_apagar(self) -> None:
         with self._session_factory() as db:
             clinic, service, patient, conversation = self._seed_base(db)

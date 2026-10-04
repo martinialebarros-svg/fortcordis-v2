@@ -48,3 +48,12 @@ Cobertura: composição/duração exata, escopo, limite de três opções, corte
 - Snapshot final: backend completo com 1431 testes e 348 subtestes aprovados, sete ignorados conforme condições do ambiente, em 54,93 s. Configuração `FORTCORDIS_PROCESS_ROLE=api` e SQLite temporário em arquivo. Log `/private/tmp/whatsapp-natural-full-final.log`.
 - `git diff --check` e guardrail SDD aprovados sobre os arquivos modificados e novos.
 - Nenhuma mensagem real, mudança de configuração, pausa de produção, commit ou publicação nesta etapa. Sem mudanças de frontend ou migração.
+
+
+## Preferências e compactação — 04/10/2026
+
+Alteração local integrada ao contrato de `../agenda-preferencias-compactacao/spec.md`.
+A evidência de testes desta etapa está centralizada em
+`../agenda-preferencias-compactacao/verify.md`; registros de releases anteriores
+neste arquivo não significam publicação desta mudança. Não houve envio real,
+migration, edição de agendamentos ou alteração de configuração em produção.

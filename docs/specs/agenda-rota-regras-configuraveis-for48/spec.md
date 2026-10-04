@@ -22,7 +22,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - RF-010: Agenda Lista e FullCalendar devem permitir alternancia direta de visao mantendo contexto operacional minimo (data e status via query string), reduzindo ruptura de fluxo.
 - RF-011: leitura inicial do contexto por query string nas telas de Agenda deve ser compatível com build de producao do Next.js sem exigir boundary adicional de suspense.
 - RF-012: mensagens do assistente inteligente de proximidade devem detalhar a composicao do deslocamento usando nomes das clinicas envolvidas (anterior/destino/posterior), indicar quando nao ha agendamento vizinho e mostrar a data com dia da semana para evitar ambiguidade operacional.
-- RF-013: `safe_margin_min` deve ser aplicado como margem obrigatoria no salvamento e nas sugestoes de horario; slots com folga menor que `duracao_deslocamento + safe_margin_min` devem ser rejeitados.
+- RF-013: entre destinos diferentes, `safe_margin_min` deve ser aplicado como margem obrigatoria de viagem no salvamento e nas sugestoes, preservadas as excecoes adjacentes descritas em RF-015. No mesmo destino, a transicao entre pacientes usa `same_location_transition_min` (default 5), independente da margem de viagem; zero explicito deve ser preservado. Novos encaixes com folga insuficiente devem ser rejeitados.
 - RF-014: `max_neighbor_travel_min` deve bloquear salvamento e sugestoes quando o deslocamento entre a clinica candidata e o vizinho imediato anterior ou posterior exceder o limite configurado, mesmo que exista folga suficiente no relogio.
 - RF-015: quando um agendamento ja registrado foi mantido como ancora operacional por excecao previa, um slot livre adjacente a essa ancora pode ser sugerido e salvo se o deslocamento real ate a ancora couber na folga do slot e estiver dentro de `nearby_anchor_max_travel_min`; nesse caso, o trecho nao adjacente herdado da excecao pode ser desconsiderado apenas para ranking/limite de proximidade, sem liberar slots que nao encostem na ancora.
 - RF-016: ao tentar criar agendamento em data fechada, feriado, excecao fechada ou fora da janela de funcionamento, o `admin` deve receber aviso com o motivo e poder confirmar somente aquele agendamento; perfis nao-admin permanecem bloqueados.
@@ -101,3 +101,13 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 
 - Solver de roteirizacao multi-parada com otimizaçao global.
 - Geocodificacao automatica de endereco para lat/lng nesta entrega.
+
+## Compactação no mesmo destino (04/10/2026)
+
+O JSON existente recebe `thresholds.same_location_transition_min`, normalizado
+no backend/frontend e editável em Configurações. Não exige migration nem muda
+registros existentes. A grade visual deixa de definir o passo da busca do modal;
+candidatos nos limites dos eventos preservam a duração cadastrada e a transição.
+Geração, ranking, risco e validação operacional usam a mesma regra. Viagens entre
+clínicas, bloqueios, janela e reservas permanecem protegidos. Ver contrato e
+aceitação em `../agenda-preferencias-compactacao/spec.md`.

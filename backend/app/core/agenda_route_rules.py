@@ -22,6 +22,7 @@ DEFAULT_AGENDA_ROTA_REGRAS = {
         "max_insertion_detour_min": 25,
         "max_neighbor_travel_min": 45,
         "safe_margin_min": 5,
+        "same_location_transition_min": 5,
     },
     "offer_policy": {
         "default_first_offer_days_ahead": [2],
@@ -172,6 +173,12 @@ def normalizar_agenda_rota_regras(payload: Any) -> dict[str, Any]:
             default["thresholds"]["max_neighbor_travel_min"],
             0,
             360,
+        ),
+        "same_location_transition_min": _normalizar_int(
+            thresholds_src.get("same_location_transition_min"),
+            default["thresholds"]["same_location_transition_min"],
+            0,
+            120,
         ),
         "safe_margin_min": _normalizar_int(
             thresholds_src.get("safe_margin_min"),

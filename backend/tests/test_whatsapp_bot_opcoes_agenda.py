@@ -132,6 +132,67 @@ class OpcoesTests(unittest.TestCase):
         self.assertIsNone(turno)
         with self.assertRaises(ValueError): op.periodo('amanhã',self.now.isoformat(),self.now+timedelta(days=3))
 
+    def test_week_preferences_use_fortaleza_message_date_and_keep_original_week(self):
+        # Já é segunda em UTC, mas a mensagem ainda foi recebida no domingo local.
+        recebida = '2026-10-05T01:00:00Z'
+        now = datetime(2026, 10, 5, 7, tzinfo=op.TZ)
+        for text, turno in (('na próxima semana à tarde', 'tarde'),
+                            ('semana que vem pela manhã', 'manha')):
+            criteria = op.interpretar_preferencia(text, recebida, now)
+            self.assertEqual(criteria, {'data_inicio': '2026-10-05', 'data_fim': '2026-10-11', 'turno': turno})
+            dates, parsed_turno = op.periodo(text, recebida, now)
+            self.assertEqual(len(dates), 7)
+            self.assertEqual(parsed_turno, turno)
+            with self.assertRaises(ValueError):
+                op.periodo(text, recebida, now + timedelta(days=7))
+        dates, turno = op.periodo('esta semana pela manhã', '2026-10-02T10:00:00-03:00', now - timedelta(days=1))
+        self.assertEqual([day.isoformat() for day in dates], ['2026-10-04'])
+        self.assertEqual(turno, 'manha')
+
+    def test_unknown_or_conflicting_week_preferences_fail_closed(self):
+        for text in ('próxima semana menos terça', 'manhã ou tarde', 'não pela manhã',
+                     'na próxima semana à tarde depois das 15h'):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                op.interpretar_preferencia(text, self.now.isoformat(), self.now)
+
+    def test_relative_preference_without_message_date_is_not_reanchored(self):
+        for text in ('amanhã', 'esta semana', 'próxima semana pela manhã', 'sexta-feira'):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                op.interpretar_preferencia(text, now=self.now)
+        self.assertEqual(op.interpretar_preferencia('pela manhã', now=self.now), {'turno': 'manha'})
+        self.assertEqual(op.interpretar_preferencia('20/05/2099 à tarde', now=self.now),
+            {'data_inicio': '2099-05-20', 'data_fim': '2099-05-20', 'turno': 'tarde'})
+
+    def test_turno_is_sent_to_engine_before_its_ranking(self):
+        from app.api.v1.endpoints import agenda
+        criteria = {'turno': 'tarde'}
+        with patch.object(agenda, 'sugerir_horarios_agenda', return_value={'ok': True, 'items': []}) as engine:
+            op.consultar_dia(self.db, 9, self.service, self.now.date(), preferencia=criteria)
+        payload = engine.call_args.kwargs['payload']
+        self.assertEqual(payload.preferencia.turno, 'tarde')
+        self.assertEqual(payload.intervalo_minutos, 15)
+
+    def test_choice_revalidation_preserves_original_preference(self):
+        _text, offer = self.seed()
+        self.coleta['dados']['preferencia'] = 'pela tarde'
+        with patch.object(op, 'consultar_dia', return_value=self.items) as query:
+            text, audit = self.choose()
+        self.assertIn('Recebi sua escolha', text)
+        self.assertEqual(query.call_args.kwargs['preferencia'], offer['preferencia_agenda'])
+        self.assertEqual(query.call_args.kwargs['preferencia']['turno'], 'manha')
+        self.assertIsNone(self.p.agendamento_id)
+
+    def test_whole_service_must_fit_turno_and_explicit_hours(self):
+        items = [
+            {'inicio': '2099-05-20T11:45:00-03:00', 'fim': '2099-05-20T12:15:00-03:00', 'risco': 0},
+            {'inicio': '2099-05-20T13:00:00-03:00', 'fim': '2099-05-20T13:30:00-03:00', 'risco': 0},
+            {'inicio': '2099-05-20T17:45:00-03:00', 'fim': '2099-05-20T18:15:00-03:00', 'risco': 0},
+        ]
+        self.assertEqual(op.slots_seguros(items, self.service, self.now.date(), self.now, 'manha'), [])
+        accepted = op.slots_seguros(items, self.service, self.now.date(), self.now,
+                                    preferencia={'turno': 'tarde', 'hora_inicio': '13:00', 'hora_fim': '14:00'})
+        self.assertEqual(accepted, [{k: items[1][k] for k in ('inicio', 'fim')}])
+
     def test_generation_offers_after_confirmation_and_keeps_simulation_readonly(self):
         from app.services.whatsapp_bot_generation import gerar_resposta
         initial = dict(self.coleta, status='aguardando_confirmacao')

@@ -97,3 +97,12 @@ Resultado adicional:
 - [x] Aprovado para stage.
 - [ ] Aprovado para producao.
 - [ ] Nao aprovado.
+
+
+## Preferências e compactação — 04/10/2026
+
+Alteração local integrada ao contrato de `../agenda-preferencias-compactacao/spec.md`.
+A evidência de testes desta etapa está centralizada em
+`../agenda-preferencias-compactacao/verify.md`; registros de releases anteriores
+neste arquivo não significam publicação desta mudança. Não houve envio real,
+migration, edição de agendamentos ou alteração de configuração em produção.

@@ -1,0 +1,91 @@
+# Spec — Preferências e compactação da Agenda
+
+Data: 2026-10-04
+Status: implementado; validação local registrada em verify.md
+
+## Comportamento
+
+- RF-001: antes de gerar ofertas, a recepção pode escolher sem preferência, data
+  específica, esta semana, próxima semana ou intervalo, além de qualquer turno,
+  manhã, tarde ou faixa de horário. Preferência pertence ao pedido atual.
+- RF-002: datas relativas são resolvidas em America/Fortaleza, com referência
+  estável da sessão/solicitação e datas explícitas para conferência. Próxima
+  semana é a segunda a domingo seguintes; jornada e feriados continuam válidos.
+- RF-003: período informado é restrição. Nenhuma oferta/proximidade ou busca
+  progressiva pode sair dele silenciosamente; ampliar depende de alterar os
+  filtros. Ausência de opções no período não afirma indisponibilidade global.
+- RF-004: o exame completo deve caber na interseção entre preferência e janela
+  operacional. Manhã termina até 12:00; tarde começa às 12:00 e termina até
+  18:00, respeitando eventual encerramento anterior do expediente.
+- RF-005: filtrar preferências antes de ranquear/limitar. Uma âncora fora do
+  turno pedido não elimina candidatos aderentes; ocupações fora do turno ainda
+  participam das verificações de conflito e deslocamento.
+- RF-006: a divisão visual do calendário não limita a geração. Além dos slots
+  regulares, gerar candidatos compactos antes/depois dos eventos existentes,
+  usando a duração do catálogo e o intervalo operacional apropriado. Para hoje,
+  bordas exatas usam a antecedência real, antes do arredondamento da grade. A
+  exceção estreita de adjacência de rota usa 30 minutos mais margem, independente
+  da grade visual ou do passo solicitado para gerar sugestões.
+- RF-007: `thresholds.same_location_transition_min` define troca/preparo no mesmo
+  destino (default 5 min); `safe_margin_min` continua a margem de viagem entre
+  destinos. Zero explícito é válido e não deve virar o default por coerção.
+- RF-008: geração, risco, adjacência, ranking e validação de novos encaixes usam
+  a mesma transição. Deslocamento real, bloqueios, reservas não expiradas,
+  concorrência e autorização de exceções continuam protegidos.
+- RF-009: alteração de preferência invalida ofertas e aceite anteriores. Uma
+  resposta atrasada não pode restaurar oferta incompatível com os filtros atuais.
+- RF-010: WhatsApp reconhece também esta/próxima semana, aplica turno antes da
+  busca e preserva a preferência na revalidação. A consulta continua sem reserva,
+  sem escrita de agendamento e sem revelar dados de outros pacientes.
+- RF-011: preferência seguramente interpretada acompanha a preparação do pedido
+  WhatsApp para o modal. Texto desconhecido permanece para revisão humana.
+- RF-012: a ferramenta administrativa de disponibilidade aceita o mesmo contrato
+  e respeita o período na enumeração de dias e nas chamadas ao núcleo da Agenda.
+
+## Contrato
+
+Os payloads de sugestão aceitam `preferencia` opcional:
+
+```json
+{
+  "data_inicio": "2026-10-05",
+  "data_fim": "2026-10-11",
+  "turno": "tarde",
+  "hora_inicio": null,
+  "hora_fim": null
+}
+```
+
+Datas são inclusivas, devem vir em par, ordenadas, com no máximo 31 dias.
+Horários personalizados também vêm em par, no formato HH:mm e em ordem crescente.
+Turno é `qualquer`, `manha` ou `tarde`. Ausência de preferência preserva a busca
+legada sem restrição explícita de datas. Não há migration: a nova transição usa
+o JSON existente de regras e as preferências transitam no pedido/consulta.
+
+## Aceitação
+
+- CA-001: eco 09:30–10:10, mesma clínica, transição 5 e grade visual 30 permite
+  sugestão às 10:15 com duração de 40 minutos; não exige esperar até 10:30.
+- CA-002: com transição zero explícita, encaixe às 10:10 não recebe risco de
+  viagem artificial; duração do serviço permanece 40 minutos.
+- CA-003: sequência de quatro exames de 40 minutos pode ocupar 08:30–11:25 com
+  três transições de 5 minutos, sem sobreposição e sem alterar eventos existentes.
+- CA-004: pedido de manhã com âncora às 15:00 ainda recebe opções matinais
+  viáveis. Nenhum exame ultrapassa 12:00 quando essa é a restrição.
+- CA-005: próxima semana recebida no domingo usa a segunda seguinte, conserva
+  a referência ao reabrir a consulta e nunca oferece antes/depois do intervalo.
+- CA-006: ausência de vagas no intervalo produz lista vazia explicativa; não
+  aciona fallback para outra semana ou turno.
+- CA-007: viagens reais e bloqueios continuam impedindo candidatos inseguros;
+  reservas expiradas liberam a ocupação conforme a regra já existente.
+- CA-008: preferência importada do WhatsApp preenche os filtros e é enviada ao
+  gerar; mudar turno durante uma requisição invalida a resposta antiga.
+- CA-009: canais usam a mesma semântica de preferências e encaixes, preservando
+  seus limites de apresentação e os controles humanos de confirmação.
+
+## Limites e rollout
+
+Não reduz duração clínica, não move pacientes automaticamente e não atribui
+ganho financeiro a minutos fragmentados. Publicação e validação operacional em
+stage permanecem etapas posteriores. Rollback por reversão do código; o campo
+aditivo no JSON é ignorável por versões anteriores.
