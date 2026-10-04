@@ -1,6 +1,7 @@
 import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
 import { calculateCanine2DNormalizedLVIDd, getCanine2DReference, type Echo2DView } from "./echo-2d-reference";
 import { ambiguousEchoLengthKeys, confirmedEchoUnit, confirmedUnitKey, ECHO_LENGTH_KEYS } from "./echo-unit-provenance";
+import { calculateLeftAtrialFractionalShortening } from "./echo-derived-measurements";
 
 type Parameter = { key: string; label: string; unit?: string; reference?: string };
 export type EchoReportRow = { key: string; label: string; value: string; reference: string };
@@ -40,8 +41,10 @@ const otherGroups: { title: string; parameters: Parameter[] }[] = [
     parameter("Aorta", "Aorta", "mm", "ao"),
     parameter("Atrio_esquerdo", "Átrio esquerdo", "mm", "la"),
     parameter("AE_Ao", "AE/Ao · átrio esquerdo / aorta", "", "la_ao"),
+    parameter("AE_diametro_max", "AE · diâmetro máximo", "mm"),
+    parameter("AE_diametro_min", "AE · diâmetro mínimo", "mm"),
     parameter("Fracao_encurtamento_AE", "Fração de encurtamento do AE", "%"),
-    parameter("Fluxo_auricular", "Fluxo auricular", "m/s"),
+    parameter("Fluxo_auricular", "Velocidade máxima do apêndice atrial esquerdo", "m/s"),
   ] },
   { title: "Artéria pulmonar / aorta", parameters: [
     parameter("AP", "Artéria pulmonar", "mm", "ap"),
@@ -51,6 +54,8 @@ const otherGroups: { title: string; parameters: Parameter[] }[] = [
   { title: "Doppler · saídas", parameters: [
     parameter("Vmax_aorta", "Velocidade máxima aórtica", "m/s", "vmax_ao"),
     parameter("Grad_aorta", "Gradiente aórtico", "mmHg"),
+    parameter("Vmax_VSVE", "Velocidade máxima da via de saída do VE", "m/s"),
+    parameter("Grad_VSVE", "Gradiente da via de saída do VE · 4 × V²", "mmHg"),
     parameter("Vmax_pulmonar", "Velocidade máxima pulmonar", "m/s", "vmax_pulm"),
     parameter("Grad_pulmonar", "Gradiente pulmonar", "mmHg"),
   ] },
@@ -106,6 +111,7 @@ function referenceRange(reference: ReferenciaEco | null, item: Parameter): strin
 
 export function prepareEchoReportMeasurements(raw: Record<string, string>, weightKg: unknown, species = "") {
   const measurements = { ...raw };
+  const canine = /^canin/i.test(species.trim());
   const ambiguousKeys = ambiguousEchoLengthKeys(raw);
   for (const key of lengthKeys) {
     if (confirmedEchoUnit(raw, key) === "cm") {
@@ -113,8 +119,16 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
       if (value !== null && value > 0) measurements[key] = String(value * 10);
     }
   }
-  if (ambiguousKeys.has("DIVEd")) delete measurements.DIVEd_normalizado;
+  if (!canine || ambiguousKeys.has("DIVEd")) delete measurements.DIVEd_normalizado;
   if (ambiguousKeys.has("DIVEd_2D")) delete measurements.DIVEd_normalizado_2D;
+  if (/^felin/i.test(species.trim())) {
+    const laFraction = calculateLeftAtrialFractionalShortening(raw);
+    if (laFraction !== null) measurements.Fracao_encurtamento_AE = String(Number(laFraction.toFixed(2)));
+  }
+  const lvotVelocity = number(measurements.Vmax_VSVE);
+  if (lvotVelocity !== null && lvotVelocity > 0) {
+    measurements.Grad_VSVE = String(Number((4 * lvotVelocity ** 2).toFixed(2)));
+  }
   const view = raw.VE_vista_2D === "eixo_curto" || raw.VE_vista_2D === "eixo_longo"
     ? raw.VE_vista_2D as Echo2DView : "";
   const dived2D = number(measurements.DIVEd_2D);
@@ -130,6 +144,7 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
       ? "DIVEd_normalizado_2D"
       : "DIVEd_normalizado";
     for (const [diameterKey, normalizedKey] of [["DIVEd", "DIVEd_normalizado"], ["DIVEd_2D", "DIVEd_normalizado_2D"]]) {
+      if (normalizedKey === "DIVEd_normalizado" && !canine) continue;
       if (ambiguousKeys.has(diameterKey)) {
         continue;
       }

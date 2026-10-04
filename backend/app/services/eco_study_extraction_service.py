@@ -15,7 +15,7 @@ from app.services.image_header_import_service import _extract_text_with_tesserac
 
 MAX_ECO_STUDY_IMPORT_SIZE = 30 * 1024 * 1024
 MAX_ECO_STUDY_PDF_PAGES = 20
-ECO_STUDY_EXTRACTOR_VERSION = "6"
+ECO_STUDY_EXTRACTOR_VERSION = "7"
 GE_LOGIQ_E_PROFILE = "ge_logiq_e"
 GE_VIVID_IQ_PROFILE = "ge_vivid_iq"
 ALLOWED_ECO_STUDY_EXTENSIONS = {
@@ -65,6 +65,10 @@ MEASUREMENT_DEFINITIONS: tuple[MeasurementDefinition, ...] = (
     MeasurementDefinition("TAPSE", "TAPSE", (r"TAPSE",), "length"),
     MeasurementDefinition("MAPSE", "MAPSE", (r"MAPSE",), "length"),
     MeasurementDefinition("Atrio_esquerdo", "Atrio esquerdo", (r"LA\s*(?:Diam(?:eter)?|Dimension)", r"(?:Diam|Diametro)\s*AE", r"D\.?\s*AE", r"AE\s*(?:Diam|Dimensao)", r"Atrio\s*Esquerdo"), "length"),
+    MeasurementDefinition("AE_diametro_max", "AE diametro maximo", (r"LAD\s*max", r"(?:AE|LA)\s*(?:Diam(?:etro|eter)?|Dimensao|Dimension)\s*max"), "length"),
+    MeasurementDefinition("AE_diametro_min", "AE diametro minimo", (r"LAD\s*min", r"(?:AE|LA)\s*(?:Diam(?:etro|eter)?|Dimensao|Dimension)\s*min"), "length"),
+    MeasurementDefinition("Fracao_encurtamento_AE", "Fracao encurtamento AE", (r"(?:LA|AE)[-\s]*FS", r"LAFS", r"Fracao\s*de\s*encurtamento\s*(?:do\s*)?AE"), "percent"),
+    MeasurementDefinition("Fluxo_auricular", "Velocidade apendice atrial esquerdo", (r"(?:LAA|LAapp)\s*(?:max|peak|Vmax)", r"(?:Apendice|Auricula)\s*Atrial\s*Esquerda\s*(?:Vmax|Veloc(?:idade)?)"), "velocity"),
     MeasurementDefinition("Aorta", "Aorta", (r"D\.?\s*Raiz\s*Ao", r"(?:Diametro\s*)?Raiz\s*Ao", r"Ao\s*(?:Diam(?:eter)?|Dimension)", r"Aorta"), "length"),
     MeasurementDefinition("Onda_E", "Onda E", (r"Veloc(?:id)?\.?\s*E\s*VM", r"MV\s*E(?:\s*Vel(?:ocity)?)?", r"Onda\s*E"), "velocity"),
     MeasurementDefinition("Onda_A", "Onda A", (r"Veloc(?:id)?\.?\s*A\s*VM", r"MV\s*A(?:\s*Vel(?:ocity)?)?", r"Onda\s*A"), "velocity"),
@@ -81,8 +85,10 @@ MEASUREMENT_DEFINITIONS: tuple[MeasurementDefinition, ...] = (
     ),
     MeasurementDefinition("IA_Vmax", "IA Vmax", (r"(?:AR|IA)\s*Vmax",), "velocity"),
     MeasurementDefinition("IP_Vmax", "IP Vmax", (r"(?:PR|IP)\s*Vmax",), "velocity"),
-    MeasurementDefinition("Vmax_aorta", "Vmax aorta", (r"Vmax\s*VSVE", r"(?:AV|Ao|Aorta)\s*Vmax", r"Vmax\s*Aorta"), "velocity"),
-    MeasurementDefinition("Grad_aorta", "Gradiente aorta", (r"(?:max\s*)?PG\s*(?:LVOT|VSVE)", r"(?:AV|Ao|Aorta)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Aorta"), "pressure"),
+    MeasurementDefinition("Vmax_VSVE", "Vmax via de saida VE", (r"Vmax\s*(?:VSVE|LVOT)", r"(?:VSVE|LVOT)\s*(?:Vmax|Veloc(?:idade)?\s*max)"), "velocity"),
+    MeasurementDefinition("Grad_VSVE", "Gradiente via de saida VE", (r"(?:max\s*)?PG\s*(?:LVOT|VSVE)", r"(?:LVOT|VSVE)\s*(?:PG|Grad(?:iente)?)"), "pressure"),
+    MeasurementDefinition("Vmax_aorta", "Vmax aorta", (r"(?:AV|Ao|Aorta)\s*Vmax", r"Vmax\s*Aorta"), "velocity"),
+    MeasurementDefinition("Grad_aorta", "Gradiente aorta", (r"(?:AV|Ao|Aorta)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Aorta"), "pressure"),
     MeasurementDefinition("Vmax_pulmonar", "Vmax pulmonar", (r"Vmax\s*VSVD", r"(?:PV|Pulm(?:onar)?)\s*Vmax", r"Vmax\s*Pulm(?:onar)?"), "velocity"),
     MeasurementDefinition("Grad_pulmonar", "Gradiente pulmonar", (r"Grad\.?\s*max\s*VSVD", r"max\s*PG\s*VSVD", r"(?:PV|Pulm(?:onar)?)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Pulm(?:onar)?"), "pressure"),
 )

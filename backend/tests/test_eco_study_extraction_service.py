@@ -51,6 +51,24 @@ def _pdf_bytes(lines: list[str]) -> bytes:
 
 
 class EcoStudyExtractionServiceTest(unittest.TestCase):
+    def test_feline_atrial_and_lvot_labels_keep_distinct_sources(self) -> None:
+        candidates = extract_measurements_from_text(
+            "LADmax 18 mm\nLADmin 13.5 mm\nLA FS 25 %\n"
+            "LAA Vmax 0.18 m/s\nLVOT Vmax 2.5 m/s\n"
+            "Aorta Vmax 0.69 m/s\nmaxPG VSVE 25 mmHg",
+            source="pdf:text", confidence=0.99,
+        )
+        measurements, _, conflicts = consolidate_measurement_candidates(candidates)
+        self.assertEqual(measurements["AE_diametro_max"], 18)
+        self.assertEqual(measurements["AE_diametro_min"], 13.5)
+        self.assertEqual(measurements["Fracao_encurtamento_AE"], 25)
+        self.assertEqual(measurements["Fluxo_auricular"], 0.18)
+        self.assertEqual(measurements["Vmax_VSVE"], 2.5)
+        self.assertEqual(measurements["Vmax_aorta"], 0.69)
+        self.assertEqual(measurements["Grad_VSVE"], 25)
+        self.assertNotIn("Grad_aorta", measurements)
+        self.assertEqual(conflicts, 0)
+
     def test_extracts_and_normalizes_common_measurements(self) -> None:
         candidates = extract_measurements_from_text(
             """
@@ -281,7 +299,8 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         self.assertEqual(measurements["Atrio_esquerdo"], 29.22)
         self.assertEqual(measurements["E_A"], 1.25)
         self.assertEqual(measurements["TD"], 129)
-        self.assertEqual(measurements["Grad_aorta"], 4.12)
+        self.assertEqual(measurements["Grad_VSVE"], 4.12)
+        self.assertNotIn("Grad_aorta", measurements)
         self.assertEqual(measurements["Grad_pulmonar"], 2.24)
         self.assertEqual(measurements["IM_Vmax"], 3.98)
         self.assertEqual(measurements["IT_Vmax"], 3.53)
@@ -406,7 +425,7 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
 
         self.assertEqual(payload["medidas"]["Aorta"], 20.55)
         self.assertEqual(payload["medidas"]["Atrio_esquerdo"], 29.22)
-        self.assertEqual(payload["medidas"]["Grad_aorta"], 4.12)
+        self.assertEqual(payload["medidas"]["Grad_VSVE"], 4.12)
         self.assertEqual(payload["meta_importacao_estudo"]["perfil"], GE_VIVID_IQ_PROFILE)
 
 

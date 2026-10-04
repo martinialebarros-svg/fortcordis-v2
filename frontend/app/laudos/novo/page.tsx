@@ -32,6 +32,7 @@ import { listarTodasClinicas } from "@/lib/clinicas";
 import { TIPO_LAUDO_PRESSAO_ARTERIAL } from "@/lib/laudos";
 import { extrairIdadePaciente, normalizarSexoPaciente, parsePesoKg } from "@/lib/paciente";
 import {
+  calculateLeftAtrialFractionalShortening,
   deriveAutomaticEchoMeasurements,
   hasAnyMeasurement,
   LV_2D_KEYS,
@@ -488,7 +489,7 @@ export default function NovoLaudoPage() {
         : null;
 
     const divedNormalizadoCalculado =
-      divedMm !== null && divedMm > 0 && peso !== null && peso > 0
+      paciente.especie === "Canina" && divedMm !== null && divedMm > 0 && peso !== null && peso > 0
         ? formatar2Casas((divedMm / 10.0) / Math.pow(peso, 0.294))
         : null;
 
@@ -1564,7 +1565,7 @@ export default function NovoLaudoPage() {
                           value={medidas["DIVEd"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd", v)}
                         />
-                        <MedidaInput 
+                        {paciente.especie === "Canina" && <MedidaInput
                           label="DIVEd normalizado (DIVEd [cm] / peso^0,294)"
                           value={medidas["DIVEd_normalizado"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd_normalizado", v)}
@@ -1572,7 +1573,7 @@ export default function NovoLaudoPage() {
                           reference={paciente.especie === "Canina" && (parsePesoKg(paciente.peso) ?? 0) >= 2.2 && (parsePesoKg(paciente.peso) ?? 0) <= 95
                             ? "Cornell 2004 (amostra de cães adultos, Modo M): 1,27–1,85"
                             : "Faixa aplicável não cadastrada"}
-                        />
+                        />}
                         <MedidaInput 
                           label={echoLengthInputLabel("SIVd (mm - Septo interventricular em diástole)", medidas, "SIVd")}
                           value={medidas["SIVd"] || ""}
@@ -1654,17 +1655,27 @@ export default function NovoLaudoPage() {
                         {paciente.especie === "Felina" && (
                           <>
                             <MedidaInput
-                              label="Fração de encurtamento do AE (%)"
-                              value={medidas["Fracao_encurtamento_AE"] ?? ""}
-                              onChange={(v) => handleMedidaChange("Fracao_encurtamento_AE", v)}
-                              reference="Ref.: 21 - 25%"
+                              label={echoLengthInputLabel("AE diâmetro máximo (mm; preferir eixo curto, modo M guiado por 2D)", medidas, "AE_diametro_max")}
+                              value={medidas["AE_diametro_max"] ?? ""}
+                              onChange={(v) => handleMedidaChange("AE_diametro_max", v)}
                             />
                             <MedidaInput
-                              label="Fluxo auricular (m/s)"
+                              label={echoLengthInputLabel("AE diâmetro mínimo (mm; mesma vista do máximo)", medidas, "AE_diametro_min")}
+                              value={medidas["AE_diametro_min"] ?? ""}
+                              onChange={(v) => handleMedidaChange("AE_diametro_min", v)}
+                            />
+                            <MedidaInput
+                              label="Fração de encurtamento do AE (%) · calculada com os dois diâmetros"
+                              value={medidas["Fracao_encurtamento_AE"] ?? ""}
+                              onChange={(v) => handleMedidaChange("Fracao_encurtamento_AE", v)}
+                              readOnly={calculateLeftAtrialFractionalShortening(medidas) !== null}
+                            />
+                            <MedidaInput
+                              label="Velocidade máxima do apêndice atrial esquerdo (m/s, Doppler pulsado)"
                               value={medidas["Fluxo_auricular"] ?? ""}
                               onChange={(v) => handleMedidaChange("Fluxo_auricular", v)}
-                              reference="Ref.: >0,25 m/s"
                             />
+                            <p className="text-xs text-gray-600">Confirme que os diâmetros foram obtidos na mesma vista. Interprete função atrial e fluxo do apêndice com tamanho do AE, contraste espontâneo e trombo; sem corte diagnóstico automático.</p>
                           </>
                         )}
 
@@ -1838,6 +1849,7 @@ export default function NovoLaudoPage() {
 
                     <div className="border-t pt-6">
                       <h4 className="mb-4 text-sm font-semibold text-gray-900">VE - Modo 2D</h4>
+                      {paciente.especie === "Felina" && <p className="mb-3 text-xs text-gray-600">Verifique o ponto de maior espessura do septo e da parede livre nos eixos curto e longo; descreva hipertrofia focal na análise qualitativa.</p>}
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         <MedidaInput
                           label={echoLengthInputLabel("DIVEd 2D (mm - Diâmetro interno do VE em diástole)", medidas, "DIVEd_2D")}
@@ -1913,6 +1925,19 @@ export default function NovoLaudoPage() {
                           value={medidas["Grad_aorta"] || ""}
                           onChange={(v) => handleMedidaChange("Grad_aorta", v)}
                         />
+                        <>
+                          <MedidaInput
+                            label="Vmax da via de saída do VE (m/s, Doppler espectral)"
+                            value={medidas["Vmax_VSVE"] || ""}
+                            onChange={(v) => handleMedidaChange("Vmax_VSVE", v)}
+                          />
+                          <MedidaInput
+                            label="Gradiente da via de saída do VE (mmHg, 4 × V²)"
+                            value={medidas["Grad_VSVE"] || ""}
+                            onChange={(v) => handleMedidaChange("Grad_VSVE", v)}
+                            readOnly={Boolean(medidas.Vmax_VSVE)}
+                          />
+                        </>
                         <MedidaInput 
                           label="Vmax pulmonar (m/s)"
                           value={medidas["Vmax_pulmonar"] || ""}
