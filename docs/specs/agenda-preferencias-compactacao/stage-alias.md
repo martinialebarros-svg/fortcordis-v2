@@ -58,6 +58,14 @@ de produção.
   entrar. Uma sessão existente permite operar DNS pelo painel, sem criar token
   API. Login Cloudflare sozinho não concede o sudo necessário ao Certbot.
 
+Atualização da preparação: o usuário autenticou a sessão Cloudflare, verificada
+pelo operador. O DNS continua separado da emissão TLS. O reparo de TLS foi
+preparado no workflow manual descrito abaixo, reutilizando os secrets de
+repositório do deploy. Não foi criado um GitHub Environment: a consulta ao
+repositório não encontrou Environments configurados. Os guards de ref/host
+previnem enganos; a revisão da branch protegida continua sendo a fronteira para
+mudanças no próprio código do workflow.
+
 Se a autenticação sudo existente não estiver disponível, parar antes de emitir
 certificado/publicar o alias. Não usar os comandos de reinício permitidos para
 contornar a ausência dessa autenticação.
@@ -82,6 +90,66 @@ ausente. [Referência oficial](https://developers.cloudflare.com/ssl/edge-certif
 O SOA observado anuncia 1.800 segundos de cache negativo. Resolvedores que
 tenham guardado o NXDOMAIN podem demorar cerca de 30 minutos para atualizar,
 mesmo que o novo registro tenha TTL 300.
+
+## Procedimento preparado pelo CI existente
+
+Arquivos revisáveis:
+
+- `.github/workflows/repair-stage-alias-tls.yml`: dispatch manual exclusivamente
+  de `stage`, checkout do SHA imutável do dispatch, grupo de concorrência
+  `fortcordis-vps-deploy`, sem inputs de domínio, comando ou destino.
+- `scripts/repair_stage_alias_tls.py`: alvo fixo `fortcordis-vps`, IP
+  `216.238.116.77`, lineage `stage.fortcordis.com.br` e exatamente os três SANs
+  stage, app.stage e www.stage. O script não acessa o banco ou dados de aplicação.
+- `scripts/tests/test_repair_stage_alias_tls.py`: 14 testes locais isolados;
+  nenhuma chamada SSH, sudo, DNS real ou ACME nos testes.
+
+A chave pública Ed25519 do servidor está fixada no workflow, conferida com a
+entrada previamente confiada em `known_hosts` e com a chave pública do servidor
+pela conexão SSH existente. A senha sudo vem do secret `VPS_SUDO_PASSWORD` para
+uma variável de ambiente do runner e segue pelo stdin da conexão SSH, sem
+argumentos, arquivos ou logs. Antes de executar o upload com privilégios, um
+bootstrap fixo lê seus bytes, confere SHA-256 e executa os mesmos bytes; ele não
+reabre o arquivo como código depois da conferência.
+
+Sequência operacional, ainda não executada nesta preparação:
+
+1. Revisar e integrar os arquivos à branch `stage`, com os checks obrigatórios
+   aprovados; aguardar o deploy de stage terminar.
+2. Criar no painel Cloudflare somente o CNAME especificado acima, DNS only,
+   TTL 300. Confirmar propagação em 1.1.1.1 e 8.8.8.8. Durante esse intervalo o
+   alias novo ainda pode apresentar erro TLS; os hosts existentes permanecem
+   disponíveis. Se não for possível emitir o certificado, remover somente o
+   CNAME recém-criado.
+3. Disparar **Repair Stage Alias TLS (Manual)** com `ref=stage`. O workflow
+   recusa outro ref e outra identidade VPS. Não usar o workflow institucional.
+4. O script exige CNAME exato, A direto para a VPS e ausência de AAAA inesperado
+   nos dois resolvedores. Recusa upstreams/certificado/configuração inesperados,
+   hooks no renewal e hooks/overrides globais do Certbot. Faz `nginx -t`, backup
+   restrito a stage (diretório 0700, cópias 0600), e registra hashes dos seis
+   arquivos públicos de produção mais `nginx.conf` e as opções SSL compartilhadas.
+5. Para certificado ainda incompleto, executa HTTP-01 de teste antes da emissão,
+   usando `certonly --nginx --expand` com os três nomes fixos e sem directory hooks.
+   Certificado já completo e válido por pelo menos 30 dias não é reemitido.
+6. Valida SANs, validade, hashes, sintaxe e TLS estrito; exige `/agenda` nos aliases
+   redirecionando exatamente para `https://app.stage.fortcordis.com.br/agenda`
+   e HTTP 200 no host canônico. Executa dry-run de renovação apenas do lineage de
+   stage e repete os checks. Certbot 1.21 da VPS aceita `--no-directory-hooks` e
+   `--disable-renew-updates`, confirmados por leitura de seu help.
+7. Somente o status `complete` e o smoke público posterior aprovam o reparo.
+   Arquivar o link do run, os hashes/contagens e o resultado sanitizado no SDD
+   `docs/specs/stage-alias-tls/verify.md`.
+
+Em falha, TERM, INT ou HUP, o script interrompe o subprocesso ativo antes de
+restaurar bytes, modos e symlinks de stage, testa Nginx e recarrega. Arquivos novos
+inutilizados do archive ficam preservados. Ele **não sobrescreve produção**:
+qualquer diferença nos arquivos protegidos provoca falha de recuperação explícita
+para revisão do operador. O Nginx é compartilhado e o plugin Certbot realiza
+reconfiguração temporária de challenge; SIGKILL, queda de energia ou alteração
+concorrente externa não permitem prometer recuperação automática. O backup e
+`manifest.json` privado ficam em `/var/backups/fortcordis-stage-alias/repair-*`.
+Nenhum restart de aplicação, deploy de produção ou alteração de sudoers faz parte
+deste workflow.
 
 ## Comandos somente leitura
 
