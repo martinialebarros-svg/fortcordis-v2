@@ -1,7 +1,7 @@
 # Spec — Preferências e compactação da Agenda
 
 Data: 2026-10-04
-Status: implementado; validação local registrada em verify.md
+Status: publicado em produção; evidências e limites registrados em verify.md
 
 ## Comportamento
 
@@ -41,6 +41,13 @@ Status: implementado; validação local registrada em verify.md
   WhatsApp para o modal. Texto desconhecido permanece para revisão humana.
 - RF-012: a ferramenta administrativa de disponibilidade aceita o mesmo contrato
   e respeita o período na enumeração de dias e nas chamadas ao núcleo da Agenda.
+- RF-013: a medição operacional é executada sob demanda, em transação PostgreSQL
+  somente leitura, sem importar o runtime da aplicação. A saída contém apenas
+  agregados, separa intervalos persistidos da sensibilidade ao catálogo atual e
+  exclui membros de sobreposições das folgas elegíveis. Comparações pré/pós usam
+  semanas completas; registros futuros ou criados após o deploy não comprovam
+  atendimento realizado nem uso do novo motor. Amostra insuficiente e ausência
+  de atribuição causal devem permanecer explícitas.
 
 ## Contrato
 
@@ -82,11 +89,15 @@ o JSON existente de regras e as preferências transitam no pedido/consulta.
   gerar; mudar turno durante uma requisição invalida a resposta antiga.
 - CA-009: canais usam a mesma semântica de preferências e encaixes, preservando
   seus limites de apresentação e os controles humanos de confirmação.
+- CA-010: o coletor reproduz o baseline agregado de setembro e informa ausência
+  de observações pós-publicação em semanas completas no dia do deploy, sem
+  converter folgas teóricas em atendimentos adicionais. Rejeita banco diferente
+  do esperado e não imprime credenciais, identificadores ou conteúdo clínico.
 
 ## Limites e rollout
 
 Não reduz duração clínica, não move pacientes automaticamente e não atribui
 ganho financeiro a minutos fragmentados. Publicação e validação operacional em
-stage foram concluídas em 04/10/2026, conforme verify.md; produção segue pelo PR
-protegido de promoção. Rollback por reversão do código; o campo
+stage e produção foram concluídas em 04/10/2026, conforme verify.md, pelo PR
+protegido de promoção #301. Rollback por reversão do código; o campo
 aditivo no JSON é ignorável por versões anteriores.

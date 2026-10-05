@@ -14,7 +14,15 @@
    o mesmo núcleo. Não enviar mensagens nem realizar reservas nos testes.
 6. Executar testes sintéticos de integração e regressões relevantes, revisar o
    diff, verificar tipos/lint/build frontend e guardrail SDD; registrar evidência.
+7. Publicar pelo fluxo protegido stage → main e validar a versão instalada,
+   API e interface autenticadas, preservação de runtime e recuperação do backup.
+8. Consolidar as evidências de produção e a correção DNS/TLS do alias de stage.
+9. Disponibilizar extração agregada somente leitura para repetir o baseline e
+   comparar períodos completos pré/pós publicação, destacando sobreposições,
+   insuficiência de amostra e limites de atribuição causal.
 
 Ficam para uma evolução específica: otimizador global de roteiro, remanejamento
 de horários já confirmados, preferência permanente da clínica, alteração do
-histórico de duração, métricas novas em produção e publicação.
+histórico de duração e instrumentação adicional no runtime de produção.
+A medição operacional agora autorizada utiliza os registros já existentes,
+sem criar agendamentos ou confundir folgas programadas com ganho clínico real.

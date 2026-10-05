@@ -26,7 +26,9 @@ import {
   criarEcocardiogramaEstruturadoInicial,
   derivarLegadoDeEcocardiogramaEstruturado,
   qualitativaEcoLegadaIgual,
+  removerPresetDiastolicoFelino,
   serializarEcocardiogramaEstruturado,
+  temPresetDiastolicoFelinoAplicado,
 } from "@/lib/ecocardiograma-estruturado";
 import { listarTodasClinicas } from "@/lib/clinicas";
 import { TIPO_LAUDO_PRESSAO_ARTERIAL } from "@/lib/laudos";
@@ -1335,7 +1337,12 @@ export default function NovoLaudoPage() {
                         <select
                           value={paciente.especie}
                           onChange={(e) => {
-                            setPaciente({ ...paciente, especie: e.target.value, raca: "" });
+                            const especie = e.target.value;
+                            if (especie !== "Felina" && temPresetDiastolicoFelinoAplicado(ecocardiogramaEstruturado)) {
+                              if (!window.confirm("Este laudo contém uma descrição diastólica felina. Trocar a espécie removerá essa descrição; os demais achados serão preservados. Deseja continuar?")) return;
+                              setEcocardiogramaEstruturado(removerPresetDiastolicoFelino(ecocardiogramaEstruturado));
+                            }
+                            setPaciente({ ...paciente, especie, raca: "" });
                             setNovaRaca("");
                           }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
@@ -1972,6 +1979,7 @@ export default function NovoLaudoPage() {
                     <EcocardiogramaEstruturadoEditor
                       value={ecocardiogramaEstruturado}
                       onChange={setEcocardiogramaEstruturado}
+                      especie={paciente.especie}
                     />
 
                     {ecocardiogramaEstruturado.usar_no_laudo ? (

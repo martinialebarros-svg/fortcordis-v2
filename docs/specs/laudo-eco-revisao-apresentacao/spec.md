@@ -1,5 +1,20 @@
 # Spec - Revisão da apresentação do laudo ecocardiográfico
 
+## Incremento: padrões diastólicos felinos (2026-10-04)
+
+- RF-052: a biblioteca resolve a seleção do preset pelo título da frase no mesmo aspecto quando o banco runtime não possui `frase_id`, permitindo revisar e editar os presets felinos sincronizados.
+- RF-053: ao trocar a espécie de felina para outra após aplicar um dos presets complementares diastólicos, o formulário solicita confirmação. Se aceita, remove o texto desse aspecto e o vínculo com o preset, preservando os demais achados; se recusada, mantém o formulário intacto.
+- RF-054: após o deploy de produção, o workflow confirma que o commit implantado é o esperado e sincroniza o catálogo runtime preservado com os cinco presets felinos. A sincronização é idempotente, cria backup antes de escrever e preserva frases e escolhas personalizadas.
+
+- RF-047: oferecer presets complementares para padrão preservado, relaxamento retardado, pseudonormal, restritivo e classificação indeterminada em felinos. Cada preset preenche apenas `funcao_diastolica`, preservando os demais achados e a conclusão ao ser aplicado.
+- RF-048: os textos descrevem padrões ecocardiográficos após interpretação integrada, sem atribuir automaticamente idade, cardiomiopatia restritiva, pressão de enchimento elevada ou insuficiência cardíaca. Não há classificação automática por E/A isolada.
+- RF-049: os presets estruturais felinos de HCM, cardiomiopatia restritiva e DCM deixam de escolher automaticamente uma classe diastólica quando mantêm a seleção original do catálogo, inclusive se o runtime atribuiu ID à frase padrão. A sincronização do banco é idempotente, preserva seleções com texto diferente e produz backup antes de escrever o arquivo runtime.
+- RF-050: o editor mostra presets compatíveis com a espécie informada; presets comuns permanecem disponíveis. A opção complementar nunca apaga os outros aspectos do laudo.
+- RF-051: após o deploy de stage, o workflow sincroniza o catálogo runtime preservado com o commit implantado. A sincronização é idempotente e cria backup antes de qualquer escrita.
+- CA-046: selecionar uma classe felina após um preset estrutural modifica apenas `funcao_diastolica`; a conclusão clínica permanece para revisão do examinador. Em cão, as opções exclusivas de gato não aparecem.
+- CA-047: executar a sincronização duas vezes não duplica frases/presets; uma seleção personalizada com ID permanece intacta.
+- Fontes: [ACVIM 2020](https://doi.org/10.1111/jvim.15745) para avaliação ecocardiográfica integrada; [Rohrbaugh et al. 2020](https://doi.org/10.1111/jvim.15777) para classes funcionais em gatos com HCM; [Schober et al. 2010](https://doi.org/10.1111/j.1939-1676.2010.0592.x) para os padrões análogos em cães. As classes operacionais dos estudos não constituem limiares universais para todos os gatos.
+
 ## Incremento: marcadores ecocardiográficos felinos (2026-10-03)
 
 - RF-043: a fórmula de Cornell `DIVEd [cm] / peso^0,294` é aplicada apenas a cães. Em gatos, o formulário não a calcula nem a exibe, e a prévia, o PDF e o contexto da IA não tratam um índice canino salvo anteriormente como parâmetro felino. O valor histórico permanece armazenado, sem migração destrutiva.

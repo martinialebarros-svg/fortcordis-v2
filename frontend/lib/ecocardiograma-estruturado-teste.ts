@@ -52,6 +52,17 @@ export interface PayloadEcoEstruturadoTeste {
   presets: PresetEcoEstruturadoTeste[];
 }
 
+export function presetCompativelComEspecie(
+  preset: PresetEcoEstruturadoTeste,
+  especie?: string,
+): boolean {
+  const especieNormalizada = (especie || "").toLocaleLowerCase("pt-BR");
+  const tags = (preset.tags || []).map((tag) => tag.toLocaleLowerCase("pt-BR"));
+  if (especieNormalizada === "felina") return !tags.includes("cao") || tags.includes("gato");
+  if (especieNormalizada === "canina") return !tags.includes("gato") || tags.includes("cao");
+  return true;
+}
+
 export function ordenarAspectos(aspectos: AspectoEcoEstruturadoTeste[]): AspectoEcoEstruturadoTeste[] {
   return [...aspectos].sort((a, b) => {
     if ((a.ordem || 999) !== (b.ordem || 999)) {

@@ -98,6 +98,31 @@ export function criarEcocardiogramaEstruturadoInicial(): EcocardiogramaEstrutura
   };
 }
 
+export function temPresetDiastolicoFelinoAplicado(
+  estado: EcocardiogramaEstruturadoPersistido
+): boolean {
+  return estado.preset_label.startsWith("Função diastólica felina:") &&
+    Boolean(estado.textos.funcao_diastolica?.trim());
+}
+
+export function removerPresetDiastolicoFelino(
+  estado: EcocardiogramaEstruturadoPersistido
+): EcocardiogramaEstruturadoPersistido {
+  if (!temPresetDiastolicoFelinoAplicado(estado)) return estado;
+  const textos = { ...estado.textos };
+  const preset_textos = { ...estado.preset_textos };
+  delete textos.funcao_diastolica;
+  delete preset_textos.funcao_diastolica;
+  return {
+    ...estado,
+    preset_id: null,
+    preset_label: "",
+    preset_textos,
+    textos,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 function normalizarQuebrasDeLinha(texto: string): string {
   return String(texto || "").replace(/\r\n/g, "\n");
 }

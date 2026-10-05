@@ -27,7 +27,7 @@ Status: done
 | CA-017 | aceitacao | `sugerir_horarios_agenda` usa duracao oficial do servico quando `servico_id` existe, ignorando payload divergente | ok |
 | CA-018 | aceitacao | `sugerir_agendamento_proximo` passa a usar deslocamento total do slot (`anterior + proximo`) para ranking e mensagem | ok |
 | CA-019 | aceitacao | conflito operacional no salvar permite override apenas para admin via `confirmar_conflito_deslocamento`; nao-admin recebe `403` | ok |
-| CA-020 | aceitacao | `test_orquestrador_busca_dias_seguintes_quando_panorama_inicial_vazio` valida busca progressiva D+N ate primeira data com oferta | ok |
+| CA-020 | aceitacao | `test_orquestrador_busca_dias_seguintes_quando_panorama_inicial_vazio` valida busca progressiva D+N sem intervalo explicito; a restricao a periodos declarados esta coberta em `agenda-preferencias-compactacao/verify.md` | ok |
 | CA-021 | aceitacao | panorama final do assistente hierarquiza ate 3 datas com `agenda vazia` apenas no fim e varre dias intermediarios entre datas automaticas antes de ordenar o resultado | ok |
 | NFR-002 | nao funcional | decisao anexada em `observacoesFinal` no submit | ok |
 
@@ -83,7 +83,8 @@ Resultado adicional:
 - Cenario 17: na proximidade, validar caso com vizinho anterior e posterior no slot sugerido -> deslocamento exibido deve refletir soma dos dois lados.
 - Cenario 18: provocar `CONFLITO_DESLOCAMENTO` no salvar; com perfil admin confirmar excecao no popup e validar persistencia do agendamento.
 - Cenario 19: repetir o mesmo conflito com perfil nao-admin e validar ausencia de override (mensagem orientativa + bloqueio).
-- Cenario 20: sem slots em D+2/D+3/D+4 (agenda cheia ou fechada), clicar `Gerar melhor oferta` e validar que o assistente avanca automaticamente para D+5, D+6... ate retornar a primeira data com ofertas.
+- Cenario 20: sem intervalo explicito e sem slots em D+2/D+3/D+4 (agenda cheia ou fechada), clicar `Gerar melhor oferta` e validar que o assistente avanca automaticamente para D+5, D+6... ate retornar a primeira data com ofertas.
+- Cenario 21: informar intervalo explicito sem vagas, com vaga disponivel no dia seguinte ao fim; validar lista vazia orientativa, sem consulta/oferta fora do intervalo. Ampliar somente ao alterar ou limpar os filtros; o turno informado continua sendo respeitado.
 
 ## 4) Regressao e riscos residuais
 
@@ -101,8 +102,16 @@ Resultado adicional:
 
 ## Preferências e compactação — 04/10/2026
 
-Alteração local integrada ao contrato de `../agenda-preferencias-compactacao/spec.md`.
-A evidência de testes desta etapa está centralizada em
-`../agenda-preferencias-compactacao/verify.md`; registros de releases anteriores
-neste arquivo não significam publicação desta mudança. Não houve envio real,
-migration, edição de agendamentos ou alteração de configuração em produção.
+Contrato integrado a `../agenda-preferencias-compactacao/spec.md` e publicado
+em produção pelo PR #301, SHA `fa9781901ab7fa9f2939551a01d06bec6def38c4`.
+Testes, deploy e conferência visual autenticada estão centralizados em
+`../agenda-preferencias-compactacao/verify.md`. A validação não criou ou editou
+agendamentos e não enviou mensagens reais. Os checkboxes anteriores pertencem
+ao ciclo histórico registrado acima.
+
+Ressalva de escopo da busca progressiva: RF-022, CA-020, CB-006 e CB-007
+preservam D+N apenas quando não há intervalo explícito. O orquestrador enumera
+exclusivamente as datas da preferência e não entra na progressão de dias quando
+`periodo_explicito` é verdadeiro. A preferência de turno/horas é aplicada antes
+do ranking em qualquer data consultada. Evidências dessa restrição permanecem
+centralizadas em `../agenda-preferencias-compactacao/verify.md`.

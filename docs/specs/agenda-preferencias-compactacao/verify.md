@@ -1,7 +1,7 @@
 # Verify — Preferências e compactação da Agenda
 
 Data: 2026-10-04
-Status: validado localmente e publicado em stage; produção pendente
+Status: publicado e validado em produção
 
 ## Evidências de origem
 
@@ -63,8 +63,8 @@ dias entre proximidade e panorama, limitado a 31 dias; não houve benchmark de
 latência em produção nesta etapa.
 
 O cenário de capacidade continua sendo uma simulação; não há medição de ganho
-real de produtividade. A publicação em stage e o smoke de navegador estão
-registrados abaixo. Não houve promoção para produção.
+real de produtividade. As publicações e verificações em stage e produção estão
+registradas abaixo.
 
 ## Publicação e validação em stage — 2026-10-04
 
@@ -124,3 +124,128 @@ Evidências locais: `/tmp/fortcordis-agenda-stage-deploy.log` e
 `/tmp/fortcordis-agenda-stage-http-smoke.json`. Este registro posterior ao deploy
 foi incorporado por atualização documental de preparação da promoção; o
 resultado também acompanha a descrição do PR #299.
+
+## Publicação e validação em produção — 2026-10-04
+
+- PR documental [#300](https://github.com/martinialebarros-svg/fortcordis-v2/pull/300)
+  incorporou as evidências de stage e fechou três registros históricos do
+  assistente administrativo com provas de deploy/ancestralidade e viewport live,
+  sem label de exceção. Não alterou código executável.
+- Stage final `7068aac3162c89ac525a9540f24f6df68998f430`: deploy `37219016435`
+  aprovado, com canary e restore drill. O código permaneceu idêntico a `a44b3de0`.
+- Promoção direta e protegida pelo PR
+  [#301](https://github.com/martinialebarros-svg/fortcordis-v2/pull/301), após os
+  12 checks passarem. O guard de fluxo rodou novamente após atualização da
+  descrição; o merge aguardou seu sucesso, sem bypass.
+- Produção: `fa9781901ab7fa9f2939551a01d06bec6def38c4`. A árvore do merge é
+  idêntica à de stage (`83fdfa52f8ed2e0041c5e2d111aac9df164b3e17`).
+- [Deploy 37219848127](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/37219848127):
+  quality-gate, SDD e deploy concluídos com sucesso. Frontend CI `37219848075`
+  e Migration CI `37219848088` também passaram.
+- HEAD instalado conferido por SSH e pelo log de deploy. Serviços backend e
+  frontend ativos. Nenhuma nova migration, dependência ou mudança de workflow.
+- Logs confirmam `Preserved runtime file` e `Restored runtime file` para SQLite
+  e os cinco arquivos de frases/patologias; canary autenticado e restore drill
+  aprovados. HTTP/2 já estava configurado, sem alteração nesse passo.
+- Canary Agenda: 5/5 amostras, p50 89,71 ms e p95 413,48 ms, limite 1.200 ms.
+  O indicador é do endpoint de leitura, não um benchmark do motor de sugestões.
+
+### Smoke público e consulta autenticada
+
+- Cinco domínios aprovados: `app.fortcordis.com.br`, `fortcordis.com.br`,
+  `www.fortcordis.com.br`, `fortcordis.com` e `www.fortcordis.com`.
+- Raiz e Agenda com status final 200; aliases da Agenda redirecionam ao
+  canônico. API da Agenda sem credenciais retorna 401 nos cinco domínios.
+- Todos os 18 chunks retornam 200 e contêm os marcadores de preferências,
+  próxima semana e transição no mesmo local.
+- Consulta funcional na API instalada com autenticação efêmera do helper
+  oficial de canary, mantida em memória. Foram dez consultas HTTP, sem
+  criação/reserva/remarcação ou envio de mensagens de teste.
+- Animal Care / Ecocardiograma: catálogo real de 40 minutos preservado.
+  Manhã: 05/10, 09:00–09:40. Tarde: 08/10, 13:00–13:40, 13:15–13:55 e
+  13:30–14:10. Todas as opções cabem integralmente nas preferências enviadas.
+- Datas de tarde sem encaixe retornaram vazio. Consultar uma data fora do
+  intervalo declarado também retornou vazio, e o par incompleto de datas foi
+  rejeitado com HTTP 422.
+- Apenas contagens, horários e duração foram registrados; nenhum payload de
+  paciente, tutor, vizinho ou credencial foi impresso. A consulta pode atualizar
+  cache/métricas de deslocamento e logs normais, sem alterar os agendamentos.
+- O fluxo visual autenticado foi validado em stage; em produção, a comprovação
+  foi feita por consulta autenticada da API, canary e versão servida nos bundles.
+
+Evidências locais: `/tmp/fortcordis-agenda-prod-deploy.log`,
+`/tmp/fortcordis-agenda-prod-http-smoke.json` e
+`/tmp/fortcordis-agenda-prod-functional-smoke.jsonl`. O resultado também foi
+registrado no PR #301; esta seção posterior ao deploy foi incorporada ao
+versionamento junto das verificações complementares autorizadas pelo usuário.
+
+## Complemento: interface autenticada em produção — 2026-10-04
+
+Conferência na sessão existente do Safari em `app.fortcordis.com.br/agenda`,
+aproximadamente 22:05–22:11 em Fortaleza. Animal Care / Ecocardiograma, sem
+selecionar tutor ou paciente, sem aceitar oferta e sem salvar agendamento.
+
+| Cenário | Resultado observado |
+| --- | --- |
+| Catálogo e preferência antes da busca | Ecocardiograma com 40 minutos; controles de período/turno visíveis antes de gerar |
+| Próxima semana + tarde | Período explícito 05–11/10; ofertas 09/10 12:00–12:40 e 12:15–12:55 |
+| Troca para manhã | Ofertas da tarde removidas imediatamente, antes da nova geração |
+| Nova geração de manhã | Seis ofertas em 05, 06 e 09/10, todas com 40 minutos e término até 12h; inclui 09/10 11:20–12:00 |
+| Faixa personalizada incompleta | Geração desabilitada e indicação de início/fim obrigatórios |
+| Faixa 16:00–16:15 | Nenhuma oferta; mensagem para ajustar a preferência, sem ampliar automaticamente |
+| Encerramento | Formulário cancelado e aba de verificação fechada; nenhum aceite, reserva, envio ou salvamento |
+
+A imagem da interface e a árvore de acessibilidade confirmaram os controles e
+resultados. Consultas podem atualizar cache/métricas de deslocamento e logs.
+Os horários diferem do smoke anterior porque disponibilidade e ranking são
+dinâmicos; ambos preservaram as restrições. Este complemento encerra a lacuna
+de conferência visual autenticada em produção registrada na seção anterior.
+
+## Complemento: alias de stage — DNS e TLS corrigidos
+
+O diagnóstico inicial encontrou NXDOMAIN nas duas autoridades Cloudflare e
+certificado apenas com stage/app.stage. O vhost já contemplava o alias.
+Após login do usuário, o CNAME `www.stage` → `stage.fortcordis.com.br` foi
+salvo com DNS only/TTL 300 e confirmado nas duas autoridades e em dois DNS
+públicos. O certificado foi renovado para os três nomes de stage.
+
+O PR #304 incorporou o coletor, os registros finais da publicação da Agenda e
+o reparo TLS manual restrito. O procedimento está em [stage-alias.md](stage-alias.md);
+a evidência da execução fica em [verify do alias](../stage-alias-tls/verify.md).
+Foram aprovados os 11 blocos Bash do runbook e os 14 testes do reparo.
+O primeiro dispatch foi cancelado ainda na fila para corrigir o jitter do
+Certbot instalado, antes de qualquer job ou mutação de certificados. Após o
+PR #305 e o deploy `37253117384`, o run manual `37253410573` terminou em
+`success`: emitiu o certificado de stage com os três SANs, aprovou renovação
+de teste e preservou os oito hashes protegidos. Smoke público estrito passou
+nos três domínios de stage e nos cinco de produção; API anônima manteve 401.
+
+## Complemento: medição operacional reproduzível
+
+- Coletor: `scripts/agenda_efficiency_metrics.py`; método, comando e limitações
+  em [metrics.md](metrics.md). A coleta não importa o runtime da aplicação.
+- Coleta final em 04/10/2026 às 22:19:43 Fortaleza, via stdin na VPS, sem gravar
+  arquivos remotos, em PostgreSQL com `read_only=on` e `repeatable read`.
+- Evidência sem nomes, contatos, observações ou identificadores:
+  [metrics-baseline-2026-10-04.json](evidence/metrics-baseline-2026-10-04.json).
+- Setembro: 177 registros, 143 realizados, 24 dias ativos, 29 pares na mesma
+  clínica, dos quais nove com intervalo negativo. As lacunas não negativas
+  somam 315 minutos; excesso fragmentado acima de cinco minutos soma 235.
+- A medida mais rigorosa exclui todos os eventos envolvidos em sobreposição e
+  desconta as transições dentro de cada bloco: 195 minutos de folga teórica,
+  tanto por duração persistida quanto na sensibilidade ao catálogo atual.
+  Não equivale a capacidade adicional garantida e não altera o histórico.
+- Comparação definida: pré 31/08–27/09 e pós 05/10–01/11. No snapshot existem
+  zero semanas pós completas: `INSUFFICIENT_SAMPLE`, sem diferença calculada
+  ou ganho causal. Registros futuros permanecem em seção separada.
+- Vinte testes aprovados, incluindo sobreposições aninhadas, lacunas/durações
+  ausentes, reservas expiradas, coortes de criação, semanas incompletas,
+  catálogo como sensibilidade, privacidade e rejeição de banco/transação
+  incompatíveis. Sintaxe Python e `git diff --check` aprovados.
+- Revisão independente confirmou os testes e a separação entre duração
+  persistida principal e catálogo atual; não restou achado acionável no coletor.
+
+A preparação e a primeira coleta estão concluídas. A medição de diferença
+observada requer o decurso da janela pós, completa a partir de 02/11/2026 em
+Fortaleza; mesmo então a comparação será descritiva, sem prova causal. Não foi
+criada automação nem instrumentação adicional no runtime.
