@@ -1,0 +1,245 @@
+{
+  "observed_at_utc": "2026-10-05T02:23:28.291697+00:00",
+  "stage_merge_sha": "23153744e2ac3063cfff954876a80e3d83518886",
+  "production_sha_preserved": "fa9781901ab7fa9f2939551a01d06bec6def38c4",
+  "pull_requests": [
+    304,
+    305
+  ],
+  "stage_deploy_run": 37253117384,
+  "stage_repair_run": 37253410573,
+  "stage_repair_result": [
+    {
+      "source_sha": "23153744e2ac3063cfff954876a80e3d83518886",
+      "status": "stage_alias_repair"
+    },
+    {
+      "path": "/var/backups/fortcordis-stage-alias/repair-6arsp77b",
+      "protected_files": 8,
+      "status": "backup_ready"
+    },
+    {
+      "host": "stage.fortcordis.com.br",
+      "http_status": 307,
+      "status": "https_ok"
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "http_status": 200,
+      "status": "https_ok"
+    },
+    {
+      "host": "www.stage.fortcordis.com.br",
+      "http_status": 307,
+      "status": "https_ok"
+    },
+    {
+      "host": "stage.fortcordis.com.br",
+      "http_status": 307,
+      "status": "https_ok"
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "http_status": 200,
+      "status": "https_ok"
+    },
+    {
+      "host": "www.stage.fortcordis.com.br",
+      "http_status": 307,
+      "status": "https_ok"
+    },
+    {
+      "issued": true,
+      "protected_files": 8,
+      "sans": 3,
+      "status": "complete"
+    }
+  ],
+  "dns": {
+    "type": "CNAME",
+    "name": "www.stage.fortcordis.com.br",
+    "target": "stage.fortcordis.com.br",
+    "ttl_seconds": 300,
+    "proxied": false,
+    "authorities": [
+      "jakub.ns.cloudflare.com",
+      "ollie.ns.cloudflare.com"
+    ],
+    "public_resolvers": [
+      "1.1.1.1",
+      "8.8.8.8"
+    ],
+    "resolved_ipv4": "216.238.116.77"
+  },
+  "certificate": {
+    "subject_alt_names": [
+      "app.stage.fortcordis.com.br",
+      "stage.fortcordis.com.br",
+      "www.stage.fortcordis.com.br"
+    ],
+    "issuer": [
+      [
+        [
+          "countryName",
+          "US"
+        ]
+      ],
+      [
+        [
+          "organizationName",
+          "Let's Encrypt"
+        ]
+      ],
+      [
+        [
+          "commonName",
+          "YR1"
+        ]
+      ]
+    ],
+    "not_before": "Oct  5 01:08:51 2026 GMT",
+    "not_after": "Jan  3 01:08:50 2027 GMT",
+    "strict_tls_verified": true
+  },
+  "renewal_config": {
+    "authenticator": "nginx",
+    "installer": "nginx",
+    "stage_dry_run": "passed_in_workflow"
+  },
+  "stage_http": {
+    "passed": true,
+    "pages": [
+      {
+        "url": "https://app.stage.fortcordis.com.br/",
+        "status": 200,
+        "final_url": "https://app.stage.fortcordis.com.br/"
+      },
+      {
+        "url": "https://app.stage.fortcordis.com.br/agenda",
+        "status": 200,
+        "final_url": "https://app.stage.fortcordis.com.br/agenda"
+      },
+      {
+        "url": "https://app.stage.fortcordis.com.br/api/v1/agenda",
+        "status": 401,
+        "final_url": "https://app.stage.fortcordis.com.br/api/v1/agenda"
+      },
+      {
+        "url": "https://stage.fortcordis.com.br/",
+        "status": 200,
+        "final_url": "https://stage.fortcordis.com.br/"
+      },
+      {
+        "url": "https://stage.fortcordis.com.br/agenda",
+        "status": 200,
+        "final_url": "https://app.stage.fortcordis.com.br/agenda"
+      },
+      {
+        "url": "https://stage.fortcordis.com.br/api/v1/agenda",
+        "status": 401,
+        "final_url": "https://stage.fortcordis.com.br/api/v1/agenda"
+      },
+      {
+        "url": "https://www.stage.fortcordis.com.br/",
+        "status": 200,
+        "final_url": "https://www.stage.fortcordis.com.br/"
+      },
+      {
+        "url": "https://www.stage.fortcordis.com.br/agenda",
+        "status": 200,
+        "final_url": "https://app.stage.fortcordis.com.br/agenda"
+      },
+      {
+        "url": "https://www.stage.fortcordis.com.br/api/v1/agenda",
+        "status": 401,
+        "final_url": "https://www.stage.fortcordis.com.br/api/v1/agenda"
+      }
+    ],
+    "feature_markers_all_present": true
+  },
+  "production_http": {
+    "passed": true,
+    "pages": [
+      {
+        "url": "https://app.fortcordis.com.br/",
+        "status": 200,
+        "final_url": "https://app.fortcordis.com.br/"
+      },
+      {
+        "url": "https://app.fortcordis.com.br/agenda",
+        "status": 200,
+        "final_url": "https://app.fortcordis.com.br/agenda"
+      },
+      {
+        "url": "https://app.fortcordis.com.br/api/v1/agenda",
+        "status": 401,
+        "final_url": "https://app.fortcordis.com.br/api/v1/agenda"
+      },
+      {
+        "url": "https://fortcordis.com.br/",
+        "status": 200,
+        "final_url": "https://fortcordis.com.br/"
+      },
+      {
+        "url": "https://fortcordis.com.br/agenda",
+        "status": 200,
+        "final_url": "https://app.fortcordis.com.br/agenda"
+      },
+      {
+        "url": "https://fortcordis.com.br/api/v1/agenda",
+        "status": 401,
+        "final_url": "https://fortcordis.com.br/api/v1/agenda"
+      },
+      {
+        "url": "https://www.fortcordis.com.br/",
+        "status": 200,
+        "final_url": "https://www.fortcordis.com.br/"
+      },
+      {
+        "url": "https://www.fortcordis.com.br/agenda",
+        "status": 200,
+        "final_url": "https://app.fortcordis.com.br/agenda"
+      },
+      {
+        "url": "https://www.fortcordis.com.br/api/v1/agenda",
+        "status": 401,
+        "final_url": "https://www.fortcordis.com.br/api/v1/agenda"
+      },
+      {
+        "url": "https://fortcordis.com/",
+        "status": 200,
+        "final_url": "https://fortcordis.com/"
+      },
+      {
+        "url": "https://fortcordis.com/agenda",
+        "status": 200,
+        "final_url": "https://app.fortcordis.com.br/agenda"
+      },
+      {
+        "url": "https://fortcordis.com/api/v1/agenda",
+        "status": 401,
+        "final_url": "https://fortcordis.com/api/v1/agenda"
+      },
+      {
+        "url": "https://www.fortcordis.com/",
+        "status": 200,
+        "final_url": "https://www.fortcordis.com/"
+      },
+      {
+        "url": "https://www.fortcordis.com/agenda",
+        "status": 200,
+        "final_url": "https://app.fortcordis.com.br/agenda"
+      },
+      {
+        "url": "https://www.fortcordis.com/api/v1/agenda",
+        "status": 401,
+        "final_url": "https://www.fortcordis.com/api/v1/agenda"
+      }
+    ],
+    "feature_markers_all_present": true
+  },
+  "limits": [
+    "Aprovação dos oito hashes protegidos é a verificação do script, não uma medição da aplicação em uso.",
+    "Execução concluída não mede ganho de atendimentos; a janela pós completa termina em 01/11/2026."
+  ]
+}
