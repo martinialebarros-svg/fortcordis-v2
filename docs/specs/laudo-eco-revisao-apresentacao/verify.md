@@ -4,13 +4,17 @@
 
 - CA-048: selecionar na biblioteca um preset sincronizado com `frase_id` ausente destaca a frase correta, pelo título e dentro do aspecto. O preset continua aplicável no editor.
 - CA-049: ao confirmar a troca de espécie após preset diastólico felino, apenas a descrição diastólica e o vínculo com o preset são removidos; outros aspectos e o estado de uso do estruturado permanecem. Cancelar a confirmação não altera espécie nem textos.
+- CA-050: o deploy de produção só sincroniza após confirmar o SHA implantado; a primeira execução cria backup do banco runtime e disponibiliza os cinco presets, sem substituir escolhas personalizadas. A repetição não cria duplicatas nem altera o catálogo.
 
 | Critério | Verificação | Estado |
 | --- | --- | --- |
 | CA-046 | Teste do editor confirma apenas a substituição da função diastólica, com conclusão e VE preservados; teste da biblioteca verifica filtro por espécie. O botão de reset não é oferecido ao preset complementar. | aprovado |
 | CA-047 | Teste backend verifica cinco presets resolvidos, idempotência, remoção da escolha padrão mesmo com ID runtime e preservação de escolha com título diferente. Execução em arquivo temporário confirma prévia sem escrita, backup e repetição sem novos backups. | aprovado |
 | RF-048 | Revisão dos cinco textos frente a ACVIM 2020 e Rohrbaugh et al. 2020 | concluído |
-| RF-051 | Workflow de stage exige SHA implantado e executa sincronização idempotente após o deploy; conferir log e catálogo autenticado no smoke | pendente |
+| RF-051 | Deploy de stage do commit `51689e55` passou; log confirmou SHA implantado e sincronização idempotente sem alterações adicionais. Biblioteca autenticada mostrou e selecionou o preset restritivo. | aprovado |
+| CA-048 | Biblioteca autenticada de stage destacou a frase restritiva pelo título dentro do aspecto; teste automatizado do seletor passou. | aprovado |
+| CA-049 | Testes do formulário e helper confirmam aceite, cancelamento e preservação dos outros aspectos; a conferência manual do diálogo aguarda desbloqueio do navegador. | teste automatizado aprovado; smoke manual pendente |
+| CA-050 | Workflow de produção com guarda de SHA e script idempotente de backup; conferir log, catálogo autenticado e segunda execução após publicação. | pendente de produção |
 
 Validação local: 14 testes backend focados, 495 testes Vitest, TypeScript, ESLint dos arquivos alterados, build Next.js, `compileall`, `git diff --check` e avaliação SDD aprovados. Nenhum laudo existente foi regravado; publicação em stage e produção ainda não realizada.
 
