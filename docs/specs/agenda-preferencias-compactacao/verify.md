@@ -201,20 +201,24 @@ Os horários diferem do smoke anterior porque disponibilidade e ranking são
 dinâmicos; ambos preservaram as restrições. Este complemento encerra a lacuna
 de conferência visual autenticada em produção registrada na seção anterior.
 
-## Complemento: alias de stage — DNS corrigido e reparo TLS em andamento
+## Complemento: alias de stage — DNS e TLS corrigidos
 
 O diagnóstico inicial encontrou NXDOMAIN nas duas autoridades Cloudflare e
 certificado apenas com stage/app.stage. O vhost já contemplava o alias.
 Após login do usuário, o CNAME `www.stage` → `stage.fortcordis.com.br` foi
 salvo com DNS only/TTL 300 e confirmado nas duas autoridades e em dois DNS
-públicos. A prova DNS não encerra TLS.
+públicos. O certificado foi renovado para os três nomes de stage.
 
 O PR #304 incorporou o coletor, os registros finais da publicação da Agenda e
 o reparo TLS manual restrito. O procedimento está em [stage-alias.md](stage-alias.md);
 a evidência da execução fica em [verify do alias](../stage-alias-tls/verify.md).
 Foram aprovados os 11 blocos Bash do runbook e os 14 testes do reparo.
 O primeiro dispatch foi cancelado ainda na fila para corrigir o jitter do
-Certbot instalado, antes de qualquer job ou mutação de certificados.
+Certbot instalado, antes de qualquer job ou mutação de certificados. Após o
+PR #305 e o deploy `37253117384`, o run manual `37253410573` terminou em
+`success`: emitiu o certificado de stage com os três SANs, aprovou renovação
+de teste e preservou os oito hashes protegidos. Smoke público estrito passou
+nos três domínios de stage e nos cinco de produção; API anônima manteve 401.
 
 ## Complemento: medição operacional reproduzível
 

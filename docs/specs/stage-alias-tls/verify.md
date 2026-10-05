@@ -1,17 +1,17 @@
 # Verify — Alias HTTPS de stage
 
 Data local: 2026-10-04
-Status: DNS corrigido; reparo TLS preparado para execução protegida
+Status: DNS e HTTPS corrigidos; smoke público aprovado
 
-Diagnóstico confirmado em `../agenda-preferencias-compactacao/stage-alias.md`:
+Diagnóstico inicial confirmado em `../agenda-preferencias-compactacao/stage-alias.md`:
 NXDOMAIN nas duas autoridades e em dois resolvedores públicos; vhost já possui
-o alias; certificado atual não possui seu SAN; Nginx tem sintaxe válida.
+o alias; o certificado anterior não possuía seu SAN; Nginx tinha sintaxe válida.
 
 O usuário concluiu login no Cloudflare e a zona correta foi conferida. O CNAME
 `www.stage` → `stage.fortcordis.com.br` foi salvo com DNS only e TTL de 300 s.
-O painel filtrado mostra um registro correspondente. A autoridade `jakub` e
-os resolvedores `1.1.1.1` e `8.8.8.8` já respondem o CNAME e o A esperado
-`216.238.116.77`. Isso comprova apenas DNS; TLS ainda depende da execução.
+O painel filtrado mostra um registro correspondente. As duas autoridades
+`jakub` e `ollie` e os resolvedores `1.1.1.1` e `8.8.8.8` respondem o CNAME
+e o A esperado `216.238.116.77`.
 
 Validação local e revisão independente concluídas antes da publicação:
 
@@ -22,7 +22,36 @@ Validação local e revisão independente concluídas antes da publicação:
 - Teste executa o guard: stage permitido; main e branch de trabalho recusados.
 - Nenhuma emissão ACME, reload de Nginx ou dispatch foi feito nesta preparação.
 
-As evidências de execução TLS serão acrescentadas após o resultado real.
+## Execução e resultado observado
+
+- PR #304 incorporou workflow/coletor; PR #305 corrigiu o jitter do dry-run.
+  A execução aprovada foi o workflow manual sobre `stage` no SHA
+  `23153744e2ac3063cfff954876a80e3d83518886`. Deploy de stage
+  [37253117384](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/37253117384)
+  e reparo [37253410573](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/37253410573)
+  terminaram em `success`.
+- O reparo registrou backup privado em
+  `/var/backups/fortcordis-stage-alias/repair-6arsp77b`, `issued=true`, três
+  SANs e `complete`. Os oito arquivos protegidos mantiveram seus hashes;
+  nenhum rollback real foi necessário. O backup usa cópias/manifest, não tar.
+- Certificado Let's Encrypt YR1 válido até 03/01/2027 01:08:50 UTC, com SANs
+  exatos stage, app.stage e www.stage. Validação TLS estrita passou. O
+  workflow também aprovou `nginx -t`, redirecionamentos, resposta canônica
+  e dry-run restrito à linhagem de stage. Renovação conserva
+  `authenticator = nginx` e `installer = nginx`.
+- Smoke público sem `-k` nem DNS forçado: três hosts de stage com raiz 200,
+  Agenda final 200 e API anônima 401; aliases da Agenda redirecionam ao
+  canônico. Todos os marcadores esperados foram encontrados nos bundles.
+  Os cinco hosts de produção passaram as mesmas três rotas, e o checkout de
+  produção permaneceu em `fa9781901ab7fa9f2939551a01d06bec6def38c4`.
+  O checkout de stage contém exatamente o SHA do dispatch. Os marcadores
+  de bundles provam funcionalidade servida, não identidade de commit.
+- Evidência agregada e sem dados de pacientes:
+  [completion-2026-10-04.json](evidence/completion-2026-10-04.json).
+
+Este resultado encerra o reparo DNS/TLS. A diferença real de eficiência da
+Agenda continua dependente da janela pós completa em 02/11/2026.
+
 
 ## Compatibilidade da renovação instalada
 

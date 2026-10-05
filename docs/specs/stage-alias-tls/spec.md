@@ -14,7 +14,7 @@
   backup privado da linhagem/vhost de stage e hashes dos arquivos de produção.
 - RF-005: usar HTTP-01 pelo plugin Nginx existente. Só recarregar configuração
   válida; conferir os três SANs, HTTPS estrito e renovação restrita a stage.
-  O dry-run interativo de operação desabilita a espera aleatória do comando
+  O dry-run operacional desabilita a espera aleatória do comando
   (`--no-random-sleep-on-renew`), sem modificar a renovação automática agendada.
 - RF-006: falhas exigem restauração do backup de stage quando apropriado; não
   remover dados nem restaurar certificados/vhosts de produção. O alias DNS novo

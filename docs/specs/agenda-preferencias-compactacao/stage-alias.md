@@ -4,8 +4,8 @@
 
 Diagnóstico inicial somente leitura realizado em 04/10/2026, horário de
 Fortaleza (05/10/2026 UTC). A tabela abaixo preserva esse estado inicial.
-O CNAME foi posteriormente criado; a evidência consolidada da execução está
-em `../stage-alias-tls/verify.md`.
+O CNAME foi criado e o certificado de stage renovado com sucesso. A evidência
+consolidada está em `../stage-alias-tls/verify.md`.
 
 Objetivo: tornar `www.stage.fortcordis.com.br` acessível como alias de stage,
 preservando os hosts e certificados de produção. O Nginx já atende esse nome.
@@ -31,8 +31,8 @@ site institucional de produção e não são apropriados a este reparo.
 | Renovação atual de stage | `authenticator = nginx`, `installer = nginx` |
 | Challenge webroot | Nenhum `location` de `acme-challenge`/webroot identificado nos vhosts/snippets; a existência de `/var/lib/letsencrypt` não comprova um webroot publicado |
 
-O teste com `-k` não aprova TLS. Criar somente o DNS deixaria um erro de
-certificado. Não é necessário modificar `server_name` nem apontar para portas
+O teste inicial com `-k` não aprovava TLS. Criar somente o DNS teria deixado
+um erro de certificado. Não é necessário modificar `server_name` nem apontar para portas
 de produção.
 
 ## Acesso existente e condição para executar
@@ -92,7 +92,7 @@ O SOA observado anuncia 1.800 segundos de cache negativo. Resolvedores que
 tenham guardado o NXDOMAIN podem demorar cerca de 30 minutos para atualizar,
 mesmo que o novo registro tenha TTL 300.
 
-## Procedimento preparado pelo CI existente
+## Procedimento executado pelo CI existente
 
 Arquivos revisáveis:
 
@@ -136,8 +136,9 @@ estão no SDD `../stage-alias-tls/verify.md`):
 6. Valida SANs, validade, hashes, sintaxe e TLS estrito; exige `/agenda` nos aliases
    redirecionando exatamente para `https://app.stage.fortcordis.com.br/agenda`
    e HTTP 200 no host canônico. Executa dry-run de renovação apenas do lineage de
-   stage e repete os checks. Certbot 1.21 da VPS aceita `--no-directory-hooks` e
-   `--disable-renew-updates`, confirmados por leitura de seu help.
+   stage e repete os checks. Certbot 1.21 da VPS aceita `--no-directory-hooks`,
+   `--disable-renew-updates` e `--no-random-sleep-on-renew` no dry-run. A última
+   opção elimina o jitter apenas desta execução operacional.
 7. Somente o status `complete` e o smoke público posterior aprovam o reparo.
    Arquivar o link do run, os hashes/contagens e o resultado sanitizado no SDD
    `docs/specs/stage-alias-tls/verify.md`.
@@ -342,9 +343,15 @@ Não restaurar uma configuração Nginx global, certificados de produção ou da
 da aplicação. O listener Nginx é compartilhado: validar a sintaxe antes de
 cada reload é obrigatório, mesmo sem editar produção.
 
-## Registro da execução futura
+## Registro da execução
 
-Esta seção permanece pendente: alternativa escolhida, horário, caminho seguro
-do backup, IDs/nome dos registros DNS alterados (sem credenciais), resultados
-DNS/TLS/HTTP, SANs, validade, renovação e comparação dos hashes de produção.
-Atualizar somente após observação real; a preparação não comprova remediação.
+O CNAME foi criado primeiro no Cloudflare, depois os PRs #304 e #305 foram
+integrados em stage. O primeiro dispatch `37252593566` foi cancelado na fila
+sem jobs para corrigir o jitter do Certbot. O deploy de stage `37253117384`
+terminou antes da execução efetiva do reparo `37253410573`, ambos com sucesso.
+A alternativa executada foi HTTP-01 do workflow, não os comandos manuais de
+tar. Backup privado `repair-6arsp77b`; três SANs exatos; emissão `issued=true`;
+renovação de teste e hashes dos oito arquivos protegidos aprovados. O TLS
+estrito e as rotas de stage e produção passaram no smoke público. A evidência
+completa e os limites estão em `../stage-alias-tls/verify.md` e em
+`../stage-alias-tls/evidence/completion-2026-10-04.json`.
