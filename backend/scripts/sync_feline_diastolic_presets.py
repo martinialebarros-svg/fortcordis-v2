@@ -43,7 +43,8 @@ PATTERNS = (
     ),
 )
 
-# Only known seed presets are adjusted; customized diastolic choices are left alone.
+# Only known seed titles in known feline presets are adjusted. A runtime-assigned
+# phrase ID does not turn the original catalog choice into a customization.
 SEED_SELECTIONS = {
     "hcm_leve": "Disfunção diástólica leve",
     "hcm_moderada": "Disfunção diástólica por HCM",
@@ -92,7 +93,6 @@ def synchronize(bank: dict) -> list[str]:
         retained = [selection for selection in selections if not (
             selection.get("aspecto") == "funcao_diastolica"
             and selection.get("frase_titulo") == expected
-            and selection.get("frase_id") is None
         )]
         if len(retained) != len(selections):
             preset["selecoes"] = retained
