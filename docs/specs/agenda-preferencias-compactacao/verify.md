@@ -201,21 +201,20 @@ Os horários diferem do smoke anterior porque disponibilidade e ranking são
 dinâmicos; ambos preservaram as restrições. Este complemento encerra a lacuna
 de conferência visual autenticada em produção registrada na seção anterior.
 
-## Complemento: alias de stage — diagnóstico e execução condicionada ao acesso
+## Complemento: alias de stage — DNS corrigido e reparo TLS em andamento
 
-`www.stage.fortcordis.com.br` retorna NXDOMAIN nas duas autoridades Cloudflare
-e nos resolvedores públicos consultados. Além do DNS ausente, o certificado
-servido pela VPS inclui somente `stage` e `app.stage`; o HTTPS estrito com DNS
-forçado falha por ausência do SAN `www.stage`. O vhost e os upstreams de stage
-já incluem o alias, e `nginx -t` passou.
+O diagnóstico inicial encontrou NXDOMAIN nas duas autoridades Cloudflare e
+certificado apenas com stage/app.stage. O vhost já contemplava o alias.
+Após login do usuário, o CNAME `www.stage` → `stage.fortcordis.com.br` foi
+salvo com DNS only/TTL 300 e confirmado nas duas autoridades e em dois DNS
+públicos. A prova DNS não encerra TLS.
 
-O procedimento completo está em [stage-alias.md](stage-alias.md), com registro
-CNAME DNS only/TTL 300, backup limitado a stage, emissão/renovação e rollback.
-Os 11 blocos de comandos foram validados com `bash -n`, sem executar mutações.
-A correção não está concluída: não há sessão Cloudflare autenticada nem
-credencial de edição DNS disponível; Certbot também requer sudo autenticado,
-além dos comandos de Nginx permitidos sem senha. O login foi solicitado ao
-usuário, sem pedir senha/token pelo chat. Nenhum DNS/certificado foi alterado.
+O PR #304 incorporou o coletor, os registros finais da publicação da Agenda e
+o reparo TLS manual restrito. O procedimento está em [stage-alias.md](stage-alias.md);
+a evidência da execução fica em [verify do alias](../stage-alias-tls/verify.md).
+Foram aprovados os 11 blocos Bash do runbook e os 14 testes do reparo.
+O primeiro dispatch foi cancelado ainda na fila para corrigir o jitter do
+Certbot instalado, antes de qualquer job ou mutação de certificados.
 
 ## Complemento: medição operacional reproduzível
 

@@ -257,7 +257,8 @@ def repair(run):
         run(["/bin/systemctl", "reload", "nginx"], "nginx_reload")
         verify_https(run)
         run(["/usr/bin/certbot", "renew", "--cert-name", LINEAGE, "--dry-run",
-             "--non-interactive", "--no-directory-hooks", "--disable-renew-updates"], "renewal_dry_run", 300)
+             "--non-interactive", "--no-directory-hooks", "--disable-renew-updates",
+             "--no-random-sleep-on-renew"], "renewal_dry_run", 300)
         require_hashes(backup.protected, "protected_files")
         require_hashes(backup.vhost, "stage_vhost")
         run(["/usr/sbin/nginx", "-t"], "nginx_final")

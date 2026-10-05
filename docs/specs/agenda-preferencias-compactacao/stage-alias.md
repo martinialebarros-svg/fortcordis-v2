@@ -2,16 +2,17 @@
 
 ## Estado e escopo
 
-Diagnóstico somente leitura realizado em 04/10/2026, horário de Fortaleza
-(05/10/2026 UTC). Este documento prepara a intervenção; **nenhuma alteração de
-DNS, certificado ou Nginx foi executada** nesta etapa.
+Diagnóstico inicial somente leitura realizado em 04/10/2026, horário de
+Fortaleza (05/10/2026 UTC). A tabela abaixo preserva esse estado inicial.
+O CNAME foi posteriormente criado; a evidência consolidada da execução está
+em `../stage-alias-tls/verify.md`.
 
 Objetivo: tornar `www.stage.fortcordis.com.br` acessível como alias de stage,
 preservando os hosts e certificados de produção. O Nginx já atende esse nome.
 Não usar `scripts/provision_institutional_nginx.sh`: seus defaults pertencem ao
 site institucional de produção e não são apropriados a este reparo.
 
-## Evidências confirmadas
+## Diagnóstico inicial confirmado
 
 | Item | Resultado |
 | --- | --- |
@@ -58,9 +59,9 @@ de produção.
   entrar. Uma sessão existente permite operar DNS pelo painel, sem criar token
   API. Login Cloudflare sozinho não concede o sudo necessário ao Certbot.
 
-Atualização da preparação: o usuário autenticou a sessão Cloudflare, verificada
-pelo operador. O DNS continua separado da emissão TLS. O reparo de TLS foi
-preparado no workflow manual descrito abaixo, reutilizando os secrets de
+Atualização: o usuário autenticou a sessão Cloudflare. O registro foi salvo
+com DNS only/TTL 300 e confirmado nas duas autoridades e em 1.1.1.1/8.8.8.8.
+O reparo TLS usa o workflow manual descrito abaixo, reutilizando os secrets de
 repositório do deploy. Não foi criado um GitHub Environment: a consulta ao
 repositório não encontrou Environments configurados. Os guards de ref/host
 previnem enganos; a revisão da branch protegida continua sendo a fronteira para
@@ -72,7 +73,7 @@ contornar a ausência dessa autenticação.
 
 ## Registro exato
 
-Na zona **fortcordis.com.br**, criar somente:
+Registro aplicado na zona **fortcordis.com.br**:
 
 | Campo | Valor |
 | --- | --- |
@@ -112,7 +113,8 @@ argumentos, arquivos ou logs. Antes de executar o upload com privilégios, um
 bootstrap fixo lê seus bytes, confere SHA-256 e executa os mesmos bytes; ele não
 reabre o arquivo como código depois da conferência.
 
-Sequência operacional, ainda não executada nesta preparação:
+Procedimento do workflow (a ordem e os resultados efetivamente observados
+estão no SDD `../stage-alias-tls/verify.md`):
 
 1. Revisar e integrar os arquivos à branch `stage`, com os checks obrigatórios
    aprovados; aguardar o deploy de stage terminar.
@@ -177,11 +179,14 @@ Não imprimir chaves privadas, senhas, arquivos `.env`, credenciais API ou logs
 amplos da aplicação. Valores TXT de challenge devem ser transferidos entre o
 prompt Certbot e o painel Cloudflare, sem copiá-los para relatórios.
 
-## Preparação comum — mutações ainda não executadas
+## Alternativas manuais — preparação comum
 
-Executar somente na intervenção autorizada, com sudo autenticado pelo acesso
-existente. Guardar o caminho impresso por `printf` para rollback; o diretório e
-o arquivo de backup contêm material privado e permanecem somente na VPS.
+Os comandos seguintes são alternativas manuais, não executadas pelo workflow.
+O tar `stage-tls.tar.gz` e sua restauração pertencem somente a essa preparação.
+O workflow usa cópias e `manifest.json` num diretório privado `repair-*`;
+não aplicar os comandos de tar a esse formato. Executar a alternativa manual
+somente na intervenção autorizada, com sudo autenticado. O material privado
+permanece somente na VPS.
 
 ```bash
 STAGE_ALIAS_BACKUP="/var/backups/fortcordis-stage-alias/$(date -u +%Y%m%dT%H%M%SZ)"
@@ -320,8 +325,9 @@ de TTL 300; não remover os registros stage/app.stage. Se o certificado novo
 estiver válido e apenas a propagação estiver pendente, não restaurar o antigo
 por esse motivo.
 
-Se a intervenção TLS/configuração falhar e exigir restauração, usar o caminho
-real do backup registrado, sem sobrescrever a variável com um caminho inventado:
+Na alternativa manual com tar, se a intervenção falhar e exigir restauração,
+usar o caminho real desse backup. O workflow faz sua própria restauração a
+partir das cópias/manifest; o comando abaixo não se aplica a seu backup:
 
 ```bash
 sudo tar -C / -xzf "$STAGE_ALIAS_BACKUP/stage-tls.tar.gz"

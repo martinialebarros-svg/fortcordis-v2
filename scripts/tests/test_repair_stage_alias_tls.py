@@ -130,6 +130,8 @@ class StageAliasRepairTest(unittest.TestCase):
         self.assertLess(labels.index("acme_preflight"), labels.index("acme_issue"))
         self.assertLess(labels.index("acme_issue"), labels.index("nginx_reload"))
         self.assertLess(labels.index("nginx_reload"), labels.index("renewal_dry_run"))
+        renewal = next(args for label, args in calls if label == "renewal_dry_run")
+        self.assertIn("--no-random-sleep-on-renew", renewal)
         issued = next(args for label, args in calls if label == "acme_issue")
         self.assertEqual([issued[i + 1] for i, item in enumerate(issued) if item == "-d"], list(repair.DOMAINS))
         self.assertIn('"status": "complete"', self.output.getvalue())
