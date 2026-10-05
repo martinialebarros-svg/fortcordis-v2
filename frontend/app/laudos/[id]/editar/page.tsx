@@ -2132,6 +2132,7 @@ export default function EditarLaudoPage() {
                     <EcocardiogramaEstruturadoEditor
                       value={ecocardiogramaEstruturado}
                       onChange={handleEcocardiogramaEstruturadoChange}
+                      especie={pacienteForm.especie}
                     />
 
                     {ecocardiogramaEstruturado.usar_no_laudo ? (

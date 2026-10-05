@@ -178,6 +178,38 @@ describe("EcocardiogramaEstruturadoEditor - composicao de achados", () => {
     window.localStorage.clear();
   });
 
+  it("oferece padrão felino complementar e preserva os demais textos", async () => {
+    const felinePreset = {
+      id: 50,
+      key: "felino_diastolica_relaxamento",
+      label: "Função diastólica felina: relaxamento retardado",
+      patologia: "Função diastólica felina",
+      tags: ["gato", "diastolica", "complementar"],
+      selecoes: [{ aspecto: "funcao_diastolica", frase_titulo: "Relaxamento retardado" }],
+    };
+    apiMocks.carregarBanco.mockResolvedValue({
+      ...payload,
+      presets: [payload.presets[0], felinePreset],
+    });
+    apiMocks.aplicarPreset.mockResolvedValue({
+      preset: felinePreset,
+      textos: { funcao_diastolica: "Relaxamento ventricular esquerdo retardado." },
+      selecoes_resolvidas: [],
+    });
+    const onChange = vi.fn();
+    render(<EcocardiogramaEstruturadoEditor value={estadoInicial} onChange={onChange} especie="Felina" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Selecione um preset" }));
+    fireEvent.click(screen.getByRole("button", { name: /Função diastólica felina: relaxamento retardado/i }));
+    expect(screen.queryByRole("button", { name: "Zerar e aplicar" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar sobre atual" }));
+    await waitFor(() => {
+      const next = onChange.mock.calls.at(-1)?.[0] as EcocardiogramaEstruturadoPersistido;
+      expect(next.textos.funcao_diastolica).toBe("Relaxamento ventricular esquerdo retardado.");
+      expect(next.textos.conclusao).toBe(conclusaoDmvm);
+      expect(next.textos.ventriculo_esquerdo).toBe(textoModerado);
+    });
+  });
+
   it("substitui o grau do aspecto com escolha unica sem alterar a biblioteca", async () => {
     const onChange = vi.fn();
     render(<EditorControlado onChange={onChange} />);

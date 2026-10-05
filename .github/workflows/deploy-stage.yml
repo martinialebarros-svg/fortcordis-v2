@@ -522,6 +522,15 @@ jobs:
               bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"
           EOF
 
+      - name: Synchronize feline diastolic presets on Stage
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -euo pipefail
+            cd /var/www/fortcordis-stage
+            test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+            python3 backend/scripts/sync_feline_diastolic_presets.py --apply
+          EOF
+
       - name: Run one-shot Nginx TLS listener inventory on Stage
         if: contains(github.event.head_commit.message, '[nginx-tls-inventory]')
         run: |
