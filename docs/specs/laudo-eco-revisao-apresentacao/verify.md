@@ -5,7 +5,7 @@
 | Critério | Verificação | Estado |
 | --- | --- | --- |
 | CA-046 | Teste do editor confirma apenas a substituição da função diastólica, com conclusão e VE preservados; teste da biblioteca verifica filtro por espécie. O botão de reset não é oferecido ao preset complementar. | aprovado |
-| CA-047 | Teste backend verifica cinco presets resolvidos, idempotência e preservação de escolha personalizada. Execução em arquivo temporário confirma prévia sem escrita, backup e repetição sem novos backups. | aprovado |
+| CA-047 | Teste backend verifica cinco presets resolvidos, idempotência, remoção da escolha padrão mesmo com ID runtime e preservação de escolha com título diferente. Execução em arquivo temporário confirma prévia sem escrita, backup e repetição sem novos backups. | aprovado |
 | RF-048 | Revisão dos cinco textos frente a ACVIM 2020 e Rohrbaugh et al. 2020 | concluído |
 | RF-051 | Workflow de stage exige SHA implantado e executa sincronização idempotente após o deploy; conferir log e catálogo autenticado no smoke | pendente |
 

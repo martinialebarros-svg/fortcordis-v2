@@ -27,15 +27,20 @@ class FelineDiastolicPresetTests(unittest.TestCase):
         aspect["frases"] = [item for item in aspect["frases"] if item["titulo"] not in titles]
         custom = next(item for item in bank["presets"] if item["key"] == "hcm_leve")
         custom["selecoes"].append({
-            "aspecto": "funcao_diastolica", "frase_titulo": "Disfunção diástólica leve", "frase_id": 104,
+            "aspecto": "funcao_diastolica", "frase_titulo": "Fusao de ondas E e A", "frase_id": 103,
+        })
+        seeded_with_id = next(item for item in bank["presets"] if item["key"] == "hcm_moderada")
+        seeded_with_id["selecoes"].append({
+            "aspecto": "funcao_diastolica", "frase_titulo": "Disfunção diástólica por HCM", "frase_id": 99,
         })
         first_changes = synchronize(bank)
-        self.assertEqual(len(first_changes), 10)
+        self.assertEqual(len(first_changes), 11)
         self.assertEqual(synchronize(bank), [])
         self.assertEqual(len([p for p in bank["presets"] if p["key"].startswith("felino_diastolica_")]), 5)
         self.assertEqual(custom["selecoes"][-1], {
-            "aspecto": "funcao_diastolica", "frase_titulo": "Disfunção diástólica leve", "frase_id": 104,
+            "aspecto": "funcao_diastolica", "frase_titulo": "Fusao de ondas E e A", "frase_id": 103,
         })
+        self.assertNotIn("funcao_diastolica", [selection["aspecto"] for selection in seeded_with_id["selecoes"]])
         self.assertTrue(all(
             [selection["aspecto"] for selection in preset["selecoes"]] == ["funcao_diastolica"]
             for preset in bank["presets"] if preset["key"].startswith("felino_diastolica_")
