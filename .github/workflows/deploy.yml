@@ -381,3 +381,12 @@ jobs:
             ENABLE_WHATSAPP_STAGE_SMOKE=0 \
             bash "$DEPLOY_SCRIPT_DIR/scripts/deploy_prod_vps.sh"
         EOF
+
+    - name: Synchronize feline diastolic presets on Production
+      run: |
+        ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+          set -euo pipefail
+          cd /var/www/fortcordis-v2
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          python3 backend/scripts/sync_feline_diastolic_presets.py --apply
+        EOF
