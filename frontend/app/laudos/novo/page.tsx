@@ -1972,6 +1972,7 @@ export default function NovoLaudoPage() {
                     <EcocardiogramaEstruturadoEditor
                       value={ecocardiogramaEstruturado}
                       onChange={setEcocardiogramaEstruturado}
+                      especie={paciente.especie}
                     />
 
                     {ecocardiogramaEstruturado.usar_no_laudo ? (

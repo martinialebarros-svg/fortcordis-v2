@@ -8,6 +8,7 @@ import {
   type PayloadEcoEstruturadoTeste,
   type PresetEcoEstruturadoTeste,
   ordenarAspectos,
+  presetCompativelComEspecie,
 } from "@/lib/ecocardiograma-estruturado-teste";
 import {
   aplicarPresetEcoEstruturadoTeste,
@@ -33,6 +34,7 @@ import SeletorFraseConclusao from "./SeletorFraseConclusao";
 interface EcocardiogramaEstruturadoEditorProps {
   value: EcocardiogramaEstruturadoPersistido;
   onChange: (next: EcocardiogramaEstruturadoPersistido) => void;
+  especie?: string;
 }
 
 interface PresetForm {
@@ -181,6 +183,7 @@ function atualizarEstrutura(
 export default function EcocardiogramaEstruturadoEditor({
   value,
   onChange,
+  especie,
 }: EcocardiogramaEstruturadoEditorProps) {
   const [payload, setPayload] = useState<PayloadEcoEstruturadoTeste | null>(null);
   const [loading, setLoading] = useState(true);
@@ -274,13 +277,14 @@ export default function EcocardiogramaEstruturadoEditor({
     () =>
       [...(payload?.presets || [])]
         .filter((preset) => Number(preset.ativo ?? 1) === 1)
+        .filter((preset) => presetCompativelComEspecie(preset, especie))
         .sort((a, b) => {
           if ((a.ordem || 999) !== (b.ordem || 999)) {
             return (a.ordem || 999) - (b.ordem || 999);
           }
           return (a.label || "").localeCompare(b.label || "");
         }),
-    [payload]
+    [payload, especie]
   );
   const gruposPresetDisponiveis = useMemo(() => {
     const grupos = new Set<string>();
@@ -595,9 +599,12 @@ export default function EcocardiogramaEstruturadoEditor({
   };
 
   const aplicarPreset = async (modo: "merge" | "reset") => {
-    if (!presetSelecionadoId) {
+    if (!presetSelecionadoId || !presetAtual) {
       return;
     }
+
+    const complementar = (presetAtual.tags || []).includes("complementar");
+    const modoEfetivo = complementar ? "merge" : modo;
 
     try {
       setAplicandoPreset(true);
@@ -630,7 +637,7 @@ export default function EcocardiogramaEstruturadoEditor({
           preset_label: String(preset.label || ""),
           preset_textos: { ...textos },
           textos:
-            modo === "reset"
+            modoEfetivo === "reset"
               ? { ...textos }
               : { ...estado.textos, ...textos },
         })
@@ -1394,11 +1401,11 @@ export default function EcocardiogramaEstruturadoEditor({
         {modoPreenchimento === "compositor" ? (
           <button
             type="button"
-            onClick={() => aplicarPreset("reset")}
+            onClick={() => aplicarPreset(presetAtual?.tags?.includes("complementar") ? "merge" : "reset")}
             disabled={!presetSelecionadoId || aplicandoPreset}
             className="rounded-lg border border-teal-300 bg-white px-3 py-2 text-sm text-teal-700 hover:bg-teal-50 disabled:opacity-50 lg:col-span-2"
           >
-            Aplicar como preset base
+            {presetAtual?.tags?.includes("complementar") ? "Aplicar ao laudo atual" : "Aplicar como preset base"}
           </button>
         ) : (
           <>
@@ -1410,14 +1417,16 @@ export default function EcocardiogramaEstruturadoEditor({
             >
               Aplicar sobre atual
             </button>
-            <button
-              type="button"
-              onClick={() => aplicarPreset("reset")}
-              disabled={!presetSelecionadoId || aplicandoPreset}
-              className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-50"
-            >
-              Zerar e aplicar
-            </button>
+            {!presetAtual?.tags?.includes("complementar") ? (
+              <button
+                type="button"
+                onClick={() => aplicarPreset("reset")}
+                disabled={!presetSelecionadoId || aplicandoPreset}
+                className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+              >
+                Zerar e aplicar
+              </button>
+            ) : null}
           </>
         )}
       </div>

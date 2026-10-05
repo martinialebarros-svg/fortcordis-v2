@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "mode": "teste",
-  "last_updated": "2026-05-03T20:58:41.097082",
+  "last_updated": "2026-10-04T11:14:12.601593",
   "aspectos": [
     {
       "key": "valva_mitral",
@@ -1489,6 +1489,71 @@
           ],
           "patologias": [],
           "ordem": 110,
+          "ativo": 1
+        },
+        {
+          "id": 201,
+          "titulo": "Função diastólica felina: padrão preservado",
+          "texto": "Função diastólica ventricular esquerda sem alteração relevante nos parâmetros avaliáveis do exame.",
+          "tags": [
+            "gato",
+            "diastolica",
+            "preservada"
+          ],
+          "patologias": [],
+          "ordem": 120,
+          "ativo": 1
+        },
+        {
+          "id": 202,
+          "titulo": "Função diastólica felina: relaxamento retardado",
+          "texto": "Padrão de relaxamento ventricular esquerdo retardado, conforme avaliação integrada dos parâmetros diastólicos disponíveis.",
+          "tags": [
+            "gato",
+            "diastolica",
+            "relaxamento"
+          ],
+          "patologias": [],
+          "ordem": 130,
+          "ativo": 1
+        },
+        {
+          "id": 203,
+          "titulo": "Função diastólica felina: padrão pseudonormal",
+          "texto": "Padrão de enchimento ventricular esquerdo pseudonormal, identificado pela avaliação conjunta do fluxo transmitral e dos demais marcadores diastólicos disponíveis.",
+          "tags": [
+            "gato",
+            "diastolica",
+            "pseudonormal"
+          ],
+          "patologias": [],
+          "ordem": 140,
+          "ativo": 1
+        },
+        {
+          "id": 204,
+          "titulo": "Função diastólica felina: padrão restritivo",
+          "texto": "Padrão de enchimento ventricular esquerdo restritivo, segundo a avaliação integrada dos parâmetros diastólicos disponíveis.",
+          "tags": [
+            "gato",
+            "diastolica",
+            "restritivo"
+          ],
+          "patologias": [],
+          "ordem": 150,
+          "ativo": 1
+        },
+        {
+          "id": 205,
+          "titulo": "Função diastólica felina: classificação indeterminada",
+          "texto": "Classificação do padrão diastólico indeterminada neste exame, devido à limitação ou discordância dos parâmetros disponíveis.",
+          "tags": [
+            "gato",
+            "diastolica",
+            "indeterminada"
+          ],
+          "patologias": [],
+          "ordem": 160,
           "ativo": 1
         }
       ]
@@ -3696,11 +3761,6 @@
           "frase_id": null
         },
         {
-          "aspecto": "funcao_diastolica",
-          "frase_titulo": "Disfunção diástólica leve",
-          "frase_id": null
-        },
-        {
           "aspecto": "atrio_direito",
           "frase_titulo": "AD normal gato",
           "frase_id": null
@@ -3788,11 +3848,6 @@
           "frase_id": null
         },
         {
-          "aspecto": "funcao_diastolica",
-          "frase_titulo": "Disfunção diástólica por HCM",
-          "frase_id": null
-        },
-        {
           "aspecto": "atrio_direito",
           "frase_titulo": "AD normal gato",
           "frase_id": null
@@ -3877,11 +3932,6 @@
         {
           "aspecto": "funcao_sistolica_ve",
           "frase_titulo": "Função sistólica preservada HCM",
-          "frase_id": null
-        },
-        {
-          "aspecto": "funcao_diastolica",
-          "frase_titulo": "Disfunção diástólica por HCM com padrao restritivo",
           "frase_id": null
         },
         {
@@ -3973,11 +4023,6 @@
           "frase_id": null
         },
         {
-          "aspecto": "funcao_diastolica",
-          "frase_titulo": "Disfunção diástólica por HCM",
-          "frase_id": null
-        },
-        {
           "aspecto": "atrio_direito",
           "frase_titulo": "AD normal gato",
           "frase_id": null
@@ -4064,11 +4109,6 @@
           "frase_id": null
         },
         {
-          "aspecto": "funcao_diastolica",
-          "frase_titulo": "Disfunção diástólica restritiva felina",
-          "frase_id": null
-        },
-        {
           "aspecto": "atrio_direito",
           "frase_titulo": "AD normal gato",
           "frase_id": null
@@ -4152,11 +4192,6 @@
         {
           "aspecto": "funcao_sistolica_ve",
           "frase_titulo": "Função sistólica reduzida DCM felina",
-          "frase_id": null
-        },
-        {
-          "aspecto": "funcao_diastolica",
-          "frase_titulo": "Padrao restritivo",
           "frase_id": null
         },
         {
@@ -5817,11 +5852,6 @@
           "frase_id": null
         },
         {
-          "aspecto": "funcao_diastolica",
-          "frase_titulo": "Padrao restritivo",
-          "frase_id": null
-        },
-        {
           "aspecto": "atrio_direito",
           "frase_titulo": "AD normal gato",
           "frase_id": null
@@ -5948,6 +5978,116 @@
           "aspecto": "conclusao",
           "frase_titulo": "DMVM B1 + DDG1",
           "frase_id": 200
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "key": "felino_diastolica_preservada",
+      "label": "Função diastólica felina: padrão preservado",
+      "patologia": "Função diastólica felina",
+      "grau": "",
+      "descricao": "Selecionar após integrar fluxo transmitral, Doppler tecidual e dimensões atriais; não aplicar apenas por E/A normal.",
+      "tags": [
+        "gato",
+        "diastolica",
+        "complementar"
+      ],
+      "ordem": 520,
+      "ativo": 1,
+      "selecoes": [
+        {
+          "aspecto": "funcao_diastolica",
+          "frase_titulo": "Função diastólica felina: padrão preservado",
+          "frase_id": null
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "key": "felino_diastolica_relaxamento",
+      "label": "Função diastólica felina: relaxamento retardado",
+      "patologia": "Função diastólica felina",
+      "grau": "",
+      "descricao": "Corresponde ao padrão de relaxamento alterado (classe 2 no estudo felino); considerar E/A, IVRT, e' e tamanho atrial, sem atribuição automática à idade.",
+      "tags": [
+        "gato",
+        "diastolica",
+        "complementar"
+      ],
+      "ordem": 530,
+      "ativo": 1,
+      "selecoes": [
+        {
+          "aspecto": "funcao_diastolica",
+          "frase_titulo": "Função diastólica felina: relaxamento retardado",
+          "frase_id": null
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "key": "felino_diastolica_pseudonormal",
+      "label": "Função diastólica felina: padrão pseudonormal",
+      "patologia": "Função diastólica felina",
+      "grau": "",
+      "descricao": "E/A aparentemente usual não basta: integrar e', átrio esquerdo, IVRT e, quando disponível, fluxo venoso pulmonar.",
+      "tags": [
+        "gato",
+        "diastolica",
+        "complementar"
+      ],
+      "ordem": 540,
+      "ativo": 1,
+      "selecoes": [
+        {
+          "aspecto": "funcao_diastolica",
+          "frase_titulo": "Função diastólica felina: padrão pseudonormal",
+          "frase_id": null
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "key": "felino_diastolica_restritivo",
+      "label": "Função diastólica felina: padrão restritivo",
+      "patologia": "Função diastólica felina",
+      "grau": "",
+      "descricao": "Descreve o padrão de enchimento, sem diagnosticar cardiomiopatia restritiva ou insuficiência cardíaca por si só.",
+      "tags": [
+        "gato",
+        "diastolica",
+        "complementar"
+      ],
+      "ordem": 550,
+      "ativo": 1,
+      "selecoes": [
+        {
+          "aspecto": "funcao_diastolica",
+          "frase_titulo": "Função diastólica felina: padrão restritivo",
+          "frase_id": null
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "key": "felino_diastolica_indeterminada",
+      "label": "Função diastólica felina: classificação indeterminada",
+      "patologia": "Função diastólica felina",
+      "grau": "",
+      "descricao": "Usar quando fusão E/A, taquicardia, medidas ausentes ou resultados discordantes impedirem classificação segura.",
+      "tags": [
+        "gato",
+        "diastolica",
+        "complementar"
+      ],
+      "ordem": 560,
+      "ativo": 1,
+      "selecoes": [
+        {
+          "aspecto": "funcao_diastolica",
+          "frase_titulo": "Função diastólica felina: classificação indeterminada",
+          "frase_id": null
         }
       ]
     }
