@@ -102,11 +102,12 @@ Resultado adicional:
 
 ## Preferências e compactação — 04/10/2026
 
-Alteração local integrada ao contrato de `../agenda-preferencias-compactacao/spec.md`.
-A evidência de testes desta etapa está centralizada em
-`../agenda-preferencias-compactacao/verify.md`; registros de releases anteriores
-neste arquivo não significam publicação desta mudança. Não houve envio real,
-migration, edição de agendamentos ou alteração de configuração em produção.
+Contrato integrado a `../agenda-preferencias-compactacao/spec.md` e publicado
+em produção pelo PR #301, SHA `fa9781901ab7fa9f2939551a01d06bec6def38c4`.
+Testes, deploy e conferência visual autenticada estão centralizados em
+`../agenda-preferencias-compactacao/verify.md`. A validação não criou ou editou
+agendamentos e não enviou mensagens reais. Os checkboxes anteriores pertencem
+ao ciclo histórico registrado acima.
 
 Ressalva de escopo da busca progressiva: RF-022, CA-020, CB-006 e CB-007
 preservam D+N apenas quando não há intervalo explícito. O orquestrador enumera

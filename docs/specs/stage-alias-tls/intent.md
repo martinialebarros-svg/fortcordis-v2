@@ -1,7 +1,8 @@
 # Intent — Alias HTTPS de stage
 
-O alias `www.stage.fortcordis.com.br`, já previsto no vhost de stage, não tem
-registro DNS nem cobertura no certificado. O usuário autorizou resolver ambos
+O alias `www.stage.fortcordis.com.br`, já previsto no vhost de stage, inicialmente
+não tinha registro DNS nem cobertura no certificado. O estado observado após
+a intervenção está em `verify.md`. O usuário autorizou resolver ambos
 como complemento da entrega da Agenda. O acesso ao Cloudflare foi confirmado
 na sessão existente do usuário.
 
