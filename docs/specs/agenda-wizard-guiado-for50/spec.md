@@ -31,7 +31,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - RF-019: na geracao de ofertas do assistente, quando houver `servico_id`, a duracao considerada deve vir sempre do cadastro do servico (fonte de verdade), ignorando `duracao_minutos` divergente enviada pelo frontend.
 - RF-020: no assistente de proximidade, o tempo exibido/ranqueado deve usar o deslocamento total do slot sugerido, somando deslocamento do vizinho anterior e do vizinho posterior quando existirem.
 - RF-021: em bloqueio operacional por conflito de deslocamento no salvar, admin deve poder conceder excecao explicita no proprio fluxo e confirmar o agendamento.
-- RF-022: quando as datas iniciais (manual/politica/proximidade) nao retornarem nenhum slot util no panorama, o assistente deve continuar buscando automaticamente nos dias seguintes (D+N progressivo) ate encontrar a primeira data com oferta valida.
+- RF-022: sem intervalo explicito informado pelo cliente, quando as datas iniciais (manual/politica/proximidade) nao retornarem nenhum slot util no panorama, o assistente deve continuar buscando automaticamente nos dias seguintes (D+N progressivo) ate encontrar a primeira data com oferta valida. Com intervalo explicito, consultar somente as datas desse periodo; ausencia de slots retorna vazio e ampliar a busca exige alterar os filtros.
 - RF-023: no panorama do assistente, as ofertas devem ser organizadas em ate 3 datas distintas, priorizando duas datas com ancora aderente e, apenas depois disso, uma data vazia; nas datas com ancora, apenas slots adjacentes a ancora podem ser exibidos para manter a lista objetiva, e os dias intermediarios entre datas automaticas devem ser avaliados antes de promover uma agenda vazia.
 
 ## 3) Requisitos nao funcionais (NFR)
@@ -82,7 +82,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CA-017: se o frontend enviar `duracao_minutos` maior que a duracao cadastrada do servico, a API de sugestoes deve prevalecer a duracao do servico e retornar oferta com janela correta.
 - CA-018: o `POST /agenda/sugestao-proximidade` deve ranquear e reportar deslocamento com base no slot operacional escolhido (`anterior + proximo`), mantendo consistencia com `POST /agenda/sugestoes-horario`.
 - CA-019: diante de `CONFLITO_DESLOCAMENTO` no `POST /agenda`, admin pode confirmar excecao operacional e reenviar com `confirmar_conflito_deslocamento=true`; perfis nao-admin devem receber `403` se tentarem o override.
-- CA-020: se o panorama vier vazio nas datas iniciais de tentativa, o `POST /agenda/assistente/ofertas` deve avancar para os dias subsequentes e retornar a primeira data futura com slots, marcando a origem automatica como busca progressiva.
+- CA-020: sem intervalo explicito, se o panorama vier vazio nas datas iniciais de tentativa, o `POST /agenda/assistente/ofertas` deve avancar para os dias subsequentes e retornar a primeira data futura com slots, marcando a origem automatica como busca progressiva. Com intervalo explicito, nenhuma consulta ou oferta pode ultrapassar o periodo, mesmo que exista vaga no dia seguinte.
 - CA-021: apos gerar ofertas, o panorama deve agrupar a lista final em ate 3 datas priorizadas, limitando 2 slots por data; quando houver ancora aderente na mesma clinica, somente os slots adjacentes a ancora podem aparecer naquela data.
 
 ## 7) Casos de borda
@@ -92,8 +92,8 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CB-003: sugestao de proximidade aplicada automaticamente sem ofertas validas deve cair em `sem_opcao` com orientacao de motivo/excecao.
 - CB-004: quando existir ancora em D+2 ou D+3 para clinica proxima da base, a regra de prioridade D0 nao deve ser aplicada.
 - CB-005: proximidade deve respeitar a ordenacao do backend e a transicao especifica de cada destino, inclusive candidatos anteriores a ancora. Ancora fora do turno solicitado nao elimina alternativas aderentes ao pedido.
-- CB-006: quando nao houver nenhum slot util em D+2/D+3/D+4 por agenda cheia/fechada, o assistente deve continuar para D+5, D+6... ate encontrar o primeiro dia viavel.
-- CB-007: se a data de proximidade (fora de `datas_preferenciais`) retornar sem ofertas no panorama, o wizard deve seguir para `datas_preferenciais` sem perder a busca progressiva.
+- CB-006: sem intervalo explicito, quando nao houver nenhum slot util em D+2/D+3/D+4 por agenda cheia/fechada, o assistente deve continuar para D+5, D+6... ate encontrar o primeiro dia viavel. Com intervalo explicito, esgotar apenas as datas permitidas e retornar vazio explicativo se nenhuma atender.
+- CB-007: se a data de proximidade (fora de `datas_preferenciais`) retornar sem ofertas no panorama, o wizard deve seguir para `datas_preferenciais` sem perder a busca progressiva quando nao houver intervalo explicito. Uma preferencia de datas impede qualquer fallback para fora desse periodo; restricoes de turno/horas tambem permanecem aplicadas.
 - CB-008: se apenas 1 data com ancora aderente for encontrada, o wizard deve completar o panorama com a melhor data vazia ou operacional disponivel, sem repetir datas na lista final.
 
 ## 8) Fora de escopo

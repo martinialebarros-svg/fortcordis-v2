@@ -15,4 +15,7 @@ números não representam tempo efetivo ocioso nem capacidade adicional garantid
 
 Objetivo: oferecer horários aderentes ao pedido, aproveitando os limites reais
 dos atendimentos e preservando duração, jornada, bloqueios, reservas e viagens.
-A entrega é local, sem publicação nem mudança dos agendamentos existentes.
+A entrega foi publicada pelo fluxo protegido de stage e produção, conforme
+verify.md, sem mudança dos agendamentos existentes. O complemento autorizado
+inclui a conferência visual em produção, regularização do alias de stage,
+versionamento das evidências e medição agregada somente leitura da agenda.
