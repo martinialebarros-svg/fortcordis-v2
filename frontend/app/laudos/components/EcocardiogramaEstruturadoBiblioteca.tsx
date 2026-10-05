@@ -407,9 +407,14 @@ export default function EcocardiogramaEstruturadoBiblioteca() {
   const selecionarPreset = (preset: PresetEcoEstruturadoTeste) => {
     const selecoes = presetFormVazio(aspectos).selecoes;
     (preset.selecoes || []).forEach((selecao) => {
-      if (selecao.aspecto && selecao.frase_id != null) {
-        selecoes[selecao.aspecto] = String(selecao.frase_id);
-      }
+      const aspecto = aspectos.find((item) => item.key === selecao.aspecto);
+      const frases = aspecto?.frases || [];
+      const frase =
+        (selecao.frase_id != null
+          ? frases.find((item) => Number(item.id) === Number(selecao.frase_id))
+          : null) ||
+        frases.find((item) => item.titulo === selecao.frase_titulo);
+      if (selecao.aspecto && frase) selecoes[selecao.aspecto] = String(frase.id);
     });
     setSecao("presets");
     setError("");

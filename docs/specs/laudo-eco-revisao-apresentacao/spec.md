@@ -2,6 +2,9 @@
 
 ## Incremento: padrões diastólicos felinos (2026-10-04)
 
+- RF-052: a biblioteca resolve a seleção do preset pelo título da frase no mesmo aspecto quando o banco runtime não possui `frase_id`, permitindo revisar e editar os presets felinos sincronizados.
+- RF-053: ao trocar a espécie de felina para outra após aplicar um dos presets complementares diastólicos, o formulário solicita confirmação. Se aceita, remove o texto desse aspecto e o vínculo com o preset, preservando os demais achados; se recusada, mantém o formulário intacto.
+
 - RF-047: oferecer presets complementares para padrão preservado, relaxamento retardado, pseudonormal, restritivo e classificação indeterminada em felinos. Cada preset preenche apenas `funcao_diastolica`, preservando os demais achados e a conclusão ao ser aplicado.
 - RF-048: os textos descrevem padrões ecocardiográficos após interpretação integrada, sem atribuir automaticamente idade, cardiomiopatia restritiva, pressão de enchimento elevada ou insuficiência cardíaca. Não há classificação automática por E/A isolada.
 - RF-049: os presets estruturais felinos de HCM, cardiomiopatia restritiva e DCM deixam de escolher automaticamente uma classe diastólica quando mantêm a seleção original do catálogo, inclusive se o runtime atribuiu ID à frase padrão. A sincronização do banco é idempotente, preserva seleções com texto diferente e produz backup antes de escrever o arquivo runtime.

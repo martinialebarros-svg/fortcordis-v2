@@ -2,6 +2,9 @@
 
 ## Incremento: padrões diastólicos felinos (2026-10-04)
 
+- CA-048: selecionar na biblioteca um preset sincronizado com `frase_id` ausente destaca a frase correta, pelo título e dentro do aspecto. O preset continua aplicável no editor.
+- CA-049: ao confirmar a troca de espécie após preset diastólico felino, apenas a descrição diastólica e o vínculo com o preset são removidos; outros aspectos e o estado de uso do estruturado permanecem. Cancelar a confirmação não altera espécie nem textos.
+
 | Critério | Verificação | Estado |
 | --- | --- | --- |
 | CA-046 | Teste do editor confirma apenas a substituição da função diastólica, com conclusão e VE preservados; teste da biblioteca verifica filtro por espécie. O botão de reset não é oferecido ao preset complementar. | aprovado |
