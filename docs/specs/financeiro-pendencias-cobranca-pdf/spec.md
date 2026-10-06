@@ -2,7 +2,7 @@
 
 Data: 2026-06-12
 Responsavel: Martiniano + Codex
-Status: done
+Status: done (hotfix de 2026-06-12); ajuste de tabela de 2026-10-06 validado localmente, sem publicacao
 
 ## 1) Escopo funcional
 
@@ -47,3 +47,20 @@ Corrigir a geracao do PDF de cobranca de pendencias no modulo Financeiro, acessa
 - alterar layout visual do relatorio;
 - alterar regras de filtro das OS pendentes;
 - envio automatico do PDF por WhatsApp.
+
+## 7) Ajuste da tabela de pendencias (2026-10-06)
+
+O hotfix acima restaurou a geracao do arquivo, mas o texto das celulas da tabela pode ultrapassar os limites das colunas no PDF. Este ciclo corrige pontualmente a apresentacao da tabela. A restricao de nao alterar o layout visual na secao 6 se refere apenas ao hotfix de 2026-06-12.
+
+### Requisitos
+
+- RF-004: os textos de OS, paciente, tutor e servico devem permanecer legiveis dentro das respectivas celulas, com quebra de linha quando necessario, sem sobreposicao entre colunas ou corte de conteudo.
+- RF-005: o valor monetario deve permanecer completo e associado a sua linha, com alinhamento a direita; cabecalho, subtotal por destinatario e total geral devem continuar legiveis.
+- NFR-003: a tabela deve caber na area util da pagina A4, respeitando margens e rodape, inclusive quando ocupar mais de uma pagina.
+- NFR-004: dados inseridos nas celulas devem ser tratados como texto, inclusive caracteres especiais, sem interpretar marcacao fornecida pelos registros.
+
+### Criterios de aceitacao
+
+- CA-004: uma amostra com nomes, servicos e numero de OS longos produz celulas com altura adequada e texto contido nos limites da tabela, sem colisao visual.
+- CA-005: todas as bordas da tabela ficam dentro da area util da pagina; em relatorios com varias paginas, o cabecalho da tabela se repete e nenhuma linha invade o rodape.
+- CA-006: a correcao preserva os dados, a ordem das OS, os subtotais e o total geral, sem alterar filtros, regras de cobranca ou o contrato de download `application/pdf`.
