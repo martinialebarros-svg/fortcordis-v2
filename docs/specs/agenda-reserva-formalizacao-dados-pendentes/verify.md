@@ -2,12 +2,12 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | `agenda-shared-actions.test.ts`: `obterProximosStatus("Reservado")` retorna `["Agendado", "Confirmado", "Cancelado"]` | passou |
-| CA-002 | mesmo arquivo: índice de "Agendado" menor que o de "Confirmado" em `obterAcoesStatusPorFluxo` | passou |
-| CA-003 | revisão de código: `enviarModeloAgendaPeloFortCordis` chama `POST .../whatsapp/modelo` com `template_key: "appointmentMissingData"` logo após o `POST .../whatsapp/reserva` bem-sucedido | passou (revisão de código; sem credenciais reais da Graph API neste ambiente para testar envio de ponta a ponta) |
-| CA-004 | revisão de código: chamada do aviso está em `try/catch` isolado, `avisoDadosPendentesEnviado` controla só o texto do feedback, não o `envioAutomaticoStatus` | passou (revisão de código) |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | `agenda-shared-actions.test.ts`: `obterProximosStatus("Reservado")` retorna `["Agendado", "Confirmado", "Cancelado"]` | passou |
+| CA-002 | aceitacao | mesmo arquivo: índice de "Agendado" menor que o de "Confirmado" em `obterAcoesStatusPorFluxo` | passou |
+| CA-003 | aceitacao | revisão de código: `enviarModeloAgendaPeloFortCordis` chama `POST .../whatsapp/modelo` com `template_key: "appointmentMissingData"` logo após o `POST .../whatsapp/reserva` bem-sucedido | passou (revisão de código; sem credenciais reais da Graph API neste ambiente para testar envio de ponta a ponta) |
+| CA-004 | aceitacao | revisão de código: chamada do aviso está em `try/catch` isolado, `avisoDadosPendentesEnviado` controla só o texto do feedback, não o `envioAutomaticoStatus` | passou (revisão de código) |
 
 ## Comandos executados
 

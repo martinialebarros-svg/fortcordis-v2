@@ -2,12 +2,12 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | `whatsapp-stage-backend`: `npx tsc --noEmit` e `npx ts-node scripts/test-approved-templates.ts` com os 15 modelos (12 antigos + 3 novos, contratos name/metaId/parâmetros/quick-replies) | passou |
-| CA-002 | script isolado chamando `listApprovedTemplateCatalog` diretamente (sem depender de Postgres, indisponível neste ambiente) confirma `data.length === 12` e nenhuma chave `portalClinicInvite*` presente - mesma contagem que `test-inbox-ui-contracts.ts` já espera, sem precisar alterá-lo | passou |
-| CA-003 | `backend/tests/test_portal_clinic_invite_auth.py`: `test_convite_envia_pelo_canal_whatsapp_do_atendimento_quando_habilitado` (mocka `httpx.post`, confirma `delivery_status="sent"`, `delivery_provider="whatsapp_business_template"`, payload com `template_key="portalClinicInviteActivation"`, `subject_type="clinica"`, `subject_id=clinica_id`, `destination` normalizado com prefixo `55`) e `test_convite_cai_para_copia_manual_quando_envio_pelo_whatsapp_falha` (resposta 400 do serviço → `delivery_status="manual_copy"`, sem quebrar a criação do convite) | passou |
-| CA-004 | suítes completas de backend (`pytest`), frontend (`vitest`, `tsc`, `eslint`) sem regressão | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | `whatsapp-stage-backend`: `npx tsc --noEmit` e `npx ts-node scripts/test-approved-templates.ts` com os 15 modelos (12 antigos + 3 novos, contratos name/metaId/parâmetros/quick-replies) | passou |
+| CA-002 | aceitacao | script isolado chamando `listApprovedTemplateCatalog` diretamente (sem depender de Postgres, indisponível neste ambiente) confirma `data.length === 12` e nenhuma chave `portalClinicInvite*` presente - mesma contagem que `test-inbox-ui-contracts.ts` já espera, sem precisar alterá-lo | passou |
+| CA-003 | aceitacao | `backend/tests/test_portal_clinic_invite_auth.py`: `test_convite_envia_pelo_canal_whatsapp_do_atendimento_quando_habilitado` (mocka `httpx.post`, confirma `delivery_status="sent"`, `delivery_provider="whatsapp_business_template"`, payload com `template_key="portalClinicInviteActivation"`, `subject_type="clinica"`, `subject_id=clinica_id`, `destination` normalizado com prefixo `55`) e `test_convite_cai_para_copia_manual_quando_envio_pelo_whatsapp_falha` (resposta 400 do serviço → `delivery_status="manual_copy"`, sem quebrar a criação do convite) | passou |
+| CA-004 | aceitacao | suítes completas de backend (`pytest`), frontend (`vitest`, `tsc`, `eslint`) sem regressão | passou |
 
 ## Comandos executados
 

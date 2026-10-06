@@ -2,19 +2,19 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | `test_criar_convite_usa_prazo_da_reserva_quando_disponivel`, `test_criar_convite_sem_prazo_usa_default_configurado` | passou |
-| CA-002 | `test_novo_convite_revoga_pendente_anterior` | passou |
-| CA-003 | `test_obter_convite_valido_rejeita_token_desconhecido`, `test_obter_convite_valido_expira_convite_vencido` | passou |
-| CA-004 | `test_processar_submissao_cria_tutor_e_paciente_e_formaliza_agendamento`, `test_processar_submissao_rejeita_convite_ja_usado` | passou |
-| CA-005 | `test_processar_submissao_reutiliza_tutor_existente_por_nome` | passou |
-| CA-006 | `test_processar_submissao_falha_de_notificacao_nao_bloqueia_salvamento` | passou |
-| CA-007 | `test_build_agenda_utility_template_formalized_monta_sete_parametros` | passou |
-| CA-008 | `scripts/test-approved-template-button-events.ts` (cenário `enviar_dados` + reentrega do mesmo `provider_message_id`) | passou |
-| CA-009 | mesmo script, cenário `falar_equipe` | passou |
-| CA-010 | mesmo script, cenário de remetente divergente | passou |
-| CA-011 | `AgendaFormalizacaoWorkspace.test.tsx` (fluxo feliz + link inválido) | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | `test_criar_convite_usa_prazo_da_reserva_quando_disponivel`, `test_criar_convite_sem_prazo_usa_default_configurado` | passou |
+| CA-002 | aceitacao | `test_novo_convite_revoga_pendente_anterior` | passou |
+| CA-003 | aceitacao | `test_obter_convite_valido_rejeita_token_desconhecido`, `test_obter_convite_valido_expira_convite_vencido` | passou |
+| CA-004 | aceitacao | `test_processar_submissao_cria_tutor_e_paciente_e_formaliza_agendamento`, `test_processar_submissao_rejeita_convite_ja_usado` | passou |
+| CA-005 | aceitacao | `test_processar_submissao_reutiliza_tutor_existente_por_nome` | passou |
+| CA-006 | aceitacao | `test_processar_submissao_falha_de_notificacao_nao_bloqueia_salvamento` | passou |
+| CA-007 | aceitacao | `test_build_agenda_utility_template_formalized_monta_sete_parametros` | passou |
+| CA-008 | aceitacao | `scripts/test-approved-template-button-events.ts` (cenário `enviar_dados` + reentrega do mesmo `provider_message_id`) | passou |
+| CA-009 | aceitacao | mesmo script, cenário `falar_equipe` | passou |
+| CA-010 | aceitacao | mesmo script, cenário de remetente divergente | passou |
+| CA-011 | aceitacao | `AgendaFormalizacaoWorkspace.test.tsx` (fluxo feliz + link inválido) | passou |
 
 ## Comandos executados
 

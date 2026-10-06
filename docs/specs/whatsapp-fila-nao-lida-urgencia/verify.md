@@ -2,12 +2,12 @@
 
 ## Matriz de aceitação
 
-| Critério | Evidência | Resultado |
-|---|---|---|
-| CA-001 | `curl PATCH /conversations/1/seen` seguido de `GET /conversations`: conversa 1 passou a `unread: false`, conversa 13 (sem seen) manteve `unread: true` | passou |
-| CA-002 | Teste `mostra indicador de não lida e marca como vista ao abrir a conversa` em `page.test.tsx`: clicar em "Contato Pendente" dispara `PATCH /whatsapp/conversations/60/seen` e o indicador some | passou |
-| CA-003 | Coberto indiretamente: mock reutiliza o mesmo `last_inbound_at` em `GET .../messages`; a lógica de `hasNewInbound` (comparação de string) foi validada por inspeção do fluxo — poll silencioso com o mesmo valor não re-dispara `seen` (mesma branch usada pelos testes antigos, que só chamam `seen` uma vez na carga inicial) | passou |
-| CA-004 | `curl GET /conversations?limit=3`: conversa não lida (id 13) veio antes da conversa recém-marcada como vista (id 1) | passou |
+| ID | Tipo | Evidencia | Status |
+| --- | --- | --- | --- |
+| CA-001 | aceitacao | `curl PATCH /conversations/1/seen` seguido de `GET /conversations`: conversa 1 passou a `unread: false`, conversa 13 (sem seen) manteve `unread: true` | passou |
+| CA-002 | aceitacao | Teste `mostra indicador de não lida e marca como vista ao abrir a conversa` em `page.test.tsx`: clicar em "Contato Pendente" dispara `PATCH /whatsapp/conversations/60/seen` e o indicador some | passou |
+| CA-003 | aceitacao | Coberto indiretamente: mock reutiliza o mesmo `last_inbound_at` em `GET .../messages`; a lógica de `hasNewInbound` (comparação de string) foi validada por inspeção do fluxo — poll silencioso com o mesmo valor não re-dispara `seen` (mesma branch usada pelos testes antigos, que só chamam `seen` uma vez na carga inicial) | passou |
+| CA-004 | aceitacao | `curl GET /conversations?limit=3`: conversa não lida (id 13) veio antes da conversa recém-marcada como vista (id 1) | passou |
 
 ## Comandos executados
 
