@@ -12,7 +12,7 @@ import type {
   EventInput,
 } from "@fullcalendar/core";
 import type { DateClickArg, EventResizeDoneArg } from "@fullcalendar/interaction";
-import { CalendarDays, ChevronDown, Download, FileText, List, MapPin, RefreshCw, Stethoscope, TimerReset, Trash2, Wallet } from "lucide-react";
+import { CalendarDays, ChevronDown, Download, FileText, List, MapPin, RefreshCw, Stethoscope, TimerReset, Trash2, Wallet, X } from "lucide-react";
 
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
@@ -1437,6 +1437,8 @@ export default function AgendaFullCalendarPage() {
 
   const atualizarStatusAgendamento = useCallback(
     async (agendamentoId: number, novoStatus: StatusAgenda, tipoHorarioParam?: "comercial" | "plantao") => {
+      setErro("");
+      setMensagemStatus("");
       setAtualizandoStatusId(agendamentoId);
       setMenuStatusAberto(false);
 
@@ -1578,6 +1580,7 @@ export default function AgendaFullCalendarPage() {
   const confirmarReabilitacaoReserva = useCallback(async () => {
     if (!selecionado) return;
 
+    setErro("");
     const horas = normalizarPrazoReabilitacaoHoras(prazoReabilitacaoHoras);
     if (horas === null) {
       setErro(
@@ -2446,20 +2449,35 @@ export default function AgendaFullCalendarPage() {
   return (
     <DashboardLayout>
       <div className="fc-agenda-page fc-calendar-page">
-        {toastRealtime && (
-          <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[70] lg:top-4">
-            <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastRealtime.classe}`}>
-              <span className="font-medium">{toastRealtime.texto}</span>
-              {typeof toastRealtime.agendamentoId === "number" && (
+        {(toastRealtime || erro) && (
+          <div className="pointer-events-none fixed inset-x-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[80] flex flex-col gap-2 sm:left-auto sm:w-[28rem] lg:top-16">
+            {erro && (
+              <div role="alert" className="pointer-events-auto flex max-h-[35dvh] items-start gap-3 overflow-y-auto rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 shadow-xl">
+                <span className="min-w-0 flex-1 break-words">{erro}</span>
                 <button
                   type="button"
-                  onClick={() => abrirAgendamentoDoToast(toastRealtime.agendamentoId as number)}
-                  className="rounded-md border border-current/30 px-2 py-1 text-[11px] font-semibold hover:bg-white/40 transition-colors"
+                  onClick={() => setErro("")}
+                  aria-label="Fechar aviso de erro"
+                  className="shrink-0 rounded p-1 text-red-700 hover:bg-red-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700"
                 >
-                  Abrir
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
-              )}
-            </div>
+              </div>
+            )}
+            {toastRealtime && (
+              <div className={`pointer-events-auto flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastRealtime.classe}`}>
+                <span className="min-w-0 flex-1 font-medium">{toastRealtime.texto}</span>
+                {typeof toastRealtime.agendamentoId === "number" && (
+                  <button
+                    type="button"
+                    onClick={() => abrirAgendamentoDoToast(toastRealtime.agendamentoId as number)}
+                    className="rounded-md border border-current/30 px-2 py-1 text-[11px] font-semibold hover:bg-white/40 transition-colors"
+                  >
+                    Abrir
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -2563,8 +2581,6 @@ export default function AgendaFullCalendarPage() {
           {realtimeUltimoEvento ? ` | Ultimo evento: ${realtimeUltimoEvento}` : ""}
           {mensagemRealtime ? ` | ${mensagemRealtime}` : ""}
         </div>
-
-        {erro && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</div>}
 
         <div className="fc-calendar-surface">
           <AgendaFullCalendarView

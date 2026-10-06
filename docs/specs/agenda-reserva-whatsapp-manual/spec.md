@@ -34,6 +34,8 @@ Ao criar uma reserva ou um agendamento, a secretaria escolhe clinica ou tutor co
 - RF-022: se o mesmo cliente confirmar depois do vencimento, a secretaria deve poder alterar `Expirado` para `Agendado` mediante confirmacao tardia explicita, desde que o slot continue livre e os dados obrigatorios estejam preenchidos.
 - RF-023: a confirmacao tardia deve ficar disponivel na Agenda e no FullCalendar com rotulo proprio, sem reativar silenciosamente a reserva.
 - RF-024: ao completar tutor e animal de uma reserva expirada, a interface deve distinguir texto de busca de cadastro selecionado, salvar os IDs sem alterar o status e orientar a acao subsequente `Agendar apos confirmacao tardia`.
+- RF-025: erros ao confirmar tardiamente, inclusive falta de tutor ou animal vinculado e falhas da API, devem aparecer na area visivel da Agenda e do FullCalendar sem exigir rolagem ate o topo; erros de reabilitacao devem permanecer visiveis sobre seu modal e o aviso deve poder ser fechado.
+- RF-026: quando o Fortinho estiver habilitado, uma confirmacao operacional deve aparecer imediatamente mesmo com aviso persistente anterior ou mascote oculto. Enquanto pendente, ela fica acima do modal de agendamento e nao pode ser ocultada; apos a resposta, o aviso anterior pode voltar na camada usual.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -44,6 +46,7 @@ Ao criar uma reserva ou um agendamento, a secretaria escolhe clinica ou tutor co
 - NFR-005 (timezone): a comparacao de vencimento deve usar o horario operacional UTC-3, independentemente do timezone do runner ou servidor.
 - NFR-006 (integridade): confirmar a revisao de uma reserva expirada nunca pode contornar bloqueios administrativos ou a sobreposicao com outro agendamento ativo.
 - NFR-007 (ux): nomes digitados na busca de tutor ou animal nao podem aparentar selecao enquanto nenhum resultado cadastrado tiver sido escolhido.
+- NFR-008 (acessibilidade): erros de operacao devem usar `role=alert`, texto legivel em telas pequenas e controle de fechamento com nome acessivel.
 
 ## 4) Contratos tecnicos
 
@@ -80,6 +83,8 @@ Ao criar uma reserva ou um agendamento, a secretaria escolhe clinica ou tutor co
 - O modal compartilhado de novo agendamento exige a revisao das mensagens antes de repetir a escrita com o campo de confirmacao.
 - Reservas expiradas exibem a acao `Agendar apos confirmacao tardia` nas duas visualizacoes da agenda.
 - A edicao de reserva expirada explica o fluxo em duas etapas, identifica campos ainda sem cadastro selecionado e retorna para a Agenda depois de salvar tutor e animal.
+- Falhas nas acoes da lista e do FullCalendar aparecem em aviso fixo na viewport, inclusive sobre o modal de reabilitacao; uma nova tentativa limpa erro antigo.
+- Quando o Fortinho esta habilitado, confirmacoes exigidas pelo backend interrompem seus avisos persistentes e voltam a exibi-los apos a resposta.
 
 ## 5) Compatibilidade e rollout
 
@@ -109,6 +114,8 @@ Ao criar uma reserva ou um agendamento, a secretaria escolhe clinica ou tutor co
 - CA-018: confirmar a resposta tardia muda a mesma reserva para `Agendado` quando o slot esta livre e mantem o bloqueio quando outro atendimento ja ocupa o horario.
 - CA-019: a reativacao continua exigindo paciente e tutor para o status `Agendado` e registra a confirmacao tardia na auditoria.
 - CA-020: em reserva `Expirado` sem tutor/paciente, digitar texto mantem o seletor sem valor; escolher resultados persiste `tutor_id`/`paciente_id`, preserva `Expirado` e informa que a proxima acao e `Agendar apos confirmacao tardia`.
+- CA-021: ao clicar `Agendar apos confirmacao tardia` sem cadastros vinculados, o erro aparece na viewport com `role=alert`; se a reabilitacao falhar com o modal aberto, o erro continua visivel acima dele.
+- CA-022: apos aviso persistente de dados salvos, a confirmacao tardia aparece sem exigir dispensa manual do aviso, acima do modal de agendamento quando aberto, e resolve a resposta; o mesmo vale quando o Fortinho estava oculto. Ao voltar, o aviso comum usa sua camada usual.
 
 ## 7) Casos de borda
 

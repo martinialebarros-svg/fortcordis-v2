@@ -20,6 +20,8 @@ Status: local-validated
 | CA-016/NFR-006 | confirmacao do slot expirado nao ignora conflito com agendamento ativo | passou |
 | CA-017/CA-018/CA-019 | confirmacao tardia reativa `Expirado` somente com slot livre, dados obrigatorios e auditoria | passou |
 | CA-020/NFR-007 | busca de tutor/animal exige escolha de resultado, remove falso selecionado e orienta a segunda etapa | passou localmente |
+| CA-021/NFR-008 | `page.feedback.test.tsx` cobre erro de confirmação tardia visível na viewport, `role=alert` e erro de reabilitação acima do modal; implementação equivalente revisada no FullCalendar | passou localmente |
+| CA-022 | `FortinhoProvider.test.tsx` cobre aviso persistente seguido de confirmação, resposta positiva/negativa, mascote oculto e camada da confirmação acima do modal (`z-[110]`), restaurando `z-[90]` para o aviso | passou localmente |
 | NFR-001/NFR-004 | fallback legado e status expirado fora dos bloqueios ativos | passou |
 
 ## 2) Testes executados
@@ -112,3 +114,21 @@ git diff --check
 
 - [x] Aprovado para stage, condicionado ao guardrail e workflows finais.
 - [x] Aprovado para producao, condicionado aos workflows e smoke pos-deploy.
+
+## 6) Atualizacao de 2026-10-06 — avisos e confirmacao tardia
+
+```bash
+cd frontend && npm test
+cd frontend && npm run lint
+cd frontend && npx tsc --noEmit --pretty false
+cd frontend && npm run build
+git diff --check
+```
+
+- 75 arquivos e 518 testes Vitest passaram; 9 testes Node passaram.
+- ESLint, TypeScript e build Next.js 15.5.23 passaram (43 paginas geradas).
+- O guardrail SDD passou para as alterações locais, incluindo os dois pares `spec.md` + `verify.md`.
+- O teste da Agenda cobre erro sem IDs vinculados, erro de reabilitacao com modal aberto e limpeza de erro antigo antes de nova tentativa.
+- O teste do Fortinho cobre prioridade da confirmacao sobre aviso persistente, retorno do aviso, reabertura quando oculto e camada `z-[110]` apenas enquanto a confirmacao esta pendente.
+- As chamadas de status, autorizacao, disponibilidade e regras de prazo do backend nao foram alteradas nesta correcao.
+- A alteracao de interface foi validada localmente; as aprovacoes da secao 5 se referem a entrega anterior, e esta atualizacao depende de um fluxo separado de release.

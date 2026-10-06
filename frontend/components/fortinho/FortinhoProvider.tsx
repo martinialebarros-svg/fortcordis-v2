@@ -120,6 +120,8 @@ export function FortinhoProvider({ children }: { children: ReactNode }) {
 
   const confirm = useCallback((options: FortinhoConfirmOptions) => {
     return new Promise<boolean>((resolve) => {
+      // Uma confirmacao requer uma resposta, mesmo se o mascote foi ocultado.
+      setOculto(false);
       const id = ++sequenceRef.current;
       const item: FortinhoConfirmItem = {
         id,
@@ -132,7 +134,18 @@ export function FortinhoProvider({ children }: { children: ReactNode }) {
         cancelLabel: options.cancelLabel?.trim() || "Cancelar",
         resolve,
       };
-      setQueue((prev) => [...prev, item]);
+      // Confirmacoes interrompem avisos (inclusive os persistentes), que
+      // voltam a ser exibidos depois da resposta. Confirmacoes pendentes
+      // continuam na ordem em que foram solicitadas.
+      setQueue((prev) => {
+        const primeiroAviso = prev.findIndex((pendente) => pendente.kind === "notice");
+        if (primeiroAviso === -1) return [...prev, item];
+        return [
+          ...prev.slice(0, primeiroAviso),
+          item,
+          ...prev.slice(primeiroAviso),
+        ];
+      });
     });
   }, []);
 
