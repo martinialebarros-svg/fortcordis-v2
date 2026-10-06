@@ -51,6 +51,10 @@ from app.services.laudo_pdf_jobs import (
     submit_laudo_pdf_job,
 )
 from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
+from app.services.laudo_ordem_servico_service import (
+    buscar_ordem_laudo, buscar_ordem_por_chave, chave_upload_ordem, criar_ordem_laudo,
+    exigir_criacao_ordem, hash_upload_ordem, mesma_data, pode_acessar_ordens, resumo_ordem, validar_preco_ordem,
+)
 from app.services.portal_clinic_device_trust_service import revoke_trusts_for_exam
 from app.services.portal_clinic_exam_link_service import (
     build_exam_link_url,
@@ -175,7 +179,10 @@ def _parse_data_exame(value: Any) -> Optional[datetime]:
         if not value:
             return None
         if DATE_ONLY_PATTERN.fullmatch(value):
-            parsed_date = datetime.strptime(value, "%Y-%m-%d")
+            try:
+                parsed_date = datetime.strptime(value, "%Y-%m-%d")
+            except ValueError:
+                return None
             return parsed_date.replace(tzinfo=OPERATIONAL_TIME_ZONE)
         try:
             return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -2048,6 +2055,40 @@ def listar_laudos(
     return {"total": total, "items": resultado}
 
 
+@router.get("/laudos/eletrocardiograma/ordem-servico/preview")
+def preview_ordem_servico_eletrocardiograma(
+    clinic_id: int,
+    servico_id: int,
+    tipo_horario: str = "comercial",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    exigir_criacao_ordem(db, current_user)
+    valor = validar_preco_ordem(db, clinic_id, servico_id, tipo_horario)
+    return {"valor_servico": float(valor), "valor_final": float(valor)}
+
+
+def _resposta_upload_eletrocardiograma(db: Session, laudo: Laudo, anexo_id: int, ordem=None) -> dict:
+    parceiro = db.query(PortalPartnerProfile).filter(PortalPartnerProfile.id == laudo.veterinario_parceiro_id).first() if laudo.veterinario_parceiro_id else None
+    return {
+        "id": laudo.id, "tipo": laudo.tipo, "titulo": laudo.titulo, "status": laudo.status,
+        "paciente_id": laudo.paciente_id, "clinic_id": laudo.clinic_id,
+        "veterinario_parceiro_id": laudo.veterinario_parceiro_id,
+        "veterinario_parceiro_nome": parceiro.nome_exibicao if parceiro else None,
+        "agendamento_id": laudo.agendamento_id, "anexo_id": anexo_id,
+        "ordem_servico": resumo_ordem(ordem),
+        "message": "Laudo de eletrocardiograma criado com PDF anexado.",
+    }
+
+
+def _resposta_retry_upload_eletrocardiograma(db: Session, ordem) -> dict:
+    laudo = db.query(Laudo).filter(Laudo.id == ordem.laudo_id).first()
+    anexo = _buscar_anexo_pdf_externo_laudo(db, laudo) if laudo else None
+    if not laudo or not anexo:
+        raise HTTPException(409, "O envio anterior ja foi processado e seu laudo foi removido. Confira a OS no Financeiro.")
+    return _resposta_upload_eletrocardiograma(db, laudo, anexo.id, ordem)
+
+
 @router.post("/laudos/eletrocardiograma/upload-pdf", status_code=status.HTTP_201_CREATED)
 async def criar_laudo_eletrocardiograma_por_pdf(
     arquivo: UploadFile = File(...),
@@ -2058,6 +2099,10 @@ async def criar_laudo_eletrocardiograma_por_pdf(
     veterinario_parceiro_id: Optional[int] = Form(None),
     data_exame: Optional[str] = Form(None),
     observacoes: str = Form(""),
+    gerar_ordem_servico: bool = Form(False),
+    servico_id: Optional[int] = Form(None),
+    tipo_horario: str = Form("comercial"),
+    idempotency_key: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -2069,6 +2114,18 @@ async def criar_laudo_eletrocardiograma_por_pdf(
     atendimento_id = _to_optional_int(atendimento_id)
     paciente_id = _to_optional_int(paciente_id)
     clinic_id = _to_optional_int(clinic_id)
+    # Defaults Form também são objetos quando o endpoint é chamado diretamente.
+    gerar_ordem_servico = gerar_ordem_servico is True
+    servico_id = _to_optional_int(servico_id)
+    ordem_servico = None
+    chave_os = None
+    request_hash = None
+    valor_os = None
+    if gerar_ordem_servico:
+        exigir_criacao_ordem(db, current_user)
+        if agendamento_id or atendimento_id:
+            raise HTTPException(422, "A OS pelo upload esta disponivel apenas sem agendamento ou atendimento vinculado.")
+        chave_os = chave_upload_ordem(current_user.id, idempotency_key)
     veterinario_parceiro_id, veterinario_parceiro = _load_veterinario_parceiro_or_422(
         db,
         veterinario_parceiro_id,
@@ -2120,6 +2177,22 @@ async def criar_laudo_eletrocardiograma_por_pdf(
     content = await arquivo.read()
     if not content:
         raise HTTPException(status_code=400, detail="Arquivo vazio.")
+
+    if gerar_ordem_servico:
+        if data_exame and _parse_data_exame(data_exame) is None:
+            raise HTTPException(422, "Formato invalido para data_exame. Use YYYY-MM-DD ou ISO datetime.")
+        request_hash = hash_upload_ordem(
+            paciente_id=paciente_id, clinic_id=clinic_id, servico_id=servico_id,
+            tipo_horario=tipo_horario, data_exame=data_exame,
+            veterinario_parceiro_id=veterinario_parceiro_id,
+            observacoes=(observacoes or "").strip(), arquivo_hash=calculate_attachment_sha256(content),
+        )
+        ordem_servico = buscar_ordem_por_chave(db, chave_os, request_hash)
+        if ordem_servico:
+            return _resposta_retry_upload_eletrocardiograma(db, ordem_servico)
+        if paciente.ativo != 1:
+            raise HTTPException(422, "Selecione um paciente ativo para gerar a OS.")
+        valor_os = validar_preco_ordem(db, clinic_id, servico_id, tipo_horario)
 
     data_exame_final = (
         _parse_data_exame(data_exame)
@@ -2194,27 +2267,30 @@ async def criar_laudo_eletrocardiograma_por_pdf(
             },
         )
 
+        if gerar_ordem_servico:
+            ordem_servico = criar_ordem_laudo(
+                db, laudo=laudo, servico_id=servico_id, tipo_horario=tipo_horario,
+                valor=valor_os, chave=chave_os, request_hash=request_hash, user=current_user,
+            )
+
         db.commit()
-        db.refresh(laudo)
-        db.refresh(anexo)
+    except IntegrityError:
+        db.rollback()
+        remove_atendimento_attachment_file(storage_path)
+        if chave_os:
+            ordem_servico = buscar_ordem_por_chave(db, chave_os, request_hash)
+            if ordem_servico:
+                return _resposta_retry_upload_eletrocardiograma(db, ordem_servico)
+        raise
     except Exception:
         db.rollback()
         remove_atendimento_attachment_file(storage_path)
         raise
 
-    return {
-        "id": laudo.id,
-        "tipo": laudo.tipo,
-        "titulo": laudo.titulo,
-        "status": laudo.status,
-        "paciente_id": laudo.paciente_id,
-        "clinic_id": laudo.clinic_id,
-        "veterinario_parceiro_id": laudo.veterinario_parceiro_id,
-        "veterinario_parceiro_nome": veterinario_parceiro.nome_exibicao if veterinario_parceiro else None,
-        "agendamento_id": laudo.agendamento_id,
-        "anexo_id": anexo.id,
-        "message": "Laudo de eletrocardiograma criado com PDF anexado.",
-    }
+    # Falha de leitura depois do commit não pode apagar o PDF já persistido.
+    db.refresh(laudo)
+    db.refresh(anexo)
+    return _resposta_upload_eletrocardiograma(db, laudo, anexo.id, ordem_servico)
 
 
 @router.put("/laudos/{laudo_id}/eletrocardiograma/pdf")
@@ -2940,6 +3016,9 @@ def obter_laudo(
         ultrassonografia_abdominal = _extrair_ultrassonografia_abdominal_do_descricao(laudo.descricao)
     if ultrassonografia_abdominal and not ultrassonografia_abdominal.get("sexo_paciente") and paciente:
         ultrassonografia_abdominal["sexo_paciente"] = _normalizar_sexo_paciente(paciente.sexo)
+
+    ordem_servico = buscar_ordem_laudo(db, laudo.id) if laudo.tipo == TIPO_LAUDO_ELETROCARDIOGRAMA else None
+    ordem_visivel = bool(ordem_servico) and pode_acessar_ordens(db, current_user, "visualizar")
     
     return {
         "id": laudo.id,
@@ -2977,6 +3056,7 @@ def obter_laudo(
         "ecocardiograma_cabecalho": ecocardiograma_cabecalho,
         "ecocardiograma_estruturado": ecocardiograma_estruturado,
         "pdf_externo": _extrair_pdf_externo_laudo(laudo.anexos),
+        "ordem_servico": resumo_ordem(ordem_servico) if ordem_visivel else None,
         "imagens": imagens_list,
         # O seletor de destino do aviso por WhatsApp abre nesta tela tambem, e
         # precisa saber quem ja recebeu.
@@ -3017,6 +3097,18 @@ def atualizar_laudo(
     laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
     if not laudo:
         raise HTTPException(status_code=404, detail="Laudo nao encontrado")
+
+    if laudo.tipo == TIPO_LAUDO_ELETROCARDIOGRAMA and buscar_ordem_laudo(db, laudo.id, somente_ativa=True):
+        altera_identidade = (
+            ("paciente_id" in laudo_data and _to_optional_int(laudo_data["paciente_id"]) != laudo.paciente_id)
+            or ("clinic_id" in laudo_data and _to_optional_int(laudo_data["clinic_id"]) != laudo.clinic_id)
+            or ("data_exame" in laudo_data and not mesma_data(db, laudo.data_exame, _parse_data_exame(laudo_data["data_exame"])))
+            or ("agendamento_id" in laudo_data and _to_optional_int(laudo_data["agendamento_id"]) != laudo.agendamento_id)
+            or ("paciente" in laudo_data)
+            or any(key in laudo_data and laudo_data[key] != laudo.tipo for key in ("tipo", "tipo_laudo"))
+        )
+        if altera_identidade:
+            raise HTTPException(409, "Cancele a OS vinculada no Financeiro antes de alterar paciente, clinica, data ou vinculo deste laudo.")
 
     aplicar_qualitativa_estruturada = laudo_data.pop("aplicar_qualitativa_estruturada", False) is True
     aplicar_conclusao_estruturada = laudo_data.pop("aplicar_conclusao_estruturada", False) is True
@@ -3212,6 +3304,9 @@ def deletar_laudo(
     laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
     if not laudo:
         raise HTTPException(status_code=404, detail="Laudo não encontrado")
+
+    if laudo.tipo == TIPO_LAUDO_ELETROCARDIOGRAMA and buscar_ordem_laudo(db, laudo.id, somente_ativa=True):
+        raise HTTPException(409, "Cancele a OS vinculada no Financeiro antes de excluir este laudo.")
 
     # Exame.laudo_id nao tem FK/cascade: sem isso, um Exame liberado no portal
     # a partir deste laudo (_sincronizar_exame_liberado_para_portal) ficaria

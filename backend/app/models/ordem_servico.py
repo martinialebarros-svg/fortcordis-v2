@@ -5,7 +5,7 @@ from app.db.database import Base
 
 
 class OrdemServico(Base):
-    """Ordem de Serviço gerada a partir de um agendamento realizado"""
+    """Ordem de serviço vinculada a um agendamento ou laudo avulso."""
     __tablename__ = "ordens_servico"
     __table_args__ = (
         Index("ix_ordens_servico_status_data_atendimento_id", "status", "data_atendimento", "id"),
@@ -20,13 +20,24 @@ class OrdemServico(Base):
             postgresql_where=text("COALESCE(status, '') <> 'Cancelado'"),
             sqlite_where=text("COALESCE(status, '') <> 'Cancelado'"),
         ),
+        Index(
+            "ux_ordens_servico_laudo_ativa",
+            "laudo_id",
+            unique=True,
+            postgresql_where=text("laudo_id IS NOT NULL AND COALESCE(status, '') <> 'Cancelado'"),
+            sqlite_where=text("laudo_id IS NOT NULL AND COALESCE(status, '') <> 'Cancelado'"),
+        ),
+        Index("ux_ordens_servico_idempotency_key", "idempotency_key", unique=True),
     )
 
     id = Column(Integer, primary_key=True, index=True)
     numero_os = Column(String(50), unique=True, nullable=False)
     
     # Relacionamentos
-    agendamento_id = Column(Integer, nullable=False)
+    agendamento_id = Column(Integer, nullable=True)
+    laudo_id = Column(Integer, nullable=True)
+    idempotency_key = Column(String(200), nullable=True)
+    request_hash = Column(String(64), nullable=True)
     paciente_id = Column(Integer, nullable=False)
     clinica_id = Column(Integer, nullable=True)
     servico_id = Column(Integer, nullable=False)

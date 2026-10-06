@@ -3,10 +3,10 @@ import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import FinanceiroPage from "./page";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn(), post: vi.fn(), router: { push: vi.fn() } }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn(), router: { push: vi.fn() } }));
 vi.mock("../layout-dashboard", () => ({ default: ({ children }: PropsWithChildren) => <div>{children}</div> }));
 vi.mock("next/navigation", () => ({ useRouter: () => mocks.router }));
-vi.mock("@/lib/axios", () => ({ default: { get: mocks.get, patch: mocks.patch, post: mocks.post } }));
+vi.mock("@/lib/axios", () => ({ default: { get: mocks.get, patch: mocks.patch, post: mocks.post, put: mocks.put, delete: mocks.delete } }));
 vi.mock("./TransacaoModal", () => ({ default: () => null }));
 
 function result(description: string, total = 205) {
@@ -230,6 +230,57 @@ describe("Ordens pagination", () => {
     await screen.findByText("OS #OS-1");
     await act(async () => resolvePage({ data: { total: 201, items: [osItem(101)], resumo: { pendentes: 201, valor_pendente: 2010 } } }));
     expect(screen.queryByText("OS #OS-101")).not.toBeInTheDocument();
+  });
+});
+
+describe("Ordens vinculadas a laudos", () => {
+  let ordem: ReturnType<typeof osItem> & { laudo_id?: number; clinica_id: number; servico_id: number };
+  beforeEach(() => {
+    mocks.get.mockReset(); mocks.put.mockReset(); mocks.delete.mockReset();
+    mocks.put.mockResolvedValue({ data: {} }); mocks.delete.mockResolvedValue({ data: {} });
+    localStorage.setItem("token", "synthetic-test");
+    window.history.replaceState({}, "", "/financeiro?aba=ordens");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.spyOn(window, "alert").mockImplementation(() => undefined);
+    ordem = { ...osItem(1), laudo_id: 20, clinica_id: 1, servico_id: 1 };
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/ordens-servico?")) return { data: { total: 1, items: [ordem], resumo: { pendentes: ordem.status === "Pendente" ? 1 : 0, valor_pendente: ordem.status === "Pendente" ? 10 : 0 } } };
+      if (url.startsWith("/clinicas?")) return { data: { total: 1, items: [{ id: 1, nome: "Clinica sintetica" }] } };
+      if (url.startsWith("/servicos?")) return { data: { items: [{ id: 1, nome: "Servico sintetico" }] } };
+      return { data: { items: [] } };
+    });
+  });
+  afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); window.history.replaceState({}, "", "/"); });
+
+  it("cancela a pendencia preservando a OS e o laudo", async () => {
+    render(<FinanceiroPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelar OS" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledWith("/ordens-servico/1", { status: "Cancelado" }));
+    expect(mocks.delete).not.toHaveBeenCalled();
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("laudo e o historico"));
+  });
+
+  it("exige desfazer recebimento antes de cancelar a OS paga", async () => {
+    ordem.status = "Pago";
+    render(<FinanceiroPage />);
+    expect(await screen.findByRole("button", { name: "Cancelar OS" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Desfazer" })).toBeEnabled();
+    expect(mocks.put).not.toHaveBeenCalled();
+    expect(mocks.delete).not.toHaveBeenCalled();
+  });
+
+  it("preserva a exclusao das OS sem vinculo com laudo", async () => {
+    delete ordem.laudo_id;
+    render(<FinanceiroPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Excluir OS" }));
+    await waitFor(() => expect(mocks.delete).toHaveBeenCalledWith("/ordens-servico/1"));
+    expect(mocks.put).not.toHaveBeenCalled();
+  });
+
+  it("mantem a clinica vinculada ao editar OS ativa de laudo", async () => {
+    render(<FinanceiroPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
+    expect(screen.getByRole("combobox", { name: "Clinica da OS" })).toBeDisabled();
   });
 });
 
