@@ -78,6 +78,13 @@ Resposta 200: o agendamento serializado (`_serialize_agendamento`) mais
   a confirmação do Fortinho (revisar WhatsApp) e só então repete a chamada
   com `confirmar_slot_reserva_expirada: true`; cancelar aborta sem alterar
   nada.
+- RF-017: erros de validação ou da API na reabilitação aparecem na viewport
+  acima do modal aberto, com `role=alert` e botão de fechar acessível. Uma
+  nova tentativa limpa o erro anterior.
+- RF-018: quando o Fortinho está habilitado, a confirmação interrompe avisos
+  persistentes anteriores, aparece mesmo se o mascote estava oculto e fica
+  acima do modal de agendamento enquanto aguarda resposta, sem poder ser
+  ocultada; após a resposta, o aviso interrompido volta à fila na camada usual.
 
 ## Critérios de aceitação
 
@@ -108,3 +115,10 @@ Resposta 200: o agendamento serializado (`_serialize_agendamento`) mais
   está a menos de 5 minutos.
 - CA-012: `parseDataHoraAgenda` interpreta `"2099-05-25 11:00:00"` como
   horário local e devolve `null` para formatos não suportados.
+- CA-013: com modal de reabilitação aberto, uma resposta de erro permanece
+  visível sem rolar a página e acima do modal, tanto na lista quanto no
+  FullCalendar.
+- CA-014: uma confirmação solicitada após aviso persistente ou com Fortinho
+  oculto aparece de imediato acima do modal de agendamento quando aberto,
+  resolve `true`/`false` conforme a ação e retorna o aviso anterior à camada
+  usual após a resposta.

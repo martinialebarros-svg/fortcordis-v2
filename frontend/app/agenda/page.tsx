@@ -1470,6 +1470,7 @@ export default function AgendaPage() {
   };
 
   const atualizarStatus = async (id: number, novoStatus: StatusType, tipoHorarioParam?: "comercial" | "plantao") => {
+    setErro("");
     // Se for Realizado, abre o modal de seleção de tipo de horário
     if (novoStatus === "Realizado" && !tipoHorarioParam) {
       setModalTipoHorario({ id, status: novoStatus });
@@ -1631,6 +1632,7 @@ export default function AgendaPage() {
     const alvo = modalReabilitarReserva;
     if (!alvo) return;
 
+    setErro("");
     const horas = normalizarPrazoReabilitacaoHoras(prazoReabilitacaoHoras);
     if (horas === null) {
       setErro(
@@ -2067,20 +2069,35 @@ export default function AgendaPage() {
   return (
     <DashboardLayout>
       <div className="fc-agenda-page">
-        {toastRealtime && (
-          <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[70] lg:top-4">
-            <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastRealtime.classe}`}>
-              <span className="font-medium">{toastRealtime.texto}</span>
-              {typeof toastRealtime.agendamentoId === "number" && (
+        {(toastRealtime || erro) && (
+          <div className="pointer-events-none fixed inset-x-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[80] flex flex-col gap-2 sm:left-auto sm:w-[28rem] lg:top-16">
+            {erro && (
+              <div role="alert" className="pointer-events-auto flex max-h-[35dvh] items-start gap-3 overflow-y-auto rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 shadow-xl">
+                <span className="min-w-0 flex-1 break-words">{erro}</span>
                 <button
                   type="button"
-                  onClick={() => abrirAgendamentoDoToast(toastRealtime.agendamentoId as number)}
-                  className="rounded-md border border-current/30 px-2 py-1 text-[11px] font-semibold hover:bg-white/40 transition-colors"
+                  onClick={() => setErro("")}
+                  aria-label="Fechar aviso de erro"
+                  className="shrink-0 rounded p-1 text-red-700 hover:bg-red-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700"
                 >
-                  Abrir
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
-              )}
-            </div>
+              </div>
+            )}
+            {toastRealtime && (
+              <div className={`pointer-events-auto flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastRealtime.classe}`}>
+                <span className="min-w-0 flex-1 font-medium">{toastRealtime.texto}</span>
+                {typeof toastRealtime.agendamentoId === "number" && (
+                  <button
+                    type="button"
+                    onClick={() => abrirAgendamentoDoToast(toastRealtime.agendamentoId as number)}
+                    className="rounded-md border border-current/30 px-2 py-1 text-[11px] font-semibold hover:bg-white/40 transition-colors"
+                  >
+                    Abrir
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -2217,15 +2234,6 @@ export default function AgendaPage() {
         )}
 
         {/* Filtros */}
-        {erro && (
-          <div className="mb-4 p-4 bg-red-50 text-red-700 rounded-lg flex justify-between items-center">
-            <span>{erro}</span>
-            <button onClick={() => setErro("")} className="text-red-500 hover:text-red-700">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
         {reservasEmAlerta.length > 0 && (
           <div
             className={`mb-5 rounded-2xl border-2 p-4 shadow-sm ${

@@ -47,16 +47,18 @@ export default function FortinhoOverlay({
 
   return (
     <div
-      className="fixed bottom-4 right-4 z-[90] flex w-[238px] flex-col items-end"
+      className={`fixed bottom-4 right-4 flex w-[238px] flex-col items-end ${confirmState ? "z-[110]" : "z-[90]"}`}
       data-fortcordis-overlay-safe="1"
     >
-      <button
-        type="button"
-        onClick={onHide}
-        className="mb-2 pointer-events-auto rounded-full border border-rose-300 bg-white px-2 py-1 text-[11px] font-medium text-rose-700 shadow-sm hover:bg-rose-50"
-      >
-        Ocultar Fortinho
-      </button>
+      {!confirmState && (
+        <button
+          type="button"
+          onClick={onHide}
+          className="mb-2 pointer-events-auto rounded-full border border-rose-300 bg-white px-2 py-1 text-[11px] font-medium text-rose-700 shadow-sm hover:bg-rose-50"
+        >
+          Ocultar Fortinho
+        </button>
+      )}
 
       <div className="pointer-events-auto">
         <FortinhoMascot
