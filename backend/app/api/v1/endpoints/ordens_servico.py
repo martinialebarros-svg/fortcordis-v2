@@ -463,6 +463,32 @@ def _gerar_pdf_cobranca_pendencias(
         spaceAfter=2,
         spaceBefore=6,
     )
+    style_tabela = ParagraphStyle(
+        "CobrancaTabela",
+        parent=style_normal,
+        fontSize=8.5,
+        leading=10.5,
+        splitLongWords=1,
+    )
+    style_tabela_centro = ParagraphStyle(
+        "CobrancaTabelaCentro", parent=style_tabela, alignment=1
+    )
+    style_tabela_direita = ParagraphStyle(
+        "CobrancaTabelaDireita", parent=style_tabela, alignment=2
+    )
+
+    def _celula_cobranca(
+        valor: Any, *, alinhar: str = "esquerda", negrito: bool = False
+    ) -> Paragraph:
+        texto = _texto_pdf(valor, "-")
+        if negrito:
+            texto = f"<b>{texto}</b>"
+        estilo = {
+            "esquerda": style_tabela,
+            "centro": style_tabela_centro,
+            "direita": style_tabela_direita,
+        }[alinhar]
+        return Paragraph(texto, estilo)
 
     story: List[Any] = []
 
@@ -569,24 +595,44 @@ def _gerar_pdf_cobranca_pendencias(
             contatos_grupo.append(f"E-mail: {_texto_pdf(grupo['destinatario_email'], '')}")
         story.append(Paragraph(" | ".join(contatos_grupo), style_normal))
 
-        linhas_tabela = [["OS", "Data", "Paciente", "Tutor", "Servico", "Valor"]]
+        linhas_tabela = [
+            [
+                _celula_cobranca("OS", alinhar="centro", negrito=True),
+                _celula_cobranca("Data", negrito=True),
+                _celula_cobranca("Paciente", negrito=True),
+                _celula_cobranca("Tutor", negrito=True),
+                _celula_cobranca("Servico", negrito=True),
+                _celula_cobranca("Valor", alinhar="direita", negrito=True),
+            ]
+        ]
         for ordem in grupo["ordens"]:
             linhas_tabela.append(
                 [
-                    str(ordem["numero_os"] or "-"),
-                    _formatar_data_ddmmaa(ordem["data_atendimento"]),
-                    str(ordem["paciente"] or "-"),
-                    str(ordem["tutor"] or "-"),
-                    str(ordem["servico"] or "-"),
-                    _formatar_moeda_brl(ordem["valor_final"]),
+                    _celula_cobranca(ordem["numero_os"], alinhar="centro"),
+                    _celula_cobranca(_formatar_data_ddmmaa(ordem["data_atendimento"])),
+                    _celula_cobranca(ordem["paciente"]),
+                    _celula_cobranca(ordem["tutor"]),
+                    _celula_cobranca(ordem["servico"]),
+                    _celula_cobranca(
+                        _formatar_moeda_brl(ordem["valor_final"]), alinhar="direita"
+                    ),
                 ]
             )
 
-        linhas_tabela.append(["", "", "", "", "Subtotal", _formatar_moeda_brl(grupo["total"])])
+        linhas_tabela.append(
+            [
+                "", "", "", "",
+                _celula_cobranca("Subtotal", negrito=True),
+                _celula_cobranca(
+                    _formatar_moeda_brl(grupo["total"]), alinhar="direita", negrito=True
+                ),
+            ]
+        )
         tabela = Table(
             linhas_tabela,
-            colWidths=[22 * mm, 22 * mm, 36 * mm, 30 * mm, 48 * mm, 24 * mm],
+            colWidths=[26 * mm, 20 * mm, 30 * mm, 38 * mm, 39 * mm, 24 * mm],
             repeatRows=1,
+            hAlign="LEFT",
         )
 
         subtotal_row = len(linhas_tabela) - 1
@@ -595,18 +641,12 @@ def _gerar_pdf_cobranca_pendencias(
                 [
                     ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E8EEF8")),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTNAME", (0, 1), (-1, -2), "Helvetica"),
-                    ("FONTNAME", (0, subtotal_row), (-1, subtotal_row), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8.8),
                     ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
-                    ("ALIGN", (-1, 1), (-1, -1), "RIGHT"),
-                    ("ALIGN", (0, 0), (0, -1), "CENTER"),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                    ("TOPPADDING", (0, 0), (-1, -1), 3),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
                     ("BACKGROUND", (0, subtotal_row), (-1, subtotal_row), colors.HexColor("#F3F4F6")),
                 ]
             )
