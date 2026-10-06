@@ -4,6 +4,13 @@ Data: 2026-07-05
 Responsavel: Equipe FortCordis
 Status: in-progress
 
+## Extensão 2026-10-05 — OS opcional sem Agenda
+
+O contrato de upload foi estendido com a geração opt-in de OS. A evidência
+atual desta extensão, incluindo regressão do upload simples e troca de PDF,
+fica em `docs/specs/eletro-ordem-servico-sem-agenda/verify.md`. Os resultados
+abaixo são históricos e não representam validação da nova extensão.
+
 ## 1) Matriz de rastreabilidade
 
 | ID | Tipo | Evidencia | Status |

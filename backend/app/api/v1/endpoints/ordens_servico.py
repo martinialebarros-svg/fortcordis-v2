@@ -38,6 +38,7 @@ from app.models.tutor import Tutor
 from app.models.user import User
 from app.services.auditoria_service import registrar_auditoria
 from app.services.precos_service import calcular_preco_servico
+from app.services.laudo_ordem_servico_service import mesma_data
 from app.services.push_notifications import send_financeiro_push_notification
 from app.services.push_scheduler_service import cancel_pending_os_payment_reminder
 from app.services.whatsapp_agenda_service import normalize_whatsapp_number
@@ -237,6 +238,7 @@ def _serialize_os(
         "id": os_data.id,
         "numero_os": os_data.numero_os,
         "agendamento_id": os_data.agendamento_id,
+        "laudo_id": os_data.laudo_id,
         "paciente_id": os_data.paciente_id,
         "clinica_id": os_data.clinica_id,
         "servico_id": os_data.servico_id,
@@ -2140,6 +2142,18 @@ def atualizar_ordem(
     status_anterior = os_data.status
     valor_anterior = float(os_data.valor_final or 0)
 
+    if os_data.laudo_id and os_data.status == "Cancelado" and dados.status not in {None, "Cancelado"}:
+        raise HTTPException(409, "Uma OS cancelada de laudo nao pode ser reativada. Gere um novo envio se necessario.")
+    if os_data.laudo_id and os_data.status == "Pago" and dados.status == "Cancelado":
+        raise HTTPException(409, "Desfaca o recebimento antes de cancelar a OS vinculada ao laudo.")
+
+    if os_data.laudo_id and os_data.status != "Cancelado" and (
+        (dados.paciente_id is not None and dados.paciente_id != os_data.paciente_id)
+        or (dados.clinica_id is not None and dados.clinica_id != os_data.clinica_id)
+        or (dados.data_atendimento is not None and not mesma_data(db, os_data.data_atendimento, dados.data_atendimento))
+    ):
+        raise HTTPException(409, "Cancele a OS antes de alterar paciente, clinica ou data vinculados ao laudo.")
+
     if dados.status is not None and dados.status not in OS_STATUSES:
         raise HTTPException(status_code=400, detail="Status invalido para ordem de servico")
 
@@ -2751,6 +2765,9 @@ def deletar_ordem(
     os_data = db.query(OrdemServico).filter(OrdemServico.id == os_id).first()
     if not os_data:
         raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
+
+    if os_data.laudo_id:
+        raise HTTPException(409, "OS vinculada a laudo deve ser cancelada, preservando o historico do envio.")
 
     snapshot = {
         "numero_os": os_data.numero_os,

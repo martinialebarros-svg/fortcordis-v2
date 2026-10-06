@@ -54,6 +54,7 @@ interface OrdemServico {
   id: number;
   numero_os: string;
   agendamento_id?: number | null;
+  laudo_id?: number | null;
   paciente_id?: number | null;
   clinica_id?: number | null;
   servico_id?: number | null;
@@ -1671,6 +1672,24 @@ export default function FinanceiroPage() {
   };
 
   const handleExcluirOS = async (os: OrdemServico) => {
+    if (os.laudo_id) {
+      if (os.status !== "Pendente") {
+        alert(os.status === "Pago"
+          ? "Desfaca o recebimento antes de cancelar a OS vinculada ao laudo."
+          : "Esta OS vinculada ao laudo ja esta cancelada.");
+        return;
+      }
+      if (!confirm(`Cancelar a OS ${os.numero_os}? O laudo e o historico do envio serao preservados.`)) return;
+      try {
+        await api.put(`/ordens-servico/${os.id}`, { status: "Cancelado" });
+        alert("OS cancelada com sucesso!");
+        carregarDados();
+      } catch (error: any) {
+        console.error("Erro ao cancelar OS:", error);
+        alert("Erro ao cancelar OS: " + (error.response?.data?.detail || error.message));
+      }
+      return;
+    }
     if (!confirm(`Tem certeza que deseja excluir a OS ${os.numero_os}?`)) return;
     
     try {
@@ -3283,7 +3302,7 @@ export default function FinanceiroPage() {
                   </span>
                 </h2>
                 <p className="text-sm text-gray-500">
-                  Geradas automaticamente dos agendamentos
+                  Geradas por agendamentos ou pelo upload de laudos
                 </p>
                 <p className="text-xs text-emerald-700 mt-1">
                   {osRecebidasFiltradas.length} OS recebida(s) visivel(is) | {osSelecionadasRecibo.length} selecionada(s) para recibo
@@ -3606,13 +3625,17 @@ export default function FinanceiroPage() {
                             <Edit className="w-4 h-4" />
                             Editar
                           </button>
-                          <button
+                          {(!os.laudo_id || os.status !== "Cancelado") && <button
                             onClick={() => handleExcluirOS(os)}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                            title="Excluir OS"
+                            disabled={Boolean(os.laudo_id) && os.status !== "Pendente"}
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                            title={os.laudo_id
+                              ? os.status === "Pago" ? "Desfaca o recebimento antes de cancelar esta OS" : "Cancelar OS"
+                              : "Excluir OS"}
+                            aria-label={os.laudo_id ? "Cancelar OS" : "Excluir OS"}
                           >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                            {os.laudo_id ? "Cancelar" : <Trash2 className="w-4 h-4" />}
+                          </button>}
                         </div>
                       </div>
                     </div>
@@ -3690,6 +3713,8 @@ export default function FinanceiroPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Clinica</label>
                     <select
                       value={formEditarOS.clinica_id}
+                      aria-label="Clinica da OS"
+                      disabled={Boolean(modalEditarOS.laudo_id) && modalEditarOS.status !== "Cancelado"}
                       onChange={(e) => setFormEditarOS((prev) => ({ ...prev, clinica_id: e.target.value }))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
                     >
@@ -3700,6 +3725,9 @@ export default function FinanceiroPage() {
                         </option>
                       ))}
                     </select>
+                    {modalEditarOS.laudo_id && modalEditarOS.status !== "Cancelado" ? (
+                      <p className="mt-1 text-xs text-slate-500">A clinica acompanha o laudo. Cancele a OS antes de alterar esse vinculo.</p>
+                    ) : null}
                   </div>
                 ) : (
                   <div>

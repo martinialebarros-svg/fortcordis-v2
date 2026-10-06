@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../../layout-dashboard";
 import api from "@/lib/axios";
@@ -35,6 +35,16 @@ type Clinica = {
   id: number;
   nome: string;
 };
+
+type Servico = { id: number; nome: string };
+type PreviaOrdemServico = {
+  chave: string;
+  valor_servico: number;
+  valor_final: number;
+};
+
+const formatarValor = (valor: number) =>
+  valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 type ParceiroVeterinario = {
   id: number;
@@ -182,8 +192,29 @@ export default function UploadEletrocardiogramaPage() {
   const [mostrarCadastroRapido, setMostrarCadastroRapido] = useState(false);
   const [mostrarCadastroParceiro, setMostrarCadastroParceiro] = useState(false);
   const [erro, setErro] = useState("");
+  const [gerarOrdemServico, setGerarOrdemServico] = useState(false);
+  const [servicos, setServicos] = useState<Servico[]>([]);
+  const [servicosCarregados, setServicosCarregados] = useState(false);
+  const [loadingServicos, setLoadingServicos] = useState(false);
+  const [erroServicos, setErroServicos] = useState("");
+  const [tentativaServicos, setTentativaServicos] = useState(0);
+  const [servicoId, setServicoId] = useState("");
+  const [tipoHorario, setTipoHorario] = useState("comercial");
+  const [previaOrdemServico, setPreviaOrdemServico] = useState<PreviaOrdemServico | null>(null);
+  const [loadingPrevia, setLoadingPrevia] = useState(false);
+  const [erroPrevia, setErroPrevia] = useState("");
+  const [tentativaPrevia, setTentativaPrevia] = useState(0);
+  const envioEmCurso = useRef(false);
+  const ultimaSubmissao = useRef<{ assinatura: string; arquivo: File; chave: string } | null>(null);
 
   const modoTelemedicina = !contexto.agendamento_id && !contexto.atendimento_id;
+  const criarOrdemServico = modoTelemedicina && gerarOrdemServico;
+  const chavePrevia = criarOrdemServico && contexto.clinic_id && servicoId
+    ? `${contexto.clinic_id}:${servicoId}:${tipoHorario}`
+    : "";
+  const previaAtual = chavePrevia && previaOrdemServico?.chave === chavePrevia
+    ? previaOrdemServico
+    : null;
   const clinicaSelecionada = useMemo(
     () => clinicas.find((item) => String(item.id) === contexto.clinic_id) || null,
     [clinicas, contexto.clinic_id],
@@ -206,6 +237,52 @@ export default function UploadEletrocardiogramaPage() {
       setDataExame((current) => current || getTodayDateInput());
     }
   }, [router]);
+
+  useEffect(() => {
+    if (!criarOrdemServico || servicosCarregados) return;
+    let ativo = true;
+    setLoadingServicos(true);
+    setErroServicos("");
+    api.get("/servicos", { params: { limit: 1000 } }).then((response) => {
+      if (!ativo) return;
+      setServicos(Array.isArray(response.data?.items) ? response.data.items : []);
+      setLoadingServicos(false);
+      setServicosCarregados(true);
+    }).catch((error) => {
+      if (ativo) setErroServicos(readApiError(error, "Não foi possível carregar os serviços."));
+    }).finally(() => {
+      if (ativo) setLoadingServicos(false);
+    });
+    return () => { ativo = false; };
+  }, [criarOrdemServico, servicosCarregados, tentativaServicos]);
+
+  useEffect(() => {
+    setPreviaOrdemServico(null);
+    setErroPrevia("");
+    if (!chavePrevia) {
+      setLoadingPrevia(false);
+      return;
+    }
+    let ativo = true;
+    setLoadingPrevia(true);
+    api.get("/laudos/eletrocardiograma/ordem-servico/preview", {
+      params: { clinic_id: Number(contexto.clinic_id), servico_id: Number(servicoId), tipo_horario: tipoHorario },
+    }).then((response) => {
+      if (!ativo) return;
+      const valorServico = Number(response.data?.valor_servico);
+      const valorFinal = Number(response.data?.valor_final);
+      if (response.data?.valor_servico == null || response.data?.valor_final == null ||
+          !Number.isFinite(valorServico) || !Number.isFinite(valorFinal) || valorFinal <= 0) {
+        throw new Error("Valor indisponível");
+      }
+      setPreviaOrdemServico({ chave: chavePrevia, valor_servico: valorServico, valor_final: valorFinal });
+    }).catch((error) => {
+      if (ativo) setErroPrevia(readApiError(error, "Não foi possível consultar o valor da ordem de serviço."));
+    }).finally(() => {
+      if (ativo) setLoadingPrevia(false);
+    });
+    return () => { ativo = false; };
+  }, [chavePrevia, contexto.clinic_id, servicoId, tipoHorario, tentativaPrevia]);
 
   useEffect(() => {
     let ativo = true;
@@ -530,66 +607,80 @@ export default function UploadEletrocardiogramaPage() {
 
   const enviar = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (envioEmCurso.current) return;
     setErro("");
 
     if (!arquivo) {
       setErro("Selecione o PDF do eletrocardiograma.");
       return;
     }
-
-    let veterinarioParceiroId = contexto.veterinario_parceiro_id;
-    if (!veterinarioParceiroId && mostrarCadastroParceiro) {
-      try {
-        const novoParceiroId = await criarParceiroNoFluxo();
-        veterinarioParceiroId = String(novoParceiroId);
-      } catch (error) {
-        setErro(error instanceof Error ? error.message : "Nao foi possivel cadastrar o veterinario parceiro.");
+    // Valide a OS antes de criar cadastros rápidos ou iniciar o upload.
+    if (criarOrdemServico) {
+      if (!contexto.clinic_id) {
+        setErro("Selecione a clínica parceira para gerar a ordem de serviço.");
+        return;
+      }
+      if (!servicoId) {
+        setErro("Selecione o serviço para gerar a ordem de serviço.");
+        return;
+      }
+      if (!previaAtual || loadingPrevia) {
+        setErro("Consulte o valor da ordem de serviço antes de salvar o laudo.");
         return;
       }
     }
 
-    if (!contexto.clinic_id && !veterinarioParceiroId) {
-      setErro("Selecione a clinica parceira ou o veterinario parceiro antes de salvar o laudo.");
-      return;
-    }
-
-    let pacienteId = contexto.paciente_id;
-    if (!pacienteId && mostrarCadastroRapido) {
-      try {
-        const novoPacienteId = await criarPacienteNoFluxo();
-        pacienteId = String(novoPacienteId);
-      } catch (error) {
-        setErro(error instanceof Error ? error.message : "Nao foi possivel cadastrar o paciente.");
-        return;
-      }
-    }
-
-    if (!pacienteId) {
-      setErro(
-        modoTelemedicina
-          ? "Selecione um paciente existente ou cadastre tutor e pet antes de salvar o eletrocardiograma."
-          : "Nao encontrei o paciente deste atendimento. Abra o upload pelo agendamento correto ou selecione o paciente manualmente.",
-      );
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("arquivo", arquivo);
-    if (contexto.agendamento_id) formData.append("agendamento_id", contexto.agendamento_id);
-    if (contexto.atendimento_id) formData.append("atendimento_id", contexto.atendimento_id);
-    formData.append("paciente_id", pacienteId);
-    if (contexto.clinic_id) formData.append("clinic_id", contexto.clinic_id);
-    if (veterinarioParceiroId) formData.append("veterinario_parceiro_id", veterinarioParceiroId);
-    if (dataExame) formData.append("data_exame", dataExame);
-    if (observacoes.trim()) formData.append("observacoes", observacoes.trim());
-
+    envioEmCurso.current = true;
     setEnviando(true);
     try {
+      let veterinarioParceiroId = contexto.veterinario_parceiro_id;
+      if (!veterinarioParceiroId && mostrarCadastroParceiro) {
+        veterinarioParceiroId = String(await criarParceiroNoFluxo());
+      }
+      if (!contexto.clinic_id && !veterinarioParceiroId) {
+        throw new Error("Selecione a clinica parceira ou o veterinario parceiro antes de salvar o laudo.");
+      }
+
+      let pacienteId = contexto.paciente_id;
+      if (!pacienteId && mostrarCadastroRapido) {
+        pacienteId = String(await criarPacienteNoFluxo());
+      }
+      if (!pacienteId) {
+        throw new Error(
+          modoTelemedicina
+            ? "Selecione um paciente existente ou cadastre tutor e pet antes de salvar o eletrocardiograma."
+            : "Nao encontrei o paciente deste atendimento. Abra o upload pelo agendamento correto ou selecione o paciente manualmente.",
+        );
+      }
+
+      const formData = new FormData();
+      formData.append("arquivo", arquivo);
+      if (contexto.agendamento_id) formData.append("agendamento_id", contexto.agendamento_id);
+      if (contexto.atendimento_id) formData.append("atendimento_id", contexto.atendimento_id);
+      formData.append("paciente_id", pacienteId);
+      if (contexto.clinic_id) formData.append("clinic_id", contexto.clinic_id);
+      if (veterinarioParceiroId) formData.append("veterinario_parceiro_id", veterinarioParceiroId);
+      if (dataExame) formData.append("data_exame", dataExame);
+      if (observacoes.trim()) formData.append("observacoes", observacoes.trim());
+      if (criarOrdemServico) {
+        formData.append("gerar_ordem_servico", "true");
+        formData.append("servico_id", servicoId);
+        formData.append("tipo_horario", tipoHorario);
+        // Cadastros rápidos já resolvidos fazem parte da identidade da submissão.
+        // Uma falha de rede conserva a chave para repetir a mesma operação.
+        const assinatura = JSON.stringify(Array.from(formData.entries()).filter(([campo]) => campo !== "arquivo"));
+        if (ultimaSubmissao.current?.assinatura !== assinatura || ultimaSubmissao.current?.arquivo !== arquivo) {
+          ultimaSubmissao.current = { assinatura, arquivo, chave: crypto.randomUUID() };
+        }
+        formData.append("idempotency_key", ultimaSubmissao.current.chave);
+      }
+
       const response = await api.post("/laudos/eletrocardiograma/upload-pdf", formData);
       router.push(`/laudos/${response.data.id}`);
     } catch (error) {
-      setErro(readApiError(error, "Nao foi possivel enviar o PDF."));
+      setErro(readApiError(error, error instanceof Error ? error.message : "Nao foi possivel enviar o PDF."));
     } finally {
+      envioEmCurso.current = false;
       setEnviando(false);
     }
   };
@@ -641,6 +732,7 @@ export default function UploadEletrocardiogramaPage() {
           ) : null}
 
           <form onSubmit={enviar} className="fc-ecg-upload-form">
+            <fieldset disabled={enviando} className="min-w-0 space-y-5">
             <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
               <div className="mb-4">
                 <h2 className="text-base font-black text-slate-900">
@@ -1149,6 +1241,72 @@ export default function UploadEletrocardiogramaPage() {
               </div>
             </section>
 
+            {modoTelemedicina ? (
+              <section className="rounded-2xl border border-teal-200 bg-teal-50/40 p-4" aria-label="Ordem de serviço">
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={gerarOrdemServico}
+                    onChange={(event) => setGerarOrdemServico(event.target.checked)}
+                    className="h-4 w-4 accent-teal-700"
+                  />
+                  Gerar ordem de serviço para a clínica
+                </label>
+                <p className="mt-2 text-sm text-slate-600">
+                  Opcional. A ordem ficará pendente no Financeiro da clínica, sem registrar pagamento nem enviar mensagem automática.
+                </p>
+                {criarOrdemServico ? (
+                  <div className="mt-4 space-y-3">
+                    {!contexto.clinic_id ? (
+                      <p className="text-sm text-amber-800">Selecione a clínica parceira acima para gerar a ordem de serviço.</p>
+                    ) : null}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label htmlFor="os-servico">Serviço da ordem</label>
+                        <select
+                          id="os-servico"
+                          value={servicoId}
+                          onChange={(event) => setServicoId(event.target.value)}
+                          disabled={loadingServicos || !servicosCarregados}
+                          className={INPUT_CLASS_NAME}
+                        >
+                          <option value="">{loadingServicos ? "Carregando serviços..." : "Selecione o serviço"}</option>
+                          {servicos.map((servico) => <option key={servico.id} value={String(servico.id)}>{servico.nome}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="os-horario">Horário do serviço</label>
+                        <select id="os-horario" value={tipoHorario} onChange={(event) => setTipoHorario(event.target.value)} className={INPUT_CLASS_NAME}>
+                          <option value="comercial">Comercial</option>
+                          <option value="plantao">Plantão</option>
+                        </select>
+                      </div>
+                    </div>
+                    {erroServicos ? (
+                      <div className="text-sm text-red-700" role="alert">
+                        {erroServicos}
+                        <button type="button" onClick={() => setTentativaServicos((current) => current + 1)} className="ml-2 font-bold underline">Tentar carregar serviços novamente</button>
+                      </div>
+                    ) : servicosCarregados && !servicos.length ? (
+                      <p className="text-sm text-amber-800">Nenhum serviço disponível. Cadastre o serviço antes de gerar a ordem.</p>
+                    ) : null}
+                    <div aria-live="polite">
+                      {loadingPrevia ? <p className="text-sm text-slate-600">Consultando valor da ordem de serviço...</p> : null}
+                      {erroPrevia ? (
+                        <div className="text-sm text-red-700" role="alert">
+                          {erroPrevia}
+                          <button type="button" onClick={() => setTentativaPrevia((current) => current + 1)} className="ml-2 font-bold underline">Consultar valor novamente</button>
+                        </div>
+                      ) : null}
+                      {previaAtual ? (
+                        <p className="text-sm font-bold text-teal-900">Valor da ordem de serviço: {formatarValor(previaAtual.valor_final)}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
             <div>
               <label htmlFor="pdf-eletro">PDF do eletrocardiograma</label>
               <label
@@ -1196,6 +1354,8 @@ export default function UploadEletrocardiogramaPage() {
                   enviando ||
                   loadingContexto ||
                   loadingClinicas ||
+                  carregandoPaciente ||
+                  (criarOrdemServico && Boolean(chavePrevia) && (!previaAtual || loadingPrevia)) ||
                   salvandoNovoPaciente ||
                   salvandoNovoParceiro
                 }
@@ -1212,9 +1372,10 @@ export default function UploadEletrocardiogramaPage() {
                     ? "Cadastrando paciente..."
                     : salvandoNovoParceiro
                       ? "Cadastrando parceiro..."
-                    : "Salvar laudo"}
+                    : criarOrdemServico ? "Salvar laudo e gerar OS" : "Salvar laudo"}
               </button>
             </div>
+            </fieldset>
           </form>
         </main>
       </div>
