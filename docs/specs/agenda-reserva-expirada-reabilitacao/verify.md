@@ -17,6 +17,8 @@
 | CA-011 | `agenda-reabilitar-reserva.test.ts` › `calcularPrazoReabilitacao` (cabe / encurtado / indisponível / início desconhecido) | passou |
 | CA-012 | `agenda-reabilitar-reserva.test.ts` › `parseDataHoraAgenda` | passou |
 | RF-014/RF-015/RF-016 (botão, modal e confirmação nas duas telas) | revisão de código + `tsc`/`eslint`/`next build`; sem ambiente com API e dados reais nesta sessão para clique de ponta a ponta | passou (revisão de código) |
+| CA-013 | `page.feedback.test.tsx` verifica erro de reabilitação acima do modal; FullCalendar usa o mesmo aviso fixo com `role=alert`, revisado no código e build | passou localmente |
+| CA-014 | `FortinhoProvider.test.tsx` verifica aviso persistente, confirmação prioritária, resposta, estado oculto e camada acima do modal enquanto pendente | passou localmente |
 
 ## Comandos executados
 
@@ -60,3 +62,12 @@ npm run build
 - O aviso do novo prazo para a clínica continua manual (mensagem de reserva
   pelo modal do agendamento). Se o usuário quiser disparo automático de
   WhatsApp na reabilitação, é uma feature seguinte.
+
+## Atualização de 2026-10-06 — visibilidade e fila de confirmação
+
+- `npm test`: 75 arquivos e 518 testes Vitest, mais 9 testes Node, passaram.
+- `npm run lint`, `npx tsc --noEmit --pretty false`, `npm run build` e `git diff --check` passaram.
+- O guardrail SDD passou para as alterações locais, incluindo os dois pares `spec.md` + `verify.md`.
+- O erro de reabilitação agora permanece visível na viewport sobre o modal, sem mudar prazo, validação de slot, rota ou autorização.
+- Quando habilitado, o Fortinho mostra confirmação antes de avisos persistentes e a reabre se estava oculto; a confirmação usa `z-[110]` acima do modal de agendamento (`z-index: 100`) e o aviso volta a `z-[90]` após a resposta.
+- Validação visual em stage e publicação permanecem etapas separadas.
