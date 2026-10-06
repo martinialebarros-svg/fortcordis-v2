@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import {
@@ -85,6 +86,12 @@ interface Laudo {
   portal_veterinarios_destinos?: DestinoVeterinarioLaudo[];
   whatsapp_envios?: Record<string, EnvioDestinoWhatsApp> | null;
   criado_por_nome: string;
+  ordem_servico?: {
+    id: number;
+    numero_os: string;
+    valor_final: number;
+    status: string;
+  } | null;
   pdf_externo?: {
     anexo_id?: number;
     nome_original?: string;
@@ -557,6 +564,19 @@ export default function VisualizarLaudoPage() {
             </button>
           </div>
         </header>
+
+        {laudo.ordem_servico ? (
+          <section className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 p-4 print:hidden" aria-label="Ordem de serviço vinculada">
+            <div>
+              <p className="font-bold text-teal-900">Ordem de serviço {laudo.ordem_servico.numero_os}</p>
+              <p className="mt-1 text-sm text-slate-700">
+                {laudo.ordem_servico.status.toLowerCase() === "pendente" ? "Pendente no Financeiro" : laudo.ordem_servico.status}
+                {" · "}{Number(laudo.ordem_servico.valor_final).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              </p>
+            </div>
+            <Link href={`/financeiro?aba=ordens&os_id=${laudo.ordem_servico.id}`} className="text-sm font-bold text-teal-800 underline">Ver no Financeiro</Link>
+          </section>
+        ) : null}
 
         <PortalLiberadoPara
           laudo={laudo}

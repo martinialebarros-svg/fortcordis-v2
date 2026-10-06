@@ -28,6 +28,10 @@ Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido f
 - RF-016: ao concluir o cadastro rapido no mesmo fluxo, o upload deve continuar usando o `paciente_id` criado, sem exigir reabertura da tela.
 - RF-017: no modo sem agendamento, o frontend deve exigir clinica parceira e paciente selecionado ou cadastrado antes de aceitar o envio do PDF.
 - RF-018: o menu `Novo Laudo` da Central de laudos deve abrir inteiro sobre o restante da tela, sem clipping pelo cabeçalho decorativo.
+- RF-019: no upload sem Agenda/Atendimento, o operador pode optar por gerar
+  uma OS pendente para a clínica, conforme
+  `docs/specs/eletro-ordem-servico-sem-agenda/spec.md`. A opção é desmarcada,
+  usa preço autoritativo e não altera a liberação do PDF no portal.
 
 ## 3) Requisitos nao funcionais (NFR)
 
