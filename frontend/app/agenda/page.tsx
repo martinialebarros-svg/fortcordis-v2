@@ -46,6 +46,7 @@ import {
   obterTituloAgendamentoPorOrigem,
   type AgendaStatus,
   type FormaPagamentoConfig,
+  obterAcoesStatusPorFluxo,
   obterProximosStatus,
   osEstaPaga,
 } from "@/lib/agenda-shared-actions";
@@ -2578,6 +2579,7 @@ export default function AgendaPage() {
               {agendamentosFiltrados.map((ag) => {
                 const StatusIcon = getStatusIcon(ag.status);
                 const proximosStatus = obterProximosStatus(ag.status);
+                const acoesStatus = obterAcoesStatusPorFluxo(ag.status);
                 const laudoVinculado = obterUltimoLaudoVinculado(ag.id);
                 const laudoPronto = podeBaixarLaudo(laudoVinculado?.status);
                 const laudoEco = obterLaudoVinculado(ag.id, TIPO_LAUDO_ECOCARDIOGRAMA);
@@ -2627,9 +2629,9 @@ export default function AgendaPage() {
                             {tituloAgendamento}
                           </h3>
                           <span className={origemMeta.badgeClassName}>{origemMeta.descricao}</span>
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1 ${getStatusColor(ag.status)}`}>
-                            <StatusIcon className="w-3 h-3" />
-                            {ag.status}
+                          <span className={`inline-flex items-center gap-2 rounded-lg border-2 px-3 py-1.5 text-sm font-semibold ${getStatusColor(ag.status)}`}>
+                            <StatusIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            <span>Status atual: {ag.status}</span>
                           </span>
                           {osPaga && (
                             <span
@@ -2718,76 +2720,61 @@ export default function AgendaPage() {
 
                       {/* Ações */}
                       <div className="flex flex-wrap gap-2 lg:flex-[1.5_1_0%] lg:justify-end">
-                        {/* Reserva expirada que a clínica voltou a pedir: segura o
-                            horário de novo, com um prazo novo, sem exigir os dados
-                            do paciente agora. */}
-                        {podeReabilitarReserva(ag.status) && (
-                          <button
-                            onClick={() => abrirModalReabilitarReserva(ag)}
-                            disabled={reabilitandoReservaId === ag.id}
-                            title="Reservar este horário novamente por mais um período"
-                            className="px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors flex items-center gap-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200"
+                        {(podeReabilitarReserva(ag.status) || proximosStatus.length > 0) && (
+                          <div
+                            role="group"
+                            aria-label={`Alterar status do agendamento de ${ag.paciente || "animal não informado"}`}
+                            className="w-full rounded-xl border border-slate-300 bg-slate-50 p-3"
                           >
-                            {reabilitandoReservaId === ag.id ? (
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <TimerReset className="w-3.5 h-3.5" />
-                            )}
-                            Reabilitar reserva
-                          </button>
-                        )}
-
-                        {/* Botões de mudança de status */}
-                        {proximosStatus.map((novoStatus) => {
-                          const desfazerRealizado = ag.status === 'Realizado' && novoStatus === 'Em atendimento';
-                          const confirmarAposExpiracao = ag.status === 'Expirado' && novoStatus === 'Agendado';
-                          const icons: Record<string, any> = {
-                            'Confirmado': CheckCircle2,
-                            'Em atendimento': PlayCircle,
-                            'Realizado': CheckCircle,
-                            'Cancelado': XCircle,
-                            'Faltou': AlertCircle,
-                            'Agendado': Calendar,
-                            'Reservado': Clock,
-                          };
-                          const Icon = desfazerRealizado ? Undo2 : (icons[novoStatus] || CheckCircle2);
-                          const colors: Record<string, string> = {
-                            'Confirmado': 'bg-green-50 text-green-700 hover:bg-green-100 border-green-200',
-                            'Em atendimento': 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border-yellow-200',
-                            'Realizado': 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200',
-                            'Cancelado': 'bg-red-50 text-red-700 hover:bg-red-100 border-red-200',
-                            'Faltou': 'bg-orange-50 text-orange-700 hover:bg-orange-100 border-orange-200',
-                            'Agendado': 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200',
-                            'Reservado': 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200',
-                          };
-                          const actionLabel = desfazerRealizado
-                            ? "Desfazer realizado"
-                            : confirmarAposExpiracao
-                              ? "Agendar após confirmação tardia"
-                              : novoStatus;
-                          const actionColor = desfazerRealizado
-                            ? 'bg-sky-50 text-sky-700 hover:bg-sky-100 border-sky-200'
-                            : colors[novoStatus];
-                          
-                          return (
-                            <button
-                              key={novoStatus}
-                              onClick={() => atualizarStatus(ag.id, novoStatus)}
-                              disabled={atualizandoStatus === ag.id}
-                              className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${actionColor}`}
-                            >
-                              {atualizandoStatus === ag.id ? (
-                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <Icon className="w-3.5 h-3.5" />
+                            <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">
+                              Alterar status
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                              {/* Reserva expirada pode ser reabilitada sem preencher os dados do paciente agora. */}
+                              {podeReabilitarReserva(ag.status) && (
+                                <button
+                                  type="button"
+                                  onClick={() => abrirModalReabilitarReserva(ag)}
+                                  disabled={reabilitandoReservaId === ag.id}
+                                  title="Reservar este horário novamente por mais um período"
+                                  className="col-span-2 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 sm:col-span-1"
+                                >
+                                  {reabilitandoReservaId === ag.id ? (
+                                    <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                  ) : (
+                                    <TimerReset className="h-4 w-4" aria-hidden="true" />
+                                  )}
+                                  Reabilitar reserva
+                                </button>
                               )}
-                              {actionLabel}
-                            </button>
-                          );
-                        })}
 
-                        {/* Separador */}
-                        {proximosStatus.length > 0 && <div className="w-px h-8 bg-gray-300 mx-1" />}
+                              {proximosStatus.map((novoStatus) => {
+                                const desfazerRealizado = ag.status === 'Realizado' && novoStatus === 'Em atendimento';
+                                const Icon = desfazerRealizado ? Undo2 : getStatusIcon(novoStatus);
+                                const actionLabel = desfazerRealizado
+                                  ? "Desfazer realizado"
+                                  : acoesStatus.find((acao) => acao.status === novoStatus)?.label || novoStatus;
+
+                                return (
+                                  <button
+                                    key={novoStatus}
+                                    type="button"
+                                    onClick={() => atualizarStatus(ag.id, novoStatus)}
+                                    disabled={atualizandoStatus === ag.id}
+                                    className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 ${proximosStatus.length === 1 ? "col-span-2 sm:col-span-1" : ""}`}
+                                  >
+                                    {atualizandoStatus === ag.id ? (
+                                      <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                    ) : (
+                                      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                                    )}
+                                    {actionLabel}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
 
                         {osVinculada && (
                           <button
