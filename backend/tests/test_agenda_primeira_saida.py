@@ -115,6 +115,22 @@ class AgendaPrimeiraSaidaTest(unittest.TestCase):
         self.assertEqual(pisos["aquiraz"], "08:45")
         self.assertEqual(pisos["eusebio"], "09:00")
 
+    def test_base_residencial_sem_default_exige_configuracao_persistida(self):
+        base = normalizar_agenda_rota_regras(None)["base"]
+        self.assertEqual(base["address"], "")
+        self.assertEqual(base["zip_code"], "")
+
+        config = self.db.query(Configuracao).first()
+        config.agenda_rota_regras = json.dumps({"base": base})
+        self.db.commit()
+        with patch.object(agenda, "estimar_deslocamento") as rota:
+            resposta = self._sugerir(preferencia={"hora_inicio": "08:00", "hora_fim": "10:00"})
+            with self.assertRaises(HTTPException) as erro:
+                agenda._validar_deslocamento_agendamento(self.db, self._novo("2099-05-25", "09:00"))
+        rota.assert_not_called()
+        self.assertEqual(resposta["items"], [])
+        self.assertEqual(erro.exception.detail["codigo"], "PRIMEIRA_SAIDA_INVIAVEL")
+
     def test_piso_configurado_para_outro_municipio_limita_sugestao(self):
         self._configurar_base(pisos={"Aquiraz": "08:45"})
         self.clinica.cidade = "Aquiraz"

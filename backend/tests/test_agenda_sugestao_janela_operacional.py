@@ -171,7 +171,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             bairro="Centro",
             cidade="Fortaleza",
             estado="CE",
-            cep="60020180",
+            cep="60000000",
             latitude=latitude,
             longitude=longitude,
             ativo=1,
@@ -1172,8 +1172,8 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 regras_rota={
                     "base": {
                         "label": "Casa",
-                        "address": "Av da Universidade, 1949",
-                        "zip_code": "60020-180",
+                        "address": "Endereco sintetico, Fortaleza - CE",
+                        "zip_code": "60000-000",
                         "lat": -3.7319,
                         "lng": -38.5267,
                     },
@@ -1254,8 +1254,8 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 regras_rota={
                     "base": {
                         "label": "Casa",
-                        "address": "Av da Universidade, 1949",
-                        "zip_code": "60020-180",
+                        "address": "Endereco sintetico, Fortaleza - CE",
+                        "zip_code": "60000-000",
                         "lat": None,
                         "lng": None,
                     },
@@ -1334,8 +1334,8 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 regras_rota={
                     "base": {
                         "label": "Casa",
-                        "address": "Av da Universidade, 1949",
-                        "zip_code": "60020-180",
+                        "address": "Endereco sintetico, Fortaleza - CE",
+                        "zip_code": "60000-000",
                         "lat": -3.7319,
                         "lng": -38.5267,
                     },
@@ -1404,8 +1404,8 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 regras_rota={
                     "base": {
                         "label": "Casa",
-                        "address": "Av da Universidade, 1949",
-                        "zip_code": "60020-180",
+                        "address": "Endereco sintetico, Fortaleza - CE",
+                        "zip_code": "60000-000",
                         "lat": -3.7319,
                         "lng": -38.5267,
                     },
@@ -1472,8 +1472,8 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 regras_rota={
                     "base": {
                         "label": "Casa",
-                        "address": "Av da Universidade, 1949",
-                        "zip_code": "60020-180",
+                        "address": "Endereco sintetico, Fortaleza - CE",
+                        "zip_code": "60000-000",
                         "lat": -3.7319,
                         "lng": -38.5267,
                     },
@@ -1542,8 +1542,8 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 regras_rota={
                     "base": {
                         "label": "Casa",
-                        "address": "Av da Universidade, 1949",
-                        "zip_code": "60020-180",
+                        "address": "Endereco sintetico, Fortaleza - CE",
+                        "zip_code": "60000-000",
                         "lat": None,
                         "lng": None,
                     },
@@ -1620,8 +1620,8 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 regras_rota={
                     "base": {
                         "label": "Casa",
-                        "address": "Av da Universidade, 1949",
-                        "zip_code": "60020-180",
+                        "address": "Endereco sintetico, Fortaleza - CE",
+                        "zip_code": "60000-000",
                         "lat": None,
                         "lng": None,
                     },
@@ -1769,8 +1769,8 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 regras_rota={
                     "base": {
                         "label": "Casa",
-                        "address": "Av da Universidade, 1949",
-                        "zip_code": "60020-180",
+                        "address": "Endereco sintetico, Fortaleza - CE",
+                        "zip_code": "60000-000",
                         "lat": -3.7319,
                         "lng": -38.5267,
                     },

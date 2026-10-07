@@ -12,7 +12,7 @@ Status: implementado e validado localmente
 | CA-002 | `test_primeiro_atendimento_futuro_usa_abertura_mais_viagem_em_cidade_sem_piso` (Fortaleza e Aquiraz) | ok |
 | CA-003 | `test_pisos_de_caucaia_maracanau_eusebio_itaitinga`, `test_piso_municipal_tambem_e_validado_no_salvamento` e `test_piso_do_ce_nao_se_aplica_a_municipio_de_outra_uf` | ok |
 | CA-004 | `test_viagem_longa_prevalece_sobre_piso_municipal` e `test_piso_configurado_para_outro_municipio_limita_sugestao` | ok |
-| CA-005 | `test_rota_indisponivel_falha_fechada_na_sugestao_e_escrita` rejeita zero e heurísticas de linha reta/cidade/região; testes de geocodificação, falta de Google e destino sem localização | ok |
+| CA-005 | `test_rota_indisponivel_falha_fechada_na_sugestao_e_escrita` rejeita zero e heurísticas de linha reta/cidade/região; `test_base_residencial_sem_default_exige_configuracao_persistida` exige base configurada; testes de geocodificação, falta de Google e destino sem localização | ok |
 | CA-006 | `test_segundos_nao_arredondam_chegada_para_baixo` e borda exata de salvamento em `test_piso_municipal_tambem_e_validado_no_salvamento` | ok |
 | CA-007 | `test_revalidacao_do_aceite_usa_slot_exato_e_relogio_atual`, `test_oferta_que_envelhece_e_rejeitada_no_salvamento` e teste do modal de preferências (erro 409 visível por `role=alert`) | ok |
 | CA-008 | `test_agendamento_intermediario_usa_vizinho_anterior_e_nao_casa` e `test_edicao_de_primeiro_domicilio_revalida_novo_tutor_sem_mudar_horario` | ok |
@@ -45,6 +45,10 @@ Status: implementado e validado localmente
   a primeira oferta vazia e bloqueia o salvamento com
   `PRIMEIRA_SAIDA_INVIAVEL`. Isso é falha segura, mas exige correção operacional
   da configuração/serviço para voltar a oferecer o primeiro horário.
+- Endereço e CEP residenciais foram removidos dos defaults de backend e
+  frontend. A origem é lida da configuração persistida com acesso autenticado;
+  ambientes sem essa configuração permanecem bloqueados para primeira saída.
+  Testes de normalização exigem defaults vazios e usam origem sintética.
 - A duração Google pode não refletir tráfego em tempo real porque
   `LOGISTICA_GOOGLE_TRAFFIC_AWARE` tem default `False`. A margem segura é
   preservada; nenhum horário calculado garante chegada em trânsito variável.

@@ -72,8 +72,8 @@ export const DEFAULT_AGENDA_ROTA_REGRAS: AgendaRotaRegrasConfig = {
   version: "1.0.0",
   base: {
     label: "Casa (base operacional)",
-    address: "Av. da Universidade, 1949, Fortaleza - CE",
-    zip_code: "60020-180",
+    address: "",
+    zip_code: "",
     lat: null,
     lng: null,
   },

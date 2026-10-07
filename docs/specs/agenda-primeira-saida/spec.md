@@ -44,7 +44,9 @@ o início. Outros encaixes continuam seguindo os vizinhos reais da agenda.
 
 - NFR-001 (privacidade): respostas de sugestão/validação, interface do assistente
   e auditoria não revelam endereço ou coordenadas da residência. A configuração
-  administrativa existente mantém seu contrato e suas permissões atuais.
+  administrativa existente mantém seu contrato e suas permissões atuais. O
+  endereço e o CEP residenciais não são incluídos em defaults, código servido
+  ao navegador nem fixtures; devem ser preenchidos na configuração autenticada.
 - NFR-002 (consistência): geração e salvamento compartilham a mesma política de
   primeira saída e usam horário local de Fortaleza.
 - NFR-003 (compatibilidade): sem mutação de agendamentos existentes nem alteração
@@ -75,6 +77,8 @@ o início. Outros encaixes continuam seguindo os vizinhos reais da agenda.
 
 - A origem residencial usa `agenda_rota_regras.base` existente. O endereço/CEP
   podem ser usados na estimativa mesmo quando `lat/lng` não estão cadastrados.
+  Sem base persistida, os defaults ficam vazios e a primeira saída falha de
+  forma segura até que a origem seja configurada em sessão autenticada.
   Os pisos ficam em `route_policy.first_appointment_city_floors`, com defaults
   normalizados e editáveis na configuração operacional.
 - Não há mudança de esquema dos agendamentos nem migração prevista.

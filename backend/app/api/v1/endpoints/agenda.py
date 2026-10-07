@@ -1041,10 +1041,6 @@ def _obter_regras_rota_agenda(db: Session) -> dict:
 def _endereco_base_primeira_saida(base_cfg: dict[str, Any]) -> str:
     endereco = str(base_cfg.get("address") or "").strip()
     cep = str(base_cfg.get("zip_code") or "").strip()
-    # A configuracao anterior guardava apenas logradouro/numero; preserve a
-    # origem confirmada pelo usuario sem depender de uma migracao de dados.
-    if _normalizar_localidade(endereco) == "av da universidade 1949" and re.sub(r"\D", "", cep) == "60020180":
-        endereco = "Av. da Universidade, 1949, Fortaleza - CE"
     return ", ".join(parte for parte in (endereco, f"CEP {cep}" if cep else "", "Brasil") if parte)
 
 
