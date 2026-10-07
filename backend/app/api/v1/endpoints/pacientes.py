@@ -392,6 +392,7 @@ def listar_pacientes(
     skip: int = 0,
     limit: int = 100,
     search: Optional[str] = None,
+    tutor_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -416,6 +417,9 @@ def listar_pacientes(
     # os resultados daquele termo.
     total_ativos = query.count()
 
+    if tutor_id is not None:
+        query = query.filter(Paciente.tutor_id == tutor_id)
+
     if search:
         termo = search.strip()
         termo_key = _gerar_nome_key(termo)
@@ -435,7 +439,7 @@ def listar_pacientes(
         query = query.filter(or_(*filtros))
 
     total = query.count()
-    items = query.order_by(Paciente.nome.asc()).offset(skip).limit(limit).all()
+    items = query.order_by(Paciente.nome.asc(), Paciente.id.asc()).offset(skip).limit(limit).all()
 
     pacientes = [
         {

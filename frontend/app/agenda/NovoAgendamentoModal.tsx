@@ -307,6 +307,8 @@ interface SearchableSelectProps {
   showSelectedDescription?: boolean;
   onSearchChange?: (value: string) => void;
   isSearching?: boolean;
+  searchingText?: string;
+  searchError?: string;
 }
 
 type OrigemAtendimento = "clinica_parceira" | "domiciliar";
@@ -688,6 +690,8 @@ function SearchableSelect({
   showSelectedDescription = false,
   onSearchChange,
   isSearching = false,
+  searchingText = "Buscando...",
+  searchError,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -705,6 +709,7 @@ function SearchableSelect({
   useEffect(() => {
     if (!open) {
       setSearch("");
+      onSearchChange?.("");
       return;
     }
 
@@ -719,7 +724,7 @@ function SearchableSelect({
     return () => {
       document.removeEventListener("mousedown", handlePointerDown);
     };
-  }, [open]);
+  }, [open, onSearchChange]);
 
   useEffect(() => {
     if (!open) return;
@@ -801,9 +806,17 @@ function SearchableSelect({
                 {selectionHint}
               </p>
             ) : null}
+            {searchError ? (
+              <p className="mt-1.5 px-1 text-xs text-red-700" role="alert">
+                {searchError}
+              </p>
+            ) : null}
           </div>
 
           <div className="max-h-72 overflow-y-auto py-1">
+            {isSearching && filteredOptions.length > 0 ? (
+              <div className="px-3 py-2 text-xs text-gray-500" role="status">{searchingText}</div>
+            ) : null}
             <button
               type="button"
               onClick={() => selecionar("")}
@@ -817,7 +830,7 @@ function SearchableSelect({
 
             {filteredOptions.length === 0 ? (
               <div className="px-3 py-4 text-sm text-gray-500">
-                {isSearching ? "Buscando tutores..." : emptyText}
+                {isSearching ? searchingText : emptyText}
               </div>
             ) : (
               filteredOptions.map((option) => {
@@ -869,6 +882,13 @@ export default function NovoAgendamentoModal({
   const fortinho = useFortinho();
   const [loading, setLoading] = useState(false);
   const [pacientes, setPacientes] = useState<PacienteOption[]>([]);
+  const [pacientesRemotos, setPacientesRemotos] = useState<PacienteOption[]>([]);
+  const [pacientesDoTutor, setPacientesDoTutor] = useState<PacienteOption[]>([]);
+  const [pacienteDetalhe, setPacienteDetalhe] = useState<PacienteOption | null>(null);
+  const [buscaPacienteRemota, setBuscaPacienteRemota] = useState("");
+  const [buscandoPacientes, setBuscandoPacientes] = useState(false);
+  const [carregandoPacientesDoTutor, setCarregandoPacientesDoTutor] = useState(false);
+  const [erroBuscaPaciente, setErroBuscaPaciente] = useState("");
   const [tutores, setTutores] = useState<TutorOption[]>([]);
   const [clinicas, setClinicas] = useState<ClinicaOption[]>([]);
   const [servicos, setServicos] = useState<any[]>([]);
@@ -903,6 +923,7 @@ export default function NovoAgendamentoModal({
   const sequenciaConsultaProximidadeRef = useRef(0);
   const sequenciaConsultaOfertasRef = useRef(0);
   const sequenciaBuscaTutorRef = useRef(0);
+  const sequenciaPanoramaTutorRef = useRef(0);
   const [modalTutorAberto, setModalTutorAberto] = useState(false);
   const [modalAnimalAberto, setModalAnimalAberto] = useState(false);
   const [salvandoTutor, setSalvandoTutor] = useState(false);
@@ -1229,6 +1250,13 @@ export default function NovoAgendamentoModal({
     setSalvandoAnimal(false);
     setNovoTutor(buildInitialTutorForm());
     setNovoAnimal(buildInitialAnimalForm());
+    setPacientesRemotos([]);
+    setPacientesDoTutor([]);
+    setPacienteDetalhe(null);
+    setBuscaPacienteRemota("");
+    setBuscandoPacientes(false);
+    setCarregandoPacientesDoTutor(false);
+    setErroBuscaPaciente("");
     setNovaRaca("");
     setGestaoRacasAberta(false);
     setRacaEmEdicaoId("");
@@ -1437,6 +1465,123 @@ export default function NovoAgendamentoModal({
     };
   }, [buscaTutorRemota, isOpen]);
 
+  useEffect(() => {
+    const tutorId = Number.parseInt(formData.tutor_id, 10);
+    if (!isOpen || !Number.isFinite(tutorId) || tutorId <= 0) {
+      setPacientesDoTutor([]);
+      setCarregandoPacientesDoTutor(false);
+      return;
+    }
+
+    let ativo = true;
+    setPacientesDoTutor([]);
+    setCarregandoPacientesDoTutor(true);
+    (async () => {
+      try {
+        const encontrados: PacienteOption[] = [];
+        let skip = 0;
+        while (ativo) {
+          const response = await api.get("/pacientes", {
+            params: { tutor_id: tutorId, skip, limit: 100 },
+          });
+          if (!ativo) return;
+          const pagina = Array.isArray(response?.data?.items)
+            ? (response.data.items as PacienteOption[])
+            : [];
+          encontrados.push(...pagina);
+          skip += pagina.length;
+          const total = Number(response?.data?.total);
+          if (pagina.length === 0 || !Number.isFinite(total) || skip >= total) break;
+        }
+        setPacientesDoTutor(encontrados);
+        setErroBuscaPaciente("");
+      } catch (error) {
+        console.error("Erro ao carregar animais do tutor:", error);
+        if (ativo) setErroBuscaPaciente("Nao foi possivel carregar todos os animais deste tutor. Busque pelo nome ou ID.");
+      } finally {
+        if (ativo) setCarregandoPacientesDoTutor(false);
+      }
+    })();
+
+    return () => {
+      ativo = false;
+    };
+  }, [formData.tutor_id, isOpen]);
+
+  useEffect(() => {
+    const termo = buscaPacienteRemota.trim();
+    if (!isOpen || termo.length < 2) {
+      setBuscandoPacientes(false);
+      setErroBuscaPaciente("");
+      return;
+    }
+
+    let ativo = true;
+    setBuscandoPacientes(true);
+    setErroBuscaPaciente("");
+    const timer = window.setTimeout(async () => {
+      try {
+        const tutorId = Number.parseInt(formData.tutor_id, 10);
+        const response = await api.get("/pacientes", {
+          params: {
+            search: termo,
+            limit: 50,
+            ...(Number.isFinite(tutorId) && tutorId > 0 ? { tutor_id: tutorId } : {}),
+          },
+        });
+        if (!ativo) return;
+        const encontrados = Array.isArray(response?.data?.items)
+          ? (response.data.items as PacienteOption[])
+          : [];
+        setPacientesRemotos((atuais) => {
+          const porId = new Map(atuais.map((paciente) => [paciente.id, paciente]));
+          encontrados.forEach((paciente) => porId.set(paciente.id, paciente));
+          return Array.from(porId.values());
+        });
+      } catch (error) {
+        console.error("Erro ao buscar animais:", error);
+        if (ativo) setErroBuscaPaciente("Falha ao buscar animais. Tente novamente.");
+      } finally {
+        if (ativo) setBuscandoPacientes(false);
+      }
+    }, 250);
+
+    return () => {
+      ativo = false;
+      window.clearTimeout(timer);
+    };
+  }, [buscaPacienteRemota, formData.tutor_id, isOpen]);
+
+  useEffect(() => {
+    const pacienteId = Number(agendamento?.paciente_id);
+    if (!isOpen || !isEditando || !Number.isFinite(pacienteId) || pacienteId <= 0) {
+      setPacienteDetalhe(null);
+      return;
+    }
+
+    let ativo = true;
+    api.get(`/pacientes/${pacienteId}`)
+      .then((response) => {
+        if (ativo && Number(response?.data?.id) === pacienteId) {
+          setPacienteDetalhe(response.data as PacienteOption);
+        }
+      })
+      .catch((error) => {
+        console.error("Erro ao carregar animal do agendamento:", error);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [agendamento?.paciente_id, isEditando, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !isEditando || !pacienteDetalhe) return;
+    if (formData.paciente_id !== String(pacienteDetalhe.id) || formData.tutor_id) return;
+    if (!pacienteDetalhe.tutor_id) return;
+    setFormData((atual) => ({ ...atual, tutor_id: String(pacienteDetalhe.tutor_id) }));
+    setTutorSelecionado((atual) => atual || pacienteDetalhe.tutor || "");
+  }, [formData.paciente_id, formData.tutor_id, isEditando, isOpen, pacienteDetalhe]);
+
   const preencherModalTutor = (tutor?: TutorPanoramaData["tutor"] | null) => {
     if (!tutor) {
       setNovoTutor(buildInitialTutorForm());
@@ -1473,6 +1618,8 @@ export default function NovoAgendamentoModal({
   };
 
   const carregarPanoramaTutor = async (tutorId: string) => {
+    const sequencia = sequenciaPanoramaTutorRef.current + 1;
+    sequenciaPanoramaTutorRef.current = sequencia;
     const idNumerico = Number.parseInt(tutorId || "", 10);
     if (!Number.isFinite(idNumerico) || idNumerico <= 0) {
       setTutorPanorama(null);
@@ -1482,6 +1629,7 @@ export default function NovoAgendamentoModal({
     try {
       setCarregandoTutorPanorama(true);
       const response = await api.get(`/tutores/${idNumerico}/panorama`);
+      if (sequencia !== sequenciaPanoramaTutorRef.current) return;
       const panorama = response?.data as TutorPanoramaData;
       setTutorPanorama(panorama);
       if (panorama?.tutor) {
@@ -1495,17 +1643,25 @@ export default function NovoAgendamentoModal({
       }
       preencherModalTutor(panorama?.tutor);
     } catch (error) {
+      if (sequencia !== sequenciaPanoramaTutorRef.current) return;
       console.error("Erro ao carregar panorama do tutor:", error);
       setTutorPanorama(null);
     } finally {
-      setCarregandoTutorPanorama(false);
+      if (sequencia === sequenciaPanoramaTutorRef.current) {
+        setCarregandoTutorPanorama(false);
+      }
     }
   };
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      sequenciaPanoramaTutorRef.current += 1;
+      return;
+    }
     if (!formData.tutor_id) {
+      sequenciaPanoramaTutorRef.current += 1;
       setTutorPanorama(null);
+      setCarregandoTutorPanorama(false);
       return;
     }
     void carregarPanoramaTutor(formData.tutor_id);
@@ -1649,6 +1805,8 @@ export default function NovoAgendamentoModal({
       resetFluxoAssistente(false);
     }
     setInteracaoProximidade((prev) => ({ ...prev, clinica: true }));
+    setBuscaPacienteRemota("");
+    setErroBuscaPaciente("");
     setTutorSelecionado(tutor?.nome || "");
     setFormData((prev) => ({
       ...prev,
@@ -1657,8 +1815,23 @@ export default function NovoAgendamentoModal({
     }));
   };
 
-  const handlePacienteChange = (pacienteId: string) => {
-    const paciente = pacientes.find((p) => p.id.toString() === pacienteId);
+  const handlePacienteChange = (pacienteId: string, pacienteInformado?: PacienteOption) => {
+    const paciente = pacienteInformado || pacientesDisponiveis.find((p) => p.id.toString() === pacienteId);
+    if (pacienteInformado) {
+      setPacientesRemotos((atuais) => {
+        const porId = new Map(atuais.map((item) => [item.id, item]));
+        porId.set(pacienteInformado.id, pacienteInformado);
+        return Array.from(porId.values());
+      });
+    }
+    if (paciente?.tutor_id && paciente.tutor) {
+      const tutorId = paciente.tutor_id;
+      const tutorNome = paciente.tutor;
+      setTutores((atuais) => atuais.some((tutor) => tutor.id === tutorId)
+        ? atuais
+        : [...atuais, { id: tutorId, nome: tutorNome }]
+          .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")));
+    }
     setTutorSelecionado(paciente?.tutor || "");
     setFormData((prev) => ({
       ...prev,
@@ -2037,9 +2210,22 @@ export default function NovoAgendamentoModal({
     filtrosPreferencia,
   ]);
 
+  const pacientesDisponiveis = Array.from(
+    new Map(
+      [
+        ...pacientes,
+        ...pacientesDoTutor,
+        ...pacientesRemotos,
+        ...(pacienteDetalhe ? [pacienteDetalhe] : []),
+      ].map((paciente) => [paciente.id, paciente])
+    ).values()
+  );
   const pacientesFiltradosPorTutor = formData.tutor_id
-    ? pacientes.filter((paciente) => String(paciente.tutor_id || "") === formData.tutor_id)
-    : pacientes;
+    ? pacientesDisponiveis.filter((paciente) => String(paciente.tutor_id || "") === formData.tutor_id)
+    : pacientesDisponiveis;
+  const petsAtivosDoTutor = tutorPanorama?.pets.filter(
+    (pet) => !["0", "false"].includes(String(pet.ativo ?? 1).toLowerCase())
+  ) || [];
 
   const tutorOptions: SearchableSelectOption[] = tutores.map((tutor) => ({
     value: tutor.id.toString(),
@@ -2073,7 +2259,7 @@ export default function NovoAgendamentoModal({
     value: paciente.id.toString(),
     label: paciente.nome,
     description: formatarResumoPaciente(paciente) || undefined,
-    searchText: [paciente.nome, paciente.tutor || "", paciente.especie || "", paciente.raca || ""]
+    searchText: [paciente.nome, String(paciente.id), paciente.tutor || "", String(paciente.tutor_id || ""), paciente.especie || "", paciente.raca || ""]
       .filter(Boolean)
       .join(" "),
   }));
@@ -2110,7 +2296,7 @@ export default function NovoAgendamentoModal({
     clinicaSelecionada?.whatsapps,
     clinicaSelecionada?.telefone,
   );
-  const pacienteSelecionadoMensagem = pacientes.find(
+  const pacienteSelecionadoMensagem = pacientesDisponiveis.find(
     (paciente) => paciente.id.toString() === formData.paciente_id
   ) || null;
   const tutorSelecionadoGeorreferenciado = tutorPanorama?.tutor
@@ -3871,6 +4057,7 @@ export default function NovoAgendamentoModal({
                 clearLabel="Selecione..."
                 onSearchChange={setBuscaTutorRemota}
                 isSearching={buscandoTutores}
+                searchingText="Buscando tutores..."
               />
               <button
                 type="button"
@@ -3889,7 +4076,7 @@ export default function NovoAgendamentoModal({
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 {carregandoTutorPanorama ? (
                   <div className="text-sm text-slate-600">Carregando panorama do tutor...</div>
-                ) : tutorPanorama?.tutor ? (
+                ) : tutorPanorama?.tutor && String(tutorPanorama.tutor.id) === formData.tutor_id ? (
                   <div className="space-y-3">
                     <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                       <div>
@@ -3916,7 +4103,7 @@ export default function NovoAgendamentoModal({
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="text-sm font-medium text-slate-900">
-                            Animais vinculados: {Number(tutorPanorama.resumo?.total_pets || tutorPanorama.pets.length || 0)}
+                            Animais ativos vinculados: {petsAtivosDoTutor.length}
                           </div>
                           <div className="text-xs text-slate-500">
                             Selecione um pet existente ou cadastre outro a partir deste tutor.
@@ -3931,15 +4118,22 @@ export default function NovoAgendamentoModal({
                         </button>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        {tutorPanorama.pets.length > 0 ? (
-                          tutorPanorama.pets.map((pet) => {
+                        {petsAtivosDoTutor.length > 0 ? (
+                          petsAtivosDoTutor.map((pet) => {
                             const selecionado = String(pet.id) === formData.paciente_id;
                             const descricao = [pet.especie, pet.raca].filter(Boolean).join(" - ");
                             return (
                               <button
                                 key={pet.id}
                                 type="button"
-                                onClick={() => handlePacienteChange(String(pet.id))}
+                                onClick={() => handlePacienteChange(String(pet.id), {
+                                  id: pet.id,
+                                  nome: pet.nome,
+                                  tutor_id: tutorPanorama.tutor.id,
+                                  tutor: tutorPanorama.tutor.nome,
+                                  especie: pet.especie || "",
+                                  raca: pet.raca || "",
+                                })}
                                 className={`rounded-lg border px-3 py-2 text-left text-xs ${
                                   selecionado
                                     ? "border-blue-300 bg-blue-50 text-blue-900"
@@ -3989,6 +4183,10 @@ export default function NovoAgendamentoModal({
                 }
                 selectionHint="Digite para buscar e clique no animal correto. O texto digitado sozinho não seleciona o cadastro."
                 clearLabel="Selecione..."
+                onSearchChange={setBuscaPacienteRemota}
+                isSearching={buscandoPacientes || carregandoPacientesDoTutor}
+                searchingText="Buscando animais..."
+                searchError={erroBuscaPaciente}
               />
               <button
                 type="button"
