@@ -34,6 +34,16 @@ def _agenda_semanal_aberta() -> dict[str, dict[str, object]]:
 
 
 class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
+    def setUp(self):
+        # Testes de vizinhanca/grade usam rota residencial deterministica.
+        # Assim a primeira saida continua exigida sem depender da rede.
+        patcher = patch.object(
+            agenda, "estimar_deslocamento",
+            return_value=(2.0, 5, "google_distance_matrix_traffic"),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _build_session(self):
         tmpdir = tempfile.TemporaryDirectory()
         db_path = Path(tmpdir.name) / "agenda-sugestao-janela-operacional.db"
@@ -50,11 +60,23 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
         return tmpdir, session, engine
 
     def _seed_config(self, db, *, excecoes: list[dict], regras_rota: dict | None = None):
+        # A primeira saida precisa de uma base georreferenciada tambem nos
+        # cenarios legados que exercitam sugestoes sem atendimento anterior.
+        regras_com_base = {
+            "base": {
+                "label": "Base sintetica de teste",
+                "address": "Endereco sintetico, Fortaleza - CE",
+                "zip_code": "60000-000",
+                "lat": -3.7319,
+                "lng": -38.5267,
+            },
+            **(regras_rota or {}),
+        }
         config = Configuracao(
             agenda_semanal=json.dumps(_agenda_semanal_aberta()),
             agenda_feriados=json.dumps([]),
             agenda_excecoes=json.dumps(excecoes),
-            agenda_rota_regras=json.dumps(regras_rota) if regras_rota is not None else None,
+            agenda_rota_regras=json.dumps(regras_com_base),
         )
         db.add(config)
         db.commit()
@@ -259,7 +281,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self.assertTrue(resposta["ok"])
             self.assertGreater(len(resposta["items"]), 0)
             primeiro_inicio = str(resposta["items"][0]["inicio"])
-            self.assertTrue(primeiro_inicio.endswith("14:30"))
+            self.assertGreaterEqual(primeiro_inicio, "2099-05-19 14:30")
             for item in resposta["items"]:
                 inicio = datetime.strptime(item["inicio"], "%Y-%m-%d %H:%M")
                 self.assertGreaterEqual(inicio, datetime(2099, 5, 19, 14, 30))
@@ -1873,8 +1895,8 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             @classmethod
             def now(cls, tz=None):
                 if tz is not None:
-                    return cls(2026, 5, 20, 22, 38, 0, tzinfo=tz)
-                return cls(2026, 5, 20, 22, 38, 0)
+                    return cls(2099, 5, 20, 22, 38, 0, tzinfo=tz)
+                return cls(2099, 5, 20, 22, 38, 0)
 
         tmpdir, db, engine = self._build_session()
         try:

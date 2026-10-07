@@ -24,6 +24,13 @@ class AgendaPreferenciasEncaixesTest(unittest.TestCase):
     _criar_agendamento = fixtures.AgendaSugestaoJanelaOperacionalTest._criar_agendamento
 
     def setUp(self):
+        # O teste foca preferencias/encaixes; primeira viagem deterministica.
+        patcher = patch.object(
+            agenda, "estimar_deslocamento",
+            return_value=(2.0, 5, "google_distance_matrix_traffic"),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.tmpdir, self.db, self.engine = self._build_session()
         self._seed_config(self.db, excecoes=[])
         self.clinica, self.outra = self._seed_clinicas(self.db)
@@ -38,7 +45,10 @@ class AgendaPreferenciasEncaixesTest(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def configurar(self, **thresholds):
-        self.db.query(Configuracao).first().agenda_rota_regras = json.dumps({"thresholds": thresholds})
+        config = self.db.query(Configuracao).first()
+        regras = json.loads(config.agenda_rota_regras or "{}")
+        regras["thresholds"] = thresholds
+        config.agenda_rota_regras = json.dumps(regras)
         self.db.commit()
 
     def reservar(self, hora, data="2099-05-25", duracao=40):
