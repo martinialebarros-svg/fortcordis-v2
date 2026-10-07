@@ -90,6 +90,52 @@ class PacientesListagemTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_filtro_exato_por_tutor_combina_com_busca_e_pagina_nomes_iguais(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            db.add_all(
+                [
+                    Tutor(id=1, nome="Ana", nome_key="ana", ativo=1),
+                    Tutor(id=11, nome="Beatriz", nome_key="beatriz", ativo=1),
+                ]
+            )
+            db.add_all(
+                [
+                    Paciente(id=20, nome="Rex", nome_key="rex", tutor_id=1, ativo=1),
+                    Paciente(id=30, nome="Bidu", nome_key="bidu", tutor_id=1, ativo=1),
+                    Paciente(id=40, nome="Rex inativo", nome_key="rex inativo", tutor_id=1, ativo=0),
+                    Paciente(id=10, nome="Rex", nome_key="rex", tutor_id=11, ativo=1),
+                ]
+            )
+            db.commit()
+
+            def listar(**params):
+                return pacientes.listar_pacientes(
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                    **params,
+                )
+
+            por_tutor = listar(tutor_id=1)
+            self.assertEqual(por_tutor["total_ativos"], 3)
+            self.assertEqual(por_tutor["total"], 2)
+            self.assertEqual([item["id"] for item in por_tutor["items"]], [30, 20])
+
+            busca_combinada = listar(tutor_id=1, search="rex")
+            self.assertEqual(busca_combinada["total_ativos"], 3)
+            self.assertEqual(busca_combinada["total"], 1)
+            self.assertEqual([item["id"] for item in busca_combinada["items"]], [20])
+
+            primeira_pagina = listar(search="rex", limit=1, skip=0)
+            segunda_pagina = listar(search="rex", limit=1, skip=1)
+            self.assertEqual(primeira_pagina["total"], 2)
+            self.assertEqual([item["id"] for item in primeira_pagina["items"]], [10])
+            self.assertEqual([item["id"] for item in segunda_pagina["items"]], [20])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()
