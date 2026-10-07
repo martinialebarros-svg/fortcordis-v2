@@ -2223,7 +2223,7 @@ export default function NovoAgendamentoModal({
   const pacientesFiltradosPorTutor = formData.tutor_id
     ? pacientesDisponiveis.filter((paciente) => String(paciente.tutor_id || "") === formData.tutor_id)
     : pacientesDisponiveis;
-  const petsAtivosDoTutor = tutorPanorama?.pets.filter(
+  const petsAtivosDoTutor = tutorPanorama?.pets?.filter(
     (pet) => !["0", "false"].includes(String(pet.ativo ?? 1).toLowerCase())
   ) || [];
 

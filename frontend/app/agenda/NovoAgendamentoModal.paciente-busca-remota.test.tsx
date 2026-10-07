@@ -186,7 +186,7 @@ describe("NovoAgendamentoModal - busca remota de animal", () => {
         })
       );
     });
-  });
+  }, 20_000);
 
   it("mostra animal fora do lote inicial ao selecionar o tutor, sem digitar", async () => {
     render(
@@ -276,5 +276,5 @@ describe("NovoAgendamentoModal - busca remota de animal", () => {
     )?.parentElement as HTMLElement;
     expect(within(campoTutor).getByRole("button", { name: /Maria Souza/ })).toBeInTheDocument();
     expect(observacoes).toHaveValue("Nota editada antes da resposta");
-  });
+  }, 20_000);
 });

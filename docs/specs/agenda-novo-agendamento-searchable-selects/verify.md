@@ -33,13 +33,14 @@ python -m pytest tests/test_pacientes_listagem.py -q  # ambiente virtual do back
 cd ../frontend
 npx eslint app/agenda/NovoAgendamentoModal.tsx app/agenda/NovoAgendamentoModal.paciente-busca-remota.test.tsx --max-warnings=0
 npx vitest run app/agenda/NovoAgendamentoModal.paciente-busca-remota.test.tsx app/agenda/NovoAgendamentoModal.reserva-expirada.test.tsx
+npm test
 npx tsc --noEmit
 npm run build
 ```
 
 Resumo dos resultados:
 - Backend: 3 testes de `test_pacientes_listagem.py` passaram no ambiente virtual do backend; `py_compile` e `git diff --check` passaram.
-- Frontend: antes da implementacao, 2 testes novos falharam pela ausencia das chamadas remotas. Apos a mudanca, 5 testes focados passaram; ESLint, TypeScript, build de producao e `git diff --check` passaram.
+- Frontend: antes da implementacao, 2 testes novos falharam pela ausencia das chamadas remotas. Apos a mudanca, 5 testes focados passaram; a suite completa passou com 521 testes Vitest e 9 testes Node. ESLint, TypeScript, build de producao e `git diff --check` passaram.
 - SDD: `evaluate_guardrail` aprovou os seis arquivos alterados, incluindo `spec.md` e `verify.md`; o comando CI por commits sera executavel apos criar um commit.
 
 ## 3) Testes manuais
