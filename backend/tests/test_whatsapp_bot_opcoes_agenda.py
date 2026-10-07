@@ -240,7 +240,9 @@ class OpcoesTests(unittest.TestCase):
             helper._seed_config(db,excecoes=[])
             clinic,_=helper._seed_clinicas(db)
             service=helper._seed_servico(db,nome='Ecocardiograma',duracao_minutos=30)
-            with patch.object(agenda,'_obter_duracao_deslocamento_operacional',return_value=(0,'teste')):
+            with patch.object(agenda,'_obter_duracao_deslocamento_operacional',return_value=(0,'teste')), patch.object(
+                agenda, 'estimar_deslocamento', return_value=(2.0,5,'google_distance_matrix_traffic')
+            ):
                 before=op.slots_seguros(op.consultar_dia(db,clinic.id,service,self.now.date()),service,self.now.date(),self.now)
                 self.assertTrue(before)
                 chosen=before[0]

@@ -29,6 +29,24 @@ INICIO_RESERVA = datetime(2099, 5, 25, 11, 0, 0)
 
 
 class AgendaReabilitarReservaExpiradaTest(unittest.TestCase):
+    def setUp(self):
+        # Estes cenarios testam o ciclo da reserva, com primeira viagem
+        # deterministica desde a base residencial configurada por endereco.
+        agenda._geocodificar_base_primeira_saida.cache_clear()
+        geocode = SimpleNamespace(
+            latitude=-3.7319, longitude=-38.5267, place_id="base-reserva-teste",
+            cidade="Fortaleza", estado="CE",
+        )
+        for patcher in (
+            patch.object(agenda.settings, "GOOGLE_MAPS_API_KEY", "chave-sintetica"),
+            patch.object(agenda.settings, "LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ", True),
+            patch.object(agenda, "geocodificar_endereco_google", return_value=geocode),
+            patch.object(agenda, "estimar_deslocamento", return_value=(2.0, 5, "google_distance_matrix_traffic")),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.addCleanup(agenda._geocodificar_base_primeira_saida.cache_clear)
+
     def _build_session(self):
         tmpdir = tempfile.TemporaryDirectory()
         db_path = Path(tmpdir.name) / "agenda-reabilitar-reserva-expirada.db"

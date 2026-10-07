@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
+import unicodedata
 
 from app.core.agenda_config import carregar_json
 
@@ -10,7 +11,7 @@ DEFAULT_AGENDA_ROTA_REGRAS = {
     "version": "1.0.0",
     "base": {
         "label": "Casa (base operacional)",
-        "address": "Av da Universidade, 1949",
+        "address": "Av. da Universidade, 1949, Fortaleza - CE",
         "zip_code": "60020-180",
         "lat": None,
         "lng": None,
@@ -31,6 +32,12 @@ DEFAULT_AGENDA_ROTA_REGRAS = {
         "emergency_first_offer_days_ahead": [1, 2],
     },
     "route_policy": {
+        "first_appointment_city_floors": {
+            "caucaia": "08:30",
+            "maracanau": "09:00",
+            "eusebio": "09:00",
+            "itaitinga": "09:00",
+        },
         "end_of_route_window_start": "16:00",
         "prefer_near_base_at_end_of_route": True,
         "bonus_near_base_score": 15,
@@ -72,6 +79,13 @@ def _normalizar_hora_hhmm(value: Any, fallback: str) -> str:
 def _hora_em_minutos(value: str) -> int:
     hora_str, minuto_str = value.split(":")
     return int(hora_str) * 60 + int(minuto_str)
+
+
+def normalizar_municipio_agenda(value: Any) -> str:
+    """Chave estavel para municipios, inclusive nomes com acentos."""
+    sem_acentos = unicodedata.normalize("NFKD", str(value or ""))
+    letras = "".join(c for c in sem_acentos if not unicodedata.combining(c))
+    return " ".join("".join(c if c.isalnum() else " " for c in letras.lower()).split())
 
 
 def _normalizar_int(value: Any, fallback: int, min_value: int, max_value: int) -> int:
@@ -209,6 +223,16 @@ def normalizar_agenda_rota_regras(payload: Any) -> dict[str, Any]:
     }
 
     route_src = source.get("route_policy") if isinstance(source.get("route_policy"), dict) else {}
+    pisos_municipios = dict(default["route_policy"]["first_appointment_city_floors"])
+    pisos_src = route_src.get("first_appointment_city_floors")
+    if isinstance(pisos_src, dict):
+        for municipio, hora in list(pisos_src.items())[:50]:
+            chave = normalizar_municipio_agenda(municipio)
+            if chave:
+                pisos_municipios[chave] = _normalizar_hora_hhmm(
+                    hora,
+                    pisos_municipios.get(chave, "08:00"),
+                )
     raw_bonus = _normalizar_int(
         route_src.get("bonus_near_base_score"),
         default["route_policy"]["bonus_near_base_score"],
@@ -216,6 +240,7 @@ def normalizar_agenda_rota_regras(payload: Any) -> dict[str, Any]:
         999,
     )
     route_policy = {
+        "first_appointment_city_floors": pisos_municipios,
         "end_of_route_window_start": _normalizar_hora_hhmm(
             route_src.get("end_of_route_window_start"),
             default["route_policy"]["end_of_route_window_start"],
