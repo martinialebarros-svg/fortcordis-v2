@@ -368,6 +368,9 @@ def _process_pending_os_row(db: Session, row: PushScheduledNotification) -> None
     }
     if isinstance(payload_base, dict):
         data_payload.update({k: v for k, v in payload_base.items() if v is not None})
+    # O lembrete pode ter sido agendado antes de um ajuste: o valor persistido
+    # na OS prevalece sobre o snapshot do payload agendado.
+    data_payload["valor_final"] = f"{float(os_data.valor_final or 0):.2f}"
 
     result = send_financeiro_push_notification(
         db,

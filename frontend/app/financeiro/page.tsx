@@ -439,6 +439,14 @@ export default function FinanceiroPage() {
   const [modalReceberOS, setModalReceberOS] = useState<OrdemServico | null>(null);
   const [modalReceberLoteOSIds, setModalReceberLoteOSIds] = useState<number[] | null>(null);
   const [modalEditarOS, setModalEditarOS] = useState<OrdemServico | null>(null);
+  const [modalAjustarValorOS, setModalAjustarValorOS] = useState<OrdemServico | null>(null);
+  const [novoValorFinalOS, setNovoValorFinalOS] = useState("");
+  const [motivoAjusteOS, setMotivoAjusteOS] = useState("");
+  const [erroAjusteOS, setErroAjusteOS] = useState("");
+  const [mensagemAjusteOS, setMensagemAjusteOS] = useState("");
+  const [carregandoAjusteOS, setCarregandoAjusteOS] = useState(false);
+  const [ajusteOSConferido, setAjusteOSConferido] = useState(false);
+  const [salvandoAjusteOS, setSalvandoAjusteOS] = useState(false);
   const [formasPagamentoDisponiveis, setFormasPagamentoDisponiveis] = useState<FormaPagamentoConfig[]>(FORMA_PAGAMENTO_FALLBACK);
   const [carregandoFormasPagamento, setCarregandoFormasPagamento] = useState(false);
   const [pagamentosRecebimentoOS, setPagamentosRecebimentoOS] = useState<PagamentoRecebimentoItem[]>([]);
@@ -483,6 +491,7 @@ export default function FinanceiroPage() {
   const [enviandoWhatsAppOficialOsId, setEnviandoWhatsAppOficialOsId] = useState<number | null>(null);
   const [enviandoWhatsAppOficialGrupoKey, setEnviandoWhatsAppOficialGrupoKey] = useState<string | null>(null);
   const highlightedRowRef = useRef<HTMLDivElement | null>(null);
+  const ajusteRequestIdRef = useRef(0);
   const carregarDadosControllerRef = useRef<AbortController | null>(null);
   const carregarCobrancasControllerRef = useRef<AbortController | null>(null);
   /** Periodo do ultimo resumo aplicado com sucesso. Evita refazer a chamada a
@@ -713,6 +722,7 @@ export default function FinanceiroPage() {
           numero: Math.max(0, Math.ceil(data.total / 50) - 1),
         });
       }
+      return data.items;
     } catch (error) {
       if (!controller.signal.aborted && carregarCobrancasControllerRef.current === controller) {
         console.error("Erro ao carregar Cobrancas:", error);
@@ -1438,6 +1448,122 @@ export default function FinanceiroPage() {
     });
   };
 
+  const fecharAjusteValorOS = () => {
+    if (salvandoAjusteOS) return;
+    ajusteRequestIdRef.current += 1;
+    setModalAjustarValorOS(null);
+    setErroAjusteOS("");
+  };
+
+  const abrirAjusteValorOS = async (os: OrdemServico) => {
+    const requestId = ++ajusteRequestIdRef.current;
+    setModalAjustarValorOS(os);
+    setNovoValorFinalOS("");
+    setMotivoAjusteOS("");
+    setErroAjusteOS("");
+    setMensagemAjusteOS("");
+    setCarregandoAjusteOS(true);
+    setAjusteOSConferido(false);
+    try {
+      const atual = (await api.get<OrdemServico>(`/ordens-servico/${os.id}`)).data;
+      if (requestId !== ajusteRequestIdRef.current) return;
+      setModalAjustarValorOS(atual);
+      if (atual.status !== "Pendente") {
+        setErroAjusteOS("Esta OS nao esta mais pendente. Atualize a lista antes de ajustar o valor.");
+        return;
+      }
+      setNovoValorFinalOS(toMoneyInput(Number(atual.valor_final || 0)));
+      setAjusteOSConferido(true);
+    } catch (error: any) {
+      if (requestId !== ajusteRequestIdRef.current) return;
+      setErroAjusteOS(error?.userMessage || "Nao foi possivel conferir a OS. Feche o ajuste e tente novamente.");
+    } finally {
+      if (requestId === ajusteRequestIdRef.current) setCarregandoAjusteOS(false);
+    }
+  };
+
+  const parseNovoValorFinalOS = (raw: string): number | null => {
+    const normalizado = raw.trim().replace(",", ".");
+    if (!/^\d+(?:\.\d{1,2})?$/.test(normalizado)) return null;
+    const centavos = Math.round(Number(normalizado) * 100);
+    if (!Number.isSafeInteger(centavos) || centavos <= 0 || centavos > 9_999_999_999) return null;
+    return centavos / 100;
+  };
+
+  const recarregarOSComGrupoAberto = async () => {
+    if (abaAtiva === "cobrancas") {
+      const grupoAnterior = grupoAberto;
+      const gruposAtualizados = await recarregarCobrancas();
+      const grupoAtualizado = gruposAtualizados?.find((item) => item.chave === grupoAnterior);
+      if (grupoAtualizado) await abrirDetalhesGrupo(grupoAtualizado);
+    } else {
+      await carregarDados();
+    }
+  };
+
+  const confirmarAjusteValorOS = async () => {
+    const os = modalAjustarValorOS;
+    if (!os || !ajusteOSConferido || carregandoAjusteOS || salvandoAjusteOS) return;
+    if (os.status !== "Pendente") {
+      setErroAjusteOS("Esta OS nao esta mais pendente. Atualize a lista antes de ajustar o valor.");
+      return;
+    }
+    const novoValor = parseNovoValorFinalOS(novoValorFinalOS);
+    if (novoValor === null) {
+      setErroAjusteOS("Informe um valor final maior que zero, com ate duas casas decimais.");
+      return;
+    }
+    const valorAtual = Math.round(Number(os.valor_final || 0) * 100) / 100;
+    const descontoCentavos = Math.round(Number(os.desconto || 0) * 100);
+    if (Math.round(novoValor * 100) + descontoCentavos > 9_999_999_999) {
+      setErroAjusteOS("O valor final somado ao desconto excede o limite permitido para a OS.");
+      return;
+    }
+    if (novoValor === valorAtual) {
+      setErroAjusteOS("O novo valor deve ser diferente do valor atual da OS.");
+      return;
+    }
+    const motivo = motivoAjusteOS.trim();
+    if (!motivo) {
+      setErroAjusteOS("Informe o motivo do ajuste para registrar a alteracao.");
+      return;
+    }
+    if (motivo.length > 500) {
+      setErroAjusteOS("O motivo deve ter no maximo 500 caracteres.");
+      return;
+    }
+
+    setErroAjusteOS("");
+    setSalvandoAjusteOS(true);
+    try {
+      await api.patch(`/ordens-servico/${os.id}/ajustar-valor`, {
+        valor_final_esperado: valorAtual,
+        novo_valor_final: novoValor,
+        motivo,
+      });
+      ajusteRequestIdRef.current += 1;
+      setModalAjustarValorOS(null);
+      setOsSelecionadasBaixa([]);
+      selecaoEpochRef.current += 1;
+      setMensagemAjusteOS(`Valor da OS ${os.numero_os} ajustado para ${formatarValor(novoValor)}.`);
+
+      await recarregarOSComGrupoAberto();
+      setOsHighlightId(os.id);
+      setOsHighlightUntil(Date.now() + 25000);
+    } catch (error: any) {
+      if (error?.response?.status === 409) {
+        setErroAjusteOS("Esta OS mudou desde a conferencia. Recarregue a OS e confira o valor antes de tentar novamente.");
+      } else {
+        const detalhe = error?.response?.data?.detail;
+        const mensagem = typeof detalhe === "string" ? detalhe :
+          Array.isArray(detalhe) ? detalhe.map((item: { msg?: string }) => item.msg).filter(Boolean).join("; ") : "";
+        setErroAjusteOS(error?.userMessage || mensagem || "Nao foi possivel ajustar o valor da OS.");
+      }
+    } finally {
+      setSalvandoAjusteOS(false);
+    }
+  };
+
   const confirmarRecebimentoOS = async () => {
     if (modalReceberOS && !(await validarSelecao([modalReceberOS.id], "Pendente", [modalReceberOS]))) return;
     if (!modalReceberOS) return;
@@ -1458,6 +1584,7 @@ export default function FinanceiroPage() {
       await api.patch(`/ordens-servico/${modalReceberOS.id}/receber`, {
         pagamentos: pagamentosPayload,
         data_recebimento: dataRecebimentoOS || null,
+        valor_final_esperado: Number(Number(modalReceberOS.valor_final || 0).toFixed(2)),
         valor_credito_utilizado: Number(creditoUtilizado.toFixed(2)),
         destino_credito_excedente: destinoCreditoExcedenteOS,
       });
@@ -1493,6 +1620,17 @@ export default function FinanceiroPage() {
       carregarDados();
     } catch (error: any) {
       console.error("Erro ao pagar OS:", error);
+      if (error?.response?.status === 409) {
+        setModalReceberOS(null);
+        setPagamentosRecebimentoOS([]);
+        setOsSelecionadasBaixa([]);
+        setUsarCreditoClienteOS(false);
+        setValorCreditoUtilizadoOS("0.00");
+        setEnviarReciboPdfWhatsAppAposRecebimento(false);
+        await recarregarOSComGrupoAberto();
+        alert("O valor ou o estado da OS mudou. Nenhum recebimento foi registrado. Reabra a OS e confira o valor antes de tentar novamente.");
+        return;
+      }
       alert("Erro ao processar pagamento: " + (error.response?.data?.detail || error.message));
     }
   };
@@ -1556,6 +1694,7 @@ export default function FinanceiroPage() {
     const acumuladoPorForma = new Map<string, number>();
     const erros: string[] = [];
     const idsRecebidas: number[] = [];
+    let conflitoValor = false;
     let avisoRecibo = "";
     setRecebendoLoteOS(true);
     try {
@@ -1572,16 +1711,24 @@ export default function FinanceiroPage() {
           await api.patch(`/ordens-servico/${os.id}/receber`, {
             pagamentos: pagamentosOS,
             data_recebimento: dataRecebimentoOS || null,
+            valor_final_esperado: Number(Number(os.valor_final || 0).toFixed(2)),
             valor_credito_utilizado: 0,
             destino_credito_excedente: "cliente",
           });
           idsRecebidas.push(os.id);
         } catch (error: any) {
           erros.push(`OS ${os.numero_os || os.id}: ${error.response?.data?.detail || error.message}`);
+          if (error?.response?.status === 409) {
+            conflitoValor = true;
+            break;
+          }
         }
       }
 
-      if (enviarReciboPdfWhatsAppAposRecebimento && idsRecebidas.length > 0) {
+      if (conflitoValor && enviarReciboPdfWhatsAppAposRecebimento && idsRecebidas.length > 0) {
+        avisoRecibo = "O recibo nao foi enviado porque a baixa em lote precisou ser interrompida para nova conferencia.";
+      }
+      if (!conflitoValor && enviarReciboPdfWhatsAppAposRecebimento && idsRecebidas.length > 0) {
         try {
           if (idsRecebidas.length === 1) {
             await api.post(`/ordens-servico/${idsRecebidas[0]}/whatsapp/recibo-pdf`, {
@@ -1604,10 +1751,15 @@ export default function FinanceiroPage() {
       setPagamentosRecebimentoOS([]);
       setOsSelecionadasBaixa([]);
       setEnviarReciboPdfWhatsAppAposRecebimento(false);
-      await carregarDados();
+      await recarregarOSComGrupoAberto();
       if (erros.length > 0 || avisoRecibo) {
         const partes = [
-          erros.length > 0 ? `Baixa em lote concluida parcialmente.\n${erros.join("\n")}` : "Baixa em lote registrada com sucesso.",
+          erros.length > 0
+            ? `${idsRecebidas.length > 0
+              ? `Baixa em lote concluida parcialmente: ${idsRecebidas.length} OS recebida(s).`
+              : "Nenhuma baixa foi registrada."}\n${erros.join("\n")}`
+            : "Baixa em lote registrada com sucesso.",
+          conflitoValor ? "Uma OS mudou desde a conferencia. Reabra as OS e confira os valores antes de preparar uma nova baixa." : "",
           avisoRecibo ? `Aviso do WhatsApp: ${avisoRecibo}` : "",
         ].filter(Boolean);
         alert(partes.join("\n\n"));
@@ -1638,7 +1790,9 @@ export default function FinanceiroPage() {
   const salvarEdicaoOS = async () => {
     if (!modalEditarOS) return;
     const osDomiciliar = modalEditarOS.origem_atendimento === "domiciliar";
-    if ((!osDomiciliar && !formEditarOS.clinica_id) || !formEditarOS.servico_id) {
+    const clinicaAlterada = !osDomiciliar && formEditarOS.clinica_id !== String(modalEditarOS.clinica_id || "");
+    const servicoAlterado = formEditarOS.servico_id !== String(modalEditarOS.servico_id || "");
+    if ((clinicaAlterada && !formEditarOS.clinica_id) || (servicoAlterado && !formEditarOS.servico_id)) {
       alert(
         osDomiciliar
           ? "Selecione o servico para atualizar a OS domiciliar."
@@ -1649,15 +1803,23 @@ export default function FinanceiroPage() {
 
     try {
       setSalvandoOS(true);
-      const payload: Record<string, unknown> = {
-        servico_id: Number(formEditarOS.servico_id),
-        tipo_horario: formEditarOS.tipo_horario,
-        desconto: Number(formEditarOS.desconto || 0),
-        observacoes: formEditarOS.observacoes,
-        recalcular_preco: true,
-      };
-      if (!osDomiciliar && formEditarOS.clinica_id) {
+      const payload: Record<string, unknown> = {};
+      if (clinicaAlterada) {
         payload.clinica_id = Number(formEditarOS.clinica_id);
+      }
+      if (servicoAlterado) payload.servico_id = Number(formEditarOS.servico_id);
+      if (formEditarOS.tipo_horario !== (modalEditarOS.tipo_horario || "comercial")) {
+        payload.tipo_horario = formEditarOS.tipo_horario;
+      }
+      if (Math.round(Number(formEditarOS.desconto || 0) * 100) !== Math.round(Number(modalEditarOS.desconto || 0) * 100)) {
+        payload.desconto = Number(formEditarOS.desconto || 0);
+      }
+      if (formEditarOS.observacoes !== (modalEditarOS.observacoes || "")) {
+        payload.observacoes = formEditarOS.observacoes;
+      }
+      if (Object.keys(payload).length === 0) {
+        setModalEditarOS(null);
+        return;
       }
       await api.put(`/ordens-servico/${modalEditarOS.id}`, payload);
       setModalEditarOS(null);
@@ -1745,12 +1907,12 @@ export default function FinanceiroPage() {
   }, [osHighlightId, osHighlightUntil]);
 
   useEffect(() => {
-    if (abaAtiva !== "ordens" || osHighlightId == null) return;
+    if ((abaAtiva !== "ordens" && abaAtiva !== "cobrancas") || osHighlightId == null) return;
     const row = document.getElementById(`os-row-${osHighlightId}`);
     if (!row) return;
     highlightedRowRef.current = row as HTMLDivElement;
-    row.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [abaAtiva, osFiltradas, osHighlightId]);
+    row.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  }, [abaAtiva, osFiltradas, grupoAberto, osHighlightId]);
 
   const clinicaContatoPorId = useMemo(() => {
     const mapa = new Map<number, ClinicaOption>();
@@ -2439,6 +2601,7 @@ export default function FinanceiroPage() {
   // Calcular resumo de OS
   const osPendentes = ordensPagina.filter(os => os.status === 'Pendente');
   const valorPendenteOS = resumoOrdens.valor_pendente;
+  const novoValorParaPrevia = parseNovoValorFinalOS(novoValorFinalOS);
 
   return (
     <DashboardLayout>
@@ -2463,6 +2626,12 @@ export default function FinanceiroPage() {
             </button>
           </div>
         </header>
+
+        {mensagemAjusteOS && (
+          <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            {mensagemAjusteOS}
+          </div>
+        )}
 
         {falhasCarregamento.length > 0 && (
           <div
@@ -3187,7 +3356,7 @@ export default function FinanceiroPage() {
                               ) : (
                                 <div className="divide-y divide-gray-100 bg-white">
                                   {ordensPendentes.map((os) => (
-                                    <div key={os.id} className="p-4">
+                                    <div key={os.id} id={`os-row-${os.id}`} className={`p-4 ${osHighlightId === os.id ? "bg-amber-50 ring-2 ring-amber-200" : ""}`}>
                                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
                                         <div className="flex items-center gap-3">
                                           <input
@@ -3245,6 +3414,14 @@ export default function FinanceiroPage() {
                                             >
                                               <Edit className="h-4 w-4" />
                                               Editar
+                                            </button>
+                                            <button
+                                              onClick={() => void abrirAjusteValorOS(os)}
+                                              aria-label={`Ajustar valor da OS ${os.numero_os}`}
+                                              className="flex items-center gap-1 rounded-lg bg-amber-100 px-3 py-1.5 text-sm text-amber-800 hover:bg-amber-200"
+                                            >
+                                              <DollarSign className="h-4 w-4" />
+                                              Ajustar valor
                                             </button>
                                             <button
                                               onClick={() => handleExcluirOS(os)}
@@ -3625,6 +3802,16 @@ export default function FinanceiroPage() {
                             <Edit className="w-4 h-4" />
                             Editar
                           </button>
+                          {os.status === "Pendente" && (
+                            <button
+                              onClick={() => void abrirAjusteValorOS(os)}
+                              aria-label={`Ajustar valor da OS ${os.numero_os}`}
+                              className="px-3 py-1.5 text-sm bg-amber-100 text-amber-800 hover:bg-amber-200 rounded-lg flex items-center gap-1"
+                            >
+                              <DollarSign className="w-4 h-4" />
+                              Ajustar valor
+                            </button>
+                          )}
                           {(!os.laudo_id || os.status !== "Cancelado") && <button
                             onClick={() => handleExcluirOS(os)}
                             disabled={Boolean(os.laudo_id) && os.status !== "Pendente"}
@@ -3754,11 +3941,11 @@ export default function FinanceiroPage() {
                 </div>
               </div>
 
-              {modalEditarOS.origem_atendimento === "domiciliar" && (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-                  O recálculo desta OS usa o preço domiciliar do serviço conforme o tipo de horário selecionado.
-                </div>
-              )}
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {modalEditarOS.origem_atendimento === "domiciliar"
+                  ? "Ao alterar serviço ou horário, o preço domiciliar cadastrado será aplicado à OS e poderá substituir um ajuste manual de valor."
+                  : "Ao alterar clínica, serviço ou horário, o preço cadastrado será aplicado à OS e poderá substituir um ajuste manual de valor."}
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
@@ -3811,6 +3998,94 @@ export default function FinanceiroPage() {
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
               >
                 {salvandoOS ? "Salvando..." : "Salvar alteracoes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalAjustarValorOS && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-50 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="titulo-ajuste-valor-os" className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white">
+            <div className="border-b p-6">
+              <h3 id="titulo-ajuste-valor-os" className="text-lg font-semibold text-gray-900">Ajustar valor da OS</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                OS #{modalAjustarValorOS.numero_os} - {modalAjustarValorOS.paciente || "Paciente nao informado"}
+              </p>
+            </div>
+
+            <div className="space-y-4 p-6">
+              {carregandoAjusteOS ? (
+                <p role="status" className="text-sm text-gray-600">Conferindo o valor e a situação atual da OS...</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm sm:grid-cols-2">
+                    <div>
+                      <p className="text-gray-600">Valor final atual</p>
+                      <p className="font-semibold text-gray-900">{formatarValor(Number(modalAjustarValorOS.valor_final || 0))}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Desconto existente, mantido</p>
+                      <p className="font-semibold text-gray-900">{formatarValor(Number(modalAjustarValorOS.desconto || 0))}</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="novo-valor-final-os" className="mb-1 block text-sm font-medium text-gray-700">Novo valor final (R$)</label>
+                    <input
+                      id="novo-valor-final-os"
+                      type="text"
+                      inputMode="decimal"
+                      value={novoValorFinalOS}
+                      onChange={(event) => { setNovoValorFinalOS(event.target.value); setErroAjusteOS(""); }}
+                      placeholder="0,00"
+                      disabled={!ajusteOSConferido || salvandoAjusteOS}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-500 focus:ring-2 focus:ring-amber-500 disabled:bg-gray-100"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Informe um valor maior que zero, com até duas casas decimais.</p>
+                  </div>
+
+                  {novoValorParaPrevia !== null && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                      <p>O valor final passará de <strong>{formatarValor(Number(modalAjustarValorOS.valor_final || 0))}</strong> para <strong>{formatarValor(novoValorParaPrevia)}</strong>.</p>
+                      <p className="mt-1">Desconto mantido: {formatarValor(Number(modalAjustarValorOS.desconto || 0))}. Valor do serviço resultante: {formatarValor(novoValorParaPrevia + Number(modalAjustarValorOS.desconto || 0))}.</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <label htmlFor="motivo-ajuste-os" className="mb-1 block text-sm font-medium text-gray-700">Motivo do ajuste</label>
+                    <textarea
+                      id="motivo-ajuste-os"
+                      rows={3}
+                      maxLength={500}
+                      value={motivoAjusteOS}
+                      onChange={(event) => { setMotivoAjusteOS(event.target.value); setErroAjusteOS(""); }}
+                      disabled={!ajusteOSConferido || salvandoAjusteOS}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-amber-500 focus:ring-2 focus:ring-amber-500 disabled:bg-gray-100"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">O motivo será registrado na auditoria da OS. {motivoAjusteOS.length}/500 caracteres.</p>
+                  </div>
+                </>
+              )}
+
+              {erroAjusteOS && (
+                <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  <p>{erroAjusteOS}</p>
+                  {erroAjusteOS.includes("mudou desde a conferencia") && (
+                    <button type="button" onClick={() => void abrirAjusteValorOS(modalAjustarValorOS)} className="mt-2 font-semibold underline">
+                      Recarregar OS
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 border-t p-6">
+              <button type="button" onClick={fecharAjusteValorOS} disabled={salvandoAjusteOS} className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-100 disabled:opacity-60">
+                Cancelar
+              </button>
+              <button type="button" onClick={() => void confirmarAjusteValorOS()} disabled={!ajusteOSConferido || carregandoAjusteOS || salvandoAjusteOS} className="rounded-lg bg-amber-600 px-4 py-2 text-white hover:bg-amber-700 disabled:opacity-60">
+                {salvandoAjusteOS ? "Salvando..." : "Confirmar ajuste"}
               </button>
             </div>
           </div>
