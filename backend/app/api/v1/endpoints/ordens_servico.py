@@ -1,5 +1,6 @@
 """Endpoints para gerenciamento de ordens de servico."""
 
+import json
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from html import escape
@@ -15,12 +16,13 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import String, and_, case, cast, func, or_
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import String, and_, case, cast, func, or_, text as sql_text, update
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
 from app.db.database import get_db
+from app.models.auditoria_evento import AuditoriaEvento
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
 from app.models.configuracao import ConfiguracaoUsuario
@@ -36,7 +38,7 @@ from app.models.paciente import Paciente
 from app.models.servico import Servico
 from app.models.tutor import Tutor
 from app.models.user import User
-from app.services.auditoria_service import registrar_auditoria
+from app.services.auditoria_service import _request_meta, registrar_auditoria
 from app.services.precos_service import calcular_preco_servico
 from app.services.laudo_ordem_servico_service import mesma_data
 from app.services.push_notifications import send_financeiro_push_notification
@@ -52,6 +54,8 @@ router = APIRouter()
 
 OS_STATUSES = {"Pendente", "Pago", "Cancelado"}
 ORIGENS_ATENDIMENTO_OS = {"clinica_parceira", "domiciliar"}
+OS_VALOR_MAXIMO = Decimal("99999999.99")
+CENTAVO = Decimal("0.01")
 
 
 class OrdemServicoUpdate(BaseModel):
@@ -69,6 +73,12 @@ class OrdemServicoUpdate(BaseModel):
     recalcular_preco: bool = False
 
 
+class OrdemServicoAjustarValorInput(BaseModel):
+    valor_final_esperado: Decimal = Field(..., ge=0, max_digits=10, decimal_places=2)
+    novo_valor_final: Decimal = Field(..., gt=0, max_digits=10, decimal_places=2)
+    motivo: str = Field(..., max_length=500)
+
+
 class OrdemServicoPagamentoItemInput(BaseModel):
     forma_pagamento_config_id: Optional[int] = Field(default=None, ge=1)
     forma_pagamento: Optional[str] = None
@@ -84,6 +94,7 @@ class OrdemServicoReceberInput(BaseModel):
     forma_pagamento: Optional[str] = "dinheiro"
     data_recebimento: Optional[date] = None
     pagamentos: Optional[List[OrdemServicoPagamentoItemInput]] = None
+    valor_final_esperado: Optional[Decimal] = None
     desconto: Optional[float] = Field(default=None, ge=0)
     valor_credito_utilizado: float = Field(default=0, ge=0)
     destino_credito_excedente: str = Field(default="cliente", pattern="^(cliente|clinica|nenhum)$")
@@ -109,6 +120,32 @@ def _to_decimal(value, default: Decimal = Decimal("0.00")) -> Decimal:
         return Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
         return default
+
+
+def _bloquear_os_para_escrita(db: Session, os_id: int) -> Optional[OrdemServico]:
+    """Bloqueia a OS antes da leitura, inclusive no SQLite sem FOR UPDATE."""
+    query = db.query(OrdemServico).filter(OrdemServico.id == os_id).populate_existing()
+    if db.get_bind().dialect.name != "sqlite":
+        return query.with_for_update().first()
+
+    # SQLite ignora SELECT FOR UPDATE. SQL literal evita aplicar o onupdate do
+    # ORM; a OS fica materialmente intacta quando uma validação falha.
+    try:
+        resultado = db.execute(
+            sql_text("UPDATE ordens_servico SET id = id WHERE id = :os_id"),
+            {"os_id": os_id},
+        )
+    except OperationalError as exc:
+        db.rollback()
+        if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+            raise HTTPException(
+                status_code=409,
+                detail="A OS esta sendo alterada em outra sessao. Recarregue e tente novamente.",
+            ) from exc
+        raise
+    if resultado.rowcount != 1:
+        return None
+    return query.first()
 
 
 def _normalizar_codigo_pagamento(valor: Optional[str]) -> str:
@@ -2175,7 +2212,7 @@ def atualizar_ordem(
     current_user: User = Depends(get_current_user),
 ):
     """Atualiza ordem de servico."""
-    os_data = db.query(OrdemServico).filter(OrdemServico.id == os_id).first()
+    os_data = _bloquear_os_para_escrita(db, os_id)
     if not os_data:
         raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
 
@@ -2295,6 +2332,144 @@ def atualizar_ordem(
     return payload
 
 
+@router.patch("/{os_id}/ajustar-valor")
+def ajustar_valor_ordem(
+    os_id: int,
+    dados: OrdemServicoAjustarValorInput,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Ajusta o valor liquido de uma OS pendente sem alterar seus vinculos."""
+    motivo = dados.motivo.strip()
+    if not motivo:
+        raise HTTPException(status_code=422, detail="Informe o motivo do ajuste de valor.")
+
+    os_data = _bloquear_os_para_escrita(db, os_id)
+    if not os_data:
+        raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada.")
+    if os_data.status != "Pendente":
+        raise HTTPException(status_code=409, detail="Apenas OS pendente pode ter o valor ajustado.")
+
+    valor_final_persistido = os_data.valor_final
+    valor_servico_persistido = os_data.valor_servico
+    desconto_persistido = os_data.desconto
+    valor_anterior = Decimal(str(valor_final_persistido or 0))
+    valor_esperado = dados.valor_final_esperado
+    novo_valor = dados.novo_valor_final
+    if valor_anterior != valor_esperado:
+        raise HTTPException(
+            status_code=409,
+            detail="O valor da OS mudou desde a abertura. Recarregue a OS antes de ajustar.",
+        )
+    if novo_valor == valor_anterior:
+        raise HTTPException(status_code=422, detail="Informe um valor diferente do atual.")
+
+    desconto = Decimal(str(desconto_persistido or 0))
+    novo_valor_servico = novo_valor + desconto
+    if desconto < 0 or desconto != desconto.quantize(CENTAVO):
+        raise HTTPException(status_code=409, detail="O desconto atual da OS e invalido para este ajuste.")
+    if novo_valor_servico > OS_VALOR_MAXIMO:
+        raise HTTPException(status_code=422, detail="O valor do servico excede o limite permitido.")
+
+    marker = f"OS_ID={os_data.id};TIPO=RECEBIMENTO_OS"
+    recebimento_ativo = (
+        db.query(Transacao.id)
+        .outerjoin(OrdemServicoPagamento, OrdemServicoPagamento.transacao_id == Transacao.id)
+        .filter(
+            Transacao.tipo == "entrada",
+            Transacao.status.in_(["Recebido", "Pago"]),
+            or_(
+                Transacao.observacoes.like(f"%{marker}%"),
+                OrdemServicoPagamento.ordem_servico_id == os_data.id,
+            ),
+        )
+        .first()
+    )
+    credito_ativo = (
+        db.query(CreditoFinanceiro.id)
+        .filter(
+            CreditoFinanceiro.ordem_servico_id == os_data.id,
+            CreditoFinanceiro.origem.in_(["excedente_pagamento_os", "consumo_credito_os"]),
+            CreditoFinanceiro.status == "Ativo",
+        )
+        .first()
+    )
+    if recebimento_ativo or credito_ativo:
+        raise HTTPException(
+            status_code=409,
+            detail="Existe recebimento ou credito ativo vinculado a OS. Regularize antes de ajustar.",
+        )
+
+    valor_servico_anterior = Decimal(str(valor_servico_persistido or 0))
+    ip, rota, metodo = _request_meta(request)
+    try:
+        atualizado = db.execute(
+            update(OrdemServico)
+            .where(
+                OrdemServico.id == os_id,
+                OrdemServico.status == "Pendente",
+                OrdemServico.valor_final == valor_final_persistido,
+                OrdemServico.valor_servico == valor_servico_persistido,
+                OrdemServico.desconto == desconto_persistido,
+            )
+            .values(
+                valor_servico=novo_valor_servico,
+                valor_final=novo_valor,
+                updated_at=datetime.now(),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if atualizado.rowcount != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="A OS mudou durante o ajuste. Recarregue antes de tentar novamente.",
+            )
+        db.add(AuditoriaEvento(
+            usuario_id=getattr(current_user, "id", None),
+            usuario_nome=getattr(current_user, "nome", None),
+            usuario_email=getattr(current_user, "email", None),
+            modulo="ordens_servico",
+            entidade="ordem_servico",
+            entidade_id=str(os_data.id),
+            acao="ORDEM_SERVICO_VALOR_AJUSTADO",
+            descricao=f"Valor da OS {os_data.numero_os or os_data.id} ajustado.",
+            detalhes_json=json.dumps({
+                "numero_os": os_data.numero_os,
+                "agendamento_id": os_data.agendamento_id,
+                "laudo_id": os_data.laudo_id,
+                "motivo": motivo,
+                "valor_servico_anterior": str(valor_servico_anterior),
+                "valor_servico_novo": str(novo_valor_servico),
+                "desconto_preservado": str(desconto),
+                "valor_final_anterior": str(valor_anterior),
+                "valor_final_novo": str(novo_valor),
+            }, ensure_ascii=False),
+            ip_origem=ip,
+            rota=rota,
+            metodo=metodo,
+        ))
+        db.commit()
+    except OperationalError as exc:
+        db.rollback()
+        if db.get_bind().dialect.name == "sqlite" and (
+            "locked" in str(exc).lower() or "busy" in str(exc).lower()
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="A OS esta sendo alterada em outra sessao. Recarregue e tente novamente.",
+            ) from exc
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+    os_row = _find_os_with_names(db, os_id)
+    payload = _serialize_os_row(os_row)
+    payload["mensagem"] = "Valor da ordem de servico ajustado com sucesso."
+    return payload
+
+
 @router.patch("/{os_id}/receber")
 def receber_ordem(
     os_id: int,
@@ -2304,6 +2479,8 @@ def receber_ordem(
     current_user: User = Depends(get_current_user),
 ):
     """Marca OS como recebida e cria uma ou mais transacoes vinculadas."""
+    # Serializa a baixa com o ajuste de valor antes de calcular os pagamentos.
+    _bloquear_os_para_escrita(db, os_id)
     os_row = _find_os_with_names(db, os_id)
     if not os_row:
         raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
@@ -2325,6 +2502,18 @@ def receber_ordem(
         raise HTTPException(status_code=400, detail="OS ja esta com status Pago.")
     if os_data.status == "Cancelado":
         raise HTTPException(status_code=400, detail="OS cancelada nao pode ser recebida.")
+    if dados.valor_final_esperado is not None:
+        esperado = dados.valor_final_esperado
+        if (
+            not esperado.is_finite() or esperado < 0 or esperado > OS_VALOR_MAXIMO
+            or esperado != esperado.quantize(CENTAVO)
+        ):
+            raise HTTPException(status_code=422, detail="Valor esperado invalido para a OS.")
+        if Decimal(str(os_data.valor_final or 0)) != esperado:
+            raise HTTPException(
+                status_code=409,
+                detail="O valor da OS mudou desde a conferencia. Recarregue antes de receber.",
+            )
 
     marker = f"OS_ID={os_data.id};TIPO=RECEBIMENTO_OS"
     transacao_existente = (
@@ -2701,7 +2890,7 @@ def desfazer_recebimento_ordem(
     current_user: User = Depends(get_current_user),
 ):
     """Desfaz recebimento da OS e cancela transacao vinculada."""
-    os_data = db.query(OrdemServico).filter(OrdemServico.id == os_id).first()
+    os_data = _bloquear_os_para_escrita(db, os_id)
     if not os_data:
         raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
     if os_data.status != "Pago":

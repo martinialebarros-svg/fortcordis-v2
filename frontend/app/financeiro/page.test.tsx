@@ -284,6 +284,196 @@ describe("Ordens vinculadas a laudos", () => {
   });
 });
 
+describe("Ajuste de valor de OS pendente", () => {
+  let ordemAtual: ReturnType<typeof osItem> & {
+    clinica_id: number; servico_id: number; tipo_horario: string;
+    valor_servico: number; desconto: number; observacoes: string;
+  };
+
+  beforeEach(() => {
+    mocks.get.mockReset(); mocks.patch.mockReset(); mocks.put.mockReset(); mocks.post.mockReset();
+    window.localStorage.setItem("token", "synthetic-test");
+    window.history.replaceState({}, "", "/financeiro?aba=cobrancas");
+    vi.spyOn(window, "alert").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    ordemAtual = {
+      ...osItem(1), clinica_id: 1, servico_id: 2, tipo_horario: "comercial",
+      valor_servico: 110, desconto: 10, valor_final: 100, observacoes: "Original",
+    };
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/ordens-servico/cobrancas?")) return {
+        data: { total: 1, total_os: 1, pendentes: ordemAtual.status === "Pendente" ? 1 : 0,
+          total_pendente: ordemAtual.status === "Pendente" ? ordemAtual.valor_final : 0,
+          items: [{ chave: "clinica:1", nome_destinatario: "Clinica sintetica", tipo_destinatario: "clinica",
+            quantidade_total: 1, quantidade_os: ordemAtual.status === "Pendente" ? 1 : 0,
+            total_pendente: ordemAtual.status === "Pendente" ? ordemAtual.valor_final : 0 }] },
+      };
+      if (url.startsWith("/ordens-servico?")) return {
+        data: { total: 1, items: [{ ...ordemAtual }],
+          resumo: { pendentes: ordemAtual.status === "Pendente" ? 1 : 0,
+            valor_pendente: ordemAtual.status === "Pendente" ? ordemAtual.valor_final : 0 } },
+      };
+      if (url === "/ordens-servico/1") return { data: { ...ordemAtual } };
+      if (url.startsWith("/clinicas?")) return { data: { items: [{ id: 1, nome: "Clinica sintetica" }] } };
+      if (url.startsWith("/servicos?")) return { data: { items: [{ id: 2, nome: "Servico sintetico" }] } };
+      return { data: { items: [] } };
+    });
+    mocks.patch.mockImplementation(async (url: string, payload: { novo_valor_final: number }) => {
+      if (url === "/ordens-servico/1/ajustar-valor") {
+        ordemAtual = { ...ordemAtual, valor_final: payload.novo_valor_final,
+          valor_servico: payload.novo_valor_final + ordemAtual.desconto };
+      }
+      return { data: { ...ordemAtual } };
+    });
+    mocks.put.mockResolvedValue({ data: {} });
+  });
+  afterEach(() => { vi.restoreAllMocks(); window.localStorage.clear(); window.history.replaceState({}, "", "/"); });
+
+  it("ajusta pela linha de Cobrancas, registra motivo e reabre o grupo com o novo total", async () => {
+    render(<FinanceiroPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir destinatario Clinica sintetica" }));
+    const grupo = await screen.findByRole("region", { name: "Cobrancas de Clinica sintetica" });
+    fireEvent.click(within(grupo).getByTitle("Selecionar para baixa em lote"));
+    fireEvent.click(within(grupo).getByRole("button", { name: "Ajustar valor da OS OS-1" }));
+    const modal = await screen.findByRole("dialog", { name: "Ajustar valor da OS" });
+    await waitFor(() => expect(within(modal).getByRole("textbox", { name: "Novo valor final (R$)" })).toHaveValue("100.00"));
+    expect(mocks.get).toHaveBeenCalledWith("/ordens-servico/1");
+
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar ajuste" }));
+    expect(within(modal).getByRole("alert")).toHaveTextContent("O novo valor deve ser diferente");
+    expect(mocks.patch).not.toHaveBeenCalled();
+    fireEvent.change(within(modal).getByRole("textbox", { name: "Novo valor final (R$)" }), { target: { value: "95,001" } });
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar ajuste" }));
+    expect(within(modal).getByRole("alert")).toHaveTextContent("ate duas casas decimais");
+    fireEvent.change(within(modal).getByRole("textbox", { name: "Novo valor final (R$)" }), { target: { value: "99999999,99" } });
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar ajuste" }));
+    expect(within(modal).getByRole("alert")).toHaveTextContent("somado ao desconto excede");
+    fireEvent.change(within(modal).getByRole("textbox", { name: "Novo valor final (R$)" }), { target: { value: "95,00" } });
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar ajuste" }));
+    expect(within(modal).getByRole("alert")).toHaveTextContent("Informe o motivo");
+    fireEvent.change(within(modal).getByRole("textbox", { name: "Motivo do ajuste" }), { target: { value: "Correção do preço combinado" } });
+    expect(within(modal).getByText(/Valor do serviço resultante/)).toHaveTextContent("R$ 105,00");
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar ajuste" }));
+
+    await waitFor(() => expect(mocks.patch).toHaveBeenCalledWith("/ordens-servico/1/ajustar-valor", {
+      valor_final_esperado: 100, novo_valor_final: 95, motivo: "Correção do preço combinado",
+    }));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Cobrancas de Clinica sintetica" }))
+      .getByRole("button", { name: "Fechar destinatario Clinica sintetica" })).toHaveAttribute("aria-expanded", "true"));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Cobrancas de Clinica sintetica" }))
+      .getAllByText(/R\$\s*95,00/)).toHaveLength(2));
+    expect(within(screen.getByRole("region", { name: "Cobrancas de Clinica sintetica" }))
+      .getByTitle("Selecionar para baixa em lote")).not.toBeChecked();
+    expect(mocks.get.mock.calls.filter(([url]) => String(url).startsWith("/ordens-servico/cobrancas?"))).toHaveLength(2);
+    expect(mocks.get.mock.calls.filter(([url]) => String(url).startsWith("/ordens-servico?"))).toHaveLength(2);
+  });
+
+  it("orienta recarregar após conflito e usa o novo valor como base", async () => {
+    mocks.patch.mockImplementationOnce(async () => {
+      ordemAtual = { ...ordemAtual, valor_final: 110 };
+      throw { response: { status: 409 } };
+    });
+    render(<FinanceiroPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir destinatario Clinica sintetica" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ajustar valor da OS OS-1" }));
+    const modal = await screen.findByRole("dialog", { name: "Ajustar valor da OS" });
+    await waitFor(() => expect(within(modal).getByRole("textbox", { name: "Novo valor final (R$)" })).toHaveValue("100.00"));
+    fireEvent.change(within(modal).getByRole("textbox", { name: "Novo valor final (R$)" }), { target: { value: "95" } });
+    fireEvent.change(within(modal).getByRole("textbox", { name: "Motivo do ajuste" }), { target: { value: "Preço combinado" } });
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar ajuste" }));
+    expect(await within(modal).findByRole("button", { name: "Recarregar OS" })).toBeInTheDocument();
+    fireEvent.click(within(modal).getByRole("button", { name: "Recarregar OS" }));
+    await waitFor(() => expect(within(modal).getByRole("textbox", { name: "Novo valor final (R$)" })).toHaveValue("110.00"));
+  });
+
+  it("mantem o preco ajustado ao editar somente observacoes", async () => {
+    window.history.replaceState({}, "", "/financeiro?aba=ordens");
+    render(<FinanceiroPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
+    fireEvent.change(screen.getByDisplayValue("Original"), { target: { value: "Nova observação" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alteracoes" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledWith("/ordens-servico/1", { observacoes: "Nova observação" }));
+    expect(mocks.put.mock.calls[0][1]).not.toHaveProperty("recalcular_preco");
+    expect(ordemAtual.valor_final).toBe(100);
+  });
+
+  it("recebe individual com valor esperado da OS mesmo quando o pagamento excede esse valor", async () => {
+    window.history.replaceState({}, "", "/financeiro?aba=ordens");
+    render(<FinanceiroPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Receber" }));
+    await screen.findByText("Receber Ordem de Servico");
+    fireEvent.change(screen.getByDisplayValue("100.00"), { target: { value: "120.00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar Recebimento" }));
+    await waitFor(() => expect(mocks.patch).toHaveBeenCalledWith("/ordens-servico/1/receber", expect.objectContaining({
+      valor_final_esperado: 100,
+      pagamentos: [expect.objectContaining({ valor: 120 })],
+      destino_credito_excedente: "cliente",
+    })));
+  });
+
+  it("recarrega a OS e nao informa baixa individual quando o valor muda antes do PATCH", async () => {
+    mocks.patch.mockImplementationOnce(async () => {
+      ordemAtual = { ...ordemAtual, valor_final: 95 };
+      throw { response: { status: 409, data: { detail: "O valor da OS mudou." } } };
+    });
+    window.history.replaceState({}, "", "/financeiro?aba=ordens");
+    render(<FinanceiroPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Receber" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar Recebimento" }));
+    await waitFor(() => expect(mocks.patch).toHaveBeenCalledWith("/ordens-servico/1/receber", expect.objectContaining({ valor_final_esperado: 100 })));
+    await waitFor(() => expect(screen.queryByText("Receber Ordem de Servico")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(/R\$\s*95,00/).length).toBeGreaterThanOrEqual(2));
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("Nenhum recebimento foi registrado"));
+    expect(window.alert).not.toHaveBeenCalledWith(expect.stringContaining("Recebimento registrado com sucesso"));
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it("envia o valor esperado por OS no lote e para ao receber 409", async () => {
+    const segunda = { ...ordemAtual, id: 2, numero_os: "OS-2", paciente: "Outro paciente" };
+    const leituraOriginal = mocks.get.getMockImplementation()!;
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url === "/ordens-servico/2") return { data: { ...segunda } };
+      const response = await leituraOriginal(url);
+      if (url.startsWith("/ordens-servico/cobrancas?")) {
+        return { data: { ...response.data, total_os: 2, pendentes: 2,
+          total_pendente: ordemAtual.valor_final + segunda.valor_final,
+          items: response.data.items.map((grupo: Record<string, unknown>) => ({ ...grupo, quantidade_total: 2,
+            quantidade_os: 2, total_pendente: ordemAtual.valor_final + segunda.valor_final })) } };
+      }
+      if (url.startsWith("/ordens-servico?")) {
+        return { data: { ...response.data, total: 2,
+          items: [...response.data.items, { ...segunda }],
+          resumo: { pendentes: 2, valor_pendente: ordemAtual.valor_final + segunda.valor_final } } };
+      }
+      return response;
+    });
+    mocks.patch.mockImplementationOnce(async () => {
+      ordemAtual = { ...ordemAtual, valor_final: 95 };
+      throw { response: { status: 409, data: { detail: "O valor da OS mudou." } } };
+    });
+    render(<FinanceiroPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir destinatario Clinica sintetica" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Receber pendentes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirmar baixa em lote" }));
+    await waitFor(() => expect(mocks.patch).toHaveBeenCalledWith("/ordens-servico/1/receber", expect.objectContaining({ valor_final_esperado: 100 })));
+    await waitFor(() => expect(screen.queryByText("Receber OS em lote")).not.toBeInTheDocument());
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Cobrancas de Clinica sintetica" }))
+      .getAllByText(/R\$\s*195,00/)).toHaveLength(1));
+    expect(mocks.patch).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("Nenhuma baixa foi registrada"));
+    expect(window.alert).not.toHaveBeenCalledWith(expect.stringContaining("Baixa em lote registrada com sucesso"));
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it("nao oferece ajuste de valor para OS recebida", async () => {
+    ordemAtual = { ...ordemAtual, status: "Pago" };
+    window.history.replaceState({}, "", "/financeiro?aba=ordens");
+    render(<FinanceiroPage />);
+    await screen.findByText("OS #OS-1");
+    expect(screen.queryByRole("button", { name: "Ajustar valor da OS OS-1" })).not.toBeInTheDocument();
+  });
+});
+
 describe("Financeiro transaction pagination", () => {
   beforeEach(() => {
     mocks.get.mockReset();

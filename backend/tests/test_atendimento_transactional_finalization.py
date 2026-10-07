@@ -223,6 +223,10 @@ class AtendimentoTransactionalFinalizationTest(unittest.TestCase):
         registro, agendamento, *_ = self._seed_linked()
 
         primeira = self._finalizar(registro.id)
+        ordem = self.db.query(OrdemServico).filter_by(agendamento_id=agendamento.id).one()
+        ordem.valor_servico = Decimal("125.00")
+        ordem.valor_final = Decimal("125.00")
+        self.db.commit()
         segunda = self._finalizar(registro.id)
 
         self.assertEqual(self.db.query(OrdemServico).count(), 1)
@@ -231,6 +235,9 @@ class AtendimentoTransactionalFinalizationTest(unittest.TestCase):
             segunda["ordem_servico"]["id"],
         )
         self.assertTrue(segunda["ordem_servico"]["reutilizada"])
+        self.db.refresh(ordem)
+        self.assertEqual(ordem.valor_final, Decimal("125.00"))
+        self.assertEqual(segunda["ordem_servico"]["valor_final"], 125.0)
         self.db.refresh(agendamento)
         self.assertEqual(agendamento.status, "Realizado")
 
