@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -47,9 +47,10 @@ const reservaExpirada = {
   hora: "11:00",
   observacoes: null,
 };
-type AgendamentoTeste = Omit<typeof reservaExpirada, "paciente_id" | "tutor_id"> & {
+type AgendamentoTeste = Omit<typeof reservaExpirada, "paciente_id" | "tutor_id" | "paciente"> & {
   paciente_id: number | null;
   tutor_id: number | null;
+  paciente: string | null;
 };
 let agendamentos: AgendamentoTeste[] = [reservaExpirada];
 
@@ -116,5 +117,29 @@ describe("avisos da Agenda", () => {
     await waitFor(() => expect(apiPatch).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await act(async () => { concluirAtualizacao?.({ data: {} }); });
+  });
+
+  it("separa o status atual das ações e mantém o destino do botão Cancelar", async () => {
+    agendamentos = [{
+      ...reservaExpirada,
+      id: 93,
+      status: "Agendado",
+      paciente: "Paciente exemplo",
+    }];
+    apiPatch.mockResolvedValue({ data: {} });
+
+    render(<AgendaPage />);
+
+    const statusAtual = await screen.findByText("Status atual: Agendado");
+    expect(statusAtual.closest("button")).toBeNull();
+
+    const grupo = screen.getByRole("group", { name: "Alterar status do agendamento de Paciente exemplo" });
+    expect(within(grupo).getAllByRole("button").map((botao) => botao.textContent?.trim())).toEqual([
+      "Reservar", "Confirmar", "Cancelar", "Marcar Falta",
+    ]);
+    expect(within(grupo).queryByRole("button", { name: "Cancelado" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(grupo).getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(apiPatch).toHaveBeenCalledWith("/agenda/93/status?status=Cancelado"));
   });
 });
