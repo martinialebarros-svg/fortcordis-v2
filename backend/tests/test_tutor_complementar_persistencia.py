@@ -50,7 +50,7 @@ class TutorComplementarPersistenciaTest(unittest.TestCase):
                 whatsapp="85999990001",
                 email="maria@example.com",
                 cpf="12345678900",
-                cep="60020180",
+                cep="60000000",
                 endereco="Avenida Teste",
                 numero="2800",
                 complemento="Sala 1",
@@ -82,7 +82,7 @@ class TutorComplementarPersistenciaTest(unittest.TestCase):
                 current_user=SimpleNamespace(id=1),
             )
             self.assertEqual(tutor_from_patient["cpf"], "12345678900")
-            self.assertEqual(tutor_from_patient["cep"], "60020180")
+            self.assertEqual(tutor_from_patient["cep"], "60000000")
             self.assertEqual(tutor_from_patient["bairro"], "Benfica")
             self.assertEqual(tutor_from_patient["numero"], "2800")
         finally:

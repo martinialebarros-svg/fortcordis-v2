@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_AGENDA_ROTA_REGRAS, normalizarAgendaRotaRegras } from "./agenda-route-rules";
 
 describe("horarios minimos do primeiro atendimento", () => {
+  it("nao publica endereco residencial em valores padrao", () => {
+    const base = normalizarAgendaRotaRegras(null).base;
+    expect(base.address).toBe("");
+    expect(base.zip_code).toBe("");
+  });
+
   it("inclui os horarios regionais em configuracoes antigas sem alterar os demais ajustes", () => {
     const regras = normalizarAgendaRotaRegras({
       route_policy: { end_of_route_window_start: "15:30" },
