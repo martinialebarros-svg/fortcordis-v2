@@ -2,7 +2,7 @@
 
 Data: 2026-10-07
 Responsável: Codex
-Status: implementado e validado localmente
+Status: implementado e validado em stage; produção pendente
 
 ## Matriz de rastreabilidade
 
@@ -55,11 +55,34 @@ Status: implementado e validado localmente
 - `/agenda/assistente/validar-oferta` reconsulta ocupação, bloqueio e rota sem
   mutar reservas expiradas. A escrita continua sendo a validação final contra
   corrida, reserva vencida e mudança de horário.
-- Não houve publicação em stage/produção, teste autenticado com dados reais ou
-  agendamento real nesta etapa. A validação de disponibilidade em ambiente
-  publicado requer o fluxo protegido de release.
+- O deploy em stage e o teste funcional autenticado estão registrados abaixo.
+  Não houve publicação em produção nem criação de agendamento para o smoke.
+
+## Validação em stage — 2026-10-08
+
+- Os PRs [#324](https://github.com/martinialebarros-svg/fortcordis-v2/pull/324),
+  [#325](https://github.com/martinialebarros-svg/fortcordis-v2/pull/325) e
+  [#326](https://github.com/martinialebarros-svg/fortcordis-v2/pull/326)
+  chegaram ao commit `22941f3a` de stage. O último PR corrigiu fixtures
+  sintéticas afetadas pela remoção do endereço padrão, sem afrouxar a regra
+  operacional. O [deploy 37874486908](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/37874486908)
+  terminou com quality gate, guardrail SDD e implantação aprovados; logs
+  confirmaram migrações, preservação/restauração dos seis arquivos de runtime,
+  canário autenticado e exercício de restauração.
+- Os três domínios de stage serviram `/agenda` com HTTP 200, todos os 18 chunks
+  referenciados no HTML carregaram, e a API anônima `/api/v1/agenda` retornou
+  401. O bundle servido contém o controle `A partir de`.
+- Um smoke autenticado no loopback do backend de stage selecionou 16/10/2026
+  após confirmar, em transação somente de leitura, que a data tinha zero
+  registros de agendamento. Para uma clínica georreferenciada em Caucaia, a
+  regra calculou início mínimo às **08:33** e a primeira oferta foi **08:45**;
+  as 20 ofertas respeitaram o piso municipal e a rota Google. A revalidação
+  de uma oferta anterior ao mínimo retornou `PRIMEIRA_SAIDA_INVIAVEL`.
+  Para Animal Care, a preferência `A partir de 09:00` devolveu oito ofertas,
+  nenhuma anterior às 09:00. O teste usou token interno efêmero, não exibiu
+  endereço, credencial ou dados de pacientes e não salvou reserva/agendamento.
 
 ## Decisão desta etapa
 
-Implementação local pronta para revisão. Publicação e comprovação de runtime
-seguem separadas e dependem de autorização posterior.
+Stage validado. A publicação em produção requer a promoção protegida de
+`stage` para `main` e a respectiva comprovação de runtime.

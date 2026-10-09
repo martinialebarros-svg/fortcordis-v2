@@ -283,9 +283,8 @@ criada automação nem instrumentação adicional no runtime.
   quando o pedido contém a preferência estruturada. Nenhum WhatsApp real foi
   enviado e nenhuma agenda de produção foi modificada para este teste.
 
-Esta evolução ainda não foi publicada em stage nem em produção. A validação
-acima é local e sintética, não comprova a jornada real configurada para
-16/10/2026.
+Esta seção registra a validação local e sintética; a comprovação posterior
+em stage está na seção abaixo.
 
 ## Integração com stage atual — 2026-10-08
 
@@ -307,5 +306,23 @@ acima é local e sintética, não comprova a jornada real configurada para
   ESLint, TypeScript e build Next.js. `git diff --check` aprovado.
 
 Nenhuma consulta ou alteração de agendamento em produção foi necessária.
-Publicação e smoke de stage/produção serão registrados após os respectivos
-deploys concluídos.
+
+## Evolução `A partir de`: publicação em stage — 2026-10-08
+
+- O PR [#326](https://github.com/martinialebarros-svg/fortcordis-v2/pull/326)
+  integrou a evolução no commit `22941f3a` de stage. O
+  [deploy 37874486908](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/37874486908)
+  terminou com quality gate, SDD e implantação aprovados, incluindo canário
+  autenticado e exercício de restauração.
+- `/agenda` respondeu 200 nos três domínios de stage; todos os 18 chunks
+  referenciados pelo HTML responderam 200 e um deles contém o controle
+  `A partir de`. A API de agenda anônima retornou 401.
+- Em stage, um smoke autenticado para **16/10/2026**, após confirmar que não
+  havia registros de agendamento na data, enviou a preferência com
+  `hora_inicio: 09:00` e sem `hora_fim`. Animal Care recebeu oito opções;
+  a mais cedo foi **09:00** e nenhuma antecedeu esse limite. A mesma consulta
+  verificou a regra de primeira saída em Caucaia, com mínimo calculado às
+  08:33, primeira oferta às 08:45 e rejeição de oferta inviável na revalidação.
+  Não houve criação de reserva/agendamento nem exposição de dados de pacientes.
+
+Esta evolução ainda aguarda promoção protegida e validação em produção.
