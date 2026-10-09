@@ -31,10 +31,14 @@ export default function AgendaPreferenciasCampos({ value, referencia, onChange, 
         </label>
         <label className="text-sm text-gray-700">Turno
           <select aria-label="Turno desejado" className={classe} value={value.turno}
-            onChange={(e) => atualizar({ turno: e.target.value as FiltrosPreferenciaAgenda["turno"] })}>
+            onChange={(e) => atualizar({
+              turno: e.target.value as FiltrosPreferenciaAgenda["turno"],
+              ...(e.target.value === "a_partir_de" ? { horaFim: "" } : {}),
+            })}>
             <option value="qualquer">Qualquer turno</option>
             <option value="manha">Manhã</option>
             <option value="tarde">Tarde</option>
+            <option value="a_partir_de">A partir de</option>
             <option value="personalizado">Faixa personalizada</option>
           </select>
         </label>
@@ -50,15 +54,17 @@ export default function AgendaPreferenciasCampos({ value, referencia, onChange, 
               onChange={(e) => atualizar({ dataFim: e.target.value })} />
           </label>
         )}
-        {value.turno === "personalizado" && <>
+        {(value.turno === "a_partir_de" || value.turno === "personalizado") && <>
           <label className="text-sm text-gray-700">A partir de
             <input type="time" className={classe} value={value.horaInicio}
               onChange={(e) => atualizar({ horaInicio: e.target.value })} />
           </label>
-          <label className="text-sm text-gray-700">Terminar até
-            <input type="time" className={classe} value={value.horaFim}
-              onChange={(e) => atualizar({ horaFim: e.target.value })} />
-          </label>
+          {value.turno === "personalizado" && (
+            <label className="text-sm text-gray-700">Terminar até
+              <input type="time" className={classe} value={value.horaFim}
+                onChange={(e) => atualizar({ horaFim: e.target.value })} />
+            </label>
+          )}
         </>}
       </div>
       <p className={`text-xs ${resultado.erro ? "text-amber-800" : "text-blue-900"}`}>

@@ -48,6 +48,15 @@ Status: publicado em produção; evidências e limites registrados em verify.md
   semanas completas; registros futuros ou criados após o deploy não comprovam
   atendimento realizado nem uso do novo motor. Amostra insuficiente e ausência
   de atribuição causal devem permanecer explícitas.
+- RF-014 (evolução 2026-10-05): para um atendimento com data específica e
+  disponibilidade "A partir de HH:mm", aceitar somente `hora_inicio`. O início
+  é inclusivo e restringe candidatos antes do ranking e do limite de ofertas;
+  o encerramento vem da interseção com jornada e turno, sem inventar um término
+  no pedido. O exame completo precisa caber. `hora_fim` isolado é inválido.
+- RF-015: o modal distingue "A partir de" da faixa fechada, importa ambas sem
+  ampliar a restrição recebida e invalida ofertas antigas ao trocar data ou
+  horário. Quando não houver vaga após o início informado, retorna lista vazia
+  explicativa, sem oferecer horários anteriores.
 
 ## Contrato
 
@@ -64,7 +73,9 @@ Os payloads de sugestão aceitam `preferencia` opcional:
 ```
 
 Datas são inclusivas, devem vir em par, ordenadas, com no máximo 31 dias.
-Horários personalizados também vêm em par, no formato HH:mm e em ordem crescente.
+Uma faixa fechada usa `hora_inicio` e `hora_fim` em par, no formato HH:mm e em
+ordem crescente. A opção "A partir de" usa apenas `hora_inicio`; `hora_fim`
+isolado não é aceito. O limite inicial é inclusivo e não amplia o expediente.
 Turno é `qualquer`, `manha` ou `tarde`. Ausência de preferência preserva a busca
 legada sem restrição explícita de datas. Não há migration: a nova transição usa
 o JSON existente de regras e as preferências transitam no pedido/consulta.
@@ -93,6 +104,12 @@ o JSON existente de regras e as preferências transitam no pedido/consulta.
   de observações pós-publicação em semanas completas no dia do deploy, sem
   converter folgas teóricas em atendimentos adicionais. Rejeita banco diferente
   do esperado e não imprime credenciais, identificadores ou conteúdo clínico.
+- CA-011: com 16/10/2026 livre, jornada 08:00–18:00 e serviço de 40 minutos,
+  data específica e "A partir de 09:00" produzem ofertas a partir de 09:00;
+  nenhuma das primeiras opções exibidas começa às 08:00 ou 08:15.
+- CA-012: início no fim da jornada, turno incompatível ou janela menor que a
+  duração retornam vazio sem ampliar data/turno; faixa fechada, fim isolado e
+  alteração de filtro preservam suas validações e invalidam ofertas antigas.
 
 ## Limites e rollout
 
@@ -101,3 +118,7 @@ ganho financeiro a minutos fragmentados. Publicação e validação operacional 
 stage e produção foram concluídas em 04/10/2026, conforme verify.md, pelo PR
 protegido de promoção #301. Rollback por reversão do código; o campo
 aditivo no JSON é ignorável por versões anteriores.
+
+A evolução RF-014/015 e CA-011/012 foi solicitada em 05/10/2026 e está em
+implementação local; o status de publicação acima se refere à entrega de
+04/10/2026.

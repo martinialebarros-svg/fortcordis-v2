@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dataFortaleza, FILTROS_PREFERENCIA_VAZIOS, filtrosDePreferencia, resolverPreferenciaAgenda } from "./agenda-preferencias";
+import { dataFortaleza, FILTROS_PREFERENCIA_VAZIOS, filtrosDePreferencia, resolverPreferenciaAgenda, resumoPreferenciaAgenda } from "./agenda-preferencias";
 import { normalizarAgendaRotaRegras } from "./agenda-route-rules";
 
 describe("preferências da agenda", () => {
@@ -43,6 +43,38 @@ describe("preferências da agenda", () => {
     expect(resolverPreferenciaAgenda(filtros, "2026-10-04").erro).toBeTruthy();
     expect(resolverPreferenciaAgenda({ ...filtros, horaFim: "14:00" }, "2026-10-04").erro).toBeTruthy();
     expect(resolverPreferenciaAgenda({ ...filtros, horaFim: "24:00" }, "2026-10-04").erro).toBeTruthy();
+  });
+
+  it("restringe 16/10 a inícios desde 09:00 sem inventar horário final", () => {
+    const filtros = {
+      ...FILTROS_PREFERENCIA_VAZIOS,
+      quando: "data" as const, dataInicio: "2026-10-16",
+      turno: "a_partir_de" as const, horaInicio: "09:00", horaFim: "18:00",
+    };
+    const preferencia = { data_inicio: "2026-10-16", data_fim: "2026-10-16", turno: "qualquer" as const, hora_inicio: "09:00" };
+    expect(resolverPreferenciaAgenda(filtros, "2026-10-05")).toEqual({ preferencia });
+    expect(resumoPreferenciaAgenda(preferencia)).toContain("16/10/2026, a partir de 09:00");
+    expect(resolverPreferenciaAgenda({ ...filtros, horaInicio: "" }, "2026-10-05").erro).toBeTruthy();
+    expect(resolverPreferenciaAgenda({ ...filtros, horaInicio: "24:00" }, "2026-10-05").erro).toBeTruthy();
+  });
+
+  it("reabre limite inicial isolado e mantém o fim implícito de um turno importado", () => {
+    const aberto = { turno: "qualquer" as const, hora_inicio: "09:00" };
+    const filtrosAbertos = filtrosDePreferencia(aberto);
+    expect(filtrosAbertos.turno).toBe("a_partir_de");
+    expect(filtrosAbertos.horaFim).toBe("");
+    expect(resolverPreferenciaAgenda(filtrosAbertos, "2026-10-05")).toEqual({ preferencia: aberto });
+
+    const tarde = filtrosDePreferencia({ turno: "tarde", hora_inicio: "10:00" });
+    expect(tarde).toMatchObject({ turno: "personalizado", horaInicio: "12:00", horaFim: "18:00" });
+    expect(resolverPreferenciaAgenda(tarde, "2026-10-05")).toEqual({
+      preferencia: { turno: "qualquer", hora_inicio: "12:00", hora_fim: "18:00" },
+    });
+    const manha = filtrosDePreferencia({ turno: "manha", hora_inicio: "09:00" });
+    expect(manha).toMatchObject({ turno: "personalizado", horaInicio: "09:00", horaFim: "12:00" });
+    expect(resolverPreferenciaAgenda(manha, "2026-10-05").preferencia).toEqual({
+      turno: "qualquer", hora_inicio: "09:00", hora_fim: "12:00",
+    });
   });
 
   it("importa a interseção de turno e faixa sem ampliar a disponibilidade", () => {
