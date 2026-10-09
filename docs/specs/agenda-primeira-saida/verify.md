@@ -2,7 +2,7 @@
 
 Data: 2026-10-07
 Responsável: Codex
-Status: implementado e validado em stage; produção pendente
+Status: implementado e validado em stage e produção
 
 ## Matriz de rastreabilidade
 
@@ -56,7 +56,8 @@ Status: implementado e validado em stage; produção pendente
   mutar reservas expiradas. A escrita continua sendo a validação final contra
   corrida, reserva vencida e mudança de horário.
 - O deploy em stage e o teste funcional autenticado estão registrados abaixo.
-  Não houve publicação em produção nem criação de agendamento para o smoke.
+  Naquela etapa, não houve publicação em produção nem criação de agendamento
+  para o smoke; a comprovação posterior de produção está na seção seguinte.
 
 ## Validação em stage — 2026-10-08
 
@@ -82,7 +83,28 @@ Status: implementado e validado em stage; produção pendente
   nenhuma anterior às 09:00. O teste usou token interno efêmero, não exibiu
   endereço, credencial ou dados de pacientes e não salvou reserva/agendamento.
 
+## Validação em produção — 2026-10-09
+
+- O [PR #328](https://github.com/martinialebarros-svg/fortcordis-v2/pull/328)
+  promoveu diretamente `stage` para `main` no commit `4a8b4876`. O
+  [deploy 37876622484](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/37876622484)
+  terminou com quality gate, migrações, runtime gate, canário autenticado,
+  preservação/restauração dos seis arquivos de runtime e exercício de
+  restauração aprovados.
+- Os cinco domínios de produção serviram `/agenda` com HTTP 200, os 18 chunks
+  referenciados pelo HTML responderam 200, o controle `A partir de` estava no
+  bundle servido e a API de agenda anônima retornou 401 em todos os hosts.
+- Um smoke autenticado e sem gravação de agenda confirmou o SHA instalado e a
+  identidade do banco de produção. Em **22/10/2026**, dia útil aberto sem
+  qualquer linha de agendamento antes e depois do teste, uma clínica
+  georreferenciada em Caucaia teve início mínimo às **08:32** e primeira oferta
+  às **08:45**. As 30 opções respeitaram a rota Google e o piso municipal;
+  revalidar o horário anterior ao mínimo retornou
+  `PRIMEIRA_SAIDA_INVIAVEL`. O teste não exibiu dados de pacientes, endereço,
+  CEP ou credenciais e não criou reserva/agendamento.
+
 ## Decisão desta etapa
 
-Stage validado. A publicação em produção requer a promoção protegida de
-`stage` para `main` e a respectiva comprovação de runtime.
+A regra está publicada e comprovada em stage e produção no release
+`4a8b4876`. A duração estimada da rota ainda varia com a disponibilidade da
+API Google e com o trânsito, conforme o limite operacional descrito acima.

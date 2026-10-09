@@ -305,7 +305,8 @@ em stage está na seção abaixo.
   Frontend: 77 arquivos/540 testes Vitest e 9 testes Node aprovados, além de
   ESLint, TypeScript e build Next.js. `git diff --check` aprovado.
 
-Nenhuma consulta ou alteração de agendamento em produção foi necessária.
+Nesta etapa de integração, nenhuma consulta ou alteração de agendamento em
+produção foi necessária; o smoke posterior está registrado abaixo.
 
 ## Evolução `A partir de`: publicação em stage — 2026-10-08
 
@@ -325,4 +326,23 @@ Nenhuma consulta ou alteração de agendamento em produção foi necessária.
   08:33, primeira oferta às 08:45 e rejeição de oferta inviável na revalidação.
   Não houve criação de reserva/agendamento nem exposição de dados de pacientes.
 
-Esta evolução ainda aguarda promoção protegida e validação em produção.
+## Evolução `A partir de`: publicação em produção — 2026-10-09
+
+- O [PR #328](https://github.com/martinialebarros-svg/fortcordis-v2/pull/328)
+  promoveu `stage` diretamente para `main` no commit `4a8b4876`. O
+  [deploy 37876622484](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/37876622484)
+  terminou com quality gate, migrações, canário autenticado e exercício de
+  restauração aprovados; os seis arquivos de runtime foram preservados e
+  restaurados.
+- `/agenda` respondeu 200 nos cinco domínios de produção, todos os 18 chunks
+  do HTML responderam 200 e o bundle contém `A partir de`; a API anônima
+  permaneceu 401.
+- Um smoke autenticado em produção confirmou o SHA e a identidade do banco.
+  Em **22/10/2026**, dia útil aberto sem qualquer registro de agendamento
+  antes e depois do teste, a preferência com `hora_inicio: 09:00` e sem
+  `hora_fim` devolveu oito ofertas para Animal Care, a primeira às **09:00**
+  e nenhuma anterior. No mesmo dia, a regra de primeira saída em Caucaia
+  calculou mínimo às 08:32, primeira oferta às 08:45 e rejeitou uma oferta
+  inviável na revalidação. Nenhuma reserva/agendamento foi criada.
+
+A evolução está publicada e comprovada em produção no release `4a8b4876`.
