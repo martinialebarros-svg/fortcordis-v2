@@ -568,6 +568,28 @@ export default function ConfiguracoesPage() {
     });
   };
 
+  const atualizarRegraPrimeiroAtendimentoCidade = (
+    cidade: keyof AgendaRotaRegrasConfig["route_policy"]["first_appointment_city_floors"],
+    horario: string
+  ) => {
+    setConfigEmpresa((prev) => {
+      const regras = prev.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
+      return {
+        ...prev,
+        agenda_rota_regras: {
+          ...regras,
+          route_policy: {
+            ...regras.route_policy,
+            first_appointment_city_floors: {
+              ...regras.route_policy.first_appointment_city_floors,
+              [cidade]: horario,
+            },
+          },
+        },
+      };
+    });
+  };
+
   const atualizarRegraRotaFallback = (
     campo: keyof AgendaRotaRegrasConfig["fallback_policy"],
     valor: number | boolean
@@ -2226,6 +2248,37 @@ export default function ConfiguracoesPage() {
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                       />
                     </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 space-y-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-teal-950">Primeiro atendimento do dia</h4>
+                    <p className="mt-1 text-xs text-teal-900">
+                      O primeiro horario parte da abertura da agenda somada ao trajeto desde a base e a margem segura. Hoje, considera tambem a hora atual. As cidades abaixo exigem seus horarios minimos quando forem posteriores a esse calculo.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {([
+                      ["caucaia", "Caucaia"],
+                      ["maracanau", "Maracanaú"],
+                      ["eusebio", "Eusébio"],
+                      ["itaitinga", "Itaitinga"],
+                    ] as const).map(([cidade, nome]) => (
+                      <div key={cidade}>
+                        <label className="block text-xs font-medium text-teal-950 mb-1" htmlFor={`agenda-primeiro-${cidade}`}>
+                          {nome} a partir de
+                        </label>
+                        <input
+                          id={`agenda-primeiro-${cidade}`}
+                          type="time"
+                          value={agendaRotaRegrasAtual.route_policy.first_appointment_city_floors[cidade]}
+                          disabled={somenteLeituraAgenda}
+                          onChange={(e) => atualizarRegraPrimeiroAtendimentoCidade(cidade, e.target.value)}
+                          className="w-full px-3 py-2 border border-teal-300 rounded-lg"
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
 

@@ -19,3 +19,12 @@ A entrega foi publicada pelo fluxo protegido de stage e produção, conforme
 verify.md, sem mudança dos agendamentos existentes. O complemento autorizado
 inclui a conferência visual em produção, regularização do alias de stage,
 versionamento das evidências e medição agregada somente leitura da agenda.
+
+## Evolução solicitada em 2026-10-05
+
+Num dia livre, o limite de opções exibidas favorece os primeiros horários.
+Para um cliente que só pode em 16/10/2026 depois das 9h, a recepção precisa
+declarar um limite inicial sem inventar um término. O objetivo é permitir
+"A partir de 09:00" antes de gerar as ofertas, respeitar esse limite na busca
+e mostrar horários viáveis nesse dia. A escolha é por atendimento, não altera
+agendamentos existentes nem redefine a jornada da clínica.

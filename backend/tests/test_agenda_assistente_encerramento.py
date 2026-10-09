@@ -41,7 +41,7 @@ class AgendaAssistenteEncerramentoTest(unittest.TestCase):
                 endereco="Av Teste",
                 cidade="Fortaleza",
                 estado="CE",
-                cep="60020-180",
+                cep="60000-000",
             )
             servico = Servico(nome="Consulta", descricao="Consulta", duracao_minutos=60)
             db.add(clinica)

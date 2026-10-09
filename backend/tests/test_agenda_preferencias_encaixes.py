@@ -24,6 +24,13 @@ class AgendaPreferenciasEncaixesTest(unittest.TestCase):
     _criar_agendamento = fixtures.AgendaSugestaoJanelaOperacionalTest._criar_agendamento
 
     def setUp(self):
+        # O teste foca preferencias/encaixes; primeira viagem deterministica.
+        patcher = patch.object(
+            agenda, "estimar_deslocamento",
+            return_value=(2.0, 5, "google_distance_matrix_traffic"),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.tmpdir, self.db, self.engine = self._build_session()
         self._seed_config(self.db, excecoes=[])
         self.clinica, self.outra = self._seed_clinicas(self.db)
@@ -38,7 +45,10 @@ class AgendaPreferenciasEncaixesTest(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def configurar(self, **thresholds):
-        self.db.query(Configuracao).first().agenda_rota_regras = json.dumps({"thresholds": thresholds})
+        config = self.db.query(Configuracao).first()
+        regras = json.loads(config.agenda_rota_regras or "{}")
+        regras["thresholds"] = thresholds
+        config.agenda_rota_regras = json.dumps(regras)
         self.db.commit()
 
     def reservar(self, hora, data="2099-05-25", duracao=40):
@@ -51,17 +61,20 @@ class AgendaPreferenciasEncaixesTest(unittest.TestCase):
         campos.update(kwargs)
         return agenda.sugerir_horarios_agenda(agenda.SugestaoHorarioPayload(**campos), self.db, self.user)
 
-    def test_schema_valida_pares_formatos_turno_e_limite_de_31_dias(self):
+    def test_schema_valida_formatos_turno_e_limite_de_31_dias(self):
         valida = AgendaPreferencia(data_inicio="2099-07-01", data_fim="2099-07-31", turno="manha")
         self.assertTrue(valida.permite_data("2099-07-31"))
         self.assertFalse(valida.permite_data("2099-08-01"))
+        self.assertEqual(AgendaPreferencia(hora_inicio="09:00").limites_horarios(), (9 * 60, 24 * 60))
+        self.assertEqual(AgendaPreferencia(turno="manha", hora_inicio="09:00").limites_horarios(), (9 * 60, 12 * 60))
         for campos in [
             {"data_inicio": "2099-07-01"}, {"data_fim": "2099-07-01"},
             {"data_inicio": "2099-07-01", "data_fim": "2099-08-01"},
             {"data_inicio": "2099-02-30", "data_fim": "2099-03-01"},
-            {"hora_inicio": "10:00"}, {"hora_fim": "10:00"},
+            {"hora_fim": "10:00"},
             {"hora_inicio": "24:00", "hora_fim": "10:00"},
             {"hora_inicio": "11:00", "hora_fim": "10:00"},
+            {"turno": "manha", "hora_inicio": "12:00"},
             {"turno": "tarde", "hora_inicio": "09:00", "hora_fim": "11:00"},
             {"turno": "noite"},
         ]:
@@ -211,6 +224,52 @@ class AgendaPreferenciasEncaixesTest(unittest.TestCase):
         self.assertTrue(all(i["inicio"][-5:] >= "14:10" and i["fim"][-5:] <= "15:20" for i in items))
         self.assertEqual(self.sugerir(data="2099-05-26", preferencia=pref)["items"], [])
         self.assertEqual(self.sugerir(preferencia={"hora_inicio": "14:00", "hora_fim": "14:30"})["items"], [])
+
+    def test_data_especifica_vazia_a_partir_de_nove_filtra_antes_do_top_oito(self):
+        data = "2099-10-16"
+        sem_filtro = self.sugerir(data=data, intervalo_minutos=15, limite=8)
+        self.assertEqual(len(sem_filtro["items"]), 8)
+        self.assertTrue(any(item["inicio"] < f"{data} 09:00" for item in sem_filtro["items"]))
+
+        preferencia = dict(data_inicio=data, data_fim=data, hora_inicio="09:00")
+        resposta = self.sugerir(data=data, preferencia=preferencia, intervalo_minutos=15, limite=8)
+        self.assertEqual(len(resposta["items"]), 8)
+        self.assertGreater(resposta["total_encontrados"], 8)
+        self.assertIn(f"{data} 09:00", {item["inicio"] for item in resposta["items"]})
+        self.assertEqual(resposta["janela"], {"inicio": f"{data} 09:00", "fim": f"{data} 18:00"})
+        for item in resposta["items"]:
+            inicio = datetime.fromisoformat(item["inicio"])
+            fim = datetime.fromisoformat(item["fim"])
+            self.assertEqual(inicio.date().isoformat(), data)
+            self.assertGreaterEqual(inicio.strftime("%H:%M"), "09:00")
+            self.assertLessEqual(fim.strftime("%H:%M"), "18:00")
+            self.assertEqual(fim - inicio, timedelta(minutes=40))
+        self.assertEqual(self.sugerir(data="2099-10-17", preferencia=preferencia)["items"], [])
+
+    def test_a_partir_de_sem_tempo_para_servico_nao_amplia_janela(self):
+        data = "2099-10-16"
+        preferencia = dict(data_inicio=data, data_fim=data, hora_inicio="17:30")
+        resposta = self.sugerir(data=data, preferencia=preferencia, intervalo_minutos=15, limite=8)
+        self.assertEqual(resposta["items"], [])
+        self.assertEqual(resposta["total_encontrados"], 0)
+        self.assertEqual(resposta["janela"], {"inicio": f"{data} 17:30", "fim": f"{data} 18:00"})
+
+    def test_assistente_respeita_data_e_a_partir_de_sem_busca_em_outros_dias(self):
+        data = "2099-10-16"
+        preferencia = dict(data_inicio=data, data_fim=data, hora_inicio="09:00")
+        with patch.object(agenda, "sugerir_agendamento_proximo", return_value={"politica_oferta": {}}), patch.object(
+            agenda, "sugerir_horarios_agenda", wraps=agenda.sugerir_horarios_agenda
+        ) as sugerir, patch.object(agenda, "_registrar_evento_funil_assistente"):
+            resposta = agenda.orquestrar_ofertas_assistente(
+                agenda.AssistenteOfertaPayload(clinica_id=self.clinica.id, servico_id=self.servico.id,
+                                               data=data, preferencia=preferencia, intervalo_minutos=15, limite=8),
+                request=None, db=self.db, current_user=self.user)
+        self.assertEqual(sugerir.call_count, 1)
+        self.assertEqual(sugerir.call_args.kwargs["payload"].data, data)
+        items = resposta["panorama_ofertas"]["items"]
+        self.assertEqual(len(items), 2)
+        self.assertTrue(all(item["inicio"].startswith(data) and item["inicio"][-5:] >= "09:00" for item in items))
+        self.assertEqual(resposta["panorama_ofertas"]["datas_hierarquizadas"][0]["data"], data)
 
     def test_proximidade_consulta_intervalo_declarado_alem_do_horizonte_legado(self):
         self.reservar("10:00", data="2099-07-31")

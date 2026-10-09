@@ -76,7 +76,7 @@ class FonteSustentaRespostaTest(unittest.TestCase):
             tabela.create(engine, checkfirst=True)
         db = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
         db.add(Configuracao(cidade="Fortaleza", estado="CE",
-                            endereco="Avenida da Universidade, 1949, CEP 60020-180",
+                            endereco="Rua Exemplo, 123, CEP 60000-000",
                             telefone="8533334444", email="contato@fortcordis.com"))
         db.add(Servico(nome="Ecocardiograma", ativo=True,
                        preco_fortaleza_comercial=180, preco_domiciliar_comercial=350))
@@ -148,8 +148,8 @@ class FonteSustentaRespostaTest(unittest.TestCase):
             args={},
             intent="endereco",
             texto=(
-                "Atendimento automático: ficamos na Avenida da Universidade, 1949, "
-                "CEP 60020-180. Telefone (85) 3333-4444."
+                "Atendimento automático: ficamos na Rua Exemplo, 123, "
+                "CEP 60000-000. Telefone (85) 3333-4444."
             ),
         )
 

@@ -3247,13 +3247,13 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "dias": {"type": "integer", "minimum": 1, "maximum": 14, "description": "Horizonte quando preferencia nao define datas. Com datas explicitas, consulta exclusivamente aquele intervalo de ate 31 dias."},
                 "preferencia": {
                     "type": ["object", "null"],
-                    "description": "Restricoes obrigatorias do pedido ou null. Informe cada par de datas/horas completo ou ambos null. O periodo tem no maximo 31 dias e todo o atendimento deve caber no turno e nas horas.",
+                    "description": "Restricoes obrigatorias do pedido ou null. Datas devem vir em par; hora_inicio pode vir sozinha para indicar a partir de quando o cliente pode ser atendido. hora_fim exige hora_inicio. O periodo tem no maximo 31 dias e todo o atendimento deve caber no turno e nas horas.",
                     "properties": {
                         "data_inicio": {"type": ["string", "null"], "description": "Data YYYY-MM-DD."},
                         "data_fim": {"type": ["string", "null"], "description": "Ultima data inclusiva YYYY-MM-DD."},
                         "turno": {"type": "string", "enum": ["qualquer", "manha", "tarde"]},
-                        "hora_inicio": {"type": ["string", "null"], "description": "HH:MM local."},
-                        "hora_fim": {"type": ["string", "null"], "description": "Limite do termino HH:MM local."},
+                        "hora_inicio": {"type": ["string", "null"], "description": "Inicio minimo inclusivo HH:MM local; pode ser usado sem hora_fim."},
+                        "hora_fim": {"type": ["string", "null"], "description": "Limite do termino HH:MM local; exige hora_inicio."},
                     },
                     "required": ["data_inicio", "data_fim", "turno", "hora_inicio", "hora_fim"],
                     "additionalProperties": False,

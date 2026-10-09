@@ -25,6 +25,12 @@ export interface AgendaRotaOfferPolicyConfig {
 
 export interface AgendaRotaRoutePolicyConfig {
   end_of_route_window_start: string;
+  first_appointment_city_floors: {
+    caucaia: string;
+    maracanau: string;
+    eusebio: string;
+    itaitinga: string;
+  };
   prefer_near_base_at_end_of_route: boolean;
   bonus_near_base_score: number;
   penalty_far_base_score: number;
@@ -66,8 +72,8 @@ export const DEFAULT_AGENDA_ROTA_REGRAS: AgendaRotaRegrasConfig = {
   version: "1.0.0",
   base: {
     label: "Casa (base operacional)",
-    address: "Av da Universidade, 1949",
-    zip_code: "60020-180",
+    address: "",
+    zip_code: "",
     lat: null,
     lng: null,
   },
@@ -88,6 +94,12 @@ export const DEFAULT_AGENDA_ROTA_REGRAS: AgendaRotaRegrasConfig = {
   },
   route_policy: {
     end_of_route_window_start: "16:00",
+    first_appointment_city_floors: {
+      caucaia: "08:30",
+      maracanau: "09:00",
+      eusebio: "09:00",
+      itaitinga: "09:00",
+    },
     prefer_near_base_at_end_of_route: true,
     bonus_near_base_score: 15,
     penalty_far_base_score: 10,
@@ -208,6 +220,12 @@ export const normalizarAgendaRotaRegras = (payload: unknown): AgendaRotaRegrasCo
     source.route_policy && typeof source.route_policy === "object"
       ? (source.route_policy as Record<string, unknown>)
       : {};
+  const firstAppointmentFloorsRaw =
+    routeRaw.first_appointment_city_floors &&
+    typeof routeRaw.first_appointment_city_floors === "object" &&
+    !Array.isArray(routeRaw.first_appointment_city_floors)
+      ? routeRaw.first_appointment_city_floors as Record<string, unknown>
+      : {};
   const fallbackRaw =
     source.fallback_policy && typeof source.fallback_policy === "object"
       ? (source.fallback_policy as Record<string, unknown>)
@@ -305,6 +323,24 @@ export const normalizarAgendaRotaRegras = (payload: unknown): AgendaRotaRegrasCo
         routeRaw.end_of_route_window_start,
         defaultCfg.route_policy.end_of_route_window_start
       ),
+      first_appointment_city_floors: {
+        caucaia: normalizarHoraHHMM(
+          firstAppointmentFloorsRaw.caucaia,
+          defaultCfg.route_policy.first_appointment_city_floors.caucaia
+        ),
+        maracanau: normalizarHoraHHMM(
+          firstAppointmentFloorsRaw.maracanau,
+          defaultCfg.route_policy.first_appointment_city_floors.maracanau
+        ),
+        eusebio: normalizarHoraHHMM(
+          firstAppointmentFloorsRaw.eusebio,
+          defaultCfg.route_policy.first_appointment_city_floors.eusebio
+        ),
+        itaitinga: normalizarHoraHHMM(
+          firstAppointmentFloorsRaw.itaitinga,
+          defaultCfg.route_policy.first_appointment_city_floors.itaitinga
+        ),
+      },
       prefer_near_base_at_end_of_route: normalizarBool(
         routeRaw.prefer_near_base_at_end_of_route,
         defaultCfg.route_policy.prefer_near_base_at_end_of_route

@@ -103,6 +103,10 @@ interface SugestaoHorarioItem {
   score: number;
   risco: number;
   tempo_deslocamento_total_min: number;
+  tempo_deslocamento_base_min?: number | null;
+  fonte_deslocamento_base?: string | null;
+  inicio_minimo_primeira_saida?: string | null;
+  origem_primeira_saida?: "base_operacional" | null;
   ociosidade_min: number;
   destino_operacional?: string;
   destino_operacional_tipo?: OrigemAtendimento;
@@ -124,6 +128,14 @@ interface SugestoesHorarioResponse {
   itens_ignorados_janela?: number;
   total_encontrados: number;
   items: SugestaoHorarioItem[];
+}
+
+interface ValidacaoOfertaResponse {
+  ok: boolean;
+  valido: boolean;
+  codigo?: string;
+  mensagem?: string;
+  inicio_minimo_primeira_saida?: string | null;
 }
 
 type AssistenteDecisao = "pendente" | "aceito" | "sem_opcao";
@@ -653,7 +665,7 @@ const detalharComposicaoDeslocamento = (
     partes.push("Nao ha agendamentos posteriores ainda.");
   }
 
-  partes.push(`Total estimado de deslocamento: ${total} min.`);
+  partes.push(`Total estimado entre atendimentos: ${total} min.`);
   return partes.join(" ");
 };
 
@@ -675,6 +687,22 @@ const resumirDeslocamentoSugestao = (item: SugestaoHorarioItem): string => {
 
   const fontesUnicas = Array.from(new Set(fontes.map((fonte) => rotularFonteDeslocamento(fonte))));
   return `Composicao do deslocamento: ${detalheComposicao}. Fonte do deslocamento: ${fontesUnicas.join(" + ")}.`;
+};
+
+const resumirPrimeiraSaidaSugestao = (item: SugestaoHorarioItem): string | null => {
+  if (item.anterior || item.origem_primeira_saida !== "base_operacional") return null;
+  const tempoBase = item.tempo_deslocamento_base_min;
+  const viagem = typeof tempoBase === "number" && Number.isFinite(tempoBase)
+    ? `Trajeto estimado casa → primeiro atendimento: ${tempoBase} min`
+    : "Casa → primeiro atendimento: tempo de viagem indisponivel";
+  const fonte = item.fonte_deslocamento_base
+    ? ` (${rotularFonteDeslocamento(item.fonte_deslocamento_base)})`
+    : "";
+  const [dataMinima, horaMinima] = String(item.inicio_minimo_primeira_saida || "").split(" ");
+  const horarioMinimo = /^\d{4}-\d{2}-\d{2}$/.test(dataMinima) && /^\d{2}:\d{2}$/.test(horaMinima)
+    ? ` Primeiro inicio estimado com saida da base: ${dataMinima.split("-").reverse().join("/")} as ${horaMinima}.`
+    : "";
+  return `${viagem}${fonte}.${horarioMinimo}`;
 };
 
 function SearchableSelect({
@@ -902,6 +930,8 @@ export default function NovoAgendamentoModal({
   const [sugestoesHorario, setSugestoesHorario] = useState<SugestaoHorarioItem[]>([]);
   const [ofertasPanoramicasConsultadas, setOfertasPanoramicasConsultadas] = useState(false);
   const [erroSugestoes, setErroSugestoes] = useState<string>("");
+  const [erroSalvamento, setErroSalvamento] = useState<string>("");
+  const [indiceOfertaEmValidacao, setIndiceOfertaEmValidacao] = useState<number | null>(null);
   const [mensagemSugestoes, setMensagemSugestoes] = useState<string>("");
   const [indiceSugestaoAtual, setIndiceSugestaoAtual] = useState(0);
   const [decisaoAssistente, setDecisaoAssistente] = useState<AssistenteDecisao>("pendente");
@@ -922,6 +952,7 @@ export default function NovoAgendamentoModal({
   const popupProximidadeHistoricoRef = useRef<Record<string, number>>({});
   const sequenciaConsultaProximidadeRef = useRef(0);
   const sequenciaConsultaOfertasRef = useRef(0);
+  const sequenciaValidacaoOfertaRef = useRef(0);
   const sequenciaBuscaTutorRef = useRef(0);
   const sequenciaPanoramaTutorRef = useRef(0);
   const [modalTutorAberto, setModalTutorAberto] = useState(false);
@@ -1151,6 +1182,7 @@ export default function NovoAgendamentoModal({
     setFiltrosPreferencia(filtrosDePreferencia(pedidoWhatsApp?.dados_coletados?.preferencia_agenda));
     setTutorSelecionado(pedidoWhatsApp?.tutor?.nome || "");
     setSugestoesHorario([]);
+    setIndiceOfertaEmValidacao(null);
     setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
     setDecisaoAssistente("pendente");
@@ -1159,6 +1191,7 @@ export default function NovoAgendamentoModal({
     setRegistrandoEncerramento(false);
     setItensIgnoradosJanela(0);
     setErroSugestoes("");
+    setErroSalvamento("");
     setMensagemSugestoes("");
     setMensagemProximidade("");
     setSugestaoProximidade(null);
@@ -1221,6 +1254,7 @@ export default function NovoAgendamentoModal({
       tutorIdInicial ? (pacienteSelecionado?.tutor || agendamento?.tutor || "") : ""
     );
     setSugestoesHorario([]);
+    setIndiceOfertaEmValidacao(null);
     setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
     setDecisaoAssistente("pendente");
@@ -1229,6 +1263,7 @@ export default function NovoAgendamentoModal({
     setRegistrandoEncerramento(false);
     setItensIgnoradosJanela(0);
     setErroSugestoes("");
+    setErroSalvamento("");
     setMensagemSugestoes("");
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
@@ -1268,6 +1303,7 @@ export default function NovoAgendamentoModal({
     setFormData(buildInitialFormData(defaultDate, defaultTime));
     setTutorSelecionado("");
     setSugestoesHorario([]);
+    setIndiceOfertaEmValidacao(null);
     setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
     setDecisaoAssistente("pendente");
@@ -1276,6 +1312,7 @@ export default function NovoAgendamentoModal({
     setRegistrandoEncerramento(false);
     setItensIgnoradosJanela(0);
     setErroSugestoes("");
+    setErroSalvamento("");
     setMensagemSugestoes("");
     setMensagemProximidade("");
     setSugestaoProximidade(null);
@@ -1762,6 +1799,7 @@ export default function NovoAgendamentoModal({
     sequenciaConsultaOfertasRef.current += 1;
     setCarregandoSugestoes(false);
     setSugestoesHorario([]);
+    setIndiceOfertaEmValidacao(null);
     setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
     setDecisaoAssistente("pendente");
@@ -1769,6 +1807,7 @@ export default function NovoAgendamentoModal({
     setExcecaoConcedida(false);
     setItensIgnoradosJanela(0);
     setErroSugestoes("");
+    setErroSalvamento("");
     setMensagemSugestoes("");
     if (!preservarMensagemProximidade) {
       setMensagemProximidade("");
@@ -2346,26 +2385,72 @@ export default function NovoAgendamentoModal({
     return { items, motivo, itensIgnorados };
   };
 
-  const aplicarSugestaoHorario = (item: SugestaoHorarioItem) => {
+  const aplicarSugestaoHorario = (item: SugestaoHorarioItem): boolean => {
     const [data, hora] = String(item.inicio || "").split(" ");
     if (!data || !hora) {
       setErroSugestoes("Nao foi possivel aplicar o horario sugerido.");
-      return;
+      return false;
     }
 
     setFormData((prev) => ({ ...prev, data, hora }));
     setMensagemSugestoes(`Horario sugerido aplicado: ${hora}.`);
     setErroSugestoes("");
+    return true;
   };
 
-  const confirmarAceiteSugestao = (item: SugestaoHorarioItem, indice: number) => {
-    setIndiceSugestaoAtual(indice);
-    aplicarSugestaoHorario(item);
-    setDecisaoAssistente("aceito");
-    setMotivoSemOpcao("");
-    setExcecaoConcedida(false);
+  const confirmarAceiteSugestao = async (item: SugestaoHorarioItem, indice: number) => {
+    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(item.inicio)) {
+      setErroSalvamento("Esta oferta tem um horario invalido. Gere novas ofertas antes de continuar.");
+      return;
+    }
+    const consultaId = sequenciaConsultaOfertasRef.current;
+    const validacaoId = ++sequenciaValidacaoOfertaRef.current;
+    const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
+    const tutorId = Number.parseInt(formData.tutor_id || "", 10);
+    setIndiceOfertaEmValidacao(indice);
+    setDecisaoAssistente("pendente");
+    setFormData((prev) => ({ ...prev, hora: "" }));
+    setErroSalvamento("");
     setErroSugestoes("");
-    setMensagemSugestoes("Cliente aceitou o horario sugerido pelo assistente.");
+
+    try {
+      const response = await api.post<ValidacaoOfertaResponse>("/agenda/assistente/validar-oferta", {
+        inicio: item.inicio,
+        origem_atendimento: formData.origem_atendimento,
+        clinica_id: atendimentoDomiciliar ? null : (Number.isFinite(clinicaId) ? clinicaId : null),
+        tutor_id: atendimentoDomiciliar && Number.isFinite(tutorId) ? tutorId : null,
+        servico_id: formData.servico_id ? Number.parseInt(formData.servico_id, 10) : null,
+        duracao_minutos: obterDuracaoServicoSelecionado(),
+        perfil_deslocamento: "comercial",
+      });
+      if (consultaId !== sequenciaConsultaOfertasRef.current || validacaoId !== sequenciaValidacaoOfertaRef.current) return;
+
+      if (response.data?.valido !== true) {
+        const mensagem = String(response.data?.mensagem || "Esta oferta nao esta mais disponivel.").trim();
+        resetFluxoAssistente();
+        setFormData((prev) => ({ ...prev, hora: "" }));
+        setErroSalvamento(`${mensagem} Gere novas ofertas antes de registrar o aceite.`);
+        return;
+      }
+
+      if (!aplicarSugestaoHorario(item)) return;
+      setIndiceSugestaoAtual(indice);
+      setDecisaoAssistente("aceito");
+      setMotivoSemOpcao("");
+      setExcecaoConcedida(false);
+      setErroSugestoes("");
+      setMensagemSugestoes("Oferta revalidada. Cliente aceitou o horario sugerido pelo assistente.");
+    } catch (error: any) {
+      if (consultaId !== sequenciaConsultaOfertasRef.current || validacaoId !== sequenciaValidacaoOfertaRef.current) return;
+      const detail = error?.response?.data?.detail ?? error?.message;
+      setErroSalvamento(
+        `${extrairMensagemErro(detail, "Nao foi possivel revalidar esta oferta agora.")} Tente novamente antes de registrar o aceite.`
+      );
+    } finally {
+      if (consultaId === sequenciaConsultaOfertasRef.current && validacaoId === sequenciaValidacaoOfertaRef.current) {
+        setIndiceOfertaEmValidacao(null);
+      }
+    }
   };
 
   const liberarFluxoManual = () => {
@@ -2500,6 +2585,8 @@ export default function NovoAgendamentoModal({
     setExcecaoConcedida(false);
     setMensagemSugestoes("");
     setErroSugestoes("");
+    setErroSalvamento("");
+    setIndiceOfertaEmValidacao(null);
     setSugestoesHorario([]);
     setOfertasPanoramicasConsultadas(false);
 
@@ -3322,6 +3409,7 @@ export default function NovoAgendamentoModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErroSalvamento("");
     if (!isEditando && divergenciasWhatsApp.length && divergenciaAceita !== chaveDivergencia) {
       fortinho.notify({ title: "Confira o pedido do WhatsApp", message: "Confirme a divergência de pet/tutor antes de salvar.", mood: "alert", gesture: "idle", sticky: true });
       return;
@@ -3687,6 +3775,12 @@ export default function NovoAgendamentoModal({
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
       const detailStr = extrairMensagemErro(detail);
+      const ofertaInviavel = error?.response?.status === 409 && detail?.codigo === "PRIMEIRA_SAIDA_INVIAVEL";
+      if (ofertaInviavel && !isEditando) {
+        resetFluxoAssistente();
+        setFormData((prev) => ({ ...prev, hora: "" }));
+      }
+      setErroSalvamento(ofertaInviavel ? `${detailStr} Gere novas ofertas e confirme outro horario.` : detailStr);
       fortinho.notify({
         title: `Erro ao ${isEditando ? "editar" : "criar"} agendamento`,
         message: detailStr,
@@ -3735,6 +3829,7 @@ export default function NovoAgendamentoModal({
   const bloquearSalvarNovo =
     !isEditando &&
     (
+      indiceOfertaEmValidacao !== null ||
       decisaoAssistente === "pendente" ||
       (decisaoAssistente === "sem_opcao" && (!(motivoSemOpcao || "").trim() || semOpcaoSemExcecao))
     );
@@ -3972,6 +4067,12 @@ export default function NovoAgendamentoModal({
             <X className="w-6 h-6" />
           </button>
         </div>
+
+        {erroSalvamento && (
+          <div role="alert" className="max-h-40 flex-none overflow-y-auto border-b border-red-300 bg-red-50 px-5 py-3 text-sm font-medium text-red-900">
+            {erroSalvamento}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="fc-appointment-form space-y-4">
           {pedidoWhatsApp && !isEditando && <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-3" aria-label="Pedido recebido pelo WhatsApp">
@@ -4477,18 +4578,24 @@ export default function NovoAgendamentoModal({
                         {extrairHoraDataHora(item.fim)}
                       </div>
                       <div className="text-xs text-gray-600">
-                        Deslocamento total: {item.tempo_deslocamento_total_min} min | Risco: {item.risco}
+                        Entre atendimentos: {item.tempo_deslocamento_total_min} min | Risco: {item.risco}
                       </div>
+                      {resumirPrimeiraSaidaSugestao(item) && (
+                        <div className="text-xs font-medium text-teal-800">
+                          {resumirPrimeiraSaidaSugestao(item)}
+                        </div>
+                      )}
                       <div className="text-xs text-gray-500">
                         {resumirDeslocamentoSugestao(item)}
                       </div>
                       <div className="pt-1">
                         <button
                           type="button"
-                          onClick={() => confirmarAceiteSugestao(item, idx)}
-                          className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs hover:bg-emerald-700"
+                          onClick={() => void confirmarAceiteSugestao(item, idx)}
+                          disabled={indiceOfertaEmValidacao !== null || loading}
+                          className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
                         >
-                          Cliente aceitou esta oferta
+                          {indiceOfertaEmValidacao === idx ? "Revalidando oferta..." : "Cliente aceitou esta oferta"}
                         </button>
                       </div>
                     </div>
@@ -4501,6 +4608,7 @@ export default function NovoAgendamentoModal({
               <button
                 type="button"
                 onClick={liberarFluxoManual}
+                disabled={indiceOfertaEmValidacao !== null}
                 className="px-3 py-1.5 rounded-md border border-amber-300 text-amber-700 text-xs hover:bg-amber-50"
               >
                 Nenhuma oferta atende a necessidade do cliente (recusar todas)
@@ -4609,8 +4717,13 @@ export default function NovoAgendamentoModal({
                       {extrairHoraDataHora(item.inicio)} - {extrairHoraDataHora(item.fim)}
                     </div>
                     <div className="text-xs text-gray-600">
-                      Deslocamento total: {item.tempo_deslocamento_total_min} min | Risco: {item.risco}
+                      Entre atendimentos: {item.tempo_deslocamento_total_min} min | Risco: {item.risco}
                     </div>
+                    {resumirPrimeiraSaidaSugestao(item) && (
+                      <div className="mt-1 text-xs font-medium text-teal-800">
+                        {resumirPrimeiraSaidaSugestao(item)}
+                      </div>
+                    )}
                     <div className="mt-1 text-xs text-gray-500">
                       {resumirDeslocamentoSugestao(item)}
                     </div>

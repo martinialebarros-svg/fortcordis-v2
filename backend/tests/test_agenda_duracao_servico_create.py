@@ -25,6 +25,34 @@ from app.models.servico import Servico
 
 
 class AgendaDuracaoServicoCreateTest(unittest.TestCase):
+    def setUp(self):
+        # Duracao e reserva nao dependem da rede: simule a primeira viagem.
+        regras_originais = agenda._obter_regras_rota_agenda
+
+        def regras_com_base_sintetica(db):
+            regras = regras_originais(db)
+            return {**regras, "base": {
+                **regras.get("base", {}),
+                "address": "Rua Sintetica, 100, Fortaleza - CE",
+                "zip_code": "60000-000",
+            }}
+
+        geocode = SimpleNamespace(
+            latitude=-3.7319, longitude=-38.5267, place_id="base-duracao-teste",
+            cidade="Fortaleza", estado="CE",
+        )
+        agenda._geocodificar_base_primeira_saida.cache_clear()
+        for patcher in (
+            patch.object(agenda.settings, "GOOGLE_MAPS_API_KEY", "chave-sintetica"),
+            patch.object(agenda.settings, "LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ", True),
+            patch.object(agenda, "geocodificar_endereco_google", return_value=geocode),
+            patch.object(agenda, "estimar_deslocamento", return_value=(2.0, 5, "google_distance_matrix_traffic")),
+            patch.object(agenda, "_obter_regras_rota_agenda", side_effect=regras_com_base_sintetica),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.addCleanup(agenda._geocodificar_base_primeira_saida.cache_clear)
+
     def _build_session(self):
         tmpdir = tempfile.TemporaryDirectory()
         db_path = Path(tmpdir.name) / "agenda-duracao-servico-create.db"

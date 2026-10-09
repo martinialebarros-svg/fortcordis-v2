@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import unicodedata
+from functools import lru_cache
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from queue import Empty
@@ -54,10 +55,12 @@ from app.core.config import settings
 from app.core.security import get_current_user
 from app.core.agenda_permissions import usuario_pode_excluir_agendamento
 from app.services.logistica_service import (
+    estimar_deslocamento,
     normalizar_perfil,
     obter_duracao_deslocamento,
     obter_duracao_deslocamento_entidades,
 )
+from app.services.geocoding_service import GeocodingError, geocodificar_endereco_google
 from app.services.precos_service import calcular_preco_servico, calcular_precos_servicos_em_lote, to_decimal
 from app.services.auditoria_service import registrar_auditoria
 from app.services.push_notifications import (
@@ -268,6 +271,17 @@ class SugestaoHorarioPayload(BaseModel):
     duracao_minutos: Optional[int] = Field(default=None, ge=5, le=720)
     intervalo_minutos: int = Field(default=15, ge=5, le=120)
     limite: int = Field(default=8, ge=1, le=50)
+    perfil_deslocamento: str = Field(default="comercial")
+    ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
+
+
+class ValidarOfertaAssistentePayload(BaseModel):
+    inicio: str = Field(..., description="Inicio exato da oferta em horario local, YYYY-MM-DD HH:mm")
+    origem_atendimento: Literal["clinica_parceira", "domiciliar"] = Field(default=ORIGEM_ATENDIMENTO_PADRAO)
+    clinica_id: Optional[int] = Field(default=None, ge=1)
+    tutor_id: Optional[int] = Field(default=None, ge=1)
+    servico_id: Optional[int] = Field(default=None, ge=1)
+    duracao_minutos: Optional[int] = Field(default=None, ge=5, le=720)
     perfil_deslocamento: str = Field(default="comercial")
     ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
 
@@ -1022,6 +1036,236 @@ def _obter_regras_rota_agenda(db: Session) -> dict:
     if not config:
         return carregar_agenda_rota_regras(None)
     return carregar_agenda_rota_regras(getattr(config, "agenda_rota_regras", None))
+
+
+def _endereco_base_primeira_saida(base_cfg: dict[str, Any]) -> str:
+    endereco = str(base_cfg.get("address") or "").strip()
+    cep = str(base_cfg.get("zip_code") or "").strip()
+    return ", ".join(parte for parte in (endereco, f"CEP {cep}" if cep else "", "Brasil") if parte)
+
+
+@lru_cache(maxsize=32)
+def _geocodificar_base_primeira_saida(endereco_completo: str):
+    # A base e pequena e estavel. O cache por endereco evita geocoding repetido
+    # entre requisicoes, sem persistir coordenadas deduzidas na configuracao.
+    return geocodificar_endereco_google(endereco_completo, settings.GOOGLE_MAPS_API_KEY)
+
+
+def _obter_deslocamento_primeira_saida(
+    db: Session,
+    *,
+    destino: dict[str, Any],
+    base_cfg: dict[str, Any],
+    perfil: str,
+) -> tuple[Optional[int], str]:
+    """Estima o trajeto casa→primeiro destino usando uma rota de rua do Google."""
+    destino_adaptado = _adaptar_destino_operacional_para_logistica(destino)
+    if destino_adaptado is None or not bool(destino.get("localizacao_confiavel")):
+        return None, "destino_sem_localizacao"
+
+    endereco = _endereco_base_primeira_saida(base_cfg)
+    if not str(base_cfg.get("address") or "").strip():
+        return None, "base_sem_endereco"
+    perfil_norm = normalizar_perfil(perfil)
+    chave = (
+        endereco,
+        base_cfg.get("lat"),
+        base_cfg.get("lng"),
+        destino.get("tipo"),
+        destino.get("entity_id"),
+        destino.get("latitude"),
+        destino.get("longitude"),
+        destino.get("place_id"),
+        perfil_norm,
+    )
+    cache = db.info.setdefault("_agenda_primeira_saida_deslocamento", {})
+    if chave in cache:
+        return cache[chave]
+
+    try:
+        lat = float(base_cfg.get("lat"))
+        lng = float(base_cfg.get("lng"))
+        coordenadas_validas = (
+            math.isfinite(lat) and math.isfinite(lng)
+            and -90 <= lat <= 90 and -180 <= lng <= 180
+            and not (abs(lat) < 0.000001 and abs(lng) < 0.000001)
+        )
+    except (TypeError, ValueError):
+        lat = lng = None
+        coordenadas_validas = False
+
+    place_id = None
+    cidade_base = "Fortaleza" if "fortaleza" in _normalizar_localidade(endereco) else ""
+    estado_base = "CE" if cidade_base else ""
+    permitir_google = bool(
+        getattr(settings, "LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ", False)
+        and str(settings.GOOGLE_MAPS_API_KEY or "").strip()
+    )
+    if not coordenadas_validas:
+        if not permitir_google:
+            resultado = (None, "base_sem_coordenadas")
+            cache[chave] = resultado
+            return resultado
+        try:
+            geocode = _geocodificar_base_primeira_saida(endereco)
+            lat = float(geocode.latitude)
+            lng = float(geocode.longitude)
+            if not (
+                math.isfinite(lat) and math.isfinite(lng)
+                and -90 <= lat <= 90 and -180 <= lng <= 180
+                and not (abs(lat) < 0.000001 and abs(lng) < 0.000001)
+            ):
+                raise ValueError("Coordenadas invalidas")
+            # Um resultado de outra cidade/UF para a residencia confirmada
+            # poderia tornar o primeiro trajeto perigosamente curto.
+            if cidade_base and _normalizar_localidade(geocode.cidade) != _normalizar_localidade(cidade_base):
+                raise ValueError("Municipio da base divergente")
+            if estado_base and str(geocode.estado or "").strip().upper() != estado_base:
+                raise ValueError("UF da base divergente")
+            place_id = str(geocode.place_id or "").strip() or None
+            cidade_base = str(geocode.cidade or cidade_base).strip()
+            estado_base = str(geocode.estado or estado_base).strip()
+        except (GeocodingError, TypeError, ValueError):
+            resultado = (None, "base_geocode_indisponivel")
+            cache[chave] = resultado
+            return resultado
+
+    origem = SimpleNamespace(
+        id=-2147483647,
+        nome="Casa (base operacional)",
+        latitude=lat,
+        longitude=lng,
+        place_id=place_id,
+        endereco=endereco,
+        numero=None,
+        complemento=None,
+        bairro=None,
+        cidade=cidade_base,
+        estado=estado_base,
+        cep=str(base_cfg.get("zip_code") or "").strip(),
+        geocode_at=None,
+    )
+    try:
+        _distancia_km, duracao_min, fonte = estimar_deslocamento(
+            origem,
+            destino_adaptado,
+            perfil=perfil_norm,
+            permitir_google_lookup=permitir_google,
+        )
+    except Exception:
+        resultado = (None, "rota_indisponivel")
+        cache[chave] = resultado
+        return resultado
+    fonte = str(fonte or "indefinido")
+    # Haversine e distancia em linha reta e pode subestimar vias/engarrafamentos.
+    # Para a primeira chegada nao converta essa heuristica em oferta segura.
+    if not fonte.startswith("google_") or int(duracao_min or 0) <= 0:
+        resultado = (None, "rota_indisponivel")
+    else:
+        resultado = (int(duracao_min), fonte)
+    cache[chave] = resultado
+    return resultado
+
+
+def _avaliar_primeira_saida(
+    db: Session,
+    *,
+    inicio: datetime,
+    destino: dict[str, Any],
+    agendamentos_dia: list[dict],
+    regras_rota: dict[str, Any],
+    perfil: str,
+    agora_local: Optional[datetime] = None,
+    abertura_agenda: Optional[datetime] = None,
+) -> Optional[dict[str, Any]]:
+    """Devolve limite de chegada quando o candidato sera o primeiro compromisso ativo do dia."""
+    if any(
+        isinstance(item.get("inicio"), datetime)
+        and item["inicio"] < inicio
+        and _status_conta_como_ancora(item.get("status"))
+        for item in agendamentos_dia
+    ):
+        return None
+
+    agora = agora_local or datetime.now(LOCAL_TZ).replace(tzinfo=None)
+    if inicio.date() < agora.date():
+        return None
+    base_cfg = regras_rota.get("base") if isinstance(regras_rota.get("base"), dict) else {}
+    thresholds = regras_rota.get("thresholds") if isinstance(regras_rota.get("thresholds"), dict) else {}
+    route_policy = regras_rota.get("route_policy") if isinstance(regras_rota.get("route_policy"), dict) else {}
+    duracao_min, fonte = _obter_deslocamento_primeira_saida(
+        db, destino=destino, base_cfg=base_cfg, perfil=perfil,
+    )
+    municipio = _normalizar_localidade(destino.get("cidade"))
+    estado = _normalizar_localidade(destino.get("estado"))
+    # Cadastros legados podem guardar "Caucaia - CE" no campo cidade.
+    if municipio.endswith(" ce"):
+        municipio = municipio[:-3].strip()
+    elif municipio.endswith(" ceara"):
+        municipio = municipio[:-6].strip()
+    if estado and estado not in {"ce", "ceara"}:
+        municipio = ""
+    pisos = route_policy.get("first_appointment_city_floors")
+    piso_hhmm = pisos.get(municipio) if isinstance(pisos, dict) else None
+    piso_dt = (
+        _combine_date_hhmm(inicio.date(), piso_hhmm)
+        if isinstance(piso_hhmm, str) and re.fullmatch(r"\d{2}:\d{2}", piso_hhmm)
+        else None
+    )
+    if duracao_min is None:
+        return {
+            "viavel": False,
+            "tempo_deslocamento_base_min": None,
+            "fonte_deslocamento_base": fonte,
+            "inicio_minimo_primeira_saida": None,
+            "piso_municipio": piso_hhmm,
+        }
+
+    abertura = abertura_agenda
+    if abertura is None:
+        abertura, _fim, _motivo = _obter_janela_funcionamento_data(db, inicio.date().isoformat())
+    if abertura is None:
+        # Para excecoes administrativas em dia fechado, use a abertura-padrao
+        # como ponto de partida; o deslocamento continua obrigatorio.
+        abertura = inicio.replace(hour=8, minute=0, second=0, microsecond=0)
+    margem = max(0, int(thresholds.get("safe_margin_min", MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN)))
+    minimo = abertura + timedelta(minutes=duracao_min + margem)
+    if inicio.date() == agora.date():
+        minimo = max(minimo, agora + timedelta(minutes=duracao_min + margem))
+    if piso_dt is not None:
+        minimo = max(minimo, piso_dt)
+    if minimo.second or minimo.microsecond:
+        minimo = minimo.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    return {
+        "viavel": inicio >= minimo,
+        "tempo_deslocamento_base_min": duracao_min,
+        "fonte_deslocamento_base": fonte,
+        "inicio_minimo_primeira_saida": minimo.strftime("%Y-%m-%d %H:%M"),
+        "piso_municipio": piso_hhmm,
+    }
+
+
+def _exigir_primeira_saida_viavel(avaliacao: Optional[dict[str, Any]]) -> None:
+    if avaliacao is None or bool(avaliacao.get("viavel")):
+        return
+    minimo = avaliacao.get("inicio_minimo_primeira_saida")
+    mensagem = (
+        f"O primeiro atendimento deste dia so pode comecar a partir de {minimo[-5:]}, "
+        "considerando a saida de casa, o deslocamento e a margem segura."
+        if isinstance(minimo, str) and len(minimo) >= 5
+        else "Nao foi possivel consultar uma rota confiavel de casa ate o primeiro atendimento. Tente novamente; se persistir, revise os enderecos e a configuracao de rotas."
+    )
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "codigo": "PRIMEIRA_SAIDA_INVIAVEL",
+            "mensagem": mensagem,
+            "inicio_minimo_primeira_saida": minimo,
+            "tempo_deslocamento_base_min": avaliacao.get("tempo_deslocamento_base_min"),
+            "fonte_deslocamento_base": avaliacao.get("fonte_deslocamento_base"),
+            "confirmavel": False,
+        },
+    )
 
 
 def _obter_max_window_assistente_agenda() -> int:
@@ -1887,6 +2131,7 @@ def _validar_deslocamento_agendamento(
     agendamento_id_excluir: Optional[int] = None,
     perfil_deslocamento: str = "comercial",
     confirmar_conflito_deslocamento: bool = False,
+    validar_primeira_saida: bool = True,
 ) -> Optional[dict[str, str]]:
     """Bloqueia conflitos de rota, salvo excecao confirmada agora ou persistida.
 
@@ -1960,6 +2205,18 @@ def _validar_deslocamento_agendamento(
     )
     destino_atual_nome = _rotulo_destino_operacional(destino_atual)
     destino_atual_confiavel = bool(destino_atual.get("localizacao_confiavel"))
+
+    if validar_primeira_saida and status_atual not in AGENDA_STATUS_NAO_ANCORA:
+        _exigir_primeira_saida_viavel(
+            _avaliar_primeira_saida(
+                db,
+                inicio=inicio_dt,
+                destino=destino_atual,
+                agendamentos_dia=agendamentos_dia,
+                regras_rota=regras_rota,
+                perfil=perfil_norm,
+            )
+        )
 
     if anterior:
         destino_anterior = anterior.get("destino_operacional") if isinstance(anterior, dict) else None
@@ -4330,6 +4587,7 @@ def sugerir_horarios_agenda(
         cache_janelas={data_iso: (janela_inicio, janela_fim, None)},
     )
     # Keep all operational neighbours, even outside the requested turn/window.
+    abertura_agenda = janela_inicio
     janela_inicio, janela_fim = _janela_preferencia(payload.preferencia, janela_inicio, janela_fim)
     if janela_inicio is None or janela_fim is None:
         return {"ok": True, "data": data_iso, "items": [], "total_encontrados": 0,
@@ -4387,6 +4645,8 @@ def sugerir_horarios_agenda(
     cache_google: dict = {}
 
     sugestoes: list[dict] = []
+    primeira_saida_sem_estimativa = False
+    primeiro_inicio_viavel: Optional[str] = None
     inicio_minimo = janela_inicio
     cursor_grade = janela_inicio
     agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None)
@@ -4419,6 +4679,23 @@ def sugerir_horarios_agenda(
             for bloqueio_inicio, bloqueio_fim in bloqueios_dia
         )
         if conflita:
+            continue
+
+        primeira_saida = _avaliar_primeira_saida(
+            db,
+            inicio=inicio_candidato,
+            destino=destino_base,
+            agendamentos_dia=agendamentos_dia_todos,
+            regras_rota=regras_rota,
+            perfil=perfil_norm,
+            agora_local=agora_local,
+            abertura_agenda=abertura_agenda,
+        )
+        if primeira_saida is not None and not primeira_saida["viavel"]:
+            primeira_saida_sem_estimativa = primeira_saida_sem_estimativa or primeira_saida["tempo_deslocamento_base_min"] is None
+            minimo_primeira_saida = primeira_saida.get("inicio_minimo_primeira_saida")
+            if isinstance(minimo_primeira_saida, str):
+                primeiro_inicio_viavel = minimo_primeira_saida
             continue
 
         # Para validar deslocamento operacional, os vizinhos devem considerar toda a agenda ativa do dia.
@@ -4598,6 +4875,10 @@ def sugerir_horarios_agenda(
                 "tempo_ate_base_min": tempo_ate_base_min,
                 "ajuste_base_score": ajuste_base_score,
                 "tempo_deslocamento_total_min": tempo_deslocamento_total,
+                "tempo_deslocamento_base_min": primeira_saida["tempo_deslocamento_base_min"] if primeira_saida else None,
+                "fonte_deslocamento_base": primeira_saida["fonte_deslocamento_base"] if primeira_saida else None,
+                "inicio_minimo_primeira_saida": primeira_saida["inicio_minimo_primeira_saida"] if primeira_saida else None,
+                "origem_primeira_saida": "base_operacional" if primeira_saida else None,
                 "ociosidade_min": ociosidade_min,
                 "destino_operacional": _rotulo_destino_operacional(destino_base),
                 "destino_operacional_tipo": destino_base.get("tipo"),
@@ -4672,8 +4953,15 @@ def sugerir_horarios_agenda(
     limite = max(1, min(50, int(payload.limite)))
     top_items = sugestoes[:limite]
     motivo_sem_item = None
+    if not top_items and primeira_saida_sem_estimativa:
+        motivo_sem_item = "Nao foi possivel consultar uma rota confiavel de casa ate o primeiro atendimento. Tente novamente; se persistir, revise os enderecos e a configuracao de rotas."
+    if not top_items and primeiro_inicio_viavel:
+        motivo_sem_item = (
+            f"O primeiro atendimento neste destino so pode comecar a partir de {primeiro_inicio_viavel[-5:]}, "
+            "considerando a saida de casa e o deslocamento."
+        )
     if not top_items and data_iso == agora_local.date().isoformat():
-        motivo_sem_item = "Nao ha horarios futuros disponiveis para hoje dentro da janela da agenda."
+        motivo_sem_item = motivo_sem_item or "Nao ha horarios futuros disponiveis para hoje dentro da janela da agenda."
 
     return {
         "ok": True,
@@ -4707,6 +4995,83 @@ def sugerir_horarios_agenda(
         "total_encontrados": len(sugestoes),
         "items": top_items,
     }
+
+
+@router.post("/assistente/validar-oferta")
+def validar_oferta_assistente_agenda(
+    payload: ValidarOfertaAssistentePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Revalida o horario exato quando o cliente aceita uma oferta exibida anteriormente."""
+    inicio_aware = _coerce_datetime(payload.inicio)
+    inicio = _to_local_naive(inicio_aware)
+    if inicio is None:
+        raise HTTPException(status_code=422, detail="Inicio invalido. Use YYYY-MM-DD HH:mm.")
+    agora = datetime.now(LOCAL_TZ).replace(tzinfo=None)
+    if inicio <= agora:
+        return {
+            "ok": True, "valido": False, "codigo": "HORARIO_PASSADO",
+            "mensagem": "O horario desta oferta ja passou. Solicite uma nova sugestao.",
+            "inicio_minimo_primeira_saida": None,
+        }
+
+    duracao = _resolver_duracao_servico(
+        db,
+        servico_id=payload.servico_id,
+        fallback_minutos=max(5, int(payload.duracao_minutos or 30)),
+    )
+    fim = inicio + timedelta(minutes=duracao)
+    candidato = Agendamento(
+        inicio=inicio_aware,
+        fim=fim.replace(tzinfo=LOCAL_TZ),
+        data=inicio.date().isoformat(),
+        hora=inicio.strftime("%H:%M"),
+        status="Agendado",
+        origem_atendimento=payload.origem_atendimento,
+        clinica_id=payload.clinica_id,
+        tutor_id=payload.tutor_id,
+        servico_id=payload.servico_id,
+    )
+    try:
+        _validar_regras_origem_agendamento(db, candidato, contexto="validar a oferta")
+        _validar_agendamento_no_funcionamento(db, candidato)
+        ocupados = _listar_agendamentos_ativos_do_dia(
+            db,
+            inicio.date().isoformat(),
+            agendamento_id_excluir=payload.ignorar_agendamento_id,
+        )
+        if any(inicio < item["fim"] and fim > item["inicio"] for item in ocupados):
+            return {
+                "ok": True, "valido": False, "codigo": "HORARIO_INDISPONIVEL",
+                "mensagem": "Este horario foi ocupado. Solicite uma nova sugestao.",
+                "inicio_minimo_primeira_saida": None,
+            }
+        for bloqueio in _listar_bloqueios_ativos(db):
+            bloqueio_inicio = _to_local_naive(_coerce_datetime(bloqueio.inicio))
+            bloqueio_fim = _to_local_naive(_coerce_datetime(bloqueio.fim))
+            if bloqueio_inicio is not None and bloqueio_fim is not None and inicio < bloqueio_fim and fim > bloqueio_inicio:
+                return {
+                    "ok": True, "valido": False, "codigo": "HORARIO_BLOQUEADO",
+                    "mensagem": "Este horario esta bloqueado. Solicite uma nova sugestao.",
+                    "inicio_minimo_primeira_saida": None,
+                }
+        _validar_deslocamento_agendamento(
+            db,
+            candidato,
+            agendamento_id_excluir=payload.ignorar_agendamento_id,
+            perfil_deslocamento=payload.perfil_deslocamento,
+        )
+    except HTTPException as exc:
+        detalhe = exc.detail if isinstance(exc.detail, dict) else {"mensagem": str(exc.detail)}
+        return {
+            "ok": True,
+            "valido": False,
+            "codigo": str(detalhe.get("codigo") or "OFERTA_INVIAVEL"),
+            "mensagem": str(detalhe.get("mensagem") or "Esta oferta nao esta mais disponivel."),
+            "inicio_minimo_primeira_saida": detalhe.get("inicio_minimo_primeira_saida"),
+        }
+    return {"ok": True, "valido": True, "inicio_minimo_primeira_saida": None}
 
 
 @router.post("/sugestao-proximidade")
@@ -6054,6 +6419,8 @@ def atualizar_agendamento(
     fim_original = _coerce_datetime(db_agendamento.fim)
     servico_original = db_agendamento.servico_id
     clinica_original = db_agendamento.clinica_id
+    tutor_original = getattr(db_agendamento, "tutor_id", None)
+    origem_original = _normalizar_origem_atendimento(getattr(db_agendamento, "origem_atendimento", None))
     status_anterior = str(db_agendamento.status or "").strip() or "Agendado"
 
     override_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
@@ -6151,7 +6518,12 @@ def atualizar_agendamento(
     _validar_regras_origem_agendamento(db, db_agendamento, contexto="salvar o agendamento")
     _validar_prazo_reserva(db_agendamento)
 
-    campos_horario = "inicio" in update_data or "fim" in update_data or "servico_id" in update_data or "clinica_id" in update_data
+    origem_atual = _normalizar_origem_atendimento(getattr(db_agendamento, "origem_atendimento", None))
+    campos_horario = (
+        "inicio" in update_data or "fim" in update_data or "servico_id" in update_data
+        or "clinica_id" in update_data or "origem_atendimento" in update_data
+        or (origem_atual == ORIGEM_ATENDIMENTO_DOMICILIAR and "tutor_id" in update_data)
+    )
     reativando_cancelado = status_anterior == "Cancelado" and db_agendamento.status != "Cancelado"
     reativando_inativo = reativando_cancelado or reativando_expirado
     inicio_atual_antes_duracao = _to_local_naive(_coerce_datetime(db_agendamento.inicio))
@@ -6188,6 +6560,10 @@ def atualizar_agendamento(
             )
         if "clinica_id" in update_data:
             alterou_horario = alterou_horario or (clinica_original != clinica_atual)
+        if "origem_atendimento" in update_data:
+            alterou_horario = alterou_horario or (origem_original != origem_atual)
+        if origem_atual == ORIGEM_ATENDIMENTO_DOMICILIAR and "tutor_id" in update_data:
+            alterou_horario = alterou_horario or (tutor_original != getattr(db_agendamento, "tutor_id", None))
 
         if alterou_horario or reativando_inativo:
             motivo_agenda_fechada = _validar_agendamento_no_funcionamento(
@@ -6207,6 +6583,11 @@ def atualizar_agendamento(
                 db_agendamento,
                 agendamento_id_excluir=agendamento_id,
                 confirmar_conflito_deslocamento=override_conflito_deslocamento,
+                validar_primeira_saida=not (
+                    inicio_original_local is not None
+                    and inicio_original_local <= agora_local
+                    and _to_local_naive(inicio_atual) == inicio_original_local
+                ),
             )
     elif reativando_inativo:
         _apply_service_duration_if_needed(db, db_agendamento)
@@ -6227,6 +6608,7 @@ def atualizar_agendamento(
             db_agendamento,
             agendamento_id_excluir=agendamento_id,
             confirmar_conflito_deslocamento=override_conflito_deslocamento,
+            validar_primeira_saida=not atendimento_ja_iniciado,
         )
     if bypass_deslocamento and bypass_deslocamento.get("origem") == "confirmacao_admin":
         _conceder_excecao_deslocamento(
