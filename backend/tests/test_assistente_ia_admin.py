@@ -1081,13 +1081,39 @@ class AssistenteIAAdminTest(unittest.TestCase):
                 engine.reset_mock()
                 for preferencia in ({'data_inicio': '2099-01-10', 'turno': 'manha'},
                                     {'data_inicio': '2099-01-10', 'data_fim': '2099-03-01'},
-                                    {'hora_inicio': '14:00', 'turno': 'tarde'},
+                                    {'hora_fim': '15:00', 'turno': 'tarde'},
+                                    {'hora_inicio': '12:00', 'turno': 'manha'},
                                     {'turno': 'tarde', 'hora_inicio': '08:00', 'hora_fim': '10:00'}):
                     with self.subTest(preferencia=preferencia):
                         result = assistente_ia_tools.verificar_disponibilidade(ctx, clinica='Animal Care', servico='Ecocardiograma',
                             data_inicio=None, dias=7, preferencia=preferencia)
                         self.assertFalse(result['ok'])
                 engine.assert_not_called()
+
+    def test_disponibilidade_a_partir_de_chega_ao_motor_sem_ampliar_data_ou_horario(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            preferencia = {'data_inicio': '2099-01-10', 'data_fim': '2099-01-10',
+                           'turno': 'tarde', 'hora_inicio': '14:00'}
+
+            def suggest(*, payload, **_kwargs):
+                self.assertEqual(payload.preferencia.model_dump(exclude_none=True), preferencia)
+                return {'items': [
+                    {'inicio': '2099-01-10T13:45:00-03:00', 'fim': '2099-01-10T14:15:00-03:00'},
+                    {'inicio': '2099-01-10T14:00:00-03:00', 'fim': '2099-01-10T14:30:00-03:00'},
+                    {'inicio': '2099-01-10T17:45:00-03:00', 'fim': '2099-01-10T18:15:00-03:00'},
+                    {'inicio': '2099-01-11T14:00:00-03:00', 'fim': '2099-01-11T14:30:00-03:00'},
+                ]}
+
+            with patch.object(assistente_ia_tools.agenda, 'sugerir_horarios_agenda', side_effect=suggest) as engine:
+                result = assistente_ia_tools.verificar_disponibilidade(
+                    self._context(db, conversation), clinica='Animal Care', servico='Ecocardiograma',
+                    data_inicio='2099-01-01', dias=7, preferencia=preferencia)
+
+        self.assertEqual([call.kwargs['payload'].data for call in engine.call_args_list], ['2099-01-10'])
+        self.assertEqual(result['periodo'], {'inicio': '2099-01-10', 'fim': '2099-01-10', 'dias_solicitados': 1})
+        self.assertEqual([item['inicio'] for item in result['slots']], ['2099-01-10T14:00:00-03:00'])
+        self.assertEqual(result['preferencia'], preferencia)
 
     def test_disponibilidade_tool_schema_preserva_contrato_estrito(self) -> None:
         definition = next(item for item in assistente_ia_tools.TOOL_DEFINITIONS if item['name'] == 'verificar_disponibilidade')

@@ -22,8 +22,8 @@ class AgendaPreferencia(BaseModel):
             inicio, fim = date.fromisoformat(self.data_inicio), date.fromisoformat(self.data_fim)
             if not 0 <= (fim - inicio).days <= 30:
                 raise ValueError("O periodo deve ter entre 1 e 31 dias, em ordem crescente.")
-        if bool(self.hora_inicio) != bool(self.hora_fim):
-            raise ValueError("Informe hora_inicio e hora_fim juntas.")
+        if self.hora_fim and not self.hora_inicio:
+            raise ValueError("Informe hora_inicio ao definir hora_fim.")
         inicio_min, fim_min = self.limites_horarios()
         if inicio_min >= fim_min:
             raise ValueError("O intervalo de horas deve ser crescente e compativel com o turno.")
@@ -35,10 +35,12 @@ class AgendaPreferencia(BaseModel):
 
     def limites_horarios(self) -> tuple[int, int]:
         inicio, fim = {"qualquer": (0, 24 * 60), "manha": (0, 12 * 60), "tarde": (12 * 60, 18 * 60)}[self.turno]
-        if self.hora_inicio and self.hora_fim:
+        if self.hora_inicio or self.hora_fim:
             def minutos(hora: str) -> int:
                 hh, mm = hora.split(":")
                 return int(hh) * 60 + int(mm)
-            inicio = max(inicio, minutos(self.hora_inicio))
-            fim = min(fim, minutos(self.hora_fim))
+            if self.hora_inicio:
+                inicio = max(inicio, minutos(self.hora_inicio))
+            if self.hora_fim:
+                fim = min(fim, minutos(self.hora_fim))
         return inicio, fim

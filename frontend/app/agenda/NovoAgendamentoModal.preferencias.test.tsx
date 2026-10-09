@@ -75,6 +75,45 @@ describe("preferências antes das ofertas", () => {
     })));
   });
 
+  it("envia 16/10 após 09:00 antes de sugerir e invalida o aceite ao alterar ou limpar a preferência", async () => {
+    apiPost.mockImplementation(async (url: string) =>
+      url === "/agenda/assistente/validar-oferta"
+        ? { data: { ok: true, valido: true } }
+        : { data: { panorama_ofertas: { items: [
+          { ...OFERTA, inicio: "2026-10-16 10:00", fim: "2026-10-16 10:40" },
+        ] } } }
+    );
+    montar();
+    await botaoGerar();
+    fireEvent.change(screen.getByLabelText("Quando deseja o atendimento"), { target: { value: "data" } });
+    fireEvent.change(screen.getByLabelText("Data desejada"), { target: { value: "2026-10-16" } });
+    fireEvent.change(screen.getByLabelText("Turno desejado"), { target: { value: "a_partir_de" } });
+    expect(screen.getByLabelText("A partir de")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Terminar até")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Gerar melhor oferta" })).toBeDisabled();
+    expect(apiPost).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("A partir de"), { target: { value: "09:00" } });
+    expect(screen.getByText(/16\/10\/2026, a partir de 09:00/)).toBeInTheDocument();
+    fireEvent.click(await botaoGerar());
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith("/agenda/assistente/ofertas", expect.objectContaining({
+      preferencia: { data_inicio: "2026-10-16", data_fim: "2026-10-16", turno: "qualquer", hora_inicio: "09:00" },
+    })));
+    fireEvent.click(await screen.findByRole("button", { name: "Cliente aceitou esta oferta" }));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith("/agenda/assistente/validar-oferta", expect.objectContaining({
+      inicio: "2026-10-16 10:00",
+    })));
+    expect(await screen.findByText(/Aceite do cliente registrado/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("A partir de"), { target: { value: "10:00" } });
+    expect(screen.queryByText(/Aceite do cliente registrado/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cliente aceitou esta oferta" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Limpar preferências e ampliar busca" }));
+    expect(screen.getByLabelText("Turno desejado")).toHaveValue("qualquer");
+    fireEvent.click(await botaoGerar());
+    await waitFor(() => expect(apiPost).toHaveBeenLastCalledWith("/agenda/assistente/ofertas", expect.objectContaining({ preferencia: undefined })));
+  });
+
   it("traz preferência estruturada do pedido e permite ampliar somente por ação explícita", async () => {
     montar({ ...PEDIDO, dados_coletados: { preferencia_agenda: { data_inicio: "2026-10-08", data_fim: "2026-10-08", turno: "manha" } } });
     fireEvent.click(await botaoGerar());
@@ -84,6 +123,19 @@ describe("preferências antes das ofertas", () => {
     fireEvent.click(screen.getByRole("button", { name: "Limpar preferências e ampliar busca" }));
     fireEvent.click(await botaoGerar());
     await waitFor(() => expect(apiPost).toHaveBeenLastCalledWith("/agenda/assistente/ofertas", expect.objectContaining({ preferencia: undefined })));
+  });
+
+  it("importa horário inicial isolado do pedido sem exigir fim", async () => {
+    montar({ ...PEDIDO, dados_coletados: { preferencia_agenda: {
+      data_inicio: "2026-10-16", data_fim: "2026-10-16", turno: "qualquer", hora_inicio: "09:00",
+    } } });
+    expect(screen.getByLabelText("Turno desejado")).toHaveValue("a_partir_de");
+    expect(screen.getByLabelText("A partir de")).toHaveValue("09:00");
+    expect(screen.queryByLabelText("Terminar até")).not.toBeInTheDocument();
+    fireEvent.click(await botaoGerar());
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith("/agenda/assistente/ofertas", expect.objectContaining({
+      preferencia: { data_inicio: "2026-10-16", data_fim: "2026-10-16", turno: "qualquer", hora_inicio: "09:00" },
+    })));
   });
 
   it("descarta resposta antiga ao mudar o turno e invalida uma oferta já aceita", async () => {
