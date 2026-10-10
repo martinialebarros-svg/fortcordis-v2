@@ -1,6 +1,6 @@
 # Spec — Edição após conclusão
 
-Data: 2026-10-10. Status: implementado e validado localmente; não publicado.
+Data: 2026-10-10. Status: implementado; validação e escopo de publicação registrados em verify.md.
 
 ## Comportamento
 
