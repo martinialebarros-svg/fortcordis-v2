@@ -1,5 +1,15 @@
 # Spec - Revisão da apresentação do laudo ecocardiográfico
 
+## Incremento: fontes para velocidades aórtica e pulmonar (2026-10-10)
+
+- RF-055: a base de Referências Eco exibe e permite editar as faixas cadastradas de Vmax aórtica e pulmonar em m/s, inclusive limpar um limite. A consulta apresenta estudos primários por espécie, com população, Doppler e natureza estatística identificados, sem atribuir automaticamente a eles as faixas legadas.
+- RF-056: se Vmax aórtica ou pulmonar positiva estiver no laudo, a bibliografia compacta após a análise qualitativa cita o estudo correspondente à espécie. Para cães, Petrus et al. (2010) fornece médias e desvios padrão de Doppler pulsado em 30 cães saudáveis; para gatos, Domanjko Petrič et al. (2012) fornece extremos observados em 53 gatos não sedados. Esses dados não são tratados como intervalos individuais de referência. A citação pode aparecer mesmo sem uma linha numérica selecionada; as demais citações preservam a regra anterior.
+- RF-057: o PDF não usa limites fixos de 0–2,20 m/s no modelo de Vmax. Uma faixa numérica aparece somente se vier completa do cadastro selecionado; os valores existentes no banco não são alterados. O contexto da IA indica apenas Doppler espectral quando a modalidade pulsada/contínua não foi registrada.
+- RF-058: o cache do PDF ecocardiográfico avança para refletir a bibliografia, preservando a versão das outras modalidades.
+- CA-051: com Vmax aórtica ou pulmonar medida, a página de Referências Eco identifica a fonte por espécie e o PDF cita apenas o estudo correspondente; sem as duas velocidades, não há essa citação. Os valores e a conclusão armazenados permanecem intactos.
+- CA-052: sem linha de referência, as velocidades continuam visíveis com faixa ausente e a bibliografia de fluxo aparece; com linha legada de 0–2,20 m/s, ela continua identificável como faixa cadastrada, sem que a citação atribua esse intervalo a Petrus ou Domanjko Petrič.
+- Fontes: [Petrus et al. (2010), Quadro 2](https://doi.org/10.1590/S0100-736X2010000700013) apresenta Ao 1,26 ± 0,13 e pulmonar 0,95 ± 0,18 m/s como médias ± DP; o resumo contém erro tipográfico no resultado aórtico. [Domanjko Petrič et al. (2012)](https://doi.org/10.1016/j.jvc.2012.04.004) apresenta Ao 0,77–1,40 e pulmonar 0,65–1,21 m/s como amplitudes observadas. Métodos e populações dos estudos não permitem validar automaticamente um limite único de 2,20 m/s para todos os pacientes.
+
 ## Incremento: padrões diastólicos felinos (2026-10-04)
 
 - RF-052: a biblioteca resolve a seleção do preset pelo título da frase no mesmo aspecto quando o banco runtime não possui `frase_id`, permitindo revisar e editar os presets felinos sincronizados.

@@ -963,7 +963,14 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
     paciente = dados_pdf.get("paciente") or {}
     medidas = dados_pdf.get("medidas") or {}
     referencia = dados_pdf.get("referencia_eco") or {}
-    if not referencia:
+    # A bibliografia de fluxos documenta dados publicados mesmo quando não há
+    # linha de referência selecionada; não transforma estatísticas descritivas
+    # em limites individuais nem atribui a elas as faixas do cadastro.
+    tem_fluxo_saida = any(
+        valor is not None and math.isfinite(valor) and valor > 0
+        for valor in (_to_float(medidas.get("Vmax_aorta")), _to_float(medidas.get("Vmax_pulmonar")))
+    )
+    if not referencia and not tem_fluxo_saida:
         return []
     especie = normalizar_especie_referencia(paciente.get("especie") or "")
     modo_m = str(medidas.get("VE_tecnica_relatorio") or "").lower() != "2d"
@@ -974,7 +981,7 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
     mapse = _to_float(medidas.get("MAPSE")) is not None
 
     estudos: List[str] = []
-    if especie == "Canina":
+    if referencia and especie == "Canina":
         if referencias_2d_caninas_publicadas(dados_pdf):
             estudos.append(
                 "Visser et al. (2019). Echocardiographic quantitation of left heart size "
@@ -1006,7 +1013,7 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
                 "Schober &amp; Luis Fuentes (2001). Mitral annulus motion in normal dogs "
                 "and dogs with cardiac disease. DOI: 10.1111/j.1740-8261.2001.tb00904.x."
             )
-    elif especie == "Felina":
+    elif referencia and especie == "Felina":
         if tem_modo_m or (modo_m and referencia.get("fs_source") and _to_float(medidas.get("DeltaD_FS")) is not None):
             estudos.append(
                 "Häggström et al. (2016). Effect of body weight on echocardiographic "
@@ -1035,6 +1042,21 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
                 "Kochie et al. (2021). Effects of pimobendan on left atrial transport "
                 "function in cats. DOI: 10.1111/jvim.15976."
             )
+
+    if tem_fluxo_saida and especie == "Canina":
+        estudos.append(
+            "Petrus et al. (2010). Fluxos aórtico e pulmonar por Doppler pulsado "
+            "em 30 cães clinicamente sadios; Ao 1,26 ± 0,13 e pulmonar "
+            "0,95 ± 0,18 m/s (médias ± DP). "
+            "DOI: 10.1590/S0100-736X2010000700013."
+        )
+    elif tem_fluxo_saida and especie == "Felina":
+        estudos.append(
+            "Domanjko Petric et al. (2012). Fluxos aórtico e pulmonar por Doppler "
+            "pulsado em 53 gatos domésticos saudáveis sem sedação; Ao 0,77–1,40 "
+            "e pulmonar 0,65–1,21 m/s (mínimos e máximos observados). "
+            "DOI: 10.1016/j.jvc.2012.04.004."
+        )
 
     if not estudos:
         return []
@@ -1590,11 +1612,11 @@ def gerar_pdf_laudo_eco(
         
         # Grupo: Doppler - Saídas - SEM Interpretação
         params_doppler_saidas = [
-            {'chave': 'Vmax_aorta', 'label': 'Vmax aorta', 'unidade': 'm/s', 'ref_min': 0.00, 'ref_max': 2.20},
+            {'chave': 'Vmax_aorta', 'label': 'Vmax aorta', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
             {'chave': 'Grad_aorta', 'label': 'Gradiente aorta', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
             {'chave': 'Vmax_VSVE', 'label': 'Vmax via de saída do VE', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
             {'chave': 'Grad_VSVE', 'label': 'Gradiente via de saída do VE (4 × V²)', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
-            {'chave': 'Vmax_pulmonar', 'label': 'Vmax pulmonar', 'unidade': 'm/s', 'ref_min': 0.00, 'ref_max': 2.20},
+            {'chave': 'Vmax_pulmonar', 'label': 'Vmax pulmonar', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
             {'chave': 'Grad_pulmonar', 'label': 'Gradiente pulmonar', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
         ]
         
@@ -1703,7 +1725,7 @@ def gerar_pdf_laudo_eco(
         if qualitativa_preenchida:
             elements.extend(criar_secao_qualitativa(
                 qualitativa,
-                assinatura=assinatura + referencias if assinatura_com_qualitativa else None,
+                assinatura=assinatura if assinatura_com_qualitativa else None,
             ))
 
         # Pressao arterial anexada ao laudo ecocardiografico (quando existir).
@@ -1712,8 +1734,8 @@ def gerar_pdf_laudo_eco(
         # 5. Assinatura
         if not assinatura_com_qualitativa:
             elements.extend(assinatura)
-            if referencias:
-                elements.append(_bloco_sem_quebra(*referencias))
+        if referencias:
+            elements.append(_bloco_sem_quebra(*referencias))
 
         # 6. Espaço antes das imagens (rodapé será adicionado automaticamente em todas as páginas)
         elements.append(Spacer(1, 5*mm))

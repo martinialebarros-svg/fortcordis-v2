@@ -87,6 +87,13 @@ def empty_output(**overrides):
 
 
 class AIEchoVoiceAssistantTest(unittest.TestCase):
+    def test_outflow_method_is_not_inferred_from_velocity_alone(self) -> None:
+        context = safe_measurement_context({"Vmax_aorta": "1.26", "Vmax_pulmonar": "0.95"})
+        self.assertEqual(context["Vmax_aorta"]["unit"], "m/s")
+        self.assertEqual(context["Vmax_pulmonar"]["unit"], "m/s")
+        self.assertNotIn("contínuo", context["Vmax_aorta"]["method"])
+        self.assertNotIn("contínuo", context["Vmax_pulmonar"]["method"])
+
     def test_confirmed_units_are_safe_in_ai_context(self) -> None:
         raw = {
             "DIVEd": "2,5", "SIVd": "3", "DIVES": "1,5", "Atrio_esquerdo": "2,0",
