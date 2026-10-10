@@ -437,7 +437,9 @@ export default function FinanceiroPage() {
   }, [chaveOrdens]);
   const [rotaFinanceiroResolvida, setRotaFinanceiroResolvida] = useState(false);
   const [modalReceberOS, setModalReceberOS] = useState<OrdemServico | null>(null);
-  const [modalReceberLoteOSIds, setModalReceberLoteOSIds] = useState<number[] | null>(null);
+  const [modalReceberLoteOS, setModalReceberLoteOS] = useState<OrdemServico[] | null>(null);
+  const [erroRecebimentoLoteOS, setErroRecebimentoLoteOS] = useState("");
+  const [loteExigeRevisao, setLoteExigeRevisao] = useState(false);
   const [modalEditarOS, setModalEditarOS] = useState<OrdemServico | null>(null);
   const [modalAjustarValorOS, setModalAjustarValorOS] = useState<OrdemServico | null>(null);
   const [novoValorFinalOS, setNovoValorFinalOS] = useState("");
@@ -484,6 +486,7 @@ export default function FinanceiroPage() {
   const [osSelecionadasRecibo, setOsSelecionadasRecibo] = useState<number[]>([]);
   const [osSelecionadasBaixa, setOsSelecionadasBaixa] = useState<number[]>([]);
   const [recebendoLoteOS, setRecebendoLoteOS] = useState(false);
+  const recebendoLoteOSRef = useRef(false);
   const [modalCompartilharRecibo, setModalCompartilharRecibo] = useState<CompartilhamentoReciboState | null>(null);
   const [enviandoCompartilhamentoRecibo, setEnviandoCompartilhamentoRecibo] = useState(false);
   const [previewRecibo, setPreviewRecibo] = useState<PreviewReciboState | null>(null);
@@ -1142,13 +1145,8 @@ export default function FinanceiroPage() {
     valorCreditoUtilizadoOS,
   ]);
 
-  const ordensRecebimentoLote = useMemo(
-    () =>
-      (modalReceberLoteOSIds || [])
-        .map((id) => ordensServico.find((os) => os.id === id))
-        .filter((os): os is OrdemServico => os != null && os.status === "Pendente"),
-    [modalReceberLoteOSIds, ordensServico]
-  );
+  // Preserve the complete reviewed batch even if a refresh changes its orders.
+  const ordensRecebimentoLote = useMemo(() => modalReceberLoteOS || [], [modalReceberLoteOS]);
 
   const recebimentoLoteMesmoDestinatario = useMemo(() => {
     const chaves = new Set(
@@ -1160,6 +1158,7 @@ export default function FinanceiroPage() {
     );
     return ordensRecebimentoLote.length > 0 && chaves.size === 1;
   }, [ordensRecebimentoLote]);
+  const permiteReciboWhatsAppLote = recebimentoLoteMesmoDestinatario && ordensRecebimentoLote.length <= 20;
 
   const resumoPagamentoLoteOS = useMemo(() => {
     const linhas = pagamentosRecebimentoOS.map((item) => {
@@ -1415,6 +1414,10 @@ export default function FinanceiroPage() {
       alert("Selecione ao menos uma OS pendente para receber em lote.");
       return;
     }
+    if (idsPendentes.length > 200) {
+      setErroSelecao("Selecione no maximo 200 OS por recebimento em lote.");
+      return;
+    }
     if (!(await validarSelecao(idsPendentes, "Pendente"))) return;
 
     const total = idsPendentes.reduce((acc, id) => {
@@ -1422,7 +1425,9 @@ export default function FinanceiroPage() {
       return acc + Number(os?.valor_final || 0);
     }, 0);
 
-    setModalReceberLoteOSIds(idsPendentes);
+    setModalReceberLoteOS(idsPendentes.map((id) => ({ ...ordensServico.find((os) => os.id === id)! })));
+    setErroRecebimentoLoteOS("");
+    setLoteExigeRevisao(false);
     setPagamentosRecebimentoOS([
       {
         id: gerarPagamentoId(),
@@ -1635,41 +1640,8 @@ export default function FinanceiroPage() {
     }
   };
 
-  const alocarPagamentosParaOS = (
-    os: OrdemServico,
-    pagamentos: Array<{
-      forma_pagamento: string;
-      forma_pagamento_config_id?: number;
-      valor: number;
-    }>,
-    totalLote: number,
-    ultimaOS: boolean,
-    acumuladoPorForma: Map<string, number>
-  ) => {
-    const valorOS = Number(os.valor_final || 0);
-    return pagamentos
-      .map((pagamento) => {
-        const chave = `${pagamento.forma_pagamento_config_id || ""}:${pagamento.forma_pagamento}`;
-        const acumulado = acumuladoPorForma.get(chave) || 0;
-        const valor =
-          ultimaOS
-            ? Number((pagamento.valor - acumulado).toFixed(2))
-            : Number(((pagamento.valor * valorOS) / totalLote).toFixed(2));
-        acumuladoPorForma.set(chave, Number((acumulado + valor).toFixed(2)));
-        return {
-          ...pagamento,
-          valor,
-        };
-      })
-      .filter((pagamento) => pagamento.valor > 0);
-  };
-
   const confirmarRecebimentoLoteOS = async () => {
-    if (!(await validarSelecao(modalReceberLoteOSIds || [], "Pendente", ordensRecebimentoLote))) return;
-    if (ordensRecebimentoLote.length === 0) {
-      alert("Nenhuma OS pendente selecionada.");
-      return;
-    }
+    if (recebendoLoteOSRef.current || loteExigeRevisao || ordensRecebimentoLote.length === 0) return;
 
     const pagamentosPayload = resumoPagamentoLoteOS.linhas
       .filter((item) => item.valor > 0)
@@ -1679,56 +1651,76 @@ export default function FinanceiroPage() {
         valor: Number(item.valor.toFixed(2)),
       }));
     if (pagamentosPayload.length === 0) {
-      alert("Informe ao menos um pagamento com valor maior que zero.");
+      setErroRecebimentoLoteOS("Informe ao menos um pagamento com valor maior que zero.");
+      return;
+    }
+    if (pagamentosPayload.length > 20) {
+      setErroRecebimentoLoteOS("Informe no maximo 20 pagamentos por recebimento em lote.");
       return;
     }
     if (resumoPagamentoLoteOS.faltante > 0) {
-      alert(`Falta cobrir ${formatarValor(resumoPagamentoLoteOS.faltante)} para receber as OS selecionadas.`);
+      setErroRecebimentoLoteOS(`Falta cobrir ${formatarValor(resumoPagamentoLoteOS.faltante)} para receber as OS selecionadas.`);
       return;
     }
     if (resumoPagamentoLoteOS.excedente > 0) {
-      alert("A baixa em lote precisa bater exatamente com o total das OS selecionadas. Ajuste o valor informado.");
+      setErroRecebimentoLoteOS("A baixa em lote precisa bater exatamente com o total das OS selecionadas. Ajuste o valor informado.");
       return;
     }
 
-    const acumuladoPorForma = new Map<string, number>();
-    const erros: string[] = [];
-    const idsRecebidas: number[] = [];
-    let conflitoValor = false;
-    let avisoRecibo = "";
+    const idsSelecionadas = ordensRecebimentoLote.map((os) => os.id);
+    const orientarRevisao = "Confira a lista atualizada, feche este painel e selecione novamente as OS antes de outra tentativa.";
+    const enviarReciboLote = enviarReciboPdfWhatsAppAposRecebimento && permiteReciboWhatsAppLote;
+    const atualizarListaAposLote = async () => {
+      try {
+        await recarregarOSComGrupoAberto();
+      } catch {
+        const mensagem = "Nao foi possivel atualizar a lista. Recarregue as ordens antes de continuar.";
+        setErroSelecao(mensagem);
+        setErroRecebimentoLoteOS((atual) => atual ? `${atual} ${mensagem}` : atual);
+      }
+    };
+    recebendoLoteOSRef.current = true;
     setRecebendoLoteOS(true);
+    setErroRecebimentoLoteOS("");
     try {
-      for (let index = 0; index < ordensRecebimentoLote.length; index += 1) {
-        const os = ordensRecebimentoLote[index];
-        const pagamentosOS = alocarPagamentosParaOS(
-          os,
-          pagamentosPayload,
-          resumoPagamentoLoteOS.valorOS,
-          index === ordensRecebimentoLote.length - 1,
-          acumuladoPorForma
-        );
-        try {
-          await api.patch(`/ordens-servico/${os.id}/receber`, {
-            pagamentos: pagamentosOS,
-            data_recebimento: dataRecebimentoOS || null,
-            valor_final_esperado: Number(Number(os.valor_final || 0).toFixed(2)),
-            valor_credito_utilizado: 0,
-            destino_credito_excedente: "cliente",
-          });
-          idsRecebidas.push(os.id);
-        } catch (error: any) {
-          erros.push(`OS ${os.numero_os || os.id}: ${error.response?.data?.detail || error.message}`);
-          if (error?.response?.status === 409) {
-            conflitoValor = true;
-            break;
-          }
+      let idsRecebidas: number[];
+      try {
+        const response = await api.patch<{ os_ids: number[]; mensagem: string }>("/ordens-servico/receber-lote", {
+          ordens: ordensRecebimentoLote.map((os) => ({
+            os_id: os.id,
+            valor_final_esperado: Number(os.valor_final).toFixed(2),
+          })),
+          pagamentos: pagamentosPayload,
+          data_recebimento: dataRecebimentoOS || null,
+        });
+        idsRecebidas = response.data?.os_ids;
+        const selecaoCompleta = Array.isArray(idsRecebidas)
+          && idsRecebidas.length === idsSelecionadas.length
+          && new Set(idsRecebidas).size === idsSelecionadas.length
+          && idsRecebidas.every((id) => idsSelecionadas.includes(id));
+        if (!selecaoCompleta) {
+          setLoteExigeRevisao(true);
+          setErroRecebimentoLoteOS(`Nao foi possivel confirmar o recebimento de todas as OS. O recibo nao foi solicitado. ${orientarRevisao}`);
+          await atualizarListaAposLote();
+          return;
         }
+      } catch (error: any) {
+        const status = error?.response?.status;
+        const detalhe = error?.response?.data?.detail;
+        setLoteExigeRevisao(true);
+        if (status === 409) {
+          setErroRecebimentoLoteOS(`Uma OS mudou desde a conferencia. Nenhuma baixa deste lote foi registrada por esta operacao. ${orientarRevisao}`);
+        } else if (status >= 400 && status < 500) {
+          setErroRecebimentoLoteOS(`${typeof detalhe === "string" ? detalhe : "O recebimento do lote foi recusado."} ${orientarRevisao}`);
+        } else {
+          setErroRecebimentoLoteOS(`Nao foi possivel confirmar o resultado do recebimento. O lote pode ter sido registrado. O recibo nao foi solicitado. ${orientarRevisao}`);
+        }
+        await atualizarListaAposLote();
+        return;
       }
 
-      if (conflitoValor && enviarReciboPdfWhatsAppAposRecebimento && idsRecebidas.length > 0) {
-        avisoRecibo = "O recibo nao foi enviado porque a baixa em lote precisou ser interrompida para nova conferencia.";
-      }
-      if (!conflitoValor && enviarReciboPdfWhatsAppAposRecebimento && idsRecebidas.length > 0) {
+      let avisoRecibo = "";
+      if (enviarReciboLote) {
         try {
           if (idsRecebidas.length === 1) {
             await api.post(`/ordens-servico/${idsRecebidas[0]}/whatsapp/recibo-pdf`, {
@@ -1743,34 +1735,22 @@ export default function FinanceiroPage() {
         } catch (error: any) {
           avisoRecibo =
             error.response?.data?.detail ||
-            "As baixas foram registradas, mas nao foi possivel enviar o recibo PDF pelo WhatsApp.";
+            "As baixas foram registradas, mas nao foi possivel confirmar o envio do recibo PDF pelo WhatsApp.";
         }
       }
 
-      setModalReceberLoteOSIds(null);
+      setModalReceberLoteOS(null);
       setPagamentosRecebimentoOS([]);
       setOsSelecionadasBaixa([]);
       setEnviarReciboPdfWhatsAppAposRecebimento(false);
-      await recarregarOSComGrupoAberto();
-      if (erros.length > 0 || avisoRecibo) {
-        const partes = [
-          erros.length > 0
-            ? `${idsRecebidas.length > 0
-              ? `Baixa em lote concluida parcialmente: ${idsRecebidas.length} OS recebida(s).`
-              : "Nenhuma baixa foi registrada."}\n${erros.join("\n")}`
-            : "Baixa em lote registrada com sucesso.",
-          conflitoValor ? "Uma OS mudou desde a conferencia. Reabra as OS e confira os valores antes de preparar uma nova baixa." : "",
-          avisoRecibo ? `Aviso do WhatsApp: ${avisoRecibo}` : "",
-        ].filter(Boolean);
-        alert(partes.join("\n\n"));
-      } else {
-        alert(
-          enviarReciboPdfWhatsAppAposRecebimento
-            ? "Baixa em lote registrada e recibo PDF consolidado enviado pelo WhatsApp!"
-            : "Baixa em lote registrada com sucesso!"
-        );
-      }
+      await atualizarListaAposLote();
+      alert(avisoRecibo
+        ? `Baixa em lote registrada com sucesso.\n\nAviso do WhatsApp: ${avisoRecibo}`
+        : enviarReciboLote
+          ? "Baixa em lote registrada e recibo PDF consolidado enviado pelo WhatsApp!"
+          : "Baixa em lote registrada com sucesso!");
     } finally {
+      recebendoLoteOSRef.current = false;
       setRecebendoLoteOS(false);
     }
   };
@@ -4235,17 +4215,17 @@ export default function FinanceiroPage() {
       )}
 
       {/* Modal de Receber OS em lote */}
-      {modalReceberLoteOSIds && (
+      {modalReceberLoteOS && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 p-4">
-          <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div role="dialog" aria-modal="true" aria-labelledby="receber-lote-titulo" className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">Receber OS em lote</h3>
+              <h3 id="receber-lote-titulo" className="text-lg font-semibold text-gray-900">Receber OS em lote</h3>
               <p className="text-sm text-gray-500 mt-1">
-                {ordensRecebimentoLote.length} OS pendente(s) selecionada(s)
+                {ordensRecebimentoLote.length} OS selecionada(s) para este lote
               </p>
             </div>
 
-            <div className="p-6 space-y-4">
+            <fieldset disabled={recebendoLoteOS || loteExigeRevisao} className="p-6 space-y-4 min-w-0">
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
                 <div className="flex justify-between text-sm">
                   <span className="text-amber-900">Total das OS selecionadas</span>
@@ -4269,6 +4249,7 @@ export default function FinanceiroPage() {
                     <div className="mb-2 text-xs font-medium text-gray-500">Pagamento {index + 1}</div>
                     <label className="block text-xs font-medium text-gray-600">Forma de pagamento</label>
                     <select
+                      aria-label={`Forma do pagamento ${index + 1}`}
                       value={pagamento.forma_codigo}
                       onChange={(event) => atualizarLinhaPagamentoOS(pagamento.id, "forma_codigo", event.target.value)}
                       className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
@@ -4285,6 +4266,7 @@ export default function FinanceiroPage() {
                     <label className="mt-2 block text-xs font-medium text-gray-600">Valor</label>
                     <input
                       type="number"
+                      aria-label={`Valor do pagamento ${index + 1}`}
                       min="0"
                       step="0.01"
                       value={pagamento.valor}
@@ -4308,6 +4290,7 @@ export default function FinanceiroPage() {
                 <button
                   type="button"
                   onClick={adicionarLinhaPagamentoOS}
+                  disabled={pagamentosRecebimentoOS.length >= 20}
                   className="text-sm font-medium text-blue-600 hover:text-blue-700"
                 >
                   + Adicionar forma de pagamento
@@ -4318,6 +4301,7 @@ export default function FinanceiroPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">Data do Recebimento</label>
                 <input
                   type="date"
+                  aria-label="Data do Recebimento"
                   value={dataRecebimentoOS}
                   onChange={(e) => setDataRecebimentoOS(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
@@ -4329,7 +4313,7 @@ export default function FinanceiroPage() {
                   <input
                     type="checkbox"
                     checked={enviarReciboPdfWhatsAppAposRecebimento}
-                    disabled={!recebimentoLoteMesmoDestinatario}
+                    disabled={!permiteReciboWhatsAppLote}
                     onChange={(event) => setEnviarReciboPdfWhatsAppAposRecebimento(event.target.checked)}
                     className="mt-0.5"
                   />
@@ -4343,6 +4327,11 @@ export default function FinanceiroPage() {
                 {!recebimentoLoteMesmoDestinatario && (
                   <p className="mt-2 text-xs text-amber-800">
                     Para enviar um único recibo, selecione somente OS do mesmo destinatário.
+                  </p>
+                )}
+                {ordensRecebimentoLote.length > 20 && (
+                  <p className="mt-2 text-xs text-amber-800">
+                    O envio de recibo consolidado pelo WhatsApp permite no maximo 20 OS por vez.
                   </p>
                 )}
               </div>
@@ -4371,33 +4360,44 @@ export default function FinanceiroPage() {
                   </p>
                 )}
               </div>
-            </div>
+            </fieldset>
 
-            <div className="p-6 border-t flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setModalReceberLoteOSIds(null);
-                  setPagamentosRecebimentoOS([]);
-                  setEnviarReciboPdfWhatsAppAposRecebimento(false);
-                }}
-                disabled={recebendoLoteOS}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border disabled:opacity-60"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={confirmarRecebimentoLoteOS}
-                disabled={
-                  recebendoLoteOS ||
-                  resumoPagamentoLoteOS.faltante > 0 ||
-                  resumoPagamentoLoteOS.excedente > 0 ||
-                  ordensRecebimentoLote.length === 0
-                }
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60"
-              >
-                <CheckCircle className="w-4 h-4" />
-                {recebendoLoteOS ? "Recebendo..." : "Confirmar baixa em lote"}
-              </button>
+            <div className="sticky bottom-0 z-10 bg-white p-6 border-t">
+              {erroRecebimentoLoteOS && (
+                <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                  {erroRecebimentoLoteOS}
+                </p>
+              )}
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setModalReceberLoteOS(null);
+                    setErroRecebimentoLoteOS("");
+                    if (loteExigeRevisao) setOsSelecionadasBaixa([]);
+                    setLoteExigeRevisao(false);
+                    setPagamentosRecebimentoOS([]);
+                    setEnviarReciboPdfWhatsAppAposRecebimento(false);
+                  }}
+                  disabled={recebendoLoteOS}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border disabled:opacity-60"
+                >
+                  {loteExigeRevisao ? "Fechar e revisar selecao" : "Cancelar"}
+                </button>
+                <button
+                  onClick={confirmarRecebimentoLoteOS}
+                  disabled={
+                    recebendoLoteOS ||
+                    loteExigeRevisao ||
+                    resumoPagamentoLoteOS.faltante > 0 ||
+                    resumoPagamentoLoteOS.excedente > 0 ||
+                    ordensRecebimentoLote.length === 0
+                  }
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  {recebendoLoteOS ? "Recebendo..." : "Confirmar baixa em lote"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

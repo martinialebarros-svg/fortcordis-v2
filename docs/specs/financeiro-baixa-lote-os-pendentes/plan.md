@@ -1,26 +1,29 @@
 # Plan - financeiro-baixa-lote-os-pendentes
 
-Data: 2026-06-13
+Data: 2026-10-10
 Responsavel: Martiniano + Codex
-Status: implemented
+Status: implementado e validado localmente
 
 ## 1) Implementacao
 
-- Localizar fluxo atual de recebimento individual de OS.
-- Criar selecao separada para OS pendentes.
-- Adicionar acoes de selecao e baixa em lote na aba Ordens de Servico.
-- Adicionar acao de receber pendentes no card de Cobrancas por Clinica.
-- Criar modal de baixa em lote com resumo, data e formas de pagamento.
-- Ratear pagamentos informados por OS selecionada e chamar o endpoint individual existente.
-- Recarregar dados e limpar selecao apos a baixa.
+- Extrair regras compartilhadas de recebimento sem commit intermediario.
+- Criar endpoint atomico, lock de todas as OS, comparacao de valores e rateio em centavos.
+- Proteger cancelamento/exclusao concorrentes com o recebimento.
+- Substituir loop da UI por uma requisicao; congelar selecao e valores conferidos.
+- Exigir sucesso completo antes de pedir recibo e apresentar falha no modal.
 
 ## 2) Validacao
 
-- Executar lint do arquivo financeiro.
-- Revisar manualmente os estados bloqueados do modal.
-- Validar que a selecao de recibos de OS pagas segue independente da selecao de baixa.
+- Testes de rollback, status, valores, repeticao, rateio e auditoria em banco sintetico.
+- Duas sessoes PostgreSQL disputando pagamento, cancelamento e lotes sobrepostos.
+- Testes da UI para sucesso integral, conflito, resposta incompleta e falha de rede.
+- Lint/typecheck/build e gate SDD; regressao dos fluxos individuais afetados.
+- Integrar os testes ao pipeline de homologacao e conferir deploy terminal e bundle servido.
 
-## 3) Riscos
+## 3) Falha segura e retorno
 
-- Como o backend nao tem endpoint atomico em lote, falhas parciais podem acontecer se uma OS falhar apos outras terem sido recebidas.
-- Rateio de multiplas formas de pagamento pode gerar ajustes de centavos na ultima OS para fechar o total informado.
+- Qualquer erro anterior ao commit executa rollback integral.
+- WhatsApp apos commit continua independente e nao desfaz baixa valida.
+- Reverter o commit restaura o comportamento anterior; nao ha migracao de banco.
+- Nao usar OS reais para provar disputa ou recebimento. Sessao autenticada e dados
+  sinteticos sao requisitos para um ensaio manual no ambiente publicado.

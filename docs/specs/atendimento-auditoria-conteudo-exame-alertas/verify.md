@@ -75,3 +75,11 @@ Resumo dos resultados:
 - [x] Aprovado para stage.
 - [x] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
+
+## 7) Regressao de concorrencia financeira — 2026-10-10
+
+`tests.test_atendimento_delete_guard`: 9 testes passaram em banco sintetico local.
+Os dois casos novos provam que uma OS recebida por outra sessao e recarregada
+antes do cancelamento e que um novo recebimento depois do desfazer impede
+exclusao com `409`, preservando o movimento ativo e o Atendimento.
+O escopo completo esta em `../financeiro-baixa-lote-os-pendentes/verify.md`.

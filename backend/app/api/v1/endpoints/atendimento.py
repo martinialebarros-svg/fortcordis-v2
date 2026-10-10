@@ -14,7 +14,7 @@ from xml.sax.saxutils import escape as xml_escape
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from jose import JWTError, jwt
-from app.api.v1.endpoints.ordens_servico import desfazer_recebimento_ordem
+from app.api.v1.endpoints.ordens_servico import _bloquear_os_para_escrita, desfazer_recebimento_ordem
 from app.schemas.atendimento import (
     AdendoPayload,
     AnexoPayload,
@@ -4478,6 +4478,15 @@ def excluir_atendimento(
 
             ordem_servico_ativa = _buscar_os_ativa(db, agendamento_id_vinculado)
             if ordem_servico_ativa:
+                # O recebimento em lote e o individual usam este mesmo lock.
+                # Recarrega o status antes de decidir se ha baixa a desfazer.
+                ordem_servico_ativa = _bloquear_os_para_escrita(db, ordem_servico_ativa.id)
+                if (
+                    not ordem_servico_ativa
+                    or ordem_servico_ativa.status not in {"Pendente", "Pago"}
+                    or ordem_servico_ativa.agendamento_id != agendamento_id_vinculado
+                ):
+                    raise HTTPException(409, "A OS vinculada mudou. Recarregue antes de excluir o atendimento.")
                 if ordem_servico_ativa.status == "Pago":
                     # Cancelar direto perderia o rastro do recebimento: a
                     # Transacao continuaria "Pago"/"Recebido" e nenhum
@@ -4490,6 +4499,15 @@ def excluir_atendimento(
                         db=db,
                         current_user=current_user,
                     )
+                    # O desfazer confirma a propria transacao. Recupera o lock
+                    # antes de cancelar, pois outra sessao pode receber de novo.
+                    ordem_servico_ativa = _bloquear_os_para_escrita(db, ordem_servico_ativa.id)
+                    if (
+                        not ordem_servico_ativa
+                        or ordem_servico_ativa.status != "Pendente"
+                        or ordem_servico_ativa.agendamento_id != agendamento_id_vinculado
+                    ):
+                        raise HTTPException(409, "A OS mudou apos desfazer o recebimento. Recarregue antes de excluir o atendimento.")
                 ordem_servico_ativa.status = "Cancelado"
                 ordem_servico_cancelada_id = ordem_servico_ativa.id
 

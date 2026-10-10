@@ -381,6 +381,64 @@ class AtendimentoDeleteGuardTest(unittest.TestCase):
         self.assertEqual(transacao_atualizada.status, "Cancelado")
         self.assertIsNone(transacao_atualizada.data_pagamento)
 
+    def test_delete_recarrega_os_recebida_em_outra_sessao_antes_de_cancelar(self) -> None:
+        registro, _, ordem = self._seed_vinculado()
+        registro_id, ordem_id = registro.id, ordem.id
+        self.assertEqual(ordem.status, "Pendente")
+        with sessionmaker(bind=self.engine)() as concorrente:
+            concorrente.get(OrdemServico, ordem_id).status = "Pago"
+            concorrente.add(Transacao(
+                tipo="entrada", categoria="Servico", valor=150, valor_final=150,
+                status="Recebido", observacoes=f"OS_ID={ordem_id};TIPO=RECEBIMENTO_OS",
+            ))
+            concorrente.commit()
+        # O objeto carregado na sessao da exclusao ainda esta desatualizado.
+        self.assertEqual(ordem.status, "Pendente")
+        with patch.object(atendimento, "registrar_auditoria"), patch.object(ordens_servico_module, "registrar_auditoria"):
+            atendimento.excluir_atendimento(
+                registro_id, self.request, confirmar_exclusao=True, db=self.db, current_user=self.user,
+            )
+        self.assertEqual(self.db.get(OrdemServico, ordem_id).status, "Cancelado")
+        self.assertEqual(self.db.query(Transacao).one().status, "Cancelado")
+
+    def test_delete_nao_cancela_os_recebida_novamente_apos_desfazer(self) -> None:
+        registro, _, ordem = self._seed_vinculado()
+        registro_id, ordem_id = registro.id, ordem.id
+        ordem.status = "Pago"
+        self.db.add(Transacao(
+            tipo="entrada", categoria="Servico", valor=150, valor_final=150,
+            status="Recebido", observacoes=f"OS_ID={ordem_id};TIPO=RECEBIMENTO_OS",
+        ))
+        self.db.commit()
+        desfazer_original = atendimento.desfazer_recebimento_ordem
+
+        def desfazer_e_receber_novamente(**kwargs):
+            result = desfazer_original(**kwargs)
+            with sessionmaker(bind=self.engine)() as concorrente:
+                concorrente.get(OrdemServico, ordem_id).status = "Pago"
+                concorrente.add(Transacao(
+                    tipo="entrada", categoria="Servico", valor=150, valor_final=150,
+                    status="Recebido", observacoes=f"OS_ID={ordem_id};TIPO=RECEBIMENTO_OS;ITEM=2",
+                ))
+                concorrente.commit()
+            return result
+
+        with (
+            patch.object(atendimento, "registrar_auditoria"),
+            patch.object(ordens_servico_module, "registrar_auditoria"),
+            patch.object(atendimento, "desfazer_recebimento_ordem", side_effect=desfazer_e_receber_novamente),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                atendimento.excluir_atendimento(
+                    registro_id, self.request, confirmar_exclusao=True, db=self.db, current_user=self.user,
+                )
+        self.assertEqual(raised.exception.status_code, 409)
+        self.db.rollback()
+        self.assertIsNotNone(self.db.get(AtendimentoClinico, registro_id))
+        self.assertEqual(self.db.get(OrdemServico, ordem_id).status, "Pago")
+        self.assertEqual(self.db.query(Transacao).filter_by(status="Recebido").count(), 1)
+        self.assertEqual(self.db.query(Transacao).filter_by(status="Cancelado").count(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
