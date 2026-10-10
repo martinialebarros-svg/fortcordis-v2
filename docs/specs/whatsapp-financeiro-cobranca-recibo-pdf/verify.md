@@ -54,3 +54,12 @@ Meta em tempo real.
 - `lembrete_pagamento_pendente_multiplas_os` (`1574210064240409`): aprovado conforme confirmacao;
 - `recibo_pagamento_pdf` (`1025876410335393`): aprovado conforme confirmacao;
 - `recibo_pagamento_pdf_multiplas_os` (`940165775772306`): aprovado conforme confirmacao.
+
+## Regressao da baixa atomica — 2026-10-10
+
+Testes da tela Financeiro interceptam o transporte de WhatsApp e provam que
+conflito, falha de rede/servidor ou resposta com IDs incompletos/duplicados/estranhos
+nao solicita recibo. Sucesso integral permite o recibo consolidado; falha posterior
+do transporte nao desfaz o recebimento. Evidencias e limites em
+`../financeiro-baixa-lote-os-pendentes/verify.md`. Nenhuma mensagem real e enviada
+por estes testes.

@@ -428,7 +428,7 @@ describe("Ajuste de valor de OS pendente", () => {
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
-  it("envia o valor esperado por OS no lote e para ao receber 409", async () => {
+  it("envia o valor esperado de todas as OS em uma chamada e bloqueia o lote ao receber 409", async () => {
     const segunda = { ...ordemAtual, id: 2, numero_os: "OS-2", paciente: "Outro paciente" };
     const leituraOriginal = mocks.get.getMockImplementation()!;
     mocks.get.mockImplementation(async (url: string) => {
@@ -455,12 +455,17 @@ describe("Ajuste de valor de OS pendente", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Abrir destinatario Clinica sintetica" }));
     fireEvent.click(await screen.findByRole("button", { name: "Receber pendentes" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirmar baixa em lote" }));
-    await waitFor(() => expect(mocks.patch).toHaveBeenCalledWith("/ordens-servico/1/receber", expect.objectContaining({ valor_final_esperado: 100 })));
-    await waitFor(() => expect(screen.queryByText("Receber OS em lote")).not.toBeInTheDocument());
+    await waitFor(() => expect(mocks.patch).toHaveBeenCalledWith("/ordens-servico/receber-lote", expect.objectContaining({
+      ordens: [{ os_id: 1, valor_final_esperado: "100.00" }, { os_id: 2, valor_final_esperado: "100.00" }],
+      pagamentos: [expect.objectContaining({ valor: 200 })],
+    })));
+    const modal = screen.getByRole("dialog", { name: "Receber OS em lote" });
+    expect(await within(modal).findByRole("alert")).toHaveTextContent("Nenhuma baixa deste lote foi registrada por esta operacao");
+    expect(within(modal).getByRole("button", { name: "Confirmar baixa em lote" })).toBeDisabled();
+    expect(within(modal).getByRole("spinbutton", { name: "Valor do pagamento 1" })).toHaveValue(200);
     await waitFor(() => expect(within(screen.getByRole("region", { name: "Cobrancas de Clinica sintetica" }))
       .getAllByText(/R\$\s*195,00/)).toHaveLength(1));
     expect(mocks.patch).toHaveBeenCalledTimes(1);
-    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("Nenhuma baixa foi registrada"));
     expect(window.alert).not.toHaveBeenCalledWith(expect.stringContaining("Baixa em lote registrada com sucesso"));
     expect(mocks.post).not.toHaveBeenCalled();
   });
@@ -471,6 +476,172 @@ describe("Ajuste de valor de OS pendente", () => {
     render(<FinanceiroPage />);
     await screen.findByText("OS #OS-1");
     expect(screen.queryByRole("button", { name: "Ajustar valor da OS OS-1" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Recebimento atomico em lote", () => {
+  let ordens: Array<ReturnType<typeof osItem> & { clinica_id: number }>;
+
+  beforeEach(() => {
+    mocks.get.mockReset(); mocks.patch.mockReset(); mocks.post.mockReset();
+    localStorage.setItem("token", "synthetic-test");
+    window.history.replaceState({}, "", "/financeiro?aba=ordens");
+    vi.spyOn(window, "alert").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    ordens = [
+      { ...osItem(1), clinica_id: 1, valor_final: 10.01 },
+      { ...osItem(2), clinica_id: 1, valor_final: 20.02 },
+    ];
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/ordens-servico?")) return { data: {
+        total: ordens.length, items: ordens.map((os) => ({ ...os })),
+        resumo: { pendentes: ordens.filter((os) => os.status === "Pendente").length, valor_pendente: 30.03 },
+      } };
+      if (/^\/ordens-servico\/\d+$/.test(url)) return { data: { ...ordens.find((os) => os.id === Number(url.split("/").pop())) } };
+      return { data: { items: [] } };
+    });
+    mocks.post.mockResolvedValue({ data: { mensagem: "Recibo enviado" } });
+  });
+  afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); window.history.replaceState({}, "", "/"); });
+
+  const abrirLote = async () => {
+    render(<FinanceiroPage />);
+    await screen.findByText("OS #OS-1");
+    fireEvent.click(screen.getByRole("button", { name: "Selecionar pendentes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Receber selecionadas" }));
+    const modal = await screen.findByRole("dialog", { name: "Receber OS em lote" });
+    fireEvent.click(within(modal).getByRole("checkbox", { name: /Enviar um recibo PDF consolidado/ }));
+    return modal;
+  };
+
+  it("envia uma unica baixa com valores esperados e pagamentos integrais e aguarda todas as OS para pedir o recibo", async () => {
+    let concluir!: (result: unknown) => void;
+    mocks.patch.mockImplementation(() => new Promise((resolve) => { concluir = resolve; }));
+    const modal = await abrirLote();
+    fireEvent.change(within(modal).getByRole("spinbutton", { name: "Valor do pagamento 1" }), { target: { value: "15.01" } });
+    fireEvent.click(within(modal).getByRole("button", { name: "+ Adicionar forma de pagamento" }));
+    fireEvent.change(within(modal).getByRole("spinbutton", { name: "Valor do pagamento 2" }), { target: { value: "15.02" } });
+    fireEvent.change(within(modal).getByLabelText("Data do Recebimento"), { target: { value: "2026-10-09" } });
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar baixa em lote" }));
+    expect(mocks.patch).toHaveBeenCalledTimes(1);
+    expect(mocks.patch).toHaveBeenCalledWith("/ordens-servico/receber-lote", {
+      ordens: [{ os_id: 1, valor_final_esperado: "10.01" }, { os_id: 2, valor_final_esperado: "20.02" }],
+      pagamentos: [expect.objectContaining({ valor: 15.01 }), expect.objectContaining({ valor: 15.02 })],
+      data_recebimento: "2026-10-09",
+    });
+    expect(within(modal).getByRole("button", { name: "Recebendo..." })).toBeDisabled();
+    expect(mocks.post).not.toHaveBeenCalled();
+    await act(async () => concluir({ data: { os_ids: [2, 1], mensagem: "Lote recebido" } }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/ordens-servico/whatsapp/recibos-pdf", {
+      os_ids: [2, 1], idempotency_key: expect.any(String),
+    }));
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog", { name: "Receber OS em lote" })).not.toBeInTheDocument();
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("Baixa em lote registrada e recibo PDF consolidado enviado"));
+  });
+
+  it.each(["Pago", "Cancelado"])("mantem o lote original e impede retry reduzido quando outra pessoa deixa uma OS %s", async (status) => {
+    mocks.patch.mockImplementation(async () => {
+      ordens[1] = { ...ordens[1], status };
+      throw { response: { status: 409, data: { detail: "Uma OS deixou de estar pendente." } } };
+    });
+    const modal = await abrirLote();
+    const confirmar = within(modal).getByRole("button", { name: "Confirmar baixa em lote" });
+    fireEvent.click(confirmar);
+    expect(await within(modal).findByRole("alert")).toHaveTextContent("Nenhuma baixa deste lote foi registrada por esta operacao");
+    await waitFor(() => expect(mocks.get.mock.calls.filter(([url]) => url.startsWith("/ordens-servico?"))).toHaveLength(2));
+    expect(within(modal).getByText("2 OS selecionada(s) para este lote")).toBeInTheDocument();
+    expect(within(modal).getByText(/OS OS-2 -/)).toBeInTheDocument();
+    expect(within(modal).getByRole("spinbutton", { name: "Valor do pagamento 1" })).toHaveValue(30.03);
+    expect(confirmar).toBeDisabled();
+    fireEvent.click(confirmar);
+    expect(mocks.patch).toHaveBeenCalledTimes(1);
+    expect(mocks.post).not.toHaveBeenCalled();
+    fireEvent.click(within(modal).getByRole("button", { name: "Fechar e revisar selecao" }));
+    expect(screen.getByText(/0 selecionada\(s\) para baixa/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Receber selecionadas" })).toBeDisabled();
+  });
+
+  it("preserva o modal, a data e os pagamentos em uma recusa e nao pede recibo", async () => {
+    mocks.patch.mockRejectedValue({ response: { status: 422, data: { detail: "Forma de pagamento indisponivel." } } });
+    const modal = await abrirLote();
+    fireEvent.change(within(modal).getByLabelText("Data do Recebimento"), { target: { value: "2026-10-09" } });
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar baixa em lote" }));
+    expect(await within(modal).findByRole("alert")).toHaveTextContent("Forma de pagamento indisponivel");
+    expect(within(modal).getByLabelText("Data do Recebimento")).toHaveValue("2026-10-09");
+    expect(within(modal).getByRole("spinbutton", { name: "Valor do pagamento 1" })).toHaveValue(30.03);
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(window.alert).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, 500])("nao afirma rollback em falha com resultado desconhecido (HTTP %s)", async (status) => {
+    mocks.patch.mockRejectedValue(status ? { response: { status } } : new Error("timeout"));
+    const modal = await abrirLote();
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar baixa em lote" }));
+    const alerta = await within(modal).findByRole("alert");
+    expect(alerta).toHaveTextContent("O lote pode ter sido registrado");
+    expect(alerta).not.toHaveTextContent("Nenhuma baixa");
+    expect(within(modal).getByRole("button", { name: "Confirmar baixa em lote" })).toBeDisabled();
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(window.alert).not.toHaveBeenCalled();
+  });
+
+  it.each([[1], [1, 1], [1, 3], []])("nao pede recibo quando a resposta nao confirma a selecao completa: %j", async (...osIds) => {
+    mocks.patch.mockResolvedValue({ data: { os_ids: osIds, mensagem: "Lote recebido" } });
+    const modal = await abrirLote();
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar baixa em lote" }));
+    expect(await within(modal).findByRole("alert")).toHaveTextContent("Nao foi possivel confirmar o recebimento de todas as OS");
+    expect(within(modal).getByRole("button", { name: "Confirmar baixa em lote" })).toBeDisabled();
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(window.alert).not.toHaveBeenCalled();
+  });
+
+  it("mantem a baixa confirmada quando apenas o envio do recibo falha", async () => {
+    mocks.patch.mockResolvedValue({ data: { os_ids: [1, 2], mensagem: "Lote recebido" } });
+    mocks.post.mockRejectedValue(new Error("timeout no recibo"));
+    const modal = await abrirLote();
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar baixa em lote" }));
+    await waitFor(() => expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("Baixa em lote registrada com sucesso.")));
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("nao foi possivel confirmar o envio do recibo"));
+    expect(mocks.patch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog", { name: "Receber OS em lote" })).not.toBeInTheDocument();
+  });
+
+  it("bloqueia o recibo automatico acima de vinte OS e permite a baixa integral", async () => {
+    ordens = Array.from({ length: 21 }, (_, index) => ({ ...osItem(index + 1), clinica_id: 1 }));
+    mocks.patch.mockResolvedValue({ data: { os_ids: ordens.map((os) => os.id), mensagem: "Lote recebido" } });
+    const modal = await abrirLote();
+    expect(within(modal).getByRole("checkbox", { name: /Enviar um recibo PDF consolidado/ })).toBeDisabled();
+    expect(within(modal).getByText(/permite no maximo 20 OS por vez/)).toBeInTheDocument();
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar baixa em lote" }));
+    await waitFor(() => expect(window.alert).toHaveBeenCalledWith("Baixa em lote registrada com sucesso!"));
+    expect(mocks.patch).toHaveBeenCalledWith("/ordens-servico/receber-lote", expect.objectContaining({
+      ordens: ordens.map((os) => ({ os_id: os.id, valor_final_esperado: "10.00" })),
+    }));
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it("mantem o erro e a selecao original quando a recarga apos conflito tambem falha", async () => {
+    const modal = await abrirLote();
+    const read = mocks.get.getMockImplementation()!;
+    mocks.get.mockImplementation((url: string, options) => url.startsWith("/ordens-servico?")
+      ? Promise.reject(new Error("Lista indisponivel")) : read(url, options));
+    mocks.patch.mockRejectedValue({ response: { status: 409 } });
+    fireEvent.click(within(modal).getByRole("button", { name: "Confirmar baixa em lote" }));
+    expect(await within(modal).findByRole("alert")).toHaveTextContent("Nenhuma baixa deste lote foi registrada por esta operacao");
+    await screen.findByText("Nao foi possivel carregar as ordens.");
+    expect(within(modal).getByText(/OS OS-2 -/)).toBeInTheDocument();
+    expect(within(modal).getByRole("button", { name: "Confirmar baixa em lote" })).toBeDisabled();
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it("limita o formulario a vinte pagamentos", async () => {
+    const modal = await abrirLote();
+    const adicionar = within(modal).getByRole("button", { name: "+ Adicionar forma de pagamento" });
+    for (let i = 1; i < 20; i += 1) fireEvent.click(adicionar);
+    expect(within(modal).getAllByRole("spinbutton")).toHaveLength(20);
+    expect(adicionar).toBeDisabled();
+    expect(mocks.patch).not.toHaveBeenCalled();
   });
 });
 

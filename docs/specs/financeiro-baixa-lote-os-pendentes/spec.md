@@ -1,8 +1,8 @@
 # Spec - financeiro-baixa-lote-os-pendentes
 
-Data: 2026-06-13
+Data: 2026-10-10
 Responsavel: Martiniano + Codex
-Status: ready-for-release-user-confirmed-meta-approved
+Status: implementado e validado localmente
 
 ## 1) Escopo funcional
 
@@ -28,7 +28,7 @@ Adicionar baixa em lote para ordens de servico pendentes no modulo Financeiro.
 
 ## 3) Requisitos nao funcionais
 
-- NFR-001: baixa em lote deve reaproveitar o endpoint individual `/ordens-servico/{id}/receber` para preservar regras existentes.
+- NFR-001: baixa em lote usa uma unica transacao no backend e compartilha as regras do recebimento individual, sem commits intermediarios.
 - NFR-002: fluxo deve manter os controles existentes de recibo para OS recebidas sem misturar selecoes.
 - NFR-003: UI deve informar claramente total selecionado e diferencas entre total das OS e total informado.
 - NFR-004: o PDF enviado deve reutilizar o gerador oficial de recibos, sem gerar documento divergente
@@ -52,9 +52,22 @@ Adicionar baixa em lote para ordens de servico pendentes no modulo Financeiro.
 
 ### Backend
 
-- Sem endpoint novo neste ciclo.
-- O frontend chama `/ordens-servico/{id}/receber` para cada OS selecionada, com pagamentos rateados.
-- Depois das baixas concluidas, o frontend pode chamar `/{id}/whatsapp/recibo-pdf` ou
+- `PATCH /ordens-servico/receber-lote` recebe `ordens` (1 a 200 itens unicos com
+  `os_id` e `valor_final_esperado` decimal), `pagamentos` (1 a 20 itens) e
+  `data_recebimento` opcional. Nao aceita desconto ou uso/geracao de credito no lote.
+- O backend bloqueia todas as OS por ID crescente e revalida existencia, status
+  `Pendente` e valor esperado antes de gravar. Pagamento/cancelamento/ajuste concorrente
+  invalida o lote com `409`; nenhuma baixa desse lote e persistida.
+- Rateio em centavos preserva o valor de cada OS, cada forma e o total do lote.
+  Transacoes, pagamentos, auditorias e cancelamento de lembretes ficam na mesma
+  transacao; notificacoes externas ocorrem somente depois do commit.
+- Resposta de sucesso: `os_ids` de todas as OS recebidas e `mensagem`.
+- O modal preserva a selecao e os valores conferidos na abertura. Atualizacao da lista
+  nao pode remover silenciosamente uma OS do lote. Em conflito ou resultado incerto,
+  o erro fica visivel no modal e exige nova conferencia/selecao antes de tentar de novo.
+- O frontend verifica que a resposta contem exatamente todas as OS esperadas antes
+  de solicitar o recibo. Falha da baixa nunca dispara recibo parcial.
+- Depois do sucesso integral do lote, o frontend pode chamar `/{id}/whatsapp/recibo-pdf` ou
   `/whatsapp/recibos-pdf` para enviar o documento individual ou consolidado.
 
 ## 5) Criterios de aceitacao
@@ -68,3 +81,24 @@ Adicionar baixa em lote para ordens de servico pendentes no modulo Financeiro.
 - CA-007: recebimento individual oferece recibo PDF oficial com OS, data, servico, tutor e pet.
 - CA-008: recebimento de varias OS do mesmo destinatario oferece um unico PDF consolidado.
 - CA-009: falha no WhatsApp posterior a baixa mantem o recebimento e mostra aviso separado.
+
+- CA-010: OS paga, cancelada, ausente ou com valor alterado impede o lote inteiro;
+  o estado concorrente e preservado e as demais OS permanecem pendentes.
+- CA-011: falha ao processar a ultima OS desfaz as baixas anteriores do lote,
+  inclusive transacoes, pagamentos, creditos, auditorias e lembretes.
+- CA-012: duas sessoes concorrentes (lote, recebimento individual, cancelamento ou
+  lotes sobrepostos) preservam uma unica baixa por OS e nunca deixam lote parcial.
+- CA-013: nenhuma falha ou resposta incompleta dispara recibo; modal preserva
+  contexto e apresenta erro visivel, sem reduzir silenciosamente a selecao.
+- CA-014: rateio de centavos e multiplas formas fecha valores de cada OS e forma,
+  sem credito excedente; pagamento repetido do mesmo lote nao duplica transacoes.
+
+## 6) Limites operacionais
+
+- Uma interrupcao de rede pode ocorrer depois do commit. A UI nao declara que nada
+  foi gravado nesse caso; solicita conferencia antes de novo envio. Nao ha replay
+  idempotente da resposta nem outbox de recibos neste ciclo.
+- Cancelar ou excluir OS paga exige desfazer o recebimento explicitamente. Essa
+  verificacao ocorre com lock, inclusive na exclusao indireta de Atendimento.
+- Envio real de WhatsApp depende de destinatario de teste autorizado; testes
+  automatizados interceptam o transporte.
