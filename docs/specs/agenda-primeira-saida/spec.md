@@ -2,7 +2,7 @@
 
 Data: 2026-10-07
 Responsável: Martiniano + Codex
-Status: em execução
+Status: regra publicada; correções de 2026-10-10 validadas localmente, sem publicação
 
 ## Escopo funcional
 
@@ -24,8 +24,9 @@ o início. Outros encaixes continuam seguindo os vizinhos reais da agenda.
   Segundos e frações de minuto são arredondados para cima, sem perder a margem.
 - RF-003: aplicar adicionalmente o piso de 08:30 em Caucaia e de 09:00 em
   Maracanaú, Eusébio e Itaitinga. O município é comparado sem depender de
-  caixa, acento ou espaços extras. Fortaleza e demais municípios não ganham um
-  piso municipal artificial; continuam limitados por RF-002.
+  caixa, acento ou espaços extras. Por padrão, Fortaleza e demais municípios
+  não ganham um piso municipal artificial; continuam limitados por RF-002 e
+  por eventual piso explicitamente cadastrado para o município.
 - RF-004: quando o piso municipal for mais cedo que a chegada calculada, prevalece
   a chegada calculada. As regras de jornada, duração, preferências e ocupação
   continuam sendo interseccionadas; uma janela insuficiente retorna sem oferta.
@@ -39,6 +40,19 @@ o início. Outros encaixes continuam seguindo os vizinhos reais da agenda.
 - RF-007: depois que houver atendimento anterior, preservar a validação de
   deslocamento entre vizinhos, inclusive transição no mesmo destino e exceções
   operacionais já autorizadas; a saída de casa não se soma a esses trechos.
+- RF-008: carregar e salvar Configurações deve preservar todos os pisos
+  municipais válidos aceitos pelo backend, inclusive municípios adicionais aos
+  quatro padrões e quando a alteração se limitar a outro campo do formulário.
+  Normalizar nomes e horários sem reconstruir uma lista fixa de municípios.
+  O backend aceita até 50 municípios adicionais distintos além dos quatro
+  defaults; atualizar uma chave existente não consome uma nova posição.
+  Normalizar repetidamente o resultado não pode remover pisos já aceitos.
+- RF-009: reativar um cancelado ou expirado pelo status, mantendo o início já
+  alcançado no horário local, não exige refazer a primeira saída a partir de
+  agora. O PATCH segue a mesma regra temporal da edição via PUT. Funcionamento,
+  disponibilidade, deslocamento entre vizinhos, dados obrigatórios e confirmação
+  tardia de reserva expirada continuam sendo validados. Inícios futuros ainda
+  exigem primeira saída viável com rota confiável.
 
 ## Requisitos não funcionais
 
@@ -70,6 +84,10 @@ o início. Outros encaixes continuam seguindo os vizinhos reais da agenda.
 - `POST /api/v1/agenda`, `PUT /api/v1/agenda/{id}` e fluxos existentes de
   confirmação/reabilitação: revalidam a primeira saída antes da persistência.
   Um horário inviável retorna HTTP 409 com código `PRIMEIRA_SAIDA_INVIAVEL`.
+- `PATCH /api/v1/agenda/{id}/status`: ao reativar no início original já
+  alcançado, dispensa somente o cálculo de nova saída residencial, conforme
+  RF-009. Não altera o início original nem libera ocupação ou conflito entre
+  vizinhos; as regras existentes de duração do serviço continuam aplicadas.
 - Canais que reutilizam a sugestão da Agenda herdam o mesmo filtro sem contrato
   novo para pacientes ou tutores.
 
@@ -114,6 +132,20 @@ o início. Outros encaixes continuam seguindo os vizinhos reais da agenda.
   validação de vizinhos, sem impor novamente a saída residencial.
 - CA-009: duração do serviço, janela operacional, preferências, bloqueios e
   reservas continuam limitando as sugestões como antes.
+- CA-010: pisos adicionais de Fortaleza e Aquiraz permanecem após carregar,
+  editar outro campo, salvar e normalizar novamente; os quatro defaults e
+  horários personalizados continuam válidos. Chaves inválidas são descartadas;
+  horários inválidos seguem o fallback do backend (default do município ou
+  08:00 para município adicional). O ciclo também preserva o limite de 50
+  municípios adicionais mais os quatro defaults; excedentes novos não são
+  incluídos e atualizações das chaves já aceitas continuam permitidas.
+- CA-011: um primeiro atendimento cancelado de hoje, cujo início já passou,
+  pode voltar a `Agendado` pelo PATCH sem `PRIMEIRA_SAIDA_INVIAVEL`, assim como
+  pelo PUT, desde que passe nas demais validações. A borda de início igual ao
+  relógio local usa a mesma regra; reserva expirada ainda exige confirmação.
+- CA-012: a reativação continua rejeitando sobreposição, agenda fechada sem
+  autorização e conflito entre vizinhos. Para um início futuro, primeira
+  saída inviável ou rota indisponível continuam bloqueando a gravação.
 
 ## Compatibilidade e rollback
 

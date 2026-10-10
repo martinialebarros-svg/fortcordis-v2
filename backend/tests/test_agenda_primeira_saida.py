@@ -9,7 +9,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 os.chdir(BACKEND_DIR)
@@ -21,6 +23,7 @@ from app.api.v1.endpoints import agenda
 from app.core.agenda_route_rules import normalizar_agenda_rota_regras
 from app.models.agendamento import Agendamento
 from app.models.configuracao import Configuracao
+from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.services.geocoding_service import GeocodeResult
 from tests import test_agenda_sugestao_janela_operacional as fixtures
@@ -101,6 +104,137 @@ class AgendaPrimeiraSaidaTest(unittest.TestCase):
             hora=hora,
             status="Reservado",
         )
+
+    def _criar_inativo_para_reativacao(self, *, hora="11:00", status="Cancelado"):
+        Paciente.__table__.create(self.engine, checkfirst=True)
+        tutor = Tutor(nome="Tutor sintetico", telefone="85911110001")
+        self.db.add(tutor)
+        self.db.flush()
+        paciente = Paciente(nome="Paciente sintetico", tutor_id=tutor.id)
+        self.db.add(paciente)
+        self.db.flush()
+        agendamento = self._novo("2099-05-25", hora)
+        agendamento.status = status
+        agendamento.tutor_id = tutor.id
+        agendamento.paciente_id = paciente.id
+        self.db.add(agendamento)
+        self.db.commit()
+        return agendamento
+
+    def _patch_reativacao(self, agendamento_id, *, confirmar_expirada=False):
+        app = FastAPI()
+        app.include_router(agenda.router, prefix="/agenda")
+        sessions = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
+
+        def db_isolado():
+            with sessions() as db:
+                yield db
+
+        app.dependency_overrides[agenda.get_db] = db_isolado
+        app.dependency_overrides[agenda.get_current_user] = lambda: self.user
+        with patch.object(agenda, "datetime", _relogio_fixo(2099, 5, 25, 12, 0)), patch.object(
+            agenda, "registrar_auditoria", return_value=None
+        ), patch.object(agenda, "_notificar_agenda_update", return_value=None), TestClient(app) as client:
+            return client.patch(
+                f"/agenda/{agendamento_id}/status",
+                params={"status": "Agendado", "confirmar_slot_reserva_expirada": confirmar_expirada},
+            )
+
+    def test_patch_reativa_primeiro_atendimento_ja_iniciado_sem_nova_saida_da_base(self):
+        for status in ("Cancelado", "Expirado"):
+            with self.subTest(status=status):
+                agendamento = self._criar_inativo_para_reativacao(status=status)
+                intervalo_original = (agendamento.inicio, agendamento.fim)
+                with patch.object(
+                    agenda, "estimar_deslocamento", return_value=(10.0, 30, "google_distance_matrix_traffic")
+                ) as rota_base:
+                    resposta = self._patch_reativacao(
+                        agendamento.id, confirmar_expirada=status == "Expirado"
+                    )
+                self.assertEqual(resposta.status_code, 200, resposta.text)
+                self.assertEqual(resposta.json()["status"], "Agendado")
+                rota_base.assert_not_called()
+                self.db.refresh(agendamento)
+                self.assertEqual(agendamento.status, "Agendado")
+                self.assertEqual((agendamento.inicio, agendamento.fim), intervalo_original)
+                self.db.delete(agendamento)
+                self.db.commit()
+
+    def test_patch_reativa_cancelado_no_instante_original_do_inicio(self):
+        agendamento = self._criar_inativo_para_reativacao(hora="12:00")
+        with patch.object(
+            agenda, "estimar_deslocamento", return_value=(10.0, 30, "google_distance_matrix_traffic")
+        ) as rota_base:
+            resposta = self._patch_reativacao(agendamento.id)
+        self.assertEqual(resposta.status_code, 200, resposta.text)
+        rota_base.assert_not_called()
+        self.db.refresh(agendamento)
+        self.assertEqual(agendamento.status, "Agendado")
+
+    def test_patch_reativacao_expirada_ja_iniciada_ainda_exige_confirmacao(self):
+        agendamento = self._criar_inativo_para_reativacao(status="Expirado")
+        resposta = self._patch_reativacao(agendamento.id)
+        self.assertEqual(resposta.status_code, 409, resposta.text)
+        self.assertEqual(resposta.json()["detail"]["codigo"], "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA")
+        self.db.refresh(agendamento)
+        self.assertEqual(agendamento.status, "Expirado")
+
+    def test_patch_reativacao_futura_preserva_limite_de_primeira_saida(self):
+        agendamento = self._criar_inativo_para_reativacao(hora="12:15")
+        with patch.object(
+            agenda, "estimar_deslocamento", return_value=(10.0, 30, "google_distance_matrix_traffic")
+        ):
+            resposta = self._patch_reativacao(agendamento.id)
+        self.assertEqual(resposta.status_code, 409, resposta.text)
+        self.assertEqual(resposta.json()["detail"]["codigo"], "PRIMEIRA_SAIDA_INVIAVEL")
+        self.assertEqual(resposta.json()["detail"]["inicio_minimo_primeira_saida"], "2099-05-25 12:35")
+        self.db.refresh(agendamento)
+        self.assertEqual(agendamento.status, "Cancelado")
+
+    def test_patch_reativacao_futura_sem_rota_confiavel_continua_bloqueada(self):
+        agendamento = self._criar_inativo_para_reativacao(hora="13:00")
+        with patch.object(agenda, "estimar_deslocamento", return_value=(10.0, 25, "heuristica_haversine")):
+            resposta = self._patch_reativacao(agendamento.id)
+        self.assertEqual(resposta.status_code, 409, resposta.text)
+        self.assertEqual(resposta.json()["detail"]["codigo"], "PRIMEIRA_SAIDA_INVIAVEL")
+        self.db.refresh(agendamento)
+        self.assertEqual(agendamento.status, "Cancelado")
+
+    def test_patch_reativacao_ja_iniciada_preserva_bloqueio_de_slot_ocupado(self):
+        agendamento = self._criar_inativo_para_reativacao()
+        self._criar_agendamento(
+            self.db, clinica_id=self.clinica.id, data="2099-05-25", hora="11:00"
+        )
+        resposta = self._patch_reativacao(agendamento.id)
+        self.assertEqual(resposta.status_code, 409, resposta.text)
+        self.assertIn("Horario indisponivel", resposta.json()["detail"])
+        self.db.refresh(agendamento)
+        self.assertEqual(agendamento.status, "Cancelado")
+
+    def test_patch_reativacao_ja_iniciada_preserva_bloqueio_de_agenda_fechada(self):
+        agendamento = self._criar_inativo_para_reativacao()
+        config = self.db.query(Configuracao).first()
+        config.agenda_excecoes = json.dumps([{"data": "2099-05-25", "ativo": False}])
+        self.db.commit()
+        resposta = self._patch_reativacao(agendamento.id)
+        self.assertEqual(resposta.status_code, 422, resposta.text)
+        self.assertIn("Agenda fechada", resposta.json()["detail"])
+        self.db.refresh(agendamento)
+        self.assertEqual(agendamento.status, "Cancelado")
+
+    def test_patch_reativacao_ja_iniciada_preserva_conflito_com_proximo_atendimento(self):
+        agendamento = self._criar_inativo_para_reativacao()
+        self._criar_agendamento(
+            self.db, clinica_id=self.outra.id, data="2099-05-25", hora="11:45"
+        )
+        with patch.object(
+            agenda, "estimar_deslocamento", return_value=(10.0, 30, "google_distance_matrix_traffic")
+        ), patch.object(agenda, "_obter_duracao_deslocamento_operacional", return_value=(75, "mock")):
+            resposta = self._patch_reativacao(agendamento.id)
+        self.assertEqual(resposta.status_code, 409, resposta.text)
+        self.assertEqual(resposta.json()["detail"]["codigo"], "CONFLITO_DESLOCAMENTO")
+        self.db.refresh(agendamento)
+        self.assertEqual(agendamento.status, "Cancelado")
 
     def test_pisos_municipais_configuraveis_normalizam_acentos_e_horarios(self):
         regras = normalizar_agenda_rota_regras({
