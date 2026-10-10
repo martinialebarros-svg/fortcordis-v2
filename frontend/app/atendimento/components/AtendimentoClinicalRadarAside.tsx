@@ -9,6 +9,7 @@ export default function AtendimentoClinicalRadarAside(props: AtendimentoClinical
   const {
     alertasAtivos,
     autosaveLabel,
+    autosaveState,
     clinicalSummary,
     formatDate,
     form,
@@ -44,7 +45,11 @@ export default function AtendimentoClinicalRadarAside(props: AtendimentoClinical
             <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">Sincronizacao</p>
             <p className="mt-3 text-sm font-semibold text-slate-900">{autosaveLabel}</p>
             <p className="mt-1 text-sm text-slate-600">
-              {selecionado ? "Atendimento salvo em edicao continua." : "Rascunho local ate o primeiro salvamento."}
+              {autosaveState === "error"
+                ? "Ha alteracoes nao sincronizadas. Use Salvar atendimento para tentar novamente."
+                : autosaveState === "dirty" || autosaveState === "saving"
+                  ? "As alteracoes ainda estao sendo sincronizadas."
+                  : selecionado ? "Atendimento salvo em edicao continua." : "Rascunho local ate o primeiro salvamento."}
             </p>
           </div>
         </div>

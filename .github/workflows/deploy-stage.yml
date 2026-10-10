@@ -71,7 +71,7 @@ jobs:
           SECRET_KEY: whatsapp-triage-ci-secret-key-1234567890
         run: python -m pytest -q backend/tests/test_whatsapp_bot_reacoes.py backend/tests/test_whatsapp_bot_mensagens_automaticas.py backend/tests/test_whatsapp_bot_saudacoes_agrupadas.py
 
-      - name: Test document persistence and PostgreSQL concurrency
+      - name: Test clinical edit history, document persistence and PostgreSQL concurrency
         env:
           FORTCORDIS_PROCESS_ROLE: api
           DATABASE_URL: sqlite:///./fortcordis-ci.db
@@ -79,7 +79,7 @@ jobs:
           DOCUMENT_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/document_test
         run: |
           psql postgresql://postgres:postgres@127.0.0.1:5432/postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE document_test'
-          python -m pytest -q backend/tests/test_atendimento_documentos_persistencia.py backend/tests/test_atendimento_documentos_concorrencia_postgres.py
+          python -m pytest -q backend/tests/test_atendimento_documentos_persistencia.py backend/tests/test_atendimento_documentos_concorrencia_postgres.py backend/tests/test_atendimento_edicao_historico.py backend/tests/test_atendimento_edicoes_concorrencia_postgres.py
 
       - name: Setup Node
         uses: actions/setup-node@v4

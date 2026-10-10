@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import Request
+from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
 from app.models.auditoria_evento import AuditoriaEvento
@@ -42,9 +44,10 @@ def registrar_auditoria(
     entidade_id: Optional[Any] = None,
     detalhes: Optional[dict[str, Any]] = None,
     request: Optional[Request] = None,
+    db: Optional[Session] = None,
 ) -> None:
-    """Registra evento de auditoria em best-effort (nao interrompe fluxo principal)."""
-    session = SessionLocal()
+    """Com db, participa da transacao e propaga falhas; sem db, best-effort legado."""
+    session = db if db is not None else SessionLocal()
     try:
         ip, rota, metodo = _request_meta(request)
         evento = AuditoriaEvento(
@@ -60,11 +63,19 @@ def registrar_auditoria(
             ip_origem=ip,
             rota=rota,
             metodo=metodo,
+            **({"created_at": datetime.now(timezone.utc)} if db is not None else {}),
         )
         session.add(evento)
-        session.commit()
+        if db is None:
+            session.commit()
+        else:
+            # A gravacao clinica nao pode concluir sem o respectivo historico.
+            session.flush()
     except Exception as exc:
         session.rollback()
+        if db is not None:
+            raise
         print(f"[AUDITORIA] Falha ao registrar evento: {exc}")
     finally:
-        session.close()
+        if db is None:
+            session.close()

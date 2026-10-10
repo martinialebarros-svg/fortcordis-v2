@@ -1,5 +1,36 @@
 import type { AtendimentoForm, ExameSolicitacao, PrescricaoItem } from "@/app/atendimento/page";
 
+/** Recupera texto ainda nao sincronizado sem reabrir um encontro concluido ou
+ * reatribuir o prontuario a outro paciente/agendamento por um backup antigo. */
+export const restorePersistedAtendimentoDraft = (
+  persisted: AtendimentoForm,
+  backup: Partial<AtendimentoForm>
+): AtendimentoForm => {
+  if (
+    (backup.id != null && backup.id !== persisted.id) ||
+    (backup.paciente_id && backup.paciente_id !== persisted.paciente_id)
+  ) return persisted;
+
+  return {
+    ...persisted,
+    ...backup,
+    id: persisted.id,
+    paciente_id: persisted.paciente_id,
+    agendamento_id: persisted.agendamento_id,
+    especie: persisted.especie,
+    evolucoes: persisted.evolucoes,
+    anexos: persisted.anexos,
+    documentos: persisted.documentos,
+    ...(persisted.status === "Concluido" ? {
+      status: persisted.status,
+      clinica_id: persisted.clinica_id,
+      data_atendimento: persisted.data_atendimento,
+      triagem_concluida: persisted.triagem_concluida,
+      consulta_concluida: persisted.consulta_concluida,
+    } : {}),
+  };
+};
+
 export const buildExamMergeKey = (item: ExameSolicitacao) =>
   [
     item.catalogo_exame_id || "",
@@ -169,6 +200,12 @@ const mergeAutoSavedItems = <T extends { id?: number | null }>(
 export const mergeAutoSavedFormState = (current: AtendimentoForm, persisted: AtendimentoForm): AtendimentoForm => ({
   ...current,
   id: persisted.id || current.id,
+  ...(persisted.status === "Concluido" ? {
+    status: persisted.status,
+    paciente_id: persisted.paciente_id,
+    agendamento_id: persisted.agendamento_id,
+    consulta_concluida: persisted.consulta_concluida,
+  } : {}),
   exames: mergeAutoSavedItems(
     current.exames,
     persisted.exames,

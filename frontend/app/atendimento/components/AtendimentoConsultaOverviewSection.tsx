@@ -60,6 +60,7 @@ export default function AtendimentoConsultaOverviewSection(props: AtendimentoCon
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
                   id="atendimento-paciente-busca"
+                  disabled={form.status === "Concluido"}
                   value={pacienteBusca}
                   onChange={(e) => {
                     setPacienteBusca(e.target.value);
@@ -95,7 +96,7 @@ export default function AtendimentoConsultaOverviewSection(props: AtendimentoCon
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-3 text-sm text-slate-900"
                 />
               </div>
-              {pacienteDropdownAberto ? (
+              {pacienteDropdownAberto && form.status !== "Concluido" ? (
                 <div className="absolute left-0 top-full z-20 mt-2 max-h-64 w-full overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
                   {pacientesFiltrados.map((paciente: any) => (
                     <button
@@ -112,7 +113,7 @@ export default function AtendimentoConsultaOverviewSection(props: AtendimentoCon
                   ))}
                 </div>
               ) : null}
-              <p className="mt-2 text-xs text-slate-500">Digite pelo menos 2 letras para buscar pacientes e tutores.</p>
+              <p className="mt-2 text-xs text-slate-500">{form.status === "Concluido" ? "Paciente do encontro original. Os dados clinicos continuam editaveis." : "Digite pelo menos 2 letras para buscar pacientes e tutores."}</p>
             </div>
             <label className="block text-xs font-medium text-slate-600">
               Clínica
@@ -156,7 +157,7 @@ export default function AtendimentoConsultaOverviewSection(props: AtendimentoCon
               <select
                 value={form.status}
                 onChange={(e) => setField("status", e.target.value)}
-                disabled={form.status === "Concluido" && Boolean(form.agendamento_id)}
+                disabled={form.status === "Concluido"}
                 className="mt-1.5 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900"
               >
                 {STATUS_ATENDIMENTO.map((status: string) => (
@@ -170,8 +171,8 @@ export default function AtendimentoConsultaOverviewSection(props: AtendimentoCon
                 ))}
               </select>
               <span className="mt-1.5 block text-[11px] font-normal text-slate-500">
-                {form.status === "Concluido" && form.agendamento_id
-                  ? "Reabertura vinculada bloqueada para proteger Agenda e OS."
+                {form.status === "Concluido"
+                  ? "Edicoes sao salvas com historico, mantendo este atendimento concluido."
                   : "Para concluir, use a acao Finalizar atendimento."}
               </span>
             </label>

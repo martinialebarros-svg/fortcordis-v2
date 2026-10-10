@@ -39,3 +39,9 @@ Os workflows de stage e producao instalam `backend/requirements-test.txt` alem d
 Nao restaurar o documento real investigado nem reemitir o parecer da paciente nesta etapa. Conteudo clinico preservado fora do repositorio. Nenhum envio externo.
 
 Reverter o codigo nao remove linhas arquivadas, mas reintroduz exclusao definitiva e elimina as precondicoes. Uma futura reversao requer avaliar essa perda de protecao. Bancos SQLite nao implementam SELECT FOR UPDATE; a garantia de serializacao simultanea e validada no PostgreSQL de producao, com instancia local descartavel.
+
+## Atualizacao de contrato em 2026-10-10
+
+O prontuario passa a oferecer consulta do historico de edicoes por atendimento, com antes/depois, autor e data, inclusive para documentos arquivados. A edicao de documentos emitidos continua permitida. A protecao de versao, a auditoria transacional e a independencia do documento permanecem obrigatorias.
+
+Contrato e evidencias desta alteracao: [spec](../atendimento-edicao-pos-conclusao/spec.md) e [verify](../atendimento-edicao-pos-conclusao/verify.md). A evidencia de publicacao de entregas anteriores nao comprova a publicacao desta atualizacao.

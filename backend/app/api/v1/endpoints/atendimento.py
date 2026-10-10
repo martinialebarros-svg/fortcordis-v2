@@ -147,6 +147,7 @@ from app.services.upload_dedupe_cleanup_service import (
 )
 from app.services.medication_automation import analyze_prescription_items, medication_to_dict
 from app.services.auditoria_service import registrar_auditoria
+from app.services.atendimento.edit_history_service import listar_historico_edicoes
 from app.services.precos_service import calcular_preco_servico
 from app.services.push_notifications import (
     send_agenda_push_notification,
@@ -1994,132 +1995,39 @@ def _carregar_prescricao_do_atendimento(
     return prescricao
 
 
-_PRESCRICAO_ITEM_CAMPOS_SINCRONIZADOS = (
-    "apresentacao_selecionada",
-    "dose",
-    "frequencia",
-    "duracao",
-    "via",
-    "instrucoes",
-    "dose_mg_kg",
-    "peso_referencia_kg",
-    "unidade_dose_calculo",
-    "concentracao_personalizada",
-)
-
-
-def _payload_altera_prescricao(
-    db: Session,
-    prescricao: Optional[PrescricaoClinica],
-    payload: PrescricaoPayload,
-) -> bool:
-    """O autosave reenvia a receita inteira a cada salvamento.
-
-    Sem comparar antes, o guard de receita emitida dispararia 409 em toda
-    digitacao posterior a geracao do PDF. So conta como edicao o payload que
-    de fato muda o conteudo persistido."""
+def _snapshot_prescricao(db: Session, prescricao: Optional[PrescricaoClinica], *, reler: bool = False) -> dict:
     if prescricao is None:
-        return (
-            bool(payload.itens)
-            or bool((payload.orientacoes_gerais or "").strip())
-            or payload.retorno_dias is not None
-        )
-
-    if (prescricao.orientacoes_gerais or "") != (payload.orientacoes_gerais or ""):
-        return True
-    if prescricao.retorno_dias != payload.retorno_dias:
-        return True
-
-    itens = (
-        db.query(PrescricaoItem)
-        .filter(PrescricaoItem.prescricao_id == prescricao.id)
-        .all()
-    )
-    persistidos = {item.id: item for item in itens}
-    recebidos: set = set()
-
-    for index, item_payload in enumerate(payload.itens):
-        if not item_payload.id or item_payload.id not in persistidos:
-            return True
-        recebidos.add(item_payload.id)
-        item = persistidos[item_payload.id]
-
-        ordem_payload = item_payload.ordem if item_payload.ordem is not None else index
-        if int(item.ordem or 0) != int(ordem_payload):
-            return True
-        if item.medicamento_id != item_payload.medicamento_id:
-            return True
-
-        nome_recebido = (item_payload.medicamento_nome or "").strip()
-        # Nome vazio com medicamento_id e resolvido pelo banco no sync, entao
-        # nao caracteriza mudanca.
-        if nome_recebido and nome_recebido != (item.medicamento_nome or ""):
-            return True
-
-        for campo in _PRESCRICAO_ITEM_CAMPOS_SINCRONIZADOS:
-            if (getattr(item, campo, None) or "") != (getattr(item_payload, campo, None) or ""):
-                return True
-
-    if set(persistidos) - recebidos:
-        return True
-    return False
+        return {"orientacoes_gerais": "", "retorno_dias": None, "itens": []}
+    if reler:
+        db.refresh(prescricao)
+    itens = (db.query(PrescricaoItem).filter(PrescricaoItem.prescricao_id == prescricao.id)
+             .populate_existing().order_by(PrescricaoItem.ordem.asc(), PrescricaoItem.id.asc()).all())
+    return {
+        "orientacoes_gerais": prescricao.orientacoes_gerais or "",
+        "retorno_dias": prescricao.retorno_dias,
+        "itens": [_map_prescricao_item(item) for item in itens],
+    }
 
 
-def _validar_edicao_receita_emitida(
-    prescricao: Optional[PrescricaoClinica],
-    *,
-    confirmado: bool,
-) -> bool:
-    """Receita que ja virou PDF e documento entregue.
-
-    Segue o padrao de `CONFIRMACAO_CONCLUSAO_PENDENCIAS`: avisa e permite, em
-    vez de bloquear. Devolve True quando houve edicao confirmada de receita
-    emitida, para o chamador auditar."""
-    if prescricao is None or not prescricao.emitida_em:
-        return False
-    if not confirmado:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "codigo": "CONFIRMACAO_EDICAO_RECEITA_EMITIDA",
-                "mensagem": (
-                    f"A receita {_sequencia_prescricao(prescricao)} deste atendimento foi "
-                    f"emitida em {_formatar_data_hora(_to_local_naive(prescricao.emitida_em))}. Editar cria "
-                    "uma nova versao do documento oficial. Para acrescentar tratamento sem "
-                    "alterar o que ja foi entregue ao tutor, emita uma receita complementar."
-                ),
-                "confirmavel": True,
-                "prescricao_id": prescricao.id,
-                "sequencia": _sequencia_prescricao(prescricao),
-                "emitida_em": _to_operational_iso(prescricao.emitida_em),
-            },
-        )
-    return True
-
-
-def _auditar_edicao_receita_emitida(
-    *,
-    current_user: User,
-    atendimento: AtendimentoClinico,
-    prescricao: PrescricaoClinica,
-    request: Optional[Request] = None,
+def _auditar_edicao_prescricao(
+    db: Session, *, current_user: User, atendimento: AtendimentoClinico,
+    prescricao: PrescricaoClinica, antes: dict, request: Optional[Request] = None,
 ) -> None:
+    db.flush()
+    depois = _snapshot_prescricao(db, prescricao)
+    alteracoes = {campo: {"antes": antes[campo], "depois": depois[campo]}
+                  for campo in antes if antes[campo] != depois[campo]}
+    if not alteracoes:
+        return
     registrar_auditoria(
-        current_user=current_user,
-        modulo="atendimento",
-        entidade="prescricao_clinica",
+        db=db, current_user=current_user, modulo="atendimento", entidade="prescricao_clinica",
         entidade_id=prescricao.id,
-        acao="EDITAR_RECEITA_EMITIDA",
-        descricao=(
-            f"Receita {_sequencia_prescricao(prescricao)} do atendimento #{atendimento.id} "
-            f"editada apos emissao em {_formatar_data_hora(_to_local_naive(prescricao.emitida_em))}."
-        ),
-        detalhes={
-            "atendimento_id": atendimento.id,
-            "prescricao_id": prescricao.id,
-            "sequencia": _sequencia_prescricao(prescricao),
-            "emitida_em": _to_operational_iso(prescricao.emitida_em),
-        },
+        acao="EDITAR_RECEITA_EMITIDA" if prescricao.emitida_em else "PRESCRICAO_ATUALIZADA",
+        descricao=f"Receita {_sequencia_prescricao(prescricao)} do atendimento #{atendimento.id} atualizada.",
+        detalhes={"atendimento_id": atendimento.id, "prescricao_id": prescricao.id,
+                  "sequencia": _sequencia_prescricao(prescricao),
+                  "emitida_em": _to_operational_iso(prescricao.emitida_em),
+                  "alteracoes": alteracoes},
         request=request,
     )
 
@@ -3116,6 +3024,20 @@ def restaurar_template_documento_atendimento(
     return restaurar_template_documento(db, template_id)
 
 
+@router.get("/{atendimento_id}/historico-edicoes")
+def obter_historico_edicoes_atendimento(
+    atendimento_id: int,
+    documento_id: Optional[int] = Query(default=None, ge=1),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # A mesma dependencia e matriz de acesso do prontuario; nunca expoe a
+    # auditoria global, IPs ou dados de outros atendimentos.
+    return listar_historico_edicoes(db, atendimento_id, documento_id=documento_id, skip=skip, limit=limit)
+
+
 @router.get("/{atendimento_id}/documentos")
 def listar_documentos_atendimento(
     atendimento_id: int,
@@ -3736,7 +3658,15 @@ def criar_atendimento(
 
 
 _CAMPOS_CONTEUDO_CLINICO_AUDITAVEIS = (
+    "paciente_id",
+    "tutor_id",
+    "clinica_id",
+    "agendamento_id",
+    "especie",
     "status",
+    "data_atendimento",
+    "triagem_concluida",
+    "consulta_concluida",
     "peso",
     "temperatura",
     "frequencia_cardiaca",
@@ -3763,18 +3693,35 @@ _CAMPOS_CONTEUDO_CLINICO_AUDITAVEIS = (
 
 
 def _snapshot_conteudo_clinico(atendimento: AtendimentoClinico) -> dict:
-    return {campo: getattr(atendimento, campo) for campo in _CAMPOS_CONTEUDO_CLINICO_AUDITAVEIS}
+    valores = {campo: getattr(atendimento, campo) for campo in _CAMPOS_CONTEUDO_CLINICO_AUDITAVEIS}
+    valores["data_atendimento"] = _to_operational_iso(atendimento.data_atendimento)
+    return valores
+
+
+def _snapshot_exames(db: Session, atendimento_id: int) -> list:
+    campos = ("id", "paciente_id", "catalogo_exame_id", "painel_exame_id", "painel_exame_nome",
+              "tipo_exame", "categoria_exame", "preparo", "prioridade", "status", "resultado",
+              "valor_referencia", "unidade", "observacoes", "valor", "laudo_id",
+              "data_solicitacao", "data_resultado")
+    textos = {"painel_exame_nome", "tipo_exame", "categoria_exame", "preparo", "prioridade",
+              "status", "resultado", "valor_referencia", "unidade", "observacoes"}
+    exames = (db.query(Exame).filter(Exame.atendimento_id == atendimento_id)
+              .populate_existing().order_by(Exame.id.asc()).all())
+    return [{campo: (_to_operational_iso(getattr(exame, campo)) if campo.startswith("data_")
+                     else (getattr(exame, campo) or "") if campo in textos
+                     else getattr(exame, campo)) for campo in campos} for exame in exames]
 
 
 def _diff_conteudo_clinico(antes: dict, depois: dict) -> dict:
     return {
         campo: {"antes": antes[campo], "depois": depois[campo]}
-        for campo in _CAMPOS_CONTEUDO_CLINICO_AUDITAVEIS
+        for campo in antes
         if antes[campo] != depois[campo]
     }
 
 
 def _auditar_conteudo_clinico_atualizado(
+    db: Session,
     *,
     current_user: User,
     atendimento: AtendimentoClinico,
@@ -3785,6 +3732,7 @@ def _auditar_conteudo_clinico_atualizado(
     manual e autosave): sem isso, diagnostico/triagem/queixa podiam ser
     reescritos a qualquer momento sem nenhum rastro de quem mudou o que."""
     registrar_auditoria(
+        db=db,
         current_user=current_user,
         modulo="atendimento",
         entidade="atendimento_clinico",
@@ -3807,11 +3755,14 @@ def atualizar_atendimento(
     current_user: User = Depends(get_current_user),
     request: Request = None,
 ):
-    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    atendimento = (db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id)
+                   .populate_existing().with_for_update().first())
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
     conteudo_clinico_antes = _snapshot_conteudo_clinico(atendimento)
+    if payload.exames is not None:
+        conteudo_clinico_antes["exames"] = _snapshot_exames(db, atendimento.id)
 
     data = payload.model_dump(
         exclude_unset=True,
@@ -3845,6 +3796,8 @@ def atualizar_atendimento(
             clinica_destino = agendamento_validado.clinica_id
 
     status_atual = atendimento.status
+    if _status_atendimento_concluido(status_atual) and paciente_destino != atendimento.paciente_id:
+        raise HTTPException(status_code=409, detail="A correcao de um atendimento concluido deve preservar o paciente original.")
     status_destino = atendimento.status
     if "status" in data and data["status"] is not None:
         status_destino = _normalizar_status_atendimento(data["status"])
@@ -3885,16 +3838,15 @@ def atualizar_atendimento(
             ),
         )
     if (
-        agendamento_referencia
-        and _status_atendimento_concluido(status_atual)
+        _status_atendimento_concluido(status_atual)
         and not _status_atendimento_concluido(status_destino)
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Um atendimento vinculado e concluido nao pode ser reaberto isoladamente. "
-                "A reabertura fica bloqueada ate poder desfazer prontuario, Agenda e OS "
-                "em uma unica operacao."
+                "A edicao preserva o status Concluido. Recarregue o atendimento e "
+                "salve as correcoes mantendo a conclusao; nao e necessario reabrir "
+                "o registro para editar seu conteudo."
             ),
         )
     alterando_vinculo_agendamento = bool(
@@ -3961,7 +3913,7 @@ def atualizar_atendimento(
         atendimento.triagem_concluida = data["triagem_concluida"]
     if "consulta_concluida" in data:
         atendimento.consulta_concluida = data["consulta_concluida"]
-    if status_destino == "Concluido" and not _status_atendimento_concluido(status_atual):
+    if _status_atendimento_concluido(status_destino):
         atendimento.consulta_concluida = 1
 
     # DiagnÃ³sticos
@@ -3990,52 +3942,44 @@ def atualizar_atendimento(
 
     atendimento.updated_at = datetime.now()
 
-    editou_receita_emitida = False
-    prescricao_alvo: Optional[PrescricaoClinica] = None
-
     try:
         if payload.exames is not None:
             _sync_exames(db, atendimento, payload.exames, current_user)
-        if "prescricao" in data:
+        if "prescricao" in data and payload.prescricao is not None:
             prescricao_alvo = _buscar_prescricao_principal(db, atendimento.id)
-            if payload.prescricao is not None and _payload_altera_prescricao(
-                db, prescricao_alvo, payload.prescricao
-            ):
-                editou_receita_emitida = _validar_edicao_receita_emitida(
-                    prescricao_alvo,
-                    confirmado=bool(payload.confirmar_edicao_receita_emitida),
-                )
-            _sync_prescricao(
-                db,
-                atendimento,
-                payload.prescricao,
-                current_user,
-                prescricao=prescricao_alvo,
+            prescricao_antes = _snapshot_prescricao(db, prescricao_alvo, reler=True)
+            prescricao_alvo = _sync_prescricao(
+                db, atendimento, payload.prescricao, current_user, prescricao=prescricao_alvo,
             )
-    except IntegrityError as exc:
-        _raise_atendimento_integrity_conflict(
-            db,
-            agendamento_id=atendimento.agendamento_id,
-            exc=exc,
+            _auditar_edicao_prescricao(
+                db, current_user=current_user, atendimento=atendimento,
+                prescricao=prescricao_alvo, antes=prescricao_antes, request=request,
+            )
+        conteudo_clinico_depois = _snapshot_conteudo_clinico(atendimento)
+        if payload.exames is not None:
+            db.flush()
+            conteudo_clinico_depois["exames"] = _snapshot_exames(db, atendimento.id)
+        alteracoes_conteudo_clinico = _diff_conteudo_clinico(
+            conteudo_clinico_antes, conteudo_clinico_depois,
+        )
+        if alteracoes_conteudo_clinico:
+            _auditar_conteudo_clinico_atualizado(
+                db, current_user=current_user, atendimento=atendimento,
+                alteracoes=alteracoes_conteudo_clinico, request=request,
+            )
+        _commit_atendimento_com_guard(
+            db, agendamento_id=atendimento.agendamento_id,
             atendimento_id_excluir=atendimento.id,
         )
-
-    _commit_atendimento_com_guard(
-        db,
-        agendamento_id=atendimento.agendamento_id,
-        atendimento_id_excluir=atendimento.id,
-    )
-    db.refresh(atendimento)
-    alteracoes_conteudo_clinico = _diff_conteudo_clinico(
-        conteudo_clinico_antes, _snapshot_conteudo_clinico(atendimento)
-    )
-    if alteracoes_conteudo_clinico:
-        _auditar_conteudo_clinico_atualizado(
-            current_user=current_user,
-            atendimento=atendimento,
-            alteracoes=alteracoes_conteudo_clinico,
-            request=request,
+    except IntegrityError as exc:
+        _raise_atendimento_integrity_conflict(
+            db, agendamento_id=atendimento.agendamento_id, exc=exc,
+            atendimento_id_excluir=atendimento.id,
         )
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(atendimento)
     if desvinculando_agendamento:
         _auditar_desvinculo_agendamento(
             current_user=current_user,
@@ -4048,13 +3992,6 @@ def atualizar_atendimento(
             current_user=current_user,
             atendimento=atendimento,
             pendencias=pendencias_conclusao,
-            request=request,
-        )
-    if editou_receita_emitida and prescricao_alvo is not None:
-        _auditar_edicao_receita_emitida(
-            current_user=current_user,
-            atendimento=atendimento,
-            prescricao=prescricao_alvo,
             request=request,
         )
     return _montar_detalhe_atendimento(db, atendimento)
@@ -5049,7 +4986,8 @@ def atualizar_prescricao(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    atendimento = (db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id)
+                   .populate_existing().with_for_update().first())
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
@@ -5059,24 +4997,18 @@ def atualizar_prescricao(
         prescricao_id=prescricao_id,
     )
 
-    editou_receita_emitida = False
-    if _payload_altera_prescricao(db, prescricao, payload):
-        editou_receita_emitida = _validar_edicao_receita_emitida(
-            prescricao,
-            confirmado=bool(payload.confirmar_edicao_receita_emitida),
+    antes = _snapshot_prescricao(db, prescricao, reler=True)
+    try:
+        _sync_prescricao(db, atendimento, payload, current_user, prescricao=prescricao)
+        _auditar_edicao_prescricao(
+            db, current_user=current_user, atendimento=atendimento,
+            prescricao=prescricao, antes=antes, request=request,
         )
-
-    _sync_prescricao(db, atendimento, payload, current_user, prescricao=prescricao)
-    db.commit()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(prescricao)
-
-    if editou_receita_emitida:
-        _auditar_edicao_receita_emitida(
-            current_user=current_user,
-            atendimento=atendimento,
-            prescricao=prescricao,
-            request=request,
-        )
 
     return {"prescricao": _serializar_prescricao(db, atendimento, prescricao)}
 

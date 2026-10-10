@@ -7,6 +7,7 @@ import DashboardLayout from "../layout-dashboard";
 import { useRoutePerformanceReady } from "@/lib/use-route-performance-ready";
 import api from "@/lib/axios";
 import { validarPdfDocumento, iniciarDownloadDocumento, reconciliarDocumentoSalvo, documentoPersistido as exigirDocumentoPersistido } from "@/lib/atendimento-documentos";
+import { assessAtendimentoBackup, atendimentoBackupDifferences, writePendingAtendimentoBackup, type AtendimentoBackup } from "@/lib/atendimento-draft-recovery";
 import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import { extractApiErrorMessage, extractApiErrorMessageSync } from "@/lib/api-error";
 import {
@@ -16,6 +17,7 @@ import {
   mergeAtendimentoFinalizado,
   mergeAutoSavedFormState,
   reconcileExamsDuringSave,
+  restorePersistedAtendimentoDraft,
 } from "@/lib/atendimento-form-merge";
 import {
   montarSnapshotDoAtendimento,
@@ -121,6 +123,8 @@ const AtendimentoCadastroComplementarSection = dynamic(() => import("./component
 const AtendimentoConsultaOverviewSection = dynamic(() => import("./components/AtendimentoConsultaOverviewSection"));
 const AtendimentoConsultaEditorSection = dynamic(() => import("./components/AtendimentoConsultaEditorSection"));
 const AtendimentoClinicalRadarAside = dynamic(() => import("./components/AtendimentoClinicalRadarAside"));
+const AtendimentoBackupRecovery = dynamic(() => import("./components/AtendimentoBackupRecovery"));
+const AtendimentoHistoricoEdicoes = dynamic(() => import("./components/AtendimentoHistoricoEdicoes"));
 const AtendimentoAdendosSection = dynamic(() => import("./components/AtendimentoAdendosSection"));
 const AtendimentoReceitasBar = dynamic(() => import("./components/AtendimentoReceitasBar"));
 const AtendimentoDocumentosSection = dynamic(() => import("./components/AtendimentoDocumentosSection"));
@@ -1340,6 +1344,8 @@ const AUTOSAVE_DELAY_MS = 1800;
 const getAtendimentoDraftBackupKey = (atendimentoId: number | string) =>
   `${ATENDIMENTO_DRAFT_KEY}:${atendimentoId}`;
 
+const getAtendimentoRecoveryKey = (atendimentoId: number | string) => `${getAtendimentoDraftBackupKey(atendimentoId)}:recovery`;
+
 const hydrateFormFromDetail = (d: any, alvoId?: number | null): AtendimentoForm => {
   const { prescricao: prescricaoDoForm, alvoId: alvoResolvido } = resolverPrescricaoDoForm(d, alvoId);
   return {
@@ -1554,20 +1560,10 @@ export default function AtendimentoPage() {
   const [criandoAdendo, setCriandoAdendo] = useState(false);
   const [receitas, setReceitas] = useState<ReceitaResumo[]>([]);
   const [criandoReceita, setCriandoReceita] = useState(false);
-  // Receitas emitidas cuja edicao ja foi confirmada nesta sessao: sem isso, o
-  // autosave pediria confirmacao a cada digitacao depois do PDF gerado.
-  const [receitasEdicaoConfirmada, setReceitasEdicaoConfirmada] = useState<number[]>([]);
-  // Lido dentro do save, que roda no mesmo tick do clique em "Confirmar e
-  // salvar": o estado ainda nao teria sido aplicado e a confirmacao se
-  // perderia, devolvendo 409 de novo.
-  const receitasEdicaoConfirmadaRef = useRef<number[]>([]);
-  const [receitaEmitidaPendente, setReceitaEmitidaPendente] = useState<
-    { prescricao_id: number; mensagem: string } | null
-  >(null);
-  const receitaEmitidaPendenteRef = useRef<{ prescricao_id: number; mensagem: string } | null>(null);
-  // `receitaAtiva` e derivada mais abaixo; o descarte roda em handler e
-  // precisa do valor corrente sem depender da ordem de declaracao.
-  const receitaAtivaRef = useRef<ReceitaResumo | null>(null);
+  const [historicoEdicoesRevision, setHistoricoEdicoesRevision] = useState(0);
+  const [copiasLocaisParaRevisar, setCopiasLocaisParaRevisar] = useState<AtendimentoBackup[]>([]);
+  const backupLocalEscritoRef = useRef<Record<number, string | null>>({});
+  const backupWriterIdRef = useRef("");
   // Exame escolhido no card de cada adendo na hora de anexar o arquivo.
   const [exameDoAdendo, setExameDoAdendo] = useState<Record<number, string>>({});
 
@@ -1744,10 +1740,6 @@ export default function AtendimentoPage() {
   useEffect(() => {
     formRef.current = form;
   }, [form]);
-
-  useEffect(() => {
-    receitasEdicaoConfirmadaRef.current = receitasEdicaoConfirmada;
-  }, [receitasEdicaoConfirmada]);
 
   useEffect(() => {
     const catalogosNoFormulario = new Set(
@@ -1937,22 +1929,34 @@ export default function AtendimentoPage() {
     }
   };
 
-  /**
-   * Grava o backup local do atendimento.
-   *
-   * Trocar de receita e descartar alteracao mexem no formulario com
-   * `hydratingFormRef` ligado, e o efeito de backup sai cedo nesse estado -
-   * sem gravar aqui, o rascunho continuaria com o conteudo da receita
-   * anterior e o traria de volta no proximo carregamento.
-   */
+  /** Guarda somente edicao pendente, junto da base que alimentou o editor.
+   * Copias aguardando revisao ficam em outra chave e nunca sao sobrescritas. */
   const gravarBackupLocalAtendimento = (formAtual: AtendimentoForm) => {
     if (typeof window === "undefined") return;
     const atendimentoId = selecionadoRef.current;
-    if (!atendimentoId) return;
-    localStorage.setItem(
+    if (!atendimentoId || formAtual.id !== atendimentoId) return;
+    if (!backupWriterIdRef.current) backupWriterIdRef.current = crypto.randomUUID();
+    backupLocalEscritoRef.current[atendimentoId] = writePendingAtendimentoBackup(
+      localStorage,
       getAtendimentoDraftBackupKey(atendimentoId),
-      JSON.stringify({ form: formAtual, updated_at: new Date().toISOString() })
+      formAtual,
+      lastPersistedSnapshotRef.current,
+      serializeAtendimentoSnapshot,
+      backupLocalEscritoRef.current[atendimentoId] || null,
+      backupWriterIdRef.current
     );
+  };
+
+  const limparBackupConfirmado = (atendimentoId: number, enviado: AtendimentoForm) => {
+    const key = getAtendimentoDraftBackupKey(atendimentoId);
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    try {
+      const backup = JSON.parse(raw) as AtendimentoBackup;
+      // Remove somente o conteudo que esta requisicao acabou de salvar. Um
+      // novo texto digitado durante a rede (ou em outra aba) continua guardado.
+      if (backup.form && serializeAtendimentoSnapshot(backup.form as AtendimentoForm) === serializeAtendimentoSnapshot(enviado) && localStorage.getItem(key) === raw) localStorage.removeItem(key);
+    } catch { /* Copias incompletas/legadas permanecem recuperaveis. */ }
   };
 
   const clearExamUploadDrafts = () => {
@@ -2987,14 +2991,15 @@ export default function AtendimentoPage() {
       return;
     }
 
+    // Undo ate a base limpa o proprio backup imediatamente; nao deixa uma
+    // janela de debounce em que recarregar ressuscitaria o texto desfeito.
+    if (serializeAtendimentoSnapshot(form) === lastPersistedSnapshotRef.current) {
+      gravarBackupLocalAtendimento(form);
+      return;
+    }
+
     const timer = window.setTimeout(() => {
-      localStorage.setItem(
-        getAtendimentoDraftBackupKey(selecionado),
-        JSON.stringify({
-          form: formRef.current,
-          updated_at: new Date().toISOString(),
-        })
-      );
+      gravarBackupLocalAtendimento(formRef.current);
     }, 700);
 
     return () => {
@@ -3074,46 +3079,52 @@ export default function AtendimentoPage() {
       const response = await api.get(`/atendimentos/${id}`);
       if (requestId !== abrirAtendimentoRequestIdRef.current) return;
       const d = response.data;
-      const hydrated = hydrateFormFromDetail(d);
+      let hydrated = hydrateFormFromDetail(d);
       setAdendos(Array.isArray(d?.adendos) ? d.adendos : []);
       setReceitas(Array.isArray(d?.prescricoes) ? d.prescricoes : []);
 
-      // Se um autosave anterior falhou (aba fechada, rede fora do ar), pode
-      // existir um backup local mais recente do que o servidor - recuperar em
-      // vez de descartar silenciosamente.
+      // Sem inferir frescor pelo relogio: compara a base salva com o servidor.
+      // Backup legado/divergente fica preservado para comparacao explicita.
       let formParaAplicar = hydrated;
       let recuperadoDoBackupLocal = false;
+      let copiasParaRevisar: AtendimentoBackup[] = [];
       if (typeof window !== "undefined") {
         const backupKey = getAtendimentoDraftBackupKey(id);
+        const recoveryKey = getAtendimentoRecoveryKey(id);
+        try {
+          const stored = JSON.parse(localStorage.getItem(recoveryKey) || "[]");
+          if (Array.isArray(stored)) copiasParaRevisar = stored.filter((item) => item?.form);
+        } catch { /* A copia original permanece no armazenamento. */ }
         const rawBackup = localStorage.getItem(backupKey);
         if (rawBackup) {
           try {
-            const parsedBackup = JSON.parse(rawBackup) as { form?: Partial<AtendimentoForm> };
+            const parsedBackup = JSON.parse(rawBackup) as AtendimentoBackup;
             if (parsedBackup.form) {
-              // `especie`/`evolucoes`/`anexos`/`documentos` nao fazem parte de
-              // buildAtendimentoPayload - sao autoritativos do servidor e podem
-              // ter mudado nesse meio-tempo por uma acao diferente do autosave
-              // (ex.: registrar evolucao, upload de anexo). O backup local so
-              // deve substituir os campos que ele proprio protege (o payload);
-              // esses 4 sempre vem do `hydrated` (servidor), nunca do backup.
-              const {
-                especie: _especieBackup,
-                evolucoes: _evolucoesBackup,
-                anexos: _anexosBackup,
-                documentos: _documentosBackup,
-                ...backupSemCamposServidor
-              } = parsedBackup.form;
-              const candidato = { ...hydrated, ...backupSemCamposServidor, id: hydrated.id };
-              if (serializeAtendimentoSnapshot(candidato) !== serializeAtendimentoSnapshot(hydrated)) {
-                formParaAplicar = candidato;
+              const alvoBackup = parsedBackup.form.prescricao_alvo_id;
+              const alvoDisponivel = !alvoBackup || (d.prescricoes || []).some((item: ReceitaResumo) => item.id === alvoBackup);
+              if (alvoDisponivel) hydrated = hydrateFormFromDetail(d, alvoBackup);
+              const recuperacao = assessAtendimentoBackup(hydrated, parsedBackup, serializeAtendimentoSnapshot);
+              if (recuperacao.mode === "automatic" && alvoDisponivel) {
+                formParaAplicar = recuperacao.candidate;
                 recuperadoDoBackupLocal = true;
+                backupLocalEscritoRef.current[id] = rawBackup;
+              } else {
+                formParaAplicar = hydrated;
+                if (recuperacao.mode === "review" || !alvoDisponivel) {
+                  if (!copiasParaRevisar.some((item) => JSON.stringify(item) === JSON.stringify(parsedBackup))) {
+                    copiasParaRevisar.push(parsedBackup);
+                    localStorage.setItem(recoveryKey, JSON.stringify(copiasParaRevisar));
+                  }
+                }
+                // A copia para revisao ja esta preservada; a copia limpa nao
+                // deve reaparecer como alteracao pendente em outra sessao.
+                if (localStorage.getItem(backupKey) === rawBackup) localStorage.removeItem(backupKey);
               }
             }
-          } catch {
-            localStorage.removeItem(backupKey);
-          }
+          } catch { /* Nunca apagar um backup que nao conseguimos interpretar. */ }
         }
       }
+      setCopiasLocaisParaRevisar(copiasParaRevisar);
 
       setSelecionado(id);
       clearDraftStorage();
@@ -3194,8 +3205,7 @@ export default function AtendimentoPage() {
     setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
     setAdendos([]);
     setReceitas([]);
-    setReceitasEdicaoConfirmada([]);
-    receitasEdicaoConfirmadaRef.current = [];
+    setCopiasLocaisParaRevisar([]);
     setAdendoFormAberto(false);
     setAdendoForm({ tipo: "resultado_exame", titulo: "", descricao: "" });
     setExameDoAdendo({});
@@ -3315,8 +3325,7 @@ export default function AtendimentoPage() {
     setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
     setAdendos([]);
     setReceitas([]);
-    setReceitasEdicaoConfirmada([]);
-    receitasEdicaoConfirmadaRef.current = [];
+    setCopiasLocaisParaRevisar([]);
     setAdendoFormAberto(false);
     setAdendoForm({ tipo: "resultado_exame", titulo: "", descricao: "" });
     setExameDoAdendo({});
@@ -4644,18 +4653,6 @@ export default function AtendimentoPage() {
       }
 
       const payload = buildAtendimentoPayload(currentForm);
-      // Corpo da requisicao a parte do payload tipado: a confirmacao de edicao
-      // de receita emitida e decisao da sessao, nao conteudo do formulario, e
-      // por isso fica fora do snapshot de autosave.
-      const corpoAtendimento: Record<string, any> = { ...payload };
-      const receitaDoDiaId = receitas.find((item) => item.sequencia === 1)?.id;
-      if (
-        !currentForm.prescricao_alvo_id &&
-        receitaDoDiaId &&
-        receitasEdicaoConfirmadaRef.current.includes(receitaDoDiaId)
-      ) {
-        corpoAtendimento.confirmar_edicao_receita_emitida = true;
-      }
       const idsExclusaoEnviados = new Set(
         payload.exames
           .filter((item) => item._destroy && item.id != null)
@@ -4665,9 +4662,9 @@ export default function AtendimentoPage() {
       let response;
 
       if (selecionadoRef.current) {
-        response = await api.put(`/atendimentos/${selecionadoRef.current}`, corpoAtendimento);
+        response = await api.put(`/atendimentos/${selecionadoRef.current}`, payload);
       } else {
-        response = await api.post("/atendimentos", corpoAtendimento);
+        response = await api.post("/atendimentos", payload);
       }
       const detalheSalvo: Record<string, any> = response.data || {};
       const atendimentoIdSalvo = detalheSalvo.id || selecionadoRef.current;
@@ -4677,9 +4674,6 @@ export default function AtendimentoPage() {
       // editor nao voltar ao estado anterior ao PUT.
       if (currentForm.prescricao_alvo_id && atendimentoIdSalvo) {
         const corpoReceita: Record<string, any> = buildPrescricaoPayload(currentForm);
-        if (receitasEdicaoConfirmadaRef.current.includes(currentForm.prescricao_alvo_id)) {
-          corpoReceita.confirmar_edicao_receita_emitida = true;
-        }
         const respostaReceita = await api.put(
           `/atendimentos/${atendimentoIdSalvo}/prescricoes/${currentForm.prescricao_alvo_id}`,
           corpoReceita
@@ -4695,8 +4689,8 @@ export default function AtendimentoPage() {
       const hydrated = hydrateFormFromDetail(detalheSalvo, currentForm.prescricao_alvo_id);
       setAdendos(Array.isArray(detalheSalvo.adendos) ? detalheSalvo.adendos : []);
       setReceitas(Array.isArray(detalheSalvo.prescricoes) ? detalheSalvo.prescricoes : []);
-      receitaEmitidaPendenteRef.current = null;
-      setReceitaEmitidaPendente(null);
+      setHistoricoEdicoesRevision((value) => value + 1);
+      if (atendimentoIdSalvo) limparBackupConfirmado(Number(atendimentoIdSalvo), currentForm);
       lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(hydrated);
 
       if (mode === "manual") {
@@ -4711,7 +4705,7 @@ export default function AtendimentoPage() {
         // desabilitado enquanto isso) nao pode ser apagada pela resposta do
         // servidor.
         mesclarFormularioAposSalvar(hydrated, examesEnviados, idsExclusaoEnviados);
-        clearDraftStorage(response.data?.id || selecionadoRef.current);
+        clearDraftStorage();
         draftRestoreRef.current = true;
         setAutosaveState("saved");
         setAutosaveAt(response.data?.updated_at || response.data?.created_at || new Date().toISOString());
@@ -4720,6 +4714,7 @@ export default function AtendimentoPage() {
         if (typeof window !== "undefined") {
           window.requestAnimationFrame(() => {
             hydratingFormRef.current = false;
+            gravarBackupLocalAtendimento(formRef.current);
           });
         }
         setSucesso(selecionadoRef.current ? "Atendimento atualizado com sucesso." : "Atendimento criado com sucesso.");
@@ -4754,10 +4749,6 @@ export default function AtendimentoPage() {
             }
           : current
       );
-      if (ehErroConfirmacaoReceitaEmitida(e)) {
-        registrarPendenciaReceitaEmitida(e);
-        return null;
-      }
       if (mode === "autosave") {
         setAutosaveState("error");
         setErro(extractApiErrorMessageSync(e, "Nao foi possivel sincronizar o atendimento."));
@@ -5217,65 +5208,6 @@ export default function AtendimentoPage() {
 
   // === CONTINUIDADE POS-ALTA ===
 
-  const ehErroConfirmacaoReceitaEmitida = (erro: any) => {
-    const detalhe = erro?.response?.data?.detail;
-    return (
-      erro?.response?.status === 409 &&
-      detalhe &&
-      typeof detalhe === "object" &&
-      detalhe.codigo === "CONFIRMACAO_EDICAO_RECEITA_EMITIDA"
-    );
-  };
-
-  /**
-   * Receita ja emitida so muda com confirmacao explicita. O aviso e
-   * nao-bloqueante de proposito: o autosave reenvia a receita a cada save, e
-   * um modal no meio da digitacao pararia o prontuario. O texto vem do
-   * backend, que e quem sabe quando e qual receita foi emitida.
-   */
-  const registrarPendenciaReceitaEmitida = (erro: any) => {
-    const detalhe = erro?.response?.data?.detail;
-    const pendencia = {
-      prescricao_id: Number(detalhe?.prescricao_id || 0),
-      mensagem: String(detalhe?.mensagem || "Esta receita ja foi emitida."),
-    };
-    // Ref junto do estado: quem chamou o save decide o que fazer ainda neste
-    // tick, antes de o estado ser aplicado.
-    receitaEmitidaPendenteRef.current = pendencia;
-    setReceitaEmitidaPendente(pendencia);
-    setAutosaveState("dirty");
-  };
-
-  // Leitura por funcao: atribuir `null` ao ref logo antes faria o TypeScript
-  // estreitar a variavel para `null` e perder o tipo da pendencia que o save
-  // pode ter registrado no meio do caminho.
-  const lerPendenciaReceitaEmitida = () => receitaEmitidaPendenteRef.current;
-
-  const limparPendenciaReceitaEmitida = () => {
-    receitaEmitidaPendenteRef.current = null;
-    setReceitaEmitidaPendente(null);
-  };
-
-  /**
-   * Volta a receita ao conteudo que esta no servidor.
-   *
-   * Fica num botao proprio, e nao no "cancelar" do dialogo: Escape e clique
-   * fora resolvem como cancelamento, e descartar texto clinico por um Escape
-   * acidental seria perda de dado silenciosa.
-   */
-  const descartarEdicaoReceitaEmitida = () => {
-    limparPendenciaReceitaEmitida();
-    aplicarReceitaNoFormulario(receitaAtivaRef.current);
-    // O aviso de receita emitida marcou o autosave como sujo; depois do
-    // descarte o formulario volta a ser exatamente o que esta no servidor.
-    // Sem isto o indicador fica preso em "Alteracoes pendentes": o efeito de
-    // autosave sai cedo enquanto a hidratacao esta em curso e nao reavalia
-    // depois, porque `form` nao muda de novo.
-    setAutosaveState("saved");
-    setErro("");
-    setSucesso("Alteracao descartada. A receita voltou ao conteudo ja emitido.");
-  };
-
   const aplicarReceitaNoFormulario = (receita: ReceitaResumo | null) => {
     const proximo: AtendimentoForm = {
       ...formRef.current,
@@ -5305,33 +5237,7 @@ export default function AtendimentoPage() {
     if (alvoAtual === (prescricaoId || null)) return;
 
     // Troca sem salvar perderia o que foi digitado na receita anterior.
-    receitaEmitidaPendenteRef.current = null;
-    let salvou = await saveAtendimento("manual");
-    const pendenciaAposSalvar = lerPendenciaReceitaEmitida();
-
-    if (!salvou && pendenciaAposSalvar) {
-      // A receita aberta foi emitida e tem alteracao nao confirmada. Sem
-      // perguntar aqui, o clique de troca nao fazia nada visivel e o vet
-      // ficava preso - inclusive digitando na receita errada sem perceber.
-      const pendencia = pendenciaAposSalvar;
-      const confirmado = await confirmarAcao({
-        titulo: "Receita emitida com alteracao nao salva",
-        descricao:
-          `${pendencia.mensagem} Confirmar grava a alteracao e segue para a outra receita. ` +
-          "Ficar nesta receita mantem a alteracao em aberto - da para descartar pelo aviso.",
-        confirmLabel: "Confirmar alteracao e trocar",
-        cancelLabel: "Ficar nesta receita",
-      });
-      if (!confirmado) return;
-
-      const confirmadas = receitasEdicaoConfirmadaRef.current.includes(pendencia.prescricao_id)
-        ? receitasEdicaoConfirmadaRef.current
-        : [...receitasEdicaoConfirmadaRef.current, pendencia.prescricao_id];
-      receitasEdicaoConfirmadaRef.current = confirmadas;
-      setReceitasEdicaoConfirmada(confirmadas);
-      limparPendenciaReceitaEmitida();
-      salvou = await saveAtendimento("manual");
-    }
+    const salvou = await saveAtendimento("manual");
 
     if (!salvou) return;
 
@@ -5376,22 +5282,6 @@ export default function AtendimentoPage() {
       setCriandoReceita(false);
     }
   };
-
-  const confirmarEdicaoReceitaEmitida = async () => {
-    if (!receitaEmitidaPendente) return;
-    const confirmadas = receitasEdicaoConfirmadaRef.current.includes(
-      receitaEmitidaPendente.prescricao_id
-    )
-      ? receitasEdicaoConfirmadaRef.current
-      : [...receitasEdicaoConfirmadaRef.current, receitaEmitidaPendente.prescricao_id];
-    // Ref primeiro: o save abaixo roda antes de o estado ser aplicado.
-    receitasEdicaoConfirmadaRef.current = confirmadas;
-    setReceitasEdicaoConfirmada(confirmadas);
-    limparPendenciaReceitaEmitida();
-    setErro("");
-    await saveAtendimento("manual");
-  };
-
 
   const carregarAdendos = async (atendimentoId?: number | null) => {
     const alvo = atendimentoId ?? selecionadoRef.current;
@@ -5739,6 +5629,7 @@ export default function AtendimentoPage() {
 
   const mergeDocumentoClinico = (documento: DocumentoAtendimento) => {
     if (selecionadoRef.current !== documento.atendimento_id) return;
+    setHistoricoEdicoesRevision((value) => value + 1);
     setForm((current) => ({
       ...current,
       documentos: [documento, ...current.documentos.filter((item) => item.id !== documento.id)],
@@ -5755,13 +5646,11 @@ export default function AtendimentoPage() {
     return documentos;
   };
 
-  const obterAtendimentoIdParaDocumento = async () => {
-    const currentSnapshot = serializeAtendimentoSnapshot(formRef.current);
-    let atendimentoId = selecionado;
-    if (!atendimentoId || currentSnapshot !== lastPersistedSnapshotRef.current || autosaveState === "error") {
-      atendimentoId = await saveAtendimento("manual");
-    }
-    return atendimentoId;
+  const obterAtendimentoIdParaDocumento = async (persistirContexto = false) => {
+    // Documento tem versao e persistencia proprias. Uma edicao pendente na
+    // consulta ou receita nao pode impedir o salvamento do documento existente.
+    if (selecionadoRef.current && (!persistirContexto || serializeAtendimentoSnapshot(formRef.current) === lastPersistedSnapshotRef.current)) return selecionadoRef.current;
+    return saveAtendimento("manual");
   };
 
   const selecionarDocumentoClinico = (documento: DocumentoAtendimento) => {
@@ -5791,7 +5680,7 @@ export default function AtendimentoPage() {
     setSalvandoDocumentoClinico(true);
 
     try {
-      const atendimentoId = await obterAtendimentoIdParaDocumento();
+      const atendimentoId = await obterAtendimentoIdParaDocumento(true);
       if (!atendimentoId) return null;
 
       const response = await api.post(`/atendimentos/${atendimentoId}/documentos`, {
@@ -5884,17 +5773,6 @@ export default function AtendimentoPage() {
         titulo: "Variaveis nao reconhecidas no documento",
         descricao: `O documento "${documentoParaPdf.titulo}" ainda tem ${variaveisNaoResolvidasPdf.length} variavel(is) nao reconhecida(s) (${variaveisNaoResolvidasPdf.join(", ")}). Gerar o PDF assim mesmo?`,
         confirmLabel: "Gerar assim mesmo",
-      }))
-    ) {
-      return;
-    }
-
-    if (
-      documentoParaPdf.status === "emitido" &&
-      !(await confirmarAcao({
-        titulo: "Documento ja emitido",
-        descricao: `O documento "${documentoParaPdf.titulo}" ja foi emitido anteriormente. Gerar um novo PDF agora cria uma nova versao oficial com o conteudo atual. Continuar?`,
-        confirmLabel: "Gerar nova versao",
       }))
     ) {
       return;
@@ -6644,7 +6522,6 @@ export default function AtendimentoPage() {
     }
     return receitas.find((item) => item.sequencia === 1) || null;
   }, [receitas, form.prescricao_alvo_id]);
-  receitaAtivaRef.current = receitaAtiva;
   // Exames que ainda esperam arquivo: sao o alvo natural de um adendo de
   // resultado recebido depois da alta.
   const examesAguardandoArquivo = useMemo(
@@ -7746,8 +7623,8 @@ export default function AtendimentoPage() {
                   {form.data_atendimento ? ` - encontro em ${formatDate(form.data_atendimento)}` : ""}
                 </p>
                 <p className="mt-1 text-sm text-slate-800">
-                  O registro deste encontro permanece como foi fechado. Exame que chegou depois, receita
-                  complementar ou orientacao entram como adendo, no mesmo atendimento - sem abrir uma consulta nova.
+                  Voce pode editar este atendimento e seus documentos normalmente. As alteracoes ficam no
+                  historico de edicoes, com autor e data, mantendo o atendimento concluido. Adendos sao opcionais.
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -7775,7 +7652,7 @@ export default function AtendimentoPage() {
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Registro historico #{selecionado}</p>
                 <p className="mt-1 text-sm text-amber-950">
-                  Voce esta editando um atendimento ja existente. Uma nova consulta ou receita deve ser aberta em outro atendimento para preservar este prontuario.
+                  Voce pode editar este registro e consultar o historico das alteracoes. Para registrar uma nova consulta, abra outro atendimento.
                 </p>
               </div>
               <button
@@ -7792,6 +7669,32 @@ export default function AtendimentoPage() {
           <section className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900 shadow-sm">
             <span className="font-semibold">Novo atendimento.</span> Ao salvar, sera criado um novo registro sem alterar consultas ou receitas anteriores.
           </section>
+        ) : null}
+
+        {selecionado ? copiasLocaisParaRevisar.map((copia, index) => {
+          const candidate = restorePersistedAtendimentoDraft(form, copia.form);
+          const canRecover = candidate !== form && (copia.form.prescricao_alvo_id || null) === (form.prescricao_alvo_id || null);
+          return <AtendimentoBackupRecovery
+            key={`${selecionado}:${index}`}
+            differences={atendimentoBackupDifferences(form, candidate, serializeAtendimentoSnapshot)}
+            canRecover={canRecover}
+            onRecover={() => {
+              if (!canRecover) return;
+              // Guarda primeiro no backup ativo. Uma falha de rede continua
+              // recuperavel depois de retirar a copia da lista de revisao.
+              gravarBackupLocalAtendimento(candidate);
+              setForm(candidate);
+              setAutosaveState("dirty");
+              const restantes = copiasLocaisParaRevisar.filter((_, itemIndex) => itemIndex !== index);
+              setCopiasLocaisParaRevisar(restantes);
+              localStorage.setItem(getAtendimentoRecoveryKey(selecionado), JSON.stringify(restantes));
+              setSucesso("Copia recuperada no editor. As alteracoes serao salvas com historico.");
+            }}
+          />;
+        }) : null}
+
+        {selecionado ? (
+          <AtendimentoHistoricoEdicoes key={selecionado} atendimentoId={selecionado} refreshKey={historicoEdicoesRevision} />
         ) : null}
 
         <section className="fc-care-navigation">
@@ -8464,13 +8367,10 @@ export default function AtendimentoPage() {
                     />
                     <AtendimentoReceitasBar
                       atendimentoConcluido={atendimentoConcluido}
-                      confirmarEdicaoReceitaEmitida={confirmarEdicaoReceitaEmitida}
                       criandoReceita={criandoReceita}
-                      descartarEdicaoReceitaEmitida={descartarEdicaoReceitaEmitida}
                       criarReceitaComplementar={criarReceitaComplementar}
                       formatDate={formatDate}
                       receitaAtiva={receitaAtiva}
-                      receitaEmitidaPendente={receitaEmitidaPendente}
                       receitas={receitas}
                       selecionado={selecionado}
                       selecionarReceita={selecionarReceita}
@@ -8563,6 +8463,7 @@ export default function AtendimentoPage() {
                     <AtendimentoClinicalRadarAside
                       alertasAtivos={alertasAtivos}
                       autosaveLabel={autosaveLabel}
+                      autosaveState={autosaveState}
                       clinicalSummary={clinicalSummary}
                       formatDate={formatDate}
                       form={form}
