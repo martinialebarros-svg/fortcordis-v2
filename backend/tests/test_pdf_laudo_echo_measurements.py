@@ -106,6 +106,83 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertNotIn("Cornell et al.", text)
         self.assertNotIn("Pariaut et al.", text)
 
+    def test_outflow_velocity_bibliography_follows_measured_valve_and_species(self) -> None:
+        for species, own_study, other_study in (
+            ("Canina", "Petrus et al. (2010)", "Domanjko Petric et al. (2012)"),
+            ("Felina", "Domanjko Petric et al. (2012)", "Petrus et al. (2010)"),
+        ):
+            for measurement in ("Vmax_aorta", "Vmax_pulmonar"):
+                with self.subTest(species=species, measurement=measurement):
+                    payload = _base_report("modo_m")
+                    payload["paciente"]["especie"] = species
+                    payload["medidas"] = {measurement: "1.10"}
+                    payload["referencia_eco"] = {"especie": species, "peso_kg": 10 if species == "Canina" else 4}
+                    text = _pdf_text(payload)
+                    bibliography = text.partition("REFERÊNCIAS BIBLIOGRÁFICAS")[2]
+
+                    self.assertIn(own_study, bibliography)
+                    self.assertNotIn(other_study, bibliography)
+                    self.assertNotIn("Cornell et al.", bibliography)
+                    self.assertNotIn("Häggström et al.", bibliography)
+
+            with self.subTest(species=species, measurement="unmeasured"):
+                payload = _base_report("modo_m")
+                payload["paciente"]["especie"] = species
+                payload["medidas"] = {"Vmax_VSVE": "1.10", "Grad_aorta": "4.84"}
+                payload["referencia_eco"] = {"especie": species, "peso_kg": 10 if species == "Canina" else 4}
+                text = _pdf_text(payload)
+                self.assertNotIn("Petrus et al. (2010)", text)
+                self.assertNotIn("Domanjko Petric et al. (2012)", text)
+
+    def test_outflow_velocity_study_is_cited_without_a_selected_catalog_range(self) -> None:
+        for species, study in (
+            ("Canina", "Petrus et al. (2010)"),
+            ("Felina", "Domanjko Petric et al. (2012)"),
+        ):
+            with self.subTest(species=species):
+                payload = _base_report("modo_m")
+                payload["paciente"]["especie"] = species
+                payload["medidas"] = {"Vmax_aorta": "1.10"}
+                payload.pop("referencia_eco", None)
+                text = _pdf_text(payload)
+
+                self.assertIn("Vmax aorta\n1.10 m/s\n--", text)
+                self.assertIn(study, text)
+
+    def test_outflow_velocity_studies_do_not_claim_the_legacy_catalog_range(self) -> None:
+        for species, study, expected_values in (
+            ("Canina", "Petrus et al. (2010)", ("1,26", "0,13", "0,95", "0,18")),
+            ("Felina", "Domanjko Petric et al. (2012)", ("0,77", "1,40", "0,65", "1,21")),
+        ):
+            with self.subTest(species=species):
+                payload = _base_report("modo_m")
+                payload["paciente"]["especie"] = species
+                payload["medidas"] = {"Vmax_aorta": "1.10", "Vmax_pulmonar": "0.90"}
+                payload["referencia_eco"] = {
+                    "especie": species,
+                    "peso_kg": 10 if species == "Canina" else 4,
+                    "vmax_ao_min": 0,
+                    "vmax_ao_max": 2.2,
+                    "vmax_pulm_min": 0,
+                    "vmax_pulm_max": 2.2,
+                }
+                text = _pdf_text(payload)
+                bibliography = text.partition("REFERÊNCIAS BIBLIOGRÁFICAS")[2]
+
+                self.assertEqual(text.count("0.00 - 2.20 m/s"), 2)
+                self.assertIn(study, bibliography)
+                self.assertNotIn("2.20", bibliography)
+                self.assertNotIn("2,20", bibliography)
+                for value in expected_values:
+                    self.assertRegex(bibliography, value.replace(",", "[,.]"))
+                if species == "Canina":
+                    self.assertIn("30 cães", bibliography)
+                    self.assertIn("DP", bibliography)
+                else:
+                    self.assertIn("53 gatos", bibliography)
+                    self.assertIn("mínimos e máximos", bibliography)
+                    self.assertIn("observados", bibliography)
+
     def test_feline_pdf_omits_canine_index_and_derives_atrial_and_lvot_markers(self) -> None:
         payload = _base_report("modo_m")
         payload["paciente"].update({"especie": "Felina", "peso": "2.3"})
