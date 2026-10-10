@@ -6856,11 +6856,19 @@ def atualizar_status(
             ),
         )
         if reativando_inativo:
+            inicio_local = _to_local_naive(_coerce_datetime(db_agendamento.inicio))
             bypass_deslocamento = _validar_deslocamento_agendamento(
                 db,
                 db_agendamento,
                 agendamento_id_excluir=agendamento_id,
                 confirmar_conflito_deslocamento=confirmar_conflito_deslocamento,
+                # Como no PUT, corrigir o status apos o inicio original nao
+                # exige uma nova saida da base; os conflitos entre vizinhos
+                # continuam sendo validados.
+                validar_primeira_saida=not (
+                    inicio_local is not None
+                    and inicio_local <= datetime.now(LOCAL_TZ).replace(tzinfo=None)
+                ),
             )
             if bypass_deslocamento and bypass_deslocamento.get("origem") == "confirmacao_admin":
                 _conceder_excecao_deslocamento(

@@ -26,6 +26,7 @@ Status: in-progress
 | CA-016 / NFR-006 / NFR-007 | aceitacao e seguranca | `test_agenda_duracao_servico_create.py` cobre bloqueio sem confirmacao, rejeicao nao-admin e evento auditavel para admin | ok |
 | CA-018 / RF-019 | reserva em agenda fechada | Criacao persiste escopo do intervalo; edicao no mesmo intervalo reaproveita autorizacao; novo intervalo requer confirmacao admin; `test_agenda_duracao_servico_create.py` | ok local |
 | CA-019 / RF-019 | reativacao em agenda fechada | `test_agenda_reabilitar_reserva_expirada.py` cobre status de cancelado e reabilitacao de expirado: escopo aprovado permite reativacao; horario alterado continua bloqueado | ok local |
+| CA-020 / RF-020 | preservacao de pisos municipais | `agenda-route-rules.test.ts` cobre carregar/editar outro campo/salvar/recarregar e 54 pisos; `test_agenda_route_rules_normalization.py` verifica limite de extras, aliases/defaults tardios e idempotencia | ok local em 10/10/2026 |
 | CA-017 | aceitacao | modal de recebimento da Agenda Lista oferece checkbox de recibo PDF para a clinica; baixa e envio oficial sao sequenciais, com chave de idempotencia, falha independente e rolagem em viewport reduzida | ok |
 | NFR-001 | nao funcional | cache de deslocamento por request mantido | ok |
 | NFR-002 | nao funcional | sem novos endpoints publicos; usa permissao de configuracoes existente | ok |
@@ -108,3 +109,20 @@ A evidência de testes desta etapa está centralizada em
 `../agenda-preferencias-compactacao/verify.md`; registros de releases anteriores
 neste arquivo não significam publicação desta mudança. Não houve envio real,
 migration, edição de agendamentos ou alteração de configuração em produção.
+
+## Preservação dos pisos municipais — 10/10/2026
+
+A normalização frontend deixou de reconstruir apenas os quatro municípios
+padrão. O backend conta até 50 municípios adicionais distintos, sem consumir
+o limite com defaults ou atualizações; ler e salvar novamente preserva todos
+os pisos aceitos. Nomes e horários mantêm os fallbacks existentes.
+
+Regressões sintéticas falharam antes e passaram após a correção. Os 9 testes
+frontend de pisos, a suíte frontend completa (560 Vitest + 9 Node), ESLint e
+TypeScript passaram. Normalização backend e rendering policy passaram com
+7 testes e 4 subtests. Resultados finais e limites da etapa estão centralizados
+em `../agenda-primeira-saida/verify.md`, junto à correção da reativação de status.
+As evidências posteriores de publicação são registradas no
+[PR #334](https://github.com/martinialebarros-svg/fortcordis-v2/pull/334) e no PR
+de promoção vinculado a ele. A correção não restaura automaticamente
+configurações que já tenham sido apagadas em gravações anteriores.

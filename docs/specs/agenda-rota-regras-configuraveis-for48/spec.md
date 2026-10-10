@@ -29,6 +29,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - RF-017: a confirmacao de RF-016 nao pode alterar `agenda_semanal`, `agenda_feriados` ou `agenda_excecoes`; sobreposicao, prazo de reserva e conflito de deslocamento continuam validados normalmente.
 - RF-019: a autorizacao de agenda fechada concedida pelo admin ao criar uma reserva fica vinculada ao inicio e fim aprovados. Incluir tutor ou pet, confirmar e reativar a reserva no mesmo horario reutiliza essa autorizacao em todos os fluxos de status; mudar o intervalo exige nova confirmacao administrativa.
 - RF-018: o modal de recebimento da Agenda Lista deve oferecer uma caixa, desmarcada por padrao, para enviar o recibo PDF oficial para a clinica pelo WhatsApp depois da baixa; falha no envio nao pode desfazer o recebimento e deve ser comunicada separadamente.
+- RF-020: a normalizacao de `route_policy.first_appointment_city_floors` na interface deve preservar municipios adicionais aceitos pelo backend, com nomes e horarios validos, inclusive quando o usuario salva apenas outra configuracao. O backend limita a 50 municipios adicionais distintos, sem contar os quatro defaults ou atualizacoes de chaves existentes; normalizar novamente nao remove entradas ja aceitas.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -90,6 +91,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - CA-018: `PUT /agenda/{id}` aceita completar a reserva em horario fechado quando a autorizacao persistida corresponde ao intervalo; em outro intervalo exige `confirmar_agenda_fechada=true` de admin e registra a nova confirmacao.
 - CA-019: `PATCH /agenda/{id}/status` e `POST /agenda/{id}/reabilitar-reserva` respeitam a autorizacao persistida ao reativar no intervalo aprovado, inclusive para nao-admin; sem escopo correspondente, mantem o bloqueio de agenda fechada.
 - CA-017: na Agenda Lista, marcar o envio de recibo registra primeiro o recebimento e depois chama `POST /ordens-servico/{id}/whatsapp/recibo-pdf` com chave de idempotencia; o modal continua utilizavel em viewport reduzida e uma falha do WhatsApp informa que a baixa foi concluida.
+- CA-020: carregar e salvar configuracoes com pisos adicionais de Fortaleza e Aquiraz preserva essas entradas e os valores personalizados dos municipios padrao. Nomes com caixa, acentos e espacos extras sao normalizados; chaves invalidas sao descartadas e horarios invalidos seguem o fallback do backend (default municipal ou 08:00 para municipio adicional). Ver tambem CA-010 de `../agenda-primeira-saida/spec.md`.
 
 ## 7) Casos de borda
 
