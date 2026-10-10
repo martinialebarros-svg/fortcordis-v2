@@ -46,3 +46,9 @@ de falhar em silencio.
 - Guard de reabertura no backend.
 - Demais campos servidos pelo merge.
 - Fuso de `emitida_em` (spec `receita-emitida-em-fuso-operacional`).
+
+## Atualizacao de contrato em 2026-10-10
+
+A autoridade do status confirmado pelo servidor passa a abranger tambem a recuperacao de rascunhos locais e a edicao posterior de atendimentos concluidos. Texto clinico digitado permanece recuperavel. Salvar documento persistido nao fica condicionado a um save desnecessario do formulario do atendimento.
+
+Contrato e evidencias desta alteracao: [spec](../atendimento-edicao-pos-conclusao/spec.md) e [verify](../atendimento-edicao-pos-conclusao/verify.md). A evidencia de publicacao de entregas anteriores nao comprova a publicacao desta atualizacao.

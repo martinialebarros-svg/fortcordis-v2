@@ -122,3 +122,9 @@ com OS "Pago" desfaz o recebimento financeiro antes de cancelar a OS.
 - UI para exibir a trilha de auditoria de conteudo clinico e de alertas.
 - Auditoria de outras entidades do modulo (documentos clinicos, evolucoes)
   - achados #21 e correlatos da mesma auditoria, nao inclusos aqui.
+
+## Atualizacao de contrato em 2026-10-10
+
+A auditoria de alteracoes do conteudo clinico passa a participar da mesma transacao do save, substituindo o comportamento best-effort desse evento. O historico clinico e de documentos passa a ter consulta no proprio prontuario. As regras de exames, alertas e exclusao financeira nao sao alteradas por esse contrato.
+
+Contrato e evidencias desta alteracao: [spec](../atendimento-edicao-pos-conclusao/spec.md) e [verify](../atendimento-edicao-pos-conclusao/verify.md). A evidencia de publicacao de entregas anteriores nao comprova a publicacao desta atualizacao.

@@ -288,3 +288,11 @@ atendimento #61, que seguiu em `2026-09-05T13:13:38`, anterior a visita.
 
 Fora de escopo desta verificacao, por gerarem registro real: os passos 4.3 do
 runbook que criam agendamento e laudo.
+
+## Atualizacao de contrato em 2026-10-10
+
+A edicao direta do atendimento concluido passa a ser apresentada como fluxo normal, com historico consultavel. Adendos continuam opcionais para organizar continuidade; RF-020 e CA-007 deixam de exigir o adendo como acao primaria do banner. O novo contrato tambem impede que um backup local antigo regrida o status concluido.
+
+Contrato e evidencias desta alteracao: [spec](../atendimento-edicao-pos-conclusao/spec.md) e [verify](../atendimento-edicao-pos-conclusao/verify.md). A evidencia de publicacao de entregas anteriores nao comprova a publicacao desta atualizacao.
+
+A atualizacao tambem substitui RF-013, RF-023, RF-027, RF-028 e CA-004/CA-011/CA-012 quanto a confirmacao obrigatoria da receita emitida: o salvamento normal registra a alteracao com antes/depois na mesma transacao, preservando a emissao original. NFR-001 passa a exigir auditoria atomica das alteracoes, sem modal adicional. A criacao de receita complementar continua disponivel. O aviso de confirmacao e seu descarte especifico deixam de integrar esse fluxo; falhas reais de salvamento continuam preservando o texto local.

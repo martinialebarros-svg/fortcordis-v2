@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import type { LooseAtendimentoComponentProps } from "./component-props";
+import AtendimentoHistoricoEdicoes from "./AtendimentoHistoricoEdicoes";
 
 type AtendimentoDocumentosSectionProps = LooseAtendimentoComponentProps;
 
@@ -376,7 +377,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>
                     Um PDF deste documento ja foi gerado. Isso nao confirma o download nem a entrega.
-                    Alteracoes no texto so aparecem em um novo PDF.
+                    Voce pode editar e salvar normalmente; as alteracoes ficam no historico e so aparecem em um novo PDF.
                   </span>
                 </div>
               ) : null}
@@ -453,6 +454,14 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                   Gerar PDF
                 </button>
               </div>
+              {selecionado && documentoClinicoForm.id ? (
+                <AtendimentoHistoricoEdicoes
+                  key={`${selecionado}:${documentoClinicoForm.id}`}
+                  atendimentoId={selecionado}
+                  documentoId={documentoClinicoForm.id}
+                  refreshKey={documentoClinicoForm.versao}
+                />
+              ) : null}
             </div>
           </div>
         </div>

@@ -151,3 +151,23 @@ it("emissao nao declara download nem entrega", () => {
   expect(screen.getByText(/Isso nao confirma o download nem a entrega/)).toBeTruthy();
   expect(screen.queryByText(/gerado e entregue/)).toBeNull();
 });
+
+it("permite editar e salvar documento emitido em atendimento concluido", () => {
+  const salvar = vi.fn();
+  const editar = vi.fn();
+  render(<Harness uploadArquivosAnexoGeral={async () => {}} extra={{
+    form: { status: "Concluido", documentos: [], evolucoes: [] },
+    documentoClinicoForm: { id: 10, atendimento_id: 123, titulo: "Encaminhamento", corpo: "Texto original", status: "emitido", versao: "v1" },
+    setDocumentoClinicoForm: editar,
+    salvarDocumentoClinico: salvar,
+  }} />);
+  const corpo = screen.getByPlaceholderText("Texto do documento...") as HTMLTextAreaElement;
+  expect(corpo.readOnly).toBe(false);
+  fireEvent.change(corpo, { target: { value: "Texto corrigido" } });
+  expect(editar).toHaveBeenCalledWith(expect.objectContaining({ corpo: "Texto corrigido" }));
+  const botao = screen.getByRole("button", { name: "Salvar documento" });
+  expect(botao).not.toBeDisabled();
+  fireEvent.click(botao);
+  expect(salvar).toHaveBeenCalledOnce();
+  expect(screen.getByRole("button", { name: /Historico de edicoes deste documento/ })).toBeInTheDocument();
+});
