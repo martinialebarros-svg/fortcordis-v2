@@ -33,6 +33,10 @@ interface Referencia {
   la_max?: number;
   la_ao_min?: number;
   la_ao_max?: number;
+  vmax_ao_min?: number;
+  vmax_ao_max?: number;
+  vmax_pulm_min?: number;
+  vmax_pulm_max?: number;
 }
 
 const CAMPOS_MEDIDAS = [
@@ -47,6 +51,8 @@ const CAMPOS_MEDIDAS = [
   { key: "ao", label: "Ao", unidade: "mm" },
   { key: "la", label: "LA", unidade: "mm" },
   { key: "la_ao", label: "LA/Ao", unidade: "" },
+  { key: "vmax_ao", label: "Vmax aórtica", unidade: "m/s", step: "0.01" },
+  { key: "vmax_pulm", label: "Vmax pulmonar", unidade: "m/s", step: "0.01" },
 ];
 
 export default function ReferenciasEcoPage() {
@@ -100,7 +106,7 @@ export default function ReferenciasEcoPage() {
   };
 
   const handleChange = (campo: string, valor: string) => {
-    const numValor = valor === "" ? undefined : parseFloat(valor);
+    const numValor = valor === "" ? null : parseFloat(valor);
     setFormData({ ...formData, [campo]: numValor });
   };
 
@@ -175,7 +181,6 @@ export default function ReferenciasEcoPage() {
           Häggström et al. (2016) em gatos adultos de raça pura. FE por Teichholz:
           intervalo indisponível por falta de validação compatível com o método.
         </p>
-
         <section className="fc-eco-metrics" aria-label="Resumo da base de referências">
           <div className="fc-eco-metric fc-eco-metric-cordis">
             <Database className="h-5 w-5" />
@@ -248,6 +253,21 @@ export default function ReferenciasEcoPage() {
             <strong>{referencias.length} faixa(s)</strong>
           </div>
 
+          <aside className="border-b border-slate-200 px-4 py-3 text-xs text-slate-600" aria-label="Evidência sobre velocidades de fluxo">
+            <p>As faixas de Vmax abaixo vêm do cadastro, que não registra fonte nem método por linha. Dados publicados para consulta:</p>
+            {especieFiltro === "Canina" ? (
+              <p>
+                <a className="underline" href="https://www.scielo.br/j/pvb/a/JVtpYsn7zbTBB6xmpRXKVLs/?format=pdf&lang=pt" target="_blank" rel="noopener noreferrer">Petrus et al. (2010)</a>:
+                {" "}30 cães de raças diferentes, Doppler pulsado; Vmax aórtica 1,26 ± 0,13 m/s e pulmonar 0,95 ± 0,18 m/s (médias ± DP, não limites de referência).
+              </p>
+            ) : (
+              <p>
+                <a className="underline" href="https://pubmed.ncbi.nlm.nih.gov/22854250/" target="_blank" rel="noopener noreferrer">Domanjko Petrič et al. (2012)</a>:
+                {" "}53 gatos não sedados, Doppler pulsado; Vmax aórtica 0,77–1,40 m/s e pulmonar 0,65–1,21 m/s (extremos observados, não intervalo de referência de 95%).
+              </p>
+            )}
+          </aside>
+
           {loading ? (
             <div className="fc-eco-loading"><span />Carregando referências...</div>
           ) : referencias.length === 0 ? (
@@ -301,16 +321,16 @@ export default function ReferenciasEcoPage() {
                               <div className="fc-eco-range-inputs">
                                 <input
                                   type="number"
-                                  step="0.1"
-                                  value={min || ""}
+                                  step={"step" in campo ? campo.step : "0.1"}
+                                  value={min ?? ""}
                                   onChange={(e) => handleChange(minKey as string, e.target.value)}
                                   placeholder="Min"
                                   aria-label={`${campo.label} mínimo`}
                                 />
                                 <input
                                   type="number"
-                                  step="0.1"
-                                  value={max || ""}
+                                  step={"step" in campo ? campo.step : "0.1"}
+                                  value={max ?? ""}
                                   onChange={(e) => handleChange(maxKey as string, e.target.value)}
                                   placeholder="Máx"
                                   aria-label={`${campo.label} máximo`}

@@ -152,10 +152,11 @@ ECHO_MEASUREMENT_METHODS: dict[str, str] = {
     "PAD_estimada": "estimativa ecocardiográfica",
     "PSAP": "estimativa ecocardiográfica",
     "VE_tecnica_relatorio": "seleção do operador",
-    "Vmax_aorta": "Doppler contínuo",
-    "Grad_aorta": "Doppler contínuo",
-    "Vmax_pulmonar": "Doppler contínuo",
-    "Grad_pulmonar": "Doppler contínuo",
+    # A importação atual não registra se a velocidade foi obtida por PW ou CW.
+    "Vmax_aorta": "Doppler espectral; modalidade não informada",
+    "Grad_aorta": "Doppler espectral; modalidade não informada",
+    "Vmax_pulmonar": "Doppler espectral; modalidade não informada",
+    "Grad_pulmonar": "Doppler espectral; modalidade não informada",
 }
 
 

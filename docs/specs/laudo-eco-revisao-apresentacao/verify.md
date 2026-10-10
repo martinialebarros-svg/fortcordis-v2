@@ -1,5 +1,14 @@
 # Verify - Revisão da apresentação do laudo ecocardiográfico
 
+## Incremento: fontes para velocidades aórtica e pulmonar (2026-10-10)
+
+- CA-051/052: verificar PDF sintético canino e felino com cada velocidade isolada, ambas ausentes, sem cadastro e com linha legada 0–2,20 m/s. Confirmar posição, fonte menor, espécie correta, valor bruto preservado e nenhuma atribuição do limite legado aos estudos.
+- Verificar a página de Referências Eco com as duas colunas em m/s, edição e remoção de limite, e nota metodológica por espécie. A página não deve classificar médias ± DP nem extremos observados como intervalo de referência de 95%.
+- Confirmar que o cache do PDF eco usa `2026-10-10-eco-outflow-sources-v16`; demais modalidades conservam a versão anterior. Validar por `unittest` focado, TypeScript, lint, build, `git diff --check` e SDD guardrail. Conferir visualmente uma renderização sintética; laudos reais não precisam ser modificados para essa prova.
+- Resultado local: 103 testes backend aprovados, incluindo espécies, medidas isoladas, ausência de cadastro, faixa legada sem atribuição bibliográfica, contexto da IA e cache. ESLint e TypeScript aprovados após o ajuste final da página; build Next.js aprovado com 43 páginas. `git diff --check` e avaliação SDD aprovados.
+- PDFs sintéticos canino e felino foram renderizados e inspecionados visualmente: fluxos em m/s, bibliografia legível em 8 pt após análise qualitativa e assinatura, sem cortes. Um caso longo preservou a assinatura junto ao último achado na página 3 e manteve 12 imagens nas páginas 4–5; a bibliografia abriu a página 4 sem deslocar a assinatura.
+- O contrato de atualização aceita `null` explícito para retirar um limite de Vmax. Nenhum laudo real ou linha do cadastro foi alterado durante a validação local.
+
 ## Incremento: padrões diastólicos felinos (2026-10-04)
 
 - CA-048: selecionar na biblioteca um preset sincronizado com `frase_id` ausente destaca a frase correta, pelo título e dentro do aspecto. O preset continua aplicável no editor.
