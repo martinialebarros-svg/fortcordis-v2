@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, FilePlus2, Loader2 } from "lucide-react";
+import { FilePlus2, Loader2 } from "lucide-react";
 import type { LooseAtendimentoComponentProps } from "./component-props";
 
 type AtendimentoReceitasBarProps = LooseAtendimentoComponentProps;
@@ -9,20 +9,16 @@ type AtendimentoReceitasBarProps = LooseAtendimentoComponentProps;
  * Seletor das receitas do atendimento.
  *
  * A receita do dia (sequencia 1) e a que o prontuario salva no autosave; as
- * complementares nascem de um adendo e tem endpoint proprio. Quem ja virou
- * PDF aparece como "Emitida" e so muda com confirmacao explicita - mesmo
- * tratamento dado a documento clinico ja emitido.
+ * complementares tem endpoint proprio. Receitas emitidas continuam editaveis,
+ * com historico de alteracoes e aviso para gerar o PDF atualizado.
  */
 export default function AtendimentoReceitasBar(props: AtendimentoReceitasBarProps) {
   const {
     atendimentoConcluido,
-    confirmarEdicaoReceitaEmitida,
     criandoReceita,
     criarReceitaComplementar,
-    descartarEdicaoReceitaEmitida,
     formatDate,
     receitaAtiva,
-    receitaEmitidaPendente,
     receitas,
     selecionado,
     selecionarReceita,
@@ -79,7 +75,7 @@ export default function AtendimentoReceitasBar(props: AtendimentoReceitasBarProp
       {receitaAtiva?.emitida_em ? (
         <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           Esta receita foi emitida em {formatDate(receitaAtiva.emitida_em)} e ja pode estar com o tutor.
-          Para acrescentar tratamento sem alterar o que foi entregue, use uma receita complementar.
+          Voce pode editar normalmente; as alteracoes ficam no historico. Gere um novo PDF para usar o texto atualizado.
         </p>
       ) : null}
 
@@ -89,35 +85,10 @@ export default function AtendimentoReceitasBar(props: AtendimentoReceitasBarProp
         </p>
       ) : atendimentoConcluido ? (
         <p className="mt-2 text-xs text-slate-500">
-          Atendimento concluido: alterar a receita do dia muda o registro do encontro. Uma conduta nova deve
-          entrar como receita complementar.
+          Atendimento concluido: a receita continua editavel com historico. Se preferir um registro separado, crie uma receita complementar.
         </p>
       ) : null}
 
-      {receitaEmitidaPendente ? (
-        <div className="mt-3 flex flex-col gap-2 rounded-2xl border border-amber-300 bg-amber-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="flex items-start gap-2 text-xs text-amber-900">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{receitaEmitidaPendente.mensagem}</span>
-          </p>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void descartarEdicaoReceitaEmitida()}
-              className="inline-flex items-center justify-center rounded-2xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 transition hover:bg-amber-100"
-            >
-              Descartar alteracao
-            </button>
-            <button
-              type="button"
-              onClick={() => void confirmarEdicaoReceitaEmitida()}
-              className="inline-flex items-center justify-center rounded-2xl bg-amber-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-800"
-            >
-              Confirmar e salvar
-            </button>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }

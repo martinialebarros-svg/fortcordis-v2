@@ -25,6 +25,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "atendimento-exame-integridade-test-secret-key-1234")
 
 from app.api.v1.endpoints import atendimento
+from app.models.auditoria_evento import AuditoriaEvento
 from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico, ExameAjuste
 from app.models.clinica import Clinica
@@ -49,6 +50,7 @@ class AtendimentoExameIntegridadeTest(unittest.TestCase):
             Paciente.__table__,
             Clinica.__table__,
             AtendimentoClinico.__table__,
+            AuditoriaEvento.__table__,
             AnexoAtendimento.__table__,
             Exame.__table__,
             ExameAjuste.__table__,

@@ -20,6 +20,7 @@ os.environ.setdefault("SECRET_KEY", "atendimento-clinical-lifecycle-test-secret-
 
 from app.api.v1.endpoints import atendimento
 from app.models.agendamento import Agendamento
+from app.models.auditoria_evento import AuditoriaEvento
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico, PrescricaoClinica, PrescricaoItem
 from app.models.clinica import Clinica
 from app.models.laudo import Exame
@@ -47,6 +48,7 @@ class AtendimentoClinicalLifecycleTest(unittest.TestCase):
             Clinica.__table__,
             Agendamento.__table__,
             AtendimentoClinico.__table__,
+            AuditoriaEvento.__table__,
             Exame.__table__,
             AnexoAtendimento.__table__,
             PrescricaoClinica.__table__,
