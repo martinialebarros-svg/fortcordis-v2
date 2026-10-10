@@ -2,7 +2,7 @@
 
 Data: 2026-10-07
 Responsável: Martiniano + Codex
-Status: regra publicada; correções de 2026-10-10 validadas localmente, sem publicação
+Status: regra publicada; correções de 2026-10-10 validadas localmente, com publicação rastreada no PR #334
 
 ## Escopo funcional
 

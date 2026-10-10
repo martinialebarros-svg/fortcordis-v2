@@ -122,5 +122,7 @@ frontend de pisos, a suíte frontend completa (560 Vitest + 9 Node), ESLint e
 TypeScript passaram. Normalização backend e rendering policy passaram com
 7 testes e 4 subtests. Resultados finais e limites da etapa estão centralizados
 em `../agenda-primeira-saida/verify.md`, junto à correção da reativação de status.
-Estas mudanças permanecem locais e não restauram automaticamente configurações
-que já tenham sido apagadas em gravações anteriores.
+As evidências posteriores de publicação são registradas no
+[PR #334](https://github.com/martinialebarros-svg/fortcordis-v2/pull/334) e no PR
+de promoção vinculado a ele. A correção não restaura automaticamente
+configurações que já tenham sido apagadas em gravações anteriores.

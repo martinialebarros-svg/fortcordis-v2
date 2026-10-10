@@ -2,7 +2,7 @@
 
 Data: 2026-10-07
 Responsável: Codex
-Status: regra original validada em stage e produção; correções de 2026-10-10 validadas localmente, sem publicação
+Status: regra original validada em stage e produção; correções de 2026-10-10 com validação local concluída e publicação rastreada no PR #334
 
 ## Matriz de rastreabilidade
 
@@ -116,7 +116,10 @@ API Google e com o trânsito, conforme o limite operacional descrito acima.
 
 Base desta alteração: `origin/stage` em `f5ed6699`, em worktree isolado.
 Os registros de publicação acima se referem à regra original; estas correções
-ainda não foram publicadas.
+foram validadas localmente conforme abaixo. As evidências posteriores de deploy,
+smoke e preservação de runtime ficam no
+[PR #334](https://github.com/martinialebarros-svg/fortcordis-v2/pull/334) e no PR
+direto de promoção vinculado a ele. O resultado local não é prova de publicação.
 
 - A normalização frontend preserva o mapa completo dos pisos municipais,
   incluindo nomes com acentos e horários com os fallbacks do backend. O backend
@@ -153,6 +156,6 @@ ainda não foram publicadas.
   de lógica fica em três arquivos, sem mudança de contrato público de API ou
   de esquema do banco. A suíte PostgreSQL opcional não foi exercitada nesta
   etapa; as regressões HTTP desta correção passaram em SQLite temporário.
-- Não houve migração, publicação, envio externo, mudança de agendamentos reais
-  ou gravação de configurações em stage/produção. A correção previne novas
+- Na validação local não houve migração, publicação, envio externo, mudança
+  de agendamentos reais ou gravação de configurações em stage/produção. A correção previne novas
   perdas; não tenta reconstruir pisos municipais eventualmente removidos antes.
