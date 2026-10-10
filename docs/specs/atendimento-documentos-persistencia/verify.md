@@ -62,3 +62,9 @@ O PR #264 foi integrado em stage no SHA `aaae16b8a771b2a234092c89fa92a41ec171635
 Correcao do gate: dependencia pytest fixada em requirements de teste; execucao explicita das regressoes de persistencia e concorrencia PostgreSQL, alem da suite unittest. Aplicada aos dois workflows para manter a futura promocao compativel; isso nao executa nem autoriza publicacao em producao.
 
 Validacao da correcao do gate: suite unittest completa aprovada (1469 testes, 7 skips); 7 regressoes pytest aprovadas, incluindo PostgreSQL 16 local descartavel. YAML dos dois workflows e diff check aprovados.
+
+## Atualizacao de contrato em 2026-10-10
+
+O prontuario passa a oferecer consulta do historico de edicoes por atendimento, com antes/depois, autor e data, inclusive para documentos arquivados. A edicao de documentos emitidos continua permitida. A protecao de versao, a auditoria transacional e a independencia do documento permanecem obrigatorias.
+
+Contrato e evidencias desta alteracao: [spec](../atendimento-edicao-pos-conclusao/spec.md) e [verify](../atendimento-edicao-pos-conclusao/verify.md). A evidencia de publicacao de entregas anteriores nao comprova a publicacao desta atualizacao.

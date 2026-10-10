@@ -55,7 +55,7 @@ def auditar_documento(db: Session, documento: DocumentoAtendimento, acao: str, *
         detalhes_json=json.dumps({"atendimento_id": documento.atendimento_id,
                                   "versao": versao_documento(documento),
                                   **(detalhes or {})}, ensure_ascii=False, default=str),
-        ip_origem=ip, rota=rota, metodo=metodo,
+        ip_origem=ip, rota=rota, metodo=metodo, created_at=datetime.now(timezone.utc),
     ))
 
 

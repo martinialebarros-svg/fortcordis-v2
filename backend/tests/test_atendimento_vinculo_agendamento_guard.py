@@ -28,6 +28,7 @@ os.environ.setdefault("SECRET_KEY", "atendimento-vinculo-guard-test-secret-key-1
 
 from app.api.v1.endpoints import atendimento
 from app.models.agendamento import Agendamento
+from app.models.auditoria_evento import AuditoriaEvento
 from app.models.atendimento_clinico import AtendimentoClinico
 from app.models.clinica import Clinica
 from app.models.ordem_servico import OrdemServico
@@ -52,6 +53,7 @@ class AtendimentoVinculoAgendamentoGuardTest(unittest.TestCase):
             Servico.__table__,
             Agendamento.__table__,
             AtendimentoClinico.__table__,
+            AuditoriaEvento.__table__,
             OrdemServico.__table__,
         ):
             table.create(self.engine, checkfirst=True)

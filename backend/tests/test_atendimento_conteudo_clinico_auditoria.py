@@ -129,7 +129,7 @@ class AtendimentoConteudoClinicoAuditoriaTest(unittest.TestCase):
         self.assertEqual(len(chamadas), 1)
         self.assertEqual(chamadas[0].kwargs["detalhes"]["alteracoes"]["peso"], {"antes": 10.0, "depois": 12.5})
 
-    def test_alterar_apenas_clinica_nao_gera_auditoria_de_conteudo_clinico(self) -> None:
+    def test_alterar_clinica_tambem_deixa_historico(self) -> None:
         item = self._seed_atendimento()
         outra_clinica = Clinica(nome="Outra Clinica")
         self.db.add(outra_clinica)
@@ -147,7 +147,8 @@ class AtendimentoConteudoClinicoAuditoriaTest(unittest.TestCase):
             call for call in auditoria_mock.call_args_list
             if call.kwargs["acao"] == "ATENDIMENTO_CONTEUDO_CLINICO_ATUALIZADO"
         ]
-        self.assertEqual(chamadas, [])
+        self.assertEqual(len(chamadas), 1)
+        self.assertEqual(chamadas[0].kwargs["detalhes"]["alteracoes"]["clinica_id"]["depois"], outra_clinica.id)
 
 
 if __name__ == "__main__":

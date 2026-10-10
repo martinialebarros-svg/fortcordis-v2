@@ -6,6 +6,7 @@ import {
   mergeAtendimentoFinalizado,
   mergeAutoSavedFormState,
   reconcileExamsDuringSave,
+  restorePersistedAtendimentoDraft,
 } from "./atendimento-form-merge";
 
 const baseForm = (): AtendimentoForm => ({
@@ -60,6 +61,35 @@ const baseExam = (): ExameSolicitacao => ({
   prioridade: "Rotina",
   status: "Solicitado",
   observacoes: "",
+});
+
+describe("recuperacao do backup de atendimento concluido", () => {
+  it("recupera o texto pendente sem reabrir nem trocar a data e o vinculo do encontro", () => {
+    const persisted = { ...baseForm(), id: 63, status: "Concluido", agendamento_id: "1661", consulta_concluida: 1, triagem_concluida: 1 };
+    const backup = { ...persisted, status: "Triagem", agendamento_id: "999", data_atendimento: "2026-10-10T10:00", consulta_concluida: 0, triagem_concluida: 0, anamnese: "Texto ainda nao sincronizado" };
+    const restored = restorePersistedAtendimentoDraft(persisted, backup);
+    expect(restored).toMatchObject({ status: "Concluido", agendamento_id: "1661", data_atendimento: persisted.data_atendimento, consulta_concluida: 1, triagem_concluida: 1, anamnese: backup.anamnese });
+    expect(mergeAutoSavedFormState({ ...restored, status: "Triagem", anamnese: "Digitado durante o save" }, persisted)).toMatchObject({ status: "Concluido", anamnese: "Digitado durante o save" });
+  });
+
+  it("preserva correcao explicita de data, clinica e triagem durante o save do concluido", () => {
+    const persisted = { ...baseForm(), id: 63, status: "Concluido", agendamento_id: "1661", consulta_concluida: 1 };
+    const current = { ...persisted, data_atendimento: "2026-10-10T10:00", clinica_id: "2", triagem_concluida: 1 };
+    expect(mergeAutoSavedFormState(current, persisted)).toEqual(current);
+  });
+
+  it("rejeita backup de outro paciente ou atendimento e preserva documentos do servidor", () => {
+    const persisted = { ...baseForm(), id: 63 };
+    expect(restorePersistedAtendimentoDraft(persisted, { id: 64, anamnese: "Outro encontro" })).toBe(persisted);
+    expect(restorePersistedAtendimentoDraft(persisted, { paciente_id: "2", anamnese: "Outro paciente" })).toBe(persisted);
+    const restored = restorePersistedAtendimentoDraft(persisted, { anamnese: "Recuperado", documentos: [{ id: 1 }] as never, evolucoes: [{ id: 2 }] as never, anexos: [{ id: 3 }] as never });
+    expect(restored).toMatchObject({ anamnese: "Recuperado", documentos: [], evolucoes: [], anexos: [] });
+  });
+
+  it("mantem campos clinicos editados de um atendimento ainda em andamento", () => {
+    const persisted = { ...baseForm(), id: 63 };
+    expect(restorePersistedAtendimentoDraft(persisted, { status: "Em exame", anamnese: "Editado", data_atendimento: "2026-10-10T10:00" })).toMatchObject({ status: "Em exame", anamnese: "Editado", data_atendimento: "2026-10-10T10:00" });
+  });
 });
 
 describe("mergeAutoSavedFormState (finalizarAtendimento)", () => {

@@ -68,8 +68,8 @@ export default function AtendimentoAdendosSection(props: AtendimentoAdendosSecti
           <h3 className="mt-1 text-lg font-semibold text-slate-900">Adendos</h3>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
             {atendimentoConcluido
-              ? "Este atendimento ja foi concluido. Exame recebido depois, receita complementar ou orientacao entram como adendo datado, preservando o registro do encontro."
-              : "Acrescimos ao atendimento ficam registrados aqui com data propria. Depois da conclusao, e por aqui que o que chega depois entra no prontuario."}
+              ? "Este atendimento ja foi concluido e continua editavel. Use um adendo opcional quando quiser registrar um acrescimo com data propria."
+              : "Use um adendo opcional para registrar um acrescimo com data propria. O atendimento e os documentos continuam editaveis depois da conclusao."}
           </p>
         </div>
         <button

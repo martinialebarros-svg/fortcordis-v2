@@ -33,6 +33,7 @@ os.environ.setdefault("SECRET_KEY", "atendimento-continuidade-test-secret-key-12
 
 from app.api.v1.endpoints import atendimento
 from app.models.agendamento import Agendamento
+from app.models.auditoria_evento import AuditoriaEvento
 from app.models.atendimento_clinico import (
     AlertaClinico,
     AnexoAtendimento,
@@ -92,6 +93,7 @@ class AtendimentoContinuidadePosAltaTest(unittest.TestCase):
             DocumentoAtendimento.__table__,
             AlertaClinico.__table__,
             Medicamento.__table__,
+            AuditoriaEvento.__table__,
         ):
             table.create(self.engine, checkfirst=True)
         self.db = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)()
@@ -467,7 +469,7 @@ class AtendimentoContinuidadePosAltaTest(unittest.TestCase):
 
     # === CA-004 / RF-013, RF-014 ===
 
-    def test_editar_receita_emitida_exige_confirmacao_e_audita(self) -> None:
+    def test_editar_receita_emitida_sem_confirmacao_preserva_emissao_e_audita(self) -> None:
         ctx = self._seed_atendimento_finalizado()
         ctx.prescricao.emitida_em = datetime(2026, 9, 1, 15, 0)
         self.db.commit()
@@ -489,30 +491,12 @@ class AtendimentoContinuidadePosAltaTest(unittest.TestCase):
             ],
         )
 
-        with self.assertRaises(HTTPException) as ctx_erro:
-            atendimento.atualizar_prescricao(
-                ctx.atendimento.id,
-                ctx.prescricao.id,
-                PrescricaoSyncPayload(**payload_alterado),
-                self.request,
-                db=self.db,
-                current_user=self.user,
-            )
-
-        self.assertEqual(ctx_erro.exception.status_code, 409)
-        detalhe = ctx_erro.exception.detail
-        self.assertEqual(detalhe["codigo"], "CONFIRMACAO_EDICAO_RECEITA_EMITIDA")
-        self.assertTrue(detalhe["confirmavel"])
-        self.assertEqual(detalhe["sequencia"], 1)
-        self.db.refresh(item)
-        self.assertEqual(item.dose, "2 mg/kg")
-
         with patch.object(atendimento, "registrar_auditoria") as auditoria:
             atendimento.atualizar_prescricao(
                 ctx.atendimento.id,
                 ctx.prescricao.id,
                 PrescricaoSyncPayload(
-                    **payload_alterado, confirmar_edicao_receita_emitida=True
+                    **payload_alterado
                 ),
                 self.request,
                 db=self.db,
@@ -523,6 +507,11 @@ class AtendimentoContinuidadePosAltaTest(unittest.TestCase):
         self.assertEqual(item.dose, "4 mg/kg")
         acoes = [chamada.kwargs["acao"] for chamada in auditoria.call_args_list]
         self.assertIn("EDITAR_RECEITA_EMITIDA", acoes)
+        evento = next(c.kwargs for c in auditoria.call_args_list if c.kwargs["acao"] == "EDITAR_RECEITA_EMITIDA")
+        self.assertEqual(evento["detalhes"]["alteracoes"]["itens"]["antes"][0]["dose"], "2 mg/kg")
+        self.assertEqual(evento["detalhes"]["alteracoes"]["itens"]["depois"][0]["dose"], "4 mg/kg")
+        self.assertEqual(ctx.prescricao.emitida_em, datetime(2026, 9, 1, 15, 0))
+
 
     def test_reenvio_sem_mudanca_nao_exige_confirmacao(self) -> None:
         """O autosave reenvia a receita inteira a cada save.
@@ -800,42 +789,22 @@ class AtendimentoContinuidadePosAltaTest(unittest.TestCase):
 
         self.assertEqual(receita_do_dia["emitida_em"], "2026-09-11T00:44:46-03:00")
 
-    def test_aviso_de_receita_emitida_usa_hora_local(self) -> None:
+    def test_historico_da_receita_emitida_usa_hora_local(self) -> None:
         ctx = self._seed_atendimento_finalizado()
         ctx.prescricao.emitida_em = datetime(
             2026, 9, 11, 3, 44, 46, tzinfo=timezone.utc
         )
-        item = self._itens_da_receita(ctx.prescricao.id)[0]
-
-        with self.assertRaises(HTTPException) as ctx_erro:
-            atendimento.atualizar_prescricao(
-                ctx.atendimento.id,
-                ctx.prescricao.id,
-                PrescricaoSyncPayload(
-                    orientacoes_gerais="Conduta nova.",
-                    retorno_dias=7,
-                    itens=[
-                        PrescricaoItemPayload(
-                            id=item.id,
-                            medicamento_nome="Furosemida",
-                            dose="4 mg/kg",
-                            frequencia="12/12h",
-                            duracao="7 dias",
-                            via="Oral",
-                            ordem=0,
-                        )
-                    ],
-                ),
-                self.request,
-                db=self.db,
-                current_user=self.user,
+        antes = atendimento._snapshot_prescricao(self.db, ctx.prescricao)
+        ctx.prescricao.orientacoes_gerais = "Conduta nova."
+        with patch.object(atendimento, "registrar_auditoria") as auditoria:
+            atendimento._auditar_edicao_prescricao(
+                self.db, current_user=self.user, atendimento=ctx.atendimento,
+                prescricao=ctx.prescricao, antes=antes, request=self.request,
             )
 
-        detalhe = ctx_erro.exception.detail
-        # O texto vai inteiro para a tela, vindo do backend.
-        self.assertIn("11/09/2026 00:44", detalhe["mensagem"])
-        self.assertNotIn("03:44", detalhe["mensagem"])
-        self.assertEqual(detalhe["emitida_em"], "2026-09-11T00:44:46-03:00")
+        detalhes = next(c.kwargs["detalhes"] for c in auditoria.call_args_list
+                        if c.kwargs["acao"] == "EDITAR_RECEITA_EMITIDA")
+        self.assertEqual(detalhes["emitida_em"], "2026-09-11T00:44:46-03:00")
 
 
 
