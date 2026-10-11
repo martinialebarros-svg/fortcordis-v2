@@ -1081,8 +1081,8 @@ def _gerar_pdf_recibos_ordens(
                     "Total quitado",
                     "",
                     _formatar_moeda_brl(item["valor_final"]),
-                    _formatar_moeda_brl(item["valor_taxa_total"]),
-                    _formatar_moeda_brl(item["valor_liquido_exibido"]),
+                    "-" if item["valor_taxa_total"] is None else _formatar_moeda_brl(item["valor_taxa_total"]),
+                    "-" if item["valor_liquido_exibido"] is None else _formatar_moeda_brl(item["valor_liquido_exibido"]),
                 ]
             )
             total_row = len(linhas_pagamento) - 1
@@ -1113,6 +1113,11 @@ def _gerar_pdf_recibos_ordens(
                 )
             )
             story.append(tabela_pagamentos)
+            if item["possui_detalhamento_legacy"]:
+                story.append(Paragraph(
+                    "Recebimento legado sem composicao detalhada. Taxas e valor liquido nao informados.",
+                    style_normal,
+                ))
             if float(item["desconto"] or 0) > 0:
                 story.append(Spacer(1, 2 * mm))
                 story.append(
@@ -2020,14 +2025,24 @@ def _montar_recibos_os(db: Session, ids: List[int]) -> List[Dict[str, Any]]:
     )
 
     pagamentos_rows = (
-        db.query(OrdemServicoPagamento)
+        db.query(OrdemServicoPagamento, Transacao)
+        .outerjoin(Transacao, Transacao.id == OrdemServicoPagamento.transacao_id)
         .filter(OrdemServicoPagamento.ordem_servico_id.in_(ids))
         .order_by(OrdemServicoPagamento.ordem_servico_id.asc(), OrdemServicoPagamento.data_recebimento.asc())
         .all()
     )
     pagamentos_por_os: Dict[int, List[OrdemServicoPagamento]] = {}
-    for pagamento in pagamentos_rows:
-        pagamentos_por_os.setdefault(pagamento.ordem_servico_id, []).append(pagamento)
+    ordens_com_historico_vinculado: set[int] = set()
+    ordens_com_pagamento_orfao: set[int] = set()
+    for pagamento, transacao in pagamentos_rows:
+        # Desfazer preserva o historico do pagamento e cancela a transacao.
+        # Somente uma entrada ainda recebida comprova a composicao atual.
+        if pagamento.transacao_id is not None:
+            ordens_com_historico_vinculado.add(pagamento.ordem_servico_id)
+            if transacao is None:
+                ordens_com_pagamento_orfao.add(pagamento.ordem_servico_id)
+        if transacao and transacao.tipo == "entrada" and transacao.status in {"Recebido", "Pago"}:
+            pagamentos_por_os.setdefault(pagamento.ordem_servico_id, []).append(pagamento)
 
     creditos_rows = (
         db.query(CreditoFinanceiro)
@@ -2047,6 +2062,11 @@ def _montar_recibos_os(db: Session, ids: List[int]) -> List[Dict[str, Any]]:
 
     recibos: List[Dict[str, Any]] = []
     for os_data, paciente_nome, tutor_nome, clinica_nome, servico_nome in resultados:
+        if os_data.id in ordens_com_pagamento_orfao:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A OS {os_data.numero_os or os_data.id} possui pagamento sem transacao vinculada. Regularize antes de emitir o recibo.",
+            )
         pagamentos_os = pagamentos_por_os.get(os_data.id, [])
         pagamentos = [
             {
@@ -2061,10 +2081,21 @@ def _montar_recibos_os(db: Session, ids: List[int]) -> List[Dict[str, Any]]:
         datas_recebimento = [pagamento.data_recebimento for pagamento in pagamentos_os if pagamento.data_recebimento]
         valor_credito_utilizado = round(float(credito_por_os.get(os_data.id, 0.0)), 2)
         valor_liquido_total = round(sum(float(item["valor_liquido"] or 0) for item in pagamentos), 2)
-        possui_detalhamento_legacy = not pagamentos and valor_credito_utilizado <= 0
+        possui_detalhamento_legacy = (
+            not pagamentos and valor_credito_utilizado <= 0
+            and os_data.id not in ordens_com_historico_vinculado
+        )
+        cobertura_ativa = sum((_to_decimal(item["valor_bruto"]) for item in pagamentos), Decimal("0.00"))
+        cobertura_ativa += _to_decimal(valor_credito_utilizado)
+        if not possui_detalhamento_legacy and cobertura_ativa < _to_decimal(os_data.valor_final):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Os recebimentos ativos da OS {os_data.numero_os or os_data.id} nao comprovam sua quitacao. Regularize antes de emitir o recibo.",
+            )
+        # Sem composicao legada comprovada, o status Pago e o valor da OS nao
+        # permitem inferir quais taxas foram aplicadas nem o liquido recebido.
         valor_liquido_exibido = (
-            float(os_data.valor_final or 0)
-            if possui_detalhamento_legacy
+            None if possui_detalhamento_legacy
             else round(valor_liquido_total + valor_credito_utilizado, 2)
         )
         recibos.append(
@@ -2089,7 +2120,7 @@ def _montar_recibos_os(db: Session, ids: List[int]) -> List[Dict[str, Any]]:
                 "pagamentos": pagamentos,
                 "valor_credito_utilizado": valor_credito_utilizado,
                 "possui_detalhamento_legacy": possui_detalhamento_legacy,
-                "valor_taxa_total": round(sum(float(item["valor_taxa"] or 0) for item in pagamentos), 2),
+                "valor_taxa_total": None if possui_detalhamento_legacy else round(sum(float(item["valor_taxa"] or 0) for item in pagamentos), 2),
                 "valor_liquido_total": valor_liquido_total,
                 "valor_liquido_exibido": valor_liquido_exibido,
             }
