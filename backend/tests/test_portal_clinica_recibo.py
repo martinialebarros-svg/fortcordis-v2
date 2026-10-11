@@ -21,7 +21,7 @@ from app.api.v1.endpoints import portal
 from app.core.portal_security import PortalSessionContext
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
-from app.models.financeiro import CreditoFinanceiro, OrdemServicoPagamento
+from app.models.financeiro import CreditoFinanceiro, OrdemServicoPagamento, Transacao
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
@@ -54,6 +54,7 @@ class PortalClinicaReciboTest(unittest.TestCase):
             Servico.__table__,
             OrdemServico.__table__,
             OrdemServicoPagamento.__table__,
+            Transacao.__table__,
             CreditoFinanceiro.__table__,
             Configuracao.__table__,
         ):

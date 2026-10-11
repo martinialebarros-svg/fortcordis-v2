@@ -1,12 +1,15 @@
 # Spec - financeiro-baixa-lote-os-pendentes
 
 Data: 2026-10-10
+Atualizacao: 2026-10-11
 Responsavel: Martiniano + Codex
-Status: implementado e validado localmente
+Status: baixa atomica publicada; correcao da composicao dos recibos com testes direcionados locais aprovados, sem reteste em stage
 
 ## 1) Escopo funcional
 
 Adicionar baixa em lote para ordens de servico pendentes no modulo Financeiro.
+Os recibos devem representar os recebimentos ativos, inclusive depois do ciclo
+receber, desfazer e receber novamente, sem apagar o historico financeiro.
 
 ## 2) Requisitos funcionais
 
@@ -25,6 +28,14 @@ Adicionar baixa em lote para ordens de servico pendentes no modulo Financeiro.
   mesmo destinatario e possuem um WhatsApp cadastrado em comum.
 - RF-012: falha no envio posterior do recibo nao desfaz OS ja recebidas e deve ser comunicada
   separadamente do resultado financeiro.
+- RF-013: a composicao do recibo deve incluir somente pagamentos vinculados a transacoes
+  de `entrada` com status `Recebido` ou `Pago`, alem de consumo de credito ativo.
+  Pagamentos cancelados, pendentes ou de saida nao compoem formas, datas, taxas ou liquido.
+- RF-014: emitir recibo nao pode apagar nem reescrever pagamentos historicos ou transacoes.
+- RF-015: recebimento exclusivamente por credito ativo deve continuar emitindo recibo;
+  historico legado sem vinculo nao pode inventar forma, taxa ou valor liquido.
+- RF-016: pagamento com ID de transacao preenchido sem transacao correspondente ou
+  composicao ativa insuficiente deve impedir a emissao do recibo com `409`.
 
 ## 3) Requisitos nao funcionais
 
@@ -34,6 +45,8 @@ Adicionar baixa em lote para ordens de servico pendentes no modulo Financeiro.
 - NFR-004: o PDF enviado deve reutilizar o gerador oficial de recibos, sem gerar documento divergente
   no frontend.
 - NFR-005: o envio oficial depende de modelo Meta aprovado com cabecalho de documento.
+- NFR-006: a mesma composicao financeira deve alimentar PDF individual, consolidado,
+  Portal da Clinica e PDF destinado ao WhatsApp; nenhum canal pode reincluir historico cancelado.
 
 ## 4) Contratos tecnicos
 
@@ -42,7 +55,7 @@ Adicionar baixa em lote para ordens de servico pendentes no modulo Financeiro.
 - Tela afetada: `frontend/app/financeiro/page.tsx`
 - Estados novos:
   - `osSelecionadasBaixa`
-  - `modalReceberLoteOSIds`
+  - `modalReceberLoteOS` (snapshot das OS conferidas)
   - `recebendoLoteOS`
   - `enviarReciboPdfWhatsAppAposRecebimento`
 - Acoes:
@@ -70,6 +83,27 @@ Adicionar baixa em lote para ordens de servico pendentes no modulo Financeiro.
 - Depois do sucesso integral do lote, o frontend pode chamar `/{id}/whatsapp/recibo-pdf` ou
   `/whatsapp/recibos-pdf` para enviar o documento individual ou consolidado.
 
+### Composicao dos recibos apos desfazer e receber novamente
+
+- `_montar_recibos_os` consulta o historico sem altera-lo. Um pagamento so entra na
+  composicao se sua `Transacao` existir, for de `entrada` e estiver `Recebido` ou `Pago`.
+  Apenas esses pagamentos fornecem datas de recebimento, formas, taxas e liquido.
+- O consumo de credito com status ativo soma-se aos pagamentos ativos. A cobertura
+  em centavos (`bruto ativo + credito ativo`) deve ser ao menos o valor final da OS;
+  cobertura menor retorna `409`. Cobertura maior permanece aceita para preservar
+  recebimentos com excedente legitimo ja suportados pelo fluxo individual.
+- Se `transacao_id` estiver preenchido e a transacao nao existir, retorna `409`,
+  mesmo que outros pagamentos ativos cubram o valor da OS. Nao e tratado como legado.
+- Legado sem composicao detalhada fica restrito a OS paga sem pagamentos ativos,
+  sem credito ativo e sem qualquer historico com `transacao_id` preenchido: nenhum
+  pagamento ou somente vinculos nulos. Nesse caso, mantem-se a declaracao do valor
+  nominal da OS e informa-se a ausencia de composicao, sem inventar pagamentos.
+  Taxas e liquido sao `None`, exibidos como `-` e acompanhados de aviso no PDF.
+- Historico com transacao cancelada, pendente ou de saida nao autoriza o fallback
+  legado. Se nao houver cobertura ativa suficiente, a emissao retorna `409`.
+- A validacao ocorre antes da geracao do documento e do envio. Uma OS inconsistente
+  impede o recibo consolidado inteiro; nao se produz documento parcial.
+
 ## 5) Criterios de aceitacao
 
 - CA-001: usuario consegue selecionar 2+ OS pendentes e abrir o modal de baixa em lote.
@@ -92,6 +126,15 @@ Adicionar baixa em lote para ordens de servico pendentes no modulo Financeiro.
   contexto e apresenta erro visivel, sem reduzir silenciosamente a selecao.
 - CA-014: rateio de centavos e multiplas formas fecha valores de cada OS e forma,
   sem credito excedente; pagamento repetido do mesmo lote nao duplica transacoes.
+- CA-015: receber R$ 230,00, desfazer e receber em lote duas OS de R$ 230,00 preserva
+  os tres movimentos historicos (um cancelado e dois ativos), mas o recibo mostra
+  somente os dois pagamentos ativos e total de R$ 460,00, sem forma duplicada.
+- CA-016: taxas, liquido e datas de pagamentos cancelados nao entram nos recibos;
+  PDFs individual/consolidado, Portal e bytes destinados ao WhatsApp usam a mesma regra.
+- CA-017: legado sem vinculo permite declaracao de valor da OS com aviso de composicao
+  indisponivel e taxas/liquido `-`; nao inventa detalhes nem reaproveita historico cancelado.
+- CA-018: vinculo orfao ou cobertura ativa insuficiente retorna `409` sem PDF/envio;
+  cobertura exclusivamente por credito ativo suficiente continua valida.
 
 ## 6) Limites operacionais
 
@@ -102,3 +145,5 @@ Adicionar baixa em lote para ordens de servico pendentes no modulo Financeiro.
   verificacao ocorre com lock, inclusive na exclusao indireta de Atendimento.
 - Envio real de WhatsApp depende de destinatario de teste autorizado; testes
   automatizados interceptam o transporte.
+- A correcao da composicao se aplica aos novos recibos gerados. PDFs previamente
+  baixados ou enviados nao sao corrigidos retroativamente.

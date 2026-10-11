@@ -1,0 +1,847 @@
+{
+  "schema_version": 1,
+  "purpose": "Smoke externo somente leitura do recebimento atomico em lote, com dados publicos sem autenticacao.",
+  "completed_at_utc": "2026-10-11T15:11:48.621890+00:00",
+  "completed_at_fortaleza": "2026-10-11T12:11:48.621890-03:00",
+  "evidence_source": {
+    "origin": "Terminal local externo; requisicoes HTTPS reais desta verificacao, nao logs de publicacao anteriores.",
+    "raw_reports": [
+      "/tmp/fortcordis-external-smoke-20261011/report.json",
+      "/tmp/fortcordis-external-smoke-20261011/diagnostic.json"
+    ]
+  },
+  "method": {
+    "baseline": "24 URLs (raiz, /financeiro e API protegida em oito dominios), curl com redirects e paralelismo maximo 8; connect timeout 4 s e total 12 s por transferencia. Chunks extraidos exclusivamente do HTML retornado.",
+    "controlled": "Uma rodada adicional de 24 URLs com IPv4, HTTP/1.1, proxy desabilitado e DNS fixado no endereco publico resolvido para cada host; uma invocacao curl por host permite reutilizar conexao. Connect timeout 3 s, total 6 s por transferencia e limite 45 s por grupo. Todos os chunks observados foram baixados em uma conexao por ambiente.",
+    "tls": "Validacao normal de certificado e hostname, sem modo inseguro.",
+    "dns_and_proxy": "Resolucao local retornou somente IPv4 para os oito dominios; nenhuma variavel de proxy nem flag de proxy do sistema estava ativa. Enderecos nao reproduzidos neste arquivo."
+  },
+  "counts": {
+    "baseline_route_success": 14,
+    "baseline_route_total": 24,
+    "diagnostic_route_success": 19,
+    "diagnostic_route_total": 24,
+    "unique_urls_direct_success": 23,
+    "unique_urls_success_including_redirect_target": 24,
+    "unique_urls": 24,
+    "canonical_chunk_success": 28,
+    "canonical_chunk_total": 28
+  },
+  "protected_api_401_hosts": [
+    "app.fortcordis.com.br",
+    "app.stage.fortcordis.com.br",
+    "fortcordis.com",
+    "fortcordis.com.br",
+    "stage.fortcordis.com.br",
+    "www.fortcordis.com",
+    "www.fortcordis.com.br",
+    "www.stage.fortcordis.com.br"
+  ],
+  "routes": [
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/",
+      "baseline": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "app.fortcordis.com.br",
+        "final_path": "/",
+        "elapsed_ms": 1279,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": null,
+        "curl_exit": 28,
+        "final_host": "app.fortcordis.com.br",
+        "final_path": "/",
+        "elapsed_ms": 3007,
+        "tcp_timeout": true
+      }
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/api/v1/ordens-servico",
+      "baseline": {
+        "http_status": null,
+        "curl_exit": 28,
+        "final_host": "app.fortcordis.com.br",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 4006,
+        "tcp_timeout": true
+      },
+      "controlled": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "app.fortcordis.com.br",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 59,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/financeiro",
+      "baseline": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "app.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 2674,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "app.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 200,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/",
+      "baseline": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "app.stage.fortcordis.com.br",
+        "final_path": "/",
+        "elapsed_ms": 871,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": null,
+        "curl_exit": 28,
+        "final_host": "app.stage.fortcordis.com.br",
+        "final_path": "/",
+        "elapsed_ms": 3007,
+        "tcp_timeout": true
+      }
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/api/v1/ordens-servico",
+      "baseline": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "app.stage.fortcordis.com.br",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 658,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "app.stage.fortcordis.com.br",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 177,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/financeiro",
+      "baseline": {
+        "http_status": null,
+        "curl_exit": 28,
+        "final_host": "app.stage.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 4005,
+        "tcp_timeout": true
+      },
+      "controlled": {
+        "http_status": null,
+        "curl_exit": 28,
+        "final_host": "app.stage.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 3007,
+        "tcp_timeout": true
+      }
+    },
+    {
+      "host": "fortcordis.com",
+      "path": "/",
+      "baseline": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "fortcordis.com",
+        "final_path": "/",
+        "elapsed_ms": 903,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "fortcordis.com",
+        "final_path": "/",
+        "elapsed_ms": 325,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "fortcordis.com",
+      "path": "/api/v1/ordens-servico",
+      "baseline": {
+        "http_status": null,
+        "curl_exit": 28,
+        "final_host": "fortcordis.com",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 4006,
+        "tcp_timeout": true
+      },
+      "controlled": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "fortcordis.com",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 61,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "fortcordis.com",
+      "path": "/financeiro",
+      "baseline": {
+        "http_status": null,
+        "curl_exit": 28,
+        "final_host": "fortcordis.com",
+        "final_path": "/financeiro",
+        "elapsed_ms": 4004,
+        "tcp_timeout": true
+      },
+      "controlled": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "app.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 263,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "fortcordis.com.br",
+      "path": "/",
+      "baseline": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "fortcordis.com.br",
+        "final_path": "/",
+        "elapsed_ms": 1577,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "fortcordis.com.br",
+        "final_path": "/",
+        "elapsed_ms": 335,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "fortcordis.com.br",
+      "path": "/api/v1/ordens-servico",
+      "baseline": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "fortcordis.com.br",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 402,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "fortcordis.com.br",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 131,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "fortcordis.com.br",
+      "path": "/financeiro",
+      "baseline": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "app.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 996,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": 307,
+        "curl_exit": 28,
+        "final_host": "app.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 3084,
+        "tcp_timeout": true
+      }
+    },
+    {
+      "host": "stage.fortcordis.com.br",
+      "path": "/",
+      "baseline": {
+        "http_status": null,
+        "curl_exit": 28,
+        "final_host": "stage.fortcordis.com.br",
+        "final_path": "/",
+        "elapsed_ms": 4007,
+        "tcp_timeout": true
+      },
+      "controlled": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "stage.fortcordis.com.br",
+        "final_path": "/",
+        "elapsed_ms": 428,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "stage.fortcordis.com.br",
+      "path": "/api/v1/ordens-servico",
+      "baseline": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "stage.fortcordis.com.br",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 638,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "stage.fortcordis.com.br",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 61,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "stage.fortcordis.com.br",
+      "path": "/financeiro",
+      "baseline": {
+        "http_status": 307,
+        "curl_exit": 28,
+        "final_host": "app.stage.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 4673,
+        "tcp_timeout": true
+      },
+      "controlled": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "app.stage.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 267,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "www.fortcordis.com",
+      "path": "/",
+      "baseline": {
+        "http_status": null,
+        "curl_exit": 28,
+        "final_host": "www.fortcordis.com",
+        "final_path": "/",
+        "elapsed_ms": 4002,
+        "tcp_timeout": true
+      },
+      "controlled": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "www.fortcordis.com",
+        "final_path": "/",
+        "elapsed_ms": 338,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "www.fortcordis.com",
+      "path": "/api/v1/ordens-servico",
+      "baseline": {
+        "http_status": null,
+        "curl_exit": 28,
+        "final_host": "www.fortcordis.com",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 4006,
+        "tcp_timeout": true
+      },
+      "controlled": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "www.fortcordis.com",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 61,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "www.fortcordis.com",
+      "path": "/financeiro",
+      "baseline": {
+        "http_status": null,
+        "curl_exit": 28,
+        "final_host": "www.fortcordis.com",
+        "final_path": "/financeiro",
+        "elapsed_ms": 4003,
+        "tcp_timeout": true
+      },
+      "controlled": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "app.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 263,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "www.fortcordis.com.br",
+      "path": "/",
+      "baseline": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "www.fortcordis.com.br",
+        "final_path": "/",
+        "elapsed_ms": 1089,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "www.fortcordis.com.br",
+        "final_path": "/",
+        "elapsed_ms": 327,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "www.fortcordis.com.br",
+      "path": "/api/v1/ordens-servico",
+      "baseline": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "www.fortcordis.com.br",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 512,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "www.fortcordis.com.br",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 101,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "www.fortcordis.com.br",
+      "path": "/financeiro",
+      "baseline": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "app.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 893,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": 307,
+        "curl_exit": 28,
+        "final_host": "app.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 3092,
+        "tcp_timeout": true
+      }
+    },
+    {
+      "host": "www.stage.fortcordis.com.br",
+      "path": "/",
+      "baseline": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "www.stage.fortcordis.com.br",
+        "final_path": "/",
+        "elapsed_ms": 1226,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "www.stage.fortcordis.com.br",
+        "final_path": "/",
+        "elapsed_ms": 375,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "www.stage.fortcordis.com.br",
+      "path": "/api/v1/ordens-servico",
+      "baseline": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "www.stage.fortcordis.com.br",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 1233,
+        "tcp_timeout": false
+      },
+      "controlled": {
+        "http_status": 401,
+        "curl_exit": 0,
+        "final_host": "www.stage.fortcordis.com.br",
+        "final_path": "/api/v1/ordens-servico",
+        "elapsed_ms": 61,
+        "tcp_timeout": false
+      }
+    },
+    {
+      "host": "www.stage.fortcordis.com.br",
+      "path": "/financeiro",
+      "baseline": {
+        "http_status": null,
+        "curl_exit": 28,
+        "final_host": "www.stage.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 4007,
+        "tcp_timeout": true
+      },
+      "controlled": {
+        "http_status": 200,
+        "curl_exit": 0,
+        "final_host": "app.stage.fortcordis.com.br",
+        "final_path": "/financeiro",
+        "elapsed_ms": 271,
+        "tcp_timeout": false
+      }
+    }
+  ],
+  "chunks": [
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/4bd1b696-100b9d70ed4e49c1.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 173025,
+      "sha256": "5421e13a91a9389517b66179f3b4b5eaa0d95245438066d4d7b19ac30aeb809b",
+      "tls_verify_result": 0,
+      "new_connections": 1,
+      "markers": []
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/1255-d3668eefd1b4a69b.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 174198,
+      "sha256": "899a92ceca81854411424d2a4d9aac0f0b7eca99494655cde3fc9267c8a014a2",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/main-app-1d3d45dfd0cd42fd.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 570,
+      "sha256": "87d3537dda0eea4484577dc3d82b1e65ea2819012ed763c993db91c99ad3a853",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/2619-04bc32f026a0d946.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 8564,
+      "sha256": "a9b6c2213ea787a015c0169d198b4a90d7a44a0cc17abb0d132e8362d3016ced",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/5788-c2afdaeb091cf472.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 48800,
+      "sha256": "803b0e653ae902c6da5f9159d85499c2da901c4147e6284ecd135bf81754aba1",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/4704-7c72eda4cd35efc5.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 10236,
+      "sha256": "d99c46b67f6b462418132f6a1664e32872e940ded24b7278db95478a9b419455",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/3968-c618a4c8161c007c.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 21502,
+      "sha256": "9c19298238d1e013510a5d4b1de32107d7c7ab570aa41472018aceb1d0d88310",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/app/layout-11921813a2c9f156.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 444,
+      "sha256": "53b72f4c0c3bdefc1fbe829a824eb7813936bef1b54877ecb5bc8239e386a0b6",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/1356-2ed480e29f4f7933.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 13604,
+      "sha256": "caa49e8ebaa92eef215adbef8bfd5e6aa1d447f9d05191f0d2152f2f2b6056d1",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/app/error-74466a8931bdc053.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 4066,
+      "sha256": "9c8a0ff801bbe5cfdd19d42e9e611cc094d00d2f065329c0c33cbf6aed5882c4",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/app/page-aea232ba1d1bd643.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 7314,
+      "sha256": "9642b6393c62cd3e655446dcbde45da82c2768f5304fc55a0bf59549d18eff0b",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/app/financeiro/page-11d582143c7ec32d.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 136613,
+      "sha256": "abe3ff88243a3b89b487e53044654cac5aba3a3e255788177c651e31e9a8ff8b",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": [
+        "/ordens-servico/receber-lote",
+        "Nenhuma baixa deste lote foi registrada por esta operacao.",
+        "Nao foi possivel confirmar o resultado do recebimento."
+      ]
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/polyfills-42372ed130431b0a.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 112594,
+      "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.stage.fortcordis.com.br",
+      "path": "/_next/static/chunks/webpack-579176457ef55417.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 4712,
+      "sha256": "3298a032b5d725926f58c77ed245d80ec407df3e74fcd5c7353ceebee452c8e8",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/4bd1b696-100b9d70ed4e49c1.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 173025,
+      "sha256": "5421e13a91a9389517b66179f3b4b5eaa0d95245438066d4d7b19ac30aeb809b",
+      "tls_verify_result": 0,
+      "new_connections": 1,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/1255-d3668eefd1b4a69b.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 174198,
+      "sha256": "899a92ceca81854411424d2a4d9aac0f0b7eca99494655cde3fc9267c8a014a2",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/main-app-c4e36bb4601dc2ff.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 572,
+      "sha256": "4d7f2d5d6ae79deeb208d592fe623c20af21cfbe0343d386f9471d20fad6d1f3",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/2619-04bc32f026a0d946.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 8564,
+      "sha256": "a9b6c2213ea787a015c0169d198b4a90d7a44a0cc17abb0d132e8362d3016ced",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/5788-c2afdaeb091cf472.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 48800,
+      "sha256": "803b0e653ae902c6da5f9159d85499c2da901c4147e6284ecd135bf81754aba1",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/4704-7c72eda4cd35efc5.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 10236,
+      "sha256": "d99c46b67f6b462418132f6a1664e32872e940ded24b7278db95478a9b419455",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/3968-c618a4c8161c007c.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 21502,
+      "sha256": "9c19298238d1e013510a5d4b1de32107d7c7ab570aa41472018aceb1d0d88310",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/app/layout-e69dc4515c066b41.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 444,
+      "sha256": "00cddd22ca835d32978d39d74915bbe604b6d1c434133fb00c7a09b72a2327ca",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/1356-2ed480e29f4f7933.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 13604,
+      "sha256": "caa49e8ebaa92eef215adbef8bfd5e6aa1d447f9d05191f0d2152f2f2b6056d1",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/app/error-43a6e3b1c0e305ca.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 4066,
+      "sha256": "2586ee2df9c0b22108078b1e5558083378198f1de5a66265fe1f95e616e00357",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/app/page-4391dc4562514c6a.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 7314,
+      "sha256": "c9cea8bf397594bdbbfb486380f9dafccb70f3fefb7b03186d87260e6f84d23a",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/app/financeiro/page-2a99dfe8b6da2716.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 136613,
+      "sha256": "b457601e688daaeed434dfbc2627cef6c10ccf9923d493e180880356ef98b1b6",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": [
+        "/ordens-servico/receber-lote",
+        "Nenhuma baixa deste lote foi registrada por esta operacao.",
+        "Nao foi possivel confirmar o resultado do recebimento."
+      ]
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/polyfills-42372ed130431b0a.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 112594,
+      "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    },
+    {
+      "host": "app.fortcordis.com.br",
+      "path": "/_next/static/chunks/webpack-1927a7c295f46b7b.js",
+      "http_status": 200,
+      "curl_exit": 0,
+      "bytes": 4712,
+      "sha256": "e1a0685383d9cf8d35d464aea5c65bbe549f78c4bb71c98e84df9623758ec671",
+      "tls_verify_result": 0,
+      "new_connections": 0,
+      "markers": []
+    }
+  ],
+  "limits": [
+    "A primeira rodada teve 14/24 respostas esperadas; a rodada controlada teve 19/24. As duas apresentaram timeouts ao estabelecer TCP. Os sucessos nao comprovam disponibilidade continua.",
+    "23/24 URLs tiveram sucesso em uma tentativa direta. O GET canonico stage /financeiro retornou 200 como destino final de redirects dos aliases, completando 24/24 alvos observados, sem ocultar falhas diretas.",
+    "Os 28 chunks da rodada controlada responderam 200 com TLS valido. Os dois chunks Financeiro contiveram os tres marcadores da correcao.",
+    "IPv4, HTTP/1.1, DNS fixado e reutilizacao de conexao foram combinados. Nao foi determinada a causa dos timeouts nem atribuida a HTTP/2, IPv6, proxy, aplicacao ou infraestrutura.",
+    "Nenhum cookie, credencial, dado de paciente, operacao autenticada, mudanca de infraestrutura ou transacao operacional foi usado. Este smoke nao substitui o teste funcional autenticado em duas sessoes."
+  ]
+}

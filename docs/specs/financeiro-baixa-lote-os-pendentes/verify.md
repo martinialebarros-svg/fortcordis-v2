@@ -4,6 +4,9 @@ Data: 2026-10-10
 Responsavel: Martiniano + Codex
 Status: homologacao e producao publicadas; 100 testes direcionados revalidados no SHA de producao
 
+As secoes 1 a 5 preservam o registro da validacao de 10/10/2026. A secao 6
+acrescenta as observacoes de 11/10/2026 e identifica as etapas ainda em execucao.
+
 ## 1) Matriz de rastreabilidade
 
 | ID | Evidencia | Status |
@@ -22,6 +25,15 @@ Status: homologacao e producao publicadas; 100 testes direcionados revalidados n
 | CA-012 | 10 disputas reais PostgreSQL com locks observados em pg_stat_activity | ok local |
 | CA-013 | Modal conserva snapshot, erro visivel e bloqueio ate nova selecao | ok local |
 | CA-014 | Rateio exato por OS/forma/taxa e repeticao sem duplicidade | ok local |
+
+Complemento de 11/10/2026 para o defeito documental descoberto no recibo:
+
+| ID | Evidencia | Status |
+| --- | --- | --- |
+| CA-015 | Ciclo receber/desfazer/receber reproduziu forma duplicada no PDF, apesar de dois pagamentos ativos e total correto | defeito reproduzido em stage; correcao ok nos testes locais |
+| CA-016 | Filtro compartilhado de pagamentos, datas, taxas e liquido em PDF/Portal/WhatsApp | ok local com PDFs reais e transporte WhatsApp simulado |
+| CA-017 | Legado sem vinculo identificado, com taxas/liquido nao informados | ok local |
+| CA-018 | Bloqueio de vinculo orfao/cobertura insuficiente e preservacao de credito ativo | ok local |
 
 ## 2) Evidencia automatizada
 
@@ -116,3 +128,118 @@ desta validacao. O consolidado aceita ate 20 OS; a baixa aceita ate 200.
   Financeiro** passaram. Cluster descartavel encerrado, sem schemas de teste.
 - Nenhuma transacao financeira persistente ou envio real de WhatsApp foi feito.
   Sem migracao de banco. Nao foi necessario novo deploy do mesmo codigo.
+
+## 6) Fechamento de 11/10/2026 — evidencias adicionais e etapas em execucao
+
+### Smoke externo
+
+O [relatorio desta rodada](evidence/smoke-20261011.json), concluido em
+11/10/2026 as 12:11:48 (Fortaleza), registra requisicoes HTTPS feitas do
+terminal local, sem autenticacao e com validacao normal de TLS. Sao novas
+observacoes, distintas dos logs e checks da publicacao de 10/10:
+
+- **24/24 alvos tiveram a resposta esperada observada ao combinar as duas
+  rodadas**. A primeira obteve 14/24 e a rodada controlada, 19/24; houve sucesso
+  direto em 23/24 URLs. O alvo canonico de stage `/financeiro` respondeu 200
+  como destino final dos redirects dos aliases, apesar dos timeouts nas duas
+  tentativas diretas.
+- **28/28 chunks responderam 200**, sendo 14 de stage e 14 de producao,
+  extraidos do HTML retornado. Os chunks de Financeiro dos dois ambientes
+  contem o endpoint de lote e as mensagens de conflito e resultado incerto;
+  os hashes estao registrados no JSON.
+- A API de OS sem credenciais retornou **401 nos oito dominios** verificados.
+- As duas rodadas tiveram timeouts ao estabelecer TCP. A intermitencia
+  persiste e sua causa nao foi determinada; esses sucessos nao comprovam
+  disponibilidade continua. A rodada controlada combinou IPv4, HTTP/1.1,
+  DNS fixado e reutilizacao de conexao, sem isolar uma causa.
+
+### Conflito observado no navegador de homologacao
+
+Foram usados o paciente ficticio **204** e o tutor ficticio **198**, sem
+contatos, com agendamentos de teste **167** e **168** retroativos a 09/10/2026,
+as 10:00 e 11:10, mediante justificativa tecnica explicita. As OS
+**2026100001** e **2026100002** tinham valor de **R$ 230,00** cada.
+
+O teste usou **duas abas do navegador integrado com a mesma sessao
+autenticada**, mantendo snapshots independentes. Nao foram duas contas ou
+duas sessoes autenticadas independentes:
+
+1. A aba A abriu o lote com as duas OS e total de **R$ 460,00**.
+2. A aba B recebeu individualmente a OS **2026100002**, mantendo a opcao de
+   enviar recibo por WhatsApp desmarcada.
+3. A aba A confirmou o lote e exibiu a mensagem: "Uma OS mudou desde a
+   conferencia. Nenhuma baixa deste lote foi registrada por esta operacao."
+   O modal conservou as duas OS e os **R$ 460,00**, com o botao de confirmar
+   desabilitado. A [captura do conflito](evidence/conflito-20261011.png)
+   registra esse estado.
+4. A atualizacao da lista na aba B mostrou a OS **2026100002 Pago** e a OS
+   **2026100001 Pendente**, corroborando que a tentativa do lote nao recebeu
+   a OS remanescente.
+
+O status HTTP da requisicao conflitante nao foi capturado. **409** permanece
+evidencia do contrato e dos testes automatizados, e nao uma observacao de
+rede desta interacao. O teste produziu um recebimento individual persistente
+de dados ficticios em homologacao; o registro de ausencia de transacoes na
+secao 5 se refere exclusivamente a rodada anterior. Nao houve envio real de
+WhatsApp nesta interacao.
+
+### Defeito documental descoberto na continuacao
+
+A primeira reversao foi concluida e a OS **2026100002** voltou a `Pendente`.
+Depois de nova selecao, o recebimento em lote de **R$ 460,00** foi concluido
+e a lista mostrou **as duas OS Pago**. Esse ciclo preservou tres pagamentos
+historicos: um cancelado e dois ativos. As duas OS de R$ 230,00 estavam
+representadas no recibo, cujo total permaneceu **R$ 460,00**, mas a OS
+**2026100002** exibia duas vezes a forma Dinheiro de R$ 230,00. A
+[previa anterior a correcao](evidence/recibo-antes-correcao-20261011.png)
+registra as formas duplicadas.
+
+O resultado observado demonstra inconsistencia documental, e nao uma nova
+cobranca duplicada: o historico cancelado foi preservado pelo desfazer, mas
+continuava compondo o recibo junto aos recebimentos ativos. Uma nova tentativa
+de desfazer ficou bloqueada pelo dialogo nativo da automacao, e foi solicitado
+cancelar essa tentativa para preservar o caso ate a correcao. Na ultima
+atualizacao da aba B, **ambas as OS continuavam Pago**; nao ha prova de que
+essa segunda reversao tenha sido aplicada.
+
+A correcao local de `_montar_recibos_os` passa a usar somente transacoes de
+entrada `Recebido`/`Pago` e consumo de credito ativo, preservando todas as
+linhas historicas. Backend e revisao alinharam as regras seguintes:
+
+- Vinculo preenchido sem transacao correspondente impede o recibo com `409`,
+  mesmo quando ha outros pagamentos ativos suficientes.
+- Cobertura ativa menor que o valor da OS impede emissao com `409`; excedente
+  legitimo permanece aceito. Credito ativo suficiente pode quitar a OS sozinho.
+- Ausencia de pagamentos ou somente vinculos nulos, sem credito ativo, admite
+  declaracao legada do valor nominal da OS, sem inventar forma. Taxas/liquido
+  ficam nao informados e aparecem como `-`, acompanhados de aviso.
+- Historico conhecido cancelado, pendente ou de saida nao e convertido em
+  legado. Apenas pagamentos ativos fornecem datas, taxas e liquido do recibo.
+
+A validacao direcionada desta correcao passou **71/71 testes**, incluindo
+**13 novos testes de recibos ativos** em
+`backend/tests/test_ordens_servico_recibos_ativos.py`, 3 do Portal, 21 do lote,
+17 do ajuste, 9 da exclusao de Atendimento e 8 do WhatsApp. Foram exercitados
+tambem 28 subcasos, sem soma-los como testes independentes.
+
+A cobertura nova verifica o ciclo receber/desfazer/receber com tres movimentos
+preservados; PDF individual e consolidado sem forma, taxa ou data cancelada;
+geracao real de PDF pelo Portal; bytes de PDF real capturados no adaptador
+WhatsApp com transporte simulado; legado, orfao, cobertura insuficiente,
+excedente legitimo e credito ativo. Sao testes locais com dados sinteticos;
+nao equivalem ao reteste da correcao publicada em stage. Os resultados
+historicos das secoes anteriores nao validam esta nova correcao.
+
+Suite backend completa local em 11/10/2026: **1634 testes, OK (7 skips)**,
+com banco SQLite sintetico e transportes simulados. O log integral foi
+preservado em `/tmp/fortcordis-receipt-full-tests-20261011.log` na estacao de
+validacao; nao inclui operacoes em dados reais.
+
+### Etapas ainda em execucao
+
+- Publicar a correcao documental em homologacao para
+  conferir um novo recibo do mesmo caso. **O recibo corrigido ainda nao foi
+  validado em stage.**
+- Concluir e comprovar a reversao final e a limpeza dos registros ficticios.
+- PDFs baixados ou enviados antes da correcao nao sao atualizados
+  retroativamente. Nao houve envio real de WhatsApp nesta validacao.
