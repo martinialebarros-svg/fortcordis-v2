@@ -296,12 +296,15 @@ um dos dois alvos faltantes e o chunk restante responderam com sucesso.
 
 ### Etapas ainda em execucao
 
-- Concluir e comprovar a reversao final e a limpeza dos registros ficticios.
+- Concluir e comprovar a reversao final e a limpeza dos registros ficticios:
+  **pendencia operacional de homologacao, sem mudanca de codigo pendente**.
   O comando Desfazer da OS 2026100002 voltou a bloquear a aba no dialogo
   nativo, sem confirmacao acessivel pela ferramenta. A ultima leitura
   confirmada tinha as duas OS Pago; o resultado dessa tentativa final e
   incerto e exige nova leitura antes de repetir qualquer acao. Foi solicitada
   ajuda do usuario para liberar o dialogo. A limpeza nao esta concluida.
+  Isso nao invalida os PDFs corrigidos ja conferidos; impede apenas declarar
+  a reversao final e a limpeza comprovadas.
 - Promover a correcao da composicao dos recibos de stage para producao e
   conferir sua publicacao. A baixa atomica ja estava em producao; a nova
   correcao do PDF ainda nao e declarada publicada nesse ambiente.
