@@ -2,7 +2,7 @@
 
 Data: 2026-10-10
 Responsavel: Martiniano + Codex
-Status: validacao local concluida; homologacao pendente
+Status: homologacao e producao publicadas; 100 testes direcionados revalidados no SHA de producao
 
 ## 1) Matriz de rastreabilidade
 
@@ -47,19 +47,38 @@ Status: validacao local concluida; homologacao pendente
 
 ## 3) Homologacao
 
-O workflow `Deploy to Stage (VPS)` passa a exigir a disputa PostgreSQL e os
-testes da tela Financeiro no quality gate. Depois do deploy, executa os testes
-de lote com o Python instalado no stage e bancos temporarios SQLite; valida o
-SHA publicado antes da execucao. Nenhum dado financeiro persistente ou
-destinatario real e usado por esses testes.
+O [PR #333](https://github.com/martinialebarros-svg/fortcordis-v2/pull/333)
+foi integrado em `f5ed6699571aa43bf14de58a5e304370d22d2514`. O
+[Deploy to Stage #38078780987](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/38078780987)
+terminou com sucesso em 2026-10-10 as 19:22 UTC:
 
-Publicacao, resultado terminal e smoke do bundle: pendentes.
+- SDD e quality-gate aprovados: **1609 testes backend, OK (8 skips)**,
+  **10 disputas PostgreSQL** e **43 testes da tela Financeiro**.
+- Frontend CI e Migration CI do mesmo SHA concluidos com sucesso.
+- Health, readiness, canario autenticado e exercicio de restauracao aprovados;
+  banco SQLite e arquivos runtime de frases preservados/restaurados.
+- **21 testes de lote executados no Python instalado no stage**, depois da
+  conferencia do SHA, com bancos temporarios e notificacoes simuladas: `OK`.
+
+Na revalidacao de 10/10, o HTML de Financeiro respondeu 200. Dos 14 chunks
+referenciados, quatro responderam 200 e dez tiveram timeout TCP. O chunk
+`app/financeiro/page-11d582143c7ec32d.js` respondeu 200 e contem os marcadores
+`/ordens-servico/receber-lote`, conflito sem baixa do lote e resultado incerto.
+SHA-256: `abe3ff88243a3b89b487e53044654cac5aba3a3e255788177c651e31e9a8ff8b`.
+Isso comprova o codigo servido de Financeiro, mas nao um smoke externo completo.
 
 ## 4) Limites e roteiro manual
 
-A sessao de stage disponivel no navegador esta na tela de login; nao ha prova
-manual autenticada ainda. Os testes do processo instalado no stage, quando
-concluidos, nao substituem uma interacao de ponta a ponta pelo navegador.
+Na sessao autenticada de stage, foram conferidos abertura de grupo, leitura das
+OS, abertura do modal com tres OS e total preenchido, bloqueio da confirmacao
+com valor divergente e habilitacao com valor exato. O formulario foi cancelado
+e o grupo fechado, sem confirmar baixa ou enviar recibo. As ativacoes por
+clique da automacao nao produziram efeito; ativacao por teclado funcionou.
+Nao se atribuiu esse comportamento a uma falha do guard da aplicacao.
+
+A disputa financeira foi validada com dados sinteticos pelos testes, inclusive
+PostgreSQL real. O roteiro completo abaixo ainda nao foi executado por duas
+sessoes autenticadas no navegador; os testes nao equivalem a essa prova manual.
 
 1. Com duas sessoes e OS sinteticas, abrir lote na primeira; pagar ou cancelar
    uma OS na segunda; confirmar lote. Esperado: 409, nenhuma baixa adicional,
@@ -77,6 +96,23 @@ desta validacao. O consolidado aceita ate 20 OS; a baixa aceita ate 200.
 
 ## 5) Decisao de entrega
 
-- Implementacao e testes locais autorizados pelo pedido de correcao.
-- Homologacao solicitada; publicacao condicionada aos gates desta revisao.
-- Producao fora do escopo desta entrega. Sem migracao de banco.
+- Homologacao publicada e producao autorizada pelo pedido "teste e publique".
+- O [PR #335](https://github.com/martinialebarros-svg/fortcordis-v2/pull/335)
+  ja havia promovido a correcao pelo fluxo direto `stage -> main`, junto com a
+  entrega de Agenda. Producao em `adcc15dcde2cf714760c2bcbc6ee81e491f663dc`;
+  arvore identica ao stage `56d95e987590303b79d44184c580a5544d7c0517`.
+- [Deploy to VPS #38098205399](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/38098205399)
+  concluido com sucesso em 10/10/2026 as 21:34 (Fortaleza). Frontend CI e
+  Migration CI do mesmo SHA tambem aprovados. Logs confirmam preservacao e
+  restauracao de seis arquivos runtime, readiness, canario 5/5 e restore drill.
+- A [evidencia registrada na publicacao](https://github.com/martinialebarros-svg/fortcordis-v2/pull/335#issuecomment-6103831257)
+  inclui conferencia SSH do SHA, 20/20 verificacoes HTTPS nos cinco dominios,
+  15 chunks 200 a partir da VPS e carregamento autenticado do Financeiro.
+  Esses checks pertencem a publicacao anterior e nao foram repetidos nesta
+  revalidacao. Nesta rodada local, a API de OS sem credenciais retornou 401;
+  `/financeiro` e `/api/health` de producao tiveram timeout TCP.
+- Revalidacao no SHA de producao: **57/57 testes backend** (21 lote, 17 ajuste,
+  9 exclusao de Atendimento e 10 PostgreSQL concorrente) e **43/43 testes de
+  Financeiro** passaram. Cluster descartavel encerrado, sem schemas de teste.
+- Nenhuma transacao financeira persistente ou envio real de WhatsApp foi feito.
+  Sem migracao de banco. Nao foi necessario novo deploy do mesmo codigo.
