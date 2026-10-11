@@ -107,7 +107,9 @@ com OS "Pago" desfaz o recebimento financeiro antes de cancelar a OS.
   auditoria; atualizar sem mudanca nao gera.
 - CA-007: excluir atendimento concluido com OS "Pago" desfaz o recebimento
   (Transacao volta a "Cancelado", `data_pagamento` e limpo) antes de
-  cancelar a OS.
+  cancelar a OS. A decisao usa status recarregado com lock compartilhado com o
+  recebimento individual/em lote; apos desfazer, recupera o lock. Se outra sessao
+  receber novamente, a exclusao retorna `409` e preserva a OS paga.
 
 ## 7) Casos de borda
 

@@ -226,13 +226,17 @@ def normalizar_agenda_rota_regras(payload: Any) -> dict[str, Any]:
     pisos_municipios = dict(default["route_policy"]["first_appointment_city_floors"])
     pisos_src = route_src.get("first_appointment_city_floors")
     if isinstance(pisos_src, dict):
-        for municipio, hora in list(pisos_src.items())[:50]:
+        # Defaults retornam no payload normalizado: nao podem consumir o limite
+        # dos 50 municipios adicionais nem apagar pisos no proximo salvamento.
+        limite_pisos = len(pisos_municipios) + 50
+        for municipio, hora in pisos_src.items():
             chave = normalizar_municipio_agenda(municipio)
-            if chave:
-                pisos_municipios[chave] = _normalizar_hora_hhmm(
-                    hora,
-                    pisos_municipios.get(chave, "08:00"),
-                )
+            if not chave or (chave not in pisos_municipios and len(pisos_municipios) >= limite_pisos):
+                continue
+            pisos_municipios[chave] = _normalizar_hora_hhmm(
+                hora,
+                pisos_municipios.get(chave, "08:00"),
+            )
     raw_bonus = _normalizar_int(
         route_src.get("bonus_near_base_score"),
         default["route_policy"]["bonus_near_base_score"],

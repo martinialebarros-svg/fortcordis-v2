@@ -26,6 +26,7 @@ export interface AgendaRotaOfferPolicyConfig {
 export interface AgendaRotaRoutePolicyConfig {
   end_of_route_window_start: string;
   first_appointment_city_floors: {
+    [municipio: string]: string;
     caucaia: string;
     maracanau: string;
     eusebio: string;
@@ -154,6 +155,28 @@ const normalizarHoraHHMM = (value: unknown, fallback: string): string => {
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 };
 
+const normalizarPisosMunicipais = (
+  value: unknown
+): AgendaRotaRoutePolicyConfig["first_appointment_city_floors"] => {
+  const pisos = { ...DEFAULT_AGENDA_ROTA_REGRAS.route_policy.first_appointment_city_floors };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return pisos;
+
+  for (const [municipio, hora] of Object.entries(value)) {
+    // Mantem as chaves de municipio compativeis com normalizar_municipio_agenda.
+    const chave = municipio
+      .normalize("NFKD")
+      .replace(new RegExp("\\p{M}", "gu"), "")
+      .toLowerCase()
+      .replace(new RegExp("[^\\p{L}\\p{N}]+", "gu"), " ")
+      .trim();
+    if (!chave) continue;
+    const fallback = typeof pisos[chave] === "string" ? pisos[chave] : "08:00";
+    pisos[chave] = normalizarHoraHHMM(hora, fallback);
+  }
+
+  return pisos;
+};
+
 const horaParaMinutos = (value: string): number => {
   const [hh, mm] = value.split(":").map((item) => Number.parseInt(item, 10));
   return (Number.isFinite(hh) ? hh : 0) * 60 + (Number.isFinite(mm) ? mm : 0);
@@ -219,12 +242,6 @@ export const normalizarAgendaRotaRegras = (payload: unknown): AgendaRotaRegrasCo
   const routeRaw =
     source.route_policy && typeof source.route_policy === "object"
       ? (source.route_policy as Record<string, unknown>)
-      : {};
-  const firstAppointmentFloorsRaw =
-    routeRaw.first_appointment_city_floors &&
-    typeof routeRaw.first_appointment_city_floors === "object" &&
-    !Array.isArray(routeRaw.first_appointment_city_floors)
-      ? routeRaw.first_appointment_city_floors as Record<string, unknown>
       : {};
   const fallbackRaw =
     source.fallback_policy && typeof source.fallback_policy === "object"
@@ -323,24 +340,7 @@ export const normalizarAgendaRotaRegras = (payload: unknown): AgendaRotaRegrasCo
         routeRaw.end_of_route_window_start,
         defaultCfg.route_policy.end_of_route_window_start
       ),
-      first_appointment_city_floors: {
-        caucaia: normalizarHoraHHMM(
-          firstAppointmentFloorsRaw.caucaia,
-          defaultCfg.route_policy.first_appointment_city_floors.caucaia
-        ),
-        maracanau: normalizarHoraHHMM(
-          firstAppointmentFloorsRaw.maracanau,
-          defaultCfg.route_policy.first_appointment_city_floors.maracanau
-        ),
-        eusebio: normalizarHoraHHMM(
-          firstAppointmentFloorsRaw.eusebio,
-          defaultCfg.route_policy.first_appointment_city_floors.eusebio
-        ),
-        itaitinga: normalizarHoraHHMM(
-          firstAppointmentFloorsRaw.itaitinga,
-          defaultCfg.route_policy.first_appointment_city_floors.itaitinga
-        ),
-      },
+      first_appointment_city_floors: normalizarPisosMunicipais(routeRaw.first_appointment_city_floors),
       prefer_near_base_at_end_of_route: normalizarBool(
         routeRaw.prefer_near_base_at_end_of_route,
         defaultCfg.route_policy.prefer_near_base_at_end_of_route

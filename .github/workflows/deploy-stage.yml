@@ -81,6 +81,16 @@ jobs:
           psql postgresql://postgres:postgres@127.0.0.1:5432/postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE document_test'
           python -m pytest -q backend/tests/test_atendimento_documentos_persistencia.py backend/tests/test_atendimento_documentos_concorrencia_postgres.py backend/tests/test_atendimento_edicao_historico.py backend/tests/test_atendimento_edicoes_concorrencia_postgres.py
 
+      - name: Test atomic batch receipts with PostgreSQL concurrency
+        env:
+          FORTCORDIS_PROCESS_ROLE: api
+          DATABASE_URL: sqlite:///./fortcordis-ci.db
+          SECRET_KEY: batch-receipt-ci-secret-key-1234567890
+          OS_BATCH_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/os_batch_test
+        run: |
+          psql postgresql://postgres:postgres@127.0.0.1:5432/postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE os_batch_test'
+          python -m pytest -q backend/tests/test_ordens_servico_receber_lote_postgres.py
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -93,6 +103,10 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Test Financeiro batch receipt interface
+        working-directory: frontend
+        run: npx vitest run app/financeiro/page.test.tsx
 
       - name: Run frontend lint
         working-directory: frontend
@@ -529,6 +543,19 @@ jobs:
             cd /var/www/fortcordis-stage
             test "$(git rev-parse HEAD)" = "${{ github.sha }}"
             python3 backend/scripts/sync_feline_diastolic_presets.py --apply
+          EOF
+
+      - name: Verify atomic batch receipts on Stage with disposable data
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -euo pipefail
+            cd /var/www/fortcordis-stage
+            test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+            cd backend
+            FORTCORDIS_PROCESS_ROLE=api \
+              DATABASE_URL=sqlite:// \
+              SECRET_KEY=batch-receipt-stage-synthetic-validation-1234567890 \
+              venv/bin/python -m unittest tests.test_ordens_servico_receber_lote
           EOF
 
       - name: Run one-shot Nginx TLS listener inventory on Stage

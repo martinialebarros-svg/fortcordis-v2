@@ -11,7 +11,7 @@ Status: ready-for-release-user-confirmed-meta-approved
 - RF-003: a cobranca consolidada informa quantidade, total e uma lista resumida com OS, data, servico, tutor, pet e valor.
 - RF-004: OS de destinatarios diferentes nao podem ser combinadas no mesmo envio.
 - RF-005: o modal de recebimento individual oferece a opcao de enviar o recibo PDF pelo WhatsApp oficial apos a baixa.
-- RF-006: o modal de recebimento em lote oferece um unico recibo PDF consolidado quando todas as OS pertencem ao mesmo destinatario.
+- RF-006: o modal de recebimento em lote oferece um unico recibo PDF consolidado quando todas as OS pertencem ao mesmo destinatario. O envio exige sucesso integral da transacao atomica e resposta com exatamente todas as OS selecionadas; conflito, falha ou resposta incompleta nao dispara recibo parcial.
 - RF-007: o recibo PDF individual e consolidado reutiliza o gerador oficial do Financeiro.
 - RF-008: o PDF contem numero da OS, data do atendimento, servico, tutor e pet, alem dos dados financeiros ja existentes.
 - RF-009: o servico WhatsApp faz upload do PDF na Cloud API e usa o ID de midia no cabecalho de documento do modelo aprovado.

@@ -2,7 +2,7 @@
 
 Data: 2026-10-07
 Responsável: Codex
-Status: implementado e validado em stage e produção
+Status: regra original validada em stage e produção; correções de 2026-10-10 com validação local concluída e publicação rastreada no PR #334
 
 ## Matriz de rastreabilidade
 
@@ -17,6 +17,9 @@ Status: implementado e validado em stage e produção
 | CA-007 | `test_revalidacao_do_aceite_usa_slot_exato_e_relogio_atual`, `test_oferta_que_envelhece_e_rejeitada_no_salvamento` e teste do modal de preferências (erro 409 visível por `role=alert`) | ok |
 | CA-008 | `test_agendamento_intermediario_usa_vizinho_anterior_e_nao_casa` e `test_edicao_de_primeiro_domicilio_revalida_novo_tutor_sem_mudar_horario` | ok |
 | CA-009 | Regressão de janela/encaixes/reserva, suíte backend completa e suíte frontend completa | ok |
+| CA-010 / RF-008 | `frontend/lib/agenda-route-rules.test.ts` preserva pisos adicionais ao alterar outra configuração e 54 entradas da API; `test_agenda_route_rules_normalization.py` cobre limite, aliases, defaults tardios e normalização repetida | ok local em 10/10 |
+| CA-011 / RF-009 | `test_patch_reativa_primeiro_atendimento_ja_iniciado_sem_nova_saida_da_base`, `test_patch_reativa_cancelado_no_instante_original_do_inicio` e `test_patch_reativacao_expirada_ja_iniciada_ainda_exige_confirmacao` | ok local em 10/10 |
+| CA-012 / RF-009 | Regressões HTTP `test_patch_reativacao_futura_*` e `test_patch_reativacao_ja_iniciada_preserva_*` verificam rejeição e status persistido intacto | ok local em 10/10 |
 
 ## Testes executados
 
@@ -108,3 +111,51 @@ Status: implementado e validado em stage e produção
 A regra está publicada e comprovada em stage e produção no release
 `4a8b4876`. A duração estimada da rota ainda varia com a disponibilidade da
 API Google e com o trânsito, conforme o limite operacional descrito acima.
+
+## Correções de configuração e reativação — 2026-10-10
+
+Base desta alteração: `origin/stage` em `f5ed6699`, em worktree isolado.
+Os registros de publicação acima se referem à regra original; estas correções
+foram validadas localmente conforme abaixo. As evidências posteriores de deploy,
+smoke e preservação de runtime ficam no
+[PR #334](https://github.com/martinialebarros-svg/fortcordis-v2/pull/334) e no PR
+direto de promoção vinculado a ele. O resultado local não é prova de publicação.
+
+- A normalização frontend preserva o mapa completo dos pisos municipais,
+  incluindo nomes com acentos e horários com os fallbacks do backend. O backend
+  limita a 50 municípios adicionais distintos além dos quatro defaults, sem
+  remover entradas aceitas em um novo ciclo de leitura/gravação.
+- O PATCH de status dispensa somente a primeira saída residencial quando o
+  início original já chegou/passou no horário local. A correção mantém o início
+  original e as regras existentes de duração do serviço; disponibilidade,
+  funcionamento, vizinhos e confirmação tardia continuam validados. O
+  comportamento acompanha a edição via PUT.
+- Prova antes/depois: as novas regressões falharam na versão anterior por perda
+  de municípios e por `PRIMEIRA_SAIDA_INVIAVEL` na reativação histórica de hoje;
+  passaram após as correções. Os testes HTTP usam FastAPI/TestClient, SQLite
+  temporário, relógio fixo e estimadores sintéticos, com consulta posterior ao
+  banco para verificar status e intervalo ou ausência de alteração em erros.
+- Foco da reativação: `test_agenda_primeira_saida.py`,
+  `test_agenda_reabilitar_reserva_expirada.py` e
+  `test_agenda_excecao_deslocamento_persistente.py`: **47 aprovados e 24
+  subtests aprovados**. Normalização e rendering policy: **7 aprovados e 4
+  subtests aprovados**.
+- Frontend: **9 testes de pisos municipais**; suíte completa com **560 testes
+  Vitest em 77 arquivos e 9 testes Node**. ESLint completo e TypeScript completo
+  (`tsc --noEmit --incremental false`) aprovados.
+- Backend completo: `python -m pytest tests -q --disable-warnings` (Python
+  3.11.15, `FORTCORDIS_PROCESS_ROLE=api`, `PYTHONPATH` deste worktree,
+  `DATABASE_URL` SQLite de teste em `/private/tmp` e segredo sintético):
+  **1.653 aprovados, 19 ignorados, 491 subtests aprovados**, exit 0 em 73,62 s.
+- `npm run build` aprovado, com 43 páginas estáticas. `git diff --check`
+  aprovado. Guardrail SDD aprovado pela função `evaluate_guardrail` aplicada
+  aos arquivos alterados e novos do worktree, sem staging ou commit; features
+  qualificadas: `agenda-primeira-saida` e
+  `agenda-rota-regras-configuraveis-for48`.
+- Revisão independente do frontend e do PATCH sem bloqueadores. A alteração
+  de lógica fica em três arquivos, sem mudança de contrato público de API ou
+  de esquema do banco. A suíte PostgreSQL opcional não foi exercitada nesta
+  etapa; as regressões HTTP desta correção passaram em SQLite temporário.
+- Na validação local não houve migração, publicação, envio externo, mudança
+  de agendamentos reais ou gravação de configurações em stage/produção. A correção previne novas
+  perdas; não tenta reconstruir pisos municipais eventualmente removidos antes.

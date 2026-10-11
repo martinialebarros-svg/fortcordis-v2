@@ -1,16 +1,16 @@
 # Intent - financeiro-baixa-lote-os-pendentes
 
-Data: 2026-06-13
+Data: 2026-10-10
 Responsavel: Martiniano + Codex
-Status: draft
+Status: implementado e validado localmente
 
 ## 1) Contexto
 
-No modulo Financeiro, a equipe consegue receber uma OS pendente por vez. Na operacao real, uma clinica frequentemente paga varias ordens de servico em uma unica transacao, o que torna a baixa individual repetitiva e sujeita a esquecimento.
+A baixa em lote existente chamava o recebimento individual para cada OS e continuava depois de uma falha. Um pagamento ou cancelamento concorrente podia produzir baixas e recibo parciais, mesmo com a protecao individual contra OS ja paga.
 
 ## 2) Objetivo
 
-Permitir baixa em lote de OS pendentes a partir das telas de cobranca e ordens de servico, com uma unica confirmacao operacional de data e forma de pagamento.
+Permitir baixa em lote de OS pendentes a partir das telas de cobranca e ordens de servico, com uma unica confirmacao operacional de data e forma de pagamento e persistencia integral: todas as baixas sao gravadas ou nenhuma.
 
 ## 3) Resultado esperado
 
@@ -23,4 +23,5 @@ Permitir baixa em lote de OS pendentes a partir das telas de cobranca e ordens d
 
 - Criar um novo modelo contabil de transacao unica vinculada a varias OS.
 - Aplicar credito de cliente em baixa em lote.
-- Envio automatico de recibo apos a baixa.
+- Envio real de mensagens de teste sem destinatario autorizado.
+- Publicacao em producao; esta entrega visa homologacao.

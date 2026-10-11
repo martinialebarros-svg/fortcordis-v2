@@ -76,6 +76,14 @@ Resumo dos resultados:
 - [x] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
 
+## 7) Regressao de concorrencia financeira — 2026-10-10
+
+`tests.test_atendimento_delete_guard`: 9 testes passaram em banco sintetico local.
+Os dois casos novos provam que uma OS recebida por outra sessao e recarregada
+antes do cancelamento e que um novo recebimento depois do desfazer impede
+exclusao com `409`, preservando o movimento ativo e o Atendimento.
+O escopo completo esta em `../financeiro-baixa-lote-os-pendentes/verify.md`.
+
 ## Atualizacao de contrato em 2026-10-10
 
 A auditoria de alteracoes do conteudo clinico passa a participar da mesma transacao do save, substituindo o comportamento best-effort desse evento. O historico clinico e de documentos passa a ter consulta no proprio prontuario. As regras de exames, alertas e exclusao financeira nao sao alteradas por esse contrato.

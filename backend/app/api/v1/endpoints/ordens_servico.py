@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -99,6 +99,29 @@ class OrdemServicoReceberInput(BaseModel):
     valor_credito_utilizado: float = Field(default=0, ge=0)
     destino_credito_excedente: str = Field(default="cliente", pattern="^(cliente|clinica|nenhum)$")
     observacoes_credito: Optional[str] = None
+
+
+class OrdemServicoReceberLoteItemInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    os_id: int = Field(..., ge=1)
+    valor_final_esperado: Decimal = Field(..., ge=0, max_digits=10, decimal_places=2)
+
+
+class OrdemServicoPagamentoLoteItemInput(OrdemServicoPagamentoItemInput):
+    model_config = ConfigDict(extra="forbid")
+
+    valor: Decimal = Field(..., gt=0, max_digits=13, decimal_places=2)
+    taxa_percentual: Optional[Decimal] = Field(default=None, ge=0, le=100)
+    taxa_fixa: Optional[Decimal] = Field(default=None, ge=0, le=Decimal("99999999999.99"))
+
+
+class OrdensServicoReceberLoteInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ordens: List[OrdemServicoReceberLoteItemInput] = Field(..., min_length=1, max_length=200)
+    pagamentos: List[OrdemServicoPagamentoLoteItemInput] = Field(..., min_length=1, max_length=20)
+    data_recebimento: Optional[date] = None
 
 
 class OrdemServicoWhatsAppInput(BaseModel):
@@ -2189,6 +2212,135 @@ def gerar_recibos_os_pdf(
     )
 
 
+def _ratear_centavos(total: int, pesos: List[int]) -> List[int]:
+    """Maior resto deterministico; conserva a soma inclusive para centavos."""
+    soma = sum(pesos)
+    if soma == 0:
+        if total:
+            raise ValueError("Rateio sem base para um valor positivo.")
+        return [0] * len(pesos)
+    parcelas = [total * peso // soma for peso in pesos]
+    faltantes = total - sum(parcelas)
+    ordem = sorted(range(len(pesos)), key=lambda i: (-(total * pesos[i] % soma), i))
+    for indice in ordem[:faltantes]:
+        parcelas[indice] += 1
+    return parcelas
+
+
+def _preparar_rateio_recebimento_lote(
+    db: Session,
+    valores_os: List[int],
+    pagamentos: List[OrdemServicoPagamentoLoteItemInput],
+) -> Tuple[List[List[OrdemServicoPagamentoItemInput]], List[List[Decimal]]]:
+    valores_pagamentos = [int(item.valor * 100) for item in pagamentos]
+    if sum(valores_pagamentos) != sum(valores_os):
+        raise HTTPException(
+            status_code=422,
+            detail="O total dos pagamentos deve ser exatamente igual ao total das OS do lote.",
+        )
+    restantes = list(valores_pagamentos)
+    matriz = []
+    for valor_os in valores_os:
+        parcelas = _ratear_centavos(valor_os, restantes)
+        matriz.append(parcelas)
+        restantes = [valor - parcela for valor, parcela in zip(restantes, parcelas)]
+
+    por_os: List[List[OrdemServicoPagamentoItemInput]] = [[] for _ in valores_os]
+    taxas_por_os: List[List[Decimal]] = [[] for _ in valores_os]
+    for indice, pagamento in enumerate(pagamentos):
+        config = _resolve_forma_pagamento_config(
+            db, pagamento.forma_pagamento_config_id, pagamento.forma_pagamento,
+        )
+        _obter_bandeira_nome(db, pagamento.bandeira_id, config)
+        percentual = _to_decimal(
+            pagamento.taxa_percentual if pagamento.taxa_percentual is not None
+            else (config.taxa_percentual if config else 0),
+        )
+        fixa = _to_decimal(
+            pagamento.taxa_fixa if pagamento.taxa_fixa is not None
+            else (config.taxa_fixa if config else 0),
+        )
+        if (
+            not percentual.is_finite() or not fixa.is_finite()
+            or percentual < 0 or percentual > 100 or fixa < 0
+            or fixa > pagamento.valor or fixa != fixa.quantize(CENTAVO)
+        ):
+            raise HTTPException(status_code=422, detail="Taxa invalida para o pagamento do lote.")
+        taxa, _ = _calcular_valores_pagamento(float(pagamento.valor), float(percentual), float(fixa))
+        pesos = [linha[indice] for linha in matriz]
+        taxas = _ratear_centavos(int(Decimal(str(taxa)) * 100), pesos)
+        fixas = _ratear_centavos(int(fixa * 100), pesos)
+        for indice_os, bruto in enumerate(pesos):
+            if not bruto:
+                continue
+            por_os[indice_os].append(OrdemServicoPagamentoItemInput(
+                **{
+                    **pagamento.model_dump(),
+                    "valor": float(Decimal(bruto) / 100),
+                    "taxa_percentual": float(percentual),
+                    "taxa_fixa": float(Decimal(fixas[indice_os]) / 100),
+                },
+            ))
+            taxas_por_os[indice_os].append(Decimal(taxas[indice_os]) / 100)
+    return por_os, taxas_por_os
+
+
+@router.patch("/receber-lote")
+def receber_ordens_lote(
+    dados: OrdensServicoReceberLoteInput,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Confirma todas as OS em uma transacao, ou nao recebe nenhuma delas."""
+    notificacoes = []
+    try:
+        ids_solicitados = [item.os_id for item in dados.ordens]
+        if len(set(ids_solicitados)) != len(ids_solicitados):
+            raise HTTPException(status_code=422, detail="O lote contem OS repetidas.")
+        esperados = {item.os_id: item.valor_final_esperado for item in dados.ordens}
+        # A mesma ordem de locks evita deadlock entre lotes sobrepostos.
+        ordens = [_bloquear_os_para_escrita(db, os_id) for os_id in sorted(esperados)]
+        valores_os = []
+        for os_id, ordem in zip(sorted(esperados), ordens):
+            if not ordem or ordem.status != "Pendente":
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"A OS {os_id} nao esta mais pendente ou foi removida. Recarregue o lote.",
+                )
+            valor = Decimal(str(ordem.valor_final or 0))
+            valor_calculado = _to_decimal(ordem.valor_servico) - _to_decimal(ordem.desconto)
+            if valor != esperados[os_id] or valor != valor_calculado:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"O valor da OS {os_id} mudou desde a conferencia. Recarregue o lote.",
+                )
+            valores_os.append(int(valor * 100))
+        pagamentos_por_os, taxas_por_os = _preparar_rateio_recebimento_lote(
+            db, valores_os, dados.pagamentos,
+        )
+        for indice, ordem in enumerate(ordens):
+            _, notificacao = _preparar_recebimento_ordem(
+                _find_os_with_names(db, ordem.id),
+                OrdemServicoReceberInput(
+                    pagamentos=pagamentos_por_os[indice],
+                    data_recebimento=dados.data_recebimento,
+                    valor_final_esperado=esperados[ordem.id],
+                    destino_credito_excedente="nenhum",
+                ),
+                request, db, current_user,
+                recebimento_lote=True,
+                taxas_rateadas=taxas_por_os[indice],
+            )
+            notificacoes.append(notificacao)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    _notificar_recebimentos_confirmados(db, notificacoes)
+    return {"os_ids": ids_solicitados, "mensagem": "Todas as ordens do lote foram recebidas com sucesso."}
+
+
 @router.get("/{os_id}")
 def obter_ordem(
     os_id: int,
@@ -2221,8 +2373,8 @@ def atualizar_ordem(
 
     if os_data.laudo_id and os_data.status == "Cancelado" and dados.status not in {None, "Cancelado"}:
         raise HTTPException(409, "Uma OS cancelada de laudo nao pode ser reativada. Gere um novo envio se necessario.")
-    if os_data.laudo_id and os_data.status == "Pago" and dados.status == "Cancelado":
-        raise HTTPException(409, "Desfaca o recebimento antes de cancelar a OS vinculada ao laudo.")
+    if os_data.status == "Pago" and dados.status == "Cancelado":
+        raise HTTPException(409, "Desfaca o recebimento antes de cancelar a OS.")
 
     if os_data.laudo_id and os_data.status != "Cancelado" and (
         (dados.paciente_id is not None and dados.paciente_id != os_data.paciente_id)
@@ -2470,21 +2622,17 @@ def ajustar_valor_ordem(
     return payload
 
 
-@router.patch("/{os_id}/receber")
-def receber_ordem(
-    os_id: int,
+def _preparar_recebimento_ordem(
+    os_row: Any,
     dados: OrdemServicoReceberInput,
     request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Marca OS como recebida e cria uma ou mais transacoes vinculadas."""
-    # Serializa a baixa com o ajuste de valor antes de calcular os pagamentos.
-    _bloquear_os_para_escrita(db, os_id)
-    os_row = _find_os_with_names(db, os_id)
-    if not os_row:
-        raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
-
+    db: Session,
+    current_user: User,
+    *,
+    recebimento_lote: bool = False,
+    taxas_rateadas: Optional[List[Decimal]] = None,
+) -> Tuple[dict, dict]:
+    """Prepara baixa, movimentos e auditoria; o chamador controla a transacao."""
     (
         os_data,
         paciente_nome,
@@ -2527,7 +2675,7 @@ def receber_ordem(
         .first()
     )
     if transacao_existente:
-        raise HTTPException(status_code=400, detail="Ja existe recebimento ativo para esta OS.")
+        raise HTTPException(status_code=409 if recebimento_lote else 400, detail="Ja existe recebimento ativo para esta OS.")
 
     now = datetime.now()
     valor_servico = round(float(os_data.valor_servico or 0), 2)
@@ -2640,11 +2788,17 @@ def receber_ordem(
             else float(forma_config.taxa_fixa or 0) if forma_config else 0.0
         )
         valor_bruto = round(float(pagamento.valor or 0), 2)
-        valor_taxa, valor_liquido = _calcular_valores_pagamento(
-            valor_bruto=valor_bruto,
-            taxa_percentual=taxa_percentual,
-            taxa_fixa=taxa_fixa,
-        )
+        if taxas_rateadas is None:
+            valor_taxa, valor_liquido = _calcular_valores_pagamento(
+                valor_bruto=valor_bruto,
+                taxa_percentual=taxa_percentual,
+                taxa_fixa=taxa_fixa,
+            )
+        else:
+            # Somente o rateio interno do lote fornece taxas calculadas no total
+            # da forma. Nao repetir a taxa fixa nem arredondar cada fracao.
+            valor_taxa = float(taxas_rateadas[idx - 1])
+            valor_liquido = round(valor_bruto - valor_taxa, 2)
 
         data_item = pagamento.data_recebimento or dados.data_recebimento
         momento_recebimento_item = _montar_momento_recebimento(data_item, now)
@@ -2784,24 +2938,21 @@ def receber_ordem(
         )
         db.add(credito_gerado)
 
-    db.commit()
-    for transacao_item in transacoes_criadas:
-        db.refresh(transacao_item)
-    if credito_consumido:
-        db.refresh(credito_consumido)
-    if credito_gerado:
-        db.refresh(credito_gerado)
-
-    registrar_auditoria(
-        current_user=current_user,
+    db.flush()
+    ip, rota, metodo = _request_meta(request)
+    db.add(AuditoriaEvento(
+        usuario_id=getattr(current_user, "id", None),
+        usuario_nome=getattr(current_user, "nome", None),
+        usuario_email=getattr(current_user, "email", None),
         modulo="ordens_servico",
         entidade="ordem_servico",
-        entidade_id=os_data.id,
+        entidade_id=str(os_data.id),
         acao="ORDEM_SERVICO_RECEBIDA",
         descricao=f"OS {os_data.numero_os or os_data.id} marcada como paga",
-        detalhes={
+        detalhes_json=json.dumps({
             "numero_os": os_data.numero_os,
             "forma_pagamento_legacy": dados.forma_pagamento,
+            "recebimento_lote": recebimento_lote,
             "pagamentos_quantidade": len(transacoes_criadas),
             "valor_servico": valor_servico,
             "desconto_aplicado": round(desconto_informado, 2),
@@ -2815,8 +2966,17 @@ def receber_ordem(
             "credito_consumido_id": credito_consumido.id if credito_consumido else None,
             "credito_id": credito_gerado.id if credito_gerado else None,
             "transacoes_ids": [item.id for item in transacoes_criadas],
-        },
-        request=request,
+        }, ensure_ascii=False),
+        ip_origem=ip,
+        rota=rota,
+        metodo=metodo,
+    ))
+
+    cancel_pending_os_payment_reminder(
+        db,
+        os_id=os_data.id,
+        reason="OS recebida; lembrete de pendencia cancelado.",
+        commit=False,
     )
 
     formas_recebimento = sorted(
@@ -2829,41 +2989,26 @@ def receber_ordem(
     if valor_credito_utilizado > 0:
         formas_recebimento.append("credito")
 
-    try:
-        clinica_label = _serialize_os(
-            os_data,
-            paciente_nome=paciente_nome,
-            tutor_nome=_tutor_nome,
-            clinica_nome=clinica_nome,
-            servico_nome=servico_nome,
-        ).get("clinica")
-        send_financeiro_push_notification(
-            db,
-            action="payment_received",
-            os_id=os_data.id,
-            data={
-                "numero_os": os_data.numero_os,
-                "paciente_nome": paciente_nome,
-                "clinica_nome": clinica_label,
-                "servico_nome": servico_nome,
-                "valor_final": f"{round(total_liquido + valor_credito_utilizado, 2):.2f}",
-                "forma_pagamento": ", ".join(formas_recebimento),
-                "valor_taxas": f"{round(total_taxas, 2):.2f}",
-            },
-        )
-    except Exception as exc:
-        print(f"[financeiro-push] Falha ao enviar push de pagamento recebido: {exc}")
-    try:
-        cancel_pending_os_payment_reminder(
-            db,
-            os_id=os_data.id,
-            reason="OS recebida; lembrete de pendencia cancelado.",
-            commit=True,
-        )
-    except Exception as exc:
-        print(f"[financeiro-push] Falha ao cancelar lembrete de OS recebida: {exc}")
-
-    return {
+    clinica_label = _serialize_os(
+        os_data,
+        paciente_nome=paciente_nome,
+        tutor_nome=_tutor_nome,
+        clinica_nome=clinica_nome,
+        servico_nome=servico_nome,
+    ).get("clinica")
+    notificacao = {
+        "os_id": os_data.id,
+        "data": {
+            "numero_os": os_data.numero_os,
+            "paciente_nome": paciente_nome,
+            "clinica_nome": clinica_label,
+            "servico_nome": servico_nome,
+            "valor_final": f"{round(total_liquido + valor_credito_utilizado, 2):.2f}",
+            "forma_pagamento": ", ".join(formas_recebimento),
+            "valor_taxas": f"{round(total_taxas, 2):.2f}",
+        },
+    }
+    payload = {
         "mensagem": "Ordem de servico recebida com sucesso.",
         "os_id": os_data.id,
         "status": os_data.status,
@@ -2880,6 +3025,40 @@ def receber_ordem(
         "credito_gerado_id": credito_gerado.id if credito_gerado else None,
         "credito_gerado_valor": excedente if excedente > 0 else 0,
     }
+    return payload, notificacao
+
+
+def _notificar_recebimentos_confirmados(db: Session, notificacoes: List[dict]) -> None:
+    """Efeitos externos somente depois de confirmar a transacao financeira."""
+    for notificacao in notificacoes:
+        try:
+            send_financeiro_push_notification(db, action="payment_received", **notificacao)
+        except Exception as exc:
+            db.rollback()
+            print(f"[financeiro-push] Falha ao enviar push de pagamento recebido: {exc}")
+
+
+@router.patch("/{os_id}/receber")
+def receber_ordem(
+    os_id: int,
+    dados: OrdemServicoReceberInput,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Marca OS como recebida e cria uma ou mais transacoes vinculadas."""
+    try:
+        if not _bloquear_os_para_escrita(db, os_id):
+            raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
+        payload, notificacao = _preparar_recebimento_ordem(
+            _find_os_with_names(db, os_id), dados, request, db, current_user,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    _notificar_recebimentos_confirmados(db, [notificacao])
+    return payload
 
 
 @router.patch("/{os_id}/desfazer-recebimento")
@@ -2991,9 +3170,12 @@ def deletar_ordem(
     current_user: User = Depends(get_current_user),
 ):
     """Remove uma ordem de servico."""
-    os_data = db.query(OrdemServico).filter(OrdemServico.id == os_id).first()
+    os_data = _bloquear_os_para_escrita(db, os_id)
     if not os_data:
         raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
+
+    if os_data.status == "Pago":
+        raise HTTPException(409, "Desfaca o recebimento antes de excluir a OS.")
 
     if os_data.laudo_id:
         raise HTTPException(409, "OS vinculada a laudo deve ser cancelada, preservando o historico do envio.")
