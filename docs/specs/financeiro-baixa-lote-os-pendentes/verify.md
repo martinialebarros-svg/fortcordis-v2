@@ -1,11 +1,12 @@
 # Verify - financeiro-baixa-lote-os-pendentes
 
-Data: 2026-10-10
+Data: 2026-10-11
 Responsavel: Martiniano + Codex
-Status: homologacao e producao publicadas; 100 testes direcionados revalidados no SHA de producao
+Status: baixa atomica em producao desde 10/10; correcao da composicao dos recibos publicada e conferida em stage em 11/10, com promocao a producao a seguir
 
-As secoes 1 a 5 preservam o registro da validacao de 10/10/2026. A secao 6
-acrescenta as observacoes de 11/10/2026 e identifica as etapas ainda em execucao.
+Os registros originais das secoes 1 a 5 preservam a validacao de 10/10/2026.
+O complemento CA-015 a CA-018 e a secao 6 acrescentam as observacoes de
+11/10/2026 e identificam as etapas ainda em execucao.
 
 ## 1) Matriz de rastreabilidade
 
@@ -30,8 +31,8 @@ Complemento de 11/10/2026 para o defeito documental descoberto no recibo:
 
 | ID | Evidencia | Status |
 | --- | --- | --- |
-| CA-015 | Ciclo receber/desfazer/receber reproduziu forma duplicada no PDF, apesar de dois pagamentos ativos e total correto | defeito reproduzido em stage; correcao ok nos testes locais |
-| CA-016 | Filtro compartilhado de pagamentos, datas, taxas e liquido em PDF/Portal/WhatsApp | ok local com PDFs reais e transporte WhatsApp simulado |
+| CA-015 | Ciclo receber/desfazer/receber preserva o historico e o novo PDF agrupado mostra somente Dinheiro 230 + PIX 230, total 460 | ok local e stage |
+| CA-016 | Filtro compartilhado de pagamentos, datas, taxas e liquido em PDF/Portal/WhatsApp | ok local nos tres canais; PDFs individual e agrupado do Financeiro ok em stage; transporte WhatsApp simulado |
 | CA-017 | Legado sem vinculo identificado, com taxas/liquido nao informados | ok local |
 | CA-018 | Bloqueio de vinculo orfao/cobertura insuficiente e preservacao de credito ativo | ok local |
 
@@ -198,9 +199,10 @@ O resultado observado demonstra inconsistencia documental, e nao uma nova
 cobranca duplicada: o historico cancelado foi preservado pelo desfazer, mas
 continuava compondo o recibo junto aos recebimentos ativos. Uma nova tentativa
 de desfazer ficou bloqueada pelo dialogo nativo da automacao, e foi solicitado
-cancelar essa tentativa para preservar o caso ate a correcao. Na ultima
-atualizacao da aba B, **ambas as OS continuavam Pago**; nao ha prova de que
-essa segunda reversao tenha sido aplicada.
+cancelar essa tentativa para preservar o caso ate a correcao. Naquele momento,
+a atualizacao da aba B ainda mostrava **ambas as OS Pago**, sem prova de que
+a segunda reversao tivesse sido aplicada. A leitura posterior ao deploy,
+registrada abaixo, reconciliou esse estado e confirmou sua aplicacao.
 
 A correcao local de `_montar_recibos_os` passa a usar somente transacoes de
 entrada `Recebido`/`Pago` e consumo de credito ativo, preservando todas as
@@ -235,11 +237,73 @@ com banco SQLite sintetico e transportes simulados. O log integral foi
 preservado em `/tmp/fortcordis-receipt-full-tests-20261011.log` na estacao de
 validacao; nao inclui operacoes em dados reais.
 
+### Correcao publicada e conferida em stage
+
+O [PR #339](https://github.com/martinialebarros-svg/fortcordis-v2/pull/339)
+foi integrado no SHA `6f8dcb2de478edca882b8c807b0c790431ad2ff2`. O
+[Deploy to Stage #38152269778](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/38152269778)
+terminou com **sucesso em 11/10/2026 as 15:52:38 UTC (12:52:38 Fortaleza)**:
+
+- CI: **1634 testes backend, OK (8 skips)**, **10 disputas PostgreSQL** e
+  **43 testes da tela Financeiro** aprovados.
+- **21 testes de lote** aprovados no runtime instalado em stage.
+- Seis arquivos runtime preservados e restaurados; canario autenticado
+  **5/5**, p95 **389 ms**; exercicio de restauracao de backup aprovado.
+
+Uma nova aba autenticada de stage mostrou a OS **2026100002 Pendente**.
+Isso confirmou que a segunda reversao antiga havia sido aplicada, apesar
+da limitacao anterior do dialogo nativo. A OS foi recebida novamente por
+**PIX de R$ 230,00**, com envio de WhatsApp desmarcado. A lista atualizada
+passou a mostrar **duas OS Pago, total de R$ 460,00**.
+
+O novo [recibo agrupado de stage](evidence/recibo-stage-corrigido-20261011.png)
+foi aberto na previa e mostrou **Dinheiro R$ 230,00 na OS 2026100001** e
+**PIX R$ 230,00 na OS 2026100002**, cada forma uma unica vez, totalizando
+**R$ 460,00**. Os recebimentos cancelados deixaram de aparecer na composicao.
+
+O recibo individual da OS **2026100002** tambem foi conferido apos a
+correcao: uma unica linha **PIX**, bruto **R$ 230,00**, taxa **R$ 0,00**,
+liquido **R$ 230,00** e total quitado **R$ 230,00**. As capturas do
+[cabecalho individual](evidence/recibo-individual-stage-corrigido-20261011.png)
+e da [tabela de valores](evidence/recibo-individual-stage-valores-20261011.png)
+registram essa verificacao, sem pagamentos cancelados na composicao.
+
+Os tres movimentos mencionados antes pertenciam a etapa anterior a segunda
+reversao. A sequencia completa agora implica **quatro movimentos esperados:
+dois cancelados e dois ativos**. Esse numero deriva das acoes executadas;
+**nao foi feita contagem direta no banco de stage**, e a UI nao exibe essa
+contagem historica. A evidencia visual confirma o estado atual das OS e a
+composicao do recibo, sem apagar o historico.
+
+### Smoke externo apos a correcao de stage
+
+O [relatorio consolidado desta publicacao](evidence/smoke-stage-pos-correcao-20261011.json)
+preserva as observacoes iniciais e a unica rodada adicional dirigida aos
+alvos faltantes. Baseline: **4/9**; rodada controlada: **7/9**; rodada adicional:
+um dos dois alvos faltantes e o chunk restante responderam com sucesso.
+
+- Resultado combinado: **8/9 alvos** nos tres dominios de stage e **14/14
+  chunks** de Financeiro com resposta 200 e TLS/hostname verificados.
+- API de OS sem credenciais: **401 nos tres dominios**. Os tres marcadores
+  do frontend atomico foram encontrados nos chunks servidos.
+- `www.stage.fortcordis.com.br/` continuou com timeout TCP, inclusive na
+  tentativa adicional (curl 28, 3,009779 s). As demais falhas anteriores
+  permanecem registradas; nao houve tentativa indefinida para obter 100%.
+- A intermitencia e sua causa continuam sem resolucao demonstrada. Combinar
+  sucessos de rodadas distintas nao comprova disponibilidade continua nem
+  transforma o resultado em 9/9. A evidencia funcional da correcao backend
+  vem do novo PDF autenticado, nao apenas dos marcadores JavaScript.
+
 ### Etapas ainda em execucao
 
-- Publicar a correcao documental em homologacao para
-  conferir um novo recibo do mesmo caso. **O recibo corrigido ainda nao foi
-  validado em stage.**
 - Concluir e comprovar a reversao final e a limpeza dos registros ficticios.
+  O comando Desfazer da OS 2026100002 voltou a bloquear a aba no dialogo
+  nativo, sem confirmacao acessivel pela ferramenta. A ultima leitura
+  confirmada tinha as duas OS Pago; o resultado dessa tentativa final e
+  incerto e exige nova leitura antes de repetir qualquer acao. Foi solicitada
+  ajuda do usuario para liberar o dialogo. A limpeza nao esta concluida.
+- Promover a correcao da composicao dos recibos de stage para producao e
+  conferir sua publicacao. A baixa atomica ja estava em producao; a nova
+  correcao do PDF ainda nao e declarada publicada nesse ambiente.
 - PDFs baixados ou enviados antes da correcao nao sao atualizados
   retroativamente. Nao houve envio real de WhatsApp nesta validacao.
