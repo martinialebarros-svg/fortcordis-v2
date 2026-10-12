@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import api from "@/lib/axios";
 import { getCanine2DReference } from "@/lib/echo-2d-reference";
 import type { Echo2DView } from "@/lib/echo-2d-reference";
 import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
+import { resolveEchoReferenceForMeasurements, selectEchoReferenceFromCatalog } from "@/lib/echo-reference-policy";
 
 // Mapeamento de parâmetros das medidas para os campos da referência
 // As chaves devem corresponder aos 'key' definidos na nova aba Medidas
@@ -117,6 +118,7 @@ export function compararMedidasComReferencia(
   pesoPacienteKg?: number,
 ): Record<string, ComparacaoMedida> {
   const comparacoes: Record<string, ComparacaoMedida> = {};
+  const referenciaSegura = resolveEchoReferenceForMeasurements(referencia, medidas, pesoPacienteKg)!;
 
   Object.entries(medidas).forEach(([key, valor]) => {
     if (!valor || valor.trim() === "") return;
@@ -140,9 +142,10 @@ export function compararMedidasComReferencia(
     const faixa2D = /^canin/i.test(referencia.especie) && fsCompativelComPar
       ? getCanine2DReference(key, pesoPacienteKg, plano2D)
       : null;
-    const podeComparar = mapeamento.campo !== "fs" || Boolean(referencia.fs_source);
-    const refMinRaw = faixa2D?.min ?? (mapeamento.campo && podeComparar ? referencia[minKey] as number | null | undefined : null);
-    const refMaxRaw = faixa2D?.max ?? (mapeamento.campo && podeComparar ? referencia[maxKey] as number | null | undefined : null);
+    const metadados = referenciaSegura.range_metadata?.[mapeamento.campo];
+    const podeComparar = mapeamento.campo !== "fs" || Boolean(referenciaSegura.fs_source);
+    const refMinRaw = faixa2D?.min ?? (mapeamento.campo && podeComparar ? referenciaSegura[minKey] as number | null | undefined : null);
+    const refMaxRaw = faixa2D?.max ?? (mapeamento.campo && podeComparar ? referenciaSegura[maxKey] as number | null | undefined : null);
     let refMin = typeof refMinRaw === "number" ? refMinRaw : null;
     let refMax = typeof refMaxRaw === "number" ? refMaxRaw : null;
     if (key === "e_doppler" || key === "a_doppler") {
@@ -163,8 +166,10 @@ export function compararMedidasComReferencia(
         status: "nao_avaliado",
         interpretacao: key.endsWith("_2D")
           ? motivoSemFaixa2D(key, referencia.especie, pesoPacienteKg, plano2D, fsCompativelComPar)
-          : "Faixa não cadastrada",
+          : metadados?.reason || "Faixa não cadastrada",
         categoria: mapeamento.categoria,
+        fonte: metadados?.source,
+        metadados,
       };
       return;
     }
@@ -172,15 +177,16 @@ export function compararMedidasComReferencia(
     let status: ComparacaoMedida["status"];
     let interpretacao: string;
 
+    const tipoFaixa = faixa2D ? "2D publicada" : metadados?.status === "published" ? "publicada" : "cadastrada";
     if (valorNumerico < refMin) {
       status = "diminuido";
-      interpretacao = `Abaixo da faixa ${faixa2D ? "2D publicada" : "cadastrada"} (< ${refMin})`;
+      interpretacao = `Abaixo da faixa ${tipoFaixa} (< ${refMin})`;
     } else if (valorNumerico > refMax) {
       status = "aumentado";
-      interpretacao = `Acima da faixa ${faixa2D ? "2D publicada" : "cadastrada"} (> ${refMax})`;
+      interpretacao = `Acima da faixa ${tipoFaixa} (> ${refMax})`;
     } else {
       status = "normal";
-      interpretacao = faixa2D ? "Dentro da faixa 2D publicada" : "Dentro da faixa cadastrada";
+      interpretacao = `Dentro da faixa ${tipoFaixa}`;
     }
 
     comparacoes[key] = {
@@ -191,7 +197,8 @@ export function compararMedidasComReferencia(
       status,
       interpretacao,
       categoria: mapeamento.categoria,
-      fonte: faixa2D?.source,
+      fonte: faixa2D?.source ?? metadados?.source,
+      metadados,
     };
   });
 
@@ -225,13 +232,7 @@ export function useReferenciaEco() {
           return null;
         }
 
-        const maisProxima = items.reduce((melhor, atual) => {
-          const melhorDiff = Math.abs((melhor.peso_kg ?? pesoNormalizado) - pesoNormalizado);
-          const atualDiff = Math.abs((atual.peso_kg ?? pesoNormalizado) - pesoNormalizado);
-          return atualDiff < melhorDiff ? atual : melhor;
-        }, items[0]);
-
-        return maisProxima;
+        return selectEchoReferenceFromCatalog(items, pesoNormalizado, especieNormalizada);
       } catch (fallbackError) {
         console.error("Erro ao buscar referencia:", fallbackError);
         return null;
@@ -258,19 +259,23 @@ export function useReferenciaEcoLegacy(especie: string, pesoKg?: number) {
 
   const { buscarReferencia } = useReferenciaEco();
 
-  useState(() => {
-    if (!pesoKg || !especie) return;
-    
+  useEffect(() => {
+    let ativo = true;
+    if (!pesoKg || !especie) {
+      setReferencia(null);
+      return;
+    }
     const carregar = async () => {
       setLoading(true);
       const ref = await buscarReferencia(especie, pesoKg);
-      setReferencia(ref);
+      if (!ativo) return;
+      setReferencia(resolveEchoReferenceForMeasurements(ref, {}, pesoKg));
       setError(ref ? null : "Referência não encontrada");
       setLoading(false);
     };
-    
-    carregar();
-  });
+    void carregar();
+    return () => { ativo = false; };
+  }, [especie, pesoKg, buscarReferencia]);
 
   const interpretarMedida = (
     valor: number | undefined,
@@ -286,16 +291,17 @@ export function useReferenciaEcoLegacy(especie: string, pesoKg?: number) {
     const min = referencia[minKey] as number | undefined;
     const max = referencia[maxKey] as number | undefined;
 
-    if (min === undefined || max === undefined) {
+    if (typeof min !== "number" || typeof max !== "number" || !Number.isFinite(min) || !Number.isFinite(max)
+        || (parametro === "fs" && !referencia.fs_source)) {
       return { status: "nao_avaliado", mensagem: "Sem referência" };
     }
 
     if (valor < min) {
-      return { status: "alterado", mensagem: `Abaixo do normal (< ${min})` };
+      return { status: "alterado", mensagem: `Abaixo da faixa (< ${min})` };
     } else if (valor > max) {
-      return { status: "alterado", mensagem: `Acima do normal (> ${max})` };
+      return { status: "alterado", mensagem: `Acima da faixa (> ${max})` };
     } else {
-      return { status: "normal", mensagem: "Dentro da normalidade" };
+      return { status: "normal", mensagem: "Dentro da faixa" };
     }
   };
 
@@ -308,7 +314,8 @@ export function useReferenciaEcoLegacy(especie: string, pesoKg?: number) {
     const min = referencia[minKey] as number | undefined;
     const max = referencia[maxKey] as number | undefined;
 
-    if (min === undefined || max === undefined) return "-";
+    if (typeof min !== "number" || typeof max !== "number" || !Number.isFinite(min) || !Number.isFinite(max)
+        || (parametro === "fs" && !referencia.fs_source)) return "-";
     return `${min} - ${max}`;
   };
 

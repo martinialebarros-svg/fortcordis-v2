@@ -1,6 +1,6 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { compararMedidasComReferencia, useReferenciaEco } from "./useReferenciaEco";
+import { compararMedidasComReferencia, useReferenciaEco, useReferenciaEcoLegacy } from "./useReferenciaEco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
 import type { ReferenciaEco } from "../types/referencia-eco";
 
@@ -28,6 +28,28 @@ describe("useReferenciaEco", () => {
     });
     expect(mockGet).not.toHaveBeenCalled();
   });
+
+  it("fallback de listagem mantém comparação suspensa fora da cobertura cadastrada", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockGet.mockRejectedValueOnce(new Error("synthetic buscar failure")).mockResolvedValueOnce({ data: { items: [
+      { id: 1, especie: "Canina", peso_kg: 5, lvid_d_min: 20, lvid_d_max: 30 },
+      { id: 2, especie: "Canina", peso_kg: 10, lvid_d_min: 25, lvid_d_max: 40 },
+    ] } });
+    const { result } = renderHook(() => useReferenciaEco());
+    await act(async () => {
+      expect(await result.current.buscarReferencia("Canina", 15))
+        .toMatchObject({ peso_kg: 10, lvid_d_min: null, lvid_d_max: null, catalog_weight_min: 5, catalog_weight_max: 10 });
+    });
+  });
+
+  it("hook legado também bloqueia fluxos antigos e não trata null como limite zero", async () => {
+    mockGet.mockResolvedValue({ data: { id: 1, especie: "Canina", peso_kg: 10, vmax_ao_min: 0, vmax_ao_max: 2.2, lvid_d_min: 20, lvid_d_max: 40 } });
+    const { result } = renderHook(() => useReferenciaEcoLegacy("Canina", 10));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.getFaixaReferencia("vmax_ao")).toBe("-");
+    expect(result.current.interpretarMedida(1.2, "vmax_ao").status).toBe("nao_avaliado");
+    expect(result.current.interpretarMedida(30, "lvid_d").mensagem).toBe("Dentro da faixa");
+  });
 });
 
 const referenciaCanina: ReferenciaEco = {
@@ -42,6 +64,30 @@ const referenciaCanina: ReferenciaEco = {
 };
 
 describe("compararMedidasComReferencia", () => {
+  it("compara AE/Ao felino com intervalo por peso apenas após confirmar aquisição", () => {
+    const feline: ReferenciaEco = {
+      id: 2, especie: "Felina", peso_kg: 4,
+      range_metadata: { la_ao: {
+        status: "requires_method", source: "Häggström et al. 2016", statistic: "PI95",
+        candidate_min: 0.89, candidate_max: 1.42, min_weight_kg: 1.5, max_weight_kg: 11,
+        required_measurement_key: "AE_Ao_metodo", required_measurement_value: "2d_eixo_curto_diastole_inicial",
+        clinical_threshold: { operator: "<", value: 1.5 },
+      } },
+    };
+    expect(compararMedidasComReferencia({ AE_Ao: "1.45" }, feline, "", 4).AE_Ao.status).toBe("nao_avaliado");
+    const confirmed = compararMedidasComReferencia({ AE_Ao: "1.45", AE_Ao_metodo: "2d_eixo_curto_diastole_inicial" }, feline, "", 4).AE_Ao;
+    expect(confirmed).toMatchObject({ status: "aumentado", referencia_max: 1.42, fonte: "Häggström et al. 2016" });
+    expect(confirmed.interpretacao).toBe("Acima da faixa publicada (> 1.42)");
+    expect(compararMedidasComReferencia({ AE_Ao: "1.45", AE_Ao_metodo: "outro" }, feline, "", 4).AE_Ao.status).toBe("nao_avaliado");
+  });
+
+  it("não interpreta limites legados de fluxo como intervalo individual", () => {
+    const reference = { ...referenciaCanina, vmax_ao_min: 0, vmax_ao_max: 2.2, vmax_pulm_min: 0.65, vmax_pulm_max: 1.21 };
+    const comparisons = compararMedidasComReferencia({ Vmax_aorta: "1.2", Vmax_pulmonar: "1" }, reference);
+    expect(comparisons.Vmax_aorta.status).toBe("nao_avaliado");
+    expect(comparisons.Vmax_pulmonar.status).toBe("nao_avaliado");
+  });
+
   it("descreve a posição numérica sem chamar a faixa cadastrada de normalidade clínica", () => {
     const abaixo = compararMedidasComReferencia({ DeltaD_FS: "25" }, referenciaCanina).DeltaD_FS;
     const dentro = compararMedidasComReferencia({ DeltaD_FS: "35" }, referenciaCanina).DeltaD_FS;

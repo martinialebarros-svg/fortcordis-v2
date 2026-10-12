@@ -1,5 +1,17 @@
 # Verify - Revisão da apresentação do laudo ecocardiográfico
 
+## Incremento: comparação com proveniência e método (2026-10-11)
+
+- Base: branch isolada `codex/eco-reference-method-safety` a partir de `origin/stage` (`7e1d92ff`); alterações alheias do checkout principal preservadas.
+- Auditoria inicial autenticada em produção: 15 linhas caninas (0,9–70 kg), 19 felinas (1,5–10,5 kg); Vmax canina 0–2,2 m/s nas 15 linhas; AE/Ao felino com teto 1,50 em dez pesos de 1,5–6 kg; DIVEd canino 25 kg já corrigido para 33–48 mm. Banco local de 02/10 difere de produção e não serve de prova de publicação.
+- Verificar CA-053/054/055 em referência crua e já resolvida: método ausente, método incompatível, método confirmado, peso fora do domínio, limite personalizado, limite incompleto, repetição da política e preservação da entrada. O índice AE/Ao isolado não muda a conclusão ou gera diagnóstico.
+- Verificar CA-056/057 com SQLite sintético em memória: cobertura do catálogo, peso não finito/não positivo, importação inválida/duplicada e atualização parcial preservando todos os outros campos brutos.
+- Verificar CA-058 no formulário, prévia, parser persistido, contexto da IA e PDF: somente a confirmação explícita habilita TAPSE/AE/Ao; importar/alterar valores retira a confirmação. As novas chaves de método não aparecem como números no PDF nem como medidas sugeríveis pela IA.
+- Validação local: suíte completa backend com 1.701 testes aprovada (10 testes dependentes de ambiente dispensados); suíte Vitest completa com 606 testes aprovada; após os ajustes finais, 60 regressões backend e 49 frontend aprovadas. TypeScript, lint completo e build Next.js aprovados; `git diff --check` e avaliação SDD aprovados.
+- Dois PDFs sintéticos, canino e felino, foram gerados e renderizados em quatro páginas: medidas/valores preservados, TAPSE confirmado com faixa Visser, AE/Ao felino confirmado com PI ponderal, Vmax e assinaturas diastólicas bloqueadas com traço, bibliografia compacta legível após qualitativa/assinatura, sem cortes ou sobreposição. Nenhum laudo real foi regravado.
+- Revisão independente encontrou duas falhas corrigidas e reconferidas: candidato TAPSE da listagem calculado para outro peso, agora suspenso; contexto direto da IA com publicação válida porém peso fora do domínio, agora removido nos dois campos do prompt. Um teste adicional bloqueia a assinatura transcrita 25 kg/33–42 mm sem alterar o cadastro bruto.
+- A versão do cache eco é `2026-10-11-eco-reference-method-safety-v17`. Pendente apenas da etapa operacional: publicação e smoke de stage; produção permanece uma etapa posterior.
+
 ## Incremento: fontes para velocidades aórtica e pulmonar (2026-10-10)
 
 - CA-051/052: verificar PDF sintético canino e felino com cada velocidade isolada, ambas ausentes, sem cadastro e com linha legada 0–2,20 m/s. Confirmar posição, fonte menor, espécie correta, valor bruto preservado e nenhuma atribuição do limite legado aos estudos.

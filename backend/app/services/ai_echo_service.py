@@ -650,6 +650,7 @@ def _process_structure(
             db,
             species=patient.especie if patient else None,
             weight_kg=patient.peso_kg if patient else None,
+            current_measurements=current_measurements,
         )
         exam_context = {
             "species": patient.especie if patient else None,

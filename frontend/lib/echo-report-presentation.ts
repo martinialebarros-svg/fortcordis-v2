@@ -2,6 +2,7 @@ import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
 import { calculateCanine2DNormalizedLVIDd, getCanine2DReference, type Echo2DView } from "./echo-2d-reference";
 import { ambiguousEchoLengthKeys, confirmedEchoUnit, confirmedUnitKey, ECHO_LENGTH_KEYS } from "./echo-unit-provenance";
 import { calculateLeftAtrialFractionalShortening } from "./echo-derived-measurements";
+import { ECHO_REFERENCE_METHOD_KEYS, resolveEchoReferenceForMeasurements } from "./echo-reference-policy";
 
 type Parameter = { key: string; label: string; unit?: string; reference?: string };
 export type EchoReportRow = { key: string; label: string; value: string; reference: string };
@@ -164,6 +165,7 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
 }
 
 export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null, ambiguousKeys: Set<string> = new Set(), weightKg?: number): EchoReportGroup[] {
+  const safeReference = resolveEchoReferenceForMeasurements(reference, measurements, weightKg);
   const selected2D = measurements.VE_tecnica_relatorio === "2d";
   const view = measurements.VE_vista_2D === "eixo_curto" || measurements.VE_vista_2D === "eixo_longo"
     ? measurements.VE_vista_2D as Echo2DView : "";
@@ -177,7 +179,7 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
     { title: selected2D ? "Ventrículo esquerdo · modo 2D" : "Ventrículo esquerdo · modo M", parameters: selected2D ? mode2D : mMode },
     ...otherGroups,
   ];
-  const known = new Set(["VE_tecnica_relatorio", "Remodelamento_AD", ...mMode.map((item) => item.key), ...mode2D.map((item) => item.key)]);
+  const known = new Set(["VE_tecnica_relatorio", "VE_vista_2D", "Remodelamento_AD", ...ECHO_REFERENCE_METHOD_KEYS, ...mMode.map((item) => item.key), ...mode2D.map((item) => item.key)]);
   for (const key of ECHO_LENGTH_KEYS) known.add(confirmedUnitKey(key));
   for (const group of otherGroups) for (const item of group.parameters) known.add(item.key);
   const unknown: Parameter[] = Object.keys(measurements).filter((key) => !known.has(key)).map((key) => parameter(key, key));
@@ -198,7 +200,7 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
           && (item.key !== "DeltaD_FS_2D" || fsMatchesPair)
           ? getCanine2DReference(item.key, weightKg, view) : null;
         return twoD ? `${twoD.min.toFixed(2)}–${twoD.max.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`
-          : referenceRange(reference, item);
+          : referenceRange(safeReference, item);
       })(),
     })),
   })).filter((group) => group.rows.length > 0);

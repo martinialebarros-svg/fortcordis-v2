@@ -71,6 +71,7 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         payload["paciente"]["peso"] = "15"
         payload["qualitativa"] = {"vasos": "Descrição qualitativa de teste."}
         payload["medidas"]["TAPSE"] = "12"
+        payload["medidas"]["TAPSE_metodo"] = "modo_m_apical"
         payload["medidas"]["MAPSE"] = "8"
         payload["referencia_eco"] = aplicar_defaults_publicados_caninos({
             "especie": "Canina", "peso_kg": 15,
@@ -82,7 +83,7 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
         self.assertLess(text.index("ANÁLISE QUALITATIVA"), text.index("REFERÊNCIAS BIBLIOGRÁFICAS"))
         self.assertLess(text.index("Descrição qualitativa de teste"), text.index("Cornell et al. (2004)"))
-        self.assertIn("Pariaut et al. (2012)", text)
+        self.assertNotIn("Pariaut et al. (2012)", text)
         self.assertIn("Visser et al. (2015)", text)
         self.assertIn("Schober & Luis Fuentes (2001)", text)
         self.assertNotIn("Spalla et al.", text)
@@ -169,7 +170,7 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
                 text = _pdf_text(payload)
                 bibliography = text.partition("REFERÊNCIAS BIBLIOGRÁFICAS")[2]
 
-                self.assertEqual(text.count("0.00 - 2.20 m/s"), 2)
+                self.assertNotIn("0.00 - 2.20 m/s", text)
                 self.assertIn(study, bibliography)
                 self.assertNotIn("2.20", bibliography)
                 self.assertNotIn("2,20", bibliography)
@@ -562,7 +563,7 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
     def test_pdf_keeps_measured_mapse_without_unsupported_auxiliary_range(self) -> None:
         payload = _base_report("modo_m")
         payload["medidas"] = {
-            "TAPSE": "12", "MAPSE": "8", "VE_tecnica_relatorio": "modo_m",
+            "TAPSE": "12", "TAPSE_metodo": "modo_m_apical", "MAPSE": "8", "VE_tecnica_relatorio": "modo_m",
         }
         payload["referencia_eco"] = aplicar_defaults_publicados_caninos({
             "especie": "Canina", "peso_kg": 10,
@@ -573,6 +574,74 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
 
         self.assertIn("TAPSE (excursão sistólica do plano anular tricúspide)\n12.00 mm\n9.20 - 14.70 mm", text)
         self.assertIn("MAPSE (excursão sistólica do plano anular mitral)\n8.00 mm\n--", text)
+
+    def test_direct_raw_payload_cannot_apply_unsupported_doppler_or_diastolic_ranges(self) -> None:
+        payload = _base_report("modo_m")
+        payload["medidas"] = {"Vmax_aorta": "1.26", "Onda_E": "0.80", "TD": "120"}
+        raw_reference = {
+            "especie": "Canina", "peso_kg": 10,
+            "vmax_ao_min": 0, "vmax_ao_max": 2.2,
+            "mv_e_min": 0.5, "mv_e_max": 1.09, "mv_dt_min": 0, "mv_dt_max": 160,
+        }
+        payload["referencia_eco"] = raw_reference
+        text = _pdf_text(payload)
+        self.assertIn("Vmax aorta\n1.26 m/s\n--", text)
+        self.assertIn("Onda E\n0.80 m/s\n--", text)
+        self.assertNotIn("0.00 - 2.20 m/s", text)
+        self.assertNotIn("0.50 - 1.09 m/s", text)
+        self.assertNotIn("0.00 - 160.00 ms", text)
+        self.assertEqual(raw_reference["vmax_ao_max"], 2.2)
+
+    def test_tapse_requires_its_own_acquisition_confirmation_in_pdf(self) -> None:
+        payload = _base_report("modo_m")
+        payload["medidas"] = {"TAPSE": "12", "VE_tecnica_relatorio": "modo_m"}
+        payload["referencia_eco"] = {"especie": "Canina", "peso_kg": 10}
+        for method in ("", "2d"):
+            with self.subTest(method=method):
+                payload["medidas"]["TAPSE_metodo"] = method
+                text = _pdf_text(payload)
+                self.assertIn("TAPSE (excursão sistólica do plano anular tricúspide)\n12.00 mm\n--", text)
+                self.assertNotIn("Visser et al. (2015)", text)
+                self.assertNotIn("Pariaut et al. (2012)", text)
+        payload["medidas"]["TAPSE_metodo"] = "modo_m_apical"
+        text = _pdf_text(payload)
+        self.assertIn("9.20 - 14.70 mm", text)
+        self.assertIn("Visser et al. (2015)", text)
+
+    def test_pdf_blocks_structural_catalog_ranges_beyond_eligible_weight_coverage(self) -> None:
+        payload = _base_report("modo_m")
+        payload["paciente"]["peso"] = "20"
+        payload["medidas"] = {"DIVEd": "35", "VE_tecnica_relatorio": "modo_m"}
+        payload["referencia_eco"] = {
+            "especie": "Canina", "peso_kg": 15, "lvid_d_min": 20, "lvid_d_max": 40,
+            "catalog_weight_min": 5, "catalog_weight_max": 15,
+        }
+        self.assertIn("DIVEd (Diâmetro interno do VE em diástole)\n35.00 mm\n--", _pdf_text(payload))
+
+    def test_pdf_does_not_mix_species_or_substitute_reference_weight_for_missing_patient_weight(self) -> None:
+        payload = _base_report("modo_m")
+        payload["medidas"] = {"DIVEd": "30", "VE_tecnica_relatorio": "modo_m"}
+        payload["referencia_eco"] = {"especie": "Canina", "peso_kg": 10, "lvid_d_min": 20, "lvid_d_max": 40}
+        payload["paciente"]["peso"] = ""
+        self.assertNotIn("20.00 - 40.00 mm", _pdf_text(payload))
+        payload["paciente"].update({"peso": "4", "especie": "Felina"})
+        self.assertNotIn("20.00 - 40.00 mm", _pdf_text(payload))
+
+    def test_feline_ae_ao_uses_weight_specific_prediction_interval_after_confirmation(self) -> None:
+        payload = _base_report("modo_m")
+        payload["paciente"].update({"peso": "4", "especie": "Felina"})
+        payload["medidas"] = {"AE_Ao": "1.46"}
+        payload["referencia_eco"] = {
+            "especie": "Felina", "peso_kg": 4, "la_ao_min": 0.88, "la_ao_max": 1.5,
+        }
+        without_method = _pdf_text(payload)
+        self.assertNotIn("0.88 - 1.50", without_method)
+        self.assertNotIn("0.88 - 1.43", without_method)
+        payload["medidas"]["AE_Ao_metodo"] = "2d_eixo_curto_diastole_inicial"
+        text = _pdf_text(payload)
+        self.assertIn("0.88 - 1.43", text)
+        self.assertNotIn("0.88 - 1.50", text)
+        self.assertIn("Häggström et al. (2016)", text)
 
     def test_selected_lv_technique_controls_pdf_measurement_block(self) -> None:
         mode_m_text = _pdf_text(_base_report("modo_m"))

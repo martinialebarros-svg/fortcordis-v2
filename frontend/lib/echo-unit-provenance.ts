@@ -1,3 +1,5 @@
+import { ECHO_REFERENCE_METHOD_KEYS } from "./echo-reference-policy";
+
 export const ECHO_LENGTH_KEYS = [
   "DIVEd", "SIVd", "PLVEd", "DIVES", "SIVs", "PLVES",
   "DIVEd_2D", "SIVd_2D", "PLVEd_2D", "DIVES_2D", "SIVs_2D", "PLVES_2D",
@@ -6,6 +8,12 @@ export const ECHO_LENGTH_KEYS = [
 
 const lengthKeys = new Set<string>(ECHO_LENGTH_KEYS);
 const UNIT_PREFIX = "unidade_confirmada_";
+const METHOD_SOURCES: Record<string, string> = {
+  TAPSE: "TAPSE_metodo",
+  AE_Ao: "AE_Ao_metodo", LA_Ao: "AE_Ao_metodo",
+  Aorta: "AE_Ao_metodo", Atrio_esquerdo: "AE_Ao_metodo",
+  Ao: "AE_Ao_metodo", LA: "AE_Ao_metodo",
+};
 
 export function confirmedUnitKey(key: string): string {
   return `${UNIT_PREFIX}${key}`;
@@ -55,6 +63,8 @@ export function updateEchoMeasurement(
   measurements: Record<string, string>, key: string, value: string
 ): Record<string, string> {
   const next = { ...measurements, [key]: value };
+  if (ECHO_REFERENCE_METHOD_KEYS.includes(key) && value === "") delete next[key];
+  if (METHOD_SOURCES[key] && value !== measurements[key]) delete next[METHOD_SOURCES[key]];
   if (key.startsWith(UNIT_PREFIX) && value === "") delete next[key];
   if (isEchoLengthKey(key) && value !== measurements[key]) {
     delete next[confirmedUnitKey(key)];
@@ -68,6 +78,8 @@ export function mergeImportedEchoMeasurements(
   const next = { ...measurements, ...imported };
   for (const key of Object.keys(imported)) {
     if (isEchoLengthKey(key)) delete next[confirmedUnitKey(key)];
+    if (METHOD_SOURCES[key]) delete next[METHOD_SOURCES[key]];
+    if (ECHO_REFERENCE_METHOD_KEYS.includes(key)) delete next[key];
   }
   return next;
 }

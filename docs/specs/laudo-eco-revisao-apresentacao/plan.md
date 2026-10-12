@@ -11,3 +11,6 @@
 9. Ler os blocos qualitativos até o próximo campo conhecido ou seção, mantendo todos os itens redigidos; usar a mesma regra na prévia, na edição e nas duas rotas de PDF.
 10. Conferir um exemplo sintético com medidas moderadas: evitar assinatura isolada entre narrativa e imagens e manter a última avaliação qualitativa com a assinatura quando não há imagens.
 11. Auditar a fonte das faixas auxiliares, retirar o fallback de MAPSE que tratava intervalo de confiança da média como faixa individual e limitar o fallback de TAPSE aos pesos tabulados de 3 a 45 kg.
+12. Resolver faixas por política de proveniência versionada, preservar limites brutos e pedir confirmação do método apenas para TAPSE e AE/Ao felino quando registrados.
+13. Suspender comparações sem suporte reconciliado de Vmax e dos padrões legados diastólicos; separar o intervalo ponderal de AE/Ao do limiar clínico geral e aplicar limites de cobertura/peso.
+14. Validar importação antes da substituição do catálogo, testar persistência/invalidação do método e igualdade entre formulário, prévia, contexto da IA e PDF; publicar o incremento em stage para revisão.

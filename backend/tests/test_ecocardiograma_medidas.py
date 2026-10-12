@@ -74,6 +74,26 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
 
         self.assertEqual(measurements["VE_tecnica_relatorio"], "2d")
 
+    def test_metodos_de_referencia_sobrevivem_salvamento_sem_inferencia(self) -> None:
+        saved = _montar_descricao_ecocardiograma({
+            "TAPSE": "12", "TAPSE_metodo": "modo_m_apical",
+            "AE_Ao": "1.46", "AE_Ao_metodo": "2d_eixo_curto_diastole_inicial",
+        }, {})
+        restored = extrair_medidas_ecocardiograma_da_descricao(saved)
+        self.assertEqual(restored["TAPSE_metodo"], "modo_m_apical")
+        self.assertEqual(restored["AE_Ao_metodo"], "2d_eixo_curto_diastole_inicial")
+        invalid = saved.replace("modo_m_apical", "nao_documentado").replace(
+            "2d_eixo_curto_diastole_inicial", "vista_suposta"
+        )
+        parsed_invalid = extrair_medidas_ecocardiograma_da_descricao(invalid)
+        self.assertNotIn("TAPSE_metodo", parsed_invalid)
+        self.assertNotIn("AE_Ao_metodo", parsed_invalid)
+        legacy = extrair_medidas_ecocardiograma_da_descricao(
+            _montar_descricao_ecocardiograma({"TAPSE": "12", "AE_Ao": "1.46"}, {})
+        )
+        self.assertNotIn("TAPSE_metodo", legacy)
+        self.assertNotIn("AE_Ao_metodo", legacy)
+
     def test_nao_escolhe_tecnica_quando_as_duas_series_coexistem(self) -> None:
         measurements = extrair_medidas_ecocardiograma_da_descricao(
             """
@@ -115,7 +135,7 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
         )
 
     def test_cache_do_pdf_inclui_versao_do_renderizador(self) -> None:
-        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-10-10-eco-outflow-sources-v16")
+        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-10-11-eco-reference-method-safety-v17")
         database = MagicMock()
         database.query.return_value.filter.return_value.first.return_value = (
             SimpleNamespace(id=7, tipo="ecocardiograma")

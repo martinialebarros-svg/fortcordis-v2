@@ -4331,11 +4331,7 @@ def gerar_pdf_laudo(
     from app.models.clinica import Clinica
     from app.models.imagem_laudo import ImagemLaudo
     from app.models.configuracao import Configuracao, ConfiguracaoUsuario
-    from app.models.referencia_eco import ReferenciaEco
-    from app.utils.referencia_eco_defaults import (
-        aplicar_defaults_publicados_caninos,
-        normalizar_especie_referencia,
-    )
+    from app.services.echo_reference_resolver import load_echo_reference
     from sqlalchemy import func
     import traceback
 
@@ -4515,21 +4511,10 @@ def gerar_pdf_laudo(
             referencia_eco = None
             if paciente and paciente.especie and paciente.peso_kg and paciente.peso_kg > 0:
                 try:
-                    especie_ref = normalizar_especie_referencia(paciente.especie)
-                    if especie_ref == "Canina":
-                        filtro_especie = ReferenciaEco.especie.ilike("canin%")
-                    elif especie_ref == "Felina":
-                        filtro_especie = ReferenciaEco.especie.ilike("felin%")
-                    else:
-                        filtro_especie = func.lower(ReferenciaEco.especie) == especie_ref.lower()
-                    ref = db.query(ReferenciaEco).filter(filtro_especie).order_by(
-                        func.abs(ReferenciaEco.peso_kg - float(paciente.peso_kg))
-                    ).first()
-                    if ref:
-                        referencia_eco = aplicar_defaults_publicados_caninos({
-                            col.name: getattr(ref, col.name)
-                            for col in ref.__table__.columns
-                        }, peso_kg=paciente.peso_kg)
+                    referencia_eco = load_echo_reference(
+                        db, species=paciente.especie, weight_kg=paciente.peso_kg,
+                        medidas=medidas,
+                    )
                 except Exception as e:
                     db.rollback()
                     print(f"[WARN] ReferenciaEco indisponivel para PDF: {e}")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 from app.utils.echo_unit_provenance import ECHO_LENGTH_KEYS, CONFIRMED_UNIT_PREFIX
+from app.utils.echo_reference_methods import ECHO_REFERENCE_METHOD_VALUES
 
 
 LV_M_MODE_KEYS = {
@@ -103,6 +104,11 @@ def extrair_medidas_ecocardiograma_da_descricao(
 
         if key == "VE_vista_2D":
             if raw_value in {"eixo_curto", "eixo_longo"}:
+                measurements[key] = raw_value
+            continue
+
+        if key in ECHO_REFERENCE_METHOD_VALUES:
+            if raw_value in ECHO_REFERENCE_METHOD_VALUES[key]:
                 measurements[key] = raw_value
             continue
 

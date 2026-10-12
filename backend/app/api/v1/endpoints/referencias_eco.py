@@ -3,15 +3,17 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 import csv
 import io
+import math
 
 from app.db.database import get_db
 from app.models.referencia_eco import ReferenciaEco
 from app.models.user import User
 from app.core.security import get_current_user
 from app.utils.referencia_eco_defaults import aplicar_defaults_publicados_caninos, normalizar_especie_referencia
+from app.services.echo_reference_resolver import POLICY_VERSION, load_echo_reference
 
 router = APIRouter()
 
@@ -59,7 +61,8 @@ def _aplicar_filtro_especie(query, especie: Optional[str]):
     return query.filter(func.lower(ReferenciaEco.especie) == especie_norm.lower())
 
 
-def _referencia_to_dict(r: ReferenciaEco, peso_kg_override: Optional[float] = None) -> dict:
+def _referencia_to_dict(r: ReferenciaEco, peso_kg_override: Optional[float] = None,
+                        medidas: Optional[dict] = None) -> dict:
     """Serializa um ReferenciaEco para dict (evita problemas de JSON com objetos SQLAlchemy)."""
     referencia = {
         "id": r.id,
@@ -102,49 +105,77 @@ def _referencia_to_dict(r: ReferenciaEco, peso_kg_override: Optional[float] = No
         "esv_min": r.esv_min, "esv_max": r.esv_max,
         "sv_min": r.sv_min, "sv_max": r.sv_max,
     }
-    return aplicar_defaults_publicados_caninos(referencia, peso_kg=peso_kg_override)
+    return aplicar_defaults_publicados_caninos(referencia, peso_kg=peso_kg_override, medidas=medidas)
 
 
 def _importar_csv_from_content(content: str, especie: str, db: Session) -> int:
-    """Importa referências a partir do conteúdo CSV. Substitui as existentes da espécie."""
+    """Validate the entire file before atomically replacing one species."""
     mapeamento = _MAPEAMENTO_CSV_CANINOS if especie == "Canina" else _MAPEAMENTO_CSV_FELINOS
-    query_delete = _aplicar_filtro_especie(db.query(ReferenciaEco), especie)
-    query_delete.delete(synchronize_session=False)
-    count = 0
     stream = io.StringIO(content)
-    reader = csv.DictReader(stream)
+    reader = csv.DictReader(stream, strict=True)
     # Normalizar nomes das colunas (strip BOM e espaços)
     if reader.fieldnames:
         reader.fieldnames = [c.strip().strip("\ufeff") for c in reader.fieldnames]
-    for row in reader:
+    if not reader.fieldnames or len(reader.fieldnames) != len(set(reader.fieldnames)):
+        raise ValueError("CSV sem cabeçalho válido ou com colunas duplicadas")
+    weight_columns = ("Peso", "Peso (kg)", "peso", "Peso(kg)")
+    if not any(column in reader.fieldnames for column in weight_columns):
+        raise ValueError("CSV sem coluna de peso")
+    validated_rows = []
+    seen_weights = set()
+    for line, row in enumerate(reader, start=2):
+        if None in row or any(value is None for value in row.values()):
+            raise ValueError(f"Linha {line}: número de colunas inválido")
         dados = {"especie": especie}
         for csv_col, db_col in mapeamento.items():
             valor = (row.get(csv_col) or "").strip()
-            if valor and valor.replace(".", "").replace("-", "").isdigit():
-                dados[db_col] = float(valor)
-            else:
-                dados[db_col] = None
+            dados[db_col] = None
+            if valor:
+                try:
+                    numeric = float(valor.replace(",", "."))
+                except ValueError as error:
+                    raise ValueError(f"Linha {line}: valor inválido em {csv_col}") from error
+                if not math.isfinite(numeric):
+                    raise ValueError(f"Linha {line}: valor não finito em {csv_col}")
+                dados[db_col] = numeric
         # Fallback: caninos às vezes têm coluna "Peso" em vez de "Peso (kg)"
         if dados.get("peso_kg") is None and especie == "Canina":
-            for alt in ("Peso", "Peso (kg)", "peso", "Peso(kg)"):
+            for alt in weight_columns:
                 v = (row.get(alt) or "").strip()
-                if v and v.replace(".", "").replace("-", "").isdigit():
-                    dados["peso_kg"] = float(v)
+                if v:
+                    try:
+                        dados["peso_kg"] = float(v.replace(",", "."))
+                    except ValueError as error:
+                        raise ValueError(f"Linha {line}: peso inválido") from error
                     break
-        if dados.get("peso_kg") is None:
-            continue
-        try:
-            db.add(ReferenciaEco(**dados))
-            count += 1
-        except Exception:
-            continue
-    db.commit()
-    return count
+        weight = dados.get("peso_kg")
+        if weight is None or not math.isfinite(weight) or weight <= 0:
+            raise ValueError(f"Linha {line}: peso deve ser positivo e finito")
+        if weight in seen_weights:
+            raise ValueError(f"Linha {line}: peso duplicado ({weight} kg)")
+        seen_weights.add(weight)
+        for column, minimum in dados.items():
+            if column.endswith("_min") and minimum is not None:
+                maximum = dados.get(column[:-4] + "_max")
+                if maximum is not None and minimum > maximum:
+                    raise ValueError(f"Linha {line}: mínimo maior que máximo em {column[:-4]}")
+        validated_rows.append(dados)
+    if not validated_rows:
+        raise ValueError("CSV sem linhas de referência válidas")
+    try:
+        _aplicar_filtro_especie(db.query(ReferenciaEco), especie).delete(synchronize_session=False)
+        db.add_all([ReferenciaEco(**dados) for dados in validated_rows])
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return len(validated_rows)
 
 
 class ReferenciaEcoCreate(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
     especie: str
-    peso_kg: float
+    peso_kg: float = Field(gt=0)
     # VE - Modo M
     lvid_d_min: Optional[float] = None
     lvid_d_max: Optional[float] = None
@@ -210,9 +241,23 @@ class ReferenciaEcoCreate(BaseModel):
     sv_min: Optional[float] = None
     sv_max: Optional[float] = None
 
+    @model_validator(mode="after")
+    def validar_intervalos(self):
+        for field in type(self).model_fields:
+            if field.endswith("_min"):
+                minimum = getattr(self, field)
+                maximum = getattr(self, field[:-4] + "_max", None)
+                if minimum is not None and maximum is not None and minimum > maximum:
+                    raise ValueError(f"Mínimo maior que máximo em {field[:-4]}")
+        for field in ("especie", "peso_kg"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} não pode ser nulo")
+        return self
+
 
 class ReferenciaEcoUpdate(ReferenciaEcoCreate):
-    pass
+    especie: Optional[str] = None
+    peso_kg: Optional[float] = Field(default=None, gt=0)
 
 
 @router.get("", response_model=None)
@@ -236,7 +281,8 @@ def listar_referencias(
         )
     
     referencias = query.order_by(ReferenciaEco.especie, ReferenciaEco.peso_kg).all()
-    return {"total": len(referencias), "items": [_referencia_to_dict(r) for r in referencias]}
+    return {"total": len(referencias), "policy_version": POLICY_VERSION,
+            "items": [_referencia_to_dict(r) for r in referencias]}
 
 
 @router.post("/importar")
@@ -286,17 +332,19 @@ def buscar_referencia_por_peso(
     especie: str,
     peso_kg: float,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    TAPSE_metodo: Optional[str] = None,
+    AE_Ao_metodo: Optional[str] = None,
 ):
-    """Busca a referência mais próxima do peso informado"""
-    query = _aplicar_filtro_especie(db.query(ReferenciaEco), especie)
-    ref = query.order_by(
-        func.abs(ReferenciaEco.peso_kg - peso_kg)
-    ).first()
+    """Resolve a linha elegível mais próxima sem extrapolar a cobertura."""
+    if not math.isfinite(peso_kg) or peso_kg <= 0:
+        raise HTTPException(status_code=422, detail="Peso deve ser positivo e finito")
+    ref = load_echo_reference(db, species=especie, weight_kg=peso_kg,
+                              medidas={"TAPSE_metodo": TAPSE_metodo, "AE_Ao_metodo": AE_Ao_metodo})
     
     if not ref:
         raise HTTPException(status_code=404, detail="Referência não encontrada")
-    return _referencia_to_dict(ref, peso_kg_override=peso_kg)
+    return ref
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -325,7 +373,16 @@ def atualizar_referencia(
     if not ref:
         raise HTTPException(status_code=404, detail="Referência não encontrada")
     
-    for field, value in referencia.dict(exclude_unset=True).items():
+    changes = referencia.model_dump(exclude_unset=True)
+    merged = {column.name: getattr(ref, column.name) for column in ReferenciaEco.__table__.columns
+              if column.name != "id"}
+    merged.update(changes)
+    # A one-sided edit must also be valid against its persisted counterpart.
+    try:
+        ReferenciaEcoCreate.model_validate(merged)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="Intervalo inválido para os valores cadastrados") from error
+    for field, value in changes.items():
         setattr(ref, field, value)
     
     db.commit()

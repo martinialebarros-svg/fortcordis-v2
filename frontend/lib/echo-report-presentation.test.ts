@@ -3,6 +3,23 @@ import { buildEchoReportGroups, prepareEchoReportMeasurements, splitReportObserv
 import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
 
 describe("prévia de ecocardiograma", () => {
+  it("repete os bloqueios e o método de TAPSE na prévia sem incluir metadados como medidas", () => {
+    const reference: ReferenciaEco = {
+      id: 1, especie: "Canina", peso_kg: 10, vmax_ao_min: 0, vmax_ao_max: 2.2,
+      range_metadata: { tapse: {
+        status: "requires_method", candidate_min: 8, candidate_max: 15, min_weight_kg: 3, max_weight_kg: 45,
+        required_measurement_key: "TAPSE_metodo", required_measurement_value: "modo_m_apical",
+      } },
+    };
+    const raw = { TAPSE: "10", Vmax_aorta: "1.2", TAPSE_metodo: "modo_m_apical", AE_Ao_metodo: "outro" };
+    const groups = buildEchoReportGroups(raw, reference, new Set(), 10);
+    expect(groups.flatMap((group) => group.rows).find((row) => row.key === "TAPSE")?.reference).toBe("8.00–15.00 mm");
+    expect(groups.flatMap((group) => group.rows).find((row) => row.key === "Vmax_aorta")?.reference).toBe("—");
+    expect(groups.some((group) => group.title === "Outras medidas registradas")).toBe(false);
+    const notConfirmed = buildEchoReportGroups({ ...raw, TAPSE_metodo: "2d" }, reference, new Set(), 10);
+    expect(notConfirmed.flatMap((group) => group.rows).find((row) => row.key === "TAPSE")?.reference).toBe("—");
+  });
+
   it("recalcula DIVEd normalizado com o peso atual e expõe divergência sem alterar o registro", () => {
     const stored = { DIVEd: "47.19", DIVEd_normalizado: "1.964", VE_tecnica_relatorio: "modo_m" };
     const { measurements, alerts } = prepareEchoReportMeasurements(stored, 13.9, "Canina");
