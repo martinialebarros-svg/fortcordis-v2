@@ -72,6 +72,7 @@ class ResultadoGeracao:
     match_type: Optional[str] = None
     clinica_id: Optional[int] = None
     auto_elegivel: bool = False
+    contexto_chave: Optional[str] = None
 
 
 def _max_tokens_per_day() -> int:
@@ -375,9 +376,70 @@ def _escopo_da_persona(contexto: dict[str, Any]) -> tuple[Optional[str], Optiona
     return (None, None, None)
 
 
+IDENTITY_HANDOFF_REASONS = frozenset({"identidade_ambigua", "identidade_selecao_invalida"})
+IDENTITY_HANDOFF_MESSAGE = (
+    "Recebi sua mensagem. Vou encaminhar sua solicitação à equipe para conferir "
+    "o cadastro e continuar o atendimento."
+)
+
+
+def _historico_do_contexto(historico, contexto):
+    """Uma escolha de cadastro inicia novo escopo; nao reutiliza falas anteriores."""
+    selecao = contexto.get("selecao") or {}
+    if not selecao.get("versao"):
+        return historico
+    try:
+        inicio = datetime.fromisoformat(str(selecao.get("updated_at")).replace("Z", "+00:00"))
+        inicio = inicio.replace(tzinfo=inicio.tzinfo or timezone.utc)
+    except (TypeError, ValueError):
+        return []
+    recentes = []
+    for item in historico or []:
+        try:
+            data = datetime.fromisoformat(str(item.get("created_at")).replace("Z", "+00:00"))
+            data = data.replace(tzinfo=data.tzinfo or timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        if data > inicio:
+            recentes.append(item)
+    return recentes
+
+
 def gerar_resposta(
+    db: Session, *, wa_identity: str, corpo_mensagem: str,
+    conversation_id: Optional[str] = None, modo: str, provider: Any = None,
+    persona_forcada: Optional[str] = None, estado: Any = None,
+    historico: Optional[list[dict[str, Any]]] = None,
+    mensagem_atual: Optional[dict[str, Any]] = None,
+    historico_bruto: Optional[list[dict[str, Any]]] = None,
+) -> ResultadoGeracao:
+    contexto = _resolver_contexto(db, wa_identity)
+    if (contexto.get("selecao") or {}).get("versao") and mensagem_atual is not None:
+        if not _historico_do_contexto([mensagem_atual], contexto):
+            return ResultadoGeracao(
+                decisao="suppressed", motivo="contexto_alterado",
+                contexto_chave=contexto.get("contexto_chave"),
+            )
+        from app.services.whatsapp_bot_continuidade import agrupar_fragmentos
+        from app.services.whatsapp_bot_mensagens_automaticas import sem_aviso_automatico
+        corpo_mensagem, historico = agrupar_fragmentos(
+            [sem_aviso_automatico(item) for item in _historico_do_contexto(historico_bruto, contexto) or []],
+            sem_aviso_automatico(mensagem_atual),
+        )
+    resultado = _gerar_resposta_no_contexto(
+        db, contexto=contexto, wa_identity=wa_identity, corpo_mensagem=corpo_mensagem,
+        conversation_id=conversation_id, modo=modo, provider=provider,
+        persona_forcada=persona_forcada, estado=estado,
+        historico=_historico_do_contexto(historico, contexto),
+    )
+    resultado.contexto_chave = contexto.get("contexto_chave")
+    return resultado
+
+
+def _gerar_resposta_no_contexto(
     db: Session,
     *,
+    contexto: dict[str, Any],
     wa_identity: str,
     corpo_mensagem: str,
     conversation_id: Optional[str] = None,
@@ -398,7 +460,6 @@ def gerar_resposta(
     ninguem. Nunca use isso no caminho de atendimento real: fora da
     simulacao, persona sem identidade resolvida e handoff (RF-016).
     """
-    contexto = _resolver_contexto(db, wa_identity)
     resolution = str(contexto.get("resolution") or "not_found")
     match_type, tutor_id, clinica_id = _escopo_da_persona(contexto)
     if resolution != "matched":
@@ -457,7 +518,13 @@ def gerar_resposta(
     if match_type is None:
         return ResultadoGeracao(
             decisao="handoff",
-            motivo="identidade_nao_resolvida",
+            motivo={
+                "ambiguous": "identidade_ambigua",
+                "selection_invalid": "identidade_selecao_invalida",
+                "unavailable": "identidade_indisponivel",
+            }.get(resolution, "identidade_nao_resolvida"),
+            texto_gerado=IDENTITY_HANDOFF_MESSAGE if resolution in ("ambiguous", "selection_invalid") else None,
+            auto_elegivel=modo == "auto" and resolution in ("ambiguous", "selection_invalid"),
             resolution=resolution,
             match_type=None,
             clinica_id=None,

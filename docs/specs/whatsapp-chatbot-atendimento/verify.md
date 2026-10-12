@@ -2361,3 +2361,79 @@ Cobertura acrescentada para confirmação natural e rejeição de pergunta/nega�
 
 ## Continuidade e passagem para equipe — 2026-09-10
 Contrato e evidências complementares em `docs/specs/whatsapp-continuidade-atendimento/`. O encaminhamento de novas coletas deixa de aplicar pausa sem atendente; controles humanos existentes continuam prioritários.
+
+## Cadastro escolhido na conversa — 2026-10-11 (implementação local)
+
+Escopo: RF-ID01–06. Seleção explícita, revisão dos motivos de bloqueio e aviso
+neutro de encaminhamento. Base `origin/stage` 672a9c26, no worktree isolado
+`whatsapp-triagem`, branch `codex/whatsapp-contexto-conversa`.
+
+Cenários cobertos: candidatos diretos, escopo clínica/tutor, aliases do telefone,
+inativação/remoção do vínculo, escolha ilegítima, reset, versões concorrentes,
+rascunho anterior à escolha, troca durante geração, ausência de IA/dados privados
+no aviso, janela fechada, pausa/atendente, modo copiloto, interruptor desligado,
+reentrega idempotente e timeout sem repetição. UI: seleção, confirmação, remoção,
+erro local e troca de conversa com resposta assíncrona pendente.
+
+Testes usam dados sintéticos, banco local e transporte/IA simulados. Não há
+publicação nem envio real nesta entrega. A validação em produção precisa de
+publicação autorizada, migração aditiva e novo teste no destinatário autorizado.
+
+Validação concluída:
+
+- Suíte WhatsApp backend: **515 testes aprovados, 318 subtestes aprovados e
+  10 skips** (incluindo PostgreSQL opcional, executado separadamente abaixo);
+  dados sintéticos, SQLite e provedores/transporte simulados. Testes integrados verificam aviso
+  neutro único, falha incerta sem reenvio, fingerprint anterior à atualização de
+  pedido e ao envio, bloqueio de rascunho legado, mudança de vínculo em outra
+  sessão e corte dos fragmentos/mensagem anterior à seleção. Pedido humano
+  anterior à escolha não reabre handoff; triagem de emergência permanece prioritária.
+- Frontend completo: 591 testes Vitest (81 arquivos) e 9 testes Node aprovados;
+  lint completo sem warnings e build Next.js/TypeScript aprovados no snapshot final.
+- PostgreSQL 16 local real, em clusters descartáveis restritos a 127.0.0.1:
+  migração idempotente e preservação das respostas antigas, constraints, lock
+  concorrente entre aliases do mesmo telefone, CAS e refresh de candidatos
+  em duas sessões. Rodada conjunta de contexto/migração: 34 testes + 13 subtestes.
+  Após ajuste de timezone, 5 testes + 5 subtestes passaram, incluindo sessão
+  `America/Fortaleza` com `TIMESTAMP WITH TIME ZONE` preservando o instante UTC.
+  Clusters encerrados e removidos.
+- Revisão independente: os dois achados (fragmentos anteriores à seleção e
+  complemento registrado antes da validação) foram corrigidos e receberam
+  regressões; sem achado bloqueante remanescente.
+- Guardrail SDD no diff de trabalho (incluindo arquivos novos) e
+  `git diff --check` aprovados. Migração aditiva 96 pronta; ainda não aplicada
+  em stage/produção.
+
+Logs locais: `/tmp/fortcordis-bot-context-whatsapp-final.log`,
+`/tmp/fortcordis-bot-context-frontend.log`, `/tmp/fortcordis-bot-context-lint.log`,
+`/tmp/fortcordis-bot-context-build.log`.
+
+Aceite em ambiente publicado, pendente: escolher a clínica de teste em
+Vínculos do cadastro, conferir modo/pausa, enviar uma NOVA mensagem do número
+já autorizado e verificar resposta restrita ao pedido correto. Não reenviar
+nem reinterpretar mensagens anteriores à escolha.
+
+### Publicação em stage — diagnóstico de falha
+
+O run 38194150910, SHA 7e1d92ff, passou em qualidade/SDD e aplicou a migração96.
+O smoke simultâneo recebeu503 ao persistir evento webhook; o rollback retornou
+para672a9c26 e restaurou arquivos operacionais. A promoção343 permanece aberta,
+sem merge, até uma instalação stage aprovada. Coletor sanitizado no pipeline
+acrescentado para identificar erro de banco/pool sem copiar dados de conversa.
+Três testes sintéticos de classificação e ausência de dados sensíveis aprovados.
+
+O diagnóstico do job114638410502 confirmou `connection_capacity`, códigoXX000,
+no instante da falha. Reprodução com aplicação Node real e PostgreSQL local
+limitado a duas conexões: pool padrão respondeu200,200,503,503,503 no burst;
+pool2 respondeu cinco200, persistiu uma conversa/seis mensagens e eventos
+(incluindo inicial), zerofailed e duplicado idempotente. Teste de configuração
+Node e build passaram; servidor sintético encerrado, nenhum envio externo.
+O run38195919628 foi cancelado para incluir a correção, mas a corrida alcançou
+instalação já iniciada. Migração/backend/worker chegaram a atuar; não afirmar
+rollback. Coletor agora verifica SHA/serviços/readiness/processo em voo antes da
+próxima instalação. Nenhuma promoção para main foi realizada.
+
+Configuração e build Node aprovados. Cinco testes do diagnóstico agora cobrem
+redação, estado seguro dos serviços e bloqueio de uma instalação remota ativa;
+YAML e injeção de pool exclusivamente stage verificados. A próxima execução deve
+comprovar estado inicial estável, cincowebhooks200, canário e deployterminal.

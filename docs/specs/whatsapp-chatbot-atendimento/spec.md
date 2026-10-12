@@ -986,3 +986,66 @@ seguranca clinica e idempotencia existentes continuam precedendo a coleta.
 
 ## Continuidade e passagem para equipe — 2026-09-10
 Contrato e evidências complementares em `docs/specs/whatsapp-continuidade-atendimento/`. O encaminhamento de novas coletas deixa de aplicar pausa sem atendente; controles humanos existentes continuam prioritários.
+
+## Cadastro escolhido para a conversa — 2026-10-11
+
+- RF-ID01: a equipe pode escolher explicitamente uma clínica ou um tutor entre os
+  vínculos diretos ativos do telefone na conversa. `GET /whatsapp-contexto`
+  apresenta candidatos separados dos cadastros relacionados; `PATCH
+  /whatsapp-contexto/{wa_identity}/selecao` exige papel operacional e a versão
+  esperada. O telefone brasileiro com/sem nono dígito compartilha a escolha.
+  Não há prioridade automática da clínica sobre o tutor nem alteração de seus
+  telefones, modo do bot, atribuição de atendente ou pausa.
+- RF-ID02: cada escolha/remoção recebe versão, autor e auditoria. Limpar preserva
+  a versão e retorna à resolução automática; se ainda houver vários candidatos,
+  o contexto continua ambíguo. Remoção/inativação do vínculo escolhido resulta em
+  `selection_invalid`, sem cair silenciosamente para outro cadastro. A equipe
+  deve revisar uma nova escolha. Escritas concorrentes com versão antiga falham
+  com 409 e deixam a escolha vigente intacta.
+- RF-ID03: o bot continua exigindo contexto resolvido para consultar dados. Em
+  `ambiguous` e `selection_invalid`, não chama IA nem ferramentas e pode enviar
+  somente a confirmação fixa: “Recebi sua mensagem. Vou encaminhar sua
+  solicitação à equipe para conferir o cadastro e continuar o atendimento.”
+  Não expõe candidatos, nomes, pedidos, valores ou datas. Exceção limitada à
+  regra RF-OP05: esse aviso de handoff é elegível em `auto`, com interruptor de
+  envio ativo e todos os controles de pausa, responsável, janela e revisão da
+  mensagem preservados. `suggest` não envia o aviso automaticamente.
+- RF-ID04: o aviso usa resposta persistida e a mesma chave idempotente de envio.
+  Resultado incerto encaminha à equipe, sem repetição cega. Sucesso mantém a
+  decisão `handoff`, registra `texto_enviado`, alerta a equipe e pausa; a central
+  distingue aviso enviado de silêncio e diferencia identidade ambígua,
+  seleção inválida e falha de consulta. A escolha de cadastro não retoma o bot
+  automaticamente nem reprocessa uma mensagem antiga.
+- RF-ID05: a resposta registra a assinatura do contexto usado na geração.
+  Antes do envio automático ou revisado, o serviço revalida candidatos,
+  vínculo e versão sob lock comum à seleção. Troca invalida rascunhos e bloqueia
+  respostas em andamento com `contexto_alterado`. Rascunhos legados sem assinatura
+  também exigem nova mensagem. Histórico anterior à última escolha/remoção não
+  entra no prompt do novo contexto; ferramentas permanecem restritas à persona.
+- RF-ID06: a escolha é persistida separadamente dos cadastros. Publicação exige
+  a migração aditiva `20261011_96` antes do runtime. Em reversão de código, manter
+  a tabela/coluna e auditoria; não executar downgrade destrutivo em produção.
+
+Critérios: número clínica+tutor permanece ambíguo até escolha explícita; clínica
+selecionada só consulta o próprio escopo; tutor só consulta seus pacientes;
+seleção inválida, concorrência, troca durante geração e envio incerto falham
+com segurança; interface exibe erro junto ao seletor e ignora resultados de
+outra conversa. Nenhum cadastro de teste é excluído ou renomeado.
+
+### Diagnóstico de publicação em stage
+
+O pipeline de stage coleta um resumo somente leitura dos erros de persistência
+WhatsApp nas duas horas anteriores à instalação. O resumo contém apenas tipo
+de evento, timestamp, código de erro reconhecido, categoria e contagem; nunca
+inclui mensagens de erro livres, SQL, telefones, conteúdo de conversa ou segredos.
+O coletor consulta exclusivamente `fortcordis-stage-whatsapp-backend`, não muda
+configuração e não enfraquece o smoke de concorrência nem o rollback existente.
+
+O resumo operacional também informa apenas SHA do checkout stage, estados
+padronizados de seus quatro serviços, códigos HTTP de readiness locais e uma
+flag de processo de instalação ativo. Se houver instalação/rollback remoto em
+andamento, a dependência bloqueia nova instalação até nova leitura estável.
+O pool PostgreSQL do WhatsApp aceita `WHATSAPP_DATABASE_POOL_MAX` inteiro1–10;
+ausente mantém o padrão10. Stage injeta2 no seu `.env` de Node para enfileirar o
+pico dentro do serviço e respeitar a capacidade do pooler; produção mantém sua
+configuração. A políticaTLS e o smoke assinado/idempotente não mudam.

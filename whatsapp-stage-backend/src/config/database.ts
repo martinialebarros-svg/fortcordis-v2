@@ -4,12 +4,23 @@ const ALLOWED_BOOLEAN_VALUES = new Set(["true", "false"]);
 
 export function buildPostgresConfig(
   databaseUrl: string,
-  rejectUnauthorizedSetting = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED
+  rejectUnauthorizedSetting = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED,
+  poolMaxSetting = process.env.WHATSAPP_DATABASE_POOL_MAX
 ): PoolConfig {
+  const normalizedPoolMax = poolMaxSetting?.trim();
+  const poolLimits: Pick<PoolConfig, "max"> = {};
+  if (normalizedPoolMax) {
+    const poolMax = Number(normalizedPoolMax);
+    if (!/^\d+$/.test(normalizedPoolMax) || !Number.isInteger(poolMax) || poolMax < 1 || poolMax > 10) {
+      throw new Error("WHATSAPP_DATABASE_POOL_MAX must be an integer between 1 and 10");
+    }
+    poolLimits.max = poolMax;
+  }
+
   const normalizedSetting = rejectUnauthorizedSetting?.trim().toLowerCase();
 
   if (!normalizedSetting) {
-    return { connectionString: databaseUrl };
+    return { connectionString: databaseUrl, ...poolLimits };
   }
 
   if (!ALLOWED_BOOLEAN_VALUES.has(normalizedSetting)) {
@@ -17,7 +28,7 @@ export function buildPostgresConfig(
   }
 
   if (normalizedSetting === "true") {
-    return { connectionString: databaseUrl };
+    return { connectionString: databaseUrl, ...poolLimits };
   }
 
   const parsedUrl = new URL(databaseUrl);
@@ -47,6 +58,7 @@ export function buildPostgresConfig(
 
   return {
     connectionString: parsedUrl.toString(),
-    ssl: { rejectUnauthorized: false }
+    ssl: { rejectUnauthorized: false },
+    ...poolLimits
   };
 }

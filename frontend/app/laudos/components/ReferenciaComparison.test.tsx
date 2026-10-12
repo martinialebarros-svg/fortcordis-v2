@@ -40,4 +40,26 @@ describe("identificação da referência ecocardiográfica", () => {
       13.6,
     ));
   });
+
+  it("pede método de TAPSE somente quando preenchido e persiste seleção explícita", async () => {
+    const change = vi.fn();
+    const { rerender } = render(<ReferenciaComparison especie="Canina" peso={10} medidas={{}} onMedidaChange={change} />);
+    await screen.findByText(/Referência selecionada/);
+    expect(screen.queryByLabelText("Método de obtenção do TAPSE")).not.toBeInTheDocument();
+    rerender(<ReferenciaComparison especie="Canina" peso={10} medidas={{ TAPSE: "10" }} onMedidaChange={change} />);
+    const method = await screen.findByLabelText("Método de obtenção do TAPSE");
+    expect(method).toHaveValue("");
+    fireEvent.change(method, { target: { value: "modo_m_apical" } });
+    expect(change).toHaveBeenCalledWith("TAPSE_metodo", "modo_m_apical");
+  });
+
+  it("exige vista e fase de AE/Ao felino sem assumir método por espécie", async () => {
+    buscarReferencia.mockResolvedValueOnce({ id: 2, especie: "Felina", peso_kg: 4 });
+    const change = vi.fn();
+    render(<ReferenciaComparison especie="Felina" peso={4} medidas={{ AE_Ao: "1.42" }} onMedidaChange={change} />);
+    const method = await screen.findByLabelText("Método de obtenção de AE/Ao");
+    expect(method).toHaveValue("");
+    fireEvent.change(method, { target: { value: "2d_eixo_curto_diastole_inicial" } });
+    expect(change).toHaveBeenCalledWith("AE_Ao_metodo", "2d_eixo_curto_diastole_inicial");
+  });
 });

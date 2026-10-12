@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { BookOpen, Upload, Edit2, Save, X, Database, Ruler } from "lucide-react";
+import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
+import { buildEchoReferenceCatalogForm, echoCatalogRange } from "@/lib/echo-reference-policy";
 
-interface Referencia {
+interface Referencia extends ReferenciaEco {
   id: number;
-  especie: string;
+  especie: "Canina" | "Felina";
   peso_kg: number;
   lvid_d_min?: number;
   lvid_d_max?: number;
@@ -48,12 +50,19 @@ const CAMPOS_MEDIDAS = [
   { key: "lvpw_s", label: "LVPWs", unidade: "mm" },
   { key: "fs", label: "FS", unidade: "%" },
   { key: "ef", label: "EF", unidade: "%" },
+  { key: "tapse", label: "TAPSE", unidade: "mm" },
   { key: "ao", label: "Ao", unidade: "mm" },
   { key: "la", label: "LA", unidade: "mm" },
   { key: "la_ao", label: "LA/Ao", unidade: "" },
   { key: "vmax_ao", label: "Vmax aórtica", unidade: "m/s", step: "0.01" },
   { key: "vmax_pulm", label: "Vmax pulmonar", unidade: "m/s", step: "0.01" },
+  { key: "mv_e", label: "Onda E", unidade: "m/s", step: "0.01" },
+  { key: "mv_a", label: "Onda A", unidade: "m/s", step: "0.01" },
+  { key: "mv_dt", label: "TD", unidade: "ms" },
 ];
+
+const EDITABLE_PREFIXES = CAMPOS_MEDIDAS.filter((field) => field.key !== "fs" && field.key !== "ef").map((field) => field.key);
+const POLICY_LABELS = { published: "Faixa publicada", catalog: "Faixa cadastrada; fonte não confirmada", requires_method: "Exige confirmação do método", blocked: "Comparação suspensa", unavailable: "Faixa indisponível" };
 
 export default function ReferenciasEcoPage() {
   const router = useRouter();
@@ -61,7 +70,7 @@ export default function ReferenciasEcoPage() {
   const [loading, setLoading] = useState(true);
   const [especieFiltro, setEspecieFiltro] = useState("Canina");
   const [editando, setEditando] = useState<number | null>(null);
-  const [formData, setFormData] = useState<Partial<Referencia>>({});
+  const [formData, setFormData] = useState<Record<string, string | number | null>>({});
   const [importando, setImportando] = useState(false);
   const [fileCaninos, setFileCaninos] = useState<File | null>(null);
   const [fileFelinos, setFileFelinos] = useState<File | null>(null);
@@ -91,7 +100,7 @@ export default function ReferenciasEcoPage() {
 
   const handleEditar = (ref: Referencia) => {
     setEditando(ref.id);
-    setFormData({ ...ref });
+    setFormData(buildEchoReferenceCatalogForm(ref, EDITABLE_PREFIXES));
   };
 
   const handleSalvar = async (id: number) => {
@@ -177,6 +186,7 @@ export default function ReferenciasEcoPage() {
         </header>
 
         <p className="text-sm text-slate-600">
+          A tabela mostra os números originais do cadastro. A comparação no laudo depende da fonte, da população e do método da medida.
           FS: modo M, intervalo de Visser et al. (2019) em cães adultos de 2,6 a 67,8 kg;
           Häggström et al. (2016) em gatos adultos de raça pura. FE por Teichholz:
           intervalo indisponível por falta de validação compatível com o método.
@@ -254,7 +264,7 @@ export default function ReferenciasEcoPage() {
           </div>
 
           <aside className="border-b border-slate-200 px-4 py-3 text-xs text-slate-600" aria-label="Evidência sobre velocidades de fluxo">
-            <p>As faixas de Vmax abaixo vêm do cadastro, que não registra fonte nem método por linha. Dados publicados para consulta:</p>
+            <p>A comparação automática das velocidades de fluxo está suspensa: os limites do cadastro não têm intervalo individual validado para o método. Dados publicados para consulta:</p>
             {especieFiltro === "Canina" ? (
               <p>
                 <a className="underline" href="https://www.scielo.br/j/pvb/a/JVtpYsn7zbTBB6xmpRXKVLs/?format=pdf&lang=pt" target="_blank" rel="noopener noreferrer">Petrus et al. (2010)</a>:
@@ -310,10 +320,12 @@ export default function ReferenciasEcoPage() {
                       </td>
 
                       {CAMPOS_MEDIDAS.map((campo) => {
-                        const minKey = `${campo.key}_min` as keyof Referencia;
-                        const maxKey = `${campo.key}_max` as keyof Referencia;
-                        const min = editando === ref.id ? formData[minKey] : ref[minKey];
-                        const max = editando === ref.id ? formData[maxKey] : ref[maxKey];
+                        const minKey = `${campo.key}_min`;
+                        const maxKey = `${campo.key}_max`;
+                        const rawRange = echoCatalogRange(ref, campo.key);
+                        const min = editando === ref.id && EDITABLE_PREFIXES.includes(campo.key) ? formData[minKey] : rawRange.min;
+                        const max = editando === ref.id && EDITABLE_PREFIXES.includes(campo.key) ? formData[maxKey] : rawRange.max;
+                        const metadata = ref.range_metadata?.[campo.key];
 
                         return (
                           <td key={campo.key}>
@@ -337,10 +349,19 @@ export default function ReferenciasEcoPage() {
                                 />
                               </div>
                             ) : (
-                              <span className="fc-eco-range-value" title={campo.key === "fs" ? ref.fs_source : undefined}>
+                              <span className="fc-eco-range-value" title={metadata?.source || (campo.key === "fs" ? ref.fs_source : undefined)}>
                                 {min != null && max != null ? `${min} – ${max}` : "—"}
                               </span>
                             )}
+                            {metadata && <div className="mt-1 max-w-52 text-[10px] leading-snug text-slate-600" title={metadata.reason}>
+                              <span>{POLICY_LABELS[metadata.status]}</span>
+                              {(metadata.status === "published" || metadata.status === "requires_method")
+                                && metadata.candidate_min != null && metadata.candidate_max != null && (
+                                <span className="block">{metadata.status === "published" ? "Comparação" : "Candidata"}: {metadata.candidate_min} – {metadata.candidate_max}</span>
+                              )}
+                              {metadata.source && <span className="block">Fonte da comparação: {metadata.source}</span>}
+                              {metadata.reason && <span className="block">{metadata.reason}</span>}
+                            </div>}
                           </td>
                         );
                       })}

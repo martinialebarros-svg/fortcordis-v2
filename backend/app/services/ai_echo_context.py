@@ -1,16 +1,13 @@
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.referencia_eco import ReferenciaEco
-from app.utils.referencia_eco_defaults import (
-    aplicar_defaults_publicados_caninos,
-    normalizar_especie_referencia,
-)
+from app.services.echo_reference_resolver import load_echo_reference
+from app.utils.referencia_eco_defaults import normalizar_especie_referencia
 from app.utils.echo_unit_provenance import (
     clinically_safe_echo_measurements,
 )
@@ -195,17 +192,7 @@ def _positive_float(value: Any) -> float | None:
         parsed = float(str(value).replace(",", ".").strip())
     except (TypeError, ValueError):
         return None
-    return parsed if parsed > 0 else None
-
-
-def _reference_query_for_species(db: Session, species: str):
-    query = db.query(ReferenciaEco)
-    normalized = normalizar_especie_referencia(species)
-    if normalized == "Canina":
-        return query.filter(ReferenciaEco.especie.ilike("canin%"))
-    if normalized == "Felina":
-        return query.filter(ReferenciaEco.especie.ilike("felin%"))
-    return query.filter(ReferenciaEco.especie.ilike(str(normalized or species).strip()))
+    return parsed if math.isfinite(parsed) and parsed > 0 else None
 
 
 def load_echo_reference_context(
@@ -213,54 +200,55 @@ def load_echo_reference_context(
     *,
     species: str | None,
     weight_kg: Any,
+    current_measurements: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     normalized_species = normalizar_especie_referencia(species)
     resolved_weight = _positive_float(weight_kg)
     if not normalized_species or resolved_weight is None:
         return None
 
-    reference = (
-        _reference_query_for_species(db, normalized_species)
-        .order_by(
-            func.abs(ReferenciaEco.peso_kg - resolved_weight),
-            ReferenciaEco.peso_kg.asc(),
-        )
-        .first()
+    resolved_reference = load_echo_reference(
+        db, species=normalized_species, weight_kg=resolved_weight,
+        medidas=current_measurements,
     )
-    if reference is None:
+    if resolved_reference is None:
         return None
-
-    raw_reference = {
-        column.name: getattr(reference, column.name)
-        for column in ReferenciaEco.__table__.columns
-    }
-    resolved_reference = aplicar_defaults_publicados_caninos(
-        raw_reference,
-        peso_kg=resolved_weight,
-    )
     ranges: dict[str, dict[str, Any]] = {}
     for measurement_key, (minimum_key, maximum_key, unit) in REFERENCE_FIELD_MAP.items():
+        prefix = minimum_key.removesuffix("_min")
+        metadata = resolved_reference.get("range_metadata", {}).get(prefix, {})
+        # Unreconciled catalog numbers and candidate method ranges are not
+        # validated individual intervals and must not enter the model prompt.
+        if metadata.get("status") != "published":
+            continue
+        if (current_measurements or {}).get("VE_tecnica_relatorio") == "2d" and measurement_key in {
+            "DIVEd", "DIVES", "SIVd", "SIVs", "PLVEd", "PLVES", "VDF", "VSF", "DeltaD_FS",
+        }:
+            continue
         minimum = resolved_reference.get(minimum_key)
         maximum = resolved_reference.get(maximum_key)
         if measurement_key in {"e_doppler", "a_doppler"}:
             minimum = float(minimum) / 100 if minimum is not None else None
             maximum = float(maximum) / 100 if maximum is not None else None
-        if minimum is None and maximum is None:
+        if minimum is None or maximum is None:
             continue
         ranges[measurement_key] = {
             "min": minimum,
             "max": maximum,
             "unit": unit,
         }
-        if measurement_key == "DeltaD_FS" and resolved_reference.get("fs_source"):
-            ranges[measurement_key]["source"] = resolved_reference["fs_source"]
+        for key in ("source", "doi", "statistic", "population", "required_method",
+                    "required_measurement_key", "required_measurement_value",
+                    "min_weight_kg", "max_weight_kg"):
+            if metadata.get(key) is not None:
+                ranges[measurement_key][key] = metadata[key]
 
     return {
         "source": "tabela_de_referencia_carregada",
-        "reference_id": reference.id,
+        "reference_id": resolved_reference.get("id"),
         "species": normalized_species,
         "patient_weight_kg": resolved_weight,
-        "nearest_reference_weight_kg": reference.peso_kg,
+        "nearest_reference_weight_kg": resolved_reference.get("peso_kg"),
         "ranges": ranges,
     }
 
@@ -272,15 +260,14 @@ def safe_measurement_context(
     reference_context: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     safe: dict[str, dict[str, Any]] = {}
-    ranges = (
-        reference_context.get("ranges", {})
-        if isinstance(reference_context, dict)
-        else {}
-    )
     normalized_measurements = clinically_safe_echo_measurements(current_measurements or {})
     resolved_species = normalizar_especie_referencia(
         species or (reference_context or {}).get("species")
     )
+    ranges = safe_reference_context(
+        reference_context, current_measurements=normalized_measurements,
+        species=resolved_species,
+    ).get("ranges", {})
     for key, value in normalized_measurements.items():
         # Registros antigos usam Cornell (0,294) e novos usam Visser (0,316).
         # Sem proveniência por valor, o índice 2D persistido não é evidência segura para a IA.
@@ -319,3 +306,73 @@ def safe_measurement_context(
             item["reference"] = reference_range
         safe[key] = item
     return safe
+
+
+def safe_reference_context(
+    reference_context: dict[str, Any] | None,
+    *,
+    current_measurements: dict[str, Any] | None = None,
+    species: str | None = None,
+) -> dict[str, Any]:
+    """Minimize prompt references to validated publication metadata and bounds."""
+    if not isinstance(reference_context, dict):
+        return {}
+    resolved_species = normalizar_especie_referencia(species or reference_context.get("species"))
+    patient_weight = _positive_float(reference_context.get("patient_weight_kg"))
+    measurements = clinically_safe_echo_measurements(current_measurements or {})
+    safe = {key: reference_context[key] for key in (
+        "source", "reference_id", "species", "patient_weight_kg", "nearest_reference_weight_kg",
+    ) if key in reference_context}
+    safe["ranges"] = {}
+    ranges = reference_context.get("ranges", {})
+    if not isinstance(ranges, dict):
+        return safe
+    for key, reference in ranges.items():
+        if not isinstance(reference, dict) or not _reference_matches_measurement(
+            key, measurements, resolved_species, reference, patient_weight
+        ):
+            continue
+        safe["ranges"][key] = {field: reference[field] for field in (
+            "min", "max", "unit", "source", "doi", "statistic", "population", "required_method",
+            "required_measurement_key", "required_measurement_value",
+            "min_weight_kg", "max_weight_kg",
+        ) if field in reference}
+    return safe
+
+
+def _reference_matches_measurement(
+    key: str,
+    measurements: dict[str, Any],
+    species: str | None,
+    reference: dict[str, Any],
+    patient_weight: float | None,
+) -> bool:
+    """Defend even direct AI payloads against stale or method-ambiguous ranges."""
+    published_sources = {
+        ("Canina", "DeltaD_FS"): ("10.1111/jvim.15562", "reference_interval_95", 2.6, 67.8),
+        ("Felina", "DeltaD_FS"): ("10.1111/jvim.14569", "prediction_interval_95", 1.5, 11.0),
+        ("Canina", "TAPSE"): ("10.1016/j.jvc.2014.10.003", "prediction_interval_95", 3.0, 45.0),
+        ("Felina", "AE_Ao"): ("10.1111/jvim.14569", "prediction_interval_95", 1.5, 11.0),
+    }
+    expected_source = published_sources.get((species, key))
+    if (expected_source is None or not reference.get("source")
+            or (reference.get("doi"), reference.get("statistic")) != expected_source[:2]
+            or patient_weight is None or not expected_source[2] <= patient_weight <= expected_source[3]):
+        return False
+    try:
+        minimum, maximum = float(reference.get("min")), float(reference.get("max"))
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(minimum) or not math.isfinite(maximum) or not 0 < minimum <= maximum:
+        return False
+    if measurements.get("VE_tecnica_relatorio") == "2d" and key in {
+        "DIVEd", "DIVES", "SIVd", "SIVs", "PLVEd", "PLVES", "VDF", "VSF", "DeltaD_FS",
+    }:
+        return False
+    if key == "TAPSE" and measurements.get("TAPSE_metodo") != "modo_m_apical":
+        return False
+    if key == "AE_Ao" and species == "Felina" and measurements.get("AE_Ao_metodo") != "2d_eixo_curto_diastole_inicial":
+        return False
+    required_key = reference.get("required_measurement_key")
+    required_value = reference.get("required_measurement_value")
+    return not required_key or measurements.get(required_key) == required_value

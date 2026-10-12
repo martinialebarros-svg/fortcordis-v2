@@ -37,4 +37,16 @@ describe("proveniência de unidade ecocardiográfica", () => {
     expect(updateEchoMeasurement(confirmed, "SIVd", "3.0")[confirmedUnitKey("SIVd")]).toBe("mm");
     expect(updateEchoMeasurement(confirmed, confirmedUnitKey("SIVd"), "")[confirmedUnitKey("SIVd")]).toBeUndefined();
   });
+
+  it("descarta método quando a aquisição é substituída e preserva confirmação de medidas não alteradas", () => {
+    const confirmed = { TAPSE: "10", TAPSE_metodo: "modo_m_apical", AE_Ao: "1.42", AE_Ao_metodo: "2d_eixo_curto_diastole_inicial", Aorta: "12" };
+    expect(updateEchoMeasurement(confirmed, "TAPSE", "11")).not.toHaveProperty("TAPSE_metodo");
+    expect(updateEchoMeasurement(confirmed, "TAPSE", "10").TAPSE_metodo).toBe("modo_m_apical");
+    expect(updateEchoMeasurement(confirmed, "Aorta", "13")).not.toHaveProperty("AE_Ao_metodo");
+    expect(updateEchoMeasurement(confirmed, "AE_Ao", "1.5")).not.toHaveProperty("AE_Ao_metodo");
+    expect(updateEchoMeasurement(confirmed, "TAPSE_metodo", "")).not.toHaveProperty("TAPSE_metodo");
+    expect(mergeImportedEchoMeasurements(confirmed, { TAPSE: "10" })).not.toHaveProperty("TAPSE_metodo");
+    expect(mergeImportedEchoMeasurements(confirmed, { Aorta: "12" })).not.toHaveProperty("AE_Ao_metodo");
+    expect(mergeImportedEchoMeasurements(confirmed, { TAPSE: "10", TAPSE_metodo: "modo_m_apical" })).not.toHaveProperty("TAPSE_metodo");
+  });
 });

@@ -177,6 +177,20 @@ describe("WhatsAppStagePage", () => {
     expect(screen.queryByText(/O bot viu esta mensagem e não respondeu/i)).toBeNull();
   });
 
+  it("explica que a mudança de cadastro aguarda nova mensagem sem oferecer reenvio do texto anterior", async () => {
+    vi.stubGlobal("fetch", routerComEstadoDoBot({
+      wa_identity: "558500000000", modo: "auto", modo_origem: "conversa",
+      pausado: false, pausado_ate: null, handoff_motivo: null,
+      rascunho_pendente: null, ultima_recusa: null,
+      ultimo_silencio: { resposta_id: 26, motivo: "contexto_alterado", criado_em: "2026-08-14T02:26:00.000Z" },
+    }));
+    await abrirConversa();
+    const aviso = screen.getByText(/O bot viu esta mensagem e não respondeu/i);
+    expect(aviso).toHaveTextContent("o cadastro usado pelo bot mudou; aguardando uma nova mensagem do cliente");
+    expect(aviso.closest(".fc-wa-bot-silencio")?.querySelector("button")).toBeNull();
+    expect(screen.queryByText("Rascunho do copiloto")).not.toBeInTheDocument();
+  });
+
   it("atualiza silenciosamente o status da mensagem selecionada", async () => {
     let messagesRequestCount = 0;
 

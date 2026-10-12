@@ -12,7 +12,7 @@ import unittest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.models.configuracao import Configuracao
-from app.models.whatsapp_bot import WhatsAppBotJob, WhatsAppBotResposta, WhatsAppBotConversaEstado, WhatsAppBotClinicaEstado, WhatsAppBotSolicitacao
+from app.models.whatsapp_bot import WhatsAppBotContextoSelecao, WhatsAppBotJob, WhatsAppBotResposta, WhatsAppBotConversaEstado, WhatsAppBotClinicaEstado, WhatsAppBotSolicitacao
 from app.models.alerta_interno import AlertaInterno
 from app.services import whatsapp_bot_worker_service as worker, whatsapp_bot_delivery_service as delivery, whatsapp_bot_handoff_service as handoff
 from app.services.whatsapp_bot_generation import ResultadoGeracao
@@ -21,7 +21,7 @@ from app.services.whatsapp_bot_tools import WhatsAppBotToolContext, WhatsAppBotT
 @contextmanager
 def build_context():
     engine = create_engine("sqlite://")
-    for model in (Configuracao, WhatsAppBotJob, WhatsAppBotResposta, WhatsAppBotConversaEstado, WhatsAppBotClinicaEstado, WhatsAppBotSolicitacao, AlertaInterno):
+    for model in (WhatsAppBotContextoSelecao, Configuracao, WhatsAppBotJob, WhatsAppBotResposta, WhatsAppBotConversaEstado, WhatsAppBotClinicaEstado, WhatsAppBotSolicitacao, AlertaInterno):
         model.__table__.create(engine)
     factory = sessionmaker(bind=engine, autoflush=False)
     with factory() as db, ExitStack() as stack:
@@ -39,6 +39,7 @@ def build_context():
         stack.enter_context(patch.object(worker, "_fetch_historico", return_value=[]))
         conversation = dict(id="1", last_agent_id=None, last_inbound_at=datetime.now(timezone.utc).isoformat(), last_message_at=datetime.now(timezone.utc).isoformat(), last_message_body="qual o horario?", last_message_from_me=False, last_message_type="text", last_message_wa_message_id="wamid.test")
         stack.enter_context(patch.object(worker, "_fetch_conversation_by_phone", return_value=conversation))
+        stack.enter_context(patch.object(delivery, "resposta_contexto_vigente", return_value=True))
         generated = ResultadoGeracao(decisao="draft", motivo="aprovado_auto", texto_gerado="Atendimento automatico: entre em contato com nossa equipe.", match_type="visitante", resolution="not_found", auto_elegivel=True)
         generate = stack.enter_context(patch.object(worker, "gerar_resposta", return_value=generated))
         yield db, job, conversation, generate

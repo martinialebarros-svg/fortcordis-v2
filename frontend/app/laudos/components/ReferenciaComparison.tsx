@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { CheckCircle, AlertCircle, AlertTriangle, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { useReferenciaEco } from "../hooks/useReferenciaEco";
-import { ComparacaoMedida } from "../types/referencia-eco";
+import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
 import { prepareEchoReportMeasurements } from "@/lib/echo-report-presentation";
 import type { Echo2DView } from "@/lib/echo-2d-reference";
@@ -23,10 +23,11 @@ const CATEGORIAS = {
 };
 
 const formatarPeso = (valor: number) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(valor);
+const positive = (value: unknown) => Number(String(value ?? "").replace(",", ".")) > 0;
 
 export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }: ReferenciaComparisonProps) {
   const { buscarReferencia, compararMedidas, loading } = useReferenciaEco();
-  const [referencia, setReferencia] = useState<any>(null);
+  const [referencia, setReferencia] = useState<ReferenciaEco | null>(null);
   const [comparacoes, setComparacoes] = useState<Record<string, ComparacaoMedida>>({});
   const plano2D: Echo2DView | "" = medidas.VE_vista_2D === "eixo_curto" || medidas.VE_vista_2D === "eixo_longo"
     ? medidas.VE_vista_2D
@@ -161,7 +162,7 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
             Referência selecionada: {referencia.especie || especie}, cadastro de {formatarPeso(referencia.peso_kg)} kg
           </p>
           <p className="text-sm text-teal-700">
-            Peso do paciente: {typeof peso === "number" ? formatarPeso(peso) : "—"} kg. Valores cadastrados usados para comparação das medidas.
+            Peso do paciente: {typeof peso === "number" ? formatarPeso(peso) : "—"} kg. Faixas aplicáveis dependem do método, peso e fonte identificada.
           </p>
           {Object.keys(medidasDerivadasParaReferencia).length > 0 && (
             <p className="text-xs text-teal-700 mt-1">
@@ -192,6 +193,34 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
             entre 2,6 e 67,8 kg. Septo e parede não têm faixa 2D por peso nas fontes adotadas; volumes e FE por
             Teichholz não são comparados aos intervalos obtidos por Simpson.
           </p>
+        </div>
+      )}
+
+      {positive(medidas.TAPSE) && /^canin/i.test(referencia.especie) && (
+        <div className="p-3 bg-blue-50 rounded-lg space-y-2">
+          <label htmlFor="metodo-tapse" className="block text-sm font-medium text-blue-900">Método de obtenção do TAPSE</label>
+          <select id="metodo-tapse" value={medidas.TAPSE_metodo || ""}
+            onChange={(event) => onMedidaChange("TAPSE_metodo", event.target.value)}
+            className="w-full sm:w-auto rounded border border-blue-200 bg-white p-2 text-sm text-gray-900">
+            <option value="">Método não confirmado</option>
+            <option value="modo_m_apical">Cão adulto; modo M, vista apical esquerda, quatro câmaras</option>
+            <option value="2d">2D</option>
+          </select>
+          <p className="text-xs text-blue-800">A faixa de Visser et al. (2015) exige TAPSE em modo M na vista apical e peso entre 3 e 45 kg.</p>
+        </div>
+      )}
+
+      {positive(medidas.AE_Ao ?? medidas.LA_Ao) && /^felin/i.test(referencia.especie) && (
+        <div className="p-3 bg-blue-50 rounded-lg space-y-2">
+          <label htmlFor="metodo-ae-ao" className="block text-sm font-medium text-blue-900">Método de obtenção de AE/Ao</label>
+          <select id="metodo-ae-ao" value={medidas.AE_Ao_metodo || ""}
+            onChange={(event) => onMedidaChange("AE_Ao_metodo", event.target.value)}
+            className="w-full sm:w-auto rounded border border-blue-200 bg-white p-2 text-sm text-gray-900">
+            <option value="">Método não confirmado</option>
+            <option value="2d_eixo_curto_diastole_inicial">Gato adulto; 2D, eixo curto paraesternal direito, início da diástole</option>
+            <option value="outro">Outra vista ou fase</option>
+          </select>
+          <p className="text-xs text-blue-800">Confirme a primeira imagem após o fechamento da valva aórtica. Häggström et al. (2016) estudaram gatos adultos de raça pura; o intervalo de predição por peso exige a vista e a fase confirmadas.</p>
         </div>
       )}
 
@@ -234,9 +263,12 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
                       <p className="text-xs text-gray-500">
                         {item.key.endsWith("_2D")
                           ? (semReferenciaDefinida ? "Faixa 2D" : "Faixa 2D publicada")
-                          : "Faixa cadastrada"}: {faixaRef}
+                          : item.metadados?.status === "published" ? "Faixa publicada" : "Faixa cadastrada"}: {faixaRef}
                       </p>
                       {item.fonte && <p className="text-xs text-gray-500">{item.fonte}</p>}
+                      {item.metadados?.clinical_threshold && ["AE_Ao", "LA_Ao"].includes(item.key) && (
+                        <p className="text-xs text-gray-500">Limiar clínico geral: AE/Ao &lt; 1,5, independente do intervalo estatístico por peso. Interpretar com os demais achados.</p>
+                      )}
                     </div>
                   </div>
                   <div className="text-right">

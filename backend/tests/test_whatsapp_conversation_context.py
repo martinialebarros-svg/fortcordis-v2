@@ -22,6 +22,7 @@ from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
 from app.models.tutor import Tutor
+from app.models.whatsapp_bot import WhatsAppBotContextoSelecao
 
 
 class WhatsappConversationContextTest(unittest.TestCase):
@@ -37,6 +38,7 @@ class WhatsappConversationContextTest(unittest.TestCase):
             Servico.__table__,
             Agendamento.__table__,
             OrdemServico.__table__,
+            WhatsAppBotContextoSelecao.__table__,
         ):
             table.create(self._engine, checkfirst=True)
 

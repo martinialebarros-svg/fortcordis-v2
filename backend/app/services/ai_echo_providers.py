@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from app.core.config import settings
 from app.schemas.ai_echo import EchoClinicalStructureOutput
-from app.services.ai_echo_context import safe_measurement_context
+from app.services.ai_echo_context import safe_measurement_context, safe_reference_context
 from app.services.ai_echo_prompt import (
     build_clinical_structuring_instructions,
     build_transcription_prompt,
@@ -187,7 +187,10 @@ class OpenAIClinicalStructuringProvider:
                         "language": "pt-BR",
                         "transcript": transcript,
                         "exam_context": exam_context or {},
-                        "reference_context": reference_context or {},
+                        "reference_context": safe_reference_context(
+                            reference_context, current_measurements=current_measurements,
+                            species=(exam_context or {}).get("species"),
+                        ),
                         "current_measurements": safe_measurement_context(
                             current_measurements,
                             species=(exam_context or {}).get("species"),

@@ -15,9 +15,12 @@ from app.services.whatsapp_bot_gates import (
     resolve_conversation_mode, resolve_modo_efetivo,
 )
 from app.services.whatsapp_bot_handoff_service import trigger_active_handoff
+from app.services.whatsapp_bot_generation import IDENTITY_HANDOFF_REASONS
+from app.services.whatsapp_contexto_selecao_service import lock_contexto, resposta_contexto_vigente
 
 
 def deliver_automatic_reply(db: Session, job: WhatsAppBotJob, resposta: WhatsAppBotResposta) -> None:
+    aviso_identidade = resposta.motivo in IDENTITY_HANDOFF_REASONS
     estado = resolve_conversation_state(db, job.wa_identity)
     modo, bloqueio = resolve_modo_efetivo(
         db, wa_identity=job.wa_identity, match_type=resposta.match_type,
@@ -30,12 +33,18 @@ def deliver_automatic_reply(db: Session, job: WhatsAppBotJob, resposta: WhatsApp
             or modo != "auto" or bloqueio or is_locally_paused(estado)
             or pedido_assumido(db, job.wa_identity, job.conversation_id) or not envio_vigente(resposta)):
         # Um envio que ja comecou nao volta a ser um rascunho editavel.
-        resposta.decisao = "handoff" if resposta.decisao == "sending" else "draft"
-        resposta.motivo = "auto_interrompido"
+        resposta.decisao = "handoff" if aviso_identidade or resposta.decisao == "sending" else "draft"
+        if not aviso_identidade:
+            resposta.motivo = "auto_interrompido"
         return
 
     resposta.decisao = "sending"
     db.commit()  # identidade duravel ANTES de qualquer efeito externo
+    lock_contexto(db, job.wa_identity)
+    if not resposta_contexto_vigente(db, resposta):
+        resposta.decisao = "suppressed"
+        resposta.motivo = "contexto_alterado"
+        return
     base_url = str(settings.WHATSAPP_AGENDA_SERVICE_URL or "").rstrip("/")
     token = str(settings.WHATSAPP_AGENDA_INTERNAL_TOKEN or "")
     motivo = "envio_auto_incerto"
@@ -55,9 +64,10 @@ def deliver_automatic_reply(db: Session, job: WhatsAppBotJob, resposta: WhatsApp
         )
         payload = response.json()
         if response.status_code in (200, 201) and payload.get("status") == "sent":
-            resposta.decisao = "sent"
+            resposta.decisao = "handoff" if aviso_identidade else "sent"
             resposta.texto_enviado = resposta.texto_gerado
-            resposta.motivo = "enviado_auto"
+            if not aviso_identidade:
+                resposta.motivo = "enviado_auto"
             return
         if response.status_code == 409 and payload.get("code") == "BOT_CONVERSATION_CHANGED":
             resposta.decisao = "suppressed"
