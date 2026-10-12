@@ -20,6 +20,7 @@ os.environ.setdefault("SECRET_KEY", "whatsapp-bot-process-job-test-secret-key-12
 
 from app.models.alerta_interno import AlertaInterno
 from app.models.configuracao import Configuracao
+from app.models.whatsapp_bot import WhatsAppBotContextoSelecao
 from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import WhatsAppBotConversaEstado, WhatsAppBotJob, WhatsAppBotResposta
 from app.services import whatsapp_bot_gates as gates
@@ -43,6 +44,7 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
             WhatsAppBotJob.__table__,
             WhatsAppBotResposta.__table__, WhatsAppBotSolicitacao.__table__,
             WhatsAppBotConversaEstado.__table__,
+            WhatsAppBotContextoSelecao.__table__,
             Configuracao.__table__,
             AlertaInterno.__table__,
         ):
@@ -519,7 +521,7 @@ class WhatsAppBotProcessJobTest(unittest.TestCase):
                 try:
                     resposta = verify.query(WhatsAppBotResposta).filter(WhatsAppBotResposta.job_id == job_id).first()
                     self.assertEqual(resposta.decisao, "handoff")
-                    self.assertEqual(resposta.motivo, "identidade_nao_resolvida")
+                    self.assertEqual(resposta.motivo, "identidade_indisponivel")
                     self.assertEqual(resposta.resolution, "unavailable")
                     self.assertIsNone(resposta.texto_gerado)
                 finally:

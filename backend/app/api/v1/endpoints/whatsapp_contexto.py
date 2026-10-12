@@ -4,10 +4,12 @@ import json
 import re
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field, StrictInt
 from sqlalchemy import String, cast, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Query as SqlAlchemyQuery
 from sqlalchemy.orm import Session
 
@@ -20,7 +22,16 @@ from app.models.paciente import Paciente
 from app.models.servico import Servico
 from app.models.tutor import Tutor
 from app.models.user import User
+from app.models.whatsapp_bot import WhatsAppBotContextoSelecao, WhatsAppBotResposta
+from app.services.auditoria_service import registrar_auditoria
 from app.services.whatsapp_agenda_service import normalize_whatsapp_number
+from app.services.whatsapp_contexto_selecao_service import (
+    canonical_context_identity,
+    carregar_selecao,
+    criar_contexto_chave,
+    lock_contexto,
+    selecao_payload,
+)
 
 
 router = APIRouter()
@@ -227,6 +238,7 @@ def resolve_whatsapp_context(db: Session, phone: str) -> dict[str, Any]:
 
     active_clinics = (
         db.query(Clinica)
+        .populate_existing()
         .filter(_legacy_active(Clinica.ativo))
         .order_by(Clinica.nome.asc(), Clinica.id.asc())
         .all()
@@ -239,6 +251,7 @@ def resolve_whatsapp_context(db: Session, phone: str) -> dict[str, Any]:
 
     active_tutors = (
         db.query(Tutor)
+        .populate_existing()
         .filter(_legacy_active(Tutor.ativo))
         .order_by(Tutor.nome.asc(), Tutor.id.asc())
         .all()
@@ -249,6 +262,21 @@ def resolve_whatsapp_context(db: Session, phone: str) -> dict[str, Any]:
         if _has_exact_phone(normalized_phone, tutor.whatsapp, tutor.telefone)
     ]
 
+    candidatos = {
+        "clinicas": [_clinic_payload(clinic) for clinic in clinic_matches],
+        "tutores": [_tutor_payload(tutor) for tutor in tutor_matches],
+    }
+    selecao = selecao_payload(carregar_selecao(db, normalized_phone), candidatos)
+    selection_invalid = bool(selecao and not selecao["valida"])
+    if selecao and selecao["match_type"]:
+        clinic_matches = [
+            clinic for clinic in clinic_matches
+            if selecao["match_type"] == "clinica" and clinic.id == selecao["cadastro_id"]
+        ]
+        tutor_matches = [
+            tutor for tutor in tutor_matches
+            if selecao["match_type"] == "tutor" and tutor.id == selecao["cadastro_id"]
+        ]
     direct_matches = len(clinic_matches) + len(tutor_matches)
     base_response: dict[str, Any] = {
         "normalized_phone": normalized_phone,
@@ -259,7 +287,13 @@ def resolve_whatsapp_context(db: Session, phone: str) -> dict[str, Any]:
         "pets": [],
         "agendamentos": [],
         "ordens_servico": [],
+        "candidatos": candidatos,
+        "selecao": selecao,
+        "contexto_chave": criar_contexto_chave(normalized_phone, candidatos, selecao),
     }
+    if selection_invalid:
+        base_response.update(resolution="selection_invalid", clinicas=[], tutores=[])
+        return base_response
     if direct_matches == 0:
         return base_response
     if direct_matches > 1:
@@ -344,3 +378,84 @@ def get_whatsapp_context(
 ):
     del current_user
     return resolve_whatsapp_context(db, telefone)
+
+
+class WhatsAppContextoSelecaoRequest(BaseModel):
+    match_type: Literal["clinica", "tutor"] | None
+    cadastro_id: StrictInt | None = Field(..., gt=0)
+    versao_esperada: StrictInt = Field(..., ge=0)
+
+
+@router.patch("/{wa_identity}/selecao")
+def atualizar_contexto_selecao(
+    wa_identity: str,
+    payload: WhatsAppContextoSelecaoRequest,
+    request: Request = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_any_papel("admin", "recepcao", "veterinario", "cardiologista")
+    ),
+):
+    if (payload.match_type is None) != (payload.cadastro_id is None):
+        raise HTTPException(422, "Informe o tipo e o cadastro juntos, ou limpe ambos.")
+    identity = canonical_context_identity(wa_identity)
+    lock_contexto(db, identity)
+    contexto = resolve_whatsapp_context(db, identity)
+    anterior = contexto["selecao"]
+    versao_atual = anterior["versao"] if anterior else 0
+    if payload.versao_esperada != versao_atual:
+        raise HTTPException(409, "O cadastro desta conversa mudou. Atualize a conversa antes de selecionar novamente.")
+    if payload.match_type is not None:
+        key = "clinicas" if payload.match_type == "clinica" else "tutores"
+        if not any(item["id"] == payload.cadastro_id for item in contexto["candidatos"][key]):
+            raise HTTPException(422, "Selecione um cadastro ativo vinculado ao telefone desta conversa.")
+
+    now = datetime.now(timezone.utc)
+    values = {
+        "match_type": payload.match_type,
+        "cadastro_id": payload.cadastro_id,
+        "versao": versao_atual + 1,
+        "atualizado_por_id": current_user.id,
+        "updated_at": now,
+    }
+    try:
+        if anterior is None:
+            db.add(WhatsAppBotContextoSelecao(wa_identity=identity, **values))
+            db.flush()
+        else:
+            changed = db.query(WhatsAppBotContextoSelecao).filter(
+                WhatsAppBotContextoSelecao.wa_identity == identity,
+                WhatsAppBotContextoSelecao.versao == payload.versao_esperada,
+            ).update(values, synchronize_session=False)
+            if changed != 1:
+                db.rollback()
+                raise HTTPException(409, "O cadastro desta conversa mudou. Atualize a conversa antes de selecionar novamente.")
+        db.query(WhatsAppBotResposta).filter(
+            WhatsAppBotResposta.wa_identity.in_(_whatsapp_number_variants(identity)),
+            WhatsAppBotResposta.decisao == "draft",
+        ).update(
+            {"decisao": "suppressed", "motivo": "contexto_alterado"},
+            synchronize_session=False,
+        )
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="whatsapp",
+            entidade="whatsapp_contexto_selecao",
+            entidade_id=identity,
+            acao="WHATSAPP_CONTEXTO_SELECAO_ALTERADA",
+            descricao="Cadastro usado pelo bot nesta conversa atualizado pela equipe.",
+            detalhes={
+                "anterior": {key: anterior.get(key) for key in ("match_type", "cadastro_id", "versao")} if anterior else None,
+                "atual": {key: values[key] for key in ("match_type", "cadastro_id", "versao")},
+            },
+            request=request,
+            db=db,
+        )
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "O cadastro desta conversa mudou. Atualize a conversa antes de selecionar novamente.")
+    except Exception:
+        db.rollback()
+        raise
+    return resolve_whatsapp_context(db, identity)

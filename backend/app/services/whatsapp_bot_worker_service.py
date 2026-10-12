@@ -26,7 +26,7 @@ from app.services.whatsapp_bot_gates import (
     resolve_conversation_mode,
     resolve_conversation_state,
 )
-from app.services.whatsapp_bot_generation import gerar_resposta
+from app.services.whatsapp_bot_generation import gerar_resposta, IDENTITY_HANDOFF_REASONS, _historico_do_contexto
 from app.services.whatsapp_bot_delivery_service import deliver_automatic_reply
 from app.services.whatsapp_bot_handoff_service import (
     EMERGENCY_FIXED_MESSAGE,
@@ -34,6 +34,7 @@ from app.services.whatsapp_bot_handoff_service import (
     trigger_active_handoff,
 )
 from app.services.whatsapp_bot_queue_service import enqueue_job_for_inbound_message
+from app.services.whatsapp_contexto_selecao_service import lock_contexto, resposta_contexto_vigente, carregar_selecao
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,7 @@ def _record_resposta(
     resolution: Optional[str] = None,
     match_type: Optional[str] = None,
     clinica_id: Optional[int] = None,
+    contexto_chave: Optional[str] = None,
 ) -> WhatsAppBotResposta:
     resposta = WhatsAppBotResposta(
         job_id=job.id,
@@ -169,6 +171,7 @@ def _record_resposta(
         resolution=resolution,
         match_type=match_type,
         clinica_id=clinica_id,
+        contexto_chave=contexto_chave,
     )
     db.add(resposta)
     return resposta
@@ -182,6 +185,10 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
     if anterior is not None:
         if anterior.decisao in ("auto_pending", "sending"):
             deliver_automatic_reply(db, job, anterior)
+        if anterior.motivo in IDENTITY_HANDOFF_REASONS:
+            estado_handoff = resolve_conversation_state(db, job.wa_identity)
+            if not estado_handoff or estado_handoff.handoff_motivo != anterior.motivo:
+                _handoff_operacional(db, job, anterior.motivo)
         from app.services.whatsapp_bot_agendamento import encaminhar
         encaminhar(db, anterior)
         job.status = "done"
@@ -246,6 +253,7 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         conversation_id=job.conversation_id, quantidade=_historico_mensagens() + 1)[:-1]
     from app.services.whatsapp_bot_continuidade import agrupar_fragmentos
     from app.services.whatsapp_bot_mensagens_automaticas import mensagem_automatica, sem_aviso_automatico
+    historico_bruto = historico
     corpo, historico = agrupar_fragmentos(
         [sem_aviso_automatico(item) for item in historico],
         sem_aviso_automatico(last_message),
@@ -308,6 +316,20 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         job.status = "done"
         return "done"
 
+    selecao = carregar_selecao(db, job.wa_identity)
+    if selecao is not None:
+        limite = {"selecao": {"versao": selecao.versao, "updated_at": selecao.updated_at}}
+        if not _historico_do_contexto([last_message], limite):
+            _record_resposta(db, job, decisao="suppressed", motivo="contexto_alterado")
+            job.status = "done"
+            return "done"
+        # Emergencia ja foi triada sobre todos os fragmentos. Handoff comum e
+        # cortesia consideram apenas mensagens posteriores a escolha da equipe.
+        corpo, historico = agrupar_fragmentos(
+            [sem_aviso_automatico(item) for item in _historico_do_contexto(historico_bruto, limite) or []],
+            sem_aviso_automatico(last_message),
+        )
+
     if detecta_pedido_humano(corpo):
         texto_handoff = build_handoff_message(db)
         trigger_active_handoff(
@@ -352,6 +374,8 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         modo=modo,
         estado=estado,
         historico=historico,
+        historico_bruto=historico_bruto,
+        mensagem_atual=last_message,
     )
     resposta = _record_resposta(
         db,
@@ -368,15 +392,28 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         resolution=resultado.resolution,
         match_type=resultado.match_type,
         clinica_id=resultado.clinica_id,
+        contexto_chave=resultado.contexto_chave,
     )
+    if resultado.contexto_chave is not None:
+        # Nenhum complemento/coleta/handoff do contexto antigo pode ser aplicado.
+        lock_contexto(db, job.wa_identity)
+        if not resposta_contexto_vigente(db, resposta):
+            resposta.decisao = "suppressed"
+            resposta.motivo = "contexto_alterado"
+            job.status = "done"
+            return "done"
     from app.services.whatsapp_bot_continuidade import registrar_complemento
     registrar_complemento(db, resposta)
-    if resultado.decisao in ("handoff", "blocked"):
+    aviso_identidade = resultado.decisao == "handoff" and resultado.motivo in IDENTITY_HANDOFF_REASONS
+    if resultado.decisao in ("handoff", "blocked") and not aviso_identidade:
         _handoff_operacional(db, job, resultado.motivo)
-    if resultado.decisao == "draft" and resultado.auto_elegivel and settings.WHATSAPP_BOT_AUTO_SEND_ENABLED:
+    if (resultado.decisao == "draft" or aviso_identidade) and resultado.auto_elegivel and settings.WHATSAPP_BOT_AUTO_SEND_ENABLED:
         resposta.decisao = "auto_pending"
         db.commit()
         deliver_automatic_reply(db, job, resposta)
+    if aviso_identidade and resposta.motivo in IDENTITY_HANDOFF_REASONS:
+        # Depois do aviso neutro, mantem atendimento humano e pausa explicita.
+        _handoff_operacional(db, job, resultado.motivo)
     from app.services.whatsapp_bot_agendamento import encaminhar
     encaminhar(db, resposta)
     job.status = "done"

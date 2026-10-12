@@ -11,6 +11,8 @@ import {
 import DashboardLayout from "../layout-dashboard";
 import AppointmentQueue from "./AppointmentQueue";
 import WaitingForTeamNotice from "./WaitingForTeamNotice";
+import ConversationContextSelector from "./ConversationContextSelector";
+import type { WhatsAppContextSelectionPayload, WhatsAppSelectableContext } from "@/lib/whatsapp-contexto";
 import {
   CustomerServiceWindow,
   evaluateCustomerServiceWindow,
@@ -126,9 +128,9 @@ interface DomainServiceOrder {
   tutor_id: number | null; tutor_nome: string; pet_id: number | null; pet_nome: string;
   servico_id: number | null; servico_nome: string;
 }
-interface ConversationDomainContext {
+interface ConversationDomainContext extends WhatsAppSelectableContext {
   normalized_phone: string;
-  resolution: "matched" | "ambiguous" | "not_found";
+  resolution: "matched" | "ambiguous" | "not_found" | "selection_invalid";
   match_type: "clinica" | "tutor" | null;
   clinicas: DomainClinic[];
   tutores: DomainTutor[];
@@ -150,6 +152,7 @@ interface WhatsAppBotRecusa {
   decisao: "blocked" | "handoff";
   motivo: string | null;
   criado_em: string | null;
+  aviso_enviado?: boolean;
 }
 interface WhatsAppBotSilencio {
   resposta_id: number;
@@ -188,7 +191,10 @@ const BOT_RECUSA_MOTIVOS: Record<string, string> = {
   teto_caracteres: "a resposta passou do limite de tamanho",
   emergencia: "possível emergência: contato telefônico imediato",
   pedido_humano: "o cliente pediu para falar com uma pessoa",
-  identidade_nao_resolvida: "o número não foi reconhecido no cadastro",
+  identidade_nao_resolvida: "não foi possível determinar qual cadastro usar nesta conversa",
+  identidade_ambigua: "há mais de um cadastro vinculado a este número; escolha o cadastro em Vínculos do cadastro",
+  identidade_selecao_invalida: "o cadastro escolhido não está mais disponível para este número; revise a escolha em Vínculos do cadastro",
+  identidade_indisponivel: "a consulta aos cadastros está temporariamente indisponível",
   tipo_nao_suportado: "a mensagem não é de texto",
   escopo_incoerente: "o escopo da conversa está inconsistente",
   conversa_divergente: "o serviço devolveu outra conversa para este número",
@@ -200,6 +206,7 @@ const BOT_RECUSA_MOTIVOS: Record<string, string> = {
  *  filtra o ruido (`bot_desabilitado`, `modo_off`, cortesia). */
 const BOT_SILENCIO_MOTIVOS: Record<string, string> = {
   pausado: "o atendimento automático desta conversa está pausado",
+  contexto_alterado: "o cadastro usado pelo bot mudou; aguardando uma nova mensagem do cliente",
   janela_fechada: "a janela de 24 horas do WhatsApp está fechada",
   teto_diario: "o limite diário de respostas desta conversa foi atingido",
   conversa_divergente: "a mensagem não confere com a conversa registrada",
@@ -370,22 +377,28 @@ function DomainContextPanel({
   context,
   loading,
   error,
+  onSaveSelection,
+  onReload,
 }: {
   context: ConversationDomainContext | null;
   loading: boolean;
   error: string | null;
+  onSaveSelection: (payload: WhatsAppContextSelectionPayload) => Promise<void>;
+  onReload: () => void;
 }) {
   return <section className="fc-wa-domain-context" aria-live="polite">
     <div className="fc-wa-context-section-title"><Link2 className="h-4 w-4" /><h3>Vínculos do cadastro</h3></div>
+    {!loading && !error && context ? <ConversationContextSelector context={context} onSave={onSaveSelection} onReload={onReload} /> : null}
     {loading ? <div className="fc-wa-domain-state"><RefreshCw className="h-4 w-4 animate-spin" /><span>Localizando cadastros pelo telefone...</span></div> :
-      error ? <div className="fc-wa-domain-state fc-wa-domain-state-error"><AlertCircle className="h-4 w-4" /><span>Não foi possível consultar os vínculos agora.</span></div> :
+      error ? <div className="fc-wa-domain-state fc-wa-domain-state-error" role="alert"><AlertCircle className="h-4 w-4" /><span>Não foi possível consultar os vínculos agora.</span><button type="button" className="fc-wa-secondary" onClick={onReload}>Atualizar vínculos</button></div> :
+      context?.resolution === "selection_invalid" ? <div className="fc-wa-domain-state fc-wa-domain-state-error" role="alert"><AlertCircle className="h-4 w-4" /><div><strong>Escolha de cadastro inválida</strong><span>O cadastro escolhido não está mais disponível para este número. Escolha outro vínculo ou remova a escolha para voltar à verificação pelo telefone.</span></div></div> :
       context?.resolution === "not_found" ? <div className="fc-wa-domain-state"><Info className="h-4 w-4" /><div><strong>Nenhum cadastro encontrado</strong><span>Confira se este número está salvo na clínica ou no tutor.</span></div></div> :
       context?.resolution === "ambiguous" ? <div className="fc-wa-domain-ambiguous"><AlertCircle className="h-4 w-4" /><div><strong>Número presente em mais de um cadastro</strong>
         <span>Revise os candidatos antes de usar dados de agenda ou financeiro.</span>
         <ul>{context.clinicas.map((clinic) => <li key={`clinic-${clinic.id}`}><Building2 className="h-3.5 w-3.5" /> Clínica: {clinic.nome}</li>)}
           {context.tutores.map((tutor) => <li key={`tutor-${tutor.id}`}><UserRound className="h-3.5 w-3.5" /> Tutor: {tutor.nome}</li>)}</ul>
       </div></div> : context?.resolution === "matched" ? <div className="fc-wa-domain-groups">
-        <div className="fc-wa-domain-match"><Check className="h-4 w-4" /><span>Vínculo automático por telefone</span><strong>{context.match_type === "clinica" ? "Clínica" : "Tutor"}</strong></div>
+        <div className="fc-wa-domain-match"><Check className="h-4 w-4" /><span>{context.selecao?.valida && context.selecao.match_type ? "Cadastro escolhido pela equipe" : "Vínculo automático por telefone"}</span><strong>{context.match_type === "clinica" ? "Clínica" : "Tutor"}</strong></div>
 
         <div className="fc-wa-domain-group"><div><Building2 className="h-4 w-4" /><h4>Clínicas</h4><span>{context.clinicas.length}</span></div>
           {context.clinicas.length ? <ul>{context.clinicas.map((clinic) => <li key={clinic.id}><span><strong>{clinic.nome}</strong><small>{[clinic.cidade, clinic.estado].filter(Boolean).join(" · ") || "Local não informado"}</small></span>
@@ -528,6 +541,7 @@ export default function WhatsAppStagePage() {
   const [loadingDomainContext, setLoadingDomainContext] = useState(false);
   const [domainContext, setDomainContext] = useState<ConversationDomainContext | null>(null);
   const [domainContextError, setDomainContextError] = useState<string | null>(null);
+  const domainRequestRef = useRef(0);
   const [botConversationState, setBotConversationState] = useState<WhatsAppBotConversationState | null>(null);
   const [loadingBotState, setLoadingBotState] = useState(false);
   const [savingBotAction, setSavingBotAction] = useState(false);
@@ -613,6 +627,8 @@ export default function WhatsAppStagePage() {
   const selectConversation = (conversation: Conversation): void => {
     if (selectedConversationIdRef.current !== conversation.id) {
       selectionVersionRef.current += 1;
+      domainRequestRef.current += 1;
+      setDomainContext(null); setDomainContextError(null); setLoadingDomainContext(true);
       setBotConversationState(null); setLoadingBotState(false); setEditingBotDraft(false); setEditedBotDraft("");
       setInfoMessage(null); setErrorMessage(null);
     }
@@ -754,6 +770,8 @@ export default function WhatsAppStagePage() {
     phone: string,
     isCurrent: () => boolean,
   ): Promise<void> => {
+    const requestId = ++domainRequestRef.current;
+    const current = () => isCurrent() && requestId === domainRequestRef.current;
     setLoadingDomainContext(true); setDomainContext(null); setDomainContextError(null);
     try {
       const params = new URLSearchParams({ telefone: phone });
@@ -761,12 +779,46 @@ export default function WhatsAppStagePage() {
       if (!result.ok || !result.data) {
         throw new Error(result.errorText || `Falha ao carregar o vínculo cadastral (HTTP ${result.status})`);
       }
-      if (isCurrent()) setDomainContext(result.data);
+      if (current()) setDomainContext(result.data);
     } catch (error) {
-      if (isCurrent()) setDomainContextError(error instanceof Error ? error.message : "Vínculo cadastral indisponível");
+      if (current()) setDomainContextError(error instanceof Error ? error.message : "Vínculo cadastral indisponível");
     } finally {
-      if (isCurrent()) setLoadingDomainContext(false);
+      if (current()) setLoadingDomainContext(false);
     }
+  };
+
+  const reloadDomainContext = (): void => {
+    if (!selectedConversation) return;
+    const version = selectionVersionRef.current;
+    const id = selectedConversation.id;
+    void loadDomainContext(selectedConversation.wa_phone_number,
+      () => selectedConversationIdRef.current === id && selectionVersionRef.current === version);
+  };
+
+  const saveDomainSelection = async (payload: WhatsAppContextSelectionPayload): Promise<void> => {
+    if (!selectedConversation || !domainContext) throw new Error("Atualize os vínculos antes de escolher o cadastro.");
+    const id = selectedConversation.id;
+    const phone = selectedConversation.wa_phone_number;
+    const version = selectionVersionRef.current;
+    const current = () => selectedConversationIdRef.current === id && selectionVersionRef.current === version;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    try {
+      const result = await requestJson<ConversationDomainContext>(
+        `/api/v1/whatsapp-contexto/${encodeURIComponent(phone)}/selecao`,
+        { method: "PATCH", body: JSON.stringify(payload), signal: controller.signal },
+      );
+      if (!current()) return;
+      if (result.status === 409) throw new Error("Os vínculos ou a escolha mudaram. Atualize os vínculos e confira o cadastro antes de salvar novamente.");
+      if (!result.ok || !result.data) throw new Error("Não foi possível salvar a escolha. Atualize os vínculos e tente novamente.");
+      domainRequestRef.current += 1;
+      setDomainContext(result.data); setDomainContextError(null);
+      await loadBotConversationState(phone, current, true);
+    } catch (cause) {
+      if (!current()) return;
+      if (cause instanceof Error && cause.name !== "AbortError" && !(cause instanceof TypeError)) throw cause;
+      throw new Error("Não foi possível confirmar a escolha. Atualize os vínculos para conferir o resultado antes de tentar novamente.");
+    } finally { window.clearTimeout(timeout); }
   };
 
   const loadBotConversationState = async (
@@ -1409,13 +1461,14 @@ export default function WhatsAppStagePage() {
                 recusava responder e ninguem na central ficava sabendo.
                 Deliberadamente sem Enviar/Editar: o texto recusado nem chega
                 do backend, justamente para nao ficar a um clique do cliente. */}
-            {botConversationState?.ultima_recusa ? <section className="fc-wa-bot-recusa" aria-label="O bot não respondeu">
+            {botConversationState?.ultima_recusa ? <section className="fc-wa-bot-recusa" aria-label={botConversationState.ultima_recusa.aviso_enviado ? "Encaminhamento para a equipe" : "O bot não respondeu"}>
               <div className="fc-wa-bot-recusa-heading">
                 <span><ShieldAlert className="h-4 w-4" /> {botConversationState.ultima_recusa.decisao === "handoff" ? "O bot passou para a equipe" : "O bot não respondeu"}</span>
                 <small>{formatDateTime(botConversationState.ultima_recusa.criado_em)}</small>
               </div>
               <p>{BOT_RECUSA_MOTIVOS[botConversationState.ultima_recusa.motivo || ""] || botConversationState.ultima_recusa.motivo || "motivo não registrado"}.</p>
-              <small>Responda você mesmo pelo campo abaixo. O texto que o bot chegou a montar não é exibido nem enviável.</small>
+              {botConversationState.ultima_recusa.aviso_enviado ? <small>Um aviso de encaminhamento para a equipe foi enviado ao cliente. Confira os vínculos e continue o atendimento.</small> :
+                <small>Responda você mesmo pelo campo abaixo. O texto que o bot chegou a montar não é exibido nem enviável.</small>}
             </section> : null}
 
             {/* Silencio: o bot viu e nao respondeu por operacao normal. Medido
@@ -1511,7 +1564,8 @@ export default function WhatsAppStagePage() {
                 {botConversationState.solicitacao_agendamento.preferencia_recebida_em ? <p>Preferência informada em {formatDateTime(botConversationState.solicitacao_agendamento.preferencia_recebida_em)}</p> : null}
                 <p>{botConversationState.solicitacao_agendamento.status_equipe ? "Consulte a equipe para os detalhes do horário na agenda." : "Nenhum horário reservado. A equipe confirma o agendamento."}</p>
               </section> : null}
-              <DomainContextPanel context={domainContext} loading={loadingDomainContext} error={domainContextError} />
+              <DomainContextPanel key={selectedConversation.id} context={domainContext} loading={loadingDomainContext} error={domainContextError}
+                onSaveSelection={saveDomainSelection} onReload={reloadDomainContext} />
               <details className="fc-wa-technical-details"><summary>Dados técnicos</summary><span>Conversa #{selectedConversation.id}</span><span>PSID: {selectedConversation.wa_psid || "não informado"}</span></details>
             </div> : <div className="fc-wa-empty"><UserRound className="h-8 w-8" /><strong>Selecione uma conversa</strong><span>Os dados do atendimento aparecerão aqui.</span></div>}</aside>
         </section>

@@ -21,15 +21,23 @@ os.environ.setdefault("SECRET_KEY", "whatsapp-bot-endpoints-test-secret-key-1234
 
 from app.api.v1.endpoints import whatsapp_bot
 from app.models.configuracao import Configuracao
+from app.models.whatsapp_bot import WhatsAppBotContextoSelecao
 from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import WhatsAppBotConversaEstado, WhatsAppBotJob, WhatsAppBotResposta
 
 
 class WhatsAppBotEndpointsTest(unittest.TestCase):
+    def setUp(self):
+        # Transporte do endpoint isolado; escopo real coberto em test_whatsapp_bot_contexto_entrega.
+        guard = patch("app.services.whatsapp_contexto_selecao_service.resposta_contexto_vigente", return_value=True)
+        guard.start()
+        self.addCleanup(guard.stop)
+
     def _build_session_factory(self, tmpdir: str):
         db_path = Path(tmpdir) / "whatsapp-bot-endpoints-test.db"
         engine = create_engine(f"sqlite:///{db_path}")
         for table in (
+            WhatsAppBotContextoSelecao.__table__,
             Configuracao.__table__,
             WhatsAppBotConversaEstado.__table__,
             WhatsAppBotJob.__table__,
