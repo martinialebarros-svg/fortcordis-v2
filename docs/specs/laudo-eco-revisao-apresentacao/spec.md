@@ -1,5 +1,12 @@
 # Spec - Revisão da apresentação do laudo ecocardiográfico
 
+## Incremento: limpeza de AE/Ao derivado (2026-10-12)
+
+- RF-066: quando o formulário calcula AE/Ao a partir dos diâmetros de aorta e átrio esquerdo, a razão pertence a essas entradas. Apagar ou invalidar uma entrada necessária remove a razão derivada e sua confirmação de método, evitando que o último resultado permaneça como medida atual. Não se cria nova etapa de preenchimento.
+- RF-067: a transição distingue uma razão calculada pelo formulário de uma razão importada diretamente. AE/Ao independente sem diâmetros é preservado, inclusive quando coincide numericamente com um cálculo anterior. A regra vale nos formulários novo e editar, com unidades confirmadas e importação; não regrava laudos históricos nem deduz a origem de uma razão legada órfã.
+- CA-059: a sequência manual aorta 10 mm / AE 14,6 mm produz AE/Ao 1,46; alterar aorta para 11 mm produz 1,33 e retira a confirmação do método. Apagar os componentes elimina a razão automática e o seletor condicional de método. O mesmo ocorre com um componente ausente ou inválido, nos dois formulários.
+- CA-060: importar AE/Ao explicitamente sem diâmetros conserva o valor; importar uma razão igual ao último cálculo não a torna propriedade do cálculo anterior. Carregar um laudo com componentes válidos permite recalcular e posteriormente limpar a razão derivada, sem modificar outros achados, conclusão ou medidas independentes.
+
 ## Incremento: comparação com proveniência e método (2026-10-11)
 
 - RF-059: a resolução das faixas usa uma política clínica versionada e retorna, por parâmetro, fonte, DOI, natureza estatística, população, domínio de peso e motivo de indisponibilidade quando reconciliados. `catalog_ranges` conserva os limites brutos do cadastro; `range_metadata` distingue publicação reconhecida, confirmação de método pendente, faixa personalizada sem origem reconciliada e faixa bloqueada. Não se atribui uma publicação apenas pela espécie ou pela existência de uma medida.

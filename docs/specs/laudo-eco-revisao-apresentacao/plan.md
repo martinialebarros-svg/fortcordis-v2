@@ -14,3 +14,4 @@
 12. Resolver faixas por política de proveniência versionada, preservar limites brutos e pedir confirmação do método apenas para TAPSE e AE/Ao felino quando registrados.
 13. Suspender comparações sem suporte reconciliado de Vmax e dos padrões legados diastólicos; separar o intervalo ponderal de AE/Ao do limiar clínico geral e aplicar limites de cobertura/peso.
 14. Validar importação antes da substituição do catálogo, testar persistência/invalidação do método e igualdade entre formulário, prévia, contexto da IA e PDF; publicar o incremento em stage para revisão.
+15. No cálculo de AE/Ao, rastrear a origem transitória da razão para limpar resultados derivados quando seus componentes forem removidos, preservando razões importadas independentes; validar novo/editar e repetir o caso sintético em stage.

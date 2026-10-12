@@ -54,7 +54,8 @@ import {
 } from "@/lib/echo-derived-measurements";
 import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
 import { operationalTodayDateInput } from "@/lib/calendar-date";
-import { confirmedUnitKey, echoLengthInMm, echoLengthInputLabel, mergeImportedEchoMeasurements, updateEchoMeasurement } from "@/lib/echo-unit-provenance";
+import { confirmedUnitKey, echoLengthInMm, echoLengthInputLabel, updateEchoMeasurement } from "@/lib/echo-unit-provenance";
+import { useEchoMeasurements } from "../../hooks/useEchoMeasurements";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -304,7 +305,7 @@ export default function EditarLaudoPage() {
   const [status, setStatus] = useState("Rascunho");
 
   // Medidas
-  const [medidas, setMedidas] = useState<Record<string, string>>({});
+  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas, replaceMeasurements: substituirMedidas } = useEchoMeasurements();
 
   // Qualitativa
   const [qualitativa, setQualitativa] = useState({
@@ -478,19 +479,12 @@ export default function EditarLaudoPage() {
   }, [clinicaId]);
 
   useEffect(() => {
-    const aorta = echoLengthInMm(medidas, "Aorta");
-    const atrioEsquerdo = echoLengthInMm(medidas, "Atrio_esquerdo");
     const aoNivelAp = echoLengthInMm(medidas, "Ao_nivel_AP");
     const arteriaPulmonar = echoLengthInMm(medidas, "AP");
     const eDoppler = parseNumero(medidas["e_doppler"]);
     const aDoppler = parseNumero(medidas["a_doppler"]);
     const divedMm = echoLengthInMm(medidas, "DIVEd");
     const peso = parsePesoKg(pacienteForm.peso);
-
-    const aeAoCalculado =
-      aorta !== null && aorta > 0 && atrioEsquerdo !== null && atrioEsquerdo > 0
-        ? formatar2Casas(atrioEsquerdo / aorta)
-        : null;
 
     const apAoCalculado =
       aoNivelAp !== null && aoNivelAp > 0 && arteriaPulmonar !== null && arteriaPulmonar > 0
@@ -508,9 +502,6 @@ export default function EditarLaudoPage() {
         : null;
 
     const atualizacoes: Record<string, string> = {};
-    if (aeAoCalculado !== null && medidas["AE_Ao"] !== aeAoCalculado) {
-      atualizacoes.AE_Ao = aeAoCalculado;
-    }
     if (apAoCalculado !== null && medidas["AP_Ao"] !== apAoCalculado) {
       atualizacoes.AP_Ao = apAoCalculado;
     }
@@ -726,7 +717,7 @@ export default function EditarLaudoPage() {
 
     if (dados.medidas) {
       const medidasFormatadas = mapearCamposMedidas(dados.medidas);
-      setMedidas((anteriores) => mergeImportedEchoMeasurements(anteriores, medidasFormatadas));
+      importarMedidas(medidasFormatadas);
     }
 
     if (dados.clinica) {
@@ -762,6 +753,7 @@ export default function EditarLaudoPage() {
   const carregarLaudo = async () => {
     try {
       setLoading(true);
+      substituirMedidas({});
 
       // Carregar laudo
       if (!laudoId) return;
@@ -897,18 +889,13 @@ export default function EditarLaudoPage() {
       // Extrair medidas e qualitativa da descrição
       const qualitativaExtraida = extrairQualitativaEcoDaDescricao(laudoData.descricao || "");
 
-      if (laudoData.descricao) {
-        const descricao = laudoData.descricao;
-
-        // Extrair medidas (formato: - DIVEd: 1.50 ou - Fracao_encurtamento_AE: 21,5)
-        const medidasExtraidas = parseStoredEchoMeasurements(
-          laudoData.medidas,
-          descricao
-        );
-        setMedidas(medidasExtraidas);
-
-        setQualitativa(qualitativaExtraida);
-      }
+      // Substituir o exame inteiro, inclusive quando não há descrição: não
+      // herdar medidas ou ownership da razão de um laudo anteriormente aberto.
+      substituirMedidas(parseStoredEchoMeasurements(
+        laudoData.medidas,
+        laudoData.descricao || "",
+      ));
+      setQualitativa(qualitativaExtraida);
 
       setEcocardiogramaEstruturado(
         hidratarEcocardiogramaEstruturadoDeLegado(
@@ -1123,7 +1110,7 @@ export default function EditarLaudoPage() {
     skipped: string[];
   }) => {
     if (Object.keys(patch.measurements).length) {
-      setMedidas((previous) => mergeImportedEchoMeasurements(previous, patch.measurements));
+      importarMedidas(patch.measurements);
     }
     if (Object.keys(patch.fields).length) {
       handleEcocardiogramaEstruturadoChange({
