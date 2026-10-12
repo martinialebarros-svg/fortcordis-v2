@@ -37,7 +37,7 @@ from app.models.servico import Servico
 from app.models.tutor import Tutor
 from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import (
-    WhatsAppBotClinicaEstado,
+    WhatsAppBotClinicaEstado, WhatsAppBotContextoSelecao,
     WhatsAppBotConversaEstado,
     WhatsAppBotResposta,
 )
@@ -171,7 +171,7 @@ class GuardrailComHistoricoTest(unittest.TestCase):
     def _factory(self, tmpdir: str):
         engine = create_engine(f"sqlite:///{Path(tmpdir) / 'memoria.db'}")
         for tabela in (
-            Configuracao.__table__, WhatsAppBotConversaEstado.__table__,
+            WhatsAppBotContextoSelecao.__table__, Configuracao.__table__, WhatsAppBotConversaEstado.__table__,
             WhatsAppBotClinicaEstado.__table__, Servico.__table__,
             Clinica.__table__, Tutor.__table__, Paciente.__table__,
             Agendamento.__table__, OrdemServico.__table__, Laudo.__table__,

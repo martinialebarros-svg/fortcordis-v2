@@ -26,6 +26,7 @@ from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
 from app.models.tutor import Tutor
+from app.models.whatsapp_bot import WhatsAppBotContextoSelecao
 from app.models.whatsapp_bot import WhatsAppBotSolicitacao
 from app.models.whatsapp_bot import (
     WhatsAppBotClinicaEstado,
@@ -85,6 +86,7 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
         db_path = Path(tmpdir) / "whatsapp-bot-generation-test.db"
         engine = create_engine(f"sqlite:///{db_path}")
         for table in (
+            WhatsAppBotContextoSelecao.__table__,
             Configuracao.__table__,
             WhatsAppBotConversaEstado.__table__,
             WhatsAppBotClinicaEstado.__table__,
@@ -169,9 +171,11 @@ class WhatsAppBotGenerationTest(unittest.TestCase):
                     db.close()
 
                 self.assertEqual(resultado.decisao, "handoff")
-                self.assertEqual(resultado.motivo, "identidade_nao_resolvida")
+                self.assertEqual(resultado.motivo, "identidade_ambigua")
                 self.assertEqual(resultado.resolution, "ambiguous")
-                self.assertIsNone(resultado.texto_gerado)
+                self.assertEqual(resultado.texto_gerado, generation.IDENTITY_HANDOFF_MESSAGE)
+                self.assertNotIn("Pessoa privada", resultado.texto_gerado)
+                self.assertFalse(resultado.auto_elegivel)
                 provider.generate.assert_not_called()
             finally:
                 engine.dispose()

@@ -48,7 +48,7 @@ _WHATSAPP_BOT_PAPEIS = ("admin", "recepcao", "veterinario", "cardiologista")
 # `sem_pergunta` (cortesia, RF-P11) alertar inverteria a intencao da regra.
 # Estes quatro sao acionaveis: explicam um silencio que, sem explicacao, parece
 # bot quebrado - foi exatamente o que aconteceu em producao em 2026-08-25.
-_SUPRESSOES_VISIVEIS = ("pausado", "janela_fechada", "teto_diario", "conversa_divergente")
+_SUPRESSOES_VISIVEIS = ("pausado", "janela_fechada", "teto_diario", "conversa_divergente", "contexto_alterado")
 
 
 class WhatsAppBotConversaEstadoUpdateRequest(BaseModel):
@@ -183,6 +183,7 @@ def _estado_payload(db: Session, wa_identity: str) -> dict:
                 "resposta_id": recusa.id,
                 "decisao": recusa.decisao,
                 "motivo": recusa.motivo,
+                "aviso_enviado": bool(recusa.texto_enviado),
                 "criado_em": recusa.created_at.isoformat() if recusa.created_at else None,
             }
             if recusa is not None
@@ -300,6 +301,18 @@ def enviar_rascunho(
         if atual is not None and atual.decisao == "sent" and atual.texto_enviado:
             return _sent_payload(atual, idempotent=True)
         raise HTTPException(status_code=409, detail="Rascunho já está sendo processado.")
+
+    from app.services.whatsapp_contexto_selecao_service import lock_contexto, resposta_contexto_vigente
+    lock_contexto(db, resposta.wa_identity)
+    if not resposta_contexto_vigente(db, resposta):
+        resposta.decisao = "suppressed"
+        resposta.motivo = "contexto_alterado"
+        resposta.enviado_por_id = None
+        db.commit()
+        raise HTTPException(
+            status_code=409,
+            detail="O cadastro usado neste rascunho mudou. Solicite uma nova mensagem antes de responder com o bot.",
+        )
 
     node_idempotent = False
     try:

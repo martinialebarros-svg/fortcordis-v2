@@ -25,6 +25,7 @@ from app.models.alerta_interno import AlertaInterno
 from app.models.configuracao import Configuracao
 from app.models.whatsapp_bot import (
     WhatsAppBotConversaEstado as Estado,
+    WhatsAppBotContextoSelecao,
     WhatsAppBotJob as Job,
     WhatsAppBotResposta as Resposta,
     WhatsAppBotSolicitacao as Pedido,
@@ -51,11 +52,14 @@ def http_response(payload, status=200):
 
 class SaudacoesAgrupadasWorkerTests(unittest.TestCase):
     def setUp(self):
+        guard = patch("app.services.whatsapp_bot_delivery_service.resposta_contexto_vigente", return_value=True)
+        guard.start()
+        self.addCleanup(guard.stop)
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.engine = create_engine(f"sqlite:///{tmp.name}/worker.db")
         self.addCleanup(self.engine.dispose)
-        for model in (Configuracao, Estado, Job, Resposta, Pedido, AlertaInterno, Agendamento):
+        for model in (WhatsAppBotContextoSelecao, Configuracao, Estado, Job, Resposta, Pedido, AlertaInterno, Agendamento):
             model.__table__.create(self.engine)
         factory = sessionmaker(bind=self.engine, autoflush=False)
         self.db = factory()

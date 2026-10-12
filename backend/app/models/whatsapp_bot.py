@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.sql import func
 
 from app.db.database import Base
@@ -54,6 +54,7 @@ class WhatsAppBotResposta(Base):
     latencia_ms = Column(Integer, nullable=True)
     resolution = Column(String(20), nullable=True)
     match_type = Column(String(20), nullable=True)
+    contexto_chave = Column(String(64), nullable=True)
     # Sem FK: registro historico nao pode sumir nem travar exclusao de clinica.
     clinica_id = Column(Integer, nullable=True, index=True)
     feedback = Column(String(20), nullable=True)
@@ -79,6 +80,34 @@ class WhatsAppBotConversaEstado(Base):
     modo = Column(String(20), nullable=True)
     pausado_ate = Column(DateTime(timezone=True), nullable=True)
     handoff_motivo = Column(String(50), nullable=True)
+    atualizado_por_id = Column(Integer, nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class WhatsAppBotContextoSelecao(Base):
+    """Escolha auditavel por conversa, sem alterar telefones ou estado do bot.
+
+    Sem FK polimorfica: exclusao/inativacao precisa invalidar a escolha, nunca
+    apagar a linha e liberar silenciosamente outro cadastro para o telefone.
+    Limpar a escolha preserva a linha e sua versao para detectar telas antigas.
+    """
+
+    __tablename__ = "whatsapp_bot_contexto_selecao"
+    __table_args__ = (
+        CheckConstraint(
+            "(match_type IS NULL AND cadastro_id IS NULL) OR "
+            "(match_type IS NOT NULL AND match_type IN ('clinica', 'tutor') AND cadastro_id IS NOT NULL AND cadastro_id > 0)",
+            name="ck_whatsapp_contexto_selecao_cadastro",
+        ),
+        CheckConstraint("versao >= 1", name="ck_whatsapp_contexto_selecao_versao"),
+    )
+
+    wa_identity = Column(String(30), primary_key=True)
+    match_type = Column(String(20), nullable=True)
+    cadastro_id = Column(Integer, nullable=True)
+    versao = Column(Integer, nullable=False, default=1)
     atualizado_por_id = Column(Integer, nullable=True)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
