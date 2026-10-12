@@ -35,3 +35,36 @@ class StagePersistenceDiagnosticsTest(unittest.TestCase):
         journal = 'Unexpected PostgreSQL pool error {"message":"AggregateError","inner_errors":[{"message":"connection reset private-host"}]}'
         self.assertEqual(diagnostics.summarize(journal)['errors'][0]['category'],'connection_unavailable')
         self.assertEqual(diagnostics.summarize('no relevant error')['events_found'],0)
+
+    def test_runtime_snapshot_has_only_safe_enums_and_never_process_commands(self):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock, patch
+        commands = [SimpleNamespace(stdout='a'*40,returncode=0)]
+        commands += [SimpleNamespace(stdout=value,returncode=0) for value in ('active','active','secret service detail','active')]
+        commands += [SimpleNamespace(stdout='pid SECRET-ARGS',returncode=0)]
+        response = MagicMock()
+        response.__enter__.return_value.status = 200
+        with patch.object(diagnostics.subprocess,'run',side_effect=commands), patch.object(diagnostics,'urlopen',return_value=response):
+            result = diagnostics.stage_state()
+        self.assertTrue(result['deployment_process_running'])
+        self.assertEqual(result['services']['fortcordis-stage-frontend'],'unknown')
+        self.assertEqual(result['probes']['backend_ready'],200)
+        self.assertNotIn('SECRET',json.dumps(result))
+        self.assertNotIn('secret service',json.dumps(result))
+
+    def test_remote_installation_in_flight_blocks_new_deploy_without_exposing_password(self):
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        output = io.StringIO()
+        with (
+            patch.object(diagnostics.sys,'stdin',io.StringIO('SECRET-SUDO\n')),
+            patch.object(diagnostics.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout='')),
+            patch.object(diagnostics,'stage_state',return_value={'deployment_process_running':True}),
+            contextlib.redirect_stdout(output),
+        ):
+            result = diagnostics.main()
+        self.assertEqual(result,1)
+        self.assertNotIn('SECRET-SUDO',output.getvalue())
+        self.assertTrue(json.loads(output.getvalue())['stage_state']['deployment_process_running'])
