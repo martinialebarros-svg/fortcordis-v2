@@ -2412,3 +2412,12 @@ Aceite em ambiente publicado, pendente: escolher a clínica de teste em
 Vínculos do cadastro, conferir modo/pausa, enviar uma NOVA mensagem do número
 já autorizado e verificar resposta restrita ao pedido correto. Não reenviar
 nem reinterpretar mensagens anteriores à escolha.
+
+### Publicação em stage — diagnóstico de falha
+
+O run 38194150910, SHA 7e1d92ff, passou em qualidade/SDD e aplicou a migração96.
+O smoke simultâneo recebeu503 ao persistir evento webhook; o rollback retornou
+para672a9c26 e restaurou arquivos operacionais. A promoção343 permanece aberta,
+sem merge, até uma instalação stage aprovada. Coletor sanitizado no pipeline
+acrescentado para identificar erro de banco/pool sem copiar dados de conversa.
+Três testes sintéticos de classificação e ausência de dados sensíveis aprovados.
