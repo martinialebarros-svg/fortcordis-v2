@@ -1031,3 +1031,12 @@ selecionada só consulta o próprio escopo; tutor só consulta seus pacientes;
 seleção inválida, concorrência, troca durante geração e envio incerto falham
 com segurança; interface exibe erro junto ao seletor e ignora resultados de
 outra conversa. Nenhum cadastro de teste é excluído ou renomeado.
+
+### Diagnóstico de publicação em stage
+
+O pipeline de stage coleta um resumo somente leitura dos erros de persistência
+WhatsApp nas duas horas anteriores à instalação. O resumo contém apenas tipo
+de evento, timestamp, código de erro reconhecido, categoria e contagem; nunca
+inclui mensagens de erro livres, SQL, telefones, conteúdo de conversa ou segredos.
+O coletor consulta exclusivamente `fortcordis-stage-whatsapp-backend`, não muda
+configuração e não enfraquece o smoke de concorrência nem o rollback existente.

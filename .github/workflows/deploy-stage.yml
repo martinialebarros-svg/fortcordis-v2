@@ -195,10 +195,40 @@ jobs:
             --base-sha "${{ steps.diff.outputs.base_sha }}" \
             --head-sha "${{ steps.diff.outputs.head_sha }}"
 
+  whatsapp-persistence-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Configure SSH for read-only stage diagnostics
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s' "$VPS_SSH_KEY" > ~/.ssh/id_vps
+          chmod 600 ~/.ssh/id_vps
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+      - name: Collect sanitized WhatsApp stage persistence diagnostics
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SUDO_PASSWORD: ${{ secrets.VPS_SUDO_PASSWORD }}
+        run: |
+          set -euo pipefail
+          diagnostic_file="/tmp/fortcordis-whatsapp-stage-diagnostics-${GITHUB_RUN_ID}.py"
+          scp -i ~/.ssh/id_vps -o IdentitiesOnly=yes scripts/collect_whatsapp_stage_persistence_diagnostics.py "${VPS_USER}@${VPS_HOST}:${diagnostic_file}"
+          printf '%s\n' "$VPS_SUDO_PASSWORD" | ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes "${VPS_USER}@${VPS_HOST}" "python3 '${diagnostic_file}'; diagnostic_exit=\$?; rm -f '${diagnostic_file}'; exit \$diagnostic_exit"
+
+
   deploy-stage:
     needs:
       - quality-gate
       - sdd-guardrail
+      - whatsapp-persistence-diagnostics
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
