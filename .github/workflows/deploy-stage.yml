@@ -507,6 +507,8 @@ jobs:
               upsert_env META_APP_ID "$whatsapp_meta_app_id"
               upsert_env WHATSAPP_BUSINESS_ACCOUNT_ID "$whatsapp_business_account_id"
               upsert_env WHATSAPP_GRAPH_API_VERSION "v26.0"
+              # Stage pooler has a small connection budget; queue the burst locally.
+              upsert_env WHATSAPP_DATABASE_POOL_MAX "2"
               upsert_env WHATSAPP_ALLOW_UNVERIFIED_TEST_NUMBER "1"
               # So em stage: o numero de TESTE da Meta guarda os destinatarios
               # permitidos COM o nono digito, entao enviar na forma de 12

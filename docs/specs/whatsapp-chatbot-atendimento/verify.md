@@ -2421,3 +2421,19 @@ para672a9c26 e restaurou arquivos operacionais. A promoção343 permanece aberta
 sem merge, até uma instalação stage aprovada. Coletor sanitizado no pipeline
 acrescentado para identificar erro de banco/pool sem copiar dados de conversa.
 Três testes sintéticos de classificação e ausência de dados sensíveis aprovados.
+
+O diagnóstico do job114638410502 confirmou `connection_capacity`, códigoXX000,
+no instante da falha. Reprodução com aplicação Node real e PostgreSQL local
+limitado a duas conexões: pool padrão respondeu200,200,503,503,503 no burst;
+pool2 respondeu cinco200, persistiu uma conversa/seis mensagens e eventos
+(incluindo inicial), zerofailed e duplicado idempotente. Teste de configuração
+Node e build passaram; servidor sintético encerrado, nenhum envio externo.
+O run38195919628 foi cancelado para incluir a correção, mas a corrida alcançou
+instalação já iniciada. Migração/backend/worker chegaram a atuar; não afirmar
+rollback. Coletor agora verifica SHA/serviços/readiness/processo em voo antes da
+próxima instalação. Nenhuma promoção para main foi realizada.
+
+Configuração e build Node aprovados. Cinco testes do diagnóstico agora cobrem
+redação, estado seguro dos serviços e bloqueio de uma instalação remota ativa;
+YAML e injeção de pool exclusivamente stage verificados. A próxima execução deve
+comprovar estado inicial estável, cincowebhooks200, canário e deployterminal.

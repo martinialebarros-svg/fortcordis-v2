@@ -1040,3 +1040,12 @@ de evento, timestamp, código de erro reconhecido, categoria e contagem; nunca
 inclui mensagens de erro livres, SQL, telefones, conteúdo de conversa ou segredos.
 O coletor consulta exclusivamente `fortcordis-stage-whatsapp-backend`, não muda
 configuração e não enfraquece o smoke de concorrência nem o rollback existente.
+
+O resumo operacional também informa apenas SHA do checkout stage, estados
+padronizados de seus quatro serviços, códigos HTTP de readiness locais e uma
+flag de processo de instalação ativo. Se houver instalação/rollback remoto em
+andamento, a dependência bloqueia nova instalação até nova leitura estável.
+O pool PostgreSQL do WhatsApp aceita `WHATSAPP_DATABASE_POOL_MAX` inteiro1–10;
+ausente mantém o padrão10. Stage injeta2 no seu `.env` de Node para enfileirar o
+pico dentro do serviço e respeitar a capacidade do pooler; produção mantém sua
+configuração. A políticaTLS e o smoke assinado/idempotente não mudam.
