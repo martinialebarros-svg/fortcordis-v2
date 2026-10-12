@@ -1,5 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { usesDashboardShell } from "@/lib/dashboard-shell-routes";
+import { protectAppRoute } from "@/lib/server-route-auth";
 import {
   isAppRoutePath,
   isInstitutionalHost,
@@ -15,7 +17,7 @@ function resolveProtocol(request: NextRequest): string {
   return request.nextUrl.protocol.replace(":", "");
 }
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const host = resolveRequestHost({
     host: request.headers.get("host"),
     forwardedHost: request.headers.get("x-forwarded-host"),
@@ -23,10 +25,12 @@ export function middleware(request: NextRequest) {
   });
 
   if (!isInstitutionalHost(host)) {
-    return NextResponse.next();
+    return usesDashboardShell(request.nextUrl.pathname)
+      ? protectAppRoute(request)
+      : NextResponse.next();
   }
 
-  if (!isAppRoutePath(request.nextUrl.pathname)) {
+  if (!isAppRoutePath(request.nextUrl.pathname) && !usesDashboardShell(request.nextUrl.pathname)) {
     return NextResponse.next();
   }
 

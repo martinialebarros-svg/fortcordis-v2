@@ -9,6 +9,8 @@ class User(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
+    # Vinculo administrativo explicito. Nunca associar contas por email/metadata.
+    supabase_auth_id = Column(String(36), unique=True, nullable=True)
     nome = Column(String)
     senha_hash = Column(String)
     ativo = Column(Integer, default=1)
