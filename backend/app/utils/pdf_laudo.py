@@ -24,7 +24,10 @@ from app.utils.echo_unit_provenance import (
     ambiguous_echo_length_keys,
     normalize_confirmed_echo_lengths,
 )
-from app.utils.referencia_eco_defaults import normalizar_especie_referencia
+from app.utils.referencia_eco_defaults import (
+    aplicar_defaults_publicados_caninos,
+    normalizar_especie_referencia,
+)
 
 
 # Cores do tema - preto e cinza com fontes brancas (teste)
@@ -997,24 +1000,25 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
                 "Visser et al. (2019). Echocardiographic quantitation of left heart size "
                 "and function in 122 healthy dogs. DOI: 10.1111/jvim.15562."
             )
-        if tapse:
+        tapse_metadata = referencia.get("range_metadata", {}).get("tapse", {})
+        if (tapse and tapse_metadata.get("status") == "published"
+                and tapse_metadata.get("doi") == "10.1016/j.jvc.2014.10.003"
+                and referencia.get("tapse_min") is not None
+                and referencia.get("tapse_max") is not None):
             estudos.append(
-                "Pariaut et al. (2012). Tricuspid annular plane systolic excursion "
-                "in dogs. DOI: 10.1111/j.1939-1676.2012.00981.x."
+                "Visser et al. (2015). Echocardiographic assessment of right "
+                "ventricular systolic function in conscious healthy dogs. "
+                "DOI: 10.1016/j.jvc.2014.10.003."
             )
-            if referencia.get("tapse_source") == "Visser et al. 2015":
-                estudos.append(
-                    "Visser et al. (2015). Echocardiographic assessment of right "
-                    "ventricular systolic function in conscious healthy dogs. "
-                    "DOI: 10.1016/j.jvc.2014.10.003."
-                )
         if mapse:
             estudos.append(
                 "Schober &amp; Luis Fuentes (2001). Mitral annulus motion in normal dogs "
                 "and dogs with cardiac disease. DOI: 10.1111/j.1740-8261.2001.tb00904.x."
             )
     elif referencia and especie == "Felina":
-        if tem_modo_m or (modo_m and referencia.get("fs_source") and _to_float(medidas.get("DeltaD_FS")) is not None):
+        la_ao_metadata = referencia.get("range_metadata", {}).get("la_ao", {})
+        if (tem_modo_m or (modo_m and referencia.get("fs_source") and _to_float(medidas.get("DeltaD_FS")) is not None)
+                or (la_ao_metadata.get("status") == "published" and _to_float(medidas.get("AE_Ao")) is not None)):
             estudos.append(
                 "Häggström et al. (2016). Effect of body weight on echocardiographic "
                 "measurements in 19,866 pure-bred cats. DOI: 10.1111/jvim.14569."
@@ -1522,6 +1526,24 @@ def gerar_pdf_laudo_eco(
         dados_pdf = dict(dados)
         dados_pdf["unidades_ambiguas"] = medidas_com_unidade_ambigua(dados.get("medidas", {}))
         dados_pdf["medidas"] = normalizar_medidas_para_pdf(dados.get("medidas", {}))
+        # A direct renderer caller can bypass both DB-backed PDF loaders. Apply
+        # the same safety policy here before any row or bibliography is built.
+        referencia = dados.get("referencia_eco")
+        if referencia:
+            paciente = dados_pdf.get("paciente") or {}
+            especie = normalizar_especie_referencia(paciente.get("especie"))
+            especie_referencia = normalizar_especie_referencia(referencia.get("especie"))
+            if especie and especie_referencia and especie != especie_referencia:
+                dados_pdf["referencia_eco"] = None
+            else:
+                peso = _to_float_peso(paciente.get("peso"))
+                if peso is None or not math.isfinite(peso) or peso <= 0:
+                    dados_pdf["referencia_eco"] = None
+                else:
+                    dados_pdf["referencia_eco"] = aplicar_defaults_publicados_caninos(
+                        {**referencia, "especie": especie or especie_referencia},
+                        peso_kg=peso, medidas=dados_pdf["medidas"],
+                    )
         recalcular_dived_normalizado_para_pdf(dados_pdf)
         recalcular_marcadores_felinos_para_pdf(dados_pdf)
         elements.extend(criar_cabecalho(dados_pdf, temp_logo_path))
@@ -1558,7 +1580,7 @@ def gerar_pdf_laudo_eco(
         # Conforme solicitado: COM Referência, SEM Interpretação
         params_ve_modo_m = [
             {'chave': 'DIVEd', 'label': 'DIVEd (Diâmetro interno do VE em diástole)', 'unidade': 'mm', 'ref_min': 16.0, 'ref_max': 24.0},
-            {'chave': 'DIVEd_normalizado', 'label': 'DIVEd normalizado (DIVEd [cm] / peso^0,294)', 'unidade': '', 'ref_min': 1.27, 'ref_max': 1.73},
+            {'chave': 'DIVEd_normalizado', 'label': 'DIVEd normalizado (DIVEd [cm] / peso^0,294)', 'unidade': '', 'ref_min': None, 'ref_max': None},
             {'chave': 'SIVd', 'label': 'SIVd (Septo interventricular em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
             {'chave': 'PLVEd', 'label': 'PLVEd (Parede livre do VE em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
             {'chave': 'DIVES', 'label': 'DIVEs (Diâmetro interno do VE em sístole)', 'unidade': 'mm', 'ref_min': 9.0, 'ref_max': 16.0},

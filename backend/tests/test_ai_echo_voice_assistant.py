@@ -1428,11 +1428,6 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                 "value": "2,5",
                 "unit": "adimensional",
                 "method": "modo bidimensional",
-                "reference": {
-                    "min": 0.8,
-                    "max": 1.6,
-                    "unit": "adimensional",
-                },
             },
         )
         self.assertEqual(
@@ -1452,6 +1447,7 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             provider_input["reference_context"]["source"],
             "tabela_de_referencia_carregada",
         )
+        self.assertEqual(provider_input["reference_context"]["ranges"], {})
         self.assertEqual(
             fake_client.responses.parse.call_args.kwargs["reasoning"],
             {"effort": "low"},
@@ -1460,6 +1456,32 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             fake_client.responses.parse.call_args.kwargs["max_output_tokens"],
             8000,
         )
+
+    def test_provider_drops_out_of_source_weight_ranges_from_both_prompt_contexts(self) -> None:
+        fake_response = SimpleNamespace(output_parsed=empty_output(), id="response-safety", usage=None)
+        fake_client = SimpleNamespace(responses=SimpleNamespace(parse=Mock(return_value=fake_response)))
+        measurements = {"TAPSE": "12", "TAPSE_metodo": "modo_m_apical"}
+        reference = {"min": 9.2, "max": 14.7, "unit": "mm", "source": "Visser et al. 2015",
+                     "doi": "10.1016/j.jvc.2014.10.003", "statistic": "prediction_interval_95",
+                     "min_weight_kg": 3.0, "max_weight_kg": 45.0}
+        with (
+            patch.object(ai_echo_providers.settings, "AI_STRUCTURING_MODEL", "model-test"),
+            patch.object(ai_echo_providers.settings, "OPENAI_API_KEY", "test-key"),
+            patch.object(ai_echo_providers, "OpenAI", return_value=fake_client),
+        ):
+            provider = ai_echo_providers.OpenAIClinicalStructuringProvider()
+            for weight, expected in ((100, False), (10, True), (None, False)):
+                with self.subTest(weight=weight):
+                    provider.structure(
+                        transcript="TAPSE aferido.", phrase_preferences=[], safety_user_id=7,
+                        current_measurements=measurements,
+                        exam_context={"species": "Canina", "weight_kg": weight},
+                        reference_context={"species": "Canina", "patient_weight_kg": weight,
+                                           "ranges": {"TAPSE": reference}},
+                    )
+                    prompt = json.loads(fake_client.responses.parse.call_args.kwargs["input"])
+                    self.assertEqual("TAPSE" in prompt["reference_context"]["ranges"], expected)
+                    self.assertEqual("reference" in prompt["current_measurements"]["TAPSE"], expected)
 
     def test_structured_validation_error_is_not_reported_as_provider_outage(self) -> None:
         with self.assertRaises(ValidationError) as validation:
@@ -1636,10 +1658,7 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
         self.assertTrue(provider_kwargs["exam_context"]["age"])
         self.assertEqual(provider_kwargs["exam_context"]["weight_kg"], 8.2)
         self.assertEqual(provider_kwargs["reference_context"]["reference_id"], 5)
-        self.assertEqual(
-            provider_kwargs["reference_context"]["ranges"]["Onda_E"]["max"],
-            1.09,
-        )
+        self.assertNotIn("Onda_E", provider_kwargs["reference_context"]["ranges"])
         with self.session_factory() as db:
             persisted = db.query(AIEchoFieldSuggestion).all()
             self.assertEqual(

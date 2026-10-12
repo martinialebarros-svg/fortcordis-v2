@@ -1,5 +1,6 @@
 import { echoLengthInMm, isEchoLengthKey } from "./echo-unit-provenance";
 import { calculateCanine2DNormalizedLVIDd, type Echo2DView } from "./echo-2d-reference";
+import { ECHO_REFERENCE_METHOD_VALUES } from "./echo-reference-policy";
 
 export type RightAtrialRemodeling =
   | ""
@@ -101,6 +102,9 @@ function normalizeStoredMeasurement(
   }
   if (key === "VE_vista_2D") {
     return text === "eixo_curto" || text === "eixo_longo" ? text : null;
+  }
+  if (key === "TAPSE_metodo" || key === "AE_Ao_metodo") {
+    return (ECHO_REFERENCE_METHOD_VALUES[key] as readonly string[]).includes(text) ? text : null;
   }
   if (key === "Remodelamento_AD") {
     const normalized = text.toLowerCase();

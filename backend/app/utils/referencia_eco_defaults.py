@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
+import math
 import unicodedata
 
 _TAPSE_CANINO_REFERENCIAS_MM: tuple[tuple[float, float, float], ...] = (
@@ -48,7 +49,7 @@ def _coerce_positive_float(valor: Any) -> float | None:
     except (TypeError, ValueError):
         return None
 
-    return numero if numero > 0 else None
+    return numero if math.isfinite(numero) and numero > 0 else None
 
 
 def obter_tapse_canino_por_peso(peso_kg: float) -> tuple[float, float]:
@@ -64,67 +65,15 @@ def aplicar_defaults_publicados_caninos(
     referencia: dict[str, Any],
     *,
     peso_kg: Any | None = None,
+    medidas: dict[str, Any] | None = None,
+    catalog_weight_min: Any | None = None,
+    catalog_weight_max: Any | None = None,
 ) -> dict[str, Any]:
-    resultado = dict(referencia)
-    resultado.pop("fs_source", None)
-    resultado.pop("tapse_source", None)
-    especie = normalizar_especie_referencia(resultado.get("especie"))
-    peso_resolvido = _coerce_positive_float(peso_kg)
-    if peso_resolvido is None:
-        peso_resolvido = _coerce_positive_float(resultado.get("peso_kg"))
+    """Compatibility entry point for the versioned comparison policy."""
+    # Local import keeps normalizers and the TAPSE table reusable by the service.
+    from app.services.echo_reference_resolver import resolve_echo_reference
 
-    # The catalog's EF columns do not identify Teichholz or Simpson. Neither
-    # Visser 2019 (Simpson) nor Häggström 2016 (no EF interval) validates an
-    # automatic Teichholz comparison. Keep the stored values for audit only.
-    resultado["ef_min"] = None
-    resultado["ef_max"] = None
-    resultado["ef_reference_note"] = "FE Teichholz: intervalo não validado por método"
-
-    # Visser et al. 2019, Table 3: 95% RI for FS, M-mode, short axis, in 122
-    # healthy adult dogs (2.6–67.8 kg). Replace only the known unsourced
-    # catalog default; never attribute a custom row to this study.
-    if especie == "Canina":
-        if (peso_resolvido is not None and 2.6 <= peso_resolvido <= 67.8
-                and (resultado.get("fs_min"), resultado.get("fs_max"))
-                in {(25, 45), (20.7, 51.9)}):
-            resultado["fs_min"] = 20.7
-            resultado["fs_max"] = 51.9
-            resultado["fs_source"] = "Visser et al. 2019; modo M, eixo curto; cães adultos saudáveis"
-        else:
-            resultado["fs_min"] = None
-            resultado["fs_max"] = None
-    elif especie == "Felina":
-        # Häggström et al. 2016, Table 3: weight-specific FS prediction limits
-        # in adult pure-bred cats with unremarkable echocardiograms.
-        row_weight = _coerce_positive_float(resultado.get("peso_kg"))
-        expected_upper = 63 if row_weight is not None and row_weight >= 9.5 else 62
-        if (peso_resolvido is not None and 1.5 <= peso_resolvido <= 11.0
-                and row_weight is not None and 1.5 <= row_weight <= 11.0
-                and resultado.get("fs_min") == 28
-                and resultado.get("fs_max") == expected_upper):
-            resultado["fs_source"] = "Häggström et al. 2016; modo M; gatos adultos de raça pura"
-        else:
-            resultado["fs_min"] = None
-            resultado["fs_max"] = None
-    else:
-        resultado["fs_min"] = None
-        resultado["fs_max"] = None
-
-    if especie != "Canina":
-        return resultado
-
-    if peso_resolvido is None:
-        return resultado
-
-    if (
-        _TAPSE_CANINO_REFERENCIAS_MM[0][0] <= peso_resolvido <= _TAPSE_CANINO_REFERENCIAS_MM[-1][0]
-        and (resultado.get("tapse_min") is None or resultado.get("tapse_max") is None)
-    ):
-        tapse_min, tapse_max = obter_tapse_canino_por_peso(peso_resolvido)
-        resultado["tapse_min"] = tapse_min
-        resultado["tapse_max"] = tapse_max
-        resultado["tapse_source"] = "Visser et al. 2015"
-
-    # Schober e Luis Fuentes (2001) publicaram ICs das médias de MAPSE,
-    # não intervalos de referência individuais; não preencher MAPSE com esses ICs.
-    return resultado
+    return resolve_echo_reference(
+        referencia, peso_kg=peso_kg, medidas=medidas,
+        catalog_weight_min=catalog_weight_min, catalog_weight_max=catalog_weight_max,
+    )

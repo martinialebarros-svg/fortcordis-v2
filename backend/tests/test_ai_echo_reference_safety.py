@@ -1,0 +1,171 @@
+import json
+import os
+import sys
+import unittest
+from pathlib import Path
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+os.chdir(BACKEND_DIR)
+sys.path.insert(0, str(BACKEND_DIR))
+os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
+os.environ.setdefault("SECRET_KEY", "echo-reference-safety-test-secret-1234567890")
+
+from app.models.referencia_eco import ReferenciaEco
+from app.services.ai_echo_context import (
+    load_echo_reference_context, safe_measurement_context, safe_reference_context,
+)
+
+
+class AIEchoReferenceSafetyTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.engine = create_engine("sqlite:///:memory:")
+        ReferenciaEco.__table__.create(self.engine)
+        self.db = sessionmaker(bind=self.engine)()
+        self.db.add_all([
+            ReferenciaEco(
+                especie="Canina", peso_kg=10, lvid_d_min=20, lvid_d_max=40,
+                fs_min=25, fs_max=45, vmax_ao_min=0, vmax_ao_max=2.2,
+                vmax_pulm_min=0, vmax_pulm_max=2.2, mv_e_min=0.5, mv_e_max=1.09,
+            ),
+            ReferenciaEco(especie="Felina", peso_kg=4, la_ao_min=0.88, la_ao_max=1.5,
+                          fs_min=28, fs_max=62),
+        ])
+        self.db.commit()
+
+    def tearDown(self) -> None:
+        self.db.close()
+        self.engine.dispose()
+
+    def test_loader_sends_only_published_ranges_and_no_raw_or_candidate_catalog(self) -> None:
+        context = load_echo_reference_context(self.db, species="Canina", weight_kg=10)
+        ranges = context["ranges"]
+        self.assertNotIn("DIVEd", ranges)
+        self.assertNotIn("Vmax_aorta", ranges)
+        self.assertNotIn("Vmax_pulmonar", ranges)
+        self.assertNotIn("Onda_E", ranges)
+        self.assertNotIn("TAPSE", ranges)
+        self.assertEqual(ranges["DeltaD_FS"]["min"], 20.7)
+        self.assertEqual(ranges["DeltaD_FS"]["doi"], "10.1111/jvim.15562")
+        self.assertEqual(ranges["DeltaD_FS"]["statistic"], "reference_interval_95")
+        serialized = json.dumps(context)
+        self.assertNotIn("catalog_ranges", serialized)
+        self.assertNotIn("candidate_min", serialized)
+        self.assertNotIn("required_measurement_value", serialized)
+
+    def test_tapse_reference_requires_explicit_m_mode_apical_confirmation(self) -> None:
+        for method in ("", "2d"):
+            with self.subTest(method=method):
+                context = load_echo_reference_context(
+                    self.db, species="Canina", weight_kg=10,
+                    current_measurements={"TAPSE": "12", "TAPSE_metodo": method},
+                )
+                self.assertNotIn("TAPSE", context["ranges"])
+        measurements = {"TAPSE": "12", "TAPSE_metodo": "modo_m_apical"}
+        context = load_echo_reference_context(
+            self.db, species="Canina", weight_kg=10, current_measurements=measurements,
+        )
+        self.assertEqual(context["ranges"]["TAPSE"]["doi"], "10.1016/j.jvc.2014.10.003")
+        self.assertEqual(context["ranges"]["TAPSE"]["min_weight_kg"], 3.0)
+        self.assertEqual(context["ranges"]["TAPSE"]["max_weight_kg"], 45.0)
+        self.assertIn("reference", safe_measurement_context(measurements, species="Canina", reference_context=context)["TAPSE"])
+
+    def test_feline_ae_ao_candidate_never_enters_context_until_method_confirmed(self) -> None:
+        for method in ("", "outro"):
+            with self.subTest(method=method):
+                context = load_echo_reference_context(
+                    self.db, species="Felina", weight_kg=4,
+                    current_measurements={"AE_Ao": "1.46", "AE_Ao_metodo": method},
+                )
+                self.assertNotIn("AE_Ao", context["ranges"])
+        context = load_echo_reference_context(
+            self.db, species="Felina", weight_kg=4,
+            current_measurements={"AE_Ao": "1.46", "AE_Ao_metodo": "2d_eixo_curto_diastole_inicial"},
+        )
+        self.assertEqual(context["ranges"]["AE_Ao"]["max"], 1.43)
+        self.assertEqual(context["ranges"]["AE_Ao"]["statistic"], "prediction_interval_95")
+        self.assertNotIn("clinical_threshold", context["ranges"]["AE_Ao"])
+
+    def test_direct_context_cannot_attach_wrong_method_or_unsupported_bounds(self) -> None:
+        ranges = {key: {"min": 0, "max": 2.2, "unit": "m/s"}
+                  for key in ("Vmax_aorta", "Onda_E", "TAPSE", "AE_Ao", "DeltaD_FS")}
+        measurements = {"Vmax_aorta": "1.26", "Onda_E": "0.8", "TAPSE": "12",
+                        "TAPSE_metodo": "2d", "AE_Ao": "1.46", "DeltaD_FS": "40",
+                        "VE_tecnica_relatorio": "2d"}
+        context = safe_measurement_context(
+            measurements, species="Felina", reference_context={"ranges": ranges},
+        )
+        for item in context.values():
+            self.assertNotIn("reference", item)
+        self.assertEqual(context["TAPSE"]["value"], "12")
+        self.assertEqual(context["Vmax_aorta"]["value"], "1.26")
+
+    def test_no_m_mode_range_for_selected_2d_and_no_range_outside_catalog_coverage(self) -> None:
+        context = load_echo_reference_context(
+            self.db, species="Canina", weight_kg=10,
+            current_measurements={"VE_tecnica_relatorio": "2d", "DeltaD_FS_2D": "35"},
+        )
+        self.assertNotIn("DeltaD_FS", context["ranges"])
+        context = load_echo_reference_context(self.db, species="Canina", weight_kg=20)
+        self.assertEqual(context["ranges"], {})
+
+    def test_confirmed_method_does_not_validate_a_stale_unsourced_range(self) -> None:
+        measurements = {"TAPSE": "12", "TAPSE_metodo": "modo_m_apical"}
+        stale_context = {"ranges": {"TAPSE": {"min": 0, "max": 99, "unit": "mm"}}}
+        self.assertNotIn("reference", safe_measurement_context(
+            measurements, species="Canina", reference_context=stale_context,
+        )["TAPSE"])
+        sourced_context = {"patient_weight_kg": 10, "ranges": {"TAPSE": {
+            "min": 9.2, "max": 14.7, "unit": "mm", "source": "Visser et al. 2015",
+            "doi": "10.1016/j.jvc.2014.10.003", "statistic": "prediction_interval_95",
+        }}}
+        self.assertIn("reference", safe_measurement_context(
+            measurements, species="Canina", reference_context=sourced_context,
+        )["TAPSE"])
+        sourced_context["catalog_ranges"] = {"tapse": {"min": 0, "max": 99}}
+        sourced_context["ranges"]["TAPSE"]["candidate_max"] = 99
+        sanitized = safe_reference_context(
+            sourced_context, current_measurements=measurements, species="Canina",
+        )
+        self.assertNotIn("catalog_ranges", sanitized)
+        self.assertNotIn("candidate_max", sanitized["ranges"]["TAPSE"])
+        self.assertEqual(safe_reference_context(
+            stale_context, current_measurements=measurements, species="Canina",
+        )["ranges"], {})
+
+    def test_direct_published_context_requires_finite_weight_within_its_source_domain(self) -> None:
+        cases = (
+            ("Canina", "TAPSE", {"TAPSE_metodo": "modo_m_apical"}, 3.0, 45.0,
+             "10.1016/j.jvc.2014.10.003", "prediction_interval_95", 9.2, 14.7),
+            ("Canina", "DeltaD_FS", {}, 2.6, 67.8, "10.1111/jvim.15562", "reference_interval_95", 20.7, 51.9),
+            ("Felina", "DeltaD_FS", {}, 1.5, 11.0, "10.1111/jvim.14569", "prediction_interval_95", 28, 62),
+            ("Felina", "AE_Ao", {"AE_Ao_metodo": "2d_eixo_curto_diastole_inicial"},
+             1.5, 11.0, "10.1111/jvim.14569", "prediction_interval_95", 0.88, 1.43),
+        )
+        for species, key, methods, min_weight, max_weight, doi, statistic, minimum, maximum in cases:
+            measurements = {key: "12", **methods}
+            reference = {"min": minimum, "max": maximum, "source": "Estudo publicado",
+                         "doi": doi, "statistic": statistic, "min_weight_kg": min_weight,
+                         "max_weight_kg": max_weight}
+            for weight in (None, float("nan"), float("inf"), min_weight - 0.1, max_weight + 0.1, 100):
+                with self.subTest(species=species, key=key, weight=weight):
+                    context = {"patient_weight_kg": weight, "ranges": {key: reference}}
+                    self.assertEqual(safe_reference_context(
+                        context, current_measurements=measurements, species=species,
+                    )["ranges"], {})
+                    self.assertNotIn("reference", safe_measurement_context(
+                        measurements, species=species, reference_context=context,
+                    )[key])
+            for weight in (min_weight, max_weight):
+                with self.subTest(species=species, key=key, weight=weight):
+                    context = {"patient_weight_kg": weight, "ranges": {key: reference}}
+                    safe = safe_reference_context(context, current_measurements=measurements, species=species)
+                    self.assertIn(key, safe["ranges"])
+                    self.assertEqual(safe["ranges"][key]["min_weight_kg"], min_weight)
+                    self.assertEqual(safe["ranges"][key]["max_weight_kg"], max_weight)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,7 +1,31 @@
+export interface EchoRangeMetadata {
+  status: "published" | "requires_method" | "blocked" | "unavailable" | "catalog";
+  reason?: string;
+  source?: string;
+  doi?: string;
+  statistic?: string;
+  population?: string;
+  min_weight_kg?: number | null;
+  max_weight_kg?: number | null;
+  candidate_min?: number | null;
+  candidate_max?: number | null;
+  candidate_weight_kg?: number | null;
+  required_measurement_key?: string;
+  required_measurement_value?: string;
+  required_method?: string;
+  clinical_threshold?: { operator?: string; value?: number; source?: string; description?: string } | number | string;
+}
+
 export interface ReferenciaEco {
   id: number;
   especie: "Canina" | "Felina";
   peso_kg: number;
+  policy_version?: string;
+  patient_weight_kg?: number;
+  catalog_weight_min?: number | null;
+  catalog_weight_max?: number | null;
+  catalog_ranges?: Record<string, { min?: number | null; max?: number | null }>;
+  range_metadata?: Record<string, EchoRangeMetadata>;
   
   // Medidas estruturais (VE - Modo M)
   lvid_d_min?: number;
@@ -78,6 +102,7 @@ export interface ComparacaoMedida {
   nome: string;
   valor_medido: string;
   fonte?: string;
+  metadados?: EchoRangeMetadata;
   referencia_min: number | null;
   referencia_max: number | null;
   status: "normal" | "aumentado" | "diminuido" | "nao_avaliado";

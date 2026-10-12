@@ -54,6 +54,15 @@ describe("deriveAutomaticEchoMeasurements", () => {
     expect(deriveAutomaticEchoMeasurements({ DIVEd_2D: "33.53", VE_vista_2D: "eixo_curto" }, 13.6, "Felina")).not.toHaveProperty("DIVEd_normalizado_2D");
   });
 
+  it("persiste apenas métodos de TAPSE e AE/Ao explicitamente selecionados", () => {
+    const saved = { TAPSE: "10", TAPSE_metodo: "modo_m_apical", AE_Ao: "1.42", AE_Ao_metodo: "2d_eixo_curto_diastole_inicial" };
+    expect(parseStoredEchoMeasurements(saved)).toMatchObject(saved);
+    const text = "## Medidas Ecocardiograficas\n- TAPSE: 10\n- TAPSE_metodo: 2d\n- AE_Ao_metodo: outro\n\n## Avaliacao Qualitativa";
+    expect(parseStoredEchoMeasurements(null, text)).toMatchObject({ TAPSE_metodo: "2d", AE_Ao_metodo: "outro" });
+    expect(parseStoredEchoMeasurements({ TAPSE_metodo: "modo_m", AE_Ao_metodo: "desconhecido" })).toEqual({});
+    expect(parseStoredEchoMeasurements({ TAPSE: "10", AE_Ao: "1.42" })).not.toHaveProperty("TAPSE_metodo");
+  });
+
   it("não calcula o índice de Cornell em felinos; deriva função atrial e gradiente da VSVE", () => {
     const raw = { DIVEd: "15", AE_diametro_max: "18", AE_diametro_min: "13.5", Vmax_VSVE: "2.5" };
     const derived = deriveAutomaticEchoMeasurements(raw, 4, "Felina");

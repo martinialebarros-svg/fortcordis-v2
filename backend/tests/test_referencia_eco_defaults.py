@@ -129,6 +129,7 @@ class ReferenciaEcoDefaultsTest(unittest.TestCase):
                 "mapse_max": None,
             },
             peso_kg=6.3,
+            medidas={"TAPSE_metodo": "modo_m_apical"},
         )
 
         self.assertEqual(referencia["tapse_min"], 8.5)
@@ -150,7 +151,7 @@ class ReferenciaEcoDefaultsTest(unittest.TestCase):
         referencia_45_kg = aplicar_defaults_publicados_caninos({
             "especie": "Canina", "peso_kg": 45.0,
             "tapse_min": None, "tapse_max": None,
-        })
+        }, medidas={"TAPSE_metodo": "modo_m_apical"})
         self.assertEqual((referencia_45_kg["tapse_min"], referencia_45_kg["tapse_max"]), (14.8, 23.7))
 
     def test_aplicar_defaults_publicados_caninos_preserva_valores_existentes(self) -> None:
@@ -166,8 +167,9 @@ class ReferenciaEcoDefaultsTest(unittest.TestCase):
             peso_kg=20.0,
         )
 
-        self.assertEqual(referencia["tapse_min"], 1.0)
-        self.assertEqual(referencia["tapse_max"], 2.0)
+        self.assertIsNone(referencia["tapse_min"])
+        self.assertIsNone(referencia["tapse_max"])
+        self.assertEqual(referencia["catalog_ranges"]["tapse"], {"min": 1.0, "max": 2.0})
         self.assertEqual(referencia["mapse_min"], 3.0)
         self.assertEqual(referencia["mapse_max"], 4.0)
 
