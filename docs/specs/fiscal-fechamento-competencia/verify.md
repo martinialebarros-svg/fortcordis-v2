@@ -8,6 +8,7 @@
 - Frontend completo após atualizar a base stage: 695 testes Vitest e 23 testes Node aprovados; lint completo sem avisos; typecheck e build Next.js aprovados. Dez testes específicos cobrem mudanças de mês/resposta antiga, exclusões, conferência, retry, conflito e recuperação de histórico.
 - PDF sintético regular (2 páginas) e textos longos (3 páginas) renderizados e inspecionados; sem sobreposição ou texto cortado. XLSX reconcilia resumo e detalhe e trata cadastros como texto, inclusive valores iniciados por '='.
 - Revisão independente das camadas backend/API e canário. Canário rastreia todas as chaves, aguarda locks antes da limpeza em caso de timeout HTTP e confirma limpeza usando nova conexão.
+- Canário completo executado localmente a partir da fonte real (somente guarda de caminho substituída em memória) com API TestClient e schema PostgreSQL isolado em UTC: nome_key NOT NULL, VARCHAR(50) e FKs. Dez chamadas reais da API e onze checks aprovados, incluindo ZIP, valores, privacidade, checksum, retry, segunda via, duplicidade e ausência de NF. Fixtures e schema removidos; fonte preservada. Essa evidência local não substitui o canário de stage.
 
 ## Matriz de aceite
 
@@ -21,6 +22,8 @@
 | 6 — publicação stage | Workflow e canário de fixtures sintéticas previstos abaixo | A validar após deploy |
 
 ## Verificação de stage planejada
+
+O run `38643448200`, SHA `b83ad68e3ccb6010b7434f517d2f80cfcd08e3eb`, concluiu quality-gate, migração/deploy, health, canário autenticado e backup/restore drill. A identidade correta permitiu iniciar o canário fiscal; a criação da fixture falhou em `Paciente.nome_key` NOT NULL, antes do commit. O roteiro preenche agora nome_key de tutor/paciente e usa nonce menor, mantendo numero_os abaixo de VARCHAR(50), sem alterar o schema ou código fiscal da aplicação. A transação de fixture foi revertida e o bloco de limpeza executou. A nova execução validará o pacote completo.
 
 O PR #356 corrigiu somente as fixtures. O run `38641214265`, SHA `ea35ede66724847f3410a1f475ff5c6c7a5b3dbd`, passou quality-gate (incluindo PostgreSQL fiscal em UTC), SDD, Migration CI e Frontend CI. O deploy padrão concluiu migração 97, health, canário autenticado, preservação/restauração dos seis arquivos de runtime e backup/restore drill. O passo adicional fiscal falhou antes de abrir sessão/fixtures porque usava `www-data`; o serviço real executa como `martiniano` e seu arquivo de configuração é modo 600. O workflow foi ajustado para obter `User` do systemd e executar o canário sob essa identidade, sem alterar permissões ou configurações.
 
