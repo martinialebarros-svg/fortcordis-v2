@@ -23,6 +23,7 @@
 ## Critérios de aceite
 
 1. Serviço 31/08 recebido depois permanece em agosto; setembro não entra na seleção agosto. Limites UTC/local respeitados.
+   Fixtures PostgreSQL declaram o fuso da prestação explicitamente; testes usam sessão UTC para não depender do fuso da máquina ou do runner.
 2. Canceladas não entram na preparação nem nos totais aptos; IDs repetidos e inexistentes são recusados.
 3. Concorrência e repetição não duplicam OS; retry preserva os bytes. Segundo pacote de OS já preparada retorna conflito com pacote anterior.
 4. Resumo por documento reconcilia com detalhes usando valores monetários exatos; pacote omite dados clínicos e contém informações do tomador e prestador.
