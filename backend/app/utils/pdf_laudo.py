@@ -697,7 +697,7 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
         data.append(row)
     
     # Criar tabela
-    table = Table(data, colWidths=col_widths)
+    table = Table(data, colWidths=col_widths, repeatRows=2)
     
     # Estilos base - cores do modelo original
     table_style = [
@@ -1804,12 +1804,19 @@ def gerar_pdf_laudo_eco(
             if titulo == "Diastólica":
                 for nota in feline_diastolic_notes(medidas_pdf, (dados_pdf.get("paciente") or {}).get("especie")):
                     bloco_tabela.extend([Spacer(1, 1 * mm), Paragraph(_esc(nota), create_pdf_styles()["ReferenciaTexto"])])
-            elements.append(
-                _bloco_sem_quebra(
-                    *bloco_tabela,
-                    Spacer(1, 3 * mm),
+            if titulo == "Diastólica" and consultas_diastolicas:
+                # The branded header can leave space for the table but not for
+                # all cohort/method notes. Allow row-wise pagination instead
+                # of moving the whole clinical block to an otherwise empty page.
+                elements.extend(bloco_tabela)
+                elements.append(Spacer(1, 3 * mm))
+            else:
+                elements.append(
+                    _bloco_sem_quebra(
+                        *bloco_tabela,
+                        Spacer(1, 3 * mm),
+                    )
                 )
-            )
         
         # 3. Análise Qualitativa
         qualitativa = dados_pdf.get('qualitativa', {})

@@ -1,5 +1,10 @@
 # Spec - Revisão da apresentação do laudo ecocardiográfico
 
+## Incremento: paginação da consulta diastólica felina (2026-10-14)
+
+- RF-079: o bloco diastólico felino com dados de consulta pode continuar por linhas, repetindo título e cabeçalho de colunas. As notas permanecem após a tabela e a bibliografia após qualitativa/assinatura. A tabela e todas as notas não são forçadas a caber juntas, evitando uma seção quantitativa vazia na primeira página com logo, linha de estado e conclusão longa. Os demais grupos conservam sua regra de agrupamento; valores, fórmulas, métodos, estudos e estados de fusão não mudam.
+- CA-068: PDFs sintéticos com logo/assinatura e conclusão longa, separados e fundidos, iniciam linhas quantitativas na primeira página e repetem cabeçalhos na continuação, sem perda/duplicação de parâmetros. Os PDFs baixados em stage do teste #52 são regenerados e renderizados para conferir a correção. Cache exclusivo eco `2026-10-14-eco-feline-diastolic-pagination-v20`, demais modalidades inalteradas.
+
 ## Incremento: consulta diastólica felina e fusão de ondas (2026-10-14)
 
 - RF-072: a aba Referências, a prévia e o PDF apresentam dados publicados de E, A, E/A, TD, TRIV, e', a', e'/a' e E/e' como **média ± DP**, com estudo, técnica e população identificados. Estas estatísticas descritivas não geram limites mínimos/máximos, cor de normalidade, diagnóstico ou grau diastólico. Não dependem de peso nem da existência de linha no catálogo; o catálogo editável e os valores originais são preservados.

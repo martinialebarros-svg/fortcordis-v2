@@ -234,3 +234,13 @@ O laudo real aberto no Safari não foi editado, salvo ou recarregado para testar
 - Na validação local inicial não houve commit, push, publicação, envio ou alteração de dados reais. A rodada seguinte prepara a publicação autorizada exclusivamente em stage, com teste sintético.
 - Preflight de stage: hints legados de E/TRIV e E/e' em Medidas restritos à espécie Canina explícita nos formulários novo/editar; conferir ausência dos dois textos no caso felino e presença no controle canino em stage.
 - A versão final dos hints foi novamente validada por TypeScript sem emissão e ESLint direcionado; a consulta usa a espécie atual do estado de cada formulário. Nenhum hint canino é inferido para espécie ausente ou não canina.
+
+## QA autenticado e correção de paginação em stage (2026-10-14)
+
+- Publicação inicial: PR #354, stage `4ee43c427ec78702cf3795ffd2aeb84f4c398c85`, deploy 38637151278 e Frontend/Migration CI concluídos SUCCESS. Backend 1.731 testes (11 skips), frontend 685 Vitest +23 Node; seis arquivos de runtime preservados/restaurados e restore drill OK. Ambos os domínios stage e rota novo 200, API anônima 401, todos os 18 chunks disponíveis e seis marcadores presentes.
+- Teste exclusivamente sintético #52 salvo, reaberto, editado e reaberto novamente. Escolhas de aquisição e fusões independentes persistem; fontes TRIV clique/fim e TDI lateral/septal respondem; editar origem remove somente confirmação relacionada, preservando índices históricos sem recálculo. Hints caninos ausentes em Felina. Nenhuma liberação ao portal ou envio.
+- Dois PDFs baixados de stage têm valores/fontes/bibliografia e fusão corretos, porém a tabela com todas as notas agrupadas deixa somente o título quantitativo na página 1. Este achado motivou a correção RF-079/CA-068 antes de concluir a QA do PDF.
+- Correção: tabela diastólica felina pode continuar por linhas; título e cabeçalho repetem. Outros grupos e conteúdo clínico preservados. Cache eco v20.
+- [x] 72 regressões backend focadas, sintaxe e diff check da correção passaram; guardrail SDD será novamente conferido sobre o commit antes do push.
+- [x] Duas prévias locais com logo, assinatura, quatro linhas de identificação e conclusão de duas linhas foram renderizadas e todas as quatro páginas inspecionadas. A primeira página contém medidas; a continuação da tabela fundida repete título/cabeçalho, sem corte ou sobreposição. Dados e fontes preservados.
+- [ ] Deploy terminal da correção, PDF servido v20 e inspeção de todas as páginas.
