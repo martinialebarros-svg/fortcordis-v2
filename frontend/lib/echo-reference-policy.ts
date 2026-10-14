@@ -2,7 +2,7 @@ import type { EchoRangeMetadata, ReferenciaEco } from "@/app/laudos/types/refere
 
 export const ECHO_REFERENCE_METHOD_VALUES = {
   TAPSE_metodo: ["modo_m_apical", "2d"],
-  AE_Ao_metodo: ["2d_eixo_curto_diastole_inicial", "outro"],
+  AE_Ao_metodo: ["2d_eixo_curto_diastole_inicial", "2d_eixo_curto_diastole_inicial_sueco", "outro"],
 } as const;
 
 export const ECHO_REFERENCE_METHOD_KEYS = Object.keys(ECHO_REFERENCE_METHOD_VALUES);
