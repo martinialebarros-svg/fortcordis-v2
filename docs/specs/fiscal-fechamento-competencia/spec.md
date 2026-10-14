@@ -29,7 +29,7 @@
 3. Concorrência e repetição não duplicam OS; retry preserva os bytes. Segundo pacote de OS já preparada retorna conflito com pacote anterior.
 4. Resumo por documento reconcilia com detalhes usando valores monetários exatos; pacote omite dados clínicos e contém informações do tomador e prestador.
 5. Exportação legada exige reconhecimento, não é confundida com emissão da nota; baixar pacote é segunda via do mesmo pacote.
-6. Página e API servidas em stage correspondem ao SHA validado; produção permanece fora do escopo.
+6. Página e API servidas em stage correspondem ao SHA validado; produção permanece fora do escopo. As fixtures do canário usam o normalizador existente para `nome_key` de paciente e tutor, respeitando a restrição obrigatória do schema legado sem alterar cadastros reais ou relaxar constraints.
 
 ## Rollback
 

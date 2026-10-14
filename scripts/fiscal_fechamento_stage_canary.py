@@ -28,6 +28,7 @@ def main() -> None:
     sys.path.insert(0, str(backend))
     sys.path.insert(0, str(root / "scripts"))
     from app.core.config import settings
+    from app.api.v1.endpoints.pacientes import _gerar_nome_key
     from app.db.database import SessionLocal
     from app.models.clinica import Clinica
     from app.models.fiscal import FiscalFechamento, FiscalFechamentoOS, NotaFiscal
@@ -64,7 +65,8 @@ def main() -> None:
     checks: dict[str, bool] = {}
     cleanup_ok = False
     try:
-        tutor = Tutor(nome="QA-TUTOR-PRIVADO-" + nonce, ativo=0)
+        tutor_nome = "QA-TUTOR-PRIVADO-" + nonce
+        tutor = Tutor(nome=tutor_nome, nome_key=_gerar_nome_key(tutor_nome), ativo=0)
         servico = Servico(nome="QA Fiscal - serviço sintético", ativo=False, duracao_minutos=1)
         clinica = Clinica(nome="QA Fiscal " + nonce, razao_social="QA Fiscal sintético",
                           cnpj="12.345.678/0001-95", endereco="Rua de teste", numero="1",
@@ -73,7 +75,9 @@ def main() -> None:
         db.add_all([tutor, servico, clinica])
         db.flush()
         fixture_ids.update(tutor=tutor.id, servico=servico.id, clinica=clinica.id)
-        paciente = Paciente(nome="QA-PACIENTE-PRIVADO-" + nonce, tutor_id=tutor.id, ativo=0)
+        paciente_nome = "QA-PACIENTE-PRIVADO-" + nonce
+        paciente = Paciente(nome=paciente_nome, nome_key=_gerar_nome_key(paciente_nome),
+                            tutor_id=tutor.id, ativo=0)
         db.add(paciente)
         db.flush()
         fixture_ids["paciente"] = paciente.id

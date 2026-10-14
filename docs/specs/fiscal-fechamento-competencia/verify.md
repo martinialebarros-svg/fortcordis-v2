@@ -36,3 +36,9 @@ Depois do deploy: verificar todos os jobs finais, SHA instalado, rota /fiscal, c
 - O pacote preserva o snapshot preparado; edição de pacote/substituição/retificação e confirmação de encaminhamento serão etapas posteriores. Segunda via não atualiza valores.
 - Histórico legado representa geração de arquivo, sem inferir nota emitida. A aba avulsa permanece identificada como formato anterior, com defesas para canceladas, IDs repetidos e OS já vinculada ao novo pacote.
 - Nenhuma integração de emissão ou envio foi adicionada. Produção permanece fora do escopo autorizado.
+
+## Compatibilidade da fixture do canário (2026-10-14)
+
+O run `38643448200` instalou corretamente `b83ad68e`, preservou/restaurou runtime, passou sincronização de presets, recibos e todos os gates anteriores. O canário fiscal falhou em `db.flush()` do paciente sintético, antes das chamadas HTTP, porque `pacientes.nome_key` é obrigatório no schema legado PostgreSQL. A fixture passa a preencher as chaves de paciente e tutor pelo normalizador existente da aplicação. Não há mudança no ORM, migrations, regras fiscais, permissões, assertions ou limpeza. Compilar e conferir SDD/diff; a próxima execução do canário em stage é a prova da compatibilidade com o schema instalado.
+
+Validação local do ajuste: execução do prefixo real de construção das fixtures do script em SQLite descartável com `nome_key NOT NULL` para ambos os modelos; flush e vínculo passaram, chaves não vazias coincidem com o normalizador existente. O construtor antigo sem chave foi recusado pelo mesmo banco. Sem HTTP ou runtime. `py_compile`, diff check e guardrail SDD sobre o commit passaram.
