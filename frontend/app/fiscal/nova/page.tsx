@@ -1,7 +1,7 @@
 "use client";
 
-import ExportacaoDadosContabeisPage from "../components/ExportacaoDadosContabeisPage";
+import FiscalWorkspace from "../components/FiscalWorkspace";
 
 export default function FiscalNovaPage() {
-  return <ExportacaoDadosContabeisPage />;
+  return <FiscalWorkspace />;
 }

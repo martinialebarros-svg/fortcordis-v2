@@ -1,10 +1,16 @@
-"""Serviço de exportação de notas fiscais para PDF, CSV e Excel."""
+"""Exportações fiscais legadas e pacotes informativos para contabilidade."""
 import csv
 import io
+import json
 import logging
+import re
+import zipfile
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Optional
+from uuid import UUID
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -36,6 +42,365 @@ EXPORT_TIMEZONE = timezone(timedelta(hours=-3))
 
 def _now_local() -> datetime:
     return datetime.now(EXPORT_TIMEZONE)
+
+
+_PACOTE_TOMADOR_FIELDS = (
+    "tipo_cliente", "cliente_nome", "cliente_documento", "cliente_endereco",
+    "cliente_bairro", "cliente_cidade", "cliente_estado", "cliente_cep",
+    "cliente_telefone", "cliente_email",
+)
+_PACOTE_CENTAVO = Decimal("0.01")
+
+
+def _pacote_data_local(value: Any) -> datetime:
+    """Datas históricas sem offset seguem a convenção operacional local da OS."""
+    try:
+        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Data de prestação inválida no pacote contábil.") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=EXPORT_TIMEZONE)
+    return parsed.astimezone(EXPORT_TIMEZONE)
+
+
+def _pacote_valor(value: Any) -> Decimal:
+    try:
+        amount = Decimal(str(value))
+        if not amount.is_finite():
+            raise ValueError("Valor monetário inválido no pacote contábil.")
+        return amount.quantize(_PACOTE_CENTAVO, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("Valor monetário inválido no pacote contábil.") from exc
+
+
+def _pacote_documento(value: Any, *, validar_caracteres: bool = True) -> str:
+    # CNPJ também admite A-Z. Remover letras criaria outro identificador.
+    document = re.sub(r"[./\s-]", "", str(value or "").upper())
+    if validar_caracteres and document and not re.fullmatch(r"[A-Z0-9]+", document):
+        raise ValueError("CPF/CNPJ do tomador contém caracteres inválidos.")
+    return document
+
+
+def _pacote_tomador(item: dict, dados_tomador: Optional[dict]) -> dict:
+    # Uma lista de OS pode conter diferentes tomadores. Um override global não
+    # pode transformar cadastros distintos no mesmo CPF/CNPJ.
+    override = dados_tomador or {}
+    original_doc = _pacote_documento(item.get("cliente_documento") or item.get("clinica_cnpj"))
+    override_doc = _pacote_documento(override.get("cliente_documento"))
+    if override and (not override_doc or override_doc != original_doc):
+        raise ValueError("Dados adicionais devem corresponder ao documento do tomador da OS.")
+    clinic_fallbacks = {
+        "cliente_nome": item.get("clinica_razao_social") or item.get("clinica_nome"),
+        "cliente_documento": item.get("clinica_cnpj"),
+        "cliente_endereco": _join_non_empty(", ", [item.get("clinica_endereco"), item.get("clinica_numero"), item.get("clinica_complemento")]),
+        "cliente_bairro": item.get("clinica_bairro"), "cliente_cidade": item.get("clinica_cidade"),
+        "cliente_estado": item.get("clinica_estado"), "cliente_cep": item.get("clinica_cep"),
+        "cliente_telefone": item.get("clinica_telefone"), "cliente_email": item.get("clinica_email"),
+    } if item.get("clinica_id") else {}
+    result = {
+        key: str(override.get(key) or item.get(key) or clinic_fallbacks.get(key) or "").strip()
+        for key in _PACOTE_TOMADOR_FIELDS
+    }
+    result["cliente_documento"] = _pacote_documento(result["cliente_documento"])
+    result["tipo_cliente"] = result["tipo_cliente"].upper()
+    pattern = {"PF": r"[0-9]{11}", "PJ": r"[A-Z0-9]{12}[0-9]{2}"}.get(result["tipo_cliente"])
+    if not result["cliente_nome"] or pattern is None or not re.fullmatch(pattern, result["cliente_documento"]):
+        raise ValueError("Nome e CPF/CNPJ do tomador precisam estar confirmados para preparar o pacote.")
+    return result
+
+
+def _pacote_servicos(os_items: list[dict], competencia: str, dados_tomador: Optional[dict]) -> list[dict]:
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", competencia or "") or competencia.startswith("0000"):
+        raise ValueError("Competência inválida. Use YYYY-MM.")
+    if not os_items:
+        raise ValueError("Selecione ao menos uma OS para preparar o pacote.")
+    ids: set[int] = set()
+    result = []
+    for item in os_items:
+        os_id = item.get("os_id")
+        if isinstance(os_id, bool) or not isinstance(os_id, int) or os_id <= 0 or os_id in ids:
+            raise ValueError("Seleção contém ID de OS inválido ou repetido.")
+        ids.add(os_id)
+        if str(item.get("status_os") or "").strip().casefold() == "cancelado":
+            raise ValueError("OS cancelada não pode integrar um pacote contábil.")
+        data = _pacote_data_local(item.get("data_atendimento"))
+        if data.strftime("%Y-%m") != competencia:
+            raise ValueError("Todas as OS devem pertencer à competência de prestação selecionada.")
+        bruto = _pacote_valor(item.get("valor_servico"))
+        desconto = _pacote_valor(item.get("valor_desconto", 0))
+        liquido = _pacote_valor(item.get("valor_final"))
+        if bruto < 0 or desconto < 0 or liquido <= 0 or bruto - desconto != liquido:
+            raise ValueError("Valores bruto, desconto e líquido da OS não reconciliam.")
+        result.append({
+            **_pacote_tomador(item, dados_tomador),
+            "os_id": os_id, "numero_os": str(item.get("numero_os") or os_id),
+            "competencia": competencia, "data_prestacao": data.date().isoformat(),
+            "servico_nome": str(item.get("servico_nome") or "Serviço veterinário"),
+            "valor_servico": bruto, "valor_desconto": desconto, "valor_final": liquido,
+            "status_financeiro": str(item.get("status_os") or "Não informado"),
+        })
+    return sorted(result, key=lambda row: (row["cliente_documento"], row["data_prestacao"], row["os_id"]))
+
+
+def _pacote_resumo(servicos: list[dict]) -> list[dict]:
+    grouped: dict[tuple[str, str], dict] = {}
+    for row in servicos:
+        key = (row["cliente_documento"], row["competencia"])
+        if key not in grouped:
+            grouped[key] = {
+                **{field: row[field] for field in _PACOTE_TOMADOR_FIELDS},
+                "competencia": row["competencia"], "quantidade_os": 0,
+                "valor_servico": Decimal("0.00"), "valor_desconto": Decimal("0.00"),
+                "valor_final": Decimal("0.00"), "os_ids": [],
+            }
+        group = grouped[key]
+        group["quantidade_os"] += 1
+        group["os_ids"].append(row["os_id"])
+        for field in ("valor_servico", "valor_desconto", "valor_final"):
+            group[field] += row[field]
+        for field in _PACOTE_TOMADOR_FIELDS:
+            if not group[field] and row[field]:
+                group[field] = row[field]
+    return list(grouped.values())
+
+
+def _pacote_pendencias(items: Optional[list[dict]]) -> list[dict]:
+    """Somente campos de conferência; nunca serializa o objeto recebido inteiro."""
+    rows = []
+    for item in items or []:
+        motivos = item.get("motivos_pendencia") or item.get("motivos") or item.get("motivo") or []
+        if isinstance(motivos, str):
+            motivos = [motivos]
+        rows.append({
+            "os_id": item.get("os_id"), "numero_os": str(item.get("numero_os") or item.get("os_id") or ""),
+            "data_prestacao": str(item.get("data_prestacao") or ""),
+            "cliente_nome": str(item.get("cliente_nome") or ""),
+            # Cadastros inválidos são pendências visíveis e não participam do
+            # agrupamento/totais. Preservar seus caracteres permite corrigi-los.
+            "cliente_documento": _pacote_documento(item.get("cliente_documento"), validar_caracteres=False),
+            "motivos": [str(reason) for reason in motivos],
+        })
+    return rows
+
+
+def _pacote_prestador(config: dict) -> dict:
+    return {
+        "nome": str(config.get("nome_empresa") or "Fort Cordis"),
+        "cnpj_ie_cadastrado": str(config.get("inscricao_estadual") or ""),
+        "inscricao_municipal": str(config.get("inscricao_municipal") or ""),
+        "endereco": str(config.get("endereco") or ""), "cidade": str(config.get("cidade") or ""),
+        "estado": str(config.get("estado") or ""), "telefone": str(config.get("telefone") or ""),
+        "email": str(config.get("email") or ""), "cnae_cadastrado": str(config.get("cnae") or ""),
+        "regime_tributario": str(config.get("regime_tributario") or ""),
+    }
+
+
+def _pacote_totais(rows: list[dict]) -> dict[str, str]:
+    return {
+        field: format(sum((row[field] for row in rows), Decimal("0.00")), ".2f")
+        for field in ("valor_servico", "valor_desconto", "valor_final")
+    }
+
+
+def _pacote_xlsx(servicos: list[dict], resumo: list[dict], pendencias: list[dict], manifesto: dict) -> bytes:
+    Workbook, Alignment, Font, PatternFill, get_column_letter = _load_openpyxl_exports()
+    wb = Workbook()
+    wb.remove(wb.active)
+    sheets = [
+        ("Resumo", ["Competência", "Tipo", "Tomador", "CPF/CNPJ", "Endereço", "Bairro", "Cidade", "UF", "CEP", "Telefone", "E-mail", "Quantidade OS", "Bruto", "Desconto", "Líquido"],
+         [[r[field] for field in ("competencia", "tipo_cliente", "cliente_nome", "cliente_documento", "cliente_endereco", "cliente_bairro", "cliente_cidade", "cliente_estado", "cliente_cep", "cliente_telefone", "cliente_email", "quantidade_os", "valor_servico", "valor_desconto", "valor_final")] for r in resumo], {13, 14, 15}),
+        ("Serviços", ["OS ID", "OS", "Competência", "Data de prestação", "Tipo", "Tomador", "CPF/CNPJ", "Serviço", "Bruto", "Desconto", "Líquido", "Status financeiro"],
+         [[r[field] for field in ("os_id", "numero_os", "competencia", "data_prestacao", "tipo_cliente", "cliente_nome", "cliente_documento", "servico_nome", "valor_servico", "valor_desconto", "valor_final", "status_financeiro")] for r in servicos], {9, 10, 11}),
+        ("Pendências", ["OS ID", "OS", "Data de prestação", "Tomador", "CPF/CNPJ", "Motivos para conferência"],
+         [[r["os_id"], r["numero_os"], r["data_prestacao"], r["cliente_nome"], r["cliente_documento"], "; ".join(r["motivos"])] for r in pendencias], set()),
+    ]
+    for name, headers, values, money_columns in sheets:
+        ws = wb.create_sheet(name)
+        ws.append(headers)
+        for value_row in values:
+            ws.append(value_row)
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+        for row in ws:
+            for cell in row:
+                # Cadastros são texto, inclusive quando começam com '='.
+                if isinstance(cell.value, str):
+                    cell.data_type = "s"
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+                if cell.row == 1:
+                    cell.fill = PatternFill("solid", fgColor="173B44")
+                    cell.font = Font(bold=True, color="FFFFFF")
+                elif cell.column in money_columns:
+                    cell.number_format = '#,##0.00'
+        for idx, header in enumerate(headers, 1):
+            width = max([len(header), *[len(str(row[idx - 1] or "")) for row in values]])
+            ws.column_dimensions[get_column_letter(idx)].width = min(max(width + 2, 14), 44)
+        ws.row_dimensions[1].height = 30
+        for row in ws.iter_rows(min_row=2):
+            lines = max(
+                sum(max(1, (len(part) + int(ws.column_dimensions[cell.column_letter].width) - 3)
+                        // (int(ws.column_dimensions[cell.column_letter].width) - 2))
+                    for part in str(cell.value or "").split("\n"))
+                for cell in row
+            )
+            ws.row_dimensions[row[0].row].height = min(409, max(22, lines * 13 + 8))
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.page_setup.orientation = "landscape"
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.print_title_rows = "1:1"
+    ws = wb.create_sheet("Prestador e lote")
+    metadata = [
+        ["Relatório informativo para contador", "Não é nota fiscal e não comprova envio ou emissão."],
+        ["Lote", manifesto["lote_id"]], ["Competência de prestação", manifesto["competencia"]],
+        ["Gerado em (UTC-03:00)", manifesto["gerado_em"]],
+        *[[key.replace("_", " "), value] for key, value in manifesto["prestador"].items()],
+        ["Total bruto", Decimal(manifesto["totais"]["valor_servico"])],
+        ["Total desconto", Decimal(manifesto["totais"]["valor_desconto"])],
+        ["Total líquido", Decimal(manifesto["totais"]["valor_final"])],
+        ["Conferência", "A competência segue a data de prestação conferida da OS, independentemente do recebimento."],
+        ["Tributos", "ISS e demais enquadramentos devem ser conferidos pelo contador."],
+    ]
+    for row in metadata:
+        ws.append(row)
+    for row in ws:
+        for cell in row:
+            if isinstance(cell.value, str):
+                cell.data_type = "s"
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+        row[0].font = Font(bold=True)
+    ws.column_dimensions["A"].width = 32
+    ws.column_dimensions["B"].width = 88
+    wb.properties.title = "Serviços por competência para contador"
+    wb.properties.subject = "Relatório informativo de serviços; sem emissão fiscal"
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def _pacote_pdf(servicos: list[dict], resumo: list[dict], pendencias: list[dict], manifesto: dict) -> bytes:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=1.6 * cm, rightMargin=1.6 * cm,
+                            topMargin=1.4 * cm, bottomMargin=1.6 * cm,
+                            title="Conferência de serviços por competência", author=manifesto["prestador"]["nome"])
+    styles = getSampleStyleSheet()
+    normal = ParagraphStyle("PacoteNormal", parent=styles["Normal"], fontSize=9, leading=12, spaceAfter=4)
+    introduction = ParagraphStyle("PacoteIntroduction", parent=normal, keepWithNext=True)
+    small = ParagraphStyle("PacoteSmall", parent=normal, fontSize=8, leading=10, spaceAfter=0)
+    money = ParagraphStyle("PacoteMoney", parent=small, alignment=2)
+    heading = ParagraphStyle("PacoteHeading", parent=styles["Heading2"], fontSize=11, leading=14,
+                             textColor=colors.HexColor("#173B44"), spaceBefore=12, spaceAfter=6,
+                             keepWithNext=True)
+
+    def p(value: Any, style=normal):
+        return Paragraph(escape(str(value or "-")).replace("\n", "<br/>"), style)
+
+    def table(values: list[list], widths: list[float], *, repeat=0):
+        obj = Table(values, colWidths=widths, repeatRows=repeat, splitInRow=1)
+        rules = [("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                 ("RIGHTPADDING", (0, 0), (-1, -1), 5), ("TOPPADDING", (0, 0), (-1, -1), 5),
+                 ("BOTTOMPADDING", (0, 0), (-1, -1), 5), ("LINEBELOW", (0, 0), (-1, -1), .35, colors.HexColor("#DBE3E5"))]
+        if repeat:
+            rules += [("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAF1F2"))]
+        obj.setStyle(TableStyle(rules))
+        return obj
+
+    elements = [Paragraph("Serviços para o contador", styles["Title"]),
+                p(f"Competência de prestação: {manifesto['competencia']} | Lote: {manifesto['lote_id']}"),
+                p(f"Gerado em: {manifesto['gerado_em']} (horário de Fortaleza)"),
+                p("Relatório informativo de conferência. Não é nota fiscal e não comprova envio ou emissão.")]
+    prestador = manifesto["prestador"]
+    elements.append(Paragraph("Prestador", heading))
+    fields = [("Nome", prestador["nome"]), ("CNPJ/IE cadastrado", prestador["cnpj_ie_cadastrado"]),
+              ("Inscrição municipal", prestador["inscricao_municipal"]),
+              ("Endereço", _join_non_empty(" / ", [prestador["endereco"], prestador["cidade"], prestador["estado"]])),
+              ("Contato", _join_non_empty(" / ", [prestador["telefone"], prestador["email"]])),
+              ("CNAE cadastrado do prestador", prestador["cnae_cadastrado"]), ("Regime cadastrado", prestador["regime_tributario"])]
+    elements.append(table([[p(label, small), p(value, small)] for label, value in fields], [4.6 * cm, doc.width - 4.6 * cm]))
+    totals = manifesto["totais"]
+    elements += [Paragraph("Resumo do lote", heading),
+                 p(f"{len(servicos)} OS | {len(resumo)} tomadores | Bruto: {_format_currency(Decimal(totals['valor_servico']))} | Descontos: {_format_currency(Decimal(totals['valor_desconto']))} | Líquido: {_format_currency(Decimal(totals['valor_final']))}"),
+                 p("Valores do serviço independem do recebimento. ISS e demais enquadramentos devem ser conferidos pelo contador.")]
+    for group in resumo:
+        elements.append(Paragraph("Tomador - " + escape(group["cliente_nome"]), heading))
+        info = [("CPF/CNPJ", group["cliente_documento"]), ("Endereço", _format_endereco_completo(group)),
+                ("Cidade / UF / CEP", _join_non_empty(" / ", [group["cliente_cidade"], group["cliente_estado"], group["cliente_cep"]])),
+                ("Contato", _join_non_empty(" / ", [group["cliente_telefone"], group["cliente_email"]]))]
+        elements.append(table([[p(label, small), p(value, small)] for label, value in info], [3.5 * cm, doc.width - 3.5 * cm]))
+        elements.append(Spacer(1, .2 * cm))
+        values = [[p(text, small) for text in ["OS / prestação", "Serviço", "Bruto", "Desconto", "Líquido", "Financeiro"]]]
+        for row in servicos:
+            if row["cliente_documento"] == group["cliente_documento"]:
+                values.append([p(f"{row['numero_os']}\n{_format_date(row['data_prestacao'])}", small), p(row["servico_nome"], small),
+                               p(_format_currency(row["valor_servico"]), money), p(_format_currency(row["valor_desconto"]), money),
+                               p(_format_currency(row["valor_final"]), money), p(row["status_financeiro"], small)])
+        widths = [3.0 * cm, doc.width - 11.0 * cm, 2.0 * cm, 2.0 * cm, 2.0 * cm, 2.0 * cm]
+        elements.append(table(values, widths, repeat=1))
+        elements.append(p(f"Total do tomador: {_format_currency(group['valor_final'])} | {group['quantidade_os']} OS"))
+    elements.append(Paragraph("Pendências para conferência", heading))
+    if pendencias:
+        elements.append(p("As OS abaixo não integram os totais dos serviços selecionados neste lote.", introduction))
+        values = [[p(value, small) for value in ["OS", "Tomador", "Motivos"]]]
+        values += [[p(row["numero_os"], small), p(row["cliente_nome"], small), p("; ".join(row["motivos"]), small)] for row in pendencias]
+        elements.append(table(values, [3 * cm, 5 * cm, doc.width - 8 * cm], repeat=1))
+    else:
+        elements.append(p("Nenhuma pendência informada na prévia deste lote."))
+    footer = f"Fort Cordis | Conferência | {manifesto['competencia']} | Lote {manifesto['lote_id'][:8]}"
+    doc.build(elements, onFirstPage=lambda canvas, obj: _draw_pdf_footer(canvas, obj, footer),
+              onLaterPages=lambda canvas, obj: _draw_pdf_footer(canvas, obj, footer))
+    return buffer.getvalue()
+
+
+def gerar_pacote_contador(
+    os_items: list[dict[str, Any]], db_session, *, competencia: str, lote_id: str,
+    pendencias: Optional[list[dict]] = None, dados_tomador: Optional[dict[str, Any]] = None,
+) -> tuple[bytes, str]:
+    """Prepara informações para contador; não emite nota nem realiza envio.
+
+    O chamador persiste estes bytes junto ao vínculo exclusivo das OS, em uma
+    única transação. Downloads e retries devem reutilizar o ZIP persistido.
+    """
+    try:
+        lote_id = str(UUID(str(lote_id)))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise ValueError("Identificador do lote inválido.") from exc
+    servicos = _pacote_servicos(os_items, competencia, dados_tomador)
+    resumo = _pacote_resumo(servicos)
+    pending_rows = _pacote_pendencias(pendencias)
+    manifesto = {
+        "versao": 1, "tipo": "informacoes_para_contador", "lote_id": lote_id,
+        "competencia": competencia, "gerado_em": _now_local().isoformat(timespec="seconds"),
+        "fuso_horario": "America/Fortaleza", "criterio_competencia": "data_prestacao_os_conferida",
+        "os_ids": [row["os_id"] for row in servicos], "quantidade_os": len(servicos),
+        "quantidade_tomadores": len(resumo), "quantidade_pendencias": len(pending_rows),
+        "totais": _pacote_totais(servicos), "prestador": _pacote_prestador(_get_configuracao(db_session)),
+        "tomadores": [
+            {**{field: row[field] for field in _PACOTE_TOMADOR_FIELDS}, "competencia": competencia,
+             "os_ids": row["os_ids"], "quantidade_os": row["quantidade_os"],
+             "totais": {key: format(row[key], ".2f") for key in ("valor_servico", "valor_desconto", "valor_final")}}
+            for row in resumo
+        ],
+        "observacao": "Relatório informativo. Não comprova envio ao contador ou emissão de nota fiscal.",
+    }
+    texto = [f"Informações para emissão pelo contador - competência de prestação {competencia}",
+             f"Prestador: {manifesto['prestador']['nome']}", f"Lote: {lote_id}",
+             f"Gerado em: {manifesto['gerado_em']}", "",
+             "Seguem os serviços conferidos por data de prestação, independentemente do recebimento."]
+    for group in resumo:
+        texto += ["", f"Tomador: {group['cliente_nome']} | CPF/CNPJ: {group['cliente_documento']}",
+                  f"Competência: {competencia} | {group['quantidade_os']} OS",
+                  f"Bruto: {_format_currency(group['valor_servico'])} | Desconto: {_format_currency(group['valor_desconto'])} | Líquido: {_format_currency(group['valor_final'])}"]
+    texto += ["", f"Total dos serviços: {_format_currency(Decimal(manifesto['totais']['valor_final']))}",
+              f"Pendências fora dos totais: {len(pending_rows)}. Detalhes na planilha e no PDF.",
+              "Solicito conferir os dados e o enquadramento tributário antes da emissão.",
+              "Este pacote contém informações e não é nota fiscal."]
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("servicos_contador.xlsx", _pacote_xlsx(servicos, resumo, pending_rows, manifesto))
+        archive.writestr("conferencia_contador.pdf", _pacote_pdf(servicos, resumo, pending_rows, manifesto))
+        archive.writestr("mensagem_contador.txt", "\n".join(texto).encode("utf-8"))
+        archive.writestr("manifesto.json", json.dumps(manifesto, ensure_ascii=False, indent=2).encode("utf-8"))
+    return output.getvalue(), f"FortCordis_{competencia}_{lote_id[:8]}.zip"
 
 
 def _load_openpyxl_exports():

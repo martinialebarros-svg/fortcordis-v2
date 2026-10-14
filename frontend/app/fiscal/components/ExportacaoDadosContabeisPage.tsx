@@ -273,7 +273,7 @@ function saveTomadorDraft(clinicaId: number, tomador: DadosTomador): void {
   }
 }
 
-export default function ExportacaoDadosContabeisPage() {
+export default function ExportacaoDadosContabeisPage({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter();
   const period = monthPeriod();
 
@@ -665,8 +665,7 @@ export default function ExportacaoDadosContabeisPage() {
   const totalResumo = results.length > 0 ? totalSel : totalClinicasSel;
   const rotuloTotalResumo = results.length > 0 ? "Total das OS selecionadas" : "Total das clínicas selecionadas";
 
-  return (
-    <DashboardLayout>
+  const content = (
       <div className="fc-fiscal-page">
         <header className="fc-fiscal-header">
           <div className="fc-fiscal-header-copy">
@@ -980,6 +979,6 @@ export default function ExportacaoDadosContabeisPage() {
           )}
         </section>
       </div>
-    </DashboardLayout>
   );
+  return embedded ? content : <DashboardLayout>{content}</DashboardLayout>;
 }
