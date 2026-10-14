@@ -1,5 +1,18 @@
 # Verify - Revisão da apresentação do laudo ecocardiográfico
 
+## Incremento: limite clínico canino de AE/Ao (2026-10-14)
+
+- Pesquisa primária separa método, limiar clínico e intervalo estatístico: 2D/eixo curto paraesternal direito/base, início da diástole após fechamento aórtico; Rishniw & Erb 2000 e Rishniw 2023. O limite é `<1,60`; não se inclui igualdade como normal nem se transfere para M-mode/eixo longo/gatos.
+- Verificar CA-061/062 em PDF com método confirmado, ausente e outro; peso ausente/fora de cobertura; catálogo ausente; razão no limite; valores inválidos/unidades ambíguas; espécie felina e integridade do payload original. Confirmar bibliografia condicional e cache eco sem alterar outras modalidades.
+- Verificar a confirmação explícita no formulário para cães com VE M/2D, sem peso/catálogo e ao apagar as origens; reutilizar testes de invalidação/importação do método.
+- Local: 67 testes backend aprovados (37 PDF + 30 medidas/cache, métodos, resolver e defaults); 42 testes frontend aprovados em comparação, prévia, invalidação das unidades/métodos e estado derivado. TypeScript, ESLint dos arquivos alterados, build Next.js e diff check aprovados; guardrail SDD da lista de mudanças aprovado sem commit.
+- Revisão independente identificou a mensagem de limite no formulário mesmo com unidades de origem ambíguas. A correção conserva a ambiguidade original para ocultar seletor/mensagem; a regressão confirma que a seleção reaparece apenas após resolver as unidades. Achado encerrado e oito testes focados repetidos pelo revisor passaram.
+- PDF demonstrativo local `output/pdf/ae-ao-canino-metodo-demonstracao.pdf`: duas páginas renderizadas/inspecionadas. Limite e nota de técnica legíveis junto da tabela; bibliografia compacta após qualitativa/assinatura, sem cortes ou sobreposição. Documento sintético identificado como sem validade clínica; nenhum laudo real foi regravado.
+- Em 14/10/2026, o usuário confirmou seu protocolo canino habitual: 2D, eixo curto paraesternal direito/base, primeira imagem após o fechamento aórtico. Essa confirmação reconcilia a referência clínica pesquisada com seu protocolo; o PDF demonstrativo utiliza essa técnica. A aplicação atual oferece a escolha explícita por exame, sem inferir técnica a partir do modo ventricular ou regravar documentos históricos.
+- Em 14/10/2026, o usuário autorizou publicar em stage e acrescentou a identificação/fonte do método sueco. CA-063 exige nova opção explícita e bibliografia Hansson 2002 como técnica, mantendo Rishniw 2023 como fonte do limite clínico; a vista/fase genéricas não comprovam o trajeto sueco. Conferir nova opção no formulário, parser, prévia e PDF e preservar o método genérico anterior.
+- CA-063 local: 70 testes backend e 49 frontend aprovados após adicionar a variante sueca; seleção/persistência, preservação do método genérico, bloqueio felino e bibliografia condicional cobertos. TypeScript e ESLint aprovados. O PDF demonstrativo foi atualizado para a variante sueca: ambas páginas renderizadas e inspecionadas, nota Hansson junto da tabela e referências Hansson/Georgiev/Rishniw compactas após qualitativa, sem cortes ou sobreposição.
+- Publicação de stage será registrada com commit, PR, workflows terminais, SHA implantado, arquivos runtime preservados, smoke de rotas/JS/API e teste autenticado quando disponível. Produção não integra esta autorização. A preferência automática por examinador permanece fora deste incremento.
+
 ## Incremento: limpeza de AE/Ao derivado (2026-10-12)
 
 - Base: worktree isolado já associado à tarefa, limpo antes da nova branch `codex/eco-ae-ao-clear-safety`, a partir de `origin/stage` em `3d5c04ea`. Alterações alheias do checkout principal preservadas.

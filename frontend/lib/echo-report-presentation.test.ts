@@ -3,6 +3,20 @@ import { buildEchoReportGroups, prepareEchoReportMeasurements, splitReportObserv
 import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
 
 describe("prévia de ecocardiograma", () => {
+  it("mostra o limite clínico canino com método confirmado mesmo sem catálogo", () => {
+    const raw = { AE_Ao: "1.41", AE_Ao_metodo: "2d_eixo_curto_diastole_inicial" };
+    const findRatio = (species: string, measurements = raw, ambiguousKeys = new Set<string>()) =>
+      buildEchoReportGroups(measurements, null, ambiguousKeys, undefined, species)
+        .flatMap((group) => group.rows).find((row) => row.key === "AE_Ao");
+    expect(findRatio("Canina")?.reference).toBe("<1,60 (2D, eixo curto)");
+    expect(findRatio("Canina")?.value).toBe("1.41");
+    expect(findRatio("Felina")?.reference).toBe("—");
+    expect(findRatio("Canina", { ...raw, AE_Ao_metodo: "" })?.reference).toBe("—");
+    expect(findRatio("Canina", { ...raw, AE_Ao_metodo: "outro" })?.reference).toBe("—");
+    expect(findRatio("Canina", { ...raw, AE_Ao_metodo: "2d_eixo_curto_diastole_inicial_sueco" })?.reference).toBe("<1,60 (2D, eixo curto)");
+    expect(findRatio("Felina", { ...raw, AE_Ao_metodo: "2d_eixo_curto_diastole_inicial_sueco" })?.reference).toBe("—");
+    expect(findRatio("Canina", raw, new Set(["Aorta"]))?.reference).toBe("—");
+  });
   it("repete os bloqueios e o método de TAPSE na prévia sem incluir metadados como medidas", () => {
     const reference: ReferenciaEco = {
       id: 1, especie: "Canina", peso_kg: 10, vmax_ao_min: 0, vmax_ao_max: 2.2,

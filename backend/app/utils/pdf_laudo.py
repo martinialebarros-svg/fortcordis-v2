@@ -28,6 +28,13 @@ from app.utils.referencia_eco_defaults import (
     aplicar_defaults_publicados_caninos,
     normalizar_especie_referencia,
 )
+from app.utils.echo_ae_ao_reference import (
+    CANINE_AE_AO_REFERENCE_TEXT,
+    CANINE_AE_AO_METHOD_NOTE,
+    CANINE_AE_AO_SWEDISH_METHOD,
+    CANINE_AE_AO_SWEDISH_METHOD_NOTE,
+    canine_ae_ao_clinical_limit_applies,
+)
 
 
 # Cores do tema - preto e cinza com fontes brancas (teste)
@@ -973,7 +980,8 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
         valor is not None and math.isfinite(valor) and valor > 0
         for valor in (_to_float(medidas.get("Vmax_aorta")), _to_float(medidas.get("Vmax_pulmonar")))
     )
-    if not referencia and not tem_fluxo_saida:
+    tem_limiar_ae_ao_canino = canine_ae_ao_clinical_limit_applies(dados_pdf)
+    if not referencia and not tem_fluxo_saida and not tem_limiar_ae_ao_canino:
         return []
     especie = normalizar_especie_referencia(paciente.get("especie") or "")
     modo_m = str(medidas.get("VE_tecnica_relatorio") or "").lower() != "2d"
@@ -1046,6 +1054,29 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
                 "Kochie et al. (2021). Effects of pimobendan on left atrial transport "
                 "function in cats. DOI: 10.1111/jvim.15976."
             )
+
+    if tem_limiar_ae_ao_canino:
+        if medidas.get("AE_Ao_metodo") == CANINE_AE_AO_SWEDISH_METHOD:
+            estudos.extend([
+                "Hansson et al. (2002). Left atrial to aortic root indices using "
+                "two-dimensional and M-mode echocardiography in Cavalier King Charles "
+                "spaniels with and without left atrial enlargement. "
+                "DOI: 10.1111/j.1740-8261.2002.tb01051.x.",
+                "Georgiev et al. (2013). Common two-dimensional echocardiographic "
+                "estimates of aortic linear dimensions are interchangeable. "
+                "DOI: 10.1016/j.jvc.2013.02.002.",
+            ])
+        else:
+            estudos.append(
+                "Rishniw &amp; Erb (2000). Evaluation of four 2-dimensional "
+                "echocardiographic methods of assessing left atrial size in dogs. "
+                "DOI: 10.1111/j.1939-1676.2000.tb02252.x."
+            )
+        estudos.append(
+            "Rishniw (2023). Proposed limits for ordinal echocardiographic "
+            "estimates of left atrial enlargement in dogs. "
+            "DOI: 10.1016/j.jvc.2023.04.003."
+        )
 
     if tem_fluxo_saida and especie == "Canina":
         estudos.append(
@@ -1566,8 +1597,13 @@ def gerar_pdf_laudo_eco(
             elements.append(Spacer(1, 2*mm))
         referencia_selecionada = dados_pdf.get("referencia_eco")
         if not referencia_selecionada:
+            nota_sem_faixa = (
+                "Traço indica faixa de referência indisponível."
+                if canine_ae_ao_clinical_limit_applies(dados_pdf)
+                else "Faixas de referência indisponíveis para este paciente; traço indica faixa indisponível."
+            )
             elements.append(Paragraph(
-                "Faixas de referência indisponíveis para este paciente; traço indica faixa indisponível.",
+                nota_sem_faixa,
                 create_pdf_styles()["Normal"],
             ))
             elements.append(Spacer(1, 2 * mm))
@@ -1678,6 +1714,16 @@ def gerar_pdf_laudo_eco(
         params_ve_modo_2d = aplicar_referencias_2d_publicadas(params_ve_modo_2d, dados_pdf)
         params_excursao_anular = aplicar_referencia_eco(params_excursao_anular, referencia_eco)
         params_ae_aorta = aplicar_referencia_eco(params_ae_aorta, referencia_eco)
+        tem_limiar_ae_ao_canino = canine_ae_ao_clinical_limit_applies(dados_pdf)
+        if tem_limiar_ae_ao_canino:
+            # This clinical threshold is independent of the numeric catalog;
+            # do not reinstate its unsupported lower bound or label a PI.
+            params_ae_aorta = [
+                {**param, "ref_min": None, "ref_max": None,
+                 "ref_text": CANINE_AE_AO_REFERENCE_TEXT}
+                if param["chave"] == "AE_Ao" else param
+                for param in params_ae_aorta
+            ]
         params_ap_aorta = aplicar_referencia_eco(params_ap_aorta, referencia_eco)
         params_doppler_saidas = aplicar_referencia_eco(params_doppler_saidas, referencia_eco)
         params_diastolica = aplicar_referencia_eco(params_diastolica, referencia_eco)
@@ -1716,15 +1762,26 @@ def gerar_pdf_laudo_eco(
         for titulo, parametros in grupos_preenchidos:
             if not parametros:
                 continue
+            bloco_tabela = [criar_tabela_medidas(
+                titulo,
+                parametros,
+                dados_pdf,
+                mostrar_referencia=True,
+                mostrar_interpretacao=False,
+            )]
+            if titulo == "Átrio esquerdo/ Aorta" and tem_limiar_ae_ao_canino:
+                bloco_tabela.extend([
+                    Spacer(1, 1 * mm),
+                    Paragraph(
+                        CANINE_AE_AO_SWEDISH_METHOD_NOTE
+                        if medidas_pdf.get("AE_Ao_metodo") == CANINE_AE_AO_SWEDISH_METHOD
+                        else CANINE_AE_AO_METHOD_NOTE,
+                        create_pdf_styles()["ReferenciaTexto"],
+                    ),
+                ])
             elements.append(
                 _bloco_sem_quebra(
-                    criar_tabela_medidas(
-                        titulo,
-                        parametros,
-                        dados_pdf,
-                        mostrar_referencia=True,
-                        mostrar_interpretacao=False,
-                    ),
+                    *bloco_tabela,
                     Spacer(1, 3 * mm),
                 )
             )

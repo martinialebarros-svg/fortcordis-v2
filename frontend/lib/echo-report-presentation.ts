@@ -164,7 +164,15 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
   return { measurements, alerts, ambiguousKeys };
 }
 
-export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null, ambiguousKeys: Set<string> = new Set(), weightKg?: number): EchoReportGroup[] {
+export function canineAeAoClinicalReference(measurements: Record<string, string>, species: string, ambiguousKeys = ambiguousEchoLengthKeys(measurements)): string | null {
+  const ratio = number(measurements.AE_Ao);
+  if (!/^canin/i.test(species.trim()) || !["2d_eixo_curto_diastole_inicial", "2d_eixo_curto_diastole_inicial_sueco"].includes(measurements.AE_Ao_metodo)
+      || ratio === null || ratio <= 0
+      || ["AE_Ao", "Aorta", "Atrio_esquerdo"].some((key) => ambiguousKeys.has(key))) return null;
+  return "<1,60 (2D, eixo curto)";
+}
+
+export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null, ambiguousKeys: Set<string> = new Set(), weightKg?: number, species = reference?.especie ?? ""): EchoReportGroup[] {
   const safeReference = resolveEchoReferenceForMeasurements(reference, measurements, weightKg);
   const selected2D = measurements.VE_tecnica_relatorio === "2d";
   const view = measurements.VE_vista_2D === "eixo_curto" || measurements.VE_vista_2D === "eixo_longo"
@@ -196,6 +204,8 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
         ? `${number(measurements[item.key])?.toFixed(2)} (unidade a confirmar)`
         : `${number(measurements[item.key])?.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`,
       reference: ambiguousKeys.has(item.key) ? "—" : (() => {
+        const aeAoLimit = item.key === "AE_Ao" ? canineAeAoClinicalReference(measurements, species, ambiguousKeys) : null;
+        if (aeAoLimit) return aeAoLimit;
         const twoD = selected2D && reference && /^canin/i.test(reference.especie)
           && (item.key !== "DeltaD_FS_2D" || fsMatchesPair)
           ? getCanine2DReference(item.key, weightKg, view) : null;
