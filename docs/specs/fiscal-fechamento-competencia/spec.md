@@ -12,6 +12,7 @@
 - RF-08: frontend oferece mês/ano, prévia, seleção de aptas, conferência das datas, preparação e download do mesmo pacote no histórico. Nenhuma chamada de envio ou emissão de nota.
 - RF-09: rotas autenticadas e protegidas pela permissão fiscal existente. Falha de histórico/consulta não é apresentada como ausência de registros.
 - RF-10: preservar CPF/CNPJ como texto, inclusive CNPJ alfanumérico já cadastrado; validar dígitos verificadores sem apagar letras. Referência: [manual da Receita Federal](https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/documentos-tecnicos/cnpj/manual-dv-cnpj.pdf). Consulta externa automática de CNPJ não é alterada nesta etapa.
+- RF-11: canário de stage executa sob o usuário efetivo do serviço backend informado pelo systemd; mantém as permissões restritas do arquivo de configuração e não imprime credenciais.
 
 ## Contrato
 
