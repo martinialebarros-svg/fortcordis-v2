@@ -1,6 +1,7 @@
 import { echoLengthInMm, isEchoLengthKey } from "./echo-unit-provenance";
 import { calculateCanine2DNormalizedLVIDd, type Echo2DView } from "./echo-2d-reference";
 import { ECHO_REFERENCE_METHOD_VALUES } from "./echo-reference-policy";
+import { isFelineEchoSpecies } from "./echo-species";
 
 export type RightAtrialRemodeling =
   | ""
@@ -181,7 +182,7 @@ export function deriveAutomaticEchoMeasurements(
   // valor histórico importado pelo equipamento em vez de apagá-lo no save.
   const eWave = parsePositiveNumber(measurements.Onda_E);
   const aWave = parsePositiveNumber(measurements.Onda_A);
-  const feline = /^felin/i.test(species.trim());
+  const feline = isFelineEchoSpecies(species);
   // Reimporting or editing origins removes acquisition confirmations. Unknown
   // separation must therefore remain as restrictive as explicit fusion in cats.
   const mitralMeasurable = !feline || measurements.Diastolica_ondas === "separadas";
@@ -239,7 +240,7 @@ export function deriveAutomaticEchoMeasurements(
     derived.DIVEd_normalizado = divedM !== null && weight !== null
       ? formatDerivedValue(divedM / 10 / weight ** 0.294) : "";
   }
-  if (/^felin/i.test(species.trim())) {
+  if (feline) {
     const laFraction = calculateLeftAtrialFractionalShortening(measurements);
     if (laFraction !== null) {
       derived.Fracao_encurtamento_AE = formatDerivedValue(laFraction);

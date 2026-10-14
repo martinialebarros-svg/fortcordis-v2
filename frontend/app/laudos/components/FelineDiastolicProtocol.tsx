@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { isFelineEchoSpecies } from "@/lib/echo-species";
 import { canonicalFelineDiastolicKey } from "@/lib/echo-feline-diastolic-reference";
 
 type Props = {
@@ -12,7 +13,7 @@ const FLOW_KEYS = new Set(["Onda_E", "Onda_A", "E_A", "TD", "TRIV", "E_TRIV", "E
 const TISSUE_KEYS = new Set(["e_doppler", "a_doppler", "doppler_tecidual_relacao", "E_E_linha"]);
 
 export function FelineDiastolicProtocol({ especie, medidas, onMedidaChange }: Props) {
-  if (!/^felin/i.test(especie ?? "")) return null;
+  if (!isFelineEchoSpecies(especie)) return null;
   const present = Object.entries(medidas).filter(([, value]) => {
     const number = Number(String(value).replace(",", "."));
     return Number.isFinite(number) && number > 0;

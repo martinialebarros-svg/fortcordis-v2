@@ -4,6 +4,7 @@ import { ambiguousEchoLengthKeys, confirmedEchoUnit, confirmedUnitKey, ECHO_LENG
 import { calculateLeftAtrialFractionalShortening } from "./echo-derived-measurements";
 import { ECHO_REFERENCE_METHOD_KEYS, resolveEchoReferenceForMeasurements } from "./echo-reference-policy";
 import { canonicalFelineDiastolicKey, felineDiastolicReferences } from "./echo-feline-diastolic-reference";
+import { isFelineEchoSpecies } from "./echo-species";
 
 type Parameter = { key: string; label: string; unit?: string; reference?: string };
 export type EchoReportRow = { key: string; label: string; value: string; reference: string };
@@ -123,7 +124,7 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
   }
   if (!canine || ambiguousKeys.has("DIVEd")) delete measurements.DIVEd_normalizado;
   if (ambiguousKeys.has("DIVEd_2D")) delete measurements.DIVEd_normalizado_2D;
-  if (/^felin/i.test(species.trim())) {
+  if (isFelineEchoSpecies(species)) {
     const laFraction = calculateLeftAtrialFractionalShortening(raw);
     if (laFraction !== null) measurements.Fracao_encurtamento_AE = String(Number(laFraction.toFixed(2)));
   }

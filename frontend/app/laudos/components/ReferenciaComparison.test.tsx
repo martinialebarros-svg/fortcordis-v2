@@ -12,6 +12,21 @@ vi.mock("../hooks/useReferenciaEco", async () => ({
 }));
 
 describe("identificação da referência ecocardiográfica", () => {
+  it.each(["Gato", "Cat", "Felino", " Feline "])("oferece protocolo e mantém fusões independentes para %s", async (species) => {
+    render(<ReferenciaComparison especie={species} medidas={{ Onda_E: "1.08", E_A: "1.13", e_doppler: "0.16",
+      Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas",
+      TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" }} onMedidaChange={vi.fn()} />);
+    expect(screen.getByLabelText("Ondas transmitrais E/A")).toHaveValue("fundidas");
+    expect(screen.getByLabelText("Ondas teciduais e'/a'")).toHaveValue("separadas");
+    expect(await screen.findByText("Média ± DP publicada: 0,11 ± 0,03 m/s")).toBeInTheDocument();
+    expect(screen.getAllByText("Comparação diastólica: Ondas E/A fundidas").length).toBeGreaterThan(1);
+  });
+
+  it("não oferece protocolo felino para espécie não reconhecida", () => {
+    render(<ReferenciaComparison especie="Catfish" medidas={{ Onda_E: "1.08" }} onMedidaChange={vi.fn()} />);
+    expect(screen.queryByLabelText("Protocolo diastólico felino")).not.toBeInTheDocument();
+  });
+
   it("mostra controles felinos independentes sem peso ou catálogo e não infere separação", async () => {
     const change = vi.fn();
     render(<ReferenciaComparison especie="Felina" medidas={{ Onda_E: "1.08", Onda_A: "0.95", e_doppler: "0.16" }} onMedidaChange={change} />);

@@ -14,6 +14,21 @@ const canine = {
 } as ReferenciaEco;
 
 describe("política clínica compartilhada das faixas", () => {
+  it.each(["Felina", "felino", "FELINOS", "Feline", " Gato ", "gatos", "Cat", "CATS"])
+    ("seleciona somente catálogo felino e respeita seus limites para %s", (species) => {
+      const feline = { id: 2, especie: "Felina", peso_kg: 5.5, lvid_d_min: 13, lvid_d_max: 21 } as ReferenciaEco;
+      const rows = [canine, feline];
+      expect(selectEchoReferenceFromCatalog(rows, 5.6, species)).toMatchObject({ id: 2, especie: "Felina", lvid_d_min: null });
+      expect(selectEchoReferenceFromCatalog([canine], 5.6, species)).toBeNull();
+      // Runtime legacy rows can carry aliases despite the canonical API type.
+      const legacy = { ...feline, especie: species, la_ao_min: 0.5, la_ao_max: 1.4 } as ReferenciaEco;
+      expect(resolveEchoReferenceForMeasurements(legacy, {}, 5.6)).toMatchObject({
+        especie: species, la_ao_min: null, la_ao_max: null, lvid_d_min: 13, lvid_d_max: 21,
+      });
+      expect(resolveEchoReferenceForMeasurements(legacy, {}, 11.1)?.lvid_d_min).toBeNull();
+      expect(legacy).toMatchObject({ especie: species, la_ao_min: 0.5, la_ao_max: 1.4 });
+    });
+
   it("exige método exato e domínio do paciente sem alterar catálogo ou metadados originais", () => {
     for (const [method, weight] of [["", 10], ["2d", 10], ["modo_m_apical", 2.9], ["modo_m_apical", 45.1], ["modo_m_apical", undefined]] as const) {
       const safe = resolveEchoReferenceForMeasurements(canine, { TAPSE_metodo: method }, weight)!;

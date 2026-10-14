@@ -3,6 +3,65 @@ import { deriveAutomaticEchoMeasurements, parseStoredEchoMeasurements } from "./
 import { mergeImportedEchoMeasurements, updateEchoMeasurement } from "./echo-unit-provenance";
 
 describe("deriveAutomaticEchoMeasurements", () => {
+  it.each(["Felina", "felino", "FELINOS", "Feline", " Gato ", "gatos", "Cat", "CATS"])
+    ("preserva relações históricas e fusões independentes para %s", (species) => {
+      const historical = {
+        Onda_E: "1.08", Onda_A: "0.95", TRIV: "40", e_doppler: "0.16", a_doppler: "0.08",
+        E_A: "1.13", E_TRIV: "2.66", E_E_linha: "6.95", doppler_tecidual_relacao: "1.8",
+        Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico",
+        Diastolica_ondas: "fundidas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "fundidas",
+      };
+      const before = { ...historical };
+      for (const waves of ["", "fundidas"]) {
+        const context = { ...historical, Diastolica_ondas: waves, TDI_ondas: waves };
+        const derived = deriveAutomaticEchoMeasurements(context, 5.6, species);
+        for (const key of ["E_A", "E_TRIV", "E_E_linha", "doppler_tecidual_relacao"]) {
+          expect(derived).not.toHaveProperty(key);
+        }
+        expect({ ...context, ...derived }).toMatchObject({
+          E_A: "1.13", E_TRIV: "2.66", E_E_linha: "6.95", doppler_tecidual_relacao: "1.8",
+        });
+      }
+      const tissueSeparate = deriveAutomaticEchoMeasurements({ ...historical, TDI_ondas: "separadas" }, 5.6, species);
+      expect(tissueSeparate.doppler_tecidual_relacao).toBe("2");
+      expect(tissueSeparate).not.toHaveProperty("E_A");
+      expect(tissueSeparate).not.toHaveProperty("E_E_linha");
+      const flowSeparate = deriveAutomaticEchoMeasurements({ ...historical, Diastolica_ondas: "separadas" }, 5.6, species);
+      expect(flowSeparate).toMatchObject({ E_A: "1.14", E_TRIV: "2.7" });
+      expect(flowSeparate).not.toHaveProperty("E_E_linha");
+      expect(flowSeparate).not.toHaveProperty("doppler_tecidual_relacao");
+      const separate = { ...historical, Diastolica_ondas: "separadas", TDI_ondas: "separadas" };
+      expect(deriveAutomaticEchoMeasurements(separate, 5.6, species)).toMatchObject({
+        E_A: "1.14", E_TRIV: "2.7", E_E_linha: "6.75", doppler_tecidual_relacao: "2",
+      });
+      for (const changedFlow of [updateEchoMeasurement(separate, "Onda_E", "1.1"), mergeImportedEchoMeasurements(separate, { Onda_E: "1.08" })]) {
+        const derived = deriveAutomaticEchoMeasurements(changedFlow, 5.6, species);
+        for (const key of ["E_A", "E_TRIV", "E_E_linha"]) expect(derived).not.toHaveProperty(key);
+        expect(derived.doppler_tecidual_relacao).toBe("2");
+      }
+      const changedTissue = updateEchoMeasurement(separate, "e_doppler", "0.15");
+      const derivedTissue = deriveAutomaticEchoMeasurements(changedTissue, 5.6, species);
+      expect(derivedTissue).toMatchObject({ E_A: "1.14", E_TRIV: "2.7" });
+      expect(derivedTissue).not.toHaveProperty("E_E_linha");
+      expect(derivedTissue).not.toHaveProperty("doppler_tecidual_relacao");
+      expect(historical).toEqual(before);
+    });
+
+  it("mantém os cálculos caninos existentes sem ampliar a aplicabilidade pelo novo classificador", () => {
+    const measurements = {
+      Onda_E: "1.08", Onda_A: "0.95", TRIV: "40", e_doppler: "0.16", a_doppler: "0.08",
+      Diastolica_ondas: "fundidas", TDI_ondas: "fundidas", DIVEd: "30", DIVEd_2D: "32", VE_vista_2D: "eixo_curto",
+    };
+    expect(deriveAutomaticEchoMeasurements(measurements, 10, "Canina")).toMatchObject({
+      E_A: "1.14", E_TRIV: "2.7", E_E_linha: "6.75", doppler_tecidual_relacao: "2",
+      DIVEd_normalizado: "1.52", DIVEd_normalizado_2D: "1.55",
+    });
+    const dog = deriveAutomaticEchoMeasurements(measurements, 10, "Dog");
+    expect(dog).not.toHaveProperty("DIVEd_normalizado");
+    expect(dog).not.toHaveProperty("DIVEd_normalizado_2D");
+    expect(dog.E_A).toBe("1.14");
+  });
+
   it("exige separação felina confirmada após editar ou reimportar origens de um contexto fundido", () => {
     const historical = { Onda_E: "1.08", Onda_A: "0.95", TRIV: "40", e_doppler: "0.16", E_A: "1.13", E_TRIV: "2.66", E_E_linha: "6.95", Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas", TDI_ondas: "separadas" };
     const contexts = [

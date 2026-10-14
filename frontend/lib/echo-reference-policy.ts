@@ -1,4 +1,5 @@
 import type { EchoRangeMetadata, ReferenciaEco } from "@/app/laudos/types/referencia-eco";
+import { isFelineEchoSpecies } from "./echo-species";
 
 export const ECHO_REFERENCE_METHOD_VALUES = {
   TAPSE_metodo: ["modo_m_apical", "2d"],
@@ -15,7 +16,7 @@ const WEIGHT_DOMAINS: Record<string, readonly [number, number]> = { Canina: [2.2
 
 function normalizedSpecies(species: string): string {
   const value = species.trim();
-  return /^canin/i.test(value) ? "Canina" : /^felin/i.test(value) ? "Felina" : value;
+  return /^canin/i.test(value) ? "Canina" : isFelineEchoSpecies(value) ? "Felina" : value;
 }
 
 function finite(value: unknown): number | null {
@@ -97,7 +98,7 @@ export function resolveEchoReferenceForMeasurements(
 
   // Older API responses must not restore intervals already rejected in the audit.
   if (!metadata.tapse) setRange(resolved, "tapse", null, null);
-  if (!metadata.la_ao && (/^felin/i.test(reference.especie)
+  if (!metadata.la_ao && (isFelineEchoSpecies(reference.especie)
       || (finite(resolved.la_ao_min) === 0.8 && finite(resolved.la_ao_max) === 1.6))) {
     setRange(resolved, "la_ao", null, null);
   }
