@@ -480,7 +480,8 @@ export default function NovoLaudoPage() {
         : null;
 
     const eSobreaCalculado =
-      eDoppler !== null && eDoppler > 0 && aDoppler !== null && aDoppler > 0
+      (paciente.especie !== "Felina" || medidas.TDI_ondas === "separadas")
+        && eDoppler !== null && eDoppler > 0 && aDoppler !== null && aDoppler > 0
         ? formatar2Casas(eDoppler / aDoppler)
         : null;
 

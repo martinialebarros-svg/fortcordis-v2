@@ -207,3 +207,28 @@ A conversão conservadora de dados legados evita multiplicar TAPSE e MAPSE por i
 - CA-037: teste da API confirma que os sinalizadores de aplicação não viram atributos do laudo.
 - Validação local: 35 testes Python (`test_laudos_ecocardiograma_estruturado`, `test_pdf_laudo_qualitativa` e `test_pdf_laudo_echo_measurements`) e 8 testes Vitest focados passaram; TypeScript sem emissão, ESLint direcionado e `git diff --check` passaram.
 - O build de produção do frontend compilou, validou tipos e gerou 43 páginas; `py_compile` e `git diff --check` passaram. O guardrail SDD será executado sobre o commit antes da publicação. Depois da publicação em stage, comparar laudo e PDF sintéticos sem usar um paciente real para esta regressão.
+# Verificação 2026-10-14: consulta diastólica felina e fusão
+
+## Escopo e critérios
+
+- [x] Pesquisa primária por parâmetro, técnica, população e natureza estatística; resultados registrados na spec, incluindo limites de a' isolado e diferenças de marco de TRIV.
+- [x] Fusão E/A e e'/a' independentes, desconhecidas por padrão; metadados validados sem nova tabela/migração.
+- [x] Referências de média ± DP neutras e independentes de peso/catálogo; preservação de números/conclusão, sem grau diastólico automático.
+- [x] Regressões backend e frontend completas do incremento e casos relacionados.
+- [x] PDFs sintéticos separados e fundidos renderizados/inspecionados; fonte/bibliografia/legibilidade conferidas.
+- [x] Paridade entre dados clínicos frontend/backend e revisão independente.
+- [x] TypeScript, ESLint, build, diff check e guardrail SDD do incremento.
+- Publicação e teste autenticado em stage: autorizados pelo usuário em 14/10/2026. Executar após os gates terminais; produção permanece fora do escopo deste incremento.
+
+O laudo real aberto no Safari não foi editado, salvo ou recarregado para testar o código. Autorização de criar teste de produção da entrega anterior era específica para AE/Ao sueco e não foi ampliada para este incremento.
+
+### Evidência da validação local
+
+- 71 testes backend passaram: `test_echo_feline_diastolic`, `test_echo_reference_methods`, `test_ecocardiograma_medidas`, `test_pdf_laudo_echo_measurements` e `test_ai_echo_reference_safety`. Incluem enumerações persistidas, fusões independentes, contexto IA, consulta sem peso/catálogo e aliases de espécie no PDF.
+- 76 testes frontend passaram em 7 arquivos focados: helper de consulta, derivação, proveniência, apresentação, hook de comparação, componente de comparação e política de referência. O caso de edição/reimportação após fusão confirma que estado desconhecido não recalcula E/A, E/TRIV ou E/e' e que os números históricos permanecem.
+- Fixture `backend/tests/fixtures/echo_feline_diastolic_parity.json` valida os mesmos valores, natureza estatística e DOI descritivo em ambos os motores, em 8 cenários. Texto de aviso/bibliografia de fusão pode variar pela superfície, sem diferenças no bloqueio clínico.
+- Revisão independente identificou e confirmou as correções do recálculo após perda da confirmação e dos aliases de espécie; não encontrou outro impedimento clínico neste escopo.
+- `npx tsc --noEmit --incremental false`, ESLint direcionado sem avisos, `npm run build` (43 páginas), `git diff --check` e `evaluate_guardrail` sobre os arquivos alterados/novos passaram. O build contém somente aviso pré-existente de atualização da base Browserslist.
+- `output/pdf/felino-diastolica-separadas-teste.pdf` e `output/pdf/felino-diastolica-fundidas-teste.pdf`: 2 páginas cada, dados exclusivamente sintéticos. Todas as páginas foram renderizadas a 120 DPI e inspecionadas; tabelas, notas de técnica/fusão e bibliografia após qualitativa/assinatura estão legíveis, sem cortes ou sobreposição. O renderizador emitiu aviso Fontconfig, mas os PDFs renderizaram com fontes legíveis.
+- A nota quantitativa sem catálogo usa texto neutro quando há consulta descritiva disponível, evitando declarar que toda referência está indisponível. Nenhuma média ± DP foi convertida em faixa individual.
+- Na validação local inicial não houve commit, push, publicação, envio ou alteração de dados reais. A rodada seguinte prepara a publicação autorizada exclusivamente em stage, com teste sintético.

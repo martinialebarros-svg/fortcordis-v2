@@ -6,11 +6,36 @@ import { ReferenciaComparison } from "./ReferenciaComparison";
 const buscarReferencia = vi.hoisted(() => vi.fn(async () => ({ id: 1, especie: "Canina", peso_kg: 11 })));
 const compararMedidas = vi.hoisted(() => vi.fn(() => ({})));
 
-vi.mock("../hooks/useReferenciaEco", () => ({
+vi.mock("../hooks/useReferenciaEco", async () => ({
+  ...await vi.importActual<typeof import("../hooks/useReferenciaEco")>("../hooks/useReferenciaEco"),
   useReferenciaEco: () => ({ buscarReferencia, compararMedidas, loading: false }),
 }));
 
 describe("identificação da referência ecocardiográfica", () => {
+  it("mostra controles felinos independentes sem peso ou catálogo e não infere separação", async () => {
+    const change = vi.fn();
+    render(<ReferenciaComparison especie="Felina" medidas={{ Onda_E: "1.08", Onda_A: "0.95", e_doppler: "0.16" }} onMedidaChange={change} />);
+    expect(screen.getByLabelText("Aquisição transmitral e TRIV")).toHaveValue("");
+    expect(screen.getByLabelText("Ondas transmitrais E/A")).toHaveValue("");
+    expect(screen.getByLabelText("Técnica e sítio do Doppler tecidual")).toHaveValue("");
+    expect(screen.getByLabelText("Ondas teciduais e'/a'")).toHaveValue("");
+    expect(await screen.findByText(/estudos publicados independentes do cadastro por peso/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Ondas transmitrais E/A"), { target: { value: "fundidas" } });
+    expect(change).toHaveBeenCalledWith("Diastolica_ondas", "fundidas");
+    fireEvent.change(screen.getByLabelText("Ondas teciduais e'/a'"), { target: { value: "separadas" } });
+    expect(change).toHaveBeenCalledWith("TDI_ondas", "separadas");
+  });
+
+  it("exibe o caso Skar com fusão E/A e e' lateral separada sem cores de normalidade", async () => {
+    render(<ReferenciaComparison especie="Felina" medidas={{ Onda_E: "1.08", Onda_A: "0.95", E_A: "1.14", TD: "51", TRIV: "40", e_doppler: "0.16", E_E_linha: "6.75",
+      Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas",
+      TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" }} onMedidaChange={vi.fn()} />);
+    expect(await screen.findByText("Média ± DP publicada: 0,11 ± 0,03 m/s")).toBeInTheDocument();
+    expect(screen.getByText("Média ± DP publicada: 46,2 ± 7,6 ms")).toBeInTheDocument();
+    expect(screen.getAllByText("Comparação diastólica: Ondas E/A fundidas").length).toBeGreaterThan(1);
+    expect(screen.getByText("0.16").closest("div.border")).toHaveClass("bg-white");
+    expect(screen.getByText("1.08").closest("div.border")).toHaveClass("bg-white");
+  });
   it("distingue o peso do paciente da linha de cadastro selecionada", async () => {
     render(<ReferenciaComparison especie="Canina" peso={10.8} medidas={{}} onMedidaChange={vi.fn()} />);
 
@@ -67,6 +92,7 @@ describe("identificação da referência ecocardiográfica", () => {
     const change = vi.fn();
     const { rerender } = render(<ReferenciaComparison especie="Canina" peso={3.6}
       medidas={{ AE_Ao: "1.41", VE_tecnica_relatorio: "modo_m" }} onMedidaChange={change} />);
+    await screen.findByText(/Referência selecionada/);
     const method = await screen.findByLabelText("Método de obtenção de AE/Ao");
     expect(method).toHaveValue("");
     expect(screen.queryByText(/O PDF apresentará AE\/Ao/)).not.toBeInTheDocument();
@@ -93,6 +119,7 @@ describe("identificação da referência ecocardiográfica", () => {
     const change = vi.fn();
     const { rerender } = render(<ReferenciaComparison especie="Canina" peso={4}
       medidas={{ AE_Ao: "1.41", AE_Ao_metodo: "2d_eixo_curto_diastole_inicial" }} onMedidaChange={change} />);
+    await screen.findByText(/Referência selecionada/);
     const method = await screen.findByLabelText("Método de obtenção de AE/Ao");
     expect(method).toHaveValue("2d_eixo_curto_diastole_inicial");
     expect(screen.queryByText(/O PDF citará Hansson/)).not.toBeInTheDocument();

@@ -103,8 +103,9 @@ function normalizeStoredMeasurement(
   if (key === "VE_vista_2D") {
     return text === "eixo_curto" || text === "eixo_longo" ? text : null;
   }
-  if (key === "TAPSE_metodo" || key === "AE_Ao_metodo") {
-    return (ECHO_REFERENCE_METHOD_VALUES[key] as readonly string[]).includes(text) ? text : null;
+  if (Object.hasOwn(ECHO_REFERENCE_METHOD_VALUES, key)) {
+    const allowed = ECHO_REFERENCE_METHOD_VALUES[key as keyof typeof ECHO_REFERENCE_METHOD_VALUES];
+    return (allowed as readonly string[]).includes(text) ? text : null;
   }
   if (key === "Remodelamento_AD") {
     const normalized = text.toLowerCase();
@@ -180,12 +181,17 @@ export function deriveAutomaticEchoMeasurements(
   // valor histórico importado pelo equipamento em vez de apagá-lo no save.
   const eWave = parsePositiveNumber(measurements.Onda_E);
   const aWave = parsePositiveNumber(measurements.Onda_A);
-  if (eWave !== null && aWave !== null) {
+  const feline = /^felin/i.test(species.trim());
+  // Reimporting or editing origins removes acquisition confirmations. Unknown
+  // separation must therefore remain as restrictive as explicit fusion in cats.
+  const mitralMeasurable = !feline || measurements.Diastolica_ondas === "separadas";
+  const tissueMeasurable = !feline || measurements.TDI_ondas === "separadas";
+  if (mitralMeasurable && eWave !== null && aWave !== null) {
     derived.E_A = formatDerivedValue(eWave / aWave);
   }
 
   const trivMs = parsePositiveNumber(measurements.TRIV);
-  if (eWave !== null && trivMs !== null) {
+  if (mitralMeasurable && eWave !== null && trivMs !== null) {
     // O corte clínico de E/TRIV usa E em cm/s e TRIV em ms. O formulário
     // armazena a velocidade da onda E em m/s, portanto convertemos somente
     // o numerador antes de calcular o índice.
@@ -193,8 +199,12 @@ export function deriveAutomaticEchoMeasurements(
   }
 
   const ePrime = parsePositiveNumber(measurements.e_doppler);
-  if (eWave !== null && ePrime !== null) {
+  if (mitralMeasurable && tissueMeasurable && eWave !== null && ePrime !== null) {
     derived.E_E_linha = formatDerivedValue(eWave / ePrime);
+  }
+  const aPrime = parsePositiveNumber(measurements.a_doppler);
+  if (tissueMeasurable && ePrime !== null && aPrime !== null) {
+    derived.doppler_tecidual_relacao = formatDerivedValue(ePrime / aPrime);
   }
 
   for (const [velocityKey, gradientKey] of Object.entries(

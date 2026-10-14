@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { compararMedidasComReferencia, useReferenciaEco, useReferenciaEcoLegacy } from "./useReferenciaEco";
+import { compararMedidasComReferencia, compararMedidasDiastolicasFelinas, useReferenciaEco, useReferenciaEcoLegacy } from "./useReferenciaEco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
 import type { ReferenciaEco } from "../types/referencia-eco";
 
@@ -64,6 +64,15 @@ const referenciaCanina: ReferenciaEco = {
 };
 
 describe("compararMedidasComReferencia", () => {
+  it("suspende cores de faixas diastólicas felinas legadas e mantém estatísticas em m/s", () => {
+    const legacy: ReferenciaEco = { id: 1, especie: "Felina", peso_kg: 5.5, mv_e_min: .5, mv_e_max: 1.1, tdi_e_min: 1, tdi_e_max: 20 };
+    const measurements = { Onda_E: "1.08", e_doppler: "0.16", Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "separadas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
+    const comparisons = compararMedidasComReferencia(measurements, legacy, "", 5.6);
+    expect(comparisons.Onda_E).toMatchObject({ status: "nao_avaliado", referencia_min: null, referencia_texto: "0,70 ± 0,14 m/s" });
+    expect(comparisons.e_doppler).toMatchObject({ status: "nao_avaliado", valor_medido: "0.16", referencia_texto: "0,11 ± 0,03 m/s" });
+    expect(compararMedidasComReferencia({ Onda_E: "1.08" }, legacy, "", 5.6).Onda_E.status).toBe("nao_avaliado");
+    expect(compararMedidasDiastolicasFelinas({ MV_E: "0.8", ...measurements }, "Felina").MV_E.referencia_texto).toBe("0,70 ± 0,14 m/s");
+  });
   it("compara AE/Ao felino com intervalo por peso apenas após confirmar aquisição", () => {
     const feline: ReferenciaEco = {
       id: 2, especie: "Felina", peso_kg: 4,

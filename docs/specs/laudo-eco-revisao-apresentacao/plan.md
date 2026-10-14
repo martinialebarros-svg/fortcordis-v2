@@ -17,3 +17,10 @@
 15. No cálculo de AE/Ao, rastrear a origem transitória da razão para limpar resultados derivados quando seus componentes forem removidos, preservando razões importadas independentes; validar novo/editar e repetir o caso sintético em stage.
 16. Apresentar o limite clínico canino `<1,60` apenas com aquisição 2D/eixo curto/diástole inicial confirmada, independente da linha ponderal; identificar método na tabela e trabalhos primários na bibliografia, atualizar cache eco e verificar PDF renderizado. Preservar a política felina e os dados históricos.
 17. Identificar o método sueco por uma seleção explícita distinta da confirmação genérica; citar Hansson 2002 como fonte da técnica e separar a origem do limite clínico. Validar persistência, nota/bibliografia condicional, renderização e publicação autorizada em stage.
+# Incremento 2026-10-14: consulta diastólica felina
+
+1. Conferir tabelas e métodos primários; separar média ± DP, percentis amostrais e limiares diagnósticos. Priorizar fonte lateral PW explícita de 2020; manter nota de população da fonte septal pequena.
+2. Acrescentar metadados de aquisição e fusão por família no dicionário existente, sem migração ou modificação do catálogo. Dois pares compactos de seletores condicionais; nenhum estado pré-inferido.
+3. Aplicar os mesmos dados/regras em Referências, prévia, PDF e contexto seguro da IA. Preservar valores e conclusão, suspender a consulta individual de ondas fundidas e novos cálculos até a separação explícita ser confirmada.
+4. Testar casos separados/fundidos, sítios, marcos de TRIV, unidades, persistência e invalidação de origem; renderizar PDFs sintéticos. Alinhar spec/verify, revisar diff e guardrail SDD.
+5. Preparar o resultado local para publicação posterior no ambiente solicitado; preservar a aba real de Skar em elaboração.

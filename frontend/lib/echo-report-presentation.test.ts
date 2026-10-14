@@ -3,6 +3,17 @@ import { buildEchoReportGroups, prepareEchoReportMeasurements, splitReportObserv
 import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
 
 describe("prévia de ecocardiograma", () => {
+  it("mostra estatísticas felinas e fusão independente sem peso, catálogo ou metadados como medidas", () => {
+    const measurements = { Onda_E: "1.08", E_A: "1.14", TRIV: "40", e_doppler: "0.16", E_E_linha: "6.75",
+      Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
+    const groups = buildEchoReportGroups(measurements, null, new Set(), undefined, "Felina");
+    const rows = groups.flatMap((group) => group.rows);
+    expect(rows.find((row) => row.key === "Onda_E")).toMatchObject({ value: "1.08 m/s", reference: "Ondas E/A fundidas" });
+    expect(rows.find((row) => row.key === "e_doppler")).toMatchObject({ value: "0.16 m/s", reference: "0,11 ± 0,03 m/s" });
+    expect(rows.find((row) => row.key === "TRIV")?.reference).toBe("46,2 ± 7,6 ms");
+    expect(rows.find((row) => row.key === "E_E_linha")?.reference).toBe("Ondas E/A fundidas");
+    expect(groups.some((group) => group.title === "Outras medidas registradas")).toBe(false);
+  });
   it("mostra o limite clínico canino com método confirmado mesmo sem catálogo", () => {
     const raw = { AE_Ao: "1.41", AE_Ao_metodo: "2d_eixo_curto_diastole_inicial" };
     const findRatio = (species: string, measurements = raw, ambiguousKeys = new Set<string>()) =>
