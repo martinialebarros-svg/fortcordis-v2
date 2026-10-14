@@ -66,7 +66,7 @@ def main() -> None:
     cleanup_ok = False
     try:
         tutor = Tutor(nome="QA-TUTOR-PRIVADO-" + nonce, nome_key="qatutorprivado" + nonce, ativo=0)
-        servico = Servico(nome="QA Fiscal - serviço sintético", ativo=False, duracao_minutos=1)
+        servico = Servico(nome="QA Fiscal - serviço sintético " + nonce, ativo=False, duracao_minutos=1)
         clinica = Clinica(nome="QA Fiscal " + nonce, razao_social="QA Fiscal sintético",
                           cnpj="12.345.678/0001-95", endereco="Rua de teste", numero="1",
                           bairro="Teste", cidade="Fortaleza", estado="CE", cep="60000-000",
@@ -75,7 +75,7 @@ def main() -> None:
         db.flush()
         fixture_ids.update(tutor=tutor.id, servico=servico.id, clinica=clinica.id)
         paciente = Paciente(nome="QA-PACIENTE-PRIVADO-" + nonce, nome_key="qapacienteprivado" + nonce,
-                            tutor_id=tutor.id, ativo=0)
+                            tutor_id=tutor.id, especie="", ativo=0)
         db.add(paciente)
         db.flush()
         fixture_ids["paciente"] = paciente.id
