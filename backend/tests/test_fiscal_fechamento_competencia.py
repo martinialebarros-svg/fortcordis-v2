@@ -15,6 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 from fastapi import FastAPI
@@ -81,7 +82,12 @@ class FiscalFechamentoTest(unittest.TestCase):
         self.db.commit()
 
     def _os(self, os_id, *, data="2026-08-31T10:00:00", clinica_id=1, paciente_id=1, status="Pendente", valor="100.00"):
-        row = OrdemServico(id=os_id, numero_os=f"OS-{os_id}", agendamento_id=os_id, paciente_id=paciente_id, clinica_id=clinica_id, servico_id=1, origem_atendimento="domiciliar" if clinica_id is None else "clinica_parceira", data_atendimento=datetime.fromisoformat(data) if data else None, valor_servico=Decimal(valor), desconto=Decimal("0"), valor_final=Decimal(valor), status=status)
+        data_atendimento = datetime.fromisoformat(data) if data else None
+        if data_atendimento is not None and data_atendimento.tzinfo is None:
+            # A fixture descreve a prestação local; TIMESTAMPTZ interpreta valores
+            # naive pelo fuso da sessão, que no CI é UTC. Declare o offset de origem.
+            data_atendimento = data_atendimento.replace(tzinfo=ZoneInfo("America/Fortaleza"))
+        row = OrdemServico(id=os_id, numero_os=f"OS-{os_id}", agendamento_id=os_id, paciente_id=paciente_id, clinica_id=clinica_id, servico_id=1, origem_atendimento="domiciliar" if clinica_id is None else "clinica_parceira", data_atendimento=data_atendimento, valor_servico=Decimal(valor), desconto=Decimal("0"), valor_final=Decimal(valor), status=status)
         self.db.add(row)
         self.db.commit()
         return row
@@ -123,11 +129,12 @@ class FiscalFechamentoTest(unittest.TestCase):
         self._os(2, status="Cancelado")
         self._os(3, data="2026-09-01T00:00:00")
         for ids in ([1, 999], [1, 2], [1, 3], [1, 1], [-1], []):
-            with self.subTest(ids=ids), self.assertRaises(fiscal.FiscalFechamentoError) as context:
-                self._prepare(ids)
-            self.assertEqual(context.exception.status_code, 422)
-            self.assertEqual(self.db.query(FiscalFechamento).count(), 0)
-            self.assertEqual(self.db.query(FiscalFechamentoOS).count(), 0)
+            with self.subTest(ids=ids):
+                with self.assertRaises(fiscal.FiscalFechamentoError) as context:
+                    self._prepare(ids)
+                self.assertEqual(context.exception.status_code, 422)
+                self.assertEqual(self.db.query(FiscalFechamento).count(), 0)
+                self.assertEqual(self.db.query(FiscalFechamentoOS).count(), 0)
         with self.assertRaises(fiscal.FiscalFechamentoError):
             self._prepare([1], confirmar_datas_prestacao=False)
 
@@ -290,7 +297,7 @@ class FiscalFechamentoPostgresTest(FiscalFechamentoTest):
         self.admin = create_engine(os.environ["FISCAL_TEST_POSTGRES_URL"])
         with self.admin.begin() as connection:
             connection.execute(text(f'CREATE SCHEMA "{self.schema}"'))
-        self.engine = create_engine(os.environ["FISCAL_TEST_POSTGRES_URL"], connect_args={"options": f"-csearch_path={self.schema}"})
+        self.engine = create_engine(os.environ["FISCAL_TEST_POSTGRES_URL"], connect_args={"options": f"-csearch_path={self.schema} -ctimezone=UTC"})
         for table in TABLES:
             table.create(self.engine, checkfirst=True)
         self.sessions = sessionmaker(bind=self.engine)
@@ -306,6 +313,7 @@ class FiscalFechamentoPostgresTest(FiscalFechamentoTest):
         self.tmpdir.cleanup()
 
     def test_previa_utc_respeita_mudanca_mes_fortaleza(self):
+        self.assertEqual(self.db.execute(text("SHOW TIME ZONE")).scalar(), "UTC")
         self._os(1, data="2026-09-01T02:59:59+00:00")
         self._os(2, data="2026-09-01T03:00:00+00:00")
         self.assertEqual([item["os_id"] for item in fiscal.previa_fechamento(self.db, "2026-08")["items"]], [1])
