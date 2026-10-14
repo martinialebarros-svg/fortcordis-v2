@@ -4,7 +4,7 @@ from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt, field_validator
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
@@ -12,6 +12,7 @@ from app.db.database import get_db
 from app.models.user import User
 from app.schemas.fiscal import (
     CNPJConsultaResponse,
+    FiscalFechamentoCreate,
     NotaFiscalCreate,
     NotaFiscalListResponse,
     NotaFiscalResponse,
@@ -19,7 +20,7 @@ from app.schemas.fiscal import (
     RelatorioFiscalEmissaoListResponse,
     RelatorioFiscalEmissaoResponse,
 )
-from app.services import cnpj_consulta, fiscal_export_service
+from app.services import cnpj_consulta, fiscal_export_service, fiscal_fechamento_service
 from app.services.fiscal_service import (
     atualizar_nota_fiscal,
     buscar_clinicas_com_os,
@@ -60,7 +61,7 @@ class DadosTomadorExportacao(BaseModel):
 
 
 class ExportarOSLoteRequest(BaseModel):
-    os_ids: list[int] = Field(..., min_length=1)
+    os_ids: list[StrictInt] = Field(..., min_length=1, max_length=2000)
     formato: str = Field(..., pattern="^(pdf|csv|xlsx)$")
     dados_tomador: Optional[DadosTomadorExportacao] = None
     modo_multiclinica: bool = False
@@ -68,8 +69,71 @@ class ExportarOSLoteRequest(BaseModel):
     data_inicio: Optional[str] = None
     data_fim: Optional[str] = None
 
+    @field_validator("os_ids")
+    @classmethod
+    def validar_os_ids(cls, values: list[int]) -> list[int]:
+        if any(value <= 0 for value in values) or len(set(values)) != len(values):
+            raise ValueError("Selecione OS únicas com IDs positivos.")
+        return values
+
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
+
+
+def _resposta_pacote(fechamento):
+    return StreamingResponse(
+        iter([fechamento.pacote_bytes]),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fechamento.arquivo_nome}"',
+            "X-Fechamento-Id": str(fechamento.id),
+            "X-Content-SHA256": fechamento.checksum,
+        },
+    )
+
+
+@router.get("/fechamentos/previa")
+def previa_fechamento(competencia: str = Query(...), db: Session = Depends(get_db)):
+    try:
+        return fiscal_fechamento_service.previa_fechamento(db, competencia)
+    except fiscal_fechamento_service.FiscalFechamentoError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+@router.post("/fechamentos")
+def preparar_fechamento(
+    body: FiscalFechamentoCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        fechamento = fiscal_fechamento_service.preparar_fechamento(
+            db, **body.model_dump(), usuario_id=current_user.id, usuario_nome=current_user.nome
+        )
+        return _resposta_pacote(fechamento)
+    except fiscal_fechamento_service.FiscalFechamentoError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+@router.get("/fechamentos")
+def listar_fechamentos(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    competencia: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    try:
+        return fiscal_fechamento_service.listar_fechamentos(db, skip=skip, limit=limit, competencia=competencia)
+    except fiscal_fechamento_service.FiscalFechamentoError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+@router.get("/fechamentos/{fechamento_id}/download")
+def baixar_fechamento(fechamento_id: int, db: Session = Depends(get_db)):
+    try:
+        return _resposta_pacote(fiscal_fechamento_service.buscar_fechamento(db, fechamento_id))
+    except fiscal_fechamento_service.FiscalFechamentoError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
 @router.get("/consulta-cnpj/{cnpj}", response_model=CNPJConsultaResponse)
@@ -208,7 +272,7 @@ def listar_os_para_fiscal(
 ):
     """
     Lista OS disponiveis para exportacao fiscal.
-    Permite filtrar por clinica e periodo sem restringir status da OS.
+    Permite filtrar por clinica e periodo, excluindo OS canceladas.
     """
     items, total = buscar_os_para_fiscal(
         db,
@@ -301,9 +365,14 @@ def exportar_os_lote(
     Exporta dados de OS para contabilidade sem gerar nota fiscal.
     Aceita exportacao em lote com multiplas OS selecionadas.
     """
-    os_items = buscar_os_por_ids_para_exportacao(db, body.os_ids)
+    try:
+        os_items = buscar_os_por_ids_para_exportacao(db, body.os_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     if not os_items:
         raise HTTPException(status_code=400, detail="Nenhuma OS valida encontrada para exportacao.")
+    if len(os_items) != len(body.os_ids):
+        raise HTTPException(status_code=422, detail="A seleção contém OS inexistentes ou canceladas. Nenhum arquivo foi exportado.")
     dados_tomador = body.dados_tomador.model_dump(exclude_none=True) if body.dados_tomador else None
 
     if body.modo_multiclinica:
