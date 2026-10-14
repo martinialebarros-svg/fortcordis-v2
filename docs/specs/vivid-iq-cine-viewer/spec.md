@@ -1,6 +1,6 @@
 # Spec - vivid-iq-cine-viewer
 
-Data: 2026-08-04
+Data: 2026-10-13
 Responsavel: Codex
 Status: done
 
@@ -34,25 +34,67 @@ upload para o backend.
   `Region Location Min/Max X/Y` para corrigir a proporcao visual dos pixels
   privados da GE sem modificar o quadro fonte.
 - RF-011: resolver as dimensoes de cada bloco de voxels de forma independente,
-  aceitando mudancas de largura/altura dentro do mesmo cine somente quando o
-  tamanho declarado, o buffer e a quantidade de timestamps forem exatos.
+  preservando mudancas de largura/altura dentro do mesmo cine. Divergencias
+  entre tamanho declarado, buffer e timestamps devem produzir aviso com as
+  contagens afetadas, nunca descarte silencioso. Preservar quadros completos
+  com timestamps disponiveis; a declaracao isolada nao deve apagar quadros
+  cujos pixels e tempos concordam. Sem timestamps, aplicar o fallback explicito.
 - RF-012: para imagens `CurvedSurface`, converter a matriz bruta profundidade x
   feixes para uma apresentacao setorial com profundidade vertical, respeitando
   a proporcao da regiao 2D do equipamento.
 - RF-013: quando a regiao 2D nao existir, estimar localmente a proporcao do
   setor a partir da maior regiao neutra da previa JPEG encapsulada, sem exibir,
   persistir ou transmitir essa previa; oferecer inversao lateral manual.
+- RF-014: brilho/contraste devem preservar R=G=B em todos os niveis; arredondar
+  a intensidade antes de empacotar RGBA e manter as bordas externas pretas.
+- RF-015: permitir cancelar leitura, trocar arquivo e recuperar de arquivo
+  invalido/grande demais. Respostas de leituras antigas nao podem substituir
+  estudo, erro, identificacao ou estado de carregamento atuais.
+- RF-016: fullscreen inclui imagem, controles e aviso experimental. Atalhos
+  no player: Espaco reproduz/pausa, setas navegam e F alterna fullscreen;
+  inputs, selects e campos editaveis preservam seus atalhos nativos.
+- RF-017: selecionar inicio A e fim B pelo quadro atual e repetir opcionalmente
+  o trecho inclusivo; usar timestamps e a duracao do ultimo quadro no loop.
+- RF-018: revelar opcionalmente nome, data/hora do estudo, aquisicao, conteudo
+  e fuso do arquivo. Ler apenas tags top-level, com charset suportado e valores
+  validados; separar data do estudo de aquisicao e nao inferir fuso ausente.
+  Ocultar/limpar/trocar exame descarta a identificacao exibida.
+- RF-019: PNG conserva a imagem apresentada e inclui rodape de captura derivada
+  nao calibrada, quadro, tempo, brilho, contraste e inversao aplicada. Nao
+  inclui identificacao do paciente; pausa a reproducao no instante da captura.
+- RF-020: indicar separadamente proporcao obtida da regiao 2D e orientacao
+  estimada; mostrar o estado de inversao lateral de forma visivel.
+- RF-021: colocar imagem e controles antes da identificacao e dos detalhes
+  tecnicos, tanto visualmente como na ordem do DOM. Recolher ajustes avancados
+  por padrao e manter aviso experimental no player.
+- RF-022: oferecer modo foco na janela, com Escape para sair, foco de teclado
+  contido no player, fundo inerte e restauracao do foco/rolagem ao fechar.
+  Se fullscreen nativo for recusado, abrir modo foco com mensagem recuperavel.
+- RF-023: permitir ampliacao visual de 1x a 4x, centralizar proporcionalmente
+  no ajuste inicial e mover imagem ampliada por mouse, toque ou botoes.
+  O zoom nao altera pixels intrinsecos do canvas, orientacao ou PNG integral.
+- RF-024: saltar para um numero inteiro de quadro entre 1 e N, validando no
+  formulario. Valor invalido nao muda o quadro; salto valido pausa o cine.
+- RF-025: mostrar o intervalo A-B na barra e sua quantidade inclusiva de
+  quadros; oferecer navegacao direta para A e B.
+- RF-026: pausar quando a aba ficar oculta, conservando o quadro e exigindo
+  retomada explicita; permitir repetir a selecao do mesmo arquivo apos erro.
+- RF-027: manter setas/F funcionais apos clicar em botoes, preservando
+  Espaco/Enter nativos dos botoes e atalhos proprios dos campos/selects.
 
 ## 3) Requisitos nao funcionais (NFR)
 
 - NFR-001 (privacidade): nenhuma parte do arquivo deve ser enviada ao backend;
-  nenhum metadado de paciente deve ser coletado ou exibido.
+  o parsing normal nao extrai dados de paciente. Nome e datas sao lidos somente
+  quando o usuario abre o painel opcional, permanecem em memoria, nao sao
+  persistidos/logados e nao entram em PNG, nome de download ou requisicoes.
 - NFR-002 (prudencia clinica): a interface deve informar permanentemente que a
   funcao e experimental e nao pode ser usada para medicoes.
 - NFR-003 (memoria): limitar o arquivo a 512 MB e manter apenas o `ArrayBuffer`
   fonte e o quadro RGBA corrente, sem duplicar todo o cine.
 - NFR-004 (seguranca): limitar profundidade e quantidade de elementos durante o
-  parsing para evitar travamento por arquivo malformado.
+  parsing e quantidade total de quadros para evitar travamento por arquivo
+  malformado. Retornar erro controlado ao exceder limites.
 - NFR-005 (compatibilidade): o parser deve ignorar metadados DICOM nao usados e
   falhar de modo explicito quando a estrutura privada conhecida nao estiver
   presente.
@@ -66,9 +108,10 @@ upload para o backend.
 ### API
 
 - Endpoint: nenhum.
-- Metodo: processamento local por `File.arrayBuffer()`.
+- Metodo: processamento local por `FileReader.readAsArrayBuffer()` cancelavel.
 - Payload: nenhum dado sai do navegador.
-- Resposta: objeto local com metadados tecnicos seguros e offsets dos quadros.
+- Resposta: objeto local com metadados tecnicos e offsets; helper separado
+  `getVividIqIdentification(study)` retorna identificacao somente sob acao local.
 
 ### Banco/migracoes
 
@@ -118,6 +161,40 @@ upload para o backend.
   0,94:1, estimado apenas na memoria local a partir da previa encapsulada.
 - CA-013: cines com regiao 2D valida usam sua proporcao na conversao setorial e
   permitem inversao lateral sem alterar o buffer fonte.
+- CA-014: todos os pixels de origem 0..255 permanecem R=G=B em contrastes
+  0,5..2,0 com passo 0,05 e brilhos -100, 0 e 100, inclusive no PNG.
+- CA-015: cancelar leitura ou rejeitar arquivo >512 MB durante leitura pendente
+  devolve seletor utilizavel; conclusao antiga nao reabre o exame anterior.
+- CA-016: alvo fullscreen contem aviso e controles; teclado do player funciona
+  e nao interfere com sliders, checkbox de repeticao ou seletor de velocidade.
+- CA-017: trecho A-B respeita limites em reproducao, loop, troca de velocidade
+  e timestamps irregulares; limpar/trocar exame restaura os limites e ajustes.
+- CA-018: painel oculto nao chama helper de identificacao; revelar mostra
+  somente campos validados; ocultar/limpar/trocar remove identificacao anterior.
+- CA-019: nome UTF-8/Latin1, datas invalidas/ausentes, tempo de precisao parcial,
+  charset desconhecido e identificacao em sequencia aninhada nao geram dados
+  inventados nem substituem os campos top-level.
+- CA-020: conflito de tres quadros completos e dois timestamps resulta em dois
+  quadros preservados e aviso explicito do quadro omitido e das contagens.
+- CA-021: PNG possui rodape de proveniencia/ajustes, mantem proporcao e nao
+  contem nome/data do paciente mesmo com painel de identificacao aberto.
+- CA-022: limite de 100 mil quadros produz erro controlado sem estouro de pilha.
+- CA-023: modo foco inclui imagem/aviso/controles, limita Tab ao player e
+  permite Escape mesmo a partir de um input; fechar/desmontar restaura fundo,
+  foco e overflow da pagina.
+- CA-024: recusa da API fullscreen ativa modo foco sem perder o exame.
+- CA-025: zoom muda somente dimensoes CSS; Ajustar imagem ou novo exame
+  restaura 1x. O PNG continua usando todo o canvas intrinseco.
+- CA-026: saltos vazios, fracionarios, zero, negativos e maiores que N exibem
+  erro acessivel no formulario sem mover a imagem; salto valido pausa e navega.
+- CA-027: ocultar a aba interrompe RAF e conserva quadro; voltar nao retoma
+  automaticamente. Selecionar o mesmo arquivo depois de erro inicia nova leitura.
+- CA-028: faixa A-B e navegacao para extremos permanecem coerentes com os
+  quadros marcados, inclusive apos mudar os limites.
+- CA-029: atalhos de setas e F funcionam com foco nos botoes do player, sem
+  suprimir Espaco nativo nem capturar teclas de campos e selects.
+- CA-030: modo normal e foco preservam proporcao e controles acessiveis em
+  tela estreita e janela baixa, sem overflow horizontal da pagina.
 
 ## 7) Casos de borda
 
@@ -134,6 +211,14 @@ upload para o backend.
   fallback prudente quando a previa nao puder ser decodificada.
 - CB-006: mudanca de dimensao entre blocos preserva a continuidade dos
   timestamps e reutiliza um mapa espacial separado para cada tamanho.
+- CB-007: fuso nao informado permanece explicitamente desconhecido; a UI nao
+  converte datas/horas do equipamento para o fuso do navegador.
+- CB-008: parar no final do trecho sem loop mantem o ultimo quadro; trecho de
+  um quadro com loop mantem a imagem e continua cancelavel.
+- CB-009: janela baixa permite rolar controles separadamente, com limite
+  de altura proporcional a janela e area de imagem reduzivel, sem sobreposicao.
+- CB-010: resposta tardia de fullscreen recusado depois de trocar/limpar o
+  exame nao pode reabrir modo foco.
 
 ## 8) Fora de escopo
 

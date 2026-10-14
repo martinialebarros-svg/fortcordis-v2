@@ -1,6 +1,6 @@
 # Plan - vivid-iq-cine-viewer
 
-Data: 2026-08-04
+Data: 2026-10-13
 Responsavel: Codex
 Status: done
 
@@ -14,6 +14,11 @@ Status: done
   validado para producao.
 - Fase 6 (correcao de proporcao): usar a regiao 2D do DICOM para compensar
   pixels privados GE nao quadrados na apresentacao.
+- Fase 7 (auditoria de uso): corrigir contraste e recuperacao, manter controles
+  no fullscreen, implementar trecho A-B/loop, identificacao local opcional e
+  captura PNG com contexto; reforcar validacao de contagens do parser.
+- Fase 8 (ergonomia): priorizar imagem, adicionar foco/zoom/navegacao precisa,
+  marcar trecho na barra e reforcar recuperacao e teclado.
 
 ## 2) Tarefas por fase
 
@@ -78,6 +83,34 @@ Status: done
 - Risco: arquivos sem regiao 2D valida.
 - Rollback: manter o fallback automatico para a proporcao bruta.
 
+### Fase 7 - 2026-10-10
+
+- Corrigir empacotamento RGBA com arredondamento anterior a replicacao dos canais.
+- Cancelar leitura via FileReader.abort e invalidar resultados antigos.
+- Tornar o player completo o alvo fullscreen, com aviso, controles e atalhos.
+- Reproduzir trecho inclusivo A-B, em loop opcional, segundo timestamps.
+- Ler nome/data somente por acao local explicita, respeitando charset,
+  precisao temporal, ausencia de fuso e escopo top-level do DICOM.
+- Informar divergencias de contagens e limitar objetos de quadros.
+- Acrescentar proveniencia e ajustes a captura PNG, sem dados identificaveis.
+- Verificar regressao com fixtures sinteticas, componente React, arquivos reais,
+  lint, typecheck, build e guardrail SDD do diff de trabalho.
+- Entrega local validada; publicacao desta fase e um passo separado.
+
+### Fase 8 - 2026-10-13
+
+- [x] T8.1 Compactar cabecalho e posicionar player antes dos metadados no DOM.
+- [x] T8.2 Implementar modo foco, foco contido, Escape e fallback de fullscreen.
+- [x] T8.3 Ampliar/mover imagem apenas visualmente, com PNG integral.
+- [x] T8.4 Saltar para quadro validado e destacar/navegar trecho A-B.
+- [x] T8.5 Pausar aba oculta, repetir mesmo arquivo e manter atalhos em botoes.
+- [x] T8.6 Testar componente, arquivo real, desktop/mobile/landscape e qualidade.
+- Criterio de conclusao: navegacao/zoom/foco comprovados com geometria e PNG
+  preservados; `spec.md` e `verify.md` alinhados ao diff de trabalho.
+- Risco: diferentes navegadores/fullscreen e janelas baixas.
+- Rollback: reverter a camada de ergonomia, conservando parser e controles basicos.
+- Entrega local; nenhuma publicacao implicita nesta fase.
+
 ## 3) Plano de testes
 
 - Teste unitario Node para parser, pixels, timestamps e erros controlados.
@@ -87,7 +120,8 @@ Status: done
 
 ## 4) Dependencias e bloqueios
 
-- Navegador moderno com `File.arrayBuffer`, canvas e Fullscreen API.
+- Navegador moderno com `FileReader`, canvas e rolagem/Pointer Events.
+- Fullscreen nativo e opcional; modo foco funciona na propria janela.
 - O arquivo clinico real deve continuar montado no volume externo para o smoke.
 
 ## 5) Checklist para iniciar execucao
