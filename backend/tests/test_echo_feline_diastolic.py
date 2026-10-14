@@ -13,6 +13,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("SECRET_KEY", "echo-feline-diastolic-test-secret-1234567890")
 
 from pypdf import PdfReader
+from PIL import Image
 
 from app.utils.echo_feline_diastolic import feline_diastolic_references
 from app.utils.echo_reference_methods import ECHO_REFERENCE_METHOD_VALUES
@@ -172,6 +173,40 @@ class FelineDiastolicEvidenceTest(unittest.TestCase):
 
 
 class FelineDiastolicPdfTest(unittest.TestCase):
+    def test_branded_header_keeps_quantitative_rows_on_first_page_and_repeats_headers(self):
+        logo = BytesIO()
+        Image.new("RGB", (320, 320), "#e5f5f5").save(logo, format="PNG")
+        signature = BytesIO()
+        Image.new("RGB", (300, 100), "#e5eef5").save(signature, format="PNG")
+        for waves in ("separadas", "fundidas"):
+            with self.subTest(waves=waves):
+                measurements = synthetic_measurements()
+                measurements["Diastolica_ondas"] = waves
+                payload = synthetic_report(measurements)
+                payload["paciente"].update({"nome": "TESTE DIASTOLICA FELINA STAGE", "tutor": "TESTE TECNICO",
+                                             "sexo": "Macho", "raca": "SRD", "estado": "Agitado"})
+                # Force a row-wise continuation with the same branded header
+                # that exposed the empty first-page quantitative section.
+                payload["conclusao"] = ("TESTE TECNICO EM STAGE - dados sinteticos, sem finalidade clinica. "
+                                        "Documento para verificar referencias diastolicas e opcoes de fusao. ") * 3
+                before = deepcopy(payload)
+                pages = [re.sub(r"\s+", " ", page.extract_text()) for page in PdfReader(BytesIO(
+                    gerar_pdf_laudo_eco(payload, logomarca_bytes=logo.getvalue(), assinatura_bytes=signature.getvalue())
+                )).pages]
+                self.assertEqual(payload, before)
+                self.assertIn("ANÁLISE QUANTITATIVA", pages[0])
+                self.assertIn("Onda E", pages[0])
+                self.assertIn("1.08 m/s", pages[0])
+                for page in pages:
+                    if "Onda E" in page or "E/E'" in page:
+                        for label in ("Diastólica", "Parâmetro", "Valor", "Referência"):
+                            self.assertIn(label, page)
+                text = " ".join(pages)
+                self.assertEqual(text.count("Onda E"), 1)
+                self.assertEqual(text.count("E/E'"), 1)
+                self.assertIn("0,11 ± 0,03", text)
+                self.assertLess(text.index("ANÁLISE QUALITATIVA"), text.index("REFERÊNCIAS BIBLIOGRÁFICAS"))
+
     def test_species_aliases_keep_fusion_guard_and_independent_tdi_in_pdf(self):
         measurements = synthetic_measurements()
         measurements["Diastolica_ondas"] = "fundidas"

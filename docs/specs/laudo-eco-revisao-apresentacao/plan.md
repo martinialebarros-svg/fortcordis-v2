@@ -24,3 +24,10 @@
 3. Aplicar os mesmos dados/regras em Referências, prévia, PDF e contexto seguro da IA. Preservar valores e conclusão, suspender a consulta individual de ondas fundidas e novos cálculos até a separação explícita ser confirmada.
 4. Testar casos separados/fundidos, sítios, marcos de TRIV, unidades, persistência e invalidação de origem; renderizar PDFs sintéticos. Alinhar spec/verify, revisar diff e guardrail SDD.
 5. Preparar o resultado local para publicação posterior no ambiente solicitado; preservar a aba real de Skar em elaboração.
+
+## Correção da paginação após QA de stage (2026-10-14)
+
+1. Preservar evidência de stage #52 com referências corretas e bloco diastólico indevidamente movido para a página seguinte.
+2. Permitir continuação por linhas somente do bloco diastólico felino de consulta e repetir os cabeçalhos da tabela; manter outros grupos e conteúdo clínico.
+3. Regressão com logo/assinatura/conclusão longa, renderização local, novo cache eco v20 e publicação autorizada de correção em stage.
+4. Rebaixar os dois estados do teste #52, inspecionar páginas e registrar resultado; produção fora do escopo.
