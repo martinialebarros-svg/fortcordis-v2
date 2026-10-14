@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
 from PIL import Image as PILImage
@@ -642,6 +643,147 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("0.88 - 1.43", text)
         self.assertNotIn("0.88 - 1.50", text)
         self.assertIn("Häggström et al. (2016)", text)
+
+    def test_canine_ae_ao_pdf_shows_method_specific_clinical_limit_without_catalog(self) -> None:
+        payload = _base_report("modo_m")
+        payload["paciente"].update({"nome": "Café teste", "idade": "7m", "peso": "3.6"})
+        payload["medidas"] = {
+            "Aorta": "9.76", "Atrio_esquerdo": "13.73", "AE_Ao": "1.41",
+            "AE_Ao_metodo": "2d_eixo_curto_diastole_inicial",
+            "VE_tecnica_relatorio": "modo_m",
+        }
+        payload["qualitativa"] = {"vasos": "Descrição qualitativa preservada."}
+        original = deepcopy(payload)
+        text = _pdf_text(payload)
+        compact_text = " ".join(text.split())
+
+        self.assertIn("AE/Ao (Átrio esquerdo/Aorta)\n1.41\n<1,60 (2D, eixo curto)", text)
+        self.assertIn("eixo curto paraesternal direito na base cardíaca", compact_text)
+        self.assertIn("primeira imagem após o fechamento aórtico", compact_text)
+        self.assertIn("Limiar clínico geral; interpretar em conjunto", compact_text)
+        self.assertIn("Traço indica faixa de referência indisponível.", text)
+        self.assertNotIn("Faixas de referência indisponíveis para este paciente", text)
+        self.assertNotIn("cadastro", text)
+        self.assertNotIn("0.80 - 1.60", text)
+        self.assertNotIn("≤1,60", text)
+        self.assertNotIn("adultos", text)
+        self.assertNotIn("predição", text)
+        self.assertLess(text.index("ANÁLISE QUALITATIVA"), text.index("REFERÊNCIAS BIBLIOGRÁFICAS"))
+        self.assertLess(text.index("Médico Veterinário"), text.index("REFERÊNCIAS BIBLIOGRÁFICAS"))
+        self.assertIn("Rishniw & Erb (2000)", text)
+        self.assertIn("10.1111/j.1939-1676.2000.tb02252.x", text)
+        self.assertIn("Rishniw (2023)", text)
+        self.assertIn("10.1016/j.jvc.2023.04.003", text)
+        self.assertNotIn("método sueco", text)
+        self.assertNotIn("Hansson et al.", text)
+        self.assertEqual(payload, original)
+
+    def test_explicit_swedish_ae_ao_method_adds_its_own_method_studies_to_canine_pdf(self) -> None:
+        payload = _base_report("modo_m")
+        payload["medidas"] = {
+            "AE_Ao": "1.41", "AE_Ao_metodo": "2d_eixo_curto_diastole_inicial_sueco",
+        }
+        original = deepcopy(payload)
+        text = _pdf_text(payload)
+        compact_text = " ".join(text.split())
+        self.assertIn("AE/Ao (Átrio esquerdo/Aorta)\n1.41\n<1,60 (2D, eixo curto)", text)
+        self.assertIn("método sueco (Hansson et al., 2002)", compact_text)
+        self.assertIn("primeira imagem após o fechamento aórtico", compact_text)
+        bibliography = text.partition("REFERÊNCIAS BIBLIOGRÁFICAS")[2]
+        self.assertIn("Hansson et al. (2002)", bibliography)
+        self.assertIn("10.1111/j.1740-8261.2002.tb01051.x", bibliography)
+        self.assertIn("Georgiev et al. (2013)", bibliography)
+        self.assertIn("10.1016/j.jvc.2013.02.002", bibliography)
+        self.assertIn("Rishniw (2023)", bibliography)
+        self.assertNotIn("Rishniw & Erb (2000)", bibliography)
+        self.assertNotIn("0.80 - 1.60", text)
+        self.assertEqual(payload, original)
+
+    def test_swedish_ae_ao_method_does_not_apply_canine_threshold_or_feline_interval_to_cats(self) -> None:
+        payload = _base_report("modo_m")
+        payload["paciente"].update({"especie": "Felina", "peso": "4"})
+        payload["medidas"] = {
+            "AE_Ao": "1.41", "AE_Ao_metodo": "2d_eixo_curto_diastole_inicial_sueco",
+        }
+        payload["referencia_eco"] = {
+            "especie": "Felina", "peso_kg": 4, "la_ao_min": .88, "la_ao_max": 1.5,
+        }
+        text = _pdf_text(payload)
+        self.assertIn("AE/Ao (Átrio esquerdo/Aorta)\n1.41\n--", text)
+        self.assertNotIn("<1,60", text)
+        self.assertNotIn("0.88 - 1.43", text)
+        self.assertNotIn("Hansson", text)
+        self.assertNotIn("Georgiev", text)
+        self.assertNotIn("Rishniw", text)
+
+    def test_canine_ae_ao_clinical_limit_is_independent_of_weight_and_legacy_catalog(self) -> None:
+        for weight in ("", "1", "100", "nan"):
+            with self.subTest(weight=weight):
+                payload = _base_report("modo_m")
+                payload["paciente"]["peso"] = weight
+                payload["medidas"] = {
+                    "AE_Ao": "1,60", "AE_Ao_metodo": "2d_eixo_curto_diastole_inicial",
+                }
+                payload["referencia_eco"] = {
+                    "especie": "Canina", "peso_kg": 10,
+                    "la_ao_min": 0.8, "la_ao_max": 1.6,
+                    "catalog_weight_min": 5, "catalog_weight_max": 15,
+                }
+                text = _pdf_text(payload)
+                self.assertIn("1.60\n<1,60 (2D, eixo curto)", text)
+                self.assertNotIn("0.80 - 1.60", text)
+                self.assertNotIn("Normal", text)
+                self.assertIn("Rishniw (2023)", text)
+
+    def test_canine_ae_ao_limit_is_not_applied_without_confirmed_method_or_to_other_species(self) -> None:
+        cases = [("Canina", method) for method in (None, "", "outro", "modo_m", "eixo_longo")]
+        cases.extend((species, "2d_eixo_curto_diastole_inicial")
+                     for species in ("Felina", "", "Outra"))
+        for species, method in cases:
+            with self.subTest(species=species, method=method):
+                payload = _base_report("modo_m")
+                payload["paciente"]["especie"] = species
+                payload["medidas"] = {"AE_Ao": "1.41"}
+                if method is not None:
+                    payload["medidas"]["AE_Ao_metodo"] = method
+                original = deepcopy(payload)
+                text = _pdf_text(payload)
+                self.assertIn("AE/Ao (Átrio esquerdo/Aorta)\n1.41\n--", text)
+                self.assertNotIn("<1,60", text)
+                self.assertNotIn("Limiar clínico geral", text)
+                self.assertNotIn("Rishniw", text)
+                self.assertEqual(payload, original)
+
+    def test_canine_ae_ao_limit_requires_a_positive_finite_numeric_ratio(self) -> None:
+        for value in (None, "", "0", "-1", "nan", "inf", "-inf", "não aferido", True):
+            with self.subTest(value=value):
+                payload = _base_report("modo_m")
+                payload["medidas"] = {
+                    "AE_Ao": value, "AE_Ao_metodo": "2d_eixo_curto_diastole_inicial",
+                }
+                text = _pdf_text(payload)
+                self.assertNotIn("<1,60", text)
+                self.assertNotIn("Limiar clínico geral", text)
+                self.assertNotIn("Rishniw", text)
+
+    def test_canine_ae_ao_limit_is_withheld_when_source_diameter_units_are_ambiguous(self) -> None:
+        payload = _base_report("modo_m")
+        payload["medidas"] = {
+            "DIVEd": "2.5", "DIVES": "1.5", "Aorta": "1.0", "Atrio_esquerdo": "1.4",
+            "AE_Ao": "1.4", "AE_Ao_metodo": "2d_eixo_curto_diastole_inicial",
+        }
+        ambiguous_text = _pdf_text(payload)
+        self.assertIn("AE/Ao (Átrio esquerdo/Aorta)\n1.40\n--", ambiguous_text)
+        self.assertNotIn("<1,60", ambiguous_text)
+        self.assertNotIn("Rishniw", ambiguous_text)
+
+        payload["medidas"].update({
+            "unidade_confirmada_Aorta": "cm", "unidade_confirmada_Atrio_esquerdo": "cm",
+        })
+        confirmed_text = _pdf_text(payload)
+        self.assertIn("Aorta\n10.00 mm", confirmed_text)
+        self.assertIn("Átrio esquerdo\n14.00 mm", confirmed_text)
+        self.assertIn("AE/Ao (Átrio esquerdo/Aorta)\n1.40\n<1,60 (2D, eixo curto)", confirmed_text)
 
     def test_selected_lv_technique_controls_pdf_measurement_block(self) -> None:
         mode_m_text = _pdf_text(_base_report("modo_m"))

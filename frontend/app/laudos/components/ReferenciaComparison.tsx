@@ -6,6 +6,7 @@ import { useReferenciaEco } from "../hooks/useReferenciaEco";
 import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
 import { prepareEchoReportMeasurements } from "@/lib/echo-report-presentation";
+import { ambiguousEchoLengthKeys } from "@/lib/echo-unit-provenance";
 import type { Echo2DView } from "@/lib/echo-2d-reference";
 
 interface ReferenciaComparisonProps {
@@ -48,6 +49,31 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
     () => ({ ...medidasSeguras, ...medidasDerivadasParaReferencia }),
     [medidasSeguras, medidasDerivadasParaReferencia]
   );
+  // This clinical limit is independent of the weight-based catalog, but its
+  // acquisition must still be confirmed for the current examination.
+  const aeAoCanino = Number(String(medidasSeguras.AE_Ao ?? medidasSeguras.LA_Ao ?? "").replace(",", "."));
+  const unidadesAmbiguas = ambiguousEchoLengthKeys(medidas);
+  const origemAeAoAmbigua = ["AE_Ao", "Aorta", "Atrio_esquerdo"].some((key) => unidadesAmbiguas.has(key));
+  const metodoAeAoCanino = /^canin/i.test(especie ?? "") && !origemAeAoAmbigua && Number.isFinite(aeAoCanino) && aeAoCanino > 0 ? (
+    <div className="p-3 bg-blue-50 rounded-lg space-y-2 text-left">
+      <label htmlFor="metodo-ae-ao-canino" className="block text-sm font-medium text-blue-900">Método de obtenção de AE/Ao</label>
+      <select id="metodo-ae-ao-canino" value={medidas.AE_Ao_metodo || ""}
+        onChange={(event) => onMedidaChange("AE_Ao_metodo", event.target.value)}
+        className="w-full sm:w-auto rounded border border-blue-200 bg-white p-2 text-sm text-gray-900">
+        <option value="">Método não confirmado</option>
+        <option value="2d_eixo_curto_diastole_inicial">Cão; 2D, eixo curto paraesternal direito, início da diástole</option>
+        <option value="2d_eixo_curto_diastole_inicial_sueco">Método sueco (Hansson et al., 2002); 2D, eixo curto, início da diástole</option>
+        <option value="outro">Outra vista ou fase</option>
+      </select>
+      <p className="text-xs text-blue-800">Confirme a medida na base do coração, na primeira imagem após o fechamento da valva aórtica, com bordas internas e exclusão das veias pulmonares.</p>
+      {medidas.AE_Ao_metodo === "2d_eixo_curto_diastole_inicial_sueco" && (
+        <p className="text-xs text-blue-800">Método sueco: meça a aorta do ponto médio da parede interna da cúspide coronariana direita até a comissura entre as cúspides não coronariana e coronariana esquerda. Prolongue esse eixo pelo átrio esquerdo até sua parede interna oposta, excluindo as veias pulmonares. O PDF citará Hansson et al. (2002) como fonte da técnica.</p>
+      )}
+      {["2d_eixo_curto_diastole_inicial", "2d_eixo_curto_diastole_inicial_sueco"].includes(medidas.AE_Ao_metodo) && (
+        <p className="text-xs text-blue-800">O PDF apresentará AE/Ao &lt; 1,60 como limite clínico orientativo (Rishniw, 2023). Interprete com os demais achados; não é um intervalo por peso nem determina diagnóstico ou estágio isoladamente.</p>
+      )}
+    </div>
+  ) : null;
 
   useEffect(() => {
     const pesoValido = typeof peso === "number" && Number.isFinite(peso) && peso > 0;
@@ -89,7 +115,7 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
 
   if (!referencia) {
     return (
-      <div className="text-center py-8 text-gray-500">
+      <div className="space-y-4 py-8 text-center text-gray-500">
         <AlertCircle className="w-12 h-12 mx-auto mb-3 text-gray-400" />
         <p className="text-lg font-medium mb-1">Nenhuma referência encontrada</p>
         <p className="text-sm">
@@ -97,6 +123,7 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
             ? "Preencha os dados do paciente (espécie e peso) para visualizar as referências."
             : `Não há referência cadastrada para ${especie} com ${peso}kg.`}
         </p>
+        {metodoAeAoCanino}
       </div>
     );
   }
@@ -209,6 +236,8 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
           <p className="text-xs text-blue-800">A faixa de Visser et al. (2015) exige TAPSE em modo M na vista apical e peso entre 3 e 45 kg.</p>
         </div>
       )}
+
+      {metodoAeAoCanino}
 
       {positive(medidas.AE_Ao ?? medidas.LA_Ao) && /^felin/i.test(referencia.especie) && (
         <div className="p-3 bg-blue-50 rounded-lg space-y-2">

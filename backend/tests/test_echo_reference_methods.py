@@ -11,6 +11,7 @@ class EchoReferenceMethodSchemaTest(unittest.TestCase):
             ("TAPSE_metodo", "modo_m_apical"),
             ("TAPSE_metodo", "2d"),
             ("AE_Ao_metodo", "2d_eixo_curto_diastole_inicial"),
+            ("AE_Ao_metodo", "2d_eixo_curto_diastole_inicial_sueco"),
             ("AE_Ao_metodo", "outro"),
             ("TAPSE_metodo", ""),
         ):

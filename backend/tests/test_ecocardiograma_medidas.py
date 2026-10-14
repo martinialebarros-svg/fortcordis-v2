@@ -107,6 +107,16 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
 
         self.assertNotIn("VE_tecnica_relatorio", measurements)
 
+    def test_metodo_sueco_sobrevive_salvamento_sem_reclassificar_confirmacao_generica(self) -> None:
+        for method in ("2d_eixo_curto_diastole_inicial", "2d_eixo_curto_diastole_inicial_sueco"):
+            with self.subTest(method=method):
+                saved = _montar_descricao_ecocardiograma({
+                    "AE_Ao": "1.41", "AE_Ao_metodo": method,
+                }, {})
+                restored = extrair_medidas_ecocardiograma_da_descricao(saved)
+                self.assertEqual(restored["AE_Ao_metodo"], method)
+                self.assertEqual(restored["AE_Ao"], "1.41")
+
     def test_preserva_apenas_confirmacao_valida_de_unidade_por_medida(self) -> None:
         measurements = extrair_medidas_ecocardiograma_da_descricao("""
 ## Medidas Ecocardiograficas
@@ -135,7 +145,7 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
         )
 
     def test_cache_do_pdf_inclui_versao_do_renderizador(self) -> None:
-        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-10-11-eco-reference-method-safety-v17")
+        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-10-14-eco-canine-aeao-clinical-limit-v18")
         database = MagicMock()
         database.query.return_value.filter.return_value.first.return_value = (
             SimpleNamespace(id=7, tipo="ecocardiograma")
