@@ -45,4 +45,16 @@ Evidências sanitizadas locais: `/tmp/fc-fiscal-stage-success-run.log`, `/tmp/fc
 - Datas históricas não foram corrigidas: usuário confere a data registrada na OS antes de preparar. OS sem data ou cadastro válido ficam como pendência.
 - O pacote preserva o snapshot preparado; edição de pacote/substituição/retificação e confirmação de encaminhamento serão etapas posteriores. Segunda via não atualiza valores.
 - Histórico legado representa geração de arquivo, sem inferir nota emitida. A aba avulsa permanece identificada como formato anterior, com defesas para canceladas, IDs repetidos e OS já vinculada ao novo pacote.
-- Nenhuma integração de emissão ou envio foi adicionada. Produção permanece fora do escopo autorizado.
+- Nenhuma integração de emissão ou envio foi adicionada. A autorização posterior de produção está delimitada abaixo.
+
+## Candidato isolado para produção — 14/10/2026
+
+- Autorização do usuário: publicar este módulo em produção, sem levar dados fictícios de stage, sem emitir notas e sem enviar nada automaticamente ao contador.
+- Base de produção: `73039abd94774a8e951c77fe6997bf049f54b4a2`. Stage conferido: `65d392785a6f9a8a1acb346088095872ca94cfd0`. O stage contém também as PRs clínicas #354, #357 e #362, cuja publicação não faz parte desta autorização.
+- Candidato preparado sobre main somente com os sete commits fiscais e sua evidência de stage: 25 arquivos, código fiscal, frontend, migração 97, testes e canário idênticos aos de stage. As dependências necessárias já existem em main. Nenhum arquivo clínico, dump, seed do cenário de agosto ou artefato de pacote é incluído.
+- Exceção de fluxo `hotfix`: PR isolado para main preserva o escopo solicitado e o stage compartilhado, sem promoção integral de alterações clínicas. Não usa `promocao-com-pendencia`, push direto em main ou dispensa de SDD/testes. Após a publicação, reintegrar a documentação de release em stage.
+- Frontend do candidato: 673 testes Vitest e 23 Node aprovados, lint completo sem avisos, typecheck e build de 43 páginas aprovados. Guardrails SDD e critérios de promoção aprovados localmente.
+- Baseline de produção, somente leitura: SHA instalado `73039abd94774a8e951c77fe6997bf049f54b4a2`; 1.219 OS, zero OS com prefixo `TESTE-AGO26-20261014-`, zero notas fiscais e tabelas novas de fechamento ainda ausentes. As duas bases de stage/produção são projetos distintos; o deploy não copia banco.
+- Revisão do deploy: preserva/restaura os seis arquivos de runtime do próprio diretório de produção; migração 97 apenas cria tabelas/índices/proteções. O canário fiscal cria fixtures exclusivamente em stage e não é chamado no workflow de produção. O canário autenticado existente usa GETs. Dry-run da sincronização clínica já existente no workflow: `Nenhuma alteração necessária.`
+- Baseline HTTP: cinco domínios de produção respondem 200 em `/fiscal`, TLS válido e sem redirects; todos os 15 chunks respondem 200. A API nova ainda retorna 404 e a API fiscal existente retorna 401. O smoke posterior exige os marcadores novos e 401 na API nova.
+- Esta seção registra a preparação; não comprova implantação. A evidência terminal de produção será acrescentada depois do deploy. Nenhuma escrita de negócio, emissão de nota ou envio ao contador integra a verificação.
