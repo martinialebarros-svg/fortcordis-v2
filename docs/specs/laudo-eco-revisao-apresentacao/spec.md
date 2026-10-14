@@ -207,3 +207,12 @@
 - CA-035: um laudo existente com texto clínico revisado e estruturado ativo mantém avaliação e conclusão após salvar apenas a vista 2D; a faixa de referência pode mudar sem reescrever a interpretação.
 - CA-036: aplicar somente um achado estruturado mantém a conclusão revisada; aplicar a conclusão altera somente a conclusão.
 - CA-037: os sinalizadores de aplicação são consumidos pela API e não são persistidos como campos do laudo.
+
+## Correção: aliases felinos e preservação de relações com fusão (2026-10-14)
+
+- RF-080: reconhecer como felinos somente os aliases explícitos `Felina`, `Felino`, `Felinos`, `Feline`, `Gato`, `Gatos`, `Cat` e `Cats`, sem distinção de caixa e com espaços externos removidos para a classificação. A classificação não regrava a espécie original do paciente; o seletor mantém o alias atual visível sem substituir seu valor. Espécies desconhecidas não recebem protocolo ou faixas felinas por substring.
+- RF-081: criação e edição usam uma única derivação automática para E/A, E/TRIV, E/e′ e e′/a′. Em qualquer alias felino, E/A e E/TRIV só são derivados com ondas transmitrais explicitamente separadas; e′/a′ exige ondas teciduais separadas; E/e′ exige ambas. Fusão ou estado desconhecido preservam os valores históricos sem recálculo no efeito do formulário e no envio do salvamento.
+- RF-082: controles, referências diastólicas, consulta/fallback do catálogo, prévia e compatibilidade de presets usam o mesmo reconhecimento felino. Referências legadas de `Gato`/`Cat` não classificam ondas fundidas por faixas antigas; preset exclusivamente canino não é oferecido a esses felinos. Fórmulas, fontes, intervalos, diagnósticos e dados brutos permanecem preservados.
+- CA-069: páginas reais de criação e edição, montadas com API e uploads sintéticos, preservam quatro relações históricas diferentes dos quocientes das medidas quando ondas estão fundidas ou desconhecidas; confirmação explícita de separação libera somente as derivações pertinentes. Payload salvo e leitura por nova sessão de banco devem concordar, incluindo a espécie original.
+- CA-070: regressões cobrem todos os aliases, fusões independentes, referências legadas, protocolo visível e filtro de presets. `Cattle`, `Catfish`, `Gato selvagem` e espécies vazias não são felinos; cálculos caninos existentes mantêm o comportamento anterior.
+- Limite: esta correção evita novas sobrescritas. Não reconstrói relações que já tenham sido alteradas em salvamentos anteriores sem o exame de origem.

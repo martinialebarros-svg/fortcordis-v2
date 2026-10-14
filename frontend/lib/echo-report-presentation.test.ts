@@ -3,6 +3,24 @@ import { buildEchoReportGroups, prepareEchoReportMeasurements, splitReportObserv
 import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
 
 describe("prévia de ecocardiograma", () => {
+  it.each(["Gato", "Cat", "felino", " Felina "])
+    ("preserva valores e exibe fusão independente para o alias %s", (species) => {
+      const raw = { Onda_E: "1.08", E_A: "1.13", TRIV: "40", e_doppler: "0.16", E_E_linha: "6.95",
+        Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas",
+        TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas", DIVEd_normalizado: "0.9",
+        AE_diametro_max: "18", AE_diametro_min: "13.5" };
+      const before = { ...raw };
+      const { measurements } = prepareEchoReportMeasurements(raw, 5.6, species);
+      expect(measurements).toMatchObject({ E_A: "1.13", E_E_linha: "6.95", Fracao_encurtamento_AE: "25" });
+      expect(measurements).not.toHaveProperty("DIVEd_normalizado");
+      const reference = { id: 1, especie: species, peso_kg: 5.5, mv_e_min: 0.5, mv_e_max: 1.5 } as ReferenciaEco;
+      const rows = buildEchoReportGroups(measurements, reference, new Set(), 5.6, species).flatMap((group) => group.rows);
+      expect(rows.find((row) => row.key === "Onda_E")).toMatchObject({ value: "1.08 m/s", reference: "Ondas E/A fundidas" });
+      expect(rows.find((row) => row.key === "e_doppler")?.reference).toBe("0,11 ± 0,03 m/s");
+      expect(rows.find((row) => row.key === "E_E_linha")).toMatchObject({ value: "6.95", reference: "Ondas E/A fundidas" });
+      expect(raw).toEqual(before);
+    });
+
   it("mostra estatísticas felinas e fusão independente sem peso, catálogo ou metadados como medidas", () => {
     const measurements = { Onda_E: "1.08", E_A: "1.14", TRIV: "40", e_doppler: "0.16", E_E_linha: "6.75",
       Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };

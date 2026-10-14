@@ -1,3 +1,5 @@
+import { isFelineEchoSpecies } from "./echo-species";
+
 /** Descriptive feline cohorts, never individual reference intervals or grades. */
 export type FelineDiastolicReference = {
   text: string;
@@ -43,7 +45,7 @@ const DESCRIPTIVE_NOTE = "Média ± DP da população estudada; não é interval
 export function felineDiastolicReferences(
   measurements: Record<string, string>, species: string,
 ): Record<string, FelineDiastolicReference> {
-  if (!/^felin/i.test(species.trim())) return {};
+  if (!isFelineEchoSpecies(species)) return {};
   const values: Record<string, string> = {};
   for (const [key, value] of Object.entries(measurements)) {
     const canonical = canonicalFelineDiastolicKey(key);

@@ -12,6 +12,22 @@ const skar = { Onda_E: "1.08", Onda_A: "0.95", E_A: "1.14", TD: "51", TRIV: "40"
 const protocol = { Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "separadas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
 
 describe("evidência descritiva diastólica felina", () => {
+  it.each(["Felina", "felino", "FELINOS", "Feline", " Gato ", "gatos", "Cat", "CATS"])
+    ("mantém fontes, ausência de confirmação e fusões independentes para %s", (species) => {
+      const states = [
+        skar,
+        { ...skar, ...protocol },
+        { ...skar, ...protocol, Diastolica_ondas: "fundidas" },
+        { ...skar, ...protocol, TDI_ondas: "fundidas" },
+        { ...skar, ...protocol, Diastolica_ondas: "", TDI_ondas: "" },
+      ];
+      for (const recorded of states) {
+        const before = { ...recorded };
+        expect(felineDiastolicReferences(recorded, species)).toEqual(felineDiastolicReferences(recorded, "Felina"));
+        expect(recorded).toEqual(before);
+      }
+    });
+
   it.each(parityCases)("mantém a mesma evidência clínica da consulta e do PDF: $id", (testCase) => {
     const recorded: Record<string, string> = { ...parityFixture.measurements, ...testCase.protocol };
     const before = { ...recorded };
@@ -42,6 +58,8 @@ describe("evidência descritiva diastólica felina", () => {
   it("não transfere fontes felinas a cães ou espécies desconhecidas", () => {
     expect(felineDiastolicReferences({ ...skar, ...protocol }, "Canina")).toEqual({});
     expect(felineDiastolicReferences({ ...skar, ...protocol }, "Cattle")).toEqual({});
+    expect(felineDiastolicReferences({ ...skar, ...protocol }, "Catfish")).toEqual({});
+    expect(felineDiastolicReferences({ ...skar, ...protocol }, "feliniforme")).toEqual({});
   });
   it("exige confirmação e não fabrica limites individuais a partir de média/DP", () => {
     const unknown = felineDiastolicReferences(skar, "Felina");

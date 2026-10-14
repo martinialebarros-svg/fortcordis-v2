@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { CheckCircle, AlertCircle, AlertTriangle, ArrowUp, ArrowDown, Minus } from "lucide-react";
+import { isFelineEchoSpecies } from "@/lib/echo-species";
 import { compararMedidasDiastolicasFelinas, useReferenciaEco } from "../hooks/useReferenciaEco";
 import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
@@ -247,7 +248,7 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
 
       {metodoAeAoCanino}
 
-      {positive(medidas.AE_Ao ?? medidas.LA_Ao) && /^felin/i.test(referencia?.especie ?? "") && (
+      {positive(medidas.AE_Ao ?? medidas.LA_Ao) && isFelineEchoSpecies(referencia?.especie) && (
         <div className="p-3 bg-blue-50 rounded-lg space-y-2">
           <label htmlFor="metodo-ae-ao" className="block text-sm font-medium text-blue-900">Método de obtenção de AE/Ao</label>
           <select id="metodo-ae-ao" value={medidas.AE_Ao_metodo || ""}

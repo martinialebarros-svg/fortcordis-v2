@@ -6,6 +6,7 @@ import { getCanine2DReference } from "@/lib/echo-2d-reference";
 import type { Echo2DView } from "@/lib/echo-2d-reference";
 import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 import { resolveEchoReferenceForMeasurements, selectEchoReferenceFromCatalog } from "@/lib/echo-reference-policy";
+import { isFelineEchoSpecies } from "@/lib/echo-species";
 import { canonicalFelineDiastolicKey, felineDiastolicReferences } from "@/lib/echo-feline-diastolic-reference";
 
 // Mapeamento de parâmetros das medidas para os campos da referência
@@ -236,7 +237,7 @@ export function useReferenciaEco() {
   const [loading, setLoading] = useState(false);
 
   const buscarReferencia = useCallback(async (especie: string, peso: number): Promise<ReferenciaEco | null> => {
-    const especieNormalizada = especie.trim();
+    const especieNormalizada = isFelineEchoSpecies(especie) ? "Felina" : especie.trim();
     const pesoNormalizado = Number(peso);
     if (!especieNormalizada || !Number.isFinite(pesoNormalizado) || pesoNormalizado <= 0) {
       return null;
