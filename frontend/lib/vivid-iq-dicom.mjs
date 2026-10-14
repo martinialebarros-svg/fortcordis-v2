@@ -10,6 +10,7 @@ const PRIVATE_CREATOR = "GEMS_Ultrasound_MovieGroup_001";
 const MAX_FILE_BYTES = 512 * 1024 * 1024;
 const MAX_ELEMENTS = 100_000;
 const MAX_DEPTH = 48;
+const MAX_FRAMES = 100_000;
 
 const LONG_VALUE_REPRESENTATIONS = new Set([
   "OB",
@@ -393,6 +394,9 @@ function parseMetaHeader(state) {
       );
     }
     state.elementCount += 1;
+    if (state.elementCount > MAX_ELEMENTS) {
+      fail("RESOURCE_LIMIT", "O DICOM excede o limite seguro de elementos.");
+    }
     position = header.valueOffset + header.valueLength;
   }
   return position;
@@ -556,7 +560,7 @@ function buildFrames(state, imageSizes) {
   const frames = [];
   const warnings = [];
 
-  for (const group of state.voxelGroups) {
+  for (const [groupIndex, group] of state.voxelGroups.entries()) {
     if (group.voxelsOffset === null || !group.voxelsLength) {
       continue;
     }
@@ -567,22 +571,39 @@ function buildFrames(state, imageSizes) {
     }
 
     const availableFrames = Math.floor(group.voxelsLength / imageSize.frameSize);
-    const declaredFrames = Number.isInteger(group.declaredFrames) && group.declaredFrames > 0
+    const declaredFrames = Number.isInteger(group.declaredFrames) && group.declaredFrames >= 0
       ? group.declaredFrames
-      : availableFrames;
+      : null;
     const timestampCount = group.timestampsOffset === null
       ? 0
       : Math.floor(group.timestampsLength / 8);
-    let frameCount = Math.min(availableFrames, declaredFrames);
+    let frameCount = availableFrames;
     if (timestampCount > 0) {
       frameCount = Math.min(frameCount, timestampCount);
+    }
+
+    if (
+      declaredFrames !== availableFrames
+      || timestampCount !== availableFrames
+      || group.timestampsLength % 8 !== 0
+    ) {
+      const omittedFrames = availableFrames - frameCount;
+      warnings.push(
+        `Bloco ${groupIndex + 1}: contagens divergentes (${declaredFrames ?? "nao informados"} declarados, ${availableFrames} quadros completos nos pixels, ${timestampCount} timestamps); ${frameCount} quadros exibidos.`
+        + (omittedFrames > 0 ? ` ${omittedFrames} quadros sem timestamp correspondente nao foram exibidos.` : "")
+        + (group.timestampsLength % 8 !== 0 ? " O registro de timestamps possui bytes incompletos." : ""),
+      );
+    }
+
+    if (frames.length + frameCount > MAX_FRAMES) {
+      fail("RESOURCE_LIMIT", "O cine excede o limite local de 100.000 quadros.");
     }
 
     if (frameCount <= 0) {
       continue;
     }
     for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
-      const timestampSeconds = group.timestampsOffset === null
+      const timestampSeconds = group.timestampsOffset === null || frameIndex >= timestampCount
         ? Number.NaN
         : state.view.getFloat64(group.timestampsOffset + frameIndex * 8, true);
       frames.push({
@@ -628,7 +649,9 @@ function buildFrames(state, imageSizes) {
     ? (frames.length - 1) / durationSeconds
     : 30;
   const dimensions = new Map();
+  let maxFrameWidth = 0;
   for (const frame of frames) {
+    maxFrameWidth = Math.max(maxFrameWidth, frame.width);
     const key = `${frame.width}x${frame.height}`;
     const current = dimensions.get(key) || {
       width: frame.width,
@@ -646,7 +669,7 @@ function buildFrames(state, imageSizes) {
     firstTimestamp,
     durationSeconds,
     frameDimensions: [...dimensions.values()],
-    maxFrameWidth: Math.max(...frames.map((frame) => frame.width)),
+    maxFrameWidth,
   };
 }
 
@@ -749,6 +772,228 @@ export function getVividIqFramePixels(study, frameIndex) {
   }
   const frame = study.frames[frameIndex];
   return new Uint8Array(study.sourceBuffer, frame.offset, frame.frameSize);
+}
+
+const IDENTIFICATION_FIELDS = new Map([
+  [0x00080005, { key: "characterSet", vr: "CS", label: "Conjunto de caracteres" }],
+  [0x00100010, { key: "patientName", vr: "PN", label: "Nome do paciente" }],
+  [0x00080020, { key: "studyDate", vr: "DA", label: "Data do estudo" }],
+  [0x00080030, { key: "studyTime", vr: "TM", label: "Hora do estudo" }],
+  [0x0008002a, { key: "acquisitionDateTime", vr: "DT", label: "Data/hora da aquisicao" }],
+  [0x00080022, { key: "acquisitionDate", vr: "DA", label: "Data da aquisicao" }],
+  [0x00080032, { key: "acquisitionTime", vr: "TM", label: "Hora da aquisicao" }],
+  [0x00080023, { key: "contentDate", vr: "DA", label: "Data do conteudo" }],
+  [0x00080033, { key: "contentTime", vr: "TM", label: "Hora do conteudo" }],
+  [0x00080201, { key: "timezoneOffset", vr: "SH", label: "Fuso horario" }],
+]);
+
+function readIdentificationHeaders(state, start, end, depth = 0, delimiter = null) {
+  if (depth > MAX_DEPTH) {
+    fail("RESOURCE_LIMIT", "O DICOM excede o limite seguro de profundidade.");
+  }
+  let position = start;
+  while (position + 8 <= end) {
+    const header = readElementHeader(state.view, position, end);
+    state.elementCount += 1;
+    if (state.elementCount > MAX_ELEMENTS) {
+      fail("RESOURCE_LIMIT", "O DICOM excede o limite seguro de elementos.");
+    }
+    if (header.group === ITEM_GROUP && header.element !== ITEM_TAG) {
+      if (header.element !== delimiter || header.valueLength !== 0) {
+        fail("INVALID_DICOM", "Delimitador DICOM inesperado na leitura da identificacao.");
+      }
+      return header.valueOffset;
+    }
+    if (depth === 0) {
+      const descriptor = IDENTIFICATION_FIELDS.get(header.group * 0x10000 + header.element);
+      if (descriptor) {
+        if (state.fields.has(descriptor.key)) {
+          state.fields.set(descriptor.key, null);
+          state.warnings.add(`${descriptor.label}: campo repetido; valor nao exibido.`);
+        } else if (header.valueRepresentation !== descriptor.vr || header.valueLength > 1024) {
+          state.fields.set(descriptor.key, null);
+          state.warnings.add(`${descriptor.label}: formato ou tamanho invalido; valor nao exibido.`);
+        } else {
+          state.fields.set(descriptor.key, header);
+        }
+      }
+    }
+    if (header.valueLength === UNDEFINED_LENGTH) {
+      position = readIdentificationHeaders(
+        state,
+        header.valueOffset,
+        end,
+        depth + 1,
+        header.group === ITEM_GROUP ? ITEM_DELIMITATION_TAG : SEQUENCE_DELIMITATION_TAG,
+      );
+    } else {
+      position = header.valueOffset + header.valueLength;
+    }
+  }
+  if (delimiter !== null || position !== end) {
+    fail("INVALID_DICOM", "Estrutura DICOM incompleta na leitura da identificacao.");
+  }
+  return position;
+}
+
+function formatDicomDate(value) {
+  if (!/^\d{8}$/.test(value)) {
+    return null;
+  }
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(4, 6));
+  const day = Number(value.slice(6, 8));
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) {
+    return null;
+  }
+  return `${value.slice(6, 8)}/${value.slice(4, 6)}/${value.slice(0, 4)}`;
+}
+
+function formatDicomTime(value) {
+  const match = /^(\d{2})(?:(\d{2})(?:(\d{2})(\.\d{1,6})?)?)?$/.exec(value);
+  if (!match || Number(match[1]) > 23 || Number(match[2] || 0) > 59 || Number(match[3] || 0) > 60) {
+    return null;
+  }
+  return [match[1], match[2], match[3]].filter((part) => part !== undefined).join(":") + (match[4] || "");
+}
+
+function formatDicomOffset(value) {
+  if (!/^[+-]\d{4}$/.test(value) || value === "-0000") {
+    return null;
+  }
+  const hours = Number(value.slice(1, 3));
+  const minutes = Number(value.slice(3, 5));
+  const limit = value[0] === "-" ? 12 : 14;
+  if (hours > limit || minutes > 59 || (hours === limit && minutes !== 0)) {
+    return null;
+  }
+  return `UTC${value[0]}${value.slice(1, 3)}:${value.slice(3, 5)}`;
+}
+
+function formatDicomDateTime(value, defaultOffset) {
+  const match = /^(\d{8})(\d{2}(?:\d{2}(?:\d{2}(?:\.\d{1,6})?)?)?)?([+-]\d{4})?$/.exec(value);
+  if (!match) {
+    return null;
+  }
+  const date = formatDicomDate(match[1]);
+  const time = match[2] ? formatDicomTime(match[2]) : null;
+  const offset = match[3] ? formatDicomOffset(match[3]) : defaultOffset;
+  if (!date || (match[2] && !time) || (match[3] && !offset)) {
+    return null;
+  }
+  return [date, time, offset].filter(Boolean).join(" ");
+}
+
+function readIdentificationText(state, key) {
+  const header = state.fields.get(key);
+  if (!header || header.valueLength === 0) {
+    return null;
+  }
+  const bytes = new Uint8Array(state.view.buffer, header.valueOffset, header.valueLength);
+  return Array.from(bytes, (value) => String.fromCharCode(value)).join("").replace(/ +$/g, "") || null;
+}
+
+function readPatientName(state, characterSet) {
+  const header = state.fields.get("patientName");
+  if (!header || header.valueLength === 0) {
+    return null;
+  }
+  const bytes = new Uint8Array(state.view.buffer, header.valueOffset, header.valueLength);
+  let decoded;
+  try {
+    if (characterSet === "ISO_IR 192") {
+      decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } else if (characterSet === "ISO_IR 100") {
+      decoded = Array.from(bytes, (value) => String.fromCharCode(value)).join("");
+    } else if (characterSet === "" || characterSet === "ISO_IR 6") {
+      if (bytes.some((value) => value > 0x7f)) {
+        throw new Error("invalid ASCII");
+      }
+      decoded = Array.from(bytes, (value) => String.fromCharCode(value)).join("");
+    } else {
+      state.warnings.add("Conjunto de caracteres nao suportado; nome do paciente nao exibido.");
+      return null;
+    }
+  } catch {
+    state.warnings.add("Nome do paciente: codificacao invalida; valor nao exibido.");
+    return null;
+  }
+  const raw = decoded.replace(/ +$/g, "");
+  const representations = raw.split("=");
+  if (
+    /[\p{Cc}\p{Cf}\\]/u.test(raw)
+    || representations.length > 3
+    || representations.some((value) => [...value].length > 64 || value.split("^").length > 5)
+  ) {
+    state.warnings.add("Nome do paciente: formato invalido; valor nao exibido.");
+    return null;
+  }
+  const display = representations
+    .map((value) => value.split("^").map((part) => part.trim()).filter(Boolean).join(" "))
+    .filter(Boolean)
+    .join(" / ");
+  return display ? { raw, display } : null;
+}
+
+// Identification is deliberately decoded only on an explicit UI request and is
+// never attached to the technical study, cached, or written to persistent storage.
+export function getVividIqIdentification(study) {
+  const buffer = study?.sourceBuffer;
+  if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < DICOM_DATASET_OFFSET) {
+    fail("INVALID_INPUT", "O visualizador recebeu um arquivo invalido.");
+  }
+  if (buffer.byteLength > MAX_FILE_BYTES) {
+    fail("RESOURCE_LIMIT", "O arquivo excede o limite local de 512 MB.");
+  }
+  const view = new DataView(buffer);
+  if (readAscii(view, DICOM_MAGIC_OFFSET, 4) !== "DICM") {
+    fail("INVALID_DICOM", "Assinatura DICM nao encontrada.");
+  }
+  const state = { view, fields: new Map(), warnings: new Set(), elementCount: 0, transferSyntax: "" };
+  const datasetOffset = parseMetaHeader(state);
+  validateTransferSyntax(state.transferSyntax);
+  readIdentificationHeaders(state, datasetOffset, buffer.byteLength);
+
+  const characterSet = state.fields.has("characterSet") && state.fields.get("characterSet") === null
+    ? "unsupported"
+    : (readIdentificationText(state, "characterSet") || "").trim();
+  const patientName = readPatientName(state, characterSet);
+  const formatted = (key, formatter) => {
+    const raw = readIdentificationText(state, key);
+    if (raw === null) {
+      return null;
+    }
+    const result = formatter(raw);
+    if (result === null) {
+      const descriptor = [...IDENTIFICATION_FIELDS.values()].find((field) => field.key === key);
+      state.warnings.add(`${descriptor.label}: valor invalido ou incompleto; nao exibido.`);
+    }
+    return result;
+  };
+  const timezoneOffset = formatted("timezoneOffset", formatDicomOffset);
+  let acquisitionDateTime = formatted("acquisitionDateTime", (value) => formatDicomDateTime(value, timezoneOffset));
+  if (!state.fields.has("acquisitionDateTime")) {
+    const date = formatted("acquisitionDate", formatDicomDate);
+    const time = formatted("acquisitionTime", formatDicomTime);
+    if (date && time) {
+      acquisitionDateTime = [date, time, timezoneOffset].filter(Boolean).join(" ");
+    } else if (date || time) {
+      state.warnings.add("Data/hora da aquisicao: par de data e hora incompleto; nao exibido.");
+    }
+  }
+  return {
+    patientName: patientName?.display || null,
+    patientNameRaw: patientName?.raw || null,
+    studyDate: formatted("studyDate", formatDicomDate),
+    studyTime: formatted("studyTime", formatDicomTime),
+    acquisitionDateTime,
+    contentDate: formatted("contentDate", formatDicomDate),
+    contentTime: formatted("contentTime", formatDicomTime),
+    timezoneOffset,
+    warnings: [...state.warnings],
+  };
 }
 
 export function getVividIqPreviewJpeg(study) {
@@ -968,3 +1213,4 @@ export function findVividIqFrameAtTimestamp(study, timestampSeconds) {
 }
 
 export const VIVID_IQ_MAX_FILE_BYTES = MAX_FILE_BYTES;
+export const VIVID_IQ_MAX_FRAMES = MAX_FRAMES;

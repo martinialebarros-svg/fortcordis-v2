@@ -53,7 +53,20 @@ export class VividIqDicomError extends Error {
   constructor(code: string, message: string);
 }
 
+export interface VividIqIdentification {
+  patientName: string | null;
+  patientNameRaw: string | null;
+  studyDate: string | null;
+  studyTime: string | null;
+  acquisitionDateTime: string | null;
+  contentDate: string | null;
+  contentTime: string | null;
+  timezoneOffset: string | null;
+  warnings: string[];
+}
+
 export function parseVividIqDicom(buffer: ArrayBuffer, fileName?: string): VividIqStudy;
+export function getVividIqIdentification(study: VividIqStudy): VividIqIdentification;
 export function getVividIqFramePixels(study: VividIqStudy, frameIndex: number): Uint8Array;
 export function getVividIqPreviewJpeg(study: VividIqStudy): Uint8Array | null;
 export function createVividIqDisplayMap(
@@ -76,3 +89,4 @@ export function findVividIqFrameAtTimestamp(
 ): number;
 
 export const VIVID_IQ_MAX_FILE_BYTES: number;
+export const VIVID_IQ_MAX_FRAMES: number;

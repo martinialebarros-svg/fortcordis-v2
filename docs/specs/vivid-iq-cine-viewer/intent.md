@@ -1,6 +1,6 @@
 # Intent - vivid-iq-cine-viewer
 
-Data: 2026-08-02
+Data: 2026-10-13
 Responsavel: Codex
 Status: done
 
@@ -16,10 +16,12 @@ visualizadores DICOM web genericos usados como referencia pelo produto.
 Disponibilizar no FortCordis um visualizador local e autenticado capaz de abrir
 o cine 2D desses arquivos, reproduzir a sequencia temporal e navegar quadro a
 quadro sem enviar o DICOM ou seus metadados identificaveis ao servidor.
+Priorizar a imagem durante a revisao e permitir foco, ampliacao visual e
+navegacao precisa, inclusive em telas menores, sem alterar o exame fonte.
 
 ## 3) Nao objetivos
 
-- Extrair ou exibir identificacao do paciente presente no DICOM.
+- Persistir identificacao do paciente ou vincular automaticamente o DICOM ao cadastro.
 - Armazenar o arquivo no FortCordis.
 - Realizar medidas de distancia, area, velocidade ou tempo clinico.
 - Reconstruir tracados, anotacoes ou volumes 3D privados da GE.
@@ -31,6 +33,9 @@ quadro sem enviar o DICOM ou seus metadados identificaveis ao servidor.
 - A primeira entrega suporta DICOM Part 10 em Explicit VR Little Endian com o
   criador privado `GEMS_Ultrasound_MovieGroup_001` e cine 2D em blocos GE.
 - O navegador precisa manter o exame apenas em memoria local durante a sessao.
+- Nome e datas podem ser revelados em um painel opcional, somente por acao do
+  usuario; devem refletir campos explicitos do DICOM, sem inferir fuso, sem
+  upload e sem inclusao na captura PNG.
 - A escala espacial do leitor aberto de referencia ainda nao e confiavel; a
   interface deve proibir interpretacao metrologica.
 
