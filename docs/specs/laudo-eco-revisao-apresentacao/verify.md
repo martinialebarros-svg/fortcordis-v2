@@ -233,3 +233,4 @@ O laudo real aberto no Safari não foi editado, salvo ou recarregado para testar
 - A nota quantitativa sem catálogo usa texto neutro quando há consulta descritiva disponível, evitando declarar que toda referência está indisponível. Nenhuma média ± DP foi convertida em faixa individual.
 - Na validação local inicial não houve commit, push, publicação, envio ou alteração de dados reais. A rodada seguinte prepara a publicação autorizada exclusivamente em stage, com teste sintético.
 - Preflight de stage: hints legados de E/TRIV e E/e' em Medidas restritos à espécie Canina explícita nos formulários novo/editar; conferir ausência dos dois textos no caso felino e presença no controle canino em stage.
+- A versão final dos hints foi novamente validada por TypeScript sem emissão e ESLint direcionado; a consulta usa a espécie atual do estado de cada formulário. Nenhum hint canino é inferido para espécie ausente ou não canina.
