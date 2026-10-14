@@ -55,7 +55,8 @@ def main() -> None:
         except urllib.error.HTTPError as error:
             return error.code, error.read(), dict(error.headers)
 
-    nonce = str(uuid4())
+    # numero_os tem limite de 50 caracteres inclusive nos bancos legados.
+    nonce = uuid4().hex[:20]
     db = SessionLocal()
     os_ids: list[int] = []
     fixture_ids: dict[str, int] = {}
@@ -64,7 +65,7 @@ def main() -> None:
     checks: dict[str, bool] = {}
     cleanup_ok = False
     try:
-        tutor = Tutor(nome="QA-TUTOR-PRIVADO-" + nonce, ativo=0)
+        tutor = Tutor(nome="QA-TUTOR-PRIVADO-" + nonce, nome_key="qatutorprivado" + nonce, ativo=0)
         servico = Servico(nome="QA Fiscal - serviço sintético", ativo=False, duracao_minutos=1)
         clinica = Clinica(nome="QA Fiscal " + nonce, razao_social="QA Fiscal sintético",
                           cnpj="12.345.678/0001-95", endereco="Rua de teste", numero="1",
@@ -73,7 +74,8 @@ def main() -> None:
         db.add_all([tutor, servico, clinica])
         db.flush()
         fixture_ids.update(tutor=tutor.id, servico=servico.id, clinica=clinica.id)
-        paciente = Paciente(nome="QA-PACIENTE-PRIVADO-" + nonce, tutor_id=tutor.id, ativo=0)
+        paciente = Paciente(nome="QA-PACIENTE-PRIVADO-" + nonce, nome_key="qapacienteprivado" + nonce,
+                            tutor_id=tutor.id, ativo=0)
         db.add(paciente)
         db.flush()
         fixture_ids["paciente"] = paciente.id
