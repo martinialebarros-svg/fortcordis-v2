@@ -13,7 +13,7 @@
 - RF-09: rotas autenticadas e protegidas pela permissão fiscal existente. Falha de histórico/consulta não é apresentada como ausência de registros.
 - RF-10: preservar CPF/CNPJ como texto, inclusive CNPJ alfanumérico já cadastrado; validar dígitos verificadores sem apagar letras. Referência: [manual da Receita Federal](https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/documentos-tecnicos/cnpj/manual-dv-cnpj.pdf). Consulta externa automática de CNPJ não é alterada nesta etapa.
 - RF-11: canário de stage executa sob o usuário efetivo do serviço backend informado pelo systemd; mantém as permissões restritas do arquivo de configuração e não imprime credenciais.
-  Cadastros sintéticos preenchem as chaves normalizadas exigidas por schemas legados, e seus números de OS respeitam VARCHAR(50). Nenhuma restrição do banco é relaxada para o teste.
+  Cadastros sintéticos preenchem as chaves normalizadas e espécie vazia exigidas pelo schema legado confirmado em stage; cada serviço recebe nome único e os números de OS respeitam VARCHAR(50). Nenhuma restrição do banco é relaxada para o teste.
 
 ## Contrato
 
