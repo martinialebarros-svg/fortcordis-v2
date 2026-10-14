@@ -1,8 +1,9 @@
 """Schemas Pydantic para o módulo fiscal"""
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt, field_validator
 
 
 # ─── CNPJ Consulta ─────────────────────────────────────────────────────────────
@@ -135,3 +136,20 @@ class RelatorioFiscalEmissaoResponse(BaseModel):
 class RelatorioFiscalEmissaoListResponse(BaseModel):
     total: int
     items: list[RelatorioFiscalEmissaoResponse]
+
+
+class FiscalFechamentoCreate(BaseModel):
+    competencia: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    os_ids: list[StrictInt] = Field(..., min_length=1, max_length=2000)
+    chave_idempotencia: UUID
+    confirmar_datas_prestacao: bool
+    confirmar_exportacoes_anteriores: bool = False
+
+    @field_validator("os_ids")
+    @classmethod
+    def validar_os_ids(cls, values: list[int]) -> list[int]:
+        if any(value <= 0 for value in values):
+            raise ValueError("IDs de OS devem ser positivos.")
+        if len(values) != len(set(values)):
+            raise ValueError("A seleção contém IDs de OS repetidos.")
+        return values

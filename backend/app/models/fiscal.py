@@ -1,7 +1,7 @@
 """Modelo para o módulo fiscal (Notas Fiscais de Serviço)"""
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Text, Numeric, Float
+from sqlalchemy import Column, ForeignKey, Integer, LargeBinary, String, Text, Numeric, Float
 from app.db.database import Base
 
 
@@ -85,3 +85,34 @@ class RelatorioFiscalEmissao(Base):
     usuario_id = Column(Integer)
     usuario_nome = Column(Text)
     emitido_em = Column(Text, nullable=False, default=_now_str)
+
+
+class FiscalFechamento(Base):
+    """Pacote informativo imutável preparado para o contador, sem emissão de NF."""
+
+    __tablename__ = "fiscal_fechamentos"
+
+    id = Column(Integer, primary_key=True)
+    competencia = Column(String(7), nullable=False, index=True)
+    chave_idempotencia = Column(String(36), nullable=False, unique=True)
+    fingerprint = Column(String(64), nullable=False)
+    data_inicio = Column(String(10), nullable=False)
+    data_fim = Column(String(10), nullable=False)
+    quantidade_os = Column(Integer, nullable=False)
+    valor_total = Column(Numeric(12, 2), nullable=False)
+    snapshot_json = Column(Text, nullable=False)
+    arquivo_nome = Column(Text, nullable=False)
+    pacote_bytes = Column(LargeBinary, nullable=False)
+    checksum = Column(String(64), nullable=False)
+    usuario_id = Column(Integer)
+    usuario_nome = Column(Text)
+    preparado_em = Column(Text, nullable=False)
+
+
+class FiscalFechamentoOS(Base):
+    """Uma OS pertence a um único pacote; segunda via reutiliza o pacote original."""
+
+    __tablename__ = "fiscal_fechamentos_os"
+
+    os_id = Column(Integer, primary_key=True)
+    fechamento_id = Column(Integer, ForeignKey("fiscal_fechamentos.id"), nullable=False, index=True)

@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.models.clinica import Clinica
-from app.models.fiscal import NotaFiscal, RelatorioFiscalEmissao
+from app.models.fiscal import FiscalFechamentoOS, NotaFiscal, RelatorioFiscalEmissao
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
@@ -317,6 +317,7 @@ def buscar_clinicas_com_os(
         .filter(Clinica.ativo == True)
         .filter(OrdemServico.data_atendimento >= dt_inicio)
         .filter(OrdemServico.data_atendimento <= dt_fim)
+        .filter(func.lower(func.trim(func.coalesce(OrdemServico.status, ""))) != "cancelado")
         .group_by(
             Clinica.id,
             Clinica.nome,
@@ -539,6 +540,13 @@ def buscar_os_por_ids_para_exportacao(db: Session, os_ids: list[int]) -> list[di
     """Retorna OS especificas para exportacao contabil, preservando ordem de entrada."""
     if not os_ids:
         return []
+    if any(type(os_id) is not int or os_id <= 0 for os_id in os_ids) or len(set(os_ids)) != len(os_ids):
+        raise ValueError("Selecione OS únicas com IDs positivos.")
+    db.query(OrdemServico.id).filter(OrdemServico.id.in_(os_ids)).order_by(OrdemServico.id.asc()).with_for_update().all()
+    claims = db.query(FiscalFechamentoOS).filter(FiscalFechamentoOS.os_id.in_(os_ids)).all()
+    if claims:
+        pacotes = ", ".join(str(value) for value in sorted({row.fechamento_id for row in claims}))
+        raise ValueError(f"Há OS já incluídas nos pacotes {pacotes}. Baixe a segunda via do fechamento original.")
 
     rows = (
         _build_os_query(db)
@@ -585,6 +593,7 @@ def _build_os_query(db: Session):
         .outerjoin(Tutor, Tutor.id == Paciente.tutor_id)
         .outerjoin(Clinica, Clinica.id == OrdemServico.clinica_id)
         .outerjoin(Servico, Servico.id == OrdemServico.servico_id)
+        .filter(func.lower(func.trim(func.coalesce(OrdemServico.status, ""))) != "cancelado")
     )
 
 
