@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { CheckCircle, AlertCircle, AlertTriangle, ArrowUp, ArrowDown, Minus } from "lucide-react";
-import { useReferenciaEco } from "../hooks/useReferenciaEco";
+import { compararMedidasDiastolicasFelinas, useReferenciaEco } from "../hooks/useReferenciaEco";
 import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
 import { prepareEchoReportMeasurements } from "@/lib/echo-report-presentation";
 import { ambiguousEchoLengthKeys } from "@/lib/echo-unit-provenance";
 import type { Echo2DView } from "@/lib/echo-2d-reference";
+import { FelineDiastolicProtocol } from "./FelineDiastolicProtocol";
 
 interface ReferenciaComparisonProps {
   especie?: "Canina" | "Felina" | string;
@@ -48,6 +49,10 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
   const medidasParaReferencia = useMemo(
     () => ({ ...medidasSeguras, ...medidasDerivadasParaReferencia }),
     [medidasSeguras, medidasDerivadasParaReferencia]
+  );
+  const referenciasDiastolicasFelinas = useMemo(
+    () => compararMedidasDiastolicasFelinas(medidasParaReferencia, especie ?? ""),
+    [medidasParaReferencia, especie],
   );
   // This clinical limit is independent of the weight-based catalog, but its
   // acquisition must still be confirmed for the current examination.
@@ -99,13 +104,13 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
   useEffect(() => {
     if (referencia) {
       const comps = compararMedidas(medidasParaReferencia, referencia, plano2D, peso);
-      setComparacoes(comps);
+      setComparacoes({ ...comps, ...referenciasDiastolicasFelinas });
       return;
     }
-    setComparacoes({});
-  }, [medidasParaReferencia, referencia, compararMedidas, plano2D, peso]);
+    setComparacoes(referenciasDiastolicasFelinas);
+  }, [medidasParaReferencia, referencia, compararMedidas, plano2D, peso, referenciasDiastolicasFelinas]);
 
-  if (loading) {
+  if (loading && Object.keys(referenciasDiastolicasFelinas).length === 0) {
     return (
       <div className="flex justify-center py-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
@@ -113,7 +118,7 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
     );
   }
 
-  if (!referencia) {
+  if (!referencia && Object.keys(comparacoes).length === 0) {
     return (
       <div className="space-y-4 py-8 text-center text-gray-500">
         <AlertCircle className="w-12 h-12 mx-auto mb-3 text-gray-400" />
@@ -124,6 +129,7 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
             : `Não há referência cadastrada para ${especie} com ${peso}kg.`}
         </p>
         {metodoAeAoCanino}
+        <FelineDiastolicProtocol especie={especie} medidas={medidas} onMedidaChange={onMedidaChange} />
       </div>
     );
   }
@@ -182,7 +188,7 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2 p-3 bg-teal-50 rounded-lg">
+      {referencia ? <div className="flex items-center gap-2 p-3 bg-teal-50 rounded-lg">
         <span className="text-lg">📊</span>
         <div>
           <p className="font-medium text-teal-900">
@@ -197,9 +203,11 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
             </p>
           )}
         </div>
-      </div>
+      </div> : <p className="rounded-lg bg-teal-50 p-3 text-sm text-teal-900">Referências diastólicas felinas: estudos publicados independentes do cadastro por peso.</p>}
 
-      {temMedidas2D && /^canin/i.test(referencia.especie) && (
+      <FelineDiastolicProtocol especie={especie} medidas={medidas} onMedidaChange={onMedidaChange} />
+
+      {temMedidas2D && /^canin/i.test(referencia?.especie ?? "") && (
         <div className="p-3 bg-blue-50 rounded-lg space-y-2">
           <label htmlFor="plano-referencia-2d" className="block text-sm font-medium text-blue-900">
             Confirme cão adulto e vista 2D do ventrículo esquerdo
@@ -223,7 +231,7 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
         </div>
       )}
 
-      {positive(medidas.TAPSE) && /^canin/i.test(referencia.especie) && (
+      {positive(medidas.TAPSE) && /^canin/i.test(referencia?.especie ?? "") && (
         <div className="p-3 bg-blue-50 rounded-lg space-y-2">
           <label htmlFor="metodo-tapse" className="block text-sm font-medium text-blue-900">Método de obtenção do TAPSE</label>
           <select id="metodo-tapse" value={medidas.TAPSE_metodo || ""}
@@ -239,7 +247,7 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
 
       {metodoAeAoCanino}
 
-      {positive(medidas.AE_Ao ?? medidas.LA_Ao) && /^felin/i.test(referencia.especie) && (
+      {positive(medidas.AE_Ao ?? medidas.LA_Ao) && /^felin/i.test(referencia?.especie ?? "") && (
         <div className="p-3 bg-blue-50 rounded-lg space-y-2">
           <label htmlFor="metodo-ae-ao" className="block text-sm font-medium text-blue-900">Método de obtenção de AE/Ao</label>
           <select id="metodo-ae-ao" value={medidas.AE_Ao_metodo || ""}
@@ -274,9 +282,9 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
                     item.referencia_min === null ||
                     item.referencia_max === null ||
                     (item.referencia_min === 0 && item.referencia_max === 0);
-                  const faixaRef = semReferenciaDefinida
+                  const faixaRef = item.referencia_texto ?? (semReferenciaDefinida
                     ? "-"
-                    : `${item.referencia_min} - ${item.referencia_max}`;
+                    : `${item.referencia_min} - ${item.referencia_max}`);
 
                   return (
                 <div
@@ -290,7 +298,7 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
                     <div>
                       <p className="font-medium text-sm">{item.nome}</p>
                       <p className="text-xs text-gray-500">
-                        {item.key.endsWith("_2D")
+                        {item.referencia_texto ? (item.fonte ? "Média ± DP publicada" : "Comparação diastólica") : item.key.endsWith("_2D")
                           ? (semReferenciaDefinida ? "Faixa 2D" : "Faixa 2D publicada")
                           : item.metadados?.status === "published" ? "Faixa publicada" : "Faixa cadastrada"}: {faixaRef}
                       </p>

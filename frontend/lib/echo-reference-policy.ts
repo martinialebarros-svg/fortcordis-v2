@@ -3,6 +3,10 @@ import type { EchoRangeMetadata, ReferenciaEco } from "@/app/laudos/types/refere
 export const ECHO_REFERENCE_METHOD_VALUES = {
   TAPSE_metodo: ["modo_m_apical", "2d"],
   AE_Ao_metodo: ["2d_eixo_curto_diastole_inicial", "2d_eixo_curto_diastole_inicial_sueco", "outro"],
+  Diastolica_metodo: ["felino_adulto_nao_sedado_pw_clique_aortico", "felino_adulto_nao_sedado_pw_fim_fluxo", "outro"],
+  Diastolica_ondas: ["separadas", "fundidas"],
+  TDI_metodo: ["felino_pw_anel_lateral", "felino_pw_anel_septal", "outro"],
+  TDI_ondas: ["separadas", "fundidas"],
 } as const;
 
 export const ECHO_REFERENCE_METHOD_KEYS = Object.keys(ECHO_REFERENCE_METHOD_VALUES);

@@ -3,6 +3,7 @@ import { calculateCanine2DNormalizedLVIDd, getCanine2DReference, type Echo2DView
 import { ambiguousEchoLengthKeys, confirmedEchoUnit, confirmedUnitKey, ECHO_LENGTH_KEYS } from "./echo-unit-provenance";
 import { calculateLeftAtrialFractionalShortening } from "./echo-derived-measurements";
 import { ECHO_REFERENCE_METHOD_KEYS, resolveEchoReferenceForMeasurements } from "./echo-reference-policy";
+import { canonicalFelineDiastolicKey, felineDiastolicReferences } from "./echo-feline-diastolic-reference";
 
 type Parameter = { key: string; label: string; unit?: string; reference?: string };
 export type EchoReportRow = { key: string; label: string; value: string; reference: string };
@@ -174,6 +175,7 @@ export function canineAeAoClinicalReference(measurements: Record<string, string>
 
 export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null, ambiguousKeys: Set<string> = new Set(), weightKg?: number, species = reference?.especie ?? ""): EchoReportGroup[] {
   const safeReference = resolveEchoReferenceForMeasurements(reference, measurements, weightKg);
+  const felineReferences = felineDiastolicReferences(measurements, species);
   const selected2D = measurements.VE_tecnica_relatorio === "2d";
   const view = measurements.VE_vista_2D === "eixo_curto" || measurements.VE_vista_2D === "eixo_longo"
     ? measurements.VE_vista_2D as Echo2DView : "";
@@ -204,6 +206,8 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
         ? `${number(measurements[item.key])?.toFixed(2)} (unidade a confirmar)`
         : `${number(measurements[item.key])?.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`,
       reference: ambiguousKeys.has(item.key) ? "—" : (() => {
+        const felineReference = felineReferences[canonicalFelineDiastolicKey(item.key)];
+        if (felineReference) return felineReference.text;
         const aeAoLimit = item.key === "AE_Ao" ? canineAeAoClinicalReference(measurements, species, ambiguousKeys) : null;
         if (aeAoLimit) return aeAoLimit;
         const twoD = selected2D && reference && /^canin/i.test(reference.especie)

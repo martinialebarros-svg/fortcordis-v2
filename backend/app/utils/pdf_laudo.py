@@ -35,6 +35,7 @@ from app.utils.echo_ae_ao_reference import (
     CANINE_AE_AO_SWEDISH_METHOD_NOTE,
     canine_ae_ao_clinical_limit_applies,
 )
+from app.utils.echo_feline_diastolic import feline_diastolic_references, feline_diastolic_notes
 
 
 # Cores do tema - preto e cinza com fontes brancas (teste)
@@ -981,7 +982,9 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
         for valor in (_to_float(medidas.get("Vmax_aorta")), _to_float(medidas.get("Vmax_pulmonar")))
     )
     tem_limiar_ae_ao_canino = canine_ae_ao_clinical_limit_applies(dados_pdf)
-    if not referencia and not tem_fluxo_saida and not tem_limiar_ae_ao_canino:
+    consultas_diastolicas = feline_diastolic_references(medidas, paciente.get("especie"))
+    bibliografia_diastolica = [ref["bibliography"] for ref in consultas_diastolicas.values() if ref["bibliography"]]
+    if not referencia and not tem_fluxo_saida and not tem_limiar_ae_ao_canino and not bibliografia_diastolica:
         return []
     especie = normalizar_especie_referencia(paciente.get("especie") or "")
     modo_m = str(medidas.get("VE_tecnica_relatorio") or "").lower() != "2d"
@@ -1093,13 +1096,15 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
             "DOI: 10.1016/j.jvc.2012.04.004."
         )
 
+    estudos.extend(bibliografia_diastolica)
+    estudos = list(dict.fromkeys(estudos))
     if not estudos:
         return []
 
     styles = create_pdf_styles()
     elementos = [Spacer(1, 3 * mm)]
     elementos.append(Paragraph("REFERÊNCIAS BIBLIOGRÁFICAS", styles["ReferenciaTitulo"]))
-    elementos.extend(Paragraph(estudo, styles["ReferenciaTexto"]) for estudo in estudos)
+    elementos.extend(Paragraph(_esc(estudo.replace("&amp;", "&")), styles["ReferenciaTexto"]) for estudo in estudos)
     return elementos
 
 
@@ -1597,8 +1602,15 @@ def gerar_pdf_laudo_eco(
             elements.append(Spacer(1, 2*mm))
         referencia_selecionada = dados_pdf.get("referencia_eco")
         if not referencia_selecionada:
+            tem_consulta_diastolica = any(
+                ref["kind"] == "descriptive" for ref in feline_diastolic_references(
+                    dados_pdf.get("medidas") or {}, (dados_pdf.get("paciente") or {}).get("especie"),
+                ).values()
+            )
             nota_sem_faixa = (
-                "Traço indica faixa de referência indisponível."
+                "Traço indica referência indisponível."
+                if tem_consulta_diastolica
+                else "Traço indica faixa de referência indisponível."
                 if canine_ae_ao_clinical_limit_applies(dados_pdf)
                 else "Faixas de referência indisponíveis para este paciente; traço indica faixa indisponível."
             )
@@ -1727,6 +1739,16 @@ def gerar_pdf_laudo_eco(
         params_ap_aorta = aplicar_referencia_eco(params_ap_aorta, referencia_eco)
         params_doppler_saidas = aplicar_referencia_eco(params_doppler_saidas, referencia_eco)
         params_diastolica = aplicar_referencia_eco(params_diastolica, referencia_eco)
+        consultas_diastolicas = feline_diastolic_references(
+            dados_pdf.get("medidas") or {}, (dados_pdf.get("paciente") or {}).get("especie"),
+        )
+        # Descriptive means/SD and fusion guards never acquire min/max bounds.
+        params_diastolica = [
+            {**param, "ref_min": None, "ref_max": None,
+             "ref_text": consultas_diastolicas[param["chave"]]["text"] or None}
+            if param["chave"] in consultas_diastolicas else param
+            for param in params_diastolica
+        ]
         params_regurgitacoes = aplicar_referencia_eco(params_regurgitacoes, referencia_eco)
         
         # =================================================================
@@ -1779,6 +1801,9 @@ def gerar_pdf_laudo_eco(
                         create_pdf_styles()["ReferenciaTexto"],
                     ),
                 ])
+            if titulo == "Diastólica":
+                for nota in feline_diastolic_notes(medidas_pdf, (dados_pdf.get("paciente") or {}).get("especie")):
+                    bloco_tabela.extend([Spacer(1, 1 * mm), Paragraph(_esc(nota), create_pdf_styles()["ReferenciaTexto"])])
             elements.append(
                 _bloco_sem_quebra(
                     *bloco_tabela,
