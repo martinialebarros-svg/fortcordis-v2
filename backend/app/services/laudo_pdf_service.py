@@ -22,7 +22,7 @@ from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_p
 
 
 LAUDO_PDF_RENDERER_VERSION = "2026-09-24-eco-presentation-v2"
-LAUDO_PDF_ECO_RENDERER_VERSION = "2026-10-14-eco-feline-fused-values-v22"
+LAUDO_PDF_ECO_RENDERER_VERSION = "2026-10-15-eco-outflow-provenance-v23"
 
 
 @dataclass(frozen=True)

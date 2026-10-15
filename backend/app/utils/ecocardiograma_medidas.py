@@ -34,6 +34,11 @@ LV_2D_KEYS = {
     "DeltaD_FS_2D",
 }
 
+OUTFLOW_MEASUREMENT_KEYS = {
+    "Vmax_VSVE", "Grad_VSVE", "Vmax_aorta", "Grad_aorta",
+    "Vmax_VSVD", "Grad_VSVD", "Vmax_pulmonar", "Grad_pulmonar",
+}
+
 _NUMERIC_VALUE_PATTERN = re.compile(
     r"^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][+-]?\d+)?$"
 )
@@ -96,6 +101,15 @@ def extrair_medidas_ecocardiograma_da_descricao(
         if not raw_value:
             continue
 
+        if key.endswith("_rotulo_origem") and key.removesuffix("_rotulo_origem") in OUTFLOW_MEASUREMENT_KEYS:
+            measurements[key] = raw_value
+            continue
+
+        if key.endswith("_origem") and key.removesuffix("_origem") in OUTFLOW_MEASUREMENT_KEYS:
+            if raw_value in {"importado", "informado", "calculado"}:
+                measurements[key] = raw_value
+            continue
+
         if key == "VE_tecnica_relatorio":
             normalized = raw_value.lower().replace("-", "_").replace(" ", "_")
             if normalized in {"modo_m", "2d"}:
@@ -127,6 +141,10 @@ def extrair_medidas_ecocardiograma_da_descricao(
 
         if _NUMERIC_VALUE_PATTERN.fullmatch(raw_value):
             measurements[key] = raw_value.replace(",", ".")
+        elif key in OUTFLOW_MEASUREMENT_KEYS:
+            # Preserve a filled invalid value for confirmation. Dropping it
+            # would make reopening/PDF treat it as an absent gradient to derive.
+            measurements[key] = raw_value
 
     inferred = inferir_tecnica_ve_relatorio(measurements)
     if inferred:

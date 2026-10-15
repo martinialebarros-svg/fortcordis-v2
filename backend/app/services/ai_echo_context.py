@@ -48,6 +48,8 @@ ECHO_MEASUREMENT_UNITS: dict[str, str] = {
     "Fluxo_auricular": "m/s",
     "Vmax_VSVE": "m/s",
     "Grad_VSVE": "mmHg",
+    "Vmax_VSVD": "m/s",
+    "Grad_VSVD": "mmHg",
     "Onda_E": "m/s",
     "Onda_A": "m/s",
     "E_A": "adimensional",
@@ -123,7 +125,9 @@ ECHO_MEASUREMENT_METHODS: dict[str, str] = {
     "Fracao_encurtamento_AE": "calculada dos diametros informados; confirmar a mesma vista",
     "Fluxo_auricular": "Doppler pulsado",
     "Vmax_VSVE": "Doppler espectral, via de saída do VE",
-    "Grad_VSVE": "Bernoulli simplificada, via de saída do VE",
+    "Grad_VSVE": "Gradiente registrado, via de saída do VE; método não informado",
+    "Vmax_VSVD": "Doppler espectral, via de saída do VD",
+    "Grad_VSVD": "Gradiente registrado, via de saída do VD; método não informado",
     "Onda_E": "Doppler pulsado transmitral",
     "Onda_A": "Doppler pulsado transmitral",
     "E_A": "Doppler pulsado transmitral",
@@ -307,6 +311,23 @@ def safe_measurement_context(
             "unit": ECHO_MEASUREMENT_UNITS[key],
             "method": ECHO_MEASUREMENT_METHODS[key],
         }
+        if key in {
+            f"{prefix}_{site}"
+            for prefix in ("Vmax", "Grad")
+            for site in ("VSVE", "aorta", "VSVD", "pulmonar")
+        }:
+            origin = str(normalized_measurements.get(f"{key}_origem") or "").strip()
+            if origin in {"importado", "calculado"}:
+                item["origin"] = origin
+                if key.startswith("Grad_"):
+                    item["method"] = (
+                        "Bernoulli simplificada (4 × V²)"
+                        if origin == "calculado"
+                        else "Gradiente importado; método de aquisição não informado"
+                    )
+            source_label = str(normalized_measurements.get(f"{key}_rotulo_origem") or "").strip()
+            if source_label:
+                item["source_label"] = source_label[:200]
         reference_range = ranges.get(key)
         if isinstance(reference_range, dict):
             item["reference"] = reference_range

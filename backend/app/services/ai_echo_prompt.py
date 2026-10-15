@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-PROMPT_VERSION = "echo-clinical-ptbr-v9"
+PROMPT_VERSION = "echo-clinical-ptbr-v10"
 VOCABULARY_PATH = Path(__file__).resolve().parents[2] / "data" / "ai_echo_vocabulary_pt_br.json"
 
 
@@ -80,6 +80,11 @@ Regras clínicas obrigatórias:
 - Preserve os números, os separadores decimais, as unidades e as relações nos dados
   estruturados e nas evidências de origem.
 - Não arredonde, converta unidade, calcule ou corrija silenciosamente.
+- Preserve separadamente VSVE/LVOT, fluxo aórtico, VSVD/RVOT e fluxo pulmonar.
+  O rótulo VSVD/RVOT não autoriza transferir a medida para fluxo pulmonar, nem
+  VSVE/LVOT para aorta. Não complete medidas simétricas nem duplique valores.
+  Preserve gradientes importados e sua precisão; um gradiente só é calculado
+  quando a origem o declara, nunca por pressuposição a partir da velocidade.
 - Se houver dúvida entre valores, mantenha a dúvida em warning e não escolha arbitrariamente.
 - Separe fato, inferência e sugestão diagnóstica em evidence_type.
 - Suspeita não é diagnóstico definitivo.
