@@ -1,7 +1,7 @@
 """Modelo para o módulo fiscal (Notas Fiscais de Serviço)"""
 from datetime import datetime
 
-from sqlalchemy import Column, ForeignKey, Integer, LargeBinary, String, Text, Numeric, Float
+from sqlalchemy import Boolean, CheckConstraint, Column, ForeignKey, Integer, LargeBinary, String, Text, Numeric, Float, UniqueConstraint
 from app.db.database import Base
 
 
@@ -116,3 +116,50 @@ class FiscalFechamentoOS(Base):
 
     os_id = Column(Integer, primary_key=True)
     fechamento_id = Column(Integer, ForeignKey("fiscal_fechamentos.id"), nullable=False, index=True)
+
+
+class FiscalRotinaPreferencia(Base):
+    """Preferência explícita; defaults operacionais são resolvidos sem inserir dados."""
+
+    __tablename__ = "fiscal_rotinas_clinicas"
+    __table_args__ = (
+        CheckConstraint("modo IN ('semanal', 'por_servico')", name="ck_fiscal_rotina_modo"),
+        CheckConstraint("versao > 0", name="ck_fiscal_rotina_versao"),
+    )
+
+    clinica_id = Column(Integer, ForeignKey("clinicas.id"), primary_key=True)
+    modo = Column(String(20), nullable=False)
+    pagamento_depende_nf = Column(Boolean, nullable=False, default=False)
+    versao = Column(Integer, nullable=False, default=1)
+    atualizado_em = Column(Text, nullable=False)
+    usuario_id = Column(Integer)
+    usuario_nome = Column(Text)
+
+
+class FiscalAndamentoEvento(Base):
+    """Confirmações manuais append-only, independentes da existência da OS viva."""
+
+    __tablename__ = "fiscal_andamento_eventos"
+    __table_args__ = (
+        UniqueConstraint("os_id", "versao", name="uq_fiscal_andamento_os_versao"),
+        CheckConstraint("versao > 0", name="ck_fiscal_andamento_versao"),
+        CheckConstraint(
+            "(etapa_anterior = 'preparado' AND destino = 'enviado_contador') OR "
+            "(etapa_anterior = 'enviado_contador' AND destino = 'nota_recebida') OR "
+            "(etapa_anterior = 'nota_recebida' AND destino = 'nota_encaminhada')",
+            name="ck_fiscal_andamento_transicao",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    os_id = Column(Integer, ForeignKey("fiscal_fechamentos_os.os_id"), nullable=False)
+    versao = Column(Integer, nullable=False)
+    etapa_anterior = Column(String(32), nullable=False)
+    destino = Column(String(32), nullable=False)
+    referencia_nota = Column(String(200))
+    observacao = Column(Text)
+    chave_idempotencia = Column(String(36), nullable=False, unique=True)
+    fingerprint = Column(String(64), nullable=False)
+    registrado_em = Column(Text, nullable=False, index=True)
+    usuario_id = Column(Integer)
+    usuario_nome = Column(Text)

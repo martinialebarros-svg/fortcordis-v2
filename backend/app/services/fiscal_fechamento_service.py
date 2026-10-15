@@ -225,7 +225,8 @@ def previa_fechamento(db: Session, competencia: str) -> dict:
 
 
 def _fingerprint(
-    competencia: str, os_ids: list[int], confirmar_datas: bool, confirmar_exportacoes: bool
+    competencia: str, os_ids: list[int], confirmar_datas: bool, confirmar_exportacoes: bool,
+    contexto_rotina: dict | None = None,
 ) -> str:
     payload = {
         "competencia": competencia,
@@ -233,6 +234,9 @@ def _fingerprint(
         "confirmar_datas_prestacao": confirmar_datas,
         "confirmar_exportacoes_anteriores": confirmar_exportacoes,
     }
+    # Sem contexto, o contrato de idempotência dos pacotes mensais é idêntico.
+    if contexto_rotina is not None:
+        payload["rotina"] = contexto_rotina
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
@@ -254,6 +258,7 @@ def preparar_fechamento(
     confirmar_exportacoes_anteriores: bool = False,
     usuario_id: int | None = None,
     usuario_nome: str | None = None,
+    contexto_rotina: dict | None = None,
 ) -> FiscalFechamento:
     _limites_competencia(competencia)
     if (
@@ -266,7 +271,7 @@ def preparar_fechamento(
         key = str(UUID(str(chave_idempotencia)))
     except (ValueError, AttributeError):
         raise FiscalFechamentoError(422, "Chave de idempotência inválida.")
-    fingerprint = _fingerprint(competencia, os_ids, confirmar_datas_prestacao, confirmar_exportacoes_anteriores)
+    fingerprint = _fingerprint(competencia, os_ids, confirmar_datas_prestacao, confirmar_exportacoes_anteriores, contexto_rotina)
     existente = db.query(FiscalFechamento).filter(FiscalFechamento.chave_idempotencia == key).first()
     if existente:
         return _conferir_retry(existente, fingerprint)
@@ -289,11 +294,20 @@ def preparar_fechamento(
         existente = db.query(FiscalFechamento).filter(FiscalFechamento.chave_idempotencia == key).first()
         if existente:
             return _conferir_retry(existente, fingerprint)
+        if contexto_rotina is not None:
+            clinica_ids = [row.clinica_id for row in db.query(OrdemServico.clinica_id).filter(OrdemServico.id.in_(os_ids)).distinct().all() if row.clinica_id is not None]
+            # A preferência e a seleção ficam estáveis até persistir o pacote.
+            # O PUT usa o mesmo lock de clínica e não precisa bloquear as OS.
+            db.query(Clinica.id).filter(Clinica.id.in_(clinica_ids)).order_by(Clinica.id.asc()).with_for_update().all()
         selected_rows = (
             _query_os(db).filter(OrdemServico.id.in_(os_ids))
-            .order_by(OrdemServico.id.asc()).all()
+            .order_by(OrdemServico.id.asc()).populate_existing().all()
         )
         items = _items(db, selected_rows, competencia)
+        pendencias_rotina = None
+        if contexto_rotina is not None:
+            from app.services.fiscal_rotina_service import validar_selecao_rotina
+            items, pendencias_rotina = validar_selecao_rotina(db, items, contexto_rotina)
         claimed = [item for item in items if item["fechamento_id"] is not None]
         if claimed:
             ids = sorted({item["fechamento_id"] for item in claimed})
@@ -305,9 +319,10 @@ def preparar_fechamento(
         if legacy and not confirmar_exportacoes_anteriores:
             raise FiscalFechamentoError(422, "Há exportações anteriores. Confirme que conferiu o histórico para evitar cobrança duplicada.", os_ids=legacy)
         previa = previa_fechamento(db, competencia)
-        pendencias = [item for item in previa["items"] if not item["elegivel"]]
+        pendencias = pendencias_rotina if pendencias_rotina is not None else [item for item in previa["items"] if not item["elegivel"]]
+        export_args = {"contexto_rotina": contexto_rotina} if contexto_rotina is not None else {}
         content, filename = fiscal_export_service.gerar_pacote_contador(
-            items, db, competencia=competencia, lote_id=key, pendencias=pendencias
+            items, db, competencia=competencia, lote_id=key, pendencias=pendencias, **export_args
         )
         if not content:
             raise FiscalFechamentoError(500, "Não foi possível gerar o pacote. Nenhum serviço foi vinculado.")
@@ -318,6 +333,8 @@ def preparar_fechamento(
             "confirmar_datas_prestacao": confirmar_datas_prestacao,
             "confirmar_exportacoes_anteriores": confirmar_exportacoes_anteriores,
         }
+        if contexto_rotina is not None:
+            snapshot["rotina"] = contexto_rotina
         fechamento = FiscalFechamento(
             competencia=competencia,
             chave_idempotencia=key,

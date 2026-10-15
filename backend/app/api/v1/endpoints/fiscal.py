@@ -13,6 +13,9 @@ from app.models.user import User
 from app.schemas.fiscal import (
     CNPJConsultaResponse,
     FiscalFechamentoCreate,
+    FiscalRotinaPreferenciaUpdate,
+    FiscalRotinaPrepararRequest,
+    FiscalAndamentoUpdate,
     NotaFiscalCreate,
     NotaFiscalListResponse,
     NotaFiscalResponse,
@@ -20,7 +23,7 @@ from app.schemas.fiscal import (
     RelatorioFiscalEmissaoListResponse,
     RelatorioFiscalEmissaoResponse,
 )
-from app.services import cnpj_consulta, fiscal_export_service, fiscal_fechamento_service
+from app.services import cnpj_consulta, fiscal_export_service, fiscal_fechamento_service, fiscal_rotina_service
 from app.services.fiscal_service import (
     atualizar_nota_fiscal,
     buscar_clinicas_com_os,
@@ -90,6 +93,72 @@ def _resposta_pacote(fechamento):
             "X-Content-SHA256": fechamento.checksum,
         },
     )
+
+
+@router.get("/rotinas")
+def listar_rotinas(db: Session = Depends(get_db)):
+    return fiscal_rotina_service.listar_rotinas(db)
+
+
+@router.put("/rotinas/clinicas/{clinica_id}")
+def atualizar_rotina_clinica(
+    clinica_id: int,
+    body: FiscalRotinaPreferenciaUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        return fiscal_rotina_service.atualizar_preferencia(db, clinica_id, **body.model_dump(), usuario_id=current_user.id, usuario_nome=current_user.nome)
+    except fiscal_rotina_service.FiscalRotinaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+@router.get("/rotinas/previa")
+def previa_rotina(
+    competencia: str = Query(...),
+    modo: Literal["semanal", "por_servico", "mensal"] = Query("semanal"),
+    data_corte: Optional[str] = Query(None),
+    clinica_id: Optional[int] = Query(None, gt=0),
+    db: Session = Depends(get_db),
+):
+    try:
+        return fiscal_rotina_service.previa_rotina(db, competencia, modo, data_corte, clinica_id)
+    except fiscal_rotina_service.FiscalRotinaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+@router.post("/rotinas/preparar")
+def preparar_rotina(
+    body: FiscalRotinaPrepararRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        pacote = fiscal_rotina_service.preparar_rotina(db, **body.model_dump(), usuario_id=current_user.id, usuario_nome=current_user.nome)
+        return _resposta_pacote(pacote)
+    except fiscal_rotina_service.FiscalRotinaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+@router.get("/fechamentos/{fechamento_id}/andamentos")
+def listar_andamentos(fechamento_id: int, db: Session = Depends(get_db)):
+    try:
+        return fiscal_rotina_service.listar_andamentos(db, fechamento_id)
+    except fiscal_rotina_service.FiscalRotinaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+@router.post("/os/{os_id}/andamento")
+def atualizar_andamento(
+    os_id: int,
+    body: FiscalAndamentoUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        return fiscal_rotina_service.atualizar_andamento(db, os_id, **body.model_dump(), usuario_id=current_user.id, usuario_nome=current_user.nome)
+    except fiscal_rotina_service.FiscalRotinaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
 @router.get("/fechamentos/previa")
