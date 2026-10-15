@@ -1,5 +1,18 @@
 # Verify - Revisão da apresentação do laudo ecocardiográfico
 
+## Correção: remoção explícita e saída de ondas fundidas (2026-10-15)
+
+- Origem: o usuário identificou E/A importada não editável e relações órfãs após zerar E/A no Skar; a saída PDF conservava números identificados pelo clínico como inválidos. A aceitação anterior preservava números e apenas bloqueava a referência, insuficiente para esse fluxo.
+- Base isolada: `codex/eco-fused-wave-values`, origin/stage `b1f95ca1`. Nenhuma edição do laudo real, banco clínico ou arquivo liberado foi executada.
+- CA-074: testar novo/editar com dados sintéticos Gato/Cat: relações suspensas editáveis, calculadas somente leitura, limpeza manual de origens sem relações obsoletas, remoção atômica por grupo com metadados e medidas independentes intactos, save e recarga. Histórico sem ação do usuário continua preservado.
+- CA-075: conferir as quatro combinações de fusão, zeros, campos ausentes, aliases e caninos. Coluna Valor deve omitir todos os números afetados e mostrar `Não mensurável`; referências pertinentes e notas/bibliografia devem permanecer. Renderizar e revisar todas as páginas dos PDFs sintéticos finais. Cache exclusivo eco v22.
+- Validação local: 153 testes frontend focados aprovados (107 referências/prévia/helpers e 46 componentes/páginas reais/aliases). TypeScript, ESLint dos arquivos afetados, build Next.js com 43 páginas, diff check e avaliação SDD do diff completo aprovados.
+- Backend: 33 testes focados iniciais de evidência/PDF/cache e persistência histórica aprovados; o módulo de persistência foi ampliado para 2 testes/36 subcenários reais em SQLite, incluindo oito remoções POST/PUT com nova sessão SQL e GET. Nenhum campo removido ressuscitou; espécie, flags, método, TRIV e medidas independentes permaneceram intactos.
+- Três PDFs locais sintéticos do renderer corrigido: origens zeradas com índices históricos, grupo transmitral removido e fusão tecidual independente. Seis páginas geradas; extração por coluna confirmou 6/6/4 células `Não mensurável`, TRIV 40 ms preservado e TDI lateral de 0,16 m/s disponível nos dois casos transmitrais. Evidências em `output/qa/feline-wave-correction/pdf-verification.json`. As seis páginas foram inspecionadas integralmente, sem cortes ou sobreposição; revisão independente não encontrou achados acionáveis.
+- Na primeira execução da PR #369, 868/871 testes frontend passaram; três asserções antigas do visualizador ainda exigiam números em picos fundidos. As expectativas foram alinhadas ao novo contrato, cobrindo as seis/quatro máscaras e mantendo as asserções de integridade do payload e de ausência de escrita. Os 11 testes do visualizador foram repetidos localmente. Sem alteração do código clínico.
+- Em 15/10/2026, o usuário autorizou expressamente publicar esta correção em produção. O stage compartilhado contém PR #368 fiscal e a migração 98, ainda fora de main; a publicação clínica usará o hotfix isolado previsto no runbook, mantendo os seis checks obrigatórios, SDD e deploy completo. Após a publicação, o hotfix será reintegrado imediatamente em stage. Nenhuma dispensa de critérios ou mudança das proteções. O teste local não modifica o PDF já baixado do Skar.
+
+
 ## Incremento: limite clínico canino de AE/Ao (2026-10-14)
 
 - Pesquisa primária separa método, limiar clínico e intervalo estatístico: 2D/eixo curto paraesternal direito/base, início da diástole após fechamento aórtico; Rishniw & Erb 2000 e Rishniw 2023. O limite é `<1,60`; não se inclui igualdade como normal nem se transfere para M-mode/eixo longo/gatos.

@@ -43,6 +43,12 @@ ORIGIN_MEASUREMENTS = {
     "e_doppler": "0.16",
     "a_doppler": "0.06",
 }
+# Explicit operator-removal fixture, matching the clinical frontend groups.
+# This list is not an API cleanup rule: the backend stores the submitted report.
+EXPLICIT_FUSION_REMOVAL_KEYS = {
+    "transmitral": ("Onda_E", "Onda_A", "E_A", "TD", "E_TRIV", "E_E_linha"),
+    "tissue": ("e_doppler", "a_doppler", "doppler_tecidual_relacao", "E_E_linha"),
+}
 
 
 def synthetic_measurements(waves: str) -> dict[str, str]:
@@ -161,6 +167,61 @@ def replay_page_save(case: dict) -> dict:
 
 
 class LaudosFelineAliasPersistenceTest(unittest.TestCase):
+    def test_explicit_removal_survives_real_post_put_and_fresh_get_without_resurrecting_values(self):
+        for species in ("Gato", "Cat"):
+            for mode in ("novo", "editar"):
+                for group, removed_keys in EXPLICIT_FUSION_REMOVAL_KEYS.items():
+                    with self.subTest(species=species, mode=mode, group=group):
+                        recorded = {
+                            **ORIGIN_MEASUREMENTS,
+                            **HISTORICAL_RATIOS,
+                            "TD": "51",
+                            "DIVEd": "17.06",
+                            "VE_tecnica_relatorio": "modo_m",
+                            "Diastolica_metodo": "felino_adulto_nao_sedado_pw_apical_clique_aortico",
+                            "Diastolica_ondas": "fundidas" if group == "transmitral" else "separadas",
+                            "TDI_metodo": "felino_pw_anel_lateral",
+                            "TDI_ondas": "separadas" if group == "transmitral" else "fundidas",
+                        }
+                        before = copy.deepcopy(recorded)
+                        explicitly_corrected = {
+                            key: value for key, value in recorded.items() if key not in removed_keys
+                        }
+                        description = synthetic_description(explicitly_corrected)
+                        patient = {"id": 901, "nome": "TESTE FELINO SINTETICO", "especie": species}
+                        payload = {
+                            "paciente": patient,
+                            "medidas": explicitly_corrected,
+                            "qualitativa": {},
+                            "conteudo": {"conclusao": "TESTE SINTETICO SEM VALIDADE CLINICA"},
+                            "tipo_laudo": "ecocardiograma",
+                            "status": "Rascunho",
+                        }
+                        if mode == "editar":
+                            payload = {"descricao": description, "tipo_laudo": "ecocardiograma", "status": "Rascunho"}
+                        result = replay_page_save({
+                            "species": species,
+                            "scenario": "fundidas",
+                            "mode": mode,
+                            "payload": payload,
+                            "paciente_payload": patient,
+                            "initial_description": synthetic_description(recorded),
+                            "captured_description": description,
+                        })
+                        self.assertEqual(result["medidas"], explicitly_corrected)
+                        for key in removed_keys:
+                            self.assertNotIn(key, result["medidas"])
+                            self.assertNotIn(f"- {key}:", result["descricao"])
+                        for key in ("TRIV", "DIVEd", "VE_tecnica_relatorio", "Diastolica_metodo", "Diastolica_ondas", "TDI_metodo", "TDI_ondas"):
+                            self.assertEqual(result["medidas"][key], recorded[key])
+                        independent = (
+                            ("e_doppler", "a_doppler", "doppler_tecidual_relacao")
+                            if group == "transmitral" else ("Onda_E", "Onda_A", "E_A", "TD", "E_TRIV")
+                        )
+                        for key in independent:
+                            self.assertEqual(result["medidas"][key], recorded[key])
+                        self.assertEqual(recorded, before)
+
     def test_historical_fused_and_unconfirmed_ratios_survive_post_put_get(self):
         # Frontend regression tests cover actual page effects and derivation.
         # Here the persisted contract is checked independently through HTTP.

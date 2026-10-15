@@ -49,7 +49,8 @@ describe("identificação da referência ecocardiográfica", () => {
     expect(screen.getByText("Média ± DP publicada: 46,2 ± 7,6 ms")).toBeInTheDocument();
     expect(screen.getAllByText("Comparação diastólica: Ondas E/A fundidas").length).toBeGreaterThan(1);
     expect(screen.getByText("0.16").closest("div.border")).toHaveClass("bg-white");
-    expect(screen.getByText("1.08").closest("div.border")).toHaveClass("bg-white");
+    expect(screen.queryByText("1.08")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Não mensurável")[0].closest("div.border")).toHaveClass("bg-white");
   });
   it("distingue o peso do paciente da linha de cadastro selecionada", async () => {
     render(<ReferenciaComparison especie="Canina" peso={10.8} medidas={{}} onMedidaChange={vi.fn()} />);

@@ -101,12 +101,13 @@ export function compararMedidasDiastolicasFelinas(
 ): Record<string, ComparacaoMedida> {
   const references = felineDiastolicReferences(medidas, especie);
   const comparisons: Record<string, ComparacaoMedida> = {};
-  for (const [key, value] of Object.entries(medidas)) {
+  const keys = new Set([...Object.keys(medidas), ...Object.keys(references)]);
+  for (const key of keys) {
     const reference = references[canonicalFelineDiastolicKey(key)];
     const mapping = MAPEAMENTO_PARAMETROS[key] ?? MAPEAMENTO_PARAMETROS[canonicalFelineDiastolicKey(key)];
     if (!reference || !mapping) continue;
     comparisons[key] = {
-      nome: mapping.nome, valor_medido: value, referencia_min: null, referencia_max: null,
+      nome: mapping.nome, valor_medido: reference.kind === "uninterpretable" ? "Não mensurável" : medidas[key], referencia_min: null, referencia_max: null,
       referencia_texto: reference.text, fonte: reference.source,
       status: "nao_avaliado", interpretacao: reference.note, categoria: "doppler",
     };

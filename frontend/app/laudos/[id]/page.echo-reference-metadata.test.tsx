@@ -40,7 +40,7 @@ describe("referências diastólicas no visualizador do laudo salvo", () => {
 
   const cases = ["Felina", "Gato"].flatMap((species) =>
     ["separadas", "fundidas", "desconhecidas", "legado"].map((scenario) => ({ species, scenario })));
-  it.each(cases)("rehidrata $species/$scenario com valores preservados e fonte ou motivo apropriado", async ({ species, scenario }) => {
+  it.each(cases)("rehidrata $species/$scenario preservando o registro e ocultando picos fundidos", async ({ species, scenario }) => {
     const measurements: Record<string, string> = {
       ...stored,
       Diastolica_metodo: scenario === "legado"
@@ -58,8 +58,13 @@ describe("referências diastólicas no visualizador do laudo salvo", () => {
     } });
     render(<VisualizarLaudoPage />);
     await screen.findByRole("heading", { name: "Medidas Ecocardiográficas" });
+    const fusedLabels = new Set(["Onda E", "Onda A", "Relação E/A", "Tempo de desaceleração", "Relação E/TRIV", "Relação E/e'"]);
     for (const [label, value] of Object.entries(expectedValues)) {
-      expect(cells(label)[1]).toHaveTextContent(new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+      if (scenario === "fundidas" && fusedLabels.has(label)) {
+        expect(cells(label)[1]).toHaveTextContent(/^Não mensurável$/);
+      } else {
+        expect(cells(label)[1]).toHaveTextContent(new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+      }
     }
     expect(screen.queryByRole("heading", { name: "Outras medidas registradas" })).not.toBeInTheDocument();
     expect(screen.getByText("Interpretação clínica registrada")).toBeInTheDocument();
@@ -120,9 +125,16 @@ describe("referências diastólicas no visualizador do laudo salvo", () => {
     } });
     render(<VisualizarLaudoPage />);
     await screen.findByRole("heading", { name: "Medidas Ecocardiográficas" });
-    expect(cells("e' · Doppler tecidual")[1]).toHaveTextContent("0.16 m/s");
-    expect(cells("Relação e'/a'")[1]).toHaveTextContent("2.60");
-    expect(cells("Relação E/e'")[1]).toHaveTextContent("6.95");
+    expect(cells("Onda E")[1]).toHaveTextContent(/^1\.08 m\/s$/);
+    if (scenario === "fundidas") {
+      for (const label of ["e' · Doppler tecidual", "a' · Doppler tecidual", "Relação e'/a'", "Relação E/e'"]) {
+        expect(cells(label)[1]).toHaveTextContent(/^Não mensurável$/);
+      }
+    } else {
+      expect(cells("e' · Doppler tecidual")[1]).toHaveTextContent("0.16 m/s");
+      expect(cells("Relação e'/a'")[1]).toHaveTextContent("2.60");
+      expect(cells("Relação E/e'")[1]).toHaveTextContent("6.95");
+    }
     expect(within(reference("Onda E")).getByRole("link", { name: "Disatian et al. (2008)" })).toBeInTheDocument();
     if (scenario === "septal") {
       expect(reference("e' · Doppler tecidual")).toHaveTextContent("0,075 ± 0,026 m/s");

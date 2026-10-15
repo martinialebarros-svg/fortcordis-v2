@@ -206,17 +206,19 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
     title: group.title,
     rows: group.parameters.filter((item) => {
       const value = number(measurements[item.key]);
-      return value !== null && value !== 0;
+      return felineReferences[canonicalFelineDiastolicKey(item.key)]?.kind === "uninterpretable"
+        || (value !== null && value !== 0);
     }).map((item) => {
-      const felineReference = ambiguousKeys.has(item.key)
+      const referenceForKey = felineReferences[canonicalFelineDiastolicKey(item.key)];
+      const felineReference = ambiguousKeys.has(item.key) && referenceForKey?.kind !== "uninterpretable"
         ? undefined : felineReferences[canonicalFelineDiastolicKey(item.key)];
       return {
         key: item.key,
         label: item.label,
-        value: ambiguousKeys.has(item.key)
+        value: felineReference?.kind === "uninterpretable" ? "Não mensurável" : ambiguousKeys.has(item.key)
           ? `${number(measurements[item.key])?.toFixed(2)} (unidade a confirmar)`
           : `${number(measurements[item.key])?.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`,
-        reference: ambiguousKeys.has(item.key) ? "—" : (() => {
+        reference: ambiguousKeys.has(item.key) && felineReference?.kind !== "uninterpretable" ? "—" : (() => {
           if (felineReference) return felineReference.text;
           const aeAoLimit = item.key === "AE_Ao" ? canineAeAoClinicalReference(measurements, species, ambiguousKeys) : null;
           if (aeAoLimit) return aeAoLimit;
