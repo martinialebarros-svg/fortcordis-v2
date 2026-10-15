@@ -125,6 +125,8 @@ describe("evidência descritiva diastólica felina", () => {
     expect(refs.Onda_E.kind).toBe("descriptive");
     expect(refs.TRIV.kind).toBe("descriptive");
     expect(felineDiastolicReferences({ Onda_E: "Infinity", Onda_A: "", TD: "-1", ...protocol }, "Felina")).toEqual({});
-    expect(felineDiastolicReferences({ Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" }, "Felina")).toEqual({});
+    const fusedWithoutValues = felineDiastolicReferences({ Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" }, "Felina");
+    expect(Object.keys(fusedWithoutValues)).toHaveLength(9);
+    expect(Object.values(fusedWithoutValues).every((ref) => ref.kind === "uninterpretable")).toBe(true);
   });
 });
