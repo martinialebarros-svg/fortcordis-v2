@@ -10,7 +10,7 @@
 | CA-004 | Mesmo teste: agendamento com `whatsapp_reminder_sent_at` preenchido e agendamento com `whatsapp_reminder_attempts=3` (== MAX) não são selecionados | passou |
 | CA-005 | `test_process_agendamento_marca_erro_quando_clinica_sem_whatsapp`: clínica sem `whatsapps`/`telefone` gera `result == "error"`, `attempts == 1`, `last_error` preenchido, `sent_at` continua `None` | passou |
 | CA-006 | `test_run_due_once_skips_cycle_when_distributed_lock_is_busy`: lock ocupado → `processed=0`, nenhuma linha tocada | passou |
-| CA-007 | `.env.example`/`config.py`: `WHATSAPP_REMINDER_SCHEDULER_ENABLED=False` por padrão; `_scheduler_worker_main` retorna sem agendar nada quando desligado | passou (inspeção de código + smoke de startup) |
+| CA-007 | `is_reminder_scheduler_enabled_in_db()` assume false quando toggle ausente/desligado ou leitura falha; `_scheduler_worker_main` verifica o toggle a cada ciclo e so chama o scheduler quando habilitado | passou (inspecao atual; toggle testado abaixo) |
 | CA-008 | `test_list_eligible_agendamentos_preview_nao_envia_nada_e_mascara_destino`: após chamar o preview, `whatsapp_reminder_sent_at` continua `None` e `attempts` continua `0` no agendamento elegível | passou |
 | CA-009 | Mesmo teste: `destination_last4 == "8888"` para o número `5585999998888` cadastrado, nunca o número completo | passou |
 
@@ -129,3 +129,50 @@ mecanismo novo.
 Risco residual: o toggle é institucional (uma linha em `configuracoes`,
 não por usuário), então afeta todo o sistema de uma vez — não há
 granularidade por clínica.
+
+## Variante com servico — 2026-10-14
+
+- `test_whatsapp_agenda_reminder_service.py` exercita a flag desligada/ligada:
+  quatro/cinco parametros, fonte completa do catalogo, mesmo destinatario,
+  mesmo agendamento e chave `appointment-reminder-{id}`. O modelo manual
+  legado nao e remapeado silenciosamente pela flag.
+- Servico ausente na variante ligada registra erro/tentativa e nao marca
+  como enviado nem chama o transporte. Nome completo e preservado, inclusive
+  combos; observacao interna nao compoe a mensagem.
+- A flag nova nasce `False` em Settings e `.env.example`; nao foi injetada
+  em workflow/runtime. O toggle institucional e os locks existentes permanecem.
+- Nenhum marcador anterior foi limpo, nenhum lembrete anterior foi reenviado,
+  nenhuma migracao foi criada e nenhuma mensagem real foi enviada.
+- A variante ligada restringe preview/worker a Agendado/Confirmado; reservas
+  pendentes permanecem sem tentativa/envio e o builder manual retorna 409.
+  Flag desligada preserva a elegibilidade e o contrato legados. Catalogo
+  vazio apos normalizar espacos usa o literal salvo, consistente com a previa.
+- O novo contrato foi submetido com autorizacao em 14/10/2026 na WABA de
+  producao; ID `1647759970059717`, status observado `Em analise`. A flag segue
+  desligada e o ID operacional no codigo continua pendente. O servico Node rejeita o envio
+  antes de reservar entrega/chamar Graph. Detalhes de testes e rascunho na
+  verificacao de `whatsapp-approved-template-catalog`.
+
+
+## Aprovacao e preparacao da ativacao — 2026-10-15
+
+- Detalhe autenticado da Meta confirmou `lembrete_de_agendamento_servico_v2`,
+  ID `1647759970059717`, Utilidade / Portuguese (BR), status
+  `Ativo — Qualidade pendente`. Corpo de cinco variaveis e dois botoes conferidos.
+  Prova local: `/tmp/fortcordis-lembrete-servico-meta-aprovado.png`.
+- Usuario autorizou expressamente publicar e ativar a variante em producao.
+  A WABA `1369494994627980` e a unica aprovada; a WABA de stage
+  `4413513738886247` permanece bloqueada. Nenhuma credencial/identidade Meta mudou.
+- Node exige ID numerico e WABA exata, com rejeicao antes de banco/Graph.
+  Build, TypeScript, catalogo e inbox passaram; os testes de conta ausente/
+  divergente comprovam zero conexao e zero envio, com legado preservado.
+- Nenhuma mensagem de teste foi enviada nem marcador de lembrete foi limpo.
+  A publicacao e a ativacao ainda dependem da conclusao dos gates de release.
+
+- Ativacao: teste shell com arquivos/servicos ficticios passou para sucesso,
+  contrato de conta incorreta, stage bloqueado, falha apos escrita, restauracao
+  de chave ausente/falsa/duplicada, symlink/permissoes e falha de restauracao
+  sem rollback inseguro. Teste de isolacao Meta de stage, Bash syntax, parse
+  YAML e diff-check passaram. Push preserva a decisao; dispatch exige opt-in.
+- Integracao com stage72327f: suite backend completa passou, 1896 testes
+  executados, 44 ignorados. Nenhum envio externo foi efetuado nos testes.

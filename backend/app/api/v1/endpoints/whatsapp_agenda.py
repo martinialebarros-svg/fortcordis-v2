@@ -54,7 +54,7 @@ class ReservationButtonResponseRequest(BaseModel):
     provider_message_id: str = Field(..., min_length=8, max_length=160)
     outbound_message_id: str | None = Field(default=None, max_length=160)
     agendamento_id: int = Field(..., gt=0)
-    action: Literal["confirmar", "solicitar_alteracao", "falar_equipe"]
+    action: Literal["confirmar", "confirmar_presenca", "solicitar_alteracao", "falar_equipe"]
     from_phone: str = Field(..., min_length=10, max_length=32)
 
 

@@ -90,3 +90,50 @@ ruby -e 'require "yaml"; YAML.load_file(".github/workflows/deploy.yml")'
 - criar uma nova reserva controlada, enviar o template e clicar em `Confirmar` antes do prazo;
 - comprovar no FortCordis que o status mudou para `Confirmado` e que as novas mensagens ficaram na mesma conversa;
 - testar `Solicitar alteracao` em outra reserva controlada e comprovar o alerta interno antes de qualquer promocao para producao.
+
+## Validação local — presença no lembrete 2026-10-14
+
+`test_whatsapp_agenda_presence.py` valida presença nos estados Agendado e
+Confirmado preservando o snapshot de todas as colunas da agenda, sem consultas
+de paciente/tutor; estados finais ou reserva vigente/vencida continuam revisão
+manual; registro inexistente permanece seguro. API real simulada valida token
+interno/401, ação desconhecida/422, recibo idempotente e notificação uma vez.
+
+O Node valida binding enviado, remetente e ação/agendamento retornados pela API
+antes de carimbar receipt. Testes de webhook assinado usam banco PostgreSQL local
+descartável e transportes simulados. A prova de produção exige novo clique após
+publicação autorizada; os cliques antigos ignorados não foram alterados.
+
+## Servico no lembrete — validacao local 2026-10-14
+
+`test_whatsapp_agenda_reminder_service.py` valida fonte pelo catalogo,
+fallback do registro, combo completo, nome invalido/ausente, contrato HTTP e
+cinco parametros sem alterar as quatro variaveis do lembrete anterior.
+O callback sintetico de alteracao preserva todas as colunas do agendamento,
+cria alerta para servico/horario e nao duplica esse alerta no replay.
+
+Os testes do modal validam selecao atual do servico, fallback pos-salvamento
+com ID compativel, previa completa e bloqueio visivel no modal. Node valida
+os dois botoes via binding persistido/remetente e bloqueia a variante pendente
+antes de banco/Graph. Corpo preparado no formulario da Meta coincide com o
+codigo. Em 14/10/2026, apos autorizacao explicita, o modelo foi submetido na
+WABA de producao `1369494994627980`: ID `1647759970059717`, Utilidade/pt_BR,
+status `Em analise`. Nenhuma mensagem foi enviada a uma clinica; aprovacao,
+ativacao e publicacao continuam pendentes. Detalhes e screenshot na verificacao
+de `whatsapp-approved-template-catalog`.
+
+
+## Aprovacao e preparacao da ativacao — 2026-10-15
+
+- Detalhe autenticado da Meta confirmou `lembrete_de_agendamento_servico_v2`,
+  ID `1647759970059717`, Utilidade / Portuguese (BR), status
+  `Ativo — Qualidade pendente`. Corpo de cinco variaveis e dois botoes conferidos.
+  Prova local: `/tmp/fortcordis-lembrete-servico-meta-aprovado.png`.
+- Usuario autorizou expressamente publicar e ativar a variante em producao.
+  A WABA `1369494994627980` e a unica aprovada; a WABA de stage
+  `4413513738886247` permanece bloqueada. Nenhuma credencial/identidade Meta mudou.
+- Node exige ID numerico e WABA exata, com rejeicao antes de banco/Graph.
+  Build, TypeScript, catalogo e inbox passaram; os testes de conta ausente/
+  divergente comprovam zero conexao e zero envio, com legado preservado.
+- Nenhuma mensagem de teste foi enviada nem marcador de lembrete foi limpo.
+  A publicacao e a ativacao ainda dependem da conclusao dos gates de release.

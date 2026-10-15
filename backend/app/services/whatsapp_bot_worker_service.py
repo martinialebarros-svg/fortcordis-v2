@@ -310,6 +310,17 @@ def _process_job(db: Session, job: WhatsAppBotJob) -> str:
         job.status = "done"
         return "done"
 
+    from app.services.whatsapp_bot_agenda_receipts import confirmacao_agenda_processada
+    if confirmacao_agenda_processada(
+        db, wa_identity=job.wa_identity, wa_message_id=str(mensagem_id or ""),
+        message_type=last_message.get("type"),
+    ):
+        # Abrange jobs legados e reconciliação após o callback. O clique
+        # continua na fronteira da conversa: não ressuscita textos anteriores.
+        _record_resposta(db, job, decisao="suppressed", motivo="confirmacao_agenda_processada")
+        job.status = "done"
+        return "done"
+
     if not is_supported_message_type(last_message.get("type")):
         _handoff_operacional(db, job, "tipo_nao_suportado")
         _record_resposta(db, job, decisao="handoff", motivo="tipo_nao_suportado")

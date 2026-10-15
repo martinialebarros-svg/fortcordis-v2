@@ -767,8 +767,9 @@ custo, em vez de exibir zero como se o uso fosse gratuito.
 - CB-005: dois números diferentes do mesmo tutor (fixo e móvel) — cada conversa
   tem sua identidade canônica e seu próprio estado; não há merge nesta entrega.
 - CB-006: cliente responde a um template de reserva com botão — o fluxo de
-  `agendaButtonService` continua tratando, e o bot não gera resposta para
-  mensagens do tipo `button`/`interactive` (RF-013).
+  agenda continua tratando. Uma confirmação bem-sucedida com recibo durável
+  não gera resposta, pausa nem encaminhamento do bot. Botões sem prova de
+  sucesso e outros tipos não suportados mantêm a revisão da equipe (RF-013).
 - CB-007: mensagem chega exatamente no limite da janela de 24h e a janela fecha
   durante o debounce — o portão da RF-012 é reavaliado no momento do envio, não
   no do enfileiramento.
@@ -1049,3 +1050,24 @@ O pool PostgreSQL do WhatsApp aceita `WHATSAPP_DATABASE_POOL_MAX` inteiro1–10;
 ausente mantém o padrão10. Stage injeta2 no seu `.env` de Node para enfileirar o
 pico dentro do serviço e respeitar a capacidade do pooler; produção mantém sua
 configuração. A políticaTLS e o smoke assinado/idempotente não mudam.
+
+## Confirmações de agenda recebidas pelo bot — 2026-10-14
+
+- RF-CF01: a fila e a reconciliação reconhecem somente recibos duráveis em
+  `whatsapp_agenda_respostas`, pelo mesmo provider_message_id e identidade
+  canônica do remetente. Texto do botão ou metadados externos não provam sucesso.
+- RF-CF02: `confirmar_presenca/presenca_confirmada` com estado Agendado ou
+  Confirmado, e `confirmar/confirmado|ja_confirmado` com estado Confirmado
+  não criam job do bot nem substituem texto pendente. Jobs legados para esses
+  cliques terminam como suppressed/confirmacao_agenda_processada, sem envio,
+  alerta ou pausa. As verificações de emergência e atendimento humano já ativo
+  permanecem prioritárias.
+- RF-CF03: a mensagem continua visível na central e na fronteira usada para
+  invalidar respostas automáticas antigas. Não excluir cliques do contexto do
+  bot nem retomar uma mensagem anterior. Confirmação vencida, cadastro pendente,
+  alteração, falar com equipe, falha, remetente divergente ou botão desconhecido
+  não recebem este tratamento silencioso.
+- RF-CF04: a melhoria não libera pausas existentes, não reprocessa cliques
+  antigos e não envia confirmação adicional ao cliente. Exige novo teste após
+  publicação para demonstrar recebimento real; as simulações locais não são
+  prova de entrega Meta.

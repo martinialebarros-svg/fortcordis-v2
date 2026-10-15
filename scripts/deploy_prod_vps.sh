@@ -29,6 +29,7 @@ set -euo pipefail
 #   WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION=0|1
 #   WHATSAPP_DATABASE_SSL_REJECT_UNAUTHORIZED=true|false
 #   WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED=true|false (somente apos aprovacao na WABA)
+#   DEPLOY_ACTIVATE_WHATSAPP_REMINDER_SERVICE=0|1 (opt-in, apos os gates finais)
 #   WHATSAPP_RUNTIME_LABEL=Stage
 #   ENABLE_WHATSAPP_STAGE_SMOKE=1
 #   WHATSAPP_DEFAULT_ALLOWED_PAPEIS=admin,recepcao,veterinario,cardiologista
@@ -81,6 +82,7 @@ WHATSAPP_EXPECTED_PHONE_NUMBER_ID="${WHATSAPP_EXPECTED_PHONE_NUMBER_ID:-}"
 WHATSAPP_EXPECTED_META_APP_ID="${WHATSAPP_EXPECTED_META_APP_ID:-}"
 WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID="${WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID:-}"
 WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION="${WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION:-0}"
+DEPLOY_ACTIVATE_WHATSAPP_REMINDER_SERVICE="${DEPLOY_ACTIVATE_WHATSAPP_REMINDER_SERVICE:-0}"
 WHATSAPP_PRODUCTION_PHONE_NUMBER_ID="1279142515283484"
 WHATSAPP_PRODUCTION_META_APP_ID="975334532125008"
 WHATSAPP_PRODUCTION_BUSINESS_ACCOUNT_ID="1369494994627980"
@@ -118,6 +120,8 @@ NEW_HASH=""
 CODE_UPDATED=0
 DEPLOY_STAGE="bootstrap"
 ROLLBACK_IN_PROGRESS=0
+REMINDER_SERVICE_FLAG_CHANGED=0
+REMINDER_SERVICE_PREVIOUS_FLAG_LINES=""
 NPM_BIN="/usr/bin/npm"
 
 log() {
@@ -954,6 +958,97 @@ restore_runtime_artifacts() {
   restore_runtime_file "backend/data/atendimento_clinical_phrases.json"
 }
 
+write_reminder_service_flag_lines() {
+  # Somente a flag operacional; nunca copiar ou imprimir as outras chaves.
+  python3 - "${BACKEND_DIR}/.env" "$1" <<'PY'
+import os
+from pathlib import Path
+import stat
+import sys
+import tempfile
+
+path = Path(sys.argv[1]).resolve(strict=True)
+previous = path.stat()
+key = "WHATSAPP_REMINDER_SERVICE_TEMPLATE_ENABLED="
+lines = [line for line in path.read_text().splitlines(keepends=True) if not line.startswith(key)]
+if sys.argv[2]:
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    lines.append(sys.argv[2] + "\n")
+temp = None
+try:
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as handle:
+        temp = handle.name
+        os.fchown(handle.fileno(), previous.st_uid, previous.st_gid)
+        os.fchmod(handle.fileno(), stat.S_IMODE(previous.st_mode))
+        handle.write("".join(lines))
+    os.replace(temp, path)
+finally:
+    if temp and os.path.exists(temp):
+        os.unlink(temp)
+PY
+}
+
+restore_reminder_service_flag() {
+  if [[ "${REMINDER_SERVICE_FLAG_CHANGED}" != "1" ]]; then
+    return 0
+  fi
+  if ! run_systemctl_command stop "$BACKGROUND_WORKER_SERVICE"; then
+    echo "[WARN] Worker stop failed; restoring reminder flag before retrying restart." >&2
+  fi
+  write_reminder_service_flag_lines "${REMINDER_SERVICE_PREVIOUS_FLAG_LINES}" || return 1
+  REMINDER_SERVICE_FLAG_CHANGED=0
+  log "Previous WhatsApp reminder flag restored before rollback."
+  restart_service "$BACKEND_SERVICE" || return 1
+  wait_http_ok "http://127.0.0.1:${BACKEND_PORT}/ready" 25 1 || return 1
+  restart_service "$BACKGROUND_WORKER_SERVICE" || return 1
+  run_systemctl_command is-active --quiet "$BACKGROUND_WORKER_SERVICE"
+}
+
+activate_whatsapp_reminder_service() {
+  if [[ "${DEPLOY_ACTIVATE_WHATSAPP_REMINDER_SERVICE}" == "0" ]]; then
+    return 0
+  fi
+  if [[ "${DEPLOY_ACTIVATE_WHATSAPP_REMINDER_SERVICE}" != "1" \
+        || "${BRANCH}" != "main" || "${WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION}" != "0" \
+        || "${ENABLE_WHATSAPP_STAGE_BACKEND}" != "1" \
+        || "${WHATSAPP_EXPECTED_BUSINESS_ACCOUNT_ID}" != "${WHATSAPP_PRODUCTION_BUSINESS_ACCOUNT_ID}" \
+        || "${ENABLE_AUTH_CANARY}" != "1" || "${ENABLE_BACKUP_RESTORE_DRILL}" != "1" ]]; then
+    echo "[ERROR] Reminder activation requires production and all release gates." >&2
+    return 1
+  fi
+  local account previous_value
+  account="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" WHATSAPP_BUSINESS_ACCOUNT_ID "")"
+  if [[ "${account}" != "${WHATSAPP_PRODUCTION_BUSINESS_ACCOUNT_ID}" ]]; then
+    echo "[ERROR] Reminder activation rejected: unexpected WhatsApp account." >&2
+    return 1
+  fi
+  wait_http_ok "http://127.0.0.1:${WHATSAPP_STAGE_BACKEND_PORT}/health" 25 1 || return 1
+  # Verifica o contrato compilado que acabou de ser instalado, sem chamar a Meta.
+  WHATSAPP_BUSINESS_ACCOUNT_ID="${account}" node - "${WHATSAPP_STAGE_BACKEND_DIR}/dist/templates/approvedTemplates.js" <<'JS' || return 1
+const catalog = require(process.argv[2]);
+if (typeof catalog.isTemplateDeliveryApproved !== "function"
+    || !catalog.isTemplateDeliveryApproved("appointmentReminderService")) {
+  throw new Error("Installed reminder contract is not approved for this account");
+}
+JS
+  previous_value="$(read_env_file_value "${BACKEND_DIR}/.env" WHATSAPP_REMINDER_SERVICE_TEMPLATE_ENABLED "false")"
+  case "$(printf '%s' "${previous_value}" | tr '[:upper:]' '[:lower:]')" in
+    true|1|yes|on) log "WhatsApp service reminder already enabled; operational flag preserved."; return 0 ;;
+    false|0|no|off|"") ;;
+    *) echo "[ERROR] Existing reminder flag is invalid; activation cancelled." >&2; return 1 ;;
+  esac
+  REMINDER_SERVICE_PREVIOUS_FLAG_LINES="$(grep '^WHATSAPP_REMINDER_SERVICE_TEMPLATE_ENABLED=' "${BACKEND_DIR}/.env" || true)"
+  run_systemctl_command stop "$BACKGROUND_WORKER_SERVICE" || return 1
+  REMINDER_SERVICE_FLAG_CHANGED=1
+  write_reminder_service_flag_lines 'WHATSAPP_REMINDER_SERVICE_TEMPLATE_ENABLED=true' || return 1
+  restart_service "$BACKEND_SERVICE" || return 1
+  wait_http_ok "http://127.0.0.1:${BACKEND_PORT}/ready" 25 1 || return 1
+  restart_service "$BACKGROUND_WORKER_SERVICE" || return 1
+  run_systemctl_command is-active --quiet "$BACKGROUND_WORKER_SERVICE" || return 1
+  log "WhatsApp service reminder activated after release gates."
+}
+
 rollback_deploy() {
   if [[ -z "${PRE_DEPLOY_HASH}" ]]; then
     echo "[ERROR] PRE_DEPLOY_HASH vazio; rollback automatico indisponivel." >&2
@@ -1037,6 +1132,15 @@ on_exit() {
   fi
 
   echo "[ERROR] Deploy failed at stage '${DEPLOY_STAGE}' (exit=${exit_code})." >&2
+  # A chave pode não existir no runtime antigo; restaurar também sua ausência
+  # antes de reiniciar/voltar código, inclusive quando não há rollback de SHA.
+  if ! restore_reminder_service_flag; then
+    echo "[ERROR] Reminder flag/runtime restoration failed; checking rollback." >&2
+    if [[ "${REMINDER_SERVICE_FLAG_CHANGED}" == "1" ]]; then
+      echo "[ERROR] Previous reminder flag was not restored; preserving installed code and skipping rollback." >&2
+      exit "$exit_code"
+    fi
+  fi
   if [[ "${AUTO_ROLLBACK_ON_FAILURE}" != "1" ]]; then
     echo "[ERROR] AUTO_ROLLBACK_ON_FAILURE=${AUTO_ROLLBACK_ON_FAILURE}; skipping rollback." >&2
     exit "$exit_code"
@@ -1069,6 +1173,11 @@ on_exit() {
   fi
   exit "$exit_code"
 }
+
+# Ao carregar as funções para ensaio local, não iniciar um deploy.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
 
 trap 'on_exit $?' EXIT
 
@@ -1278,6 +1387,9 @@ if [[ "${ENABLE_BACKUP_RESTORE_DRILL}" == "1" ]]; then
 else
   log "Backup restore drill disabled (ENABLE_BACKUP_RESTORE_DRILL=${ENABLE_BACKUP_RESTORE_DRILL}); skipping."
 fi
+
+DEPLOY_STAGE="whatsapp_reminder_activation"
+activate_whatsapp_reminder_service
 
 DEPLOY_STAGE="completed"
 log "Deploy finished successfully (HEAD=${NEW_HASH})"

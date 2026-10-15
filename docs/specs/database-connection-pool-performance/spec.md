@@ -23,3 +23,19 @@ finito, `pool_pre_ping`, reciclagem e timeouts de pool e conexao.
 - Alterar topologia de workers (PERF-15).
 - HTTP/2 (PERF-16).
 - Persistir p50/p95/p99, tempo de banco ou espera de pool (PERF-17).
+
+
+## Orcamento operacional de producao — 2026-10-15
+
+- RF-008: no projeto Supabase de producao em session mode, o teto agregado
+  configurado da VPS fica abaixo das 15 sessoes observadas: API 3, worker 3
+  (`DATABASE_POOL_SIZE=3`, `DATABASE_MAX_OVERFLOW=0`) e Node 2
+  (`WHATSAPP_DATABASE_POOL_MAX=2`), total 8. Os defaults de desenvolvimento
+  permanecem 5+5; stage usa outro projeto e nao recebe esta mudanca.
+- RF-009: o preflight operacional reduz os limites antes do setup/migracoes,
+  reinicia a API para liberar sockets antigos e aplica os demais limites no
+  reinicio normal de worker/Node do deploy; preserva as outras chaves
+  de ambiente e backups protegidos, sem imprimir credenciais.
+- RF-010: readiness, canario autenticado e rollback continuam obrigatorios.
+  Reduzir pools nao autoriza trocar session mode por transaction mode,
+  encerrar sessoes arbitrarias ou desabilitar gates.
