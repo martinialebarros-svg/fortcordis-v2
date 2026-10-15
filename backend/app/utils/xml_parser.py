@@ -2,6 +2,7 @@
 import re
 from typing import Dict, Any, Optional
 from bs4 import BeautifulSoup
+from .xml_outflow import extract_outflow_measurements
 
 def _parse_data_iso(data_str: str) -> str:
     """Converte data do formato brasileiro (DD/MM/YYYY) ou americano (MM/DD/YYYY) para ISO (YYYY-MM-DD)."""
@@ -572,23 +573,8 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     val = buscar_parametro_por_name(soup, ["MR dp/dt", "Mitral Regurg dp/dt", "MR dpdt"])
     if val: medidas["MR_dp_dt"] = val
     
-    # Distinguir a via de saída do VE da medida valvar/aórtica.
-    val = buscar_velocidade_por_name(soup, ["LVOT Vmax P", "Vmáx VSVE", "LVOT Vmax"])
-    if val: medidas["Vmax_VSVE"] = val
-    val = buscar_velocidade_por_name(soup, ["Aortic Vmax", "Vmax aorta"])
-    if val: medidas["Vmax_aorta"] = val
-    
-    val = buscar_parametro_por_name(soup, ["LVOT maxPG", "máxPG VSVE", "LVOT max PG"])
-    if val: medidas["Grad_VSVE"] = val
-    val = buscar_parametro_por_name(soup, ["Aortic maxPG", "Gradiente aorta"])
-    if val: medidas["Grad_aorta"] = val
-    
-    # Pulmonar -> Doppler Saídas
-    val = buscar_parametro_por_name(soup, ["RVOT Vmax P", "Vmáx VSVD", "RVOT Vmax", "Pulmonic Vmax", "Vmax pulmonar"])
-    if val: medidas["Vmax_pulmonar"] = val
-    
-    val = buscar_parametro_por_name(soup, ["RVOT maxPG", "maxPG VSVD", "RVOT max PG", "Pulmonic maxPG", "Gradiente pulmonar"])
-    if val: medidas["Grad_pulmonar"] = val
+    # Cada local de aquisicao exige seu proprio rotulo; nao inferir VSVD como pulmonar.
+    medidas.update(extract_outflow_measurements(soup))
     
     # --- Medidas de regurgitacao (Continuous Wave) ---
     # Preferir Vmax real. Se nao existir, usar maxPG convertido para Vmax.

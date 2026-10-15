@@ -26,6 +26,9 @@ import EcocardiogramaEstruturadoBiblioteca from "../../components/Ecocardiograma
 import EchoVoiceAssistant from "../../components/EchoVoiceAssistant";
 import EchoUnitReview from "../../components/EchoUnitReview";
 import EchoNarrativeConsistencyNotice from "../../components/EchoNarrativeConsistencyNotice";
+import EchoOutflowMeasurements from "../../components/EchoOutflowMeasurements";
+import { mapImportedEchoMeasurements, updateEchoOutflowMeasurement } from "@/lib/echo-outflow-editor";
+import { ECHO_OUTFLOW_KEYS } from "@/lib/echo-outflow";
 import FelineWaveReview from "../../components/FelineWaveReview";
 import { discardFelineFusedMeasurements, isEchoDiastolicRatioCalculated, updateFelineDiastolicMeasurement } from "@/lib/echo-feline-wave-review";
 import { calculateCanine2DNormalizedLVIDd, getCanine2DReference, type Echo2DView } from "@/lib/echo-2d-reference";
@@ -584,109 +587,6 @@ export default function EditarLaudoPage() {
     }
   };
 
-  // Mapeamento de campos antigos para novos (compatibilidade com XMLs)
-  const mapearCamposMedidas = (medidasOriginais: Record<string, number | string>): Record<string, string> => {
-    const mapeamento: Record<string, string> = {
-      // Campos em inglês (XML cru) -> nomes em português
-      "LVIDd": "DIVEd",
-      "LVIDs": "DIVES",
-      "IVSd": "SIVd",
-      "IVSs": "SIVs",
-      "LVPWd": "PLVEd",
-      "LVPWs": "PLVES",
-      "EDV": "VDF",
-      "ESV": "VSF",
-      "EF": "FE_Teicholz",
-      "FS": "DeltaD_FS",
-      "LA": "Atrio_esquerdo",
-      "Ao": "Aorta",
-      "LA_Ao": "AE_Ao",
-      "MV_E": "Onda_E",
-      "MV_A": "Onda_A",
-      "MV_E_A": "E_A",
-      "MV_E_TRIV": "E_TRIV",
-      "MV_DT": "TD",
-      "IVRT": "TRIV",
-      "TDI_e": "e_doppler",
-      "TDI_a": "a_doppler",
-      "TDI e": "e_doppler",
-      "TDI a": "a_doppler",
-      "Aprime": "a_doppler",
-      "Aprime_Velocity": "a_doppler",
-      "a_prime": "a_doppler",
-      "EEp": "E_E_linha",
-      "PA": "AP",
-      "PA_Ao": "AP_Ao",
-      "PA/Ao": "AP_Ao",
-      "Ao_AP": "Ao_nivel_AP",
-      "Vmax_Ao": "Vmax_aorta",
-      "Grad_Ao": "Grad_aorta",
-      "Vmax_Pulm": "Vmax_pulmonar",
-      "Grad_Pulm": "Grad_pulmonar",
-      "MR_Vmax": "IM_Vmax",
-      "TR_Vmax": "IT_Vmax",
-      "AR_Vmax": "IA_Vmax",
-      "PR_Vmax": "IP_Vmax",
-      "DIVdN": "DIVEd_normalizado",
-      // Campos já em português (XML já processado pelo backend) -> mesmos nomes
-      "DIVEd": "DIVEd",
-      "DIVES": "DIVES",
-      "SIVd": "SIVd",
-      "SIVs": "SIVs",
-      "PLVEd": "PLVEd",
-      "PLVES": "PLVES",
-      "VDF": "VDF",
-      "VSF": "VSF",
-      "FE_Teicholz": "FE_Teicholz",
-      "DeltaD_FS": "DeltaD_FS",
-      "Atrio_esquerdo": "Atrio_esquerdo",
-      "Aorta": "Aorta",
-      "AE_Ao": "AE_Ao",
-      "Onda_E": "Onda_E",
-      "Onda_A": "Onda_A",
-      "E_A": "E_A",
-      "E_TRIV": "E_TRIV",
-      "E/TRIV": "E_TRIV",
-      "TD": "TD",
-      "TRIV": "TRIV",
-      "e_doppler": "e_doppler",
-      "a_doppler": "a_doppler",
-      "E_E_linha": "E_E_linha",
-      "Vmax_aorta": "Vmax_aorta",
-      "Grad_aorta": "Grad_aorta",
-      "Vmax_pulmonar": "Vmax_pulmonar",
-      "Grad_pulmonar": "Grad_pulmonar",
-      "IM_Vmax": "IM_Vmax",
-      "IT_Vmax": "IT_Vmax",
-      "IA_Vmax": "IA_Vmax",
-      "IP_Vmax": "IP_Vmax",
-      "DIVEd_normalizado": "DIVEd_normalizado",
-      "TAPSE": "TAPSE",
-      "MAPSE": "MAPSE",
-      "Ao_nivel_AP": "Ao_nivel_AP",
-      "AP": "AP",
-      "AP_Ao": "AP_Ao",
-      "MR_dp_dt": "MR_dp_dt",
-      "doppler_tecidual_relacao": "doppler_tecidual_relacao",
-    };
-
-    const medidasFormatadas: Record<string, string> = {};
-
-    Object.entries(medidasOriginais).forEach(([key, value]) => {
-      if (value === null || value === undefined || String(value).trim() === "") return;
-      const novoNome = mapeamento[key] || key;
-      if (
-        novoNome === "VE_tecnica_relatorio" ||
-        novoNome === "Remodelamento_AD" ||
-        Number.isFinite(Number(String(value).replace(",", ".")))
-      ) {
-        medidasFormatadas[novoNome] = value.toString();
-      }
-    });
-
-    return medidasFormatadas;
-  };
-
   const handleDadosImportados = (dados: DadosExame) => {
 
     if (dados.paciente) {
@@ -709,7 +609,7 @@ export default function EditarLaudoPage() {
     }
 
     if (dados.medidas) {
-      const medidasFormatadas = mapearCamposMedidas(dados.medidas);
+      const medidasFormatadas = mapImportedEchoMeasurements(dados.medidas);
       importarMedidas(medidasFormatadas);
     }
 
@@ -1094,7 +994,9 @@ export default function EditarLaudoPage() {
   };
 
   const handleMedidaChange = (key: string, value: string) => {
-    setMedidas(prev => updateFelineDiastolicMeasurement(prev, key, value, pacienteForm.especie));
+    setMedidas(prev => ECHO_OUTFLOW_KEYS.has(key)
+      ? updateEchoOutflowMeasurement(prev, key, value)
+      : updateFelineDiastolicMeasurement(prev, key, value, pacienteForm.especie));
   };
 
   const handleEchoAssistantApply = (patch: {
@@ -2068,45 +1970,7 @@ export default function EditarLaudoPage() {
                       </div>
                     </div>
 
-                    {/* Linha inferior: Doppler - Saídas */}
-                    <div className="border-t pt-6 mt-6">
-                      <h4 className="font-semibold text-gray-900 text-sm mb-4">Doppler - Saídas</h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <MedidaInput
-                          label="Vmax aorta (m/s)"
-                          value={medidas["Vmax_aorta"] || ""}
-                          onChange={(v) => handleMedidaChange("Vmax_aorta", v)}
-                        />
-                        <MedidaInput
-                          label="Gradiente aorta (mmHg)"
-                          value={medidas["Grad_aorta"] || ""}
-                          onChange={(v) => handleMedidaChange("Grad_aorta", v)}
-                        />
-                        <>
-                          <MedidaInput
-                            label="Vmax da via de saída do VE (m/s, Doppler espectral)"
-                            value={medidas["Vmax_VSVE"] || ""}
-                            onChange={(v) => handleMedidaChange("Vmax_VSVE", v)}
-                          />
-                          <MedidaInput
-                            label="Gradiente da via de saída do VE (mmHg, 4 × V²)"
-                            value={medidas["Grad_VSVE"] || ""}
-                            onChange={(v) => handleMedidaChange("Grad_VSVE", v)}
-                            readOnly={Boolean(medidas.Vmax_VSVE)}
-                          />
-                        </>
-                        <MedidaInput
-                          label="Vmax pulmonar (m/s)"
-                          value={medidas["Vmax_pulmonar"] || ""}
-                          onChange={(v) => handleMedidaChange("Vmax_pulmonar", v)}
-                        />
-                        <MedidaInput
-                          label="Gradiente pulmonar (mmHg)"
-                          value={medidas["Grad_pulmonar"] || ""}
-                          onChange={(v) => handleMedidaChange("Grad_pulmonar", v)}
-                        />
-                      </div>
-                    </div>
+                    <EchoOutflowMeasurements measurements={medidas} onChange={handleMedidaChange} />
                   </div>
                 )}
 

@@ -15,7 +15,7 @@ from app.services.image_header_import_service import _extract_text_with_tesserac
 
 MAX_ECO_STUDY_IMPORT_SIZE = 30 * 1024 * 1024
 MAX_ECO_STUDY_PDF_PAGES = 20
-ECO_STUDY_EXTRACTOR_VERSION = "7"
+ECO_STUDY_EXTRACTOR_VERSION = "8"
 GE_LOGIQ_E_PROFILE = "ge_logiq_e"
 GE_VIVID_IQ_PROFILE = "ge_vivid_iq"
 ALLOWED_ECO_STUDY_EXTENSIONS = {
@@ -29,11 +29,51 @@ ALLOWED_ECO_STUDY_EXTENSIONS = {
     ".pdf",
 }
 
-_NUMBER_PATTERN = r"-?\d{1,5}(?:[.,]\d{1,4})?"
+_NUMBER_PATTERN = r"-?\d{1,5}(?:[.,]\d+)?"
 _UNIT_PATTERN = r"(?:mmHg|cm/s|m/s|msec|cms|mis|mm|cm|ms|s|%|mlg|mL|ml)?"
 _DATE_VALUE_PATTERN = r"(?:\d{4}[./-]\d{1,2}[./-]\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})"
 _BIRTHDATE_LABEL_PATTERN = r"(?:birth\s*date|date\s+of\s+birth|dob|data\s+de\s+nascimento|nascimento)"
 _EXAM_DATE_LABEL_PATTERN = r"(?:study\s+date|exam(?:ination)?\s+date|date\s+of\s+exam|data\s+do\s+exame|data\s+exame)"
+_LVOT_LABEL = r"(?:VSVE|LVOT|via\s+de\s+saida\s+(?:do\s+)?(?:VE|ventriculo\s+esquerdo))"
+_RVOT_LABEL = r"(?:VSVD|RVOT|via\s+de\s+saida\s+(?:do\s+)?(?:VD|ventriculo\s+direito))"
+_AORTIC_LABEL = r"(?:AV|Ao|Aorta|fluxo\s+aortico)"
+_PULMONARY_LABEL = r"(?:PV|Pulm(?:onar|onic)?|fluxo\s+pulmonar)"
+_OUTFLOW_FIELDS = frozenset(
+    f"{prefix}_{site}"
+    for prefix in ("Vmax", "Grad")
+    for site in ("VSVE", "aorta", "VSVD", "pulmonar")
+)
+_OUTFLOW_SITE_PATTERN = re.compile(
+    rf"(?<![A-Za-z0-9_])(?:"
+    rf"(?P<VSVE>{_LVOT_LABEL})|(?P<aorta>{_AORTIC_LABEL})|"
+    rf"(?P<VSVD>{_RVOT_LABEL})|(?P<pulmonar>{_PULMONARY_LABEL})"
+    rf")(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
+
+
+def _has_ambiguous_outflow_label(line: str) -> bool:
+    sites = list(_OUTFLOW_SITE_PATTERN.finditer(line))
+    for previous, following in zip(sites, sites[1:]):
+        separator = line[previous.end():following.start()]
+        if previous.lastgroup != following.lastgroup and re.fullmatch(
+            r"(?:\s*[/\\|()\-]\s*|\s+(?:ou|or)\s+)", separator, re.IGNORECASE,
+        ):
+            return True
+    return False
+
+
+def _outflow_velocity_aliases(site: str) -> tuple[str, ...]:
+    site = rf"{site}(?:\s*/\s*{site})*"
+    return (rf"Vmax\s*{site}", rf"{site}\s*(?:Vmax|Veloc(?:idade)?\s*max)(?:\s*P)?")
+
+
+def _outflow_gradient_aliases(site: str) -> tuple[str, ...]:
+    site = rf"{site}(?:\s*/\s*{site})*"
+    return (
+        rf"(?:Grad(?:iente)?\.?(?:\s*max)?|(?:max\s*)?PG)\s*{site}",
+        rf"{site}\s*(?:(?:max\s*)?PG|Grad(?:iente)?(?:\s*max)?)",
+    )
 
 
 @dataclass(frozen=True)
@@ -85,12 +125,14 @@ MEASUREMENT_DEFINITIONS: tuple[MeasurementDefinition, ...] = (
     ),
     MeasurementDefinition("IA_Vmax", "IA Vmax", (r"(?:AR|IA)\s*Vmax",), "velocity"),
     MeasurementDefinition("IP_Vmax", "IP Vmax", (r"(?:PR|IP)\s*Vmax",), "velocity"),
-    MeasurementDefinition("Vmax_VSVE", "Vmax via de saida VE", (r"Vmax\s*(?:VSVE|LVOT)", r"(?:VSVE|LVOT)\s*(?:Vmax|Veloc(?:idade)?\s*max)"), "velocity"),
-    MeasurementDefinition("Grad_VSVE", "Gradiente via de saida VE", (r"(?:max\s*)?PG\s*(?:LVOT|VSVE)", r"(?:LVOT|VSVE)\s*(?:PG|Grad(?:iente)?)"), "pressure"),
-    MeasurementDefinition("Vmax_aorta", "Vmax aorta", (r"(?:AV|Ao|Aorta)\s*Vmax", r"Vmax\s*Aorta"), "velocity"),
-    MeasurementDefinition("Grad_aorta", "Gradiente aorta", (r"(?:AV|Ao|Aorta)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Aorta"), "pressure"),
-    MeasurementDefinition("Vmax_pulmonar", "Vmax pulmonar", (r"Vmax\s*VSVD", r"(?:PV|Pulm(?:onar)?)\s*Vmax", r"Vmax\s*Pulm(?:onar)?"), "velocity"),
-    MeasurementDefinition("Grad_pulmonar", "Gradiente pulmonar", (r"Grad\.?\s*max\s*VSVD", r"max\s*PG\s*VSVD", r"(?:PV|Pulm(?:onar)?)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Pulm(?:onar)?"), "pressure"),
+    MeasurementDefinition("Vmax_VSVE", "Vmax via de saida VE", _outflow_velocity_aliases(_LVOT_LABEL), "velocity"),
+    MeasurementDefinition("Grad_VSVE", "Gradiente via de saida VE", _outflow_gradient_aliases(_LVOT_LABEL), "pressure"),
+    MeasurementDefinition("Vmax_aorta", "Vmax aorta", _outflow_velocity_aliases(_AORTIC_LABEL), "velocity"),
+    MeasurementDefinition("Grad_aorta", "Gradiente aorta", _outflow_gradient_aliases(_AORTIC_LABEL), "pressure"),
+    MeasurementDefinition("Vmax_VSVD", "Vmax via de saida VD", _outflow_velocity_aliases(_RVOT_LABEL), "velocity"),
+    MeasurementDefinition("Grad_VSVD", "Gradiente via de saida VD", _outflow_gradient_aliases(_RVOT_LABEL), "pressure"),
+    MeasurementDefinition("Vmax_pulmonar", "Vmax pulmonar", _outflow_velocity_aliases(_PULMONARY_LABEL), "velocity"),
+    MeasurementDefinition("Grad_pulmonar", "Gradiente pulmonar", _outflow_gradient_aliases(_PULMONARY_LABEL), "pressure"),
 )
 
 _LV_TECHNIQUE_FIELDS = {
@@ -533,7 +575,12 @@ def extract_measurements_from_text(
         elif _ends_lv_measurement_section(raw_line):
             active_lv_technique = None
         line = _remove_diacritics(raw_line)
+        ambiguous_outflow_label = _has_ambiguous_outflow_label(line)
         for definition in MEASUREMENT_DEFINITIONS:
+            if definition.campo in _OUTFLOW_FIELDS and ambiguous_outflow_label:
+                # A combined RVOT/Pulmonic (or LVOT/Aorta) label does not
+                # establish which acquisition site supports the value.
+                continue
             matched = False
             for alias in definition.aliases:
                 pattern = re.compile(
@@ -547,6 +594,17 @@ def extract_measurements_from_text(
 
                 original_value = _parse_number(match.group("value"))
                 original_unit = _normalize_unit(match.group("unit"))
+                if definition.campo == "Aorta" and (
+                    original_unit not in {"", "mm", "cm"}
+                    or re.search(
+                        r"(?:Vmax|(?:max\s*)?PG|Grad(?:iente)?\.?(?:\s*max)?)\s*$",
+                        line[:match.start("label")],
+                        re.IGNORECASE,
+                    )
+                ):
+                    # A generic anatomical label must not duplicate an
+                    # explicitly labeled flow velocity or gradient.
+                    continue
                 if definition.unit_kind == "velocity" and original_unit not in {"m/s", "cm/s"}:
                     continue
                 normalized_value, normalized_unit = _normalize_measurement_value(
@@ -576,13 +634,22 @@ def extract_measurements_from_text(
                                 else definition.rotulo
                             )
                         ),
-                        "valor": _round_measurement(normalized_value),
+                        "valor": (
+                            normalized_value
+                            if definition.campo in _OUTFLOW_FIELDS
+                            else _round_measurement(normalized_value)
+                        ),
                         "unidade": normalized_unit,
-                        "valor_original": _round_measurement(original_value),
+                        "valor_original": (
+                            original_value
+                            if definition.campo in _OUTFLOW_FIELDS
+                            else _round_measurement(original_value)
+                        ),
                         "unidade_original": original_unit,
                         "confianca": round(max(0.0, min(1.0, confidence)), 3),
                         "pagina": page,
                         "texto_origem": raw_line,
+                        "rotulo_origem": raw_line[match.start("label"):match.end("label")],
                         "origem": source,
                         "tecnica": technique,
                         "status": "candidata",
@@ -1026,6 +1093,24 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
         }
     )
     measurements_payload: dict[str, Any] = dict(measurements)
+    for item in consolidated:
+        field = str(item["campo"])
+        if field in _OUTFLOW_FIELDS and item.get("status") == "sugerida":
+            measurements_payload[f"{field}_origem"] = "importado"
+            measurements_payload[f"{field}_rotulo_origem"] = item["rotulo_origem"]
+        elif field in _OUTFLOW_FIELDS and item.get("status") == "conflito":
+            # A conflict is explicit unresolved evidence, not a missing value:
+            # retain a nonnumeric marker so later layers cannot derive a new
+            # gradient over competing imported measurements.
+            measurements_payload[field] = "Conflito de medidas no exame de origem"
+            measurements_payload[f"{field}_origem"] = "importado"
+            label_key = f"{field}_rotulo_origem"
+            labels = [
+                candidate["rotulo_origem"]
+                for candidate in consolidated
+                if candidate["campo"] == field and candidate.get("status") == "conflito"
+            ]
+            measurements_payload[label_key] = " | ".join(dict.fromkeys(labels))
     if len(detected_lv_techniques) == 1:
         measurements_payload["VE_tecnica_relatorio"] = detected_lv_techniques[0]
 

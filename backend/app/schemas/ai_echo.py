@@ -59,6 +59,8 @@ EchoMeasurementFieldKey = Literal[
     "Fluxo_auricular",
     "Vmax_VSVE",
     "Grad_VSVE",
+    "Vmax_VSVD",
+    "Grad_VSVD",
     "Onda_E",
     "Onda_A",
     "E_A",
@@ -94,8 +96,14 @@ EchoMeasurementFieldKey = Literal[
 
 def _validate_measurement_context(value: dict[str, str]) -> dict[str, str]:
     allowed = set(EchoMeasurementFieldKey.__args__) | {"VE_vista_2D"} | set(ECHO_REFERENCE_METHOD_VALUES)
+    outflow_provenance_keys = {
+        f"{prefix}_{site}_{suffix}"
+        for prefix in ("Vmax", "Grad")
+        for site in ("VSVE", "aorta", "VSVD", "pulmonar")
+        for suffix in ("origem", "rotulo_origem")
+    }
     confirmed_keys = {f"{CONFIRMED_UNIT_PREFIX}{key}" for key in ECHO_LENGTH_KEYS}
-    unknown = sorted(set(value).difference(allowed | confirmed_keys))
+    unknown = sorted(set(value).difference(allowed | confirmed_keys | outflow_provenance_keys))
     if unknown:
         raise ValueError(f"Campos de medida desconhecidos: {', '.join(unknown)}")
     normalized = {key: str(text or "").strip() for key, text in value.items()}
@@ -109,7 +117,12 @@ def _validate_measurement_context(value: dict[str, str]) -> dict[str, str]:
     for key, methods in ECHO_REFERENCE_METHOD_VALUES.items():
         if normalized.get(key) and normalized[key] not in methods:
             raise ValueError(f"Método de aquisição inválido: {key}")
-    oversized = sorted(key for key, text in normalized.items() if len(text) > 80)
+    # Source labels can describe multiple conflicting acquisitions. Keep their
+    # provenance without applying the short numeric-value limit to that text.
+    oversized = sorted(
+        key for key, text in normalized.items()
+        if len(text) > (2048 if key in outflow_provenance_keys and key.endswith("_rotulo_origem") else 80)
+    )
     if oversized:
         raise ValueError(f"Valores de medida muito longos: {', '.join(oversized)}")
     return normalized

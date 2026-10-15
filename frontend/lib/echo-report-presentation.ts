@@ -5,6 +5,7 @@ import { calculateLeftAtrialFractionalShortening } from "./echo-derived-measurem
 import { ECHO_REFERENCE_METHOD_KEYS, resolveEchoReferenceForMeasurements } from "./echo-reference-policy";
 import { canonicalFelineDiastolicKey, felineDiastolicReferences, type FelineDiastolicReference } from "./echo-feline-diastolic-reference";
 import { isFelineEchoSpecies } from "./echo-species";
+import { deriveOutflowGradients, ECHO_OUTFLOW_KEYS, formatOutflowValue, isOutflowMetadataKey, outflowMeasurementLabel } from "./echo-outflow";
 
 type Parameter = { key: string; label: string; unit?: string; reference?: string };
 export type EchoReportReferenceMetadata = Pick<FelineDiastolicReference, "source" | "doi" | "statistic" | "note" | "kind">;
@@ -65,7 +66,9 @@ const otherGroups: { title: string; parameters: Parameter[] }[] = [
     parameter("Vmax_aorta", "Velocidade máxima aórtica", "m/s", "vmax_ao"),
     parameter("Grad_aorta", "Gradiente aórtico", "mmHg"),
     parameter("Vmax_VSVE", "Velocidade máxima da via de saída do VE", "m/s"),
-    parameter("Grad_VSVE", "Gradiente da via de saída do VE · 4 × V²", "mmHg"),
+    parameter("Grad_VSVE", "Gradiente da via de saída do VE", "mmHg"),
+    parameter("Vmax_VSVD", "Velocidade máxima da via de saída do VD", "m/s"),
+    parameter("Grad_VSVD", "Gradiente da via de saída do VD", "mmHg"),
     parameter("Vmax_pulmonar", "Velocidade máxima pulmonar", "m/s", "vmax_pulm"),
     parameter("Grad_pulmonar", "Gradiente pulmonar", "mmHg"),
   ] },
@@ -135,10 +138,7 @@ export function prepareEchoReportMeasurements(raw: Record<string, string>, weigh
     const laFraction = calculateLeftAtrialFractionalShortening(raw);
     if (laFraction !== null) measurements.Fracao_encurtamento_AE = String(Number(laFraction.toFixed(2)));
   }
-  const lvotVelocity = number(measurements.Vmax_VSVE);
-  if (lvotVelocity !== null && lvotVelocity > 0) {
-    measurements.Grad_VSVE = String(Number((4 * lvotVelocity ** 2).toFixed(2)));
-  }
+  Object.assign(measurements, deriveOutflowGradients(measurements));
   const view = raw.VE_vista_2D === "eixo_curto" || raw.VE_vista_2D === "eixo_longo"
     ? raw.VE_vista_2D as Echo2DView : "";
   const dived2D = number(measurements.DIVEd_2D);
@@ -200,25 +200,30 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
   const known = new Set(["VE_tecnica_relatorio", "VE_vista_2D", "Remodelamento_AD", ...ECHO_REFERENCE_METHOD_KEYS, ...mMode.map((item) => item.key), ...mode2D.map((item) => item.key)]);
   for (const key of ECHO_LENGTH_KEYS) known.add(confirmedUnitKey(key));
   for (const group of otherGroups) for (const item of group.parameters) known.add(item.key);
-  const unknown: Parameter[] = Object.keys(measurements).filter((key) => !known.has(key)).map((key) => parameter(key, key));
+  const unknown: Parameter[] = Object.keys(measurements).filter((key) => !known.has(key) && !isOutflowMetadataKey(key)).map((key) => parameter(key, key));
   if (unknown.length) groups.push({ title: "Outras medidas registradas", parameters: unknown });
   return groups.map((group) => ({
     title: group.title,
     rows: group.parameters.filter((item) => {
       const value = number(measurements[item.key]);
       return felineReferences[canonicalFelineDiastolicKey(item.key)]?.kind === "uninterpretable"
+        || (ECHO_OUTFLOW_KEYS.has(item.key) && String(measurements[item.key] ?? "").trim() !== "")
         || (value !== null && value !== 0);
     }).map((item) => {
+      const outflowValue = ECHO_OUTFLOW_KEYS.has(item.key);
+      const numericValue = number(measurements[item.key]);
+      const unconfirmed = outflowValue && (numericValue === null || numericValue < 0);
       const referenceForKey = felineReferences[canonicalFelineDiastolicKey(item.key)];
       const felineReference = ambiguousKeys.has(item.key) && referenceForKey?.kind !== "uninterpretable"
         ? undefined : felineReferences[canonicalFelineDiastolicKey(item.key)];
       return {
         key: item.key,
-        label: item.label,
-        value: felineReference?.kind === "uninterpretable" ? "Não mensurável" : ambiguousKeys.has(item.key)
+        label: outflowMeasurementLabel(item.key, item.label, measurements),
+        value: unconfirmed ? `${measurements[item.key]} (valor a confirmar)`
+          : felineReference?.kind === "uninterpretable" ? "Não mensurável" : ambiguousKeys.has(item.key)
           ? `${number(measurements[item.key])?.toFixed(2)} (unidade a confirmar)`
-          : `${number(measurements[item.key])?.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`,
-        reference: ambiguousKeys.has(item.key) && felineReference?.kind !== "uninterpretable" ? "—" : (() => {
+          : `${outflowValue ? formatOutflowValue(measurements[item.key]) : numericValue?.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`,
+        reference: unconfirmed || (ambiguousKeys.has(item.key) && felineReference?.kind !== "uninterpretable") ? "—" : (() => {
           if (felineReference) return felineReference.text;
           const aeAoLimit = item.key === "AE_Ao" ? canineAeAoClinicalReference(measurements, species, ambiguousKeys) : null;
           if (aeAoLimit) return aeAoLimit;
