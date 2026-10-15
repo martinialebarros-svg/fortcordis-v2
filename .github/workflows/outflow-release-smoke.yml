@@ -21,7 +21,7 @@ jobs:
       # After the stage deploy finishes, use this push. For a later production
       # check change ONLY these two reviewed values and push this same branch.
       SMOKE_ENVIRONMENT: stage
-      EXPECTED_RELEASE_PREFIX: 5eb8196
+      EXPECTED_RELEASE_PREFIX: 72327f0
     steps:
       - name: Checkout the immutable diagnostic snapshot without saved credentials
         uses: actions/checkout@v5
