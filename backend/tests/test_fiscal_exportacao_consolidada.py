@@ -24,7 +24,7 @@ os.environ.setdefault("SECRET_KEY", "fiscal-exportacao-consolidada-test-secret-k
 from app.api.v1.endpoints import fiscal
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
-from app.models.fiscal import RelatorioFiscalEmissao
+from app.models.fiscal import FiscalFechamento, FiscalFechamentoOS, RelatorioFiscalEmissao
 from app.models.ordem_servico import OrdemServico
 from app.services import fiscal_export_service, fiscal_service
 
@@ -39,6 +39,8 @@ class FiscalExportacaoConsolidadaTest(unittest.TestCase):
             Clinica.__table__,
             OrdemServico.__table__,
             RelatorioFiscalEmissao.__table__,
+            FiscalFechamento.__table__,
+            FiscalFechamentoOS.__table__,
         ):
             table.create(engine, checkfirst=True)
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()

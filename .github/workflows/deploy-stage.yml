@@ -91,6 +91,17 @@ jobs:
           psql postgresql://postgres:postgres@127.0.0.1:5432/postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE os_batch_test'
           python -m pytest -q backend/tests/test_ordens_servico_receber_lote_postgres.py
 
+      - name: Test fiscal monthly package PostgreSQL concurrency
+        env:
+          FORTCORDIS_PROCESS_ROLE: api
+          DATABASE_URL: sqlite:///./fortcordis-ci.db
+          SECRET_KEY: fiscal-package-ci-secret-key-1234567890
+          FISCAL_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/fiscal_test
+        run: |
+          psql postgresql://postgres:postgres@127.0.0.1:5432/postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE fiscal_test'
+          psql postgresql://postgres:postgres@127.0.0.1:5432/fiscal_test -v ON_ERROR_STOP=1 -c 'CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN;'
+          python -m unittest discover -s backend/tests -p 'test_fiscal_fechamento_competencia.py'
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -659,3 +670,13 @@ jobs:
               --backend-dir /var/www/fortcordis-stage/backend \
               --audio-file /var/www/fortcordis-stage/backend/evals/ai_echo_canary_pt_br.m4a
           EOF
+
+      - name: Verify fiscal monthly package with isolated Stage fixtures
+        if: contains(github.event.head_commit.message, '[fiscal-fechamento-canary]')
+        env:
+          VPS_SUDO_PASSWORD: ${{ secrets.VPS_SUDO_PASSWORD }}
+        run: |
+          printf '%s\n' "$VPS_SUDO_PASSWORD" | \
+            ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+              'backend_user="$(systemctl show fortcordis-stage-backend --property=User --value)"; exec sudo -S -p "" -u "${backend_user:-root}" /var/www/fortcordis-stage/backend/venv/bin/python /var/www/fortcordis-stage/scripts/fiscal_fechamento_stage_canary.py'
