@@ -43,6 +43,7 @@ import {
 import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
 import { calendarDateInput, operationalTodayDateInput } from "@/lib/calendar-date";
 import { confirmedUnitKey, echoLengthInMm, echoLengthInputLabel, updateEchoMeasurement } from "@/lib/echo-unit-provenance";
+import { isFelineEchoSpecies } from "@/lib/echo-species";
 import { useEchoMeasurements } from "../hooks/useEchoMeasurements";
 
 // Componente de input de medida com botões +/-
@@ -469,19 +470,12 @@ export default function NovoLaudoPage() {
   useEffect(() => {
     const aoNivelAp = echoLengthInMm(medidas, "Ao_nivel_AP");
     const arteriaPulmonar = echoLengthInMm(medidas, "AP");
-    const eDoppler = parseNumero(medidas["e_doppler"]);
-    const aDoppler = parseNumero(medidas["a_doppler"]);
     const divedMm = echoLengthInMm(medidas, "DIVEd");
     const peso = parsePesoKg(paciente.peso);
 
     const apAoCalculado =
       aoNivelAp !== null && aoNivelAp > 0 && arteriaPulmonar !== null && arteriaPulmonar > 0
         ? formatar2Casas(arteriaPulmonar / aoNivelAp)
-        : null;
-
-    const eSobreaCalculado =
-      eDoppler !== null && eDoppler > 0 && aDoppler !== null && aDoppler > 0
-        ? formatar2Casas(eDoppler / aDoppler)
         : null;
 
     const divedNormalizadoCalculado =
@@ -492,9 +486,6 @@ export default function NovoLaudoPage() {
     const atualizacoes: Record<string, string> = {};
     if (apAoCalculado !== null && medidas["AP_Ao"] !== apAoCalculado) {
       atualizacoes.AP_Ao = apAoCalculado;
-    }
-    if (eSobreaCalculado !== null && medidas["doppler_tecidual_relacao"] !== eSobreaCalculado) {
-      atualizacoes.doppler_tecidual_relacao = eSobreaCalculado;
     }
     if (divedNormalizadoCalculado !== null && medidas["DIVEd_normalizado"] !== divedNormalizadoCalculado) {
       atualizacoes.DIVEd_normalizado = divedNormalizadoCalculado;
@@ -1329,7 +1320,7 @@ export default function NovoLaudoPage() {
                           value={paciente.especie}
                           onChange={(e) => {
                             const especie = e.target.value;
-                            if (especie !== "Felina" && temPresetDiastolicoFelinoAplicado(ecocardiogramaEstruturado)) {
+                            if (!isFelineEchoSpecies(especie) && temPresetDiastolicoFelinoAplicado(ecocardiogramaEstruturado)) {
                               if (!window.confirm("Este laudo contém uma descrição diastólica felina. Trocar a espécie removerá essa descrição; os demais achados serão preservados. Deseja continuar?")) return;
                               setEcocardiogramaEstruturado(removerPresetDiastolicoFelino(ecocardiogramaEstruturado));
                             }
@@ -1340,6 +1331,9 @@ export default function NovoLaudoPage() {
                         >
                           <option value="Canina">Canina</option>
                           <option value="Felina">Felina</option>
+                          {isFelineEchoSpecies(paciente.especie) && paciente.especie !== "Felina" && (
+                            <option value={paciente.especie}>{paciente.especie} (felina)</option>
+                          )}
                           <option value="Equina">Equina</option>
                           <option value="Outra">Outra</option>
                         </select>
@@ -1650,7 +1644,7 @@ export default function NovoLaudoPage() {
                           readOnly
                         />
 
-                        {paciente.especie === "Felina" && (
+                        {isFelineEchoSpecies(paciente.especie) && (
                           <>
                             <MedidaInput
                               label={echoLengthInputLabel("AE diâmetro máximo (mm; preferir eixo curto, modo M guiado por 2D)", medidas, "AE_diametro_max")}
@@ -1712,7 +1706,7 @@ export default function NovoLaudoPage() {
                           value={medidas["E_TRIV"] || ""}
                           onChange={(v) => handleMedidaChange("E_TRIV", v)}
                           readOnly
-                          reference="Ref.: ≤2,5; valores >2,5 são sugestivos de aumento das pressões de enchimento do VE."
+                          reference={paciente.especie === "Canina" ? "Ref.: ≤2,5; valores >2,5 são sugestivos de aumento das pressões de enchimento do VE." : undefined}
                         />
                         <MedidaInput 
                           label="MR dp/dt (mmHg/s)"
@@ -1739,7 +1733,7 @@ export default function NovoLaudoPage() {
                           value={medidas["E_E_linha"] || ""}
                           onChange={(v) => handleMedidaChange("E_E_linha", v)}
                           readOnly
-                          reference="Ref.: ≤12; valores >12 são sugestivos de aumento das pressões de enchimento do VE."
+                          reference={paciente.especie === "Canina" ? "Ref.: ≤12; valores >12 são sugestivos de aumento das pressões de enchimento do VE." : undefined}
                         />
                       </div>
 
@@ -1847,7 +1841,7 @@ export default function NovoLaudoPage() {
 
                     <div className="border-t pt-6">
                       <h4 className="mb-4 text-sm font-semibold text-gray-900">VE - Modo 2D</h4>
-                      {paciente.especie === "Felina" && <p className="mb-3 text-xs text-gray-600">Verifique o ponto de maior espessura do septo e da parede livre nos eixos curto e longo; descreva hipertrofia focal na análise qualitativa.</p>}
+                      {isFelineEchoSpecies(paciente.especie) && <p className="mb-3 text-xs text-gray-600">Verifique o ponto de maior espessura do septo e da parede livre nos eixos curto e longo; descreva hipertrofia focal na análise qualitativa.</p>}
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         <MedidaInput
                           label={echoLengthInputLabel("DIVEd 2D (mm - Diâmetro interno do VE em diástole)", medidas, "DIVEd_2D")}

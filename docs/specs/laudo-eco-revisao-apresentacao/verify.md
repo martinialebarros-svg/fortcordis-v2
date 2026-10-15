@@ -207,3 +207,61 @@ A conversão conservadora de dados legados evita multiplicar TAPSE e MAPSE por i
 - CA-037: teste da API confirma que os sinalizadores de aplicação não viram atributos do laudo.
 - Validação local: 35 testes Python (`test_laudos_ecocardiograma_estruturado`, `test_pdf_laudo_qualitativa` e `test_pdf_laudo_echo_measurements`) e 8 testes Vitest focados passaram; TypeScript sem emissão, ESLint direcionado e `git diff --check` passaram.
 - O build de produção do frontend compilou, validou tipos e gerou 43 páginas; `py_compile` e `git diff --check` passaram. O guardrail SDD será executado sobre o commit antes da publicação. Depois da publicação em stage, comparar laudo e PDF sintéticos sem usar um paciente real para esta regressão.
+# Verificação 2026-10-14: consulta diastólica felina e fusão
+
+## Escopo e critérios
+
+- [x] Pesquisa primária por parâmetro, técnica, população e natureza estatística; resultados registrados na spec, incluindo limites de a' isolado e diferenças de marco de TRIV.
+- [x] Fusão E/A e e'/a' independentes, desconhecidas por padrão; metadados validados sem nova tabela/migração.
+- [x] Referências de média ± DP neutras e independentes de peso/catálogo; preservação de números/conclusão, sem grau diastólico automático.
+- [x] Regressões backend e frontend completas do incremento e casos relacionados.
+- [x] PDFs sintéticos separados e fundidos renderizados/inspecionados; fonte/bibliografia/legibilidade conferidas.
+- [x] Paridade entre dados clínicos frontend/backend e revisão independente.
+- [x] TypeScript, ESLint, build, diff check e guardrail SDD do incremento.
+- Publicação e teste autenticado em stage: autorizados pelo usuário em 14/10/2026. Executar após os gates terminais; produção permanece fora do escopo deste incremento.
+
+O laudo real aberto no Safari não foi editado, salvo ou recarregado para testar o código. Autorização de criar teste de produção da entrega anterior era específica para AE/Ao sueco e não foi ampliada para este incremento.
+
+### Evidência da validação local
+
+- 71 testes backend passaram: `test_echo_feline_diastolic`, `test_echo_reference_methods`, `test_ecocardiograma_medidas`, `test_pdf_laudo_echo_measurements` e `test_ai_echo_reference_safety`. Incluem enumerações persistidas, fusões independentes, contexto IA, consulta sem peso/catálogo e aliases de espécie no PDF.
+- 76 testes frontend passaram em 7 arquivos focados: helper de consulta, derivação, proveniência, apresentação, hook de comparação, componente de comparação e política de referência. O caso de edição/reimportação após fusão confirma que estado desconhecido não recalcula E/A, E/TRIV ou E/e' e que os números históricos permanecem.
+- Fixture `backend/tests/fixtures/echo_feline_diastolic_parity.json` valida os mesmos valores, natureza estatística e DOI descritivo em ambos os motores, em 8 cenários. Texto de aviso/bibliografia de fusão pode variar pela superfície, sem diferenças no bloqueio clínico.
+- Revisão independente identificou e confirmou as correções do recálculo após perda da confirmação e dos aliases de espécie; não encontrou outro impedimento clínico neste escopo.
+- `npx tsc --noEmit --incremental false`, ESLint direcionado sem avisos, `npm run build` (43 páginas), `git diff --check` e `evaluate_guardrail` sobre os arquivos alterados/novos passaram. O build contém somente aviso pré-existente de atualização da base Browserslist.
+- `output/pdf/felino-diastolica-separadas-teste.pdf` e `output/pdf/felino-diastolica-fundidas-teste.pdf`: 2 páginas cada, dados exclusivamente sintéticos. Todas as páginas foram renderizadas a 120 DPI e inspecionadas; tabelas, notas de técnica/fusão e bibliografia após qualitativa/assinatura estão legíveis, sem cortes ou sobreposição. O renderizador emitiu aviso Fontconfig, mas os PDFs renderizaram com fontes legíveis.
+- A nota quantitativa sem catálogo usa texto neutro quando há consulta descritiva disponível, evitando declarar que toda referência está indisponível. Nenhuma média ± DP foi convertida em faixa individual.
+- Na validação local inicial não houve commit, push, publicação, envio ou alteração de dados reais. A rodada seguinte prepara a publicação autorizada exclusivamente em stage, com teste sintético.
+- Preflight de stage: hints legados de E/TRIV e E/e' em Medidas restritos à espécie Canina explícita nos formulários novo/editar; conferir ausência dos dois textos no caso felino e presença no controle canino em stage.
+- A versão final dos hints foi novamente validada por TypeScript sem emissão e ESLint direcionado; a consulta usa a espécie atual do estado de cada formulário. Nenhum hint canino é inferido para espécie ausente ou não canina.
+
+## QA autenticado e correção de paginação em stage (2026-10-14)
+
+- Publicação inicial: PR #354, stage `4ee43c427ec78702cf3795ffd2aeb84f4c398c85`, deploy 38637151278 e Frontend/Migration CI concluídos SUCCESS. Backend 1.731 testes (11 skips), frontend 685 Vitest +23 Node; seis arquivos de runtime preservados/restaurados e restore drill OK. Ambos os domínios stage e rota novo 200, API anônima 401, todos os 18 chunks disponíveis e seis marcadores presentes.
+- Teste exclusivamente sintético #52 salvo, reaberto, editado e reaberto novamente. Escolhas de aquisição e fusões independentes persistem; fontes TRIV clique/fim e TDI lateral/septal respondem; editar origem remove somente confirmação relacionada, preservando índices históricos sem recálculo. Hints caninos ausentes em Felina. Nenhuma liberação ao portal ou envio.
+- Dois PDFs baixados de stage têm valores/fontes/bibliografia e fusão corretos, porém a tabela com todas as notas agrupadas deixa somente o título quantitativo na página 1. Este achado motivou a correção RF-079/CA-068 antes de concluir a QA do PDF.
+- Correção: tabela diastólica felina pode continuar por linhas; título e cabeçalho repetem. Outros grupos e conteúdo clínico preservados. Cache eco v20.
+- [x] 72 regressões backend focadas, sintaxe e diff check da correção passaram; guardrail SDD será novamente conferido sobre o commit antes do push.
+- [x] Duas prévias locais com logo, assinatura, quatro linhas de identificação e conclusão de duas linhas foram renderizadas e todas as quatro páginas inspecionadas. A primeira página contém medidas; a continuação da tabela fundida repete título/cabeçalho, sem corte ou sobreposição. Dados e fontes preservados.
+- [x] Deploy terminal da paginação no SHA `f72bed79`: PDFs reais servidos v20 separados/fundidos com duas páginas cada, todas inspecionadas e aprovadas. Artefatos locais `output/qa/feline-diastolic-stage/pdf-verification.json` registram hashes e revisão independente. Esta QA usou espécie canônica `Felina`; o caso de aliases abaixo é uma regressão adicional.
+
+## Verificação: aliases felinos e preservação após salvar (2026-10-14)
+
+- Achado P1 da PR #354: `/^felin/i` não reconhecia `Gato`/`Cat`; o efeito duplicado de e′/a′ ainda usava igualdade exata com `Felina`. A reprodução inicial com helper e serialização alterou E/A `1.13→1.14`, E/TRIV `2.66→2.7`, E/e′ `6.95→6.75` e e′/a′ `2.60→2.67` com ondas fundidas.
+- [x] CA-069: baseline `f72bed79` montado com páginas reais (efeitos, hook e serialização), API periférica mockada e dados sintéticos: 24 payloads capturados. Replay por HTTP real POST/PUT/GET, SQLite temporária e Session nova confirmou 16/16 sobrescritas indevidas em fusão/desconhecido. Gato/Cat alteravam quatro relações; Felino/Feline alteravam e′/a′ pelo efeito duplicado. Evidência local: `output/qa/feline-alias-fusion/baseline-page-save.json` e `baseline-api-persistence.json`.
+- [x] CA-069: correção montada nas mesmas páginas: 24/24 payloads e replays HTTP corretos. 16/16 fusão/desconhecido preservam E/A 1.13, E/TRIV 2.66, E/e′ 6.95 e e′/a′ 2.60; 8/8 separados calculam 1.14, 2.7, 6.75 e 2.67. Espécie original preservada na gravação/leitura; origens e conclusão intactas. Evidência: `fixed-page-save.json` e `fixed-api-persistence.json`.
+- [x] CA-070: 113 testes em seis arquivos de helpers e 38 testes em componente/hook passaram; cobrem aliases explícitos, protocolo, referências legadas, fallback, prévia, presets e controles não felinos. A suíte completa passou 798 testes Vitest em 91 arquivos e 23 testes Node. Backend focado: 35 testes passaram, incluindo um teste HTTP com 28 combinações de espécie, ondas e criação/edição.
+- [x] Build frontend compilou e gerou 43 páginas. TypeScript, ESLint direcionado e diff check passaram após o ajuste dos tipos no novo teste de páginas. SDD descreve a mesma correção; o guardrail será conferido sobre o commit.
+- [x] P1 publicado em stage pela PR #362, SHA `65d39278`. Deploy/Frontend/Migration terminaram SUCCESS; seis arquivos runtime preservados/restaurados, restore drill e canários passaram. Domínios/rotas 200, API protegida 401, 18 chunks e cinco marcadores aprovados; QA visual sintética #52 com fusões independentes/estado desconhecido, formulário restaurado sem salvar. Evidências locais `output/qa/feline-alias-fusion/`. Produção requer promoção posterior.
+- Dados da reprodução são exclusivamente sintéticos; não há migração, recuperação automática de históricos, liberação ao portal ou envio externo.
+
+## Verificação: apresentação, protocolo completo e presets (2026-10-14)
+
+- [x] CA-071: 39 testes de apresentação/visualizador real passaram, incluindo 11 cenários do renderer. Fonte/DOI e notas aparecem, estados bloqueados não inventam publicação, dez valores históricos se mantêm e o renderer não faz gravações. TypeScript e ESLint direcionados passaram.
+- [x] CA-073: baseline apresentou 13 falhas (aliases caninos e seletor real). Correção passou 31 testes de helper/editor/biblioteca; Dog, Cão e Canino filtram o preset felino. Catálogo administrativo permanece completo. TypeScript/ESLint/diff check aprovados.
+- [x] CA-072: 102 testes frontend focados e 75 testes backend focados passaram; ambos marcos legados integram a fixture de paridade compartilhada. Novos enums explícitos apicais mantêm derivação e fusões independentes, sem mutar números ou espécie.
+- [x] Quatro testes adicionais do seletor completo e a regressão do PDF legado passaram. Suíte frontend completa: 836 Vitest em 93 arquivos e 23 Node. Backend focado: 75 testes. Build gerou 43 páginas, TypeScript e ESLint direcionado passaram, diff check aprovado; guardrail SDD será conferido sobre o commit.
+- [x] Três PDFs sintéticos confirmado/legado/fundidas (duas páginas cada), todas as seis páginas renderizadas/inspecionadas: sem cortes ou sobreposição, valores e ordem da bibliografia conservados. Após revisão independente, a nota legada de TRIV distingue a técnica do estudo da aquisição do paciente. QA em `output/qa/eco-preview-protocol-presets/pdf-verification.json`.
+- [x] Publicado e conferido em stage pela [PR #365](https://github.com/martinialebarros-svg/fortcordis-v2/pull/365), SHA `398a60383f5bfda066b7b0c7e1a37baa62aad5a0`: Deploy `38660823583`, Frontend CI `38660823598` e Migration CI `38660823545` terminaram SUCCESS. Guarda de SHA, seis arquivos runtime preservados/restaurados, saúde, observabilidade, canário autenticado e teste de restauração aprovados. Smoke dos dois domínios/rotas: quatro respostas 200, API anônima 401, 21/21 chunks 200 e cinco marcadores da versão presentes.
+- [x] QA autenticada do laudo exclusivamente sintético #52: confirmação apical completa libera os dados transmitrais; fusão E/A bloqueia apenas as comparações dependentes e mantém TDI independente; reload conserva dez números e seleções salvos. A prévia mostra fonte/DOI/notas com quebra de linha. PDF servido após o deploy, duas páginas renderizadas e inspecionadas, com valores e fontes pertinentes conservados. Evidências locais em `output/qa/eco-preview-protocol-presets/{release-verification,stage-smoke,stage-ui-verification,stage-pdf-verification}.json`.
+- Nenhum dado real é usado; valores/fontes/limites permanecem preservados. Após a validação de stage, o usuário autorizou expressamente a publicação destas correções em produção. A promoção seguirá o fluxo direto protegido `stage → main`, com conferência dos checks, SHA instalado, preservação de runtime e smoke de produção; esta anotação documenta a autorização e não antecipa o resultado do deploy.

@@ -8,11 +8,19 @@ export const ECHO_LENGTH_KEYS = [
 
 const lengthKeys = new Set<string>(ECHO_LENGTH_KEYS);
 const UNIT_PREFIX = "unidade_confirmada_";
-const METHOD_SOURCES: Record<string, string> = {
-  TAPSE: "TAPSE_metodo",
-  AE_Ao: "AE_Ao_metodo", LA_Ao: "AE_Ao_metodo",
-  Aorta: "AE_Ao_metodo", Atrio_esquerdo: "AE_Ao_metodo",
-  Ao: "AE_Ao_metodo", LA: "AE_Ao_metodo",
+const DIASTOLIC_CONFIRMATIONS = ["Diastolica_metodo", "Diastolica_ondas"];
+const TDI_CONFIRMATIONS = ["TDI_metodo", "TDI_ondas"];
+const METHOD_SOURCES: Record<string, string[]> = {
+  TAPSE: ["TAPSE_metodo"],
+  AE_Ao: ["AE_Ao_metodo"], LA_Ao: ["AE_Ao_metodo"],
+  Aorta: ["AE_Ao_metodo"], Atrio_esquerdo: ["AE_Ao_metodo"],
+  Ao: ["AE_Ao_metodo"], LA: ["AE_Ao_metodo"],
+  Onda_E: DIASTOLIC_CONFIRMATIONS, Onda_A: DIASTOLIC_CONFIRMATIONS,
+  TD: DIASTOLIC_CONFIRMATIONS, TRIV: DIASTOLIC_CONFIRMATIONS,
+  MV_E: DIASTOLIC_CONFIRMATIONS, MV_A: DIASTOLIC_CONFIRMATIONS,
+  MV_DT: DIASTOLIC_CONFIRMATIONS, IVRT: DIASTOLIC_CONFIRMATIONS,
+  e_doppler: TDI_CONFIRMATIONS, a_doppler: TDI_CONFIRMATIONS,
+  TDI_e: TDI_CONFIRMATIONS, TDI_a: TDI_CONFIRMATIONS,
 };
 
 export function confirmedUnitKey(key: string): string {
@@ -64,7 +72,9 @@ export function updateEchoMeasurement(
 ): Record<string, string> {
   const next = { ...measurements, [key]: value };
   if (ECHO_REFERENCE_METHOD_KEYS.includes(key) && value === "") delete next[key];
-  if (METHOD_SOURCES[key] && value !== measurements[key]) delete next[METHOD_SOURCES[key]];
+  if (value !== measurements[key]) {
+    for (const confirmation of METHOD_SOURCES[key] ?? []) delete next[confirmation];
+  }
   if (key.startsWith(UNIT_PREFIX) && value === "") delete next[key];
   if (isEchoLengthKey(key) && value !== measurements[key]) {
     delete next[confirmedUnitKey(key)];
@@ -78,7 +88,7 @@ export function mergeImportedEchoMeasurements(
   const next = { ...measurements, ...imported };
   for (const key of Object.keys(imported)) {
     if (isEchoLengthKey(key)) delete next[confirmedUnitKey(key)];
-    if (METHOD_SOURCES[key]) delete next[METHOD_SOURCES[key]];
+    for (const confirmation of METHOD_SOURCES[key] ?? []) delete next[confirmation];
     if (ECHO_REFERENCE_METHOD_KEYS.includes(key)) delete next[key];
   }
   return next;

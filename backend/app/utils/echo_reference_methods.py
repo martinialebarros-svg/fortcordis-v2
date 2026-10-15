@@ -7,4 +7,14 @@ ECHO_REFERENCE_METHOD_VALUES: dict[str, frozenset[str]] = {
         "2d_eixo_curto_diastole_inicial_sueco",
         "outro",
     }),
+    "Diastolica_metodo": frozenset({
+        "felino_adulto_nao_sedado_pw_apical_clique_aortico",
+        "felino_adulto_nao_sedado_pw_apical_fim_fluxo",
+        "felino_adulto_nao_sedado_pw_clique_aortico",
+        "felino_adulto_nao_sedado_pw_fim_fluxo",
+        "outro",
+    }),
+    "Diastolica_ondas": frozenset({"separadas", "fundidas"}),
+    "TDI_metodo": frozenset({"felino_pw_anel_lateral", "felino_pw_anel_septal", "outro"}),
+    "TDI_ondas": frozenset({"separadas", "fundidas"}),
 }

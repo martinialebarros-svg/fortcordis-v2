@@ -101,6 +101,7 @@ export interface ReferenciaEco {
 export interface ComparacaoMedida {
   nome: string;
   valor_medido: string;
+  referencia_texto?: string;
   fonte?: string;
   metadados?: EchoRangeMetadata;
   referencia_min: number | null;

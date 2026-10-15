@@ -6,6 +6,8 @@ import { getCanine2DReference } from "@/lib/echo-2d-reference";
 import type { Echo2DView } from "@/lib/echo-2d-reference";
 import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 import { resolveEchoReferenceForMeasurements, selectEchoReferenceFromCatalog } from "@/lib/echo-reference-policy";
+import { isFelineEchoSpecies } from "@/lib/echo-species";
+import { canonicalFelineDiastolicKey, felineDiastolicReferences } from "@/lib/echo-feline-diastolic-reference";
 
 // Mapeamento de parâmetros das medidas para os campos da referência
 // As chaves devem corresponder aos 'key' definidos na nova aba Medidas
@@ -59,6 +61,8 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   e_doppler: { campo: "tdi_e", nome: "e' (Doppler tecidual, m/s)", categoria: "doppler" },
   a_doppler: { campo: "tdi_a", nome: "a' (Doppler tecidual, m/s)", categoria: "doppler" },
   E_E_linha: { campo: "e_e_linha", nome: "E/E'", categoria: "doppler" },
+  doppler_tecidual_relacao: { campo: "", nome: "e'/a'", categoria: "doppler" },
+  E_TRIV: { campo: "", nome: "E/TRIV", categoria: "doppler" },
   
   // === DOPPLER - SAÍDAS ===
   Vmax_aorta: { campo: "vmax_ao", nome: "Vmax Aorta", categoria: "doppler" },
@@ -91,6 +95,25 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
 const PAREDES_2D = new Set(["SIVd_2D", "SIVs_2D", "PLVEd_2D", "PLVES_2D"]);
 const TEICHOLZ_2D = new Set(["VDF_2D", "VSF_2D", "FE_Teicholz_2D"]);
 
+/** Cohort descriptions remain neutral and work without a weight catalog. */
+export function compararMedidasDiastolicasFelinas(
+  medidas: Record<string, string>, especie: string,
+): Record<string, ComparacaoMedida> {
+  const references = felineDiastolicReferences(medidas, especie);
+  const comparisons: Record<string, ComparacaoMedida> = {};
+  for (const [key, value] of Object.entries(medidas)) {
+    const reference = references[canonicalFelineDiastolicKey(key)];
+    const mapping = MAPEAMENTO_PARAMETROS[key] ?? MAPEAMENTO_PARAMETROS[canonicalFelineDiastolicKey(key)];
+    if (!reference || !mapping) continue;
+    comparisons[key] = {
+      nome: mapping.nome, valor_medido: value, referencia_min: null, referencia_max: null,
+      referencia_texto: reference.text, fonte: reference.source,
+      status: "nao_avaliado", interpretacao: reference.note, categoria: "doppler",
+    };
+  }
+  return comparisons;
+}
+
 function motivoSemFaixa2D(
   key: string,
   especie: string,
@@ -119,12 +142,17 @@ export function compararMedidasComReferencia(
 ): Record<string, ComparacaoMedida> {
   const comparacoes: Record<string, ComparacaoMedida> = {};
   const referenciaSegura = resolveEchoReferenceForMeasurements(referencia, medidas, pesoPacienteKg)!;
+  const felineComparisons = compararMedidasDiastolicasFelinas(medidas, referencia.especie);
 
   Object.entries(medidas).forEach(([key, valor]) => {
     if (!valor || valor.trim() === "") return;
 
     const mapeamento = MAPEAMENTO_PARAMETROS[key];
     if (!mapeamento) return;
+    if (felineComparisons[key]) {
+      comparacoes[key] = felineComparisons[key];
+      return;
+    }
 
     const valorNumerico = parseFloat(valor.replace(",", "."));
     if (isNaN(valorNumerico)) return;
@@ -209,7 +237,7 @@ export function useReferenciaEco() {
   const [loading, setLoading] = useState(false);
 
   const buscarReferencia = useCallback(async (especie: string, peso: number): Promise<ReferenciaEco | null> => {
-    const especieNormalizada = especie.trim();
+    const especieNormalizada = isFelineEchoSpecies(especie) ? "Felina" : especie.trim();
     const pesoNormalizado = Number(peso);
     if (!especieNormalizada || !Number.isFinite(pesoNormalizado) || pesoNormalizado <= 0) {
       return null;

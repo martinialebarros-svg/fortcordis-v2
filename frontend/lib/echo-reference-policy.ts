@@ -1,8 +1,13 @@
 import type { EchoRangeMetadata, ReferenciaEco } from "@/app/laudos/types/referencia-eco";
+import { isFelineEchoSpecies } from "./echo-species";
 
 export const ECHO_REFERENCE_METHOD_VALUES = {
   TAPSE_metodo: ["modo_m_apical", "2d"],
   AE_Ao_metodo: ["2d_eixo_curto_diastole_inicial", "2d_eixo_curto_diastole_inicial_sueco", "outro"],
+  Diastolica_metodo: ["felino_adulto_nao_sedado_pw_apical_clique_aortico", "felino_adulto_nao_sedado_pw_apical_fim_fluxo", "felino_adulto_nao_sedado_pw_clique_aortico", "felino_adulto_nao_sedado_pw_fim_fluxo", "outro"],
+  Diastolica_ondas: ["separadas", "fundidas"],
+  TDI_metodo: ["felino_pw_anel_lateral", "felino_pw_anel_septal", "outro"],
+  TDI_ondas: ["separadas", "fundidas"],
 } as const;
 
 export const ECHO_REFERENCE_METHOD_KEYS = Object.keys(ECHO_REFERENCE_METHOD_VALUES);
@@ -11,7 +16,7 @@ const WEIGHT_DOMAINS: Record<string, readonly [number, number]> = { Canina: [2.2
 
 function normalizedSpecies(species: string): string {
   const value = species.trim();
-  return /^canin/i.test(value) ? "Canina" : /^felin/i.test(value) ? "Felina" : value;
+  return /^canin/i.test(value) ? "Canina" : isFelineEchoSpecies(value) ? "Felina" : value;
 }
 
 function finite(value: unknown): number | null {
@@ -93,7 +98,7 @@ export function resolveEchoReferenceForMeasurements(
 
   // Older API responses must not restore intervals already rejected in the audit.
   if (!metadata.tapse) setRange(resolved, "tapse", null, null);
-  if (!metadata.la_ao && (/^felin/i.test(reference.especie)
+  if (!metadata.la_ao && (isFelineEchoSpecies(reference.especie)
       || (finite(resolved.la_ao_min) === 0.8 && finite(resolved.la_ao_max) === 1.6))) {
     setRange(resolved, "la_ao", null, null);
   }
