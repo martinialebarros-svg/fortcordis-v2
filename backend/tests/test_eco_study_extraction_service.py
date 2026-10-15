@@ -51,6 +51,156 @@ def _pdf_bytes(lines: list[str]) -> bytes:
 
 
 class EcoStudyExtractionServiceTest(unittest.TestCase):
+    def test_four_outflow_sites_keep_values_labels_and_imported_precision(self) -> None:
+        expected = {
+            "Vmax_VSVE": ("Vmáx VSVE", 1.010123),
+            "Grad_VSVE": ("maxPG VSVE", 4.110123),
+            "Vmax_aorta": ("Aorta Vmax", 1.123456),
+            "Grad_aorta": ("Aorta maxPG", 5.123456),
+            "Vmax_VSVD": ("RVOT Vmax P", 0.801234),
+            "Grad_VSVD": ("RVOT maxPG", 2.571234),
+            "Vmax_pulmonar": ("Pulmonic Vmax", 0.923456),
+            "Grad_pulmonar": ("Pulmonic maxPG", 3.412345),
+        }
+        text = "\n".join(
+            f"{label} {value} {'m/s' if field.startswith('Vmax') else 'mmHg'}"
+            for field, (label, value) in expected.items()
+        )
+
+        candidates = extract_measurements_from_text(text, source="pdf:text")
+        measurements, consolidated, conflicts = consolidate_measurement_candidates(candidates)
+
+        self.assertEqual(measurements, {field: value for field, (_, value) in expected.items()})
+        self.assertEqual(conflicts, 0)
+        self.assertEqual(len(consolidated), 8)
+        for candidate in consolidated:
+            label, value = expected[candidate["campo"]]
+            self.assertEqual(candidate["rotulo_origem"], label)
+            self.assertEqual(candidate["valor_original"], value)
+
+    def test_only_rvot_evidence_does_not_create_pulmonary_or_left_outflow_measurements(self) -> None:
+        for label in ("RVOT", "VSVD", "via de saída do ventrículo direito"):
+            with self.subTest(label=label):
+                candidates = extract_measurements_from_text(
+                    f"Vmax {label} 0,80 m/s\nGrad. max {label} 2,57 mmHg",
+                    source="ocr:test",
+                )
+                measurements, _, conflicts = consolidate_measurement_candidates(candidates)
+                self.assertEqual(measurements, {"Vmax_VSVD": 0.8, "Grad_VSVD": 2.57})
+                self.assertEqual(conflicts, 0)
+
+    def test_ambiguous_combined_outflow_label_does_not_select_one_site(self) -> None:
+        for label in (
+            "RVOT/Pulmonic Vmax", "VSVD/Pulmonar Vmax", "LVOT/Aorta Vmax",
+            "VSVD (Pulmonar) Vmax", "RVOT ou Pulmonic Vmax",
+        ):
+            with self.subTest(label=label):
+                candidates = extract_measurements_from_text(
+                    f"{label} 0.80 m/s\nLVIDd 30 mm", source="pdf:text",
+                )
+                measurements, _, conflicts = consolidate_measurement_candidates(candidates)
+                self.assertEqual(measurements, {"DIVEd": 30})
+                self.assertEqual(conflicts, 0)
+
+    def test_synonymous_outflow_labels_are_not_treated_as_different_sites(self) -> None:
+        candidates = extract_measurements_from_text(
+            "VSVD/RVOT Vmax 0.80 m/s\nVSVE/LVOT maxPG 4.11 mmHg",
+            source="pdf:text",
+        )
+        measurements, consolidated, conflicts = consolidate_measurement_candidates(candidates)
+        self.assertEqual(measurements, {"Vmax_VSVD": 0.8, "Grad_VSVE": 4.11})
+        self.assertEqual(conflicts, 0)
+        self.assertEqual(
+            {item["rotulo_origem"] for item in consolidated},
+            {"VSVD/RVOT Vmax", "VSVE/LVOT maxPG"},
+        )
+
+    def test_pdf_outflow_import_preserves_gradients_and_persists_provenance(self) -> None:
+        content = _pdf_bytes([
+            "Peso: 7 kg", "Idade: 3 anos",
+            "Vmax VSVE 1.01 m/s", "maxPG VSVE 4.11 mmHg",
+            "Vmax Aorta 1.123456 m/s", "Aorta PG 5.123456 mmHg",
+            "Vmax VSVD 0.80 m/s", "maxPG VSVD 2.57 mmHg",
+            "Vmax pulmonar 0.90 m/s", "Gradiente pulmonar 3.26 mmHg",
+        ])
+
+        payload = parse_eco_study_import_content("vias-saida.pdf", content)
+        measurements = payload["medidas"]
+
+        self.assertEqual(measurements["Grad_VSVE"], 4.11)
+        self.assertEqual(measurements["Grad_VSVD"], 2.57)
+        self.assertEqual(measurements["Vmax_aorta"], 1.123456)
+        self.assertEqual(measurements["Grad_aorta"], 5.123456)
+        self.assertEqual(payload["meta_importacao_estudo"]["medidas_sugeridas"], 8)
+        for field in (
+            "Vmax_VSVE", "Grad_VSVE", "Vmax_aorta", "Grad_aorta",
+            "Vmax_VSVD", "Grad_VSVD", "Vmax_pulmonar", "Grad_pulmonar",
+        ):
+            self.assertEqual(measurements[f"{field}_origem"], "importado")
+            self.assertTrue(measurements[f"{field}_rotulo_origem"])
+
+    def test_pdf_velocity_without_gradient_leaves_gradient_absent(self) -> None:
+        content = _pdf_bytes([
+            "Peso: 7 kg", "Idade: 3 anos", "LVOT Vmax 1.01 m/s",
+        ])
+
+        measurements = parse_eco_study_import_content("somente-vsve.pdf", content)["medidas"]
+
+        self.assertEqual(measurements["Vmax_VSVE"], 1.01)
+        self.assertEqual(measurements["Vmax_VSVE_rotulo_origem"], "LVOT Vmax")
+        self.assertEqual(set(measurements), {
+            "Vmax_VSVE", "Vmax_VSVE_origem", "Vmax_VSVE_rotulo_origem",
+        })
+
+    def test_conflicting_imported_gradient_is_unresolved_instead_of_absent(self) -> None:
+        content = _pdf_bytes([
+            "Peso: 7 kg", "Idade: 3 anos", "Vmax VSVE 1.01 m/s",
+            "maxPG VSVE 4.11 mmHg", "LVOT maxPG 9.25 mmHg",
+        ])
+
+        payload = parse_eco_study_import_content("conflito-gradiente.pdf", content)
+        measurements = payload["medidas"]
+
+        self.assertEqual(measurements["Vmax_VSVE"], 1.01)
+        self.assertEqual(measurements["Grad_VSVE"], "Conflito de medidas no exame de origem")
+        self.assertEqual(measurements["Grad_VSVE_origem"], "importado")
+        self.assertEqual(measurements["Grad_VSVE_rotulo_origem"], "maxPG VSVE | LVOT maxPG")
+        self.assertEqual(payload["meta_importacao_estudo"]["conflitos"], 1)
+        self.assertEqual(payload["meta_importacao_estudo"]["medidas_sugeridas"], 1)
+        conflicting = [item for item in payload["medidas_extraidas"] if item["campo"] == "Grad_VSVE"]
+        self.assertEqual({item["status"] for item in conflicting}, {"conflito"})
+        self.assertEqual({item["valor"] for item in conflicting}, {4.11, 9.25})
+
+    def test_aortic_doppler_label_does_not_create_an_anatomical_measurement(self) -> None:
+        candidates = extract_measurements_from_text(
+            "Vmax Aorta 1.01 m/s\nGradiente Aorta 4.11 mmHg\nAorta 20 mm",
+            source="pdf:text",
+        )
+        measurements, consolidated, conflicts = consolidate_measurement_candidates(candidates)
+        self.assertEqual(measurements, {"Vmax_aorta": 1.01, "Grad_aorta": 4.11, "Aorta": 20})
+        self.assertEqual(len(consolidated), 3)
+        self.assertEqual(conflicts, 0)
+
+    def test_rendered_outflow_labels_can_be_imported_without_changing_site(self) -> None:
+        candidates = extract_measurements_from_text(
+            "Vmax via de saída do VE 1.01 m/s\n"
+            "Gradiente via de saída do VE 4.11 mmHg\n"
+            "Vmax via de saída do VD 0.80 m/s\n"
+            "Gradiente via de saída do VD 2.57 mmHg\n"
+            "Fluxo aórtico Vmax 1.1 m/s\n"
+            "Fluxo pulmonar PG 3.26 mmHg",
+            source="pdf:text",
+        )
+
+        measurements, _, conflicts = consolidate_measurement_candidates(candidates)
+
+        self.assertEqual(measurements, {
+            "Vmax_VSVE": 1.01, "Grad_VSVE": 4.11,
+            "Vmax_VSVD": 0.8, "Grad_VSVD": 2.57,
+            "Vmax_aorta": 1.1, "Grad_pulmonar": 3.26,
+        })
+        self.assertEqual(conflicts, 0)
+
     def test_feline_atrial_and_lvot_labels_keep_distinct_sources(self) -> None:
         candidates = extract_measurements_from_text(
             "LADmax 18 mm\nLADmin 13.5 mm\nLA FS 25 %\n"
@@ -301,7 +451,8 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         self.assertEqual(measurements["TD"], 129)
         self.assertEqual(measurements["Grad_VSVE"], 4.12)
         self.assertNotIn("Grad_aorta", measurements)
-        self.assertEqual(measurements["Grad_pulmonar"], 2.24)
+        self.assertEqual(measurements["Grad_VSVD"], 2.24)
+        self.assertNotIn("Grad_pulmonar", measurements)
         self.assertEqual(measurements["IM_Vmax"], 3.98)
         self.assertEqual(measurements["IT_Vmax"], 3.53)
         self.assertEqual(measurements["DIVEd_normalizado"], 1.817)

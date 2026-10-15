@@ -2,6 +2,7 @@ import { echoLengthInMm, isEchoLengthKey } from "./echo-unit-provenance";
 import { calculateCanine2DNormalizedLVIDd, type Echo2DView } from "./echo-2d-reference";
 import { ECHO_REFERENCE_METHOD_VALUES } from "./echo-reference-policy";
 import { isFelineEchoSpecies } from "./echo-species";
+import { deriveOutflowGradients, ECHO_OUTFLOW_KEYS, isOutflowMetadataKey } from "./echo-outflow";
 
 export type RightAtrialRemodeling =
   | ""
@@ -96,6 +97,18 @@ function normalizeStoredMeasurement(
 ): string | null {
   const text = String(value ?? "").trim();
   if (!text) return null;
+
+  if (isOutflowMetadataKey(key)) {
+    if (key.endsWith("_origem") && !key.endsWith("_rotulo_origem")) {
+      return ["importado", "informado", "calculado"].includes(text) ? text : null;
+    }
+    return text;
+  }
+  // A recorded but unresolved value must not become an absent gradient on
+  // reopen, which would silently replace it with a Bernoulli calculation.
+  if (ECHO_OUTFLOW_KEYS.has(key)) {
+    return Number.isFinite(Number(text.replace(",", "."))) ? text.replace(",", ".") : text;
+  }
 
   if (key === "VE_tecnica_relatorio") {
     const normalized = text.toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
@@ -246,10 +259,7 @@ export function deriveAutomaticEchoMeasurements(
       derived.Fracao_encurtamento_AE = formatDerivedValue(laFraction);
     }
   }
-  const lvotVelocity = parsePositiveNumber(measurements.Vmax_VSVE);
-  if (lvotVelocity !== null) {
-    derived.Grad_VSVE = formatDerivedValue(4 * lvotVelocity ** 2);
-  }
+  Object.assign(derived, deriveOutflowGradients(measurements));
   const view = measurements.VE_vista_2D === "eixo_curto" || measurements.VE_vista_2D === "eixo_longo"
     ? measurements.VE_vista_2D as Echo2DView : "";
   const normalized2D = calculateCanine2DNormalizedLVIDd(

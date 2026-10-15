@@ -5,6 +5,7 @@ import math
 import tempfile
 from io import BytesIO
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Dict, Any, List, Optional, Tuple
 from xml.sax.saxutils import escape as xml_escape
 
@@ -146,9 +147,97 @@ def recalcular_marcadores_felinos_para_pdf(dados_pdf: Dict[str, Any]) -> None:
         ae_min = _to_float(medidas.get("AE_diametro_min"))
         if ae_max is not None and ae_min is not None and 0 < ae_min <= ae_max:
             medidas["Fracao_encurtamento_AE"] = round((ae_max - ae_min) / ae_max * 100, 2)
-    vmax_vsve = _to_float(medidas.get("Vmax_VSVE"))
-    if vmax_vsve is not None and vmax_vsve > 0:
-        medidas["Grad_VSVE"] = round(4 * vmax_vsve ** 2, 2)
+
+
+SAIDAS_DOPPLER = (
+    ("Vmax_aorta", "Grad_aorta", "aorta"),
+    ("Vmax_VSVE", "Grad_VSVE", "via de saída do VE"),
+    ("Vmax_VSVD", "Grad_VSVD", "via de saída do VD"),
+    ("Vmax_pulmonar", "Grad_pulmonar", "pulmonar"),
+)
+
+
+def _medida_preenchida(valor: Any) -> bool:
+    return valor is not None and (not isinstance(valor, str) or bool(valor.strip()))
+
+
+def derivar_gradientes_saidas_para_pdf(dados_pdf: Dict[str, Any]) -> None:
+    """Deriva gradientes ausentes ou explicitamente calculados, no mesmo local.
+
+    A cópia de apresentação nunca substitui um valor informado/importado ou de
+    origem desconhecida, inclusive inválidos que precisam de conferência. Uma
+    velocidade arredondada não recupera a precisão do gradiente importado.
+    """
+    medidas = dados_pdf.get("medidas")
+    if not isinstance(medidas, dict):
+        return
+    for velocidade, gradiente, _ in SAIDAS_DOPPLER:
+        calculado = medidas.get(f"{gradiente}_origem") == "calculado"
+        if _medida_preenchida(medidas.get(gradiente)) and not calculado:
+            continue
+        vmax = _to_float(medidas.get(velocidade))
+        valor = 4 * vmax * vmax if vmax is not None and math.isfinite(vmax) and vmax > 0 else None
+        if valor is None or not math.isfinite(valor):
+            if calculado:
+                medidas.pop(gradiente, None)
+                medidas.pop(f"{gradiente}_origem", None)
+                medidas.pop(f"{gradiente}_rotulo_origem", None)
+            continue
+        medidas[gradiente] = round(valor, 2)
+        medidas[f"{gradiente}_origem"] = "calculado"
+        medidas.pop(f"{gradiente}_rotulo_origem", None)
+
+
+def parametros_saidas_para_pdf(medidas: Dict[str, Any]) -> List[Dict]:
+    """Mantém as quatro aquisições separadas e explicita apenas derivações conhecidas."""
+    parametros = []
+    for velocidade, gradiente, local in SAIDAS_DOPPLER:
+        for chave, label, unidade in (
+            (velocidade, f"Vmax {local}", "m/s"),
+            (gradiente, f"Gradiente {local}", "mmHg"),
+        ):
+            if chave == gradiente and medidas.get(f"{chave}_origem") == "calculado":
+                label += " (calculado: 4 × V²)"
+            valor = medidas.get(chave)
+            numero = _to_float(valor)
+            parametros.append({
+                "chave": chave, "label": label, "unidade": unidade,
+                "ref_min": None, "ref_max": None, "preservar_precisao": True,
+                "value_recorded": _medida_preenchida(valor),
+                "value_unconfirmed": _medida_preenchida(valor) and (
+                    numero is None or not math.isfinite(numero) or numero < 0
+                ),
+            })
+    return parametros
+
+
+def notas_saidas_para_pdf(medidas: Dict[str, Any]) -> List[str]:
+    """Sinaliza procedência ausente sem reatribuir campos históricos a outro local."""
+    sem_origem = []
+    notas = []
+    for velocidade, gradiente, local in SAIDAS_DOPPLER:
+        for chave, label in ((velocidade, f"Vmax {local}"), (gradiente, f"Gradiente {local}")):
+            if not _medida_preenchida(medidas.get(chave)):
+                continue
+            origem = medidas.get(f"{chave}_origem")
+            rotulo = str(medidas.get(f"{chave}_rotulo_origem") or "").strip()
+            if rotulo:
+                notas.append(f"Rótulo de origem de {label}: {rotulo}.")
+            if origem not in {"importado", "informado", "calculado"}:
+                sem_origem.append(label)
+    if sem_origem:
+        notas.insert(0, "Origem não confirmada: " + "; ".join(sem_origem) +
+                     ". Campos e valores legados mantidos; confira o exame de origem.")
+    return notas
+
+
+def _formatar_medida_com_precisao(valor: Any, numero: float) -> str:
+    """Mantém a precisão registrada nas saídas, com no mínimo duas casas."""
+    try:
+        decimal = Decimal(str(valor).strip().replace(",", "."))
+        return format(decimal, f".{max(2, -decimal.as_tuple().exponent)}f")
+    except (InvalidOperation, TypeError, ValueError):
+        return f"{numero:.2f}"
 
 
 def _bloco_sem_quebra(*flowables):
@@ -295,10 +384,10 @@ def aplicar_referencias_2d_publicadas(parametros: List[Dict], dados_pdf: Dict[st
 
 
 def filtrar_parametros_preenchidos(parametros: List[Dict], medidas: Dict[str, Any]) -> List[Dict]:
-    """Keep recorded values and confirmed limitations, never treating zero as a measurement."""
+    """Keep recorded outflow values and limitations; omit generic zero defaults."""
     return [
         param for param in parametros
-        if param.get("value_unmeasurable") is True
+        if param.get("value_unmeasurable") is True or param.get("value_recorded") is True
         or (_to_float(medidas.get(param["chave"])) or 0) != 0
     ]
 
@@ -677,13 +766,22 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
             ref_str = (ref_text or "--") if mostrar_referencia else ""
             interp_str = ""
             interp_color = COR_PRETO
-        elif valor_float == 0:
+        elif param.get("value_unconfirmed") is True:
+            valor_str = f"{_esc(valor)} (valor a confirmar)"
+            ref_str = "--"
+            interp_str = ""
+            interp_color = COR_PRETO
+        elif valor_float == 0 and not param.get("value_recorded"):
             valor_str = "--"
             ref_str = (ref_text if ref_text else formatar_referencia(ref_min, ref_max, unidade)) if mostrar_referencia else ""
             interp_str = ""
             interp_color = COR_PRETO
         else:
-            valor_str = f"{valor_float:.2f} (unidade a confirmar)" if unidade_ambigua else f"{valor_float:.2f} {unidade}".strip()
+            numero_formatado = (
+                _formatar_medida_com_precisao(valor, valor_float)
+                if param.get("preservar_precisao") else f"{valor_float:.2f}"
+            )
+            valor_str = f"{numero_formatado} (unidade a confirmar)" if unidade_ambigua else f"{numero_formatado} {unidade}".strip()
             ref_str = "--" if unidade_ambigua else ((ref_text if ref_text else formatar_referencia(ref_min, ref_max, unidade)) if mostrar_referencia else "")
             
             if not unidade_ambigua and ref_min is not None and ref_max is not None and not (ref_min == 0 and ref_max == 0):
@@ -1590,6 +1688,7 @@ def gerar_pdf_laudo_eco(
                     )
         recalcular_dived_normalizado_para_pdf(dados_pdf)
         recalcular_marcadores_felinos_para_pdf(dados_pdf)
+        derivar_gradientes_saidas_para_pdf(dados_pdf)
         elements.extend(criar_cabecalho(dados_pdf, temp_logo_path))
 
         # A conclusão já escrita pelo veterinário fica visível na primeira
@@ -1689,14 +1788,7 @@ def gerar_pdf_laudo_eco(
         ]
         
         # Grupo: Doppler - Saídas - SEM Interpretação
-        params_doppler_saidas = [
-            {'chave': 'Vmax_aorta', 'label': 'Vmax aorta', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
-            {'chave': 'Grad_aorta', 'label': 'Gradiente aorta', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
-            {'chave': 'Vmax_VSVE', 'label': 'Vmax via de saída do VE', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
-            {'chave': 'Grad_VSVE', 'label': 'Gradiente via de saída do VE (4 × V²)', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
-            {'chave': 'Vmax_pulmonar', 'label': 'Vmax pulmonar', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
-            {'chave': 'Grad_pulmonar', 'label': 'Gradiente pulmonar', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
-        ]
+        params_doppler_saidas = parametros_saidas_para_pdf(dados_pdf["medidas"])
         
         # Grupo: Diastólica - SEM Interpretação
         params_diastolica = [
@@ -1810,6 +1902,9 @@ def gerar_pdf_laudo_eco(
                         create_pdf_styles()["ReferenciaTexto"],
                     ),
                 ])
+            if titulo == "Doppler - Saídas":
+                for nota in notas_saidas_para_pdf(medidas_pdf):
+                    bloco_tabela.extend([Spacer(1, 1 * mm), Paragraph(_esc(nota), create_pdf_styles()["ReferenciaTexto"])])
             if titulo == "Diastólica":
                 for nota in feline_diastolic_notes(medidas_pdf, (dados_pdf.get("paciente") or {}).get("especie")):
                     bloco_tabela.extend([Spacer(1, 1 * mm), Paragraph(_esc(nota), create_pdf_styles()["ReferenciaTexto"])])
