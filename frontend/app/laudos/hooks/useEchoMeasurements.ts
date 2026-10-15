@@ -6,6 +6,7 @@ import {
   importEchoMeasurementState,
   updateEchoMeasurementState,
 } from "@/lib/echo-ae-ao-derivation";
+import { clearReplacedOutflowProvenance } from "@/lib/echo-outflow-editor";
 
 type Measurements = Record<string, string>;
 
@@ -21,7 +22,10 @@ export function useEchoMeasurements() {
     ));
   }, []);
   const importMeasurements = useCallback((imported: Measurements) => {
-    setState((previous) => importEchoMeasurementState(previous, imported));
+    setState((previous) => importEchoMeasurementState({
+      ...previous,
+      measurements: clearReplacedOutflowProvenance(previous.measurements, imported),
+    }, imported));
   }, []);
   const replaceMeasurements = useCallback((measurements: Measurements) => {
     setState(createEchoMeasurementState(measurements));

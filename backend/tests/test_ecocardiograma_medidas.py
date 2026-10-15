@@ -29,6 +29,33 @@ from app.api.v1.endpoints.laudos import _montar_descricao_ecocardiograma  # noqa
 
 
 class EcocardiogramaMedidasTest(unittest.TestCase):
+    def test_proveniencia_das_quatro_saidas_sobrevive_salvamento_e_reabertura(self) -> None:
+        for key in (
+            "Vmax_VSVE", "Grad_VSVE", "Vmax_aorta", "Grad_aorta",
+            "Vmax_VSVD", "Grad_VSVD", "Vmax_pulmonar", "Grad_pulmonar",
+        ):
+            for origin in ("importado", "informado", "calculado"):
+                with self.subTest(key=key, origin=origin):
+                    measurements = {
+                        key: "4.1126", f"{key}_origem": origin,
+                        f"{key}_rotulo_origem": "VSVD Max PG",
+                    }
+                    saved = _montar_descricao_ecocardiograma(measurements, {})
+                    self.assertEqual(extrair_medidas_ecocardiograma_da_descricao(saved), measurements)
+
+    def test_proveniencia_desconhecida_nao_e_confirmada_e_legado_nao_recebe_origem(self) -> None:
+        saved = _montar_descricao_ecocardiograma({
+            "Grad_VSVE": "4.11", "Grad_VSVE_origem": "suposto",
+            "Grad_desconhecido_origem": "importado",
+            "Grad_desconhecido_rotulo_origem": "RVOT PG",
+        }, {})
+        self.assertEqual(extrair_medidas_ecocardiograma_da_descricao(saved), {"Grad_VSVE": "4.11"})
+
+    def test_gradiente_preenchido_invalido_nao_vira_ausente_ao_reabrir(self) -> None:
+        measurements = {"Vmax_VSVE": "1.01", "Grad_VSVE": "a conferir", "Grad_VSVE_origem": "informado"}
+        saved = _montar_descricao_ecocardiograma(measurements, {})
+        self.assertEqual(extrair_medidas_ecocardiograma_da_descricao(saved), measurements)
+
     def test_preserva_medidas_2d_e_seletor_textual_do_pdf(self) -> None:
         description = """
 ## Medidas Ecocardiograficas
@@ -145,7 +172,7 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
         )
 
     def test_cache_do_pdf_inclui_versao_do_renderizador(self) -> None:
-        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-10-14-eco-feline-fused-values-v22")
+        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-10-15-eco-outflow-provenance-v23")
         database = MagicMock()
         database.query.return_value.filter.return_value.first.return_value = (
             SimpleNamespace(id=7, tipo="ecocardiograma")

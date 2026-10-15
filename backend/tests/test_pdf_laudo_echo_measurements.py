@@ -203,7 +203,7 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("Fração de encurtamento do AE\n25.00 %\n--", text)
         self.assertIn("Velocidade máxima do apêndice atrial esquerdo\n0.18 m/s\n--", text)
         self.assertIn("Vmax via de saída do VE\n2.50 m/s\n--", text)
-        self.assertIn("Gradiente via de saída do VE (4 × V²)\n25.00 mmHg", text)
+        self.assertIn("Gradiente via de saída do VE (calculado: 4 × V²)\n25.00 mmHg", text)
         self.assertIn("Vmax aorta\n0.69 m/s", text)
         self.assertIn("Fuentes et al. (2020)", text)
         self.assertIn("Schober et al. (2006)", text)

@@ -87,6 +87,46 @@ def empty_output(**overrides):
 
 
 class AIEchoVoiceAssistantTest(unittest.TestCase):
+    def test_outflow_context_keeps_sites_and_imported_gradient_provenance(self) -> None:
+        raw = {
+            "Vmax_VSVE": "1.01", "Grad_VSVE": "4.11",
+            "Grad_VSVE_origem": "importado", "Grad_VSVE_rotulo_origem": "maxPG VSVE",
+            "Vmax_VSVD": "0.80", "Grad_VSVD": "2.57",
+            "Grad_VSVD_origem": "importado", "Grad_VSVD_rotulo_origem": "RVOT maxPG",
+            "Vmax_aorta": "1.123456", "Grad_aorta": "5.123456",
+            "Vmax_pulmonar": "0.90", "Grad_pulmonar": "3.26",
+        }
+        request = EchoStructureRequest.model_validate({
+            "edited_transcript": "Medidas do exame.", "current_measurements": raw,
+        })
+
+        context = safe_measurement_context(request.current_measurements)
+
+        self.assertEqual(len(context), 8)
+        self.assertEqual(context["Vmax_aorta"]["value"], "1.123456")
+        self.assertEqual(context["Grad_aorta"]["value"], "5.123456")
+        for key, label in (("Grad_VSVE", "maxPG VSVE"), ("Grad_VSVD", "RVOT maxPG")):
+            self.assertEqual(context[key]["origin"], "importado")
+            self.assertEqual(context[key]["source_label"], label)
+            self.assertNotIn("Bernoulli", context[key]["method"])
+
+    def test_outflow_context_only_marks_explicitly_calculated_gradient(self) -> None:
+        legacy = {"Vmax_VSVE": "1.01", "Grad_VSVE": "4.11", "Vmax_pulmonar": "0.80"}
+        context = safe_measurement_context(legacy)
+        self.assertNotIn("Bernoulli", context["Grad_VSVE"]["method"])
+        self.assertNotIn("origin", context["Grad_VSVE"])
+        self.assertNotIn("Vmax_VSVD", context)
+        self.assertEqual(legacy, {
+            "Vmax_VSVE": "1.01", "Grad_VSVE": "4.11", "Vmax_pulmonar": "0.80",
+        })
+
+        calculated = safe_measurement_context({
+            "Grad_VSVD": "2.56", "Grad_VSVD_origem": "calculado",
+        })
+        self.assertEqual(calculated["Grad_VSVD"]["origin"], "calculado")
+        self.assertIn("4 × V²", calculated["Grad_VSVD"]["method"])
+        self.assertNotIn("Grad_pulmonar", calculated)
+
     def test_outflow_method_is_not_inferred_from_velocity_alone(self) -> None:
         context = safe_measurement_context({"Vmax_aorta": "1.26", "Vmax_pulmonar": "0.95"})
         self.assertEqual(context["Vmax_aorta"]["unit"], "m/s")
@@ -1855,6 +1895,34 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                 .count(),
                 0,
             )
+
+
+class EchoOutflowSourceContextTest(unittest.TestCase):
+    def test_imported_conflict_source_can_exceed_the_numeric_value_limit(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from app.utils.xml_parser import parse_xml_eco
+
+        xml = b'''<root>
+          <parameter NAME="Right ventricular outflow tract Vmax"><aver>0.80</aver><unit>m/s</unit></parameter>
+          <parameter NAME="Vmax via de sa\xc3\xadda do ventr\xc3\xadculo direito"><aver>1.80</aver><unit>m/s</unit></parameter>
+        </root>'''
+        with redirect_stdout(StringIO()):
+            measurements = parse_xml_eco(xml)["medidas"]
+        source = measurements["Vmax_VSVD_rotulo_origem"]
+        self.assertGreater(len(source), 80)
+        request = EchoStructureRequest(
+            edited_transcript="Dados ecocardiográficos para revisão.",
+            current_measurements={key: str(value) for key, value in measurements.items()},
+        )
+        self.assertEqual(request.current_measurements["Vmax_VSVD_rotulo_origem"], source)
+        self.assertEqual(request.current_measurements["Vmax_VSVD"], "Conflito de medidas no exame de origem")
+
+    def test_source_metadata_keeps_a_separate_bounded_limit(self):
+        with self.assertRaisesRegex(ValidationError, "Valores de medida muito longos"):
+            EchoStructureRequest(edited_transcript="Dados para revisão.", current_measurements={"Vmax_VSVD_rotulo_origem": "x" * 2049})
+        with self.assertRaisesRegex(ValidationError, "Valores de medida muito longos"):
+            EchoStructureRequest(edited_transcript="Dados para revisão.", current_measurements={"Vmax_VSVD": "x" * 81})
 
 
 if __name__ == "__main__":

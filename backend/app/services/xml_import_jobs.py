@@ -24,6 +24,9 @@ JOB_STATUS_COMPLETED = "completed"
 JOB_STATUS_FAILED = "failed"
 JOB_TTL_DAYS = 7
 MAX_XML_IMPORT_SIZE = 5 * 1024 * 1024
+# Re-importing the same XML must use the current measurement interpretation.
+# Version the cache key without changing historical jobs or their saved results.
+XML_IMPORT_PARSER_VERSION = "2"
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="xml-import")
 _SUBMITTED_JOB_IDS: set[int] = set()
@@ -124,7 +127,8 @@ def serialize_xml_import_job(job: XmlImportJob) -> dict[str, Any]:
 
 
 def _compute_xml_content_hash(xml_content: bytes) -> str:
-    return hashlib.sha256(xml_content).hexdigest()
+    namespace = f"xml-parser:{XML_IMPORT_PARSER_VERSION}\0".encode("utf-8")
+    return hashlib.sha256(namespace + xml_content).hexdigest()
 
 
 def _get_cached_xml_import_job(
