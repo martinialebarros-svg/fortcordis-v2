@@ -168,3 +168,11 @@ granularidade por clínica.
   divergente comprovam zero conexao e zero envio, com legado preservado.
 - Nenhuma mensagem de teste foi enviada nem marcador de lembrete foi limpo.
   A publicacao e a ativacao ainda dependem da conclusao dos gates de release.
+
+- Ativacao: teste shell com arquivos/servicos ficticios passou para sucesso,
+  contrato de conta incorreta, stage bloqueado, falha apos escrita, restauracao
+  de chave ausente/falsa/duplicada, symlink/permissoes e falha de restauracao
+  sem rollback inseguro. Teste de isolacao Meta de stage, Bash syntax, parse
+  YAML e diff-check passaram. Push preserva a decisao; dispatch exige opt-in.
+- Integracao com stage72327f: suite backend completa passou, 1896 testes
+  executados, 44 ignorados. Nenhum envio externo foi efetuado nos testes.
