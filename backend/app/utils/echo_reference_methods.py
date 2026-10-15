@@ -8,6 +8,8 @@ ECHO_REFERENCE_METHOD_VALUES: dict[str, frozenset[str]] = {
         "outro",
     }),
     "Diastolica_metodo": frozenset({
+        "felino_adulto_nao_sedado_pw_apical_clique_aortico",
+        "felino_adulto_nao_sedado_pw_apical_fim_fluxo",
         "felino_adulto_nao_sedado_pw_clique_aortico",
         "felino_adulto_nao_sedado_pw_fim_fluxo",
         "outro",

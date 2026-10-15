@@ -178,6 +178,28 @@ describe("EcocardiogramaEstruturadoEditor - composicao de achados", () => {
     window.localStorage.clear();
   });
 
+  it.each(["Dog", "Cão", "Canino"])
+    ("omite presets exclusivamente felinos no seletor clínico de %s", async (species) => {
+      apiMocks.carregarBanco.mockResolvedValue({
+        ...payload,
+        presets: [
+          { id: 71, key: "canino", label: "Preset exclusivamente canino", tags: ["cao"], selecoes: [] },
+          { id: 72, key: "felino", label: "Preset exclusivamente felino", tags: ["gato"], selecoes: [] },
+          { id: 73, key: "comum", label: "Preset comum às duas espécies", tags: ["cao", "gato"], selecoes: [] },
+          { id: 74, key: "geral", label: "Preset sem restrição de espécie", tags: [], selecoes: [] },
+        ],
+      });
+      const onChange = vi.fn();
+      render(<EcocardiogramaEstruturadoEditor value={estadoInicial} onChange={onChange} especie={species} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Selecione um preset" }));
+      expect(screen.queryByRole("button", { name: /Preset exclusivamente felino/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Preset exclusivamente canino/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Preset comum às duas espécies\s*cao \| gato/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Preset sem restrição de espécie/i })).toBeInTheDocument();
+      expect(apiMocks.aplicarPreset).not.toHaveBeenCalled();
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
   it("oferece padrão felino complementar e preserva os demais textos", async () => {
     const felinePreset = {
       id: 50,

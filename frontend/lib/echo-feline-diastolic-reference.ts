@@ -67,18 +67,27 @@ export function felineDiastolicReferences(
       note: `${population}. ${DESCRIPTIVE_NOTE}` };
   }
   const method = measurements.Diastolica_metodo;
-  const confirmed = method === "felino_adulto_nao_sedado_pw_clique_aortico"
+  const confirmed = method === "felino_adulto_nao_sedado_pw_apical_clique_aortico"
+    || method === "felino_adulto_nao_sedado_pw_apical_fim_fluxo";
+  const trivClick = method === "felino_adulto_nao_sedado_pw_apical_clique_aortico"
+    || method === "felino_adulto_nao_sedado_pw_clique_aortico";
+  const trivEnd = method === "felino_adulto_nao_sedado_pw_apical_fim_fluxo"
     || method === "felino_adulto_nao_sedado_pw_fim_fluxo";
-  if (confirmed && measurements.Diastolica_ondas === "separadas") {
-    descriptive("Onda_E", "0,70 ± 0,14 m/s", DISATIAN, "66 gatos; Doppler pulsado transmitral");
-    descriptive("Onda_A", "0,65 ± 0,14 m/s", DISATIAN, "66 gatos; Doppler pulsado transmitral");
-    descriptive("E_A", "1,12 ± 0,22", DISATIAN, "66 gatos; ondas E e A separadas");
-    descriptive("TD", "72,29 ± 9,56 ms", SOARES, "24 gatos; desaceleração da onda E");
+  if (!confirmed) {
+    for (const key of ["Onda_E", "Onda_A", "E_A", "TD", "E_E_linha"]) {
+      if (result[key]) result[key].note = "Confirme Doppler pulsado transmitral na vista apical esquerda de 4 câmaras, amostra nas pontas dos folhetos mitrais, paciente adulto não sedado e ondas separadas. A classificação diastólica exige interpretação integrada.";
+    }
   }
-  if (method === "felino_adulto_nao_sedado_pw_clique_aortico") {
-    descriptive("TRIV", "46,2 ± 7,6 ms", DISATIAN, "87 gatos; TRIV do clique de fechamento aórtico ao início do fluxo mitral");
-  } else if (method === "felino_adulto_nao_sedado_pw_fim_fluxo") {
-    descriptive("TRIV", "68,75 ± 19,14 ms", SOARES, "40 gatos; TRIV do fim do fluxo aórtico ao início do fluxo mitral");
+  if (confirmed && measurements.Diastolica_ondas === "separadas") {
+    descriptive("Onda_E", "0,70 ± 0,14 m/s", DISATIAN, "66 gatos saudáveis, não sedados; Doppler pulsado transmitral na vista apical esquerda de 4 câmaras, nas pontas dos folhetos mitrais");
+    descriptive("Onda_A", "0,65 ± 0,14 m/s", DISATIAN, "66 gatos saudáveis, não sedados; Doppler pulsado transmitral na vista apical esquerda de 4 câmaras, nas pontas dos folhetos mitrais");
+    descriptive("E_A", "1,12 ± 0,22", DISATIAN, "66 gatos saudáveis, não sedados; Doppler pulsado transmitral na vista apical esquerda de 4 câmaras; ondas E e A separadas");
+    descriptive("TD", "72,29 ± 9,56 ms", SOARES, "24 gatos adultos saudáveis, não sedados; Doppler pulsado transmitral na vista apical esquerda de 4 câmaras; desaceleração da onda E");
+  }
+  if (trivClick) {
+    descriptive("TRIV", "46,2 ± 7,6 ms", DISATIAN, "87 gatos saudáveis, não sedados; TRIV em apical esquerdo de 5 câmaras, do início do clique de fechamento aórtico ao início do fluxo mitral");
+  } else if (trivEnd) {
+    descriptive("TRIV", "68,75 ± 19,14 ms", SOARES, "40 gatos adultos saudáveis, não sedados; TRIV em apical esquerdo de 5 câmaras, do fim do fluxo aórtico ao início do fluxo mitral");
   }
   const site = measurements.TDI_metodo;
   if (measurements.TDI_ondas === "separadas"

@@ -17,9 +17,11 @@ FELINE_DIASTOLIC_KEYS = (
     "a_doppler", "doppler_tecidual_relacao", "E_E_linha",
 )
 PW_METHODS = {
-    "felino_adulto_nao_sedado_pw_clique_aortico",
-    "felino_adulto_nao_sedado_pw_fim_fluxo",
+    "felino_adulto_nao_sedado_pw_apical_clique_aortico",
+    "felino_adulto_nao_sedado_pw_apical_fim_fluxo",
 }
+TRIV_CLICK_METHODS = {"felino_adulto_nao_sedado_pw_clique_aortico", "felino_adulto_nao_sedado_pw_apical_clique_aortico"}
+TRIV_END_METHODS = {"felino_adulto_nao_sedado_pw_fim_fluxo", "felino_adulto_nao_sedado_pw_apical_fim_fluxo"}
 DISATIAN = {
     "source": "Disatian et al. (2008)", "doi": "10.1111/j.1939-1676.2008.0066.x",
     "bibliography": "Disatian et al. (2008). Association of Age and Heart Rate with Pulsed-Wave Doppler Measurements in Healthy, Nonsedated Cats. DOI: 10.1111/j.1939-1676.2008.0066.x.",
@@ -81,22 +83,26 @@ def feline_diastolic_references(
     method = measurements.get("Diastolica_metodo")
     separated = measurements.get("Diastolica_ondas") == "separadas"
     pw_data = {
-        "Onda_E": ("Média ± DP: 0,70 ± 0,14 m/s", DISATIAN, "Doppler pulsado transmitral; ondas separadas; n=66"),
-        "Onda_A": ("Média ± DP: 0,65 ± 0,14 m/s", DISATIAN, "Doppler pulsado transmitral; ondas separadas; n=66"),
-        "E_A": ("Média ± DP: 1,12 ± 0,22", DISATIAN, "Doppler pulsado transmitral; ondas separadas; n=66"),
-        "TD": ("Média ± DP: 72,29 ± 9,56 ms", SOARES, "Gatos adultos não sedados; Doppler pulsado; ondas separadas; n=24"),
+        "Onda_E": ("Média ± DP: 0,70 ± 0,14 m/s", DISATIAN, "Gatos saudáveis não sedados; Doppler pulsado transmitral na vista apical esquerda de 4 câmaras, nas pontas dos folhetos mitrais; ondas separadas; n=66"),
+        "Onda_A": ("Média ± DP: 0,65 ± 0,14 m/s", DISATIAN, "Gatos saudáveis não sedados; Doppler pulsado transmitral na vista apical esquerda de 4 câmaras, nas pontas dos folhetos mitrais; ondas separadas; n=66"),
+        "E_A": ("Média ± DP: 1,12 ± 0,22", DISATIAN, "Gatos saudáveis não sedados; Doppler pulsado transmitral na vista apical esquerda de 4 câmaras, nas pontas dos folhetos mitrais; ondas separadas; n=66"),
+        "TD": ("Média ± DP: 72,29 ± 9,56 ms", SOARES, "Gatos adultos saudáveis não sedados; Doppler pulsado transmitral na vista apical esquerda de 4 câmaras; ondas separadas; n=24"),
     }
+    if method not in PW_METHODS:
+        for key in ("Onda_E", "Onda_A", "E_A", "TD", "E_E_linha"):
+            if key in references:
+                references[key]["note"] = "Confirme Doppler pulsado transmitral na vista apical esquerda de 4 câmaras, amostra nas pontas dos folhetos mitrais, paciente adulto não sedado e ondas separadas"
     if method in PW_METHODS and separated:
         for key, (text, source, note) in pw_data.items():
             if key in references:
                 references[key] = _description(text, source, note)
     if "TRIV" in references:
-        if method == "felino_adulto_nao_sedado_pw_clique_aortico":
+        if method in TRIV_CLICK_METHODS:
             references["TRIV"] = _description("Média ± DP: 46,2 ± 7,6 ms", DISATIAN,
-                "Doppler pulsado: início do clique de fechamento aórtico até início do fluxo mitral; n=87")
-        elif method == "felino_adulto_nao_sedado_pw_fim_fluxo":
+                "Doppler pulsado em vista apical esquerda de 5 câmaras: início do clique de fechamento aórtico até início do fluxo mitral; n=87")
+        elif method in TRIV_END_METHODS:
             references["TRIV"] = _description("Média ± DP: 68,75 ± 19,14 ms", SOARES,
-                "Doppler pulsado: fim do fluxo aórtico até início do fluxo mitral; n=40")
+                "Doppler pulsado em vista apical esquerda de 5 câmaras: fim do fluxo aórtico até início do fluxo mitral; n=40")
     if "E_TRIV" in references:
         references["E_TRIV"]["note"] = "Sem intervalo individual adotado; não aplicar limiares caninos a felinos"
 
@@ -142,11 +148,14 @@ def feline_diastolic_notes(measurements: Mapping[str, Any], species: Any) -> lis
     notes: list[str] = []
     if any(ref["kind"] == "descriptive" for ref in references.values()):
         notes.append("Diastólica: dados de consulta expressos como média ± DP, conforme técnica e população dos estudos; interpretar com frequência cardíaca e demais achados.")
+    if any(references.get(key, {}).get("kind") == "unconfirmed" for key in ("Onda_E", "Onda_A", "E_A", "TD", "E_E_linha")):
+        notes.append("Fluxo transmitral: confirme Doppler pulsado na vista apical esquerda de 4 câmaras, com amostra nas pontas dos folhetos mitrais e ondas separadas, para consultar os dados publicados.")
     if any(references.get(key, {}).get("kind") == "descriptive" for key in ("Onda_E", "Onda_A", "E_A", "TD")):
-        notes.append("Fluxo transmitral: Doppler pulsado nas pontas dos folhetos mitrais, com ondas separadas. Disatian et al. (2008) incluíram gatos não sedados de 3 meses a 19 anos; Soares et al. (2005), gatos adultos não sedados.")
+        notes.append("Fluxo transmitral: Doppler pulsado na vista apical esquerda de 4 câmaras, nas pontas dos folhetos mitrais, com ondas separadas. Disatian et al. (2008) incluíram gatos não sedados de 3 meses a 19 anos; Soares et al. (2005), gatos adultos não sedados.")
     if references.get("TRIV", {}).get("kind") == "descriptive":
-        timing = ("início do clique de fechamento aórtico" if measurements.get("Diastolica_metodo") == "felino_adulto_nao_sedado_pw_clique_aortico" else "fim do fluxo aórtico")
-        notes.append(f"TRIV: Doppler pulsado com registro simultâneo de entrada e saída do VE; do {timing} até o início do fluxo mitral.")
+        timing = ("início do clique de fechamento aórtico" if measurements.get("Diastolica_metodo") in TRIV_CLICK_METHODS else "fim do fluxo aórtico")
+        label = "TRIV" if measurements.get("Diastolica_metodo") in PW_METHODS else "Referência de TRIV"
+        notes.append(f"{label}: Doppler pulsado em vista apical esquerda de 5 câmaras com registro simultâneo de entrada e saída do VE; do {timing} até o início do fluxo mitral.")
     if measurements.get("Diastolica_ondas") == "fundidas":
         notes.append("Ondas E/A transmitrais fundidas: picos e índices dependentes de E/A não são interpretados como ondas separadas. Doppler tecidual avaliado independentemente.")
     if measurements.get("TDI_ondas") == "fundidas":

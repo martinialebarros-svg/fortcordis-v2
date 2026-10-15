@@ -86,7 +86,7 @@ describe("compararMedidasComReferencia", () => {
       mv_e_min: .5, mv_e_max: 1.1, mv_ea_min: .8, mv_ea_max: 2,
       tdi_e_min: .1, tdi_e_max: .2, e_e_linha_min: 4, e_e_linha_max: 10 };
     const comparisons = compararMedidasComReferencia({ Onda_E: "1.08", E_A: "1.13", e_doppler: "0.16", E_E_linha: "6.95",
-      Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas",
+      Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "fundidas",
       TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "fundidas" }, reference, "", 5.6);
     for (const key of ["Onda_E", "E_A", "e_doppler", "E_E_linha"]) {
       expect(comparisons[key]).toMatchObject({ status: "nao_avaliado", referencia_min: null, referencia_max: null });
@@ -95,7 +95,7 @@ describe("compararMedidasComReferencia", () => {
 
   it("suspende cores de faixas diastólicas felinas legadas e mantém estatísticas em m/s", () => {
     const legacy: ReferenciaEco = { id: 1, especie: "Felina", peso_kg: 5.5, mv_e_min: .5, mv_e_max: 1.1, tdi_e_min: 1, tdi_e_max: 20 };
-    const measurements = { Onda_E: "1.08", e_doppler: "0.16", Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "separadas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
+    const measurements = { Onda_E: "1.08", e_doppler: "0.16", Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "separadas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
     const comparisons = compararMedidasComReferencia(measurements, legacy, "", 5.6);
     expect(comparisons.Onda_E).toMatchObject({ status: "nao_avaliado", referencia_min: null, referencia_texto: "0,70 ± 0,14 m/s" });
     expect(comparisons.e_doppler).toMatchObject({ status: "nao_avaliado", valor_medido: "0.16", referencia_texto: "0,11 ± 0,03 m/s" });

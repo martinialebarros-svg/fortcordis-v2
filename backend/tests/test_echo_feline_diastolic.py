@@ -48,7 +48,7 @@ def synthetic_measurements():
         "Onda_E": "1.08", "Onda_A": "0.95", "E_A": "1.14", "TD": "51", "TRIV": "40",
         "e_doppler": "0.16", "a_doppler": "0.06", "doppler_tecidual_relacao": "2.67",
         "E_E_linha": "6.75", "E_TRIV": "2.70",
-        "Diastolica_metodo": "felino_adulto_nao_sedado_pw_clique_aortico",
+        "Diastolica_metodo": "felino_adulto_nao_sedado_pw_apical_clique_aortico",
         "Diastolica_ondas": "separadas",
         "TDI_metodo": "felino_pw_anel_lateral", "TDI_ondas": "separadas",
     }
@@ -62,6 +62,22 @@ def synthetic_report(measurements):
 
 
 class FelineDiastolicEvidenceTest(unittest.TestCase):
+    def test_legacy_timing_confirmation_does_not_imply_apical_transmitral_view(self):
+        for method in ("felino_adulto_nao_sedado_pw_clique_aortico", "felino_adulto_nao_sedado_pw_fim_fluxo"):
+            with self.subTest(method=method):
+                measurements = {**synthetic_measurements(), "Diastolica_metodo": method}
+                before = deepcopy(measurements)
+                references = feline_diastolic_references(measurements, "Gato")
+                for key in ("Onda_E", "Onda_A", "E_A", "TD", "E_E_linha"):
+                    self.assertEqual(references[key]["kind"], "unconfirmed")
+                    self.assertEqual(references[key]["doi"], "")
+                    self.assertIn("vista apical", references[key]["note"])
+                self.assertEqual(references["TRIV"]["kind"], "descriptive")
+                self.assertEqual(references["e_doppler"]["kind"], "descriptive")
+                self.assertEqual(measurements, before)
+                description = "## Medidas Ecocardiograficas\n" + "\n".join(f"- {key}: {value}" for key,value in measurements.items())
+                self.assertEqual(extrair_medidas_ecocardiograma_da_descricao(description)["Diastolica_metodo"], method)
+
     def test_ui_pdf_clinical_contract_matches_shared_primary_evidence_cases(self):
         for case in PARITY_FIXTURE["cases"]:
             with self.subTest(case=case["id"]):
@@ -101,7 +117,7 @@ class FelineDiastolicEvidenceTest(unittest.TestCase):
 
     def test_triv_source_follows_the_defined_timing_landmark(self):
         measurements = synthetic_measurements()
-        measurements["Diastolica_metodo"] = "felino_adulto_nao_sedado_pw_fim_fluxo"
+        measurements["Diastolica_metodo"] = "felino_adulto_nao_sedado_pw_apical_fim_fluxo"
         ref = feline_diastolic_references(measurements, "Felina")["TRIV"]
         self.assertEqual(ref["doi"], "10.1590/S0103-84782005000600020")
         self.assertEqual(ref["text"], "Média ± DP: 68,75 ± 19,14 ms")
@@ -173,6 +189,22 @@ class FelineDiastolicEvidenceTest(unittest.TestCase):
 
 
 class FelineDiastolicPdfTest(unittest.TestCase):
+    def test_legacy_pdf_preserves_values_and_requires_apical_reconfirmation(self):
+        measurements = {**synthetic_measurements(), "Diastolica_metodo": "felino_adulto_nao_sedado_pw_clique_aortico"}
+        before = deepcopy(measurements)
+        text = re.sub(r"\s+", " ", "\n".join(page.extract_text() for page in PdfReader(BytesIO(gerar_pdf_laudo_eco(synthetic_report(measurements)))).pages))
+        self.assertNotIn("0,70 ± 0,14", text)
+        self.assertNotIn("1,12 ± 0,22", text)
+        self.assertNotIn("7,8 ± 2,92", text)
+        self.assertIn("46,2 ± 7,6", text)
+        self.assertIn("0,11 ± 0,03", text)
+        self.assertIn("apical esquerda de 4 câmaras", text)
+        self.assertIn("Referência de TRIV:", text)
+        self.assertIn("apical esquerda de 5 câmaras", text)
+        self.assertIn("1.08 m/s", text)
+        self.assertIn("6.75", text)
+        self.assertEqual(measurements, before)
+
     def test_branded_header_keeps_quantitative_rows_on_first_page_and_repeats_headers(self):
         logo = BytesIO()
         Image.new("RGB", (320, 320), "#e5f5f5").save(logo, format="PNG")

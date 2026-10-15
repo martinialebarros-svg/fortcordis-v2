@@ -10,6 +10,7 @@ type Props = {
   onMedidaChange: (key: string, value: string) => void;
 };
 const FLOW_KEYS = new Set(["Onda_E", "Onda_A", "E_A", "TD", "TRIV", "E_TRIV", "E_E_linha"]);
+const LEGACY_FLOW_METHODS = new Set(["felino_adulto_nao_sedado_pw_clique_aortico", "felino_adulto_nao_sedado_pw_fim_fluxo"]);
 const TISSUE_KEYS = new Set(["e_doppler", "a_doppler", "doppler_tecidual_relacao", "E_E_linha"]);
 
 export function FelineDiastolicProtocol({ especie, medidas, onMedidaChange }: Props) {
@@ -36,8 +37,11 @@ export function FelineDiastolicProtocol({ especie, medidas, onMedidaChange }: Pr
     {hasFlow && <div className="grid gap-3 sm:grid-cols-2">
       {select("Diastolica_metodo", "Aquisição transmitral e TRIV", <>
         <option value="">Protocolo não confirmado</option>
-        <option value="felino_adulto_nao_sedado_pw_clique_aortico">Adulto, não sedado; TRIV pelo clique aórtico</option>
-        <option value="felino_adulto_nao_sedado_pw_fim_fluxo">Adulto, não sedado; TRIV pelo fim do fluxo aórtico</option>
+        {LEGACY_FLOW_METHODS.has(medidas.Diastolica_metodo) && (
+          <option value={medidas.Diastolica_metodo} disabled>Protocolo anterior: reconfirme a aquisição apical</option>
+        )}
+        <option value="felino_adulto_nao_sedado_pw_apical_clique_aortico">Adulto não sedado; PW apical esquerdo 4 câmaras; TRIV pelo clique aórtico</option>
+        <option value="felino_adulto_nao_sedado_pw_apical_fim_fluxo">Adulto não sedado; PW apical esquerdo 4 câmaras; TRIV pelo fim do fluxo aórtico</option>
         <option value="outro">Outro protocolo</option>
       </>)}
       {select("Diastolica_ondas", "Ondas transmitrais E/A", <>
@@ -46,6 +50,11 @@ export function FelineDiastolicProtocol({ especie, medidas, onMedidaChange }: Pr
         <option value="fundidas">Fundidas</option>
       </>)}
     </div>}
+    {hasFlow && <p className="text-xs text-blue-800">
+      {LEGACY_FLOW_METHODS.has(medidas.Diastolica_metodo)
+        ? "Reconfirme a vista apical esquerda de 4 câmaras e a amostra nas pontas dos folhetos mitrais para consultar E, A, E/A, TD e E/e'. O marco de TRIV já registrado permanece preservado."
+        : "Ao selecionar o protocolo, confirme paciente adulto não sedado, vista apical esquerda de 4 câmaras, Doppler pulsado com amostra nas pontas dos folhetos mitrais e TRIV na vista apical esquerda de 5 câmaras pelo marco indicado."}
+    </p>}
     {hasTissue && <div className="grid gap-3 sm:grid-cols-2">
       {select("TDI_metodo", "Técnica e sítio do Doppler tecidual", <>
         <option value="">Técnica e sítio não confirmados</option>
@@ -59,7 +68,7 @@ export function FelineDiastolicProtocol({ especie, medidas, onMedidaChange }: Pr
         <option value="fundidas">Fundidas</option>
       </>)}
     </div>}
-    <p className="text-xs text-blue-800">Transmitral: Doppler pulsado nas pontas dos folhetos mitrais. TRIV: registro simultâneo de entrada e saída do VE; confirme clique de fechamento ou fim do fluxo aórtico. A fusão E/A e a fusão e&apos;/a&apos; são confirmações independentes.</p>
+    <p className="text-xs text-blue-800">Transmitral: vista apical esquerda de 4 câmaras, Doppler pulsado nas pontas dos folhetos mitrais. TRIV: vista apical esquerda de 5 câmaras, registro simultâneo de entrada e saída do VE; confirme clique de fechamento ou fim do fluxo aórtico. A fusão E/A e a fusão e&apos;/a&apos; são confirmações independentes.</p>
     <p className="text-xs text-blue-800">a&apos; representa a velocidade anular tardia associada à contração atrial; confirme o mesmo sítio e técnica de e&apos;. Um valor isolado não define disfunção diastólica; limiares de e&apos; não se aplicam automaticamente a a&apos;.</p>
     <p className="text-xs text-blue-800">Os estudos são apresentados como média ± DP, sem classificação automática. Para o anel lateral, Kiatsilapanan e Surachetpong (2020) descrevem 20 gatos saudáveis, não sedados, com ondas separadas. Para o septal, Ward (2012) descreve apenas 7 gatos saudáveis de 1–3 anos, antes da sedação; confirme a pertinência ao paciente.</p>
   </section>;

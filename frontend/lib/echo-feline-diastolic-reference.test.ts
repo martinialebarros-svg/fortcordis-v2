@@ -9,9 +9,23 @@ const parityCases = parityFixture.cases as Array<{
 const parityEvidence: Record<string, ContractEvidence> = parityFixture.evidence;
 
 const skar = { Onda_E: "1.08", Onda_A: "0.95", E_A: "1.14", TD: "51", TRIV: "40", e_doppler: "0.16", a_doppler: "0.1", E_E_linha: "6.75", E_TRIV: "2.7", doppler_tecidual_relacao: "1.6" };
-const protocol = { Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "separadas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
+const protocol = { Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "separadas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
 
 describe("evidência descritiva diastólica felina", () => {
+  it.each(["felino_adulto_nao_sedado_pw_clique_aortico", "felino_adulto_nao_sedado_pw_fim_fluxo"])
+    ("não reatribui confirmação antiga à vista apical: %s", (method) => {
+      const raw = { ...skar, ...protocol, Diastolica_metodo: method };
+      const before = { ...raw };
+      const references = felineDiastolicReferences(raw, "Gato");
+      for (const key of ["Onda_E", "Onda_A", "E_A", "TD", "E_E_linha"]) {
+        expect(references[key]).toMatchObject({ kind: "unconfirmed", source: "", doi: "" });
+        expect(references[key].note).toContain("vista apical");
+      }
+      expect(references.TRIV.kind).toBe("descriptive");
+      expect(references.e_doppler.kind).toBe("descriptive");
+      expect(raw).toEqual(before);
+    });
+
   it.each(["Felina", "felino", "FELINOS", "Feline", " Gato ", "gatos", "Cat", "CATS"])
     ("mantém fontes, ausência de confirmação e fusões independentes para %s", (species) => {
       const states = [
@@ -73,7 +87,7 @@ describe("evidência descritiva diastólica felina", () => {
     expect(refs.E_TRIV.kind).toBe("unconfirmed");
   });
   it("usa TRIV e TD da fonte correspondente ao fim do fluxo aórtico", () => {
-    const refs = felineDiastolicReferences({ ...skar, ...protocol, Diastolica_metodo: "felino_adulto_nao_sedado_pw_fim_fluxo" }, "Felina");
+    const refs = felineDiastolicReferences({ ...skar, ...protocol, Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_fim_fluxo" }, "Felina");
     expect(refs.TRIV).toMatchObject({ text: "68,75 ± 19,14 ms", source: "Soares et al. (2005)" });
     expect(refs.TD.text).toBe("72,29 ± 9,56 ms");
   });
