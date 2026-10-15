@@ -1,6 +1,13 @@
 name: Deploy to VPS
 
 on:
+  workflow_dispatch:
+    inputs:
+      activate_whatsapp_reminder_service:
+        description: "Ativar lembrete com serviço após os gates de produção"
+        type: boolean
+        required: false
+        default: false
   push:
     branches:
       - main
@@ -33,6 +40,9 @@ jobs:
 
       - name: Test WhatsApp stage Meta isolation
         run: bash scripts/tests/test_whatsapp_stage_meta_isolation.sh
+
+      - name: Test controlled WhatsApp reminder activation
+        run: bash scripts/tests/test_whatsapp_reminder_activation.sh
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -179,6 +189,7 @@ jobs:
             --head-sha "${{ steps.diff.outputs.head_sha }}"
 
   deploy:
+    if: github.ref == 'refs/heads/main'
     needs:
       - quality-gate
       - sdd-guardrail
@@ -363,6 +374,7 @@ jobs:
           chmod 700 "$DEPLOY_SCRIPT_DIR/scripts/deploy_prod_vps.sh" "$DEPLOY_SCRIPT_DIR/scripts/ensure_nginx_http2.sh"
           echo "Running standardized production deploy script..."
           SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' \
+            DEPLOY_ACTIVATE_WHATSAPP_REMINDER_SERVICE='${{ github.event_name == 'workflow_dispatch' && inputs.activate_whatsapp_reminder_service && '1' || '0' }}' \
             APP_DIR="$APP_DIR" \
             BRANCH="$BRANCH" \
             ENABLE_NGINX_HTTP2=1 \

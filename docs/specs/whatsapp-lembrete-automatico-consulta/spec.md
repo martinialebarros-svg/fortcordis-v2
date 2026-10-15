@@ -116,3 +116,14 @@
 - CA-014: com a flag ligada, preview/worker nao selecionam reservas pendentes
   e preservam suas tentativas/marcadores; o envio manual da variante retorna
   409 nesse status. A flag desligada preserva a elegibilidade legada.
+
+
+## Ativacao operacional protegida — 2026-10-15
+
+A publicacao comum preserva a flag de runtime. A ativacao explicita usa
+`DEPLOY_ACTIVATE_WHATSAPP_REMINDER_SERVICE=1` pelo input do workflow de
+producao, somente em `main`, depois de Node compilado/saudavel, canario e
+restore drill. O contrato compilado deve aprovar a WABA de producao.
+O worker e parado antes de atualizar a flag; API e worker sao reiniciados
+com verificacao de readiness/atividade. Falhas restauram o valor anterior
+ou a ausencia da chave antes do rollback. Stage nao herda o opt-in.

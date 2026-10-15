@@ -133,3 +133,14 @@ Submissao autorizada em 14/10/2026 na WABA de producao
 ID `1647759970059717`, categoria Utilidade, `pt_BR` e status
 `Ativo — Qualidade pendente`. O usuario autorizou publicar e ativar a variante.
 A aprovacao fica limitada a essa WABA; stage continua bloqueado.
+
+
+## Ativacao operacional protegida — 2026-10-15
+
+A publicacao comum preserva a flag de runtime. A ativacao explicita usa
+`DEPLOY_ACTIVATE_WHATSAPP_REMINDER_SERVICE=1` pelo input do workflow de
+producao, somente em `main`, depois de Node compilado/saudavel, canario e
+restore drill. O contrato compilado deve aprovar a WABA de producao.
+O worker e parado antes de atualizar a flag; API e worker sao reiniciados
+com verificacao de readiness/atividade. Falhas restauram o valor anterior
+ou a ausencia da chave antes do rollback. Stage nao herda o opt-in.

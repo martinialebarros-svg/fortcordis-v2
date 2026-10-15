@@ -34,6 +34,9 @@ jobs:
       - name: Test WhatsApp stage Meta isolation
         run: bash scripts/tests/test_whatsapp_stage_meta_isolation.sh
 
+      - name: Test controlled WhatsApp reminder activation
+        run: bash scripts/tests/test_whatsapp_reminder_activation.sh
+
       - name: Test VPS ingress diagnostics
         run: |
           bash scripts/tests/test_collect_vps_ingress_diagnostics.sh
@@ -580,6 +583,7 @@ jobs:
             SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' \
               APP_DIR="$APP_DIR" \
               BRANCH="$BRANCH" \
+              DEPLOY_ACTIVATE_WHATSAPP_REMINDER_SERVICE=0 \
               WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED=true \
               bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"
           EOF
