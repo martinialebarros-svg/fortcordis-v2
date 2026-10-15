@@ -1,9 +1,9 @@
 """Schemas Pydantic para o módulo fiscal"""
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, StrictInt, field_validator
+from pydantic import BaseModel, Field, StrictBool, StrictInt, field_validator
 
 
 # ─── CNPJ Consulta ─────────────────────────────────────────────────────────────
@@ -153,3 +153,24 @@ class FiscalFechamentoCreate(BaseModel):
         if len(values) != len(set(values)):
             raise ValueError("A seleção contém IDs de OS repetidos.")
         return values
+
+
+class FiscalRotinaPreferenciaUpdate(BaseModel):
+    modo: Literal["semanal", "por_servico"]
+    pagamento_depende_nf: StrictBool
+    versao_esperada: StrictInt = Field(..., ge=0)
+
+
+class FiscalRotinaPrepararRequest(FiscalFechamentoCreate):
+    modo: Literal["semanal", "por_servico"]
+    data_corte: Optional[str] = None
+    clinica_id: Optional[StrictInt] = Field(None, gt=0)
+
+
+class FiscalAndamentoUpdate(BaseModel):
+    destino: Literal["enviado_contador", "nota_recebida", "nota_encaminhada"]
+    versao_esperada: StrictInt = Field(..., ge=0)
+    chave_idempotencia: UUID
+    confirmar_acao_manual: StrictBool
+    referencia_nota: Optional[str] = Field(None, max_length=200)
+    observacao: Optional[str] = Field(None, max_length=2000)
