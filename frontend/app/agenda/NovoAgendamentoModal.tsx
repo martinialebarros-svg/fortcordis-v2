@@ -57,6 +57,8 @@ import {
 } from "@/lib/racas";
 import {
   AGENDA_WHATSAPP_TEMPLATES,
+  isValidAgendaWhatsAppServiceName,
+  normalizeAgendaWhatsAppServiceName,
   renderAgendaWhatsAppTemplate,
   type AgendaWhatsAppTemplateKey,
 } from "@/lib/agenda-whatsapp-templates";
@@ -353,6 +355,7 @@ interface MensagemAgendaPosCriacao {
   telefoneSugerido: string;
   prazoLabel?: string;
   pacienteNome: string;
+  servicoNome: string;
   dataLabel: string;
   horaLabel: string;
   modeloSugerido: AgendaWhatsAppTemplateKey;
@@ -3127,6 +3130,13 @@ export default function NovoAgendamentoModal({
       ? telefoneLembrado
       : (telefones[0] || "");
     const pacienteNome = String(pacienteSelecionadoMensagem?.nome || "").trim();
+    const servicoSelecionado = servicos.find((servico) => String(servico.id) === formData.servico_id);
+    const nomeServicoSelecionado = normalizeAgendaWhatsAppServiceName(servicoSelecionado?.nome);
+    const servicoNome = nomeServicoSelecionado || (
+      formData.servico_id === String(agendamento?.servico_id)
+        ? normalizeAgendaWhatsAppServiceName(agendamento?.servico)
+        : ""
+    );
     const dataLabel = formData.data
       ? formData.data.split("-").reverse().join("/")
       : "";
@@ -3136,7 +3146,7 @@ export default function NovoAgendamentoModal({
         ? "appointmentCancellation"
         : isEditando
           ? "appointmentChange"
-          : "appointmentReminder";
+          : "appointmentReminderService";
 
     return {
       agendamentoId: isEditando && agendamento?.id ? Number(agendamento.id) : null,
@@ -3150,14 +3160,18 @@ export default function NovoAgendamentoModal({
         ? formatarPrazoReserva(formData.reserva_prazo_confirmacao)
         : undefined,
       pacienteNome,
+      servicoNome,
       dataLabel,
       horaLabel: formData.hora,
       modeloSugerido,
     };
   };
 
+  const mensagemAgendaServicoInvalido = modeloAgendaSelecionado === "appointmentReminderService" &&
+    !isValidAgendaWhatsAppServiceName(mensagemAgendaCriada?.servicoNome);
+
   const obterMensagemAgendaAtual = (): string => {
-    if (!mensagemAgendaCriada) return "";
+    if (!mensagemAgendaCriada || mensagemAgendaServicoInvalido) return "";
     const pacienteNomeOuPlaceholder = mensagemAgendaCriada.pacienteNome
       || (modeloAgendaSelecionado === "reservation" || modeloAgendaSelecionado === "appointmentMissingData"
         ? "seu pet"
@@ -3170,12 +3184,14 @@ export default function NovoAgendamentoModal({
     ];
     if (modeloAgendaSelecionado === "reservation") {
       parameters.push(mensagemAgendaCriada.prazoLabel || "");
+    } else if (modeloAgendaSelecionado === "appointmentReminderService") {
+      parameters.push(mensagemAgendaCriada.servicoNome);
     }
     return renderAgendaWhatsAppTemplate(modeloAgendaSelecionado, parameters);
   };
 
   const abrirWhatsAppMensagemAgenda = () => {
-    if (!mensagemAgendaCriada) return;
+    if (!mensagemAgendaCriada || mensagemAgendaServicoInvalido) return;
     const url = montarLinkWhatsAppReserva(whatsappMensagemSelecionado, obterMensagemAgendaAtual());
     window.open(url, "_blank", "noopener,noreferrer");
     salvarUltimoWhatsappSelecionado(
@@ -3191,7 +3207,7 @@ export default function NovoAgendamentoModal({
   };
 
   const copiarMensagemAgenda = async () => {
-    if (!mensagemAgendaCriada) return;
+    if (!mensagemAgendaCriada || mensagemAgendaServicoInvalido) return;
     try {
       if (!navigator.clipboard?.writeText) {
         throw new Error("Clipboard indisponivel");
@@ -3211,6 +3227,7 @@ export default function NovoAgendamentoModal({
   const enviarModeloAgendaPeloFortCordis = async () => {
     if (
       !mensagemAgendaCriada?.agendamentoId ||
+      mensagemAgendaServicoInvalido ||
       !whatsappMensagemSelecionado ||
       envioAutomaticoStatus === "sending" ||
       envioAutomaticoStatus === "sent"
@@ -3733,6 +3750,11 @@ export default function NovoAgendamentoModal({
         setMensagemAgendaCriada({
           ...entregaMensagemAgenda,
           agendamentoId: Number(response?.data?.id) || null,
+          servicoNome: entregaMensagemAgenda.servicoNome || (
+            String(response?.data?.servico_id) === formData.servico_id
+              ? normalizeAgendaWhatsAppServiceName(response?.data?.servico)
+              : ""
+          ),
         });
         setWhatsappMensagemSelecionado(entregaMensagemAgenda.telefoneSugerido);
         setModeloAgendaSelecionado(entregaMensagemAgenda.modeloSugerido);
@@ -3844,7 +3866,7 @@ export default function NovoAgendamentoModal({
     const modelosAgendaDisponiveis: AgendaWhatsAppTemplateKey[] =
       mensagemAgendaCriada.modeloSugerido === "appointmentCancellation"
         ? ["appointmentCancellation"]
-        : ["appointmentReminder", "appointmentChange", "appointmentMissingData"];
+        : ["appointmentReminderService", "appointmentReminder", "appointmentChange", "appointmentMissingData"];
 
     return (
       <div className="fc-appointment-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -3929,7 +3951,7 @@ export default function NovoAgendamentoModal({
               {!ehReserva ? (
                 <div className="mb-4">
                   <label htmlFor="fc-modelo-whatsapp-agenda" className="mb-1 block text-sm font-medium text-gray-700">
-                    Modelo aprovado
+                    Modelo de mensagem
                   </label>
                   <select
                     id="fc-modelo-whatsapp-agenda"
@@ -3961,6 +3983,11 @@ export default function NovoAgendamentoModal({
                 onFocus={(event) => event.currentTarget.select()}
                 className="w-full resize-none rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm leading-6 text-gray-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
               />
+              {mensagemAgendaServicoInvalido ? (
+                <div role="alert" className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Confira o serviço salvo no agendamento antes de preparar o lembrete com serviço. O nome deve ter até 300 caracteres.
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -3999,7 +4026,8 @@ export default function NovoAgendamentoModal({
             <button
               type="button"
               onClick={() => void copiarMensagemAgenda()}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-600 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+              disabled={mensagemAgendaServicoInvalido}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-600 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Copy className="h-4 w-4" />
               Copiar mensagem
@@ -4007,7 +4035,7 @@ export default function NovoAgendamentoModal({
             <button
               type="button"
               onClick={() => void enviarModeloAgendaPeloFortCordis()}
-              disabled={!possuiTelefone || !mensagemAgendaCriada.agendamentoId || envioAutomaticoStatus !== "idle"}
+              disabled={mensagemAgendaServicoInvalido || !possuiTelefone || !mensagemAgendaCriada.agendamentoId || envioAutomaticoStatus !== "idle"}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {envioAutomaticoStatus === "sending" ? (
@@ -4026,7 +4054,8 @@ export default function NovoAgendamentoModal({
             <button
               type="button"
               onClick={abrirWhatsAppMensagemAgenda}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+              disabled={mensagemAgendaServicoInvalido}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <MessageCircle className="h-4 w-4" />
               {possuiTelefone ? "Abrir WhatsApp" : "Abrir e escolher contato"}

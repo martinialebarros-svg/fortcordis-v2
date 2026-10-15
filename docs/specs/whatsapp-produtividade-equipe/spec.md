@@ -145,3 +145,17 @@ O contrato complementar em `../whatsapp-fila-respostas/spec.md` acrescenta
 pendências independentes de leitura, biblioteca configurável e avanço por
 ação explícita. “Resolver e abrir próxima” é a seleção explícita prevista
 pelo RF-006; polling/filtros comuns continuam preservando a conversa aberta.
+
+## Confirmação já tratada na fila — 2026-10-14
+
+A mensagem recebida do tipo button com recibo `agenda_receipt` validado pelo
+serviço de agenda permanece no histórico, na revisão e no horário de atividade.
+Ela deixa de contar como mensagem que exige resposta apenas nos pares exatos
+appointmentReminder/confirmar_presenca/presenca_confirmada/Agendado|Confirmado
+e reservation/confirmar/confirmado|ja_confirmado/Confirmado. Um texto pendente
+anterior continua na fila; não resolver toda a conversa automaticamente.
+
+A interface exibe “Presença registrada na agenda.” ou “Reserva confirmada na
+agenda.” abaixo da mensagem, somente para recibos compatíveis. Botão bruto,
+metadata inválido, from_me, outros estados ou falhas não recebem indicação de
+sucesso. A presença registrada não afirma atendimento realizado.

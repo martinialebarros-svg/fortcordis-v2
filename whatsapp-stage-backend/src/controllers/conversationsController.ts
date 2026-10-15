@@ -78,6 +78,19 @@ const UNREAD_CONVERSATION_SQL = `(
   AND (c.last_seen_at IS NULL OR c.last_inbound_at > c.last_seen_at)
 )`;
 
+// A domain receipt resolves only its own button. It cannot answer an earlier
+// question, remove the history/frontier, or resolve a request for human review.
+const SUCCESSFUL_AGENDA_RECEIPT_SQL = `COALESCE((m.type = 'button' AND (
+  (m.metadata->'agenda_receipt'->>'source' = 'appointmentReminder'
+    AND m.metadata->'agenda_receipt'->>'action' = 'confirmar_presenca'
+    AND m.metadata->'agenda_receipt'->>'result' = 'presenca_confirmada'
+    AND m.metadata->'agenda_receipt'->>'status' IN ('Agendado', 'Confirmado'))
+  OR (m.metadata->'agenda_receipt'->>'source' = 'reservation'
+    AND m.metadata->'agenda_receipt'->>'action' = 'confirmar'
+    AND m.metadata->'agenda_receipt'->>'result' IN ('confirmado', 'ja_confirmado')
+    AND m.metadata->'agenda_receipt'->>'status' = 'Confirmado')
+)), FALSE)`;
+
 // Delivery failures and reading the inbox never answer a customer. Retry may
 // reuse an outbound ID and refresh created_at, so use the history's tuple order
 // for replies, and the persisted ID frontier only for explicit resolution.
@@ -94,6 +107,7 @@ const REPLY_QUEUE_JOINS_SQL = `
     SELECT m.id, m.created_at AS waiting_since
     FROM messages m
     WHERE m.conversation_id = c.id AND m.from_me = FALSE
+      AND NOT ${SUCCESSFUL_AGENDA_RECEIPT_SQL}
       AND m.id > COALESCE(c.resolved_through_message_id, 0)
       AND (successful_reply.id IS NULL
         OR (m.created_at, m.id) > (successful_reply.created_at, successful_reply.id))

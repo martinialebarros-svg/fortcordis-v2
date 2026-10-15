@@ -27,6 +27,11 @@ const TEMPLATE_CATALOG_METADATA: Partial<Record<ApprovedUtilityTemplateKey, Temp
     workflow_label: "Lembrete de agendamento",
     variable_labels: ["Clínica ou destinatário", "Pet", "Data", "Horário"]
   },
+  appointmentReminderService: {
+    category: "agenda",
+    workflow_label: "Lembrete com serviço agendado",
+    variable_labels: ["Clínica ou destinatário", "Pet", "Data", "Horário", "Serviço agendado"]
+  },
   appointmentChange: {
     category: "agenda",
     workflow_label: "Alteração de agendamento",

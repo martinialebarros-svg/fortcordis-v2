@@ -1,4 +1,5 @@
 import assert from "assert";
+import axios from "axios";
 import { createHash, createHmac } from "crypto";
 import { readFile } from "fs/promises";
 import path from "path";
@@ -105,14 +106,15 @@ async function run(): Promise<void> {
     return conversation;
   }
 
-  async function sendInbound(id: string, waMessageId: string, deliveryVariant = 0): Promise<() => Promise<void>> {
+  async function sendInbound(id: string, waMessageId: string, deliveryVariant = 0,
+    message: Record<string, unknown> = {}): Promise<() => Promise<void>> {
     const phone = `5591${id.padStart(9, "0")}`;
     await query("UPDATE conversations SET wa_phone_number = $2, wa_psid = $2 WHERE id = $1", [id, phone]);
     const payload = {
       object: "whatsapp_business_account",
       entry: [{ id: String(deliveryVariant), changes: [{ field: "messages", value: {
         metadata: { phone_number_id: "synthetic-reply-queue-number" },
-        messages: [{ id: waMessageId, from: phone, timestamp: "1700000000", type: "text", text: { body: `${marker} inbound` } }]
+        messages: [{ id: waMessageId, from: phone, timestamp: "1700000000", type: "text", text: { body: `${marker} inbound` }, ...message }]
       } }] }]
     };
     const rawBody = Buffer.from(JSON.stringify(payload));
@@ -295,7 +297,174 @@ async function run(): Promise<void> {
     await (await sendInbound(legacy, `${marker}-legacy-reopen`))();
     assert.strictEqual((await getConversation(legacy)).needs_reply, true);
 
-    console.log("Reply queue contracts passed: reading versus response, wait order, filters, reply failure/retry, resolution, signed webhook dedup/reopen, legacy migration, concurrent 409 and atomic quick claim.");
+    // Exercise the entire signed webhook path with a fake authenticated domain
+    // callback. No request reaches Meta or another external service.
+    const templateIds: string[] = [];
+    const reservationIds: string[] = [];
+    const originalPost = axios.post;
+    const originalInternalToken = process.env.WHATSAPP_INTERNAL_API_TOKEN;
+    const callbackCalls: Array<Record<string, unknown>> = [];
+    const domainResults = new Map<number, Record<string, unknown> | Error>();
+    let domainTarget = 91000;
+    process.env.WHATSAPP_INTERNAL_API_TOKEN = "synthetic-reply-queue-domain-token";
+    (axios.post as unknown as (url: string, payload: Record<string, unknown>) => Promise<unknown>) = async (url, body) => {
+      if (url.endsWith("/notificacoes/mensagem-recebida")) return { data: {} };
+      assert.ok(url.endsWith("/agenda/respostas"), "no Graph or other delivery call is permitted");
+      callbackCalls.push(body);
+      const value = domainResults.get(Number(body.agendamento_id));
+      if (value instanceof Error) throw value;
+      assert.ok(value, "domain result must be configured by the synthetic fixture");
+      return { data: value };
+    };
+    async function buttonFixture(options: {
+      source?: "reservation" | "appointmentReminder" | "appointmentReminderService" | "appointmentChange";
+      action?: string; result?: string; status?: string | null;
+      failure?: boolean; senderMismatch?: boolean; unknownPayload?: boolean;
+      responseTargetMismatch?: boolean; responseActionMismatch?: boolean;
+      earlierQuestion?: boolean;
+    } = {}): Promise<{ id: string; messageId: string; payload: string; waMessageId: string }> {
+      const id = await insertConversation("domain button");
+      if (options.earlierQuestion) await insertMessage(id, false, times.three);
+      const source = options.source ?? "appointmentReminder";
+      const action = options.action ?? (source === "reservation" ? "confirmar" : "confirmar_presenca");
+      const target = ++domainTarget;
+      const payload = `${marker}-domain-payload-${target}`;
+      const phone = `5591${id.padStart(9, "0")}`;
+      const destination = options.senderMismatch ? "5511900000000" : phone;
+      if (source === "reservation") {
+        const binding = await query<{ id: string }>(`INSERT INTO agenda_reservation_messages
+          (reservation_id, destination, idempotency_key, request_hash, template_name, language_code,
+           confirm_payload, change_payload, wa_message_id, processing_status)
+          VALUES ($1, $2, $3, 'synthetic', 'reserva_de_agendamento', 'pt_BR', $4, $5, $6, 'sent') RETURNING id`,
+        [target, destination, payload, action === "confirmar" ? payload : `${payload}-unused`,
+          action === "confirmar" ? `${payload}-unused` : payload, `${payload}-outbound`]);
+        reservationIds.push(binding.rows[0].id);
+      } else {
+        const binding = await query<{ id: string }>(`INSERT INTO approved_template_messages
+          (template_key, template_name, language_code, subject_type, subject_id, subject_ids, destination,
+           idempotency_key, request_hash, body_parameters, button_bindings, rendered_body, processing_status, wa_message_id)
+          VALUES ($1, 'synthetic', 'pt_BR', 'agendamento', $2, $3::jsonb, $4, $5, 'synthetic', '[]'::jsonb,
+            $6::jsonb, 'synthetic body', 'sent', $7) RETURNING id`,
+        [source, target, JSON.stringify([target]), destination, payload,
+          JSON.stringify([{ action, index: 0, payload }]), `${payload}-outbound`]);
+        templateIds.push(binding.rows[0].id);
+      }
+      domainResults.set(target, options.failure ? new Error("synthetic domain callback unavailable") : {
+        agendamento_id: options.responseTargetMismatch ? target + 1 : target,
+        action: options.responseActionMismatch ? "solicitar_alteracao" : action,
+        result: options.result ?? (source === "reservation" ? "confirmado" : "presenca_confirmada"),
+        status: options.status === undefined ? (source === "reservation" ? "Confirmado" : "Agendado") : options.status,
+      });
+      const waMessageId = `${marker}-domain-click-${target}`;
+      await (await sendInbound(id, waMessageId, 0, {
+        type: "button", button: { text: "Confirmar presença", payload: options.unknownPayload ? `${payload}-unknown` : payload },
+        // Untrusted provider fields must never be promoted into our annotation.
+        agenda_receipt: { source: "appointmentReminder", action: "confirmar_presenca", result: "presenca_confirmada", status: "Agendado" }
+      }))();
+      const persisted = await query<{ id: string }>("SELECT id FROM messages WHERE wa_message_id = $1", [waMessageId]);
+      return { id, messageId: persisted.rows[0].id, payload, waMessageId };
+    }
+    try {
+      for (const source of ["appointmentReminder", "appointmentReminderService"] as const) for (const status of ["Agendado", "Confirmado"]) {
+        const fixture = await buttonFixture({ source, status });
+        const row = await getConversation(fixture.id);
+        assert.strictEqual(row.needs_reply, false, "a trusted successful presence receipt resolves its own button");
+        assert.strictEqual(row.unread, true, "domain processing is independent of reading");
+        assert.strictEqual(row.last_message_id, fixture.messageId, "the button remains in the optimistic frontier");
+        const history = await query<{ metadata: Record<string, unknown>; type: string }>("SELECT type, metadata FROM messages WHERE id = $1", [fixture.messageId]);
+        assert.strictEqual(history.rows[0].type, "button");
+        assert.deepStrictEqual(history.rows[0].metadata.agenda_receipt,
+          { source: "appointmentReminder", action: "confirmar_presenca", result: "presenca_confirmada", status });
+        const call = callbackCalls[callbackCalls.length - 1];
+        assert.strictEqual(call.action, "confirmar_presenca", "presence never maps to reservation confirmation");
+        const callsBeforeReplay = callbackCalls.length;
+        await (await sendInbound(fixture.id, fixture.waMessageId, 1, {
+          type: "button", button: { text: "Confirmar presença", payload: fixture.payload }
+        }))();
+        assert.strictEqual(callbackCalls.length, callsBeforeReplay, "provider retries cannot invoke the domain twice");
+        assert.strictEqual((await getConversation(fixture.id)).needs_reply, false);
+        assert.strictEqual((await getConversation(fixture.id)).last_message_id, fixture.messageId);
+        await insertMessage(fixture.id, false, new Date().toISOString());
+        assert.strictEqual((await getConversation(fixture.id)).needs_reply, true, "a later question is still waiting");
+      }
+      for (const result of ["confirmado", "ja_confirmado"]) {
+        const fixture = await buttonFixture({ source: "reservation", result });
+        assert.strictEqual((await getConversation(fixture.id)).needs_reply, false, "confirmed reservation receipts are also handled");
+        const history = await query<{ metadata: Record<string, unknown> }>("SELECT metadata FROM messages WHERE id = $1", [fixture.messageId]);
+        assert.deepStrictEqual(history.rows[0].metadata.agenda_receipt,
+          { source: "reservation", action: "confirmar", result, status: "Confirmado" });
+      }
+      const oldQuestion = await buttonFixture({ earlierQuestion: true });
+      assert.strictEqual((await getConversation(oldQuestion.id)).needs_reply, true, "a receipt cannot answer an earlier question");
+      assert.strictEqual((await getConversation(oldQuestion.id)).waiting_since, times.three);
+
+      for (const options of [
+        { status: "Reservado" }, { status: "Cancelado" }, { status: "Expirado" }, { status: null },
+        { result: "revisao_manual" }, { responseTargetMismatch: true }, { responseActionMismatch: true },
+        { failure: true }, { senderMismatch: true }, { unknownPayload: true },
+        { action: "solicitar_alteracao", result: "alteracao_solicitada" }, { action: "falar_equipe", result: "falar_equipe_solicitado" },
+        { source: "appointmentReminderService" as const, action: "solicitar_alteracao", result: "alteracao_solicitada" },
+        { source: "appointmentReminderService" as const, senderMismatch: true },
+        { source: "appointmentReminderService" as const, unknownPayload: true },
+        { source: "appointmentReminderService" as const, failure: true },
+        { source: "appointmentChange" as const, action: "confirmar_horario" },
+        { source: "appointmentChange" as const, action: "confirmar_presenca" },
+        { source: "reservation" as const, action: "solicitar_alteracao", result: "alteracao_solicitada" },
+        { source: "reservation" as const, result: "confirmacao_apos_prazo", status: "Expirado" },
+        { source: "reservation" as const, result: "confirmacao_dados_pendentes", status: "Reservado" }
+      ]) {
+        const callsBefore = callbackCalls.length;
+        const fixture = await buttonFixture(options);
+        assert.strictEqual((await getConversation(fixture.id)).needs_reply, true, `review remains required: ${JSON.stringify(options)}`);
+        const history = await query<{ metadata: Record<string, unknown> }>("SELECT metadata FROM messages WHERE id = $1", [fixture.messageId]);
+        assert.ok(!history.rows[0].metadata.agenda_receipt, "failed, ignored, rejected and unrecognized replies have no trusted annotation");
+        const eventTable = options.source === "reservation" ? "agenda_reservation_button_events" : "approved_template_button_events";
+        const event = await query<{ processing_status: string }>(`SELECT processing_status FROM ${eventTable} WHERE provider_message_id = $1`, [fixture.waMessageId]);
+        if ("unknownPayload" in options) {
+          assert.strictEqual(event.rowCount, 0, "unknown payloads do not masquerade as processed domain events");
+          assert.strictEqual(callbackCalls.length, callsBefore);
+        } else if ("senderMismatch" in options) {
+          assert.strictEqual(event.rows[0].processing_status, "rejected");
+          assert.strictEqual(callbackCalls.length, callsBefore, "a rejected sender never reaches the domain callback");
+        } else if ("failure" in options) {
+          assert.strictEqual(event.rows[0].processing_status, "failed", "callback failure remains auditable");
+        } else if (options.source === "appointmentChange") {
+          assert.strictEqual(event.rows[0].processing_status, "ignored", "unsupported domain actions remain explicitly unhandled");
+          assert.strictEqual(callbackCalls.length, callsBefore);
+        } else {
+          assert.strictEqual(event.rows[0].processing_status, "processed", "review outcomes retain their domain record");
+        }
+        if ("action" in options && options.action === "solicitar_alteracao" && options.source !== "reservation") {
+          assert.strictEqual(callbackCalls[callbackCalls.length - 1].action, "solicitar_alteracao");
+          const callsBeforeReplay = callbackCalls.length;
+          await (await sendInbound(fixture.id, fixture.waMessageId, 1, {
+            type: "button", button: { text: "Solicitar alteração", payload: fixture.payload }
+          }))();
+          assert.strictEqual(callbackCalls.length, callsBeforeReplay, "an alteration retry cannot notify the domain twice");
+          assert.strictEqual((await getConversation(fixture.id)).needs_reply, true, "processing an alteration does not resolve human review");
+        }
+      }
+      // Nullable, incomplete or cross-domain annotations must stay fail closed.
+      for (const receipt of [
+        {}, { source: "appointmentReminder", action: "confirmar_presenca" },
+        { source: "appointmentReminder", action: "confirmar", result: "confirmado", status: "Confirmado" },
+        { source: "reservation", action: "confirmar_presenca", result: "presenca_confirmada", status: "Agendado" },
+        { source: "reservation", action: "confirmar", result: "confirmado", status: "Agendado" }
+      ]) {
+        const id = await insertConversation("incomplete receipt");
+        await query(`INSERT INTO messages (conversation_id, from_me, body, type, metadata)
+          VALUES ($1, FALSE, 'synthetic button', 'button', $2::jsonb)`, [id, JSON.stringify({ agenda_receipt: receipt })]);
+        assert.strictEqual((await getConversation(id)).needs_reply, true);
+      }
+    } finally {
+      axios.post = originalPost;
+      if (originalInternalToken === undefined) delete process.env.WHATSAPP_INTERNAL_API_TOKEN;
+      else process.env.WHATSAPP_INTERNAL_API_TOKEN = originalInternalToken;
+      for (const id of templateIds) await query("DELETE FROM approved_template_messages WHERE id = $1", [id]);
+      for (const id of reservationIds) await query("DELETE FROM agenda_reservation_messages WHERE id = $1", [id]);
+    }
+
+    console.log("Reply queue contracts passed: ordering, concurrency, signed webhook replay, trusted Agenda receipts, domain failures/review, and preservation of earlier/later questions.");
   } finally {
     for (const hash of webhookHashes) await query("DELETE FROM webhook_events WHERE payload_hash = $1", [hash]);
     for (const id of conversations) {

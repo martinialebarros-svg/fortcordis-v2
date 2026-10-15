@@ -98,3 +98,15 @@ A primeira entrega acima foi posteriormente publicada em `b8246a32`. As
 evidências da nova etapa, implementada sobre esse baseline, ficam em
 `../whatsapp-fila-respostas/verify.md`; os testes anteriores continuam fazendo
 parte da regressão. Este acréscimo não declara publicação da segunda etapa.
+
+## Confirmação tratada — testes locais 2026-10-14
+
+Helper `whatsapp-agenda-receipt` e página cobrem recibos positivos de presença e
+reserva, metadados inválidos, fonte/ação/status incompatíveis, tipo/texto/saída,
+botão bruto e ausência de prova. Só recibo compatível exibe o aviso; o histórico
+e a fronteira da conversa permanecem completos.
+
+A suíte PostgreSQL `test:conversation-reply-queue` cobre botão tratado sem
+needs_reply, confirmação após texto pendente que continua precisando de
+resposta, texto novo posterior, botões desconhecidos/rejeitados/falhos e
+resultados de revisão. Sem resolução automática da conversa inteira.

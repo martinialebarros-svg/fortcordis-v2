@@ -19,6 +19,18 @@ export const APPROVED_UTILITY_TEMPLATES = {
     quickReplies: ["Confirmar presença", "Solicitar alteração"],
     buttonActions: ["confirmar_presenca", "solicitar_alteracao"]
   },
+  appointmentReminderService: {
+    name: "lembrete_de_agendamento_servico_v2",
+    // Separate five-variable contract; the approved four-variable reminder is preserved.
+    metaId: "1647759970059717",
+    approvedBusinessAccountId: "1369494994627980",
+    body:
+      "Olá, {{1}}. Lembramos que o atendimento de {{2}} está agendado para {{3}}, às {{4}}. " +
+      "Serviço agendado: {{5}}. Confira o serviço e o horário. Se precisar corrigir ou incluir outro serviço, " +
+      "toque em Solicitar alteração e envie o que deve ser ajustado.",
+    quickReplies: ["Confirmar presença", "Solicitar alteração"],
+    buttonActions: ["confirmar_presenca", "solicitar_alteracao"]
+  },
   appointmentChange: {
     name: "alteracao_de_agendamento",
     metaId: "1325207582741137",
@@ -184,6 +196,24 @@ export const APPROVED_UTILITY_TEMPLATES = {
 } as const;
 
 export type ApprovedUtilityTemplateKey = keyof typeof APPROVED_UTILITY_TEMPLATES;
+
+export function isTemplateDeliveryApproved(templateKey: ApprovedUtilityTemplateKey): boolean {
+  // Approval belongs to this account; another WABA cannot inherit it from the
+  // shared catalog. Existing contracts keep their current delivery behavior.
+  const serviceReminder = APPROVED_UTILITY_TEMPLATES.appointmentReminderService;
+  return templateKey !== "appointmentReminderService"
+    || (/^[1-9]\d*$/.test(serviceReminder.metaId)
+      && process.env.WHATSAPP_BUSINESS_ACCOUNT_ID === serviceReminder.approvedBusinessAccountId);
+}
+
+export function assertTemplateDeliveryApproved(templateKey: ApprovedUtilityTemplateKey): void {
+  if (!isTemplateDeliveryApproved(templateKey)) {
+    throw Object.assign(new Error("O lembrete com serviço aguarda aprovação da Meta."), {
+      statusCode: 409,
+      code: "WHATSAPP_TEMPLATE_APPROVAL_PENDING"
+    });
+  }
+}
 
 export function templateRequiresDocumentHeader(templateKey: ApprovedUtilityTemplateKey): boolean {
   const definition = APPROVED_UTILITY_TEMPLATES[templateKey];

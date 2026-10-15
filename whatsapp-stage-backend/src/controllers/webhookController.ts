@@ -324,8 +324,16 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
       await client.query(`UPDATE conversation_follow_ups
         SET inbound_received_at = COALESCE(inbound_received_at, now()), revision = revision + 1, updated_at = now()
         WHERE conversation_id = $1 AND status = 'pending'`, [conversation.id]);
-      await handleAgendaButtonReply(client, message);
-      await handleApprovedTemplateButtonReply(client, message);
+      const reservationReceipt = await handleAgendaButtonReply(client, message);
+      const templateReceipt = await handleApprovedTemplateButtonReply(client, message);
+      const agendaReceipt = reservationReceipt ?? templateReceipt;
+      if (agendaReceipt) {
+        // This annotation is ours, never copied from the provider payload.
+        await queryWithClient(client, `UPDATE messages
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('agenda_receipt', $2::jsonb)
+          WHERE wa_message_id = $1 AND conversation_id = $3 AND from_me = FALSE`,
+        [message.id, JSON.stringify(agendaReceipt), conversation.id]);
+      }
       await touchConversation(
         conversation.id,
         client,

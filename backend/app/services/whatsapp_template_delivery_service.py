@@ -12,6 +12,7 @@ from app.core.config import settings
 
 ApprovedUtilityTemplateKey = Literal[
     "appointmentReminder",
+    "appointmentReminderService",
     "appointmentChange",
     "appointmentCancellation",
     "appointmentMissingData",
@@ -82,9 +83,17 @@ def send_approved_utility_template(
 
     if response.status_code >= 400:
         try:
-            provider_detail = response.json().get("error")
+            provider_payload = response.json()
+            provider_detail = provider_payload.get("error")
         except Exception:
+            provider_payload = {}
             provider_detail = None
+        if (template_key == "appointmentReminderService" and response.status_code == 409
+                and isinstance(provider_payload, dict)
+                and provider_payload.get("code") == "WHATSAPP_TEMPLATE_APPROVAL_PENDING"):
+            raise WhatsAppTemplatePendingApproval(
+                str(provider_detail or "O lembrete com serviço aguarda aprovação da Meta.")
+            )
         raise WhatsAppTemplateDeliveryError(str(provider_detail or "Falha ao enviar o modelo pelo WhatsApp."))
 
     payload = response.json()

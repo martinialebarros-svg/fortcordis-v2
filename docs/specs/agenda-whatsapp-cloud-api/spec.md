@@ -107,3 +107,44 @@ Status: stage-br-phone-alias-fix
 - alteracao automatica de data/hora solicitada pelo cliente;
 - reativacao automatica de reserva expirada;
 - uso do WhatsApp Business App simultaneamente no mesmo numero sem coexistencia aprovada pela Meta.
+
+## Presença pelo lembrete — 2026-10-14
+
+- RF-PRES01: `confirmar_presenca` é uma ação distinta de `confirmar`. O
+  appointmentReminder aceita o clique somente pelo vínculo persistido de
+  template enviado e pelo remetente equivalente ao destinatário.
+- RF-PRES02: a API interna registra `presenca_confirmada` somente para
+  agendamento em Agendado ou Confirmado, preservando todas as colunas de agenda,
+  horário, status e autoria. Trata-se de intenção de presença, não de atendimento
+  realizado ou confirmação operacional de uma reserva.
+- RF-PRES03: outros estados seguem revisão manual com alerta; uma presença
+  recebida não expira, reativa, cancela ou formaliza reserva. Agendamento ausente
+  tem resultado seguro. A repetição do provider_message_id retorna o recibo
+  original e não gera novo evento de agenda.
+- RF-PRES04: após resposta de API compatível com ação e agendamento vinculados,
+  o Node persiste `messages.metadata.agenda_receipt` com source/action/result/status
+  exatos. Somente presença e confirmação de reserva bem-sucedidas são marcadas;
+  resultados incertos, rejeitados, ignorados ou pendentes permanecem sem recibo.
+- RF-PRES05: nenhum segredo, callback, template ou flag é alterado. A adição
+  usa tabelas existentes e dispensa migração. Reverter código preserva recibos,
+  histórico e agenda; serviços antigos podem ignorar o novo metadata.
+
+## Serviço no lembrete — 2026-10-14
+
+- RF-SERV01: a variante explicita `appointmentReminderService` usa o novo nome
+  Meta `lembrete_de_agendamento_servico_v2`, preserva as quatro variaveis do
+  lembrete anterior e acrescenta o servico completo vinculado ao agendamento.
+  Nome ausente/acima de 300 caracteres bloqueia o envio sem truncamento.
+  A variante exige Agendado/Confirmado, nunca confirma uma reserva pendente.
+- RF-SERV02: a previa pos-criacao mostra o nome do catalogo selecionado ou o
+  literal do agendamento salvo com o mesmo ID de servico. Combos permanecem
+  completos; a selecao anterior nunca e reaproveitada por engano.
+- RF-SERV03: os botoes das duas versoes de lembrete usam o mesmo vinculo
+  persistido e validacao de remetente. `Confirmar presenca` registra apenas
+  presenca. `Solicitar alteracao` cria revisao humana, sem mudar servico/agenda.
+- NFR-SERV01: a variante com ID invalido ou WABA ausente/divergente da aprovada
+  (`1369494994627980`) falha com 409 antes de reserva no banco ou chamada Graph. O modelo antigo permanece com quatro variaveis e a flag da
+  variante automatica fica desligada ate aprovacao/publicacao autorizadas.
+- CA-SERV01: fontes, combo, fallback, limite, preview, contrato API e cinco
+  parametros oficiais passam em testes locais; a variante pendente nao faz
+  nenhum envio real. O formulario Meta preparado usa apenas dados sinteticos.

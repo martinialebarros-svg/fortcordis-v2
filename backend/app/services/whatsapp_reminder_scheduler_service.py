@@ -88,8 +88,9 @@ def _recipient_type() -> str:
 def _eligibility_filters(now: datetime) -> list:
     janela_min = now + timedelta(minutes=_min_lead_minutes())
     janela_max = now + timedelta(hours=_window_hours())
+    statuses = {"Agendado", "Confirmado"} if settings.WHATSAPP_REMINDER_SERVICE_TEMPLATE_ENABLED else ELIGIBLE_STATUSES
     return [
-        Agendamento.status.in_(ELIGIBLE_STATUSES),
+        Agendamento.status.in_(statuses),
         Agendamento.whatsapp_reminder_sent_at.is_(None),
         Agendamento.whatsapp_reminder_attempts < _max_attempts(),
         Agendamento.inicio >= janela_min,
@@ -264,7 +265,11 @@ def _process_agendamento(db: Session, agendamento: Agendamento) -> str:
             agendamento=agendamento,
             destination=destination,
             recipient_type=recipient_type,
-            template_key=REMINDER_TEMPLATE_KEY,
+            template_key=(
+                "appointmentReminderService"
+                if settings.WHATSAPP_REMINDER_SERVICE_TEMPLATE_ENABLED
+                else REMINDER_TEMPLATE_KEY
+            ),
         )
         send_agenda_utility_template(
             agendamento_id=agendamento.id,

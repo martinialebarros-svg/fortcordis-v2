@@ -17,16 +17,19 @@ from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.whatsapp_agenda_resposta import WhatsappAgendaResposta
 from app.services.alerta_interno_service import criar_alerta_interno
+from app.services.laudo_agilidade_service import resolver_servico_nome
 from app.services.whatsapp_template_delivery_service import (
     WhatsAppTemplateDeliveryError,
+    WhatsAppTemplatePendingApproval,
     send_approved_utility_template,
 )
 
 
-Action = Literal["confirmar", "solicitar_alteracao", "falar_equipe"]
+Action = Literal["confirmar", "confirmar_presenca", "solicitar_alteracao", "falar_equipe"]
 RecipientType = Literal["clinica", "tutor"]
 AgendaUtilityTemplateKey = Literal[
     "appointmentReminder",
+    "appointmentReminderService",
     "appointmentChange",
     "appointmentCancellation",
     "appointmentMissingData",
@@ -181,7 +184,13 @@ def build_agenda_utility_template(
     recipient_type: RecipientType,
     template_key: AgendaUtilityTemplateKey,
 ) -> WhatsAppAgendaUtilityTemplate:
-    status = str(agendamento.status or "").strip() or "Agendado"
+    status_registrado = str(agendamento.status or "").strip()
+    status = status_registrado or "Agendado"
+    if template_key == "appointmentReminderService" and status_registrado not in {"Agendado", "Confirmado"}:
+        raise HTTPException(
+            status_code=409,
+            detail="O lembrete com serviço exige um agendamento Agendado ou Confirmado; reservas usam o modelo de reserva.",
+        )
     if template_key == "appointmentCancellation":
         if status != "Cancelado":
             raise HTTPException(
@@ -256,6 +265,25 @@ def build_agenda_utility_template(
             appointment_local.strftime("%d/%m/%Y"),
             appointment_local.strftime("%H:%M"),
         )
+        if template_key == "appointmentReminderService":
+            servico_nome = " ".join(str(resolver_servico_nome(
+                db, agendamento.servico_id, agendamento.servico,
+            ) or "").split())
+            if not servico_nome:
+                servico_nome = " ".join(str(agendamento.servico or "").split())
+            if not servico_nome:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Informe o serviço do agendamento antes de enviar o lembrete pelo WhatsApp.",
+                )
+            if len(servico_nome) > 300:
+                # Mesmo limite de parâmetro do serviço Node; preservar o
+                # nome inteiro evita esconder parte de um combo agendado.
+                raise HTTPException(
+                    status_code=409,
+                    detail="Revise o nome do serviço agendado: ele excede o limite do modelo de WhatsApp.",
+                )
+            parameters += (servico_nome,)
 
     return WhatsAppAgendaUtilityTemplate(
         template_key=template_key,
@@ -331,6 +359,12 @@ def send_agenda_utility_template(
             parameters=template.parameters,
             idempotency_key=idempotency_key,
         )
+    except WhatsAppTemplatePendingApproval as exc:
+        if template.template_key == "appointmentReminderService":
+            raise HTTPException(
+                status_code=409, detail="O lembrete com serviço aguarda aprovação da Meta.",
+            ) from exc
+        raise WhatsAppAgendaDeliveryError(str(exc)) from exc
     except WhatsAppTemplateDeliveryError as exc:
         raise WhatsAppAgendaDeliveryError(str(exc)) from exc
 
@@ -377,10 +411,10 @@ def process_button_response(
                 db,
                 tipo="whatsapp_reserva_solicitar_alteracao",
                 nivel="aviso",
-                titulo="Cliente solicitou alteracao da reserva",
+                titulo="Cliente solicitou alteracao do agendamento",
                 mensagem=(
                     f"O destinatario {from_phone} pediu alteracao do agendamento #{agendamento.id}. "
-                    "Revise o horario e entre em contato antes de modificar a agenda."
+                    "Revise o servico e o horario solicitados e entre em contato antes de modificar a agenda."
                 ),
                 entidade_tipo="agendamento",
                 entidade_id=agendamento.id,
@@ -402,9 +436,13 @@ def process_button_response(
                 clinica_id=agendamento.clinica_id,
             )
             result = "falar_equipe_solicitado"
+        elif action == "confirmar_presenca" and status_atual in {"Agendado", "Confirmado"}:
+            # Confirmação de presença registra a resposta ao lembrete; não é
+            # confirmação operacional de uma reserva nem alteração da agenda.
+            result = "presenca_confirmada"
         elif status_atual == "Confirmado":
             result = "ja_confirmado"
-        elif status_atual != "Reservado":
+        elif action == "confirmar_presenca" or status_atual != "Reservado":
             criar_alerta_interno(
                 db,
                 tipo="whatsapp_reserva_resposta_revisao",
