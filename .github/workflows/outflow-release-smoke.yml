@@ -1,0 +1,47 @@
+name: Outflow release anonymous GET smoke
+run-name: Outflow smoke from isolated diagnostic branch
+
+on:
+  push:
+    branches:
+      - codex/outflow-release-smoke
+
+permissions:
+  contents: read
+
+concurrency:
+  group: outflow-release-anonymous-get-smoke
+  cancel-in-progress: false
+
+jobs:
+  public-get-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      # After the stage deploy finishes, use this push. For a later production
+      # check change ONLY these two reviewed values and push this same branch.
+      SMOKE_ENVIRONMENT: stage
+      EXPECTED_RELEASE_PREFIX: 5eb8196
+    steps:
+      - name: Checkout the immutable diagnostic snapshot without saved credentials
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Run bounded anonymous HTTPS GET checks
+        run: |
+          python3 scripts/diagnostics/outflow_release_smoke.py \
+            --environment "$SMOKE_ENVIRONMENT" \
+            --expected-release "$EXPECTED_RELEASE_PREFIX" \
+            --summary-file output/outflow-release-smoke/summary.json \
+            --execute
+
+      - name: Preserve only sanitized GET evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: outflow-get-smoke-${{ env.SMOKE_ENVIRONMENT }}-${{ github.run_id }}
+          path: output/outflow-release-smoke/summary.json
+          if-no-files-found: warn
+          retention-days: 7
