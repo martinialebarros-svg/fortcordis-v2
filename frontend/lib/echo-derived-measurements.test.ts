@@ -8,7 +8,7 @@ describe("deriveAutomaticEchoMeasurements", () => {
       const historical = {
         Onda_E: "1.08", Onda_A: "0.95", TRIV: "40", e_doppler: "0.16", a_doppler: "0.08",
         E_A: "1.13", E_TRIV: "2.66", E_E_linha: "6.95", doppler_tecidual_relacao: "1.8",
-        Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico",
+        Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico",
         Diastolica_ondas: "fundidas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "fundidas",
       };
       const before = { ...historical };
@@ -63,7 +63,7 @@ describe("deriveAutomaticEchoMeasurements", () => {
   });
 
   it("exige separação felina confirmada após editar ou reimportar origens de um contexto fundido", () => {
-    const historical = { Onda_E: "1.08", Onda_A: "0.95", TRIV: "40", e_doppler: "0.16", E_A: "1.13", E_TRIV: "2.66", E_E_linha: "6.95", Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas", TDI_ondas: "separadas" };
+    const historical = { Onda_E: "1.08", Onda_A: "0.95", TRIV: "40", e_doppler: "0.16", E_A: "1.13", E_TRIV: "2.66", E_E_linha: "6.95", Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "fundidas", TDI_ondas: "separadas" };
     const contexts = [
       updateEchoMeasurement(historical, "Onda_E", "1.1"),
       mergeImportedEchoMeasurements(historical, { Onda_E: "1.08", Onda_A: "0.95" }),
@@ -83,7 +83,7 @@ describe("deriveAutomaticEchoMeasurements", () => {
       .toMatchObject({ E_A: "1.14", E_TRIV: "2.7", E_E_linha: "6.75" });
   });
   it("persiste os controles diastólicos e teciduais sem inferi-los das medidas", () => {
-    const metadata = { Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas",
+    const metadata = { Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "fundidas",
       TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
     expect(parseStoredEchoMeasurements(metadata)).toEqual(metadata);
     const description = "## Medidas Ecocardiograficas\n" + Object.entries(metadata).map(([key, value]) => `- ${key}: ${value}`).join("\n") + "\n\n## Avaliacao Qualitativa";

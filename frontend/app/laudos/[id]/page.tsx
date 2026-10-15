@@ -801,6 +801,8 @@ export default function VisualizarLaudoPage() {
                   ? "Consultando faixas de referência por espécie e peso..."
                   : referenciaEco
                   ? `Referência selecionada por espécie e peso: cadastro de ${referenciaEco.especie}, ${referenciaEco.peso_kg} kg.`
+                  : gruposMedidas.some((grupo) => grupo.rows.some((row) => row.referenceMetadata?.kind === "descriptive"))
+                  ? "Referências específicas da técnica estão indicadas nas medidas abaixo."
                   : "Faixas de referência indisponíveis nesta prévia."}
               </p>
               {referenciaEco?.fs_source && medidasExibidas.DeltaD_FS && medidasExibidas.VE_tecnica_relatorio !== "2d" && (
@@ -824,7 +826,23 @@ export default function VisualizarLaudoPage() {
                           <tr key={row.key} className="border-b border-gray-100 last:border-0">
                             <td className="py-2 pr-3 text-gray-700">{row.label}</td>
                             <td className="py-2 pr-3 font-medium whitespace-nowrap">{row.value}</td>
-                            <td className="py-2 text-gray-600 whitespace-nowrap">{row.reference}</td>
+                            <td className={row.referenceMetadata
+                              ? "py-2 text-gray-600 whitespace-normal break-words align-top min-w-[14rem] max-w-md"
+                              : "py-2 text-gray-600 whitespace-nowrap"}>
+                              {row.referenceMetadata ? <p>{row.reference}</p> : row.reference}
+                              {row.referenceMetadata?.source && (
+                                <p className="mt-1 text-xs leading-relaxed">
+                                  {row.referenceMetadata.doi ? (
+                                    <a href={`https://doi.org/${row.referenceMetadata.doi}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                                      {row.referenceMetadata.source}
+                                    </a>
+                                  ) : row.referenceMetadata.source}
+                                </p>
+                              )}
+                              {row.referenceMetadata?.note && (
+                                <p className="mt-1 text-xs leading-relaxed">{row.referenceMetadata.note}</p>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

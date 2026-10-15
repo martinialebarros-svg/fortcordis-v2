@@ -1,4 +1,4 @@
-import { isFelineEchoSpecies } from "./echo-species";
+import { normalizeEchoSpecies } from "./echo-species";
 
 export interface FraseEcoEstruturadoTeste {
   id?: number;
@@ -58,10 +58,10 @@ export function presetCompativelComEspecie(
   preset: PresetEcoEstruturadoTeste,
   especie?: string,
 ): boolean {
-  const especieNormalizada = (especie || "").toLocaleLowerCase("pt-BR");
+  const especieNormalizada = normalizeEchoSpecies(especie);
   const tags = (preset.tags || []).map((tag) => tag.toLocaleLowerCase("pt-BR"));
-  if (isFelineEchoSpecies(especie)) return !tags.includes("cao") || tags.includes("gato");
-  if (especieNormalizada === "canina") return !tags.includes("gato") || tags.includes("cao");
+  if (especieNormalizada === "Felina") return !tags.includes("cao") || tags.includes("gato");
+  if (especieNormalizada === "Canina") return !tags.includes("gato") || tags.includes("cao");
   return true;
 }
 

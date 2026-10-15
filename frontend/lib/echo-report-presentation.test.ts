@@ -3,10 +3,59 @@ import { buildEchoReportGroups, prepareEchoReportMeasurements, splitReportObserv
 import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
 
 describe("prévia de ecocardiograma", () => {
+  it("preserva fonte, estatística e condições junto à referência descritiva sem alterar o valor", () => {
+    const raw = { Onda_E: "1.08", TD: "51", TRIV: "40", e_doppler: "0.16", E_E_linha: "6.95",
+      Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "separadas",
+      TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
+    const before = { ...raw };
+    const rows = buildEchoReportGroups(raw, null, new Set(), undefined, "Gato").flatMap((group) => group.rows);
+    expect(rows.find((row) => row.key === "Onda_E")).toMatchObject({
+      value: "1.08 m/s", reference: "0,70 ± 0,14 m/s",
+      referenceMetadata: { source: "Disatian et al. (2008)", doi: "10.1111/j.1939-1676.2008.0066.x",
+        statistic: "mean_sd", kind: "descriptive", note: expect.stringContaining("66 gatos saudáveis, não sedados") },
+    });
+    expect(rows.find((row) => row.key === "TD")?.referenceMetadata).toMatchObject({ source: "Soares et al. (2005)", note: expect.stringContaining("24 gatos adultos saudáveis, não sedados") });
+    expect(rows.find((row) => row.key === "e_doppler")?.referenceMetadata).toMatchObject({
+      source: "Kiatsilapanan & Surachetpong (2020)", doi: "10.1186/s12917-020-02557-3",
+      statistic: "mean_sd", note: expect.stringContaining("anel lateral"),
+    });
+    expect(rows.find((row) => row.key === "E_E_linha")?.referenceMetadata?.note).toContain("não é intervalo individual de normalidade");
+    expect(raw).toEqual(before);
+  });
+
+  it.each(["fundidas", ""])("mantém o motivo e não atribui publicação a ondas %s", (waves) => {
+    const rows = buildEchoReportGroups({ Onda_E: "1.08", Diastolica_ondas: waves }, null, new Set(), undefined, "Felina")
+      .flatMap((group) => group.rows);
+    expect(rows[0]).toMatchObject({ value: "1.08 m/s", referenceMetadata: {
+      source: "", doi: "", statistic: "", kind: waves ? "uninterpretable" : "unconfirmed",
+      note: expect.stringMatching(waves ? /não são separadamente mensuráveis/ : /Confirme/),
+    } });
+  });
+
+  it("mantém a confirmação histórica de TRIV sem pressupor confirmação apical para o Doppler transmitral", () => {
+    const rows = buildEchoReportGroups({ Onda_E: "1.08", TRIV: "40", E_E_linha: "6.95",
+      Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "separadas",
+      TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" }, null, new Set(), undefined, "Felina")
+      .flatMap((group) => group.rows);
+    expect(rows.find((row) => row.key === "Onda_E")).toMatchObject({ value: "1.08 m/s", reference: "—", referenceMetadata: { kind: "unconfirmed", source: "", doi: "" } });
+    expect(rows.find((row) => row.key === "TRIV")).toMatchObject({ value: "40.00 ms", reference: "46,2 ± 7,6 ms", referenceMetadata: { kind: "descriptive", source: "Disatian et al. (2008)" } });
+    expect(rows.find((row) => row.key === "E_E_linha")).toMatchObject({ value: "6.95", reference: "—", referenceMetadata: { kind: "unconfirmed", source: "", doi: "" } });
+  });
+
+  it("não acrescenta metadados felinos às referências caninas ou às unidades ambíguas", () => {
+    const reference = { especie: "Canina", peso_kg: 10, lvid_d_min: 20, lvid_d_max: 40 } as ReferenciaEco;
+    const row = buildEchoReportGroups({ DIVEd: "30" }, reference).flatMap((group) => group.rows)[0];
+    expect(row).toEqual({ key: "DIVEd", label: "DIVEd · diâmetro interno do VE em diástole", value: "30.00 mm", reference: "20.00–40.00 mm" });
+    const ambiguous = buildEchoReportGroups({ Onda_E: "1.08", Diastolica_ondas: "fundidas" }, null, new Set(["Onda_E"]), undefined, "Gato")
+      .flatMap((group) => group.rows)[0];
+    expect(ambiguous.reference).toBe("—");
+    expect(ambiguous).not.toHaveProperty("referenceMetadata");
+  });
+
   it.each(["Gato", "Cat", "felino", " Felina "])
     ("preserva valores e exibe fusão independente para o alias %s", (species) => {
       const raw = { Onda_E: "1.08", E_A: "1.13", TRIV: "40", e_doppler: "0.16", E_E_linha: "6.95",
-        Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas",
+        Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "fundidas",
         TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas", DIVEd_normalizado: "0.9",
         AE_diametro_max: "18", AE_diametro_min: "13.5" };
       const before = { ...raw };
@@ -23,7 +72,7 @@ describe("prévia de ecocardiograma", () => {
 
   it("mostra estatísticas felinas e fusão independente sem peso, catálogo ou metadados como medidas", () => {
     const measurements = { Onda_E: "1.08", E_A: "1.14", TRIV: "40", e_doppler: "0.16", E_E_linha: "6.75",
-      Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
+      Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "fundidas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
     const groups = buildEchoReportGroups(measurements, null, new Set(), undefined, "Felina");
     const rows = groups.flatMap((group) => group.rows);
     expect(rows.find((row) => row.key === "Onda_E")).toMatchObject({ value: "1.08 m/s", reference: "Ondas E/A fundidas" });

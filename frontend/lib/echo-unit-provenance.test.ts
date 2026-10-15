@@ -13,7 +13,7 @@ const legacy = { DIVEd: "2.5", DIVES: "1.5", Atrio_esquerdo: "2.0", SIVd: "3.0" 
 
 describe("proveniência de unidade ecocardiográfica", () => {
   it("retira confirmações apenas das origens diastólicas relacionadas, inclusive em reimportação", () => {
-    const confirmed = { Onda_E: "1.08", e_doppler: "0.16", TRIV: "40", Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
+    const confirmed = { Onda_E: "1.08", e_doppler: "0.16", TRIV: "40", Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "fundidas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
     const changedFlow = updateEchoMeasurement(confirmed, "Onda_E", "1.1");
     expect(changedFlow).not.toHaveProperty("Diastolica_metodo");
     expect(changedFlow).not.toHaveProperty("Diastolica_ondas");

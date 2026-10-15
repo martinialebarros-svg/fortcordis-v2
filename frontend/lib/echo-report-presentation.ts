@@ -3,11 +3,18 @@ import { calculateCanine2DNormalizedLVIDd, getCanine2DReference, type Echo2DView
 import { ambiguousEchoLengthKeys, confirmedEchoUnit, confirmedUnitKey, ECHO_LENGTH_KEYS } from "./echo-unit-provenance";
 import { calculateLeftAtrialFractionalShortening } from "./echo-derived-measurements";
 import { ECHO_REFERENCE_METHOD_KEYS, resolveEchoReferenceForMeasurements } from "./echo-reference-policy";
-import { canonicalFelineDiastolicKey, felineDiastolicReferences } from "./echo-feline-diastolic-reference";
+import { canonicalFelineDiastolicKey, felineDiastolicReferences, type FelineDiastolicReference } from "./echo-feline-diastolic-reference";
 import { isFelineEchoSpecies } from "./echo-species";
 
 type Parameter = { key: string; label: string; unit?: string; reference?: string };
-export type EchoReportRow = { key: string; label: string; value: string; reference: string };
+export type EchoReportReferenceMetadata = Pick<FelineDiastolicReference, "source" | "doi" | "statistic" | "note" | "kind">;
+export type EchoReportRow = {
+  key: string;
+  label: string;
+  value: string;
+  reference: string;
+  referenceMetadata?: EchoReportReferenceMetadata;
+};
 export type EchoReportGroup = { title: string; rows: EchoReportRow[] };
 export type EchoCalculationAlert = { key: string; recorded: number; calculated: number };
 
@@ -200,24 +207,34 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
     rows: group.parameters.filter((item) => {
       const value = number(measurements[item.key]);
       return value !== null && value !== 0;
-    }).map((item) => ({
-      key: item.key,
-      label: item.label,
-      value: ambiguousKeys.has(item.key)
-        ? `${number(measurements[item.key])?.toFixed(2)} (unidade a confirmar)`
-        : `${number(measurements[item.key])?.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`,
-      reference: ambiguousKeys.has(item.key) ? "—" : (() => {
-        const felineReference = felineReferences[canonicalFelineDiastolicKey(item.key)];
-        if (felineReference) return felineReference.text;
-        const aeAoLimit = item.key === "AE_Ao" ? canineAeAoClinicalReference(measurements, species, ambiguousKeys) : null;
-        if (aeAoLimit) return aeAoLimit;
-        const twoD = selected2D && reference && /^canin/i.test(reference.especie)
-          && (item.key !== "DeltaD_FS_2D" || fsMatchesPair)
-          ? getCanine2DReference(item.key, weightKg, view) : null;
-        return twoD ? `${twoD.min.toFixed(2)}–${twoD.max.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`
-          : referenceRange(safeReference, item);
-      })(),
-    })),
+    }).map((item) => {
+      const felineReference = ambiguousKeys.has(item.key)
+        ? undefined : felineReferences[canonicalFelineDiastolicKey(item.key)];
+      return {
+        key: item.key,
+        label: item.label,
+        value: ambiguousKeys.has(item.key)
+          ? `${number(measurements[item.key])?.toFixed(2)} (unidade a confirmar)`
+          : `${number(measurements[item.key])?.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`,
+        reference: ambiguousKeys.has(item.key) ? "—" : (() => {
+          if (felineReference) return felineReference.text;
+          const aeAoLimit = item.key === "AE_Ao" ? canineAeAoClinicalReference(measurements, species, ambiguousKeys) : null;
+          if (aeAoLimit) return aeAoLimit;
+          const twoD = selected2D && reference && /^canin/i.test(reference.especie)
+            && (item.key !== "DeltaD_FS_2D" || fsMatchesPair)
+            ? getCanine2DReference(item.key, weightKg, view) : null;
+          return twoD ? `${twoD.min.toFixed(2)}–${twoD.max.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`
+            : referenceRange(safeReference, item);
+        })(),
+        ...(felineReference ? { referenceMetadata: {
+          source: felineReference.source,
+          doi: felineReference.doi,
+          statistic: felineReference.statistic,
+          note: felineReference.note,
+          kind: felineReference.kind,
+        } } : {}),
+      };
+    }),
   })).filter((group) => group.rows.length > 0);
 }
 

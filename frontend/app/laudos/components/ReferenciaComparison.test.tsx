@@ -14,7 +14,7 @@ vi.mock("../hooks/useReferenciaEco", async () => ({
 describe("identificação da referência ecocardiográfica", () => {
   it.each(["Gato", "Cat", "Felino", " Feline "])("oferece protocolo e mantém fusões independentes para %s", async (species) => {
     render(<ReferenciaComparison especie={species} medidas={{ Onda_E: "1.08", E_A: "1.13", e_doppler: "0.16",
-      Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas",
+      Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "fundidas",
       TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" }} onMedidaChange={vi.fn()} />);
     expect(screen.getByLabelText("Ondas transmitrais E/A")).toHaveValue("fundidas");
     expect(screen.getByLabelText("Ondas teciduais e'/a'")).toHaveValue("separadas");
@@ -43,7 +43,7 @@ describe("identificação da referência ecocardiográfica", () => {
 
   it("exibe o caso Skar com fusão E/A e e' lateral separada sem cores de normalidade", async () => {
     render(<ReferenciaComparison especie="Felina" medidas={{ Onda_E: "1.08", Onda_A: "0.95", E_A: "1.14", TD: "51", TRIV: "40", e_doppler: "0.16", E_E_linha: "6.75",
-      Diastolica_metodo: "felino_adulto_nao_sedado_pw_clique_aortico", Diastolica_ondas: "fundidas",
+      Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "fundidas",
       TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" }} onMedidaChange={vi.fn()} />);
     expect(await screen.findByText("Média ± DP publicada: 0,11 ± 0,03 m/s")).toBeInTheDocument();
     expect(screen.getByText("Média ± DP publicada: 46,2 ± 7,6 ms")).toBeInTheDocument();
