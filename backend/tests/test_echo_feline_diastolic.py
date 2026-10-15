@@ -160,6 +160,15 @@ class FelineDiastolicEvidenceTest(unittest.TestCase):
         self.assertEqual(refs["e_doppler"]["kind"], "uninterpretable")
         self.assertEqual(refs["E_E_linha"]["kind"], "uninterpretable")
 
+    def test_confirmed_fusion_keeps_its_limitation_after_numbers_are_cleared(self):
+        measurements = {"Onda_E": "0", "Onda_A": "", "Diastolica_ondas": "fundidas", "TDI_ondas": "fundidas"}
+        before = deepcopy(measurements)
+        refs = feline_diastolic_references(measurements, "Cat")
+        self.assertEqual(set(refs), {"Onda_E", "Onda_A", "E_A", "TD", "E_TRIV", "E_E_linha", "e_doppler", "a_doppler", "doppler_tecidual_relacao"})
+        self.assertTrue(all(ref["kind"] == "uninterpretable" for ref in refs.values()))
+        self.assertTrue(all(ref["doi"] == "10.1111/jvim.15745" for ref in refs.values()))
+        self.assertEqual(measurements, before)
+
     def test_no_inference_from_numbers_and_no_canine_changes(self):
         measurements = {key: val for key, val in synthetic_measurements().items()
                         if key not in ECHO_REFERENCE_METHOD_VALUES}
@@ -228,7 +237,11 @@ class FelineDiastolicPdfTest(unittest.TestCase):
                 self.assertEqual(payload, before)
                 self.assertIn("ANÁLISE QUANTITATIVA", pages[0])
                 self.assertIn("Onda E", pages[0])
-                self.assertIn("1.08 m/s", pages[0])
+                if waves == "fundidas":
+                    self.assertNotIn("1.08 m/s", pages[0])
+                    self.assertIn("Não mensurável", pages[0])
+                else:
+                    self.assertIn("1.08 m/s", pages[0])
                 for page in pages:
                     if "Onda E" in page or "E/E'" in page:
                         for label in ("Diastólica", "Parâmetro", "Valor", "Referência"):
@@ -272,17 +285,87 @@ class FelineDiastolicPdfTest(unittest.TestCase):
         self.assertNotIn("≤12", text)
         self.assertNotIn("≤2,5", text)
 
-    def test_fusion_note_preserves_raw_values_and_separate_tdi_reference(self):
+    def test_fusion_note_masks_pdf_values_and_preserves_stored_history_and_separate_tdi(self):
         measurements = synthetic_measurements()
         measurements["Diastolica_ondas"] = "fundidas"
+        before = deepcopy(measurements)
         text = re.sub(r"\s+", " ", "\n".join(p.extract_text() for p in PdfReader(BytesIO(gerar_pdf_laudo_eco(synthetic_report(measurements)))).pages))
         self.assertIn("Ondas E/A transmitrais fundidas", text)
-        self.assertIn("1.14", text)
-        self.assertIn("6.75", text)
+        self.assertNotIn("1.14", text)
+        self.assertNotIn("6.75", text)
+        self.assertEqual(text.count("Não mensurável"), 6)
         self.assertIn("0,11 ± 0,03", text)
         self.assertIn("10.1111/jvim.15745", text)
         self.assertNotIn("0,70 ± 0,14", text)
         self.assertNotIn("7,8 ± 2,92", text)
+        self.assertEqual(measurements, before)
+
+    def test_confirmed_fusion_masks_only_dependent_values_in_all_four_protocol_states(self):
+        transmitral = {"Onda_E", "Onda_A", "E_A", "TD", "E_TRIV", "E_E_linha"}
+        tissue = {"e_doppler", "a_doppler", "doppler_tecidual_relacao", "E_E_linha"}
+        formatted_values = {
+            "Onda_E": "1.08 m/s", "Onda_A": "0.95 m/s", "E_A": "1.14", "TD": "51.00 ms",
+            "TRIV": "40.00 ms", "E_TRIV": "2.70", "e_doppler": "0.16 m/s", "a_doppler": "0.06 m/s",
+            "doppler_tecidual_relacao": "2.67", "E_E_linha": "6.75",
+        }
+        for waves in ("separadas", "fundidas"):
+            for tissue_waves in ("separadas", "fundidas"):
+                for species in ("Felina", "Gato", "Cat"):
+                    with self.subTest(waves=waves, tissue_waves=tissue_waves, species=species):
+                        measurements = {**synthetic_measurements(), "Diastolica_ondas": waves, "TDI_ondas": tissue_waves}
+                        payload = synthetic_report(measurements)
+                        payload["paciente"]["especie"] = species
+                        before = deepcopy(payload)
+                        text = re.sub(r"\s+", " ", "\n".join(page.extract_text() for page in PdfReader(BytesIO(gerar_pdf_laudo_eco(payload))).pages))
+                        quantitative = text.split("ANÁLISE QUANTITATIVA", 1)[1].split("ANÁLISE QUALITATIVA", 1)[0]
+                        masked = (transmitral if waves == "fundidas" else set()) | (tissue if tissue_waves == "fundidas" else set())
+                        self.assertEqual(quantitative.count("Não mensurável"), len(masked))
+                        for key, formatted in formatted_values.items():
+                            if key in masked:
+                                self.assertNotIn(formatted, quantitative)
+                            else:
+                                self.assertIn(formatted, quantitative)
+                        self.assertEqual(payload, before)
+
+    def test_stale_ratios_are_not_printed_after_imported_origins_are_cleared(self):
+        measurements = {**synthetic_measurements(), "Onda_E": "0", "Onda_A": "0", "E_E_linha": "6.95", "Diastolica_ondas": "fundidas"}
+        before = deepcopy(measurements)
+        text = re.sub(r"\s+", " ", "\n".join(page.extract_text() for page in PdfReader(BytesIO(gerar_pdf_laudo_eco(synthetic_report(measurements)))).pages))
+        for stale in ("1.14", "2.70", "6.95"):
+            self.assertNotIn(stale, text)
+        self.assertEqual(text.count("Não mensurável"), 6)
+        self.assertIn("40.00 ms", text)
+        self.assertIn("0.16 m/s", text)
+        self.assertIn("0.06 m/s", text)
+        self.assertIn("2.67", text)
+        self.assertEqual(measurements, before)
+
+    def test_fusion_only_pdf_retains_limitation_and_consensus_without_inventing_values(self):
+        for protocol in (
+            {"Diastolica_ondas": "fundidas"},
+            {"TDI_ondas": "fundidas"},
+            {"Diastolica_ondas": "fundidas", "TDI_ondas": "fundidas"},
+        ):
+            with self.subTest(protocol=protocol):
+                measurements = {**protocol, "Onda_E": "0", "a_doppler": ""}
+                before = deepcopy(measurements)
+                text = re.sub(r"\s+", " ", "\n".join(page.extract_text() for page in PdfReader(BytesIO(gerar_pdf_laudo_eco(synthetic_report(measurements)))).pages))
+                self.assertIn("Não mensurável", text)
+                self.assertIn("fundidas", text)
+                self.assertIn("Fuentes et al. (2020)", text)
+                self.assertIn("10.1111/jvim.15745", text)
+                self.assertNotIn("0.00", text)
+                self.assertNotIn("Média ± DP", text)
+                self.assertEqual(measurements, before)
+
+    def test_fusion_flags_do_not_mask_canine_measurements(self):
+        payload = synthetic_report({**synthetic_measurements(), "Diastolica_ondas": "fundidas", "TDI_ondas": "fundidas"})
+        payload["paciente"]["especie"] = "Canina"
+        text = re.sub(r"\s+", " ", "\n".join(page.extract_text() for page in PdfReader(BytesIO(gerar_pdf_laudo_eco(payload))).pages))
+        self.assertNotIn("Não mensurável", text)
+        self.assertIn("1.08 m/s", text)
+        self.assertIn("1.14", text)
+        self.assertIn("6.75", text)
 
     def test_unknown_methods_do_not_create_bibliography_or_descriptive_data(self):
         measurements = {"Onda_E": "1.08", "e_doppler": "0.16"}

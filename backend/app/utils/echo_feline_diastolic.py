@@ -65,11 +65,13 @@ def _uninterpretable(text: str, note: str) -> dict[str, str]:
 def feline_diastolic_references(
     measurements: Mapping[str, Any], species: Any,
 ) -> dict[str, dict[str, str]]:
-    """Return neutral descriptions or explicit fusion guards for present values.
+    """Return neutral descriptions or explicit confirmed-fusion guards.
 
     Weight/catalog availability is irrelevant to these descriptive summaries.
     The protocol confirms adult, nonsedated acquisition; no method is inferred
     from a value, the LV imaging technique, or a generic equipment label.
+    Confirmed fusion retains its limitation even after numeric fields are
+    cleared. This describes presentation eligibility without changing history.
     """
     if normalizar_especie_referencia(species) != "Felina":
         return {}
@@ -132,12 +134,10 @@ def feline_diastolic_references(
 
     if measurements.get("Diastolica_ondas") == "fundidas":
         for key in ("Onda_E", "Onda_A", "E_A", "TD", "E_E_linha", "E_TRIV"):
-            if key in references:
-                references[key] = _uninterpretable("Fusão E/A: sem comparação", "Componente transmitral E não individualizado; interpretar o conjunto do exame")
+            references[key] = _uninterpretable("Fusão E/A: sem comparação", "Componente transmitral E não individualizado; interpretar o conjunto do exame")
     if measurements.get("TDI_ondas") == "fundidas":
         for key in ("e_doppler", "a_doppler", "doppler_tecidual_relacao", "E_E_linha"):
-            if key in references:
-                references[key] = _uninterpretable("Fusão e'/a': sem comparação", "Picos teciduais não individualizados; não substituir o pico fundido por e' ou a'")
+            references[key] = _uninterpretable("Fusão e'/a': sem comparação", "Picos teciduais não individualizados; não substituir o pico fundido por e' ou a'")
     return references
 
 

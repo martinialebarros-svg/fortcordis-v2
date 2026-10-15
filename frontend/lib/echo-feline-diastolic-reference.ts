@@ -12,7 +12,7 @@ export type FelineDiastolicReference = {
 };
 
 const ALIASES: Record<string, string> = {
-  MV_E: "Onda_E", MV_A: "Onda_A", MV_E_A: "E_A", MV_DT: "TD", IVRT: "TRIV",
+  MV_E: "Onda_E", MV_A: "Onda_A", MV_E_A: "E_A", MV_DT: "TD", IVRT: "TRIV", MV_E_TRIV: "E_TRIV",
   TDI_e: "e_doppler", TDI_a: "a_doppler", EEp: "E_E_linha",
 };
 export const FELINE_DIASTOLIC_KEYS = [
@@ -107,7 +107,6 @@ export function felineDiastolicReferences(
   if (result.E_TRIV) result.E_TRIV.note = "Sem intervalo individual validado na população não sedada adotada. O índice depende da técnica e das condições de carga; não diagnostica insuficiência cardíaca isoladamente.";
   function fusion(keys: string[], text: string, note: string) {
     for (const key of keys) {
-      if (!result[key]) continue;
       result[key] = { text, note, source: "", doi: "", statistic: "", bibliography: "", kind: "uninterpretable" };
     }
   }

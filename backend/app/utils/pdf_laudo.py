@@ -295,10 +295,11 @@ def aplicar_referencias_2d_publicadas(parametros: List[Dict], dados_pdf: Dict[st
 
 
 def filtrar_parametros_preenchidos(parametros: List[Dict], medidas: Dict[str, Any]) -> List[Dict]:
-    """Omite linhas sem valor numérico registrado (zero é ausência no formulário atual)."""
+    """Keep recorded values and confirmed limitations, never treating zero as a measurement."""
     return [
         param for param in parametros
-        if (_to_float(medidas.get(param["chave"])) or 0) != 0
+        if param.get("value_unmeasurable") is True
+        or (_to_float(medidas.get(param["chave"])) or 0) != 0
     ]
 
 
@@ -669,7 +670,14 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
         unidade_ambigua = chave in dados.get('unidades_ambiguas', set())
         
         # Formata valor
-        if valor_float == 0:
+        if param.get("value_unmeasurable") is True:
+            # A fusion flag invalidates individual peaks/ratios for display.
+            # Keep the original numeric history in dados/DB untouched.
+            valor_str = "Não mensurável"
+            ref_str = (ref_text or "--") if mostrar_referencia else ""
+            interp_str = ""
+            interp_color = COR_PRETO
+        elif valor_float == 0:
             valor_str = "--"
             ref_str = (ref_text if ref_text else formatar_referencia(ref_min, ref_max, unidade)) if mostrar_referencia else ""
             interp_str = ""
@@ -1745,7 +1753,8 @@ def gerar_pdf_laudo_eco(
         # Descriptive means/SD and fusion guards never acquire min/max bounds.
         params_diastolica = [
             {**param, "ref_min": None, "ref_max": None,
-             "ref_text": consultas_diastolicas[param["chave"]]["text"] or None}
+             "ref_text": consultas_diastolicas[param["chave"]]["text"] or None,
+             "value_unmeasurable": consultas_diastolicas[param["chave"]]["kind"] == "uninterpretable"}
             if param["chave"] in consultas_diastolicas else param
             for param in params_diastolica
         ]

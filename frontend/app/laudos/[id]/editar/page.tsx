@@ -26,6 +26,8 @@ import EcocardiogramaEstruturadoBiblioteca from "../../components/Ecocardiograma
 import EchoVoiceAssistant from "../../components/EchoVoiceAssistant";
 import EchoUnitReview from "../../components/EchoUnitReview";
 import EchoNarrativeConsistencyNotice from "../../components/EchoNarrativeConsistencyNotice";
+import FelineWaveReview from "../../components/FelineWaveReview";
+import { discardFelineFusedMeasurements, isEchoDiastolicRatioCalculated, updateFelineDiastolicMeasurement } from "@/lib/echo-feline-wave-review";
 import { calculateCanine2DNormalizedLVIDd, getCanine2DReference, type Echo2DView } from "@/lib/echo-2d-reference";
 import { ArrowLeft, Save, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus, FolderOpen, GripVertical, X } from "lucide-react";
 import { ReferenciaComparison } from "../../components/ReferenciaComparison";
@@ -54,7 +56,7 @@ import {
 } from "@/lib/echo-derived-measurements";
 import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
 import { operationalTodayDateInput } from "@/lib/calendar-date";
-import { confirmedUnitKey, echoLengthInMm, echoLengthInputLabel, updateEchoMeasurement } from "@/lib/echo-unit-provenance";
+import { confirmedUnitKey, echoLengthInMm, echoLengthInputLabel } from "@/lib/echo-unit-provenance";
 import { isFelineEchoSpecies } from "@/lib/echo-species";
 import { useEchoMeasurements } from "../../hooks/useEchoMeasurements";
 
@@ -1092,7 +1094,7 @@ export default function EditarLaudoPage() {
   };
 
   const handleMedidaChange = (key: string, value: string) => {
-    setMedidas(prev => updateEchoMeasurement(prev, key, value));
+    setMedidas(prev => updateFelineDiastolicMeasurement(prev, key, value, pacienteForm.especie));
   };
 
   const handleEchoAssistantApply = (patch: {
@@ -1832,6 +1834,10 @@ export default function EditarLaudoPage() {
                         <hr className="border-gray-200 my-4" />
 
                         <h4 className="font-semibold text-gray-900 text-sm">Diastólica</h4>
+                        <FelineWaveReview especie={pacienteForm.especie} medidas={medidas}
+                          onMedidaChange={handleMedidaChange}
+                          onDiscard={(kind) => setMedidas(prev => discardFelineFusedMeasurements(prev, pacienteForm.especie, kind))}
+                        />
 
                         <MedidaInput
                           label="Onda E (m/s)"
@@ -1847,7 +1853,7 @@ export default function EditarLaudoPage() {
                           label="E/A (relação adimensional)"
                           value={medidas["E_A"] || ""}
                           onChange={(v) => handleMedidaChange("E_A", v)}
-                          readOnly
+                          readOnly={!isFelineEchoSpecies(pacienteForm.especie) || isEchoDiastolicRatioCalculated(medidas, pacienteForm.peso, pacienteForm.especie, "E_A")}
                         />
                         <MedidaInput
                           label="TD (tempo de desaceleração, ms)"
@@ -1863,7 +1869,7 @@ export default function EditarLaudoPage() {
                           label="E/TRIV (índice E [cm/s] / TRIV [ms])"
                           value={medidas["E_TRIV"] || ""}
                           onChange={(v) => handleMedidaChange("E_TRIV", v)}
-                          readOnly
+                          readOnly={!isFelineEchoSpecies(pacienteForm.especie) || isEchoDiastolicRatioCalculated(medidas, pacienteForm.peso, pacienteForm.especie, "E_TRIV")}
                           reference={pacienteForm.especie === "Canina" ? "Ref.: ≤2,5; valores >2,5 são sugestivos de aumento das pressões de enchimento do VE." : undefined}
                         />
                         <MedidaInput
@@ -1885,12 +1891,13 @@ export default function EditarLaudoPage() {
                           label="Doppler tecidual (relação e'/a', adimensional)"
                           value={medidas["doppler_tecidual_relacao"] || ""}
                           onChange={(v) => handleMedidaChange("doppler_tecidual_relacao", v)}
+                          readOnly={isFelineEchoSpecies(pacienteForm.especie) && isEchoDiastolicRatioCalculated(medidas, pacienteForm.peso, pacienteForm.especie, "doppler_tecidual_relacao")}
                         />
                         <MedidaInput
                           label="E/E' (adimensional)"
                           value={medidas["E_E_linha"] || ""}
                           onChange={(v) => handleMedidaChange("E_E_linha", v)}
-                          readOnly
+                          readOnly={!isFelineEchoSpecies(pacienteForm.especie) || isEchoDiastolicRatioCalculated(medidas, pacienteForm.peso, pacienteForm.especie, "E_E_linha")}
                           reference={pacienteForm.especie === "Canina" ? "Ref.: ≤12; valores >12 são sugestivos de aumento das pressões de enchimento do VE." : undefined}
                         />
                       </div>
