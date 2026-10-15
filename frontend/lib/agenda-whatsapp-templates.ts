@@ -1,6 +1,7 @@
 export type AgendaWhatsAppTemplateKey =
   | "reservation"
   | "appointmentReminder"
+  | "appointmentReminderService"
   | "appointmentChange"
   | "appointmentCancellation"
   | "appointmentMissingData";
@@ -20,6 +21,13 @@ export const AGENDA_WHATSAPP_TEMPLATES: Record<
     body:
       "Olá, {{1}}. Lembramos que o atendimento de {{2}} está confirmado para {{3}}, às {{4}}. " +
       "Se precisar alterar o horário, use uma das opções abaixo.",
+  },
+  appointmentReminderService: {
+    label: "Lembrete com serviço",
+    body:
+      "Olá, {{1}}. Lembramos que o atendimento de {{2}} está agendado para {{3}}, às {{4}}. " +
+      "Serviço agendado: {{5}}. Confira o serviço e o horário. Se precisar corrigir ou incluir outro serviço, " +
+      "toque em Solicitar alteração e envie o que deve ser ajustado.",
   },
   appointmentChange: {
     label: "Alteração de agendamento",
@@ -41,6 +49,15 @@ export const AGENDA_WHATSAPP_TEMPLATES: Record<
   },
 };
 
+export function normalizeAgendaWhatsAppServiceName(value: unknown): string {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
+export function isValidAgendaWhatsAppServiceName(value: unknown): value is string {
+  const name = normalizeAgendaWhatsAppServiceName(value);
+  return name.length > 0 && name.length <= 300;
+}
+
 export function renderAgendaWhatsAppTemplate(
   templateKey: AgendaWhatsAppTemplateKey,
   parameters: readonly string[],
@@ -50,7 +67,13 @@ export function renderAgendaWhatsAppTemplate(
   if (parameters.length !== expected) {
     throw new Error(`O modelo ${templateKey} exige ${expected} variáveis.`);
   }
+  if (templateKey === "appointmentReminderService" && !isValidAgendaWhatsAppServiceName(parameters[4])) {
+    throw new Error("Confira o serviço salvo no agendamento antes de preparar o lembrete com serviço.");
+  }
   return body.replace(/\{\{(\d+)\}\}/g, (_placeholder, rawIndex: string) => {
+    if (templateKey === "appointmentReminderService" && Number(rawIndex) === 5) {
+      return normalizeAgendaWhatsAppServiceName(parameters[4]);
+    }
     return parameters[Number(rawIndex) - 1] || "";
   });
 }

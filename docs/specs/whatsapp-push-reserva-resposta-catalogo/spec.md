@@ -89,3 +89,10 @@
   paciente/clínica/serviço.
 - Mudar prioridade padrão (`HIGH_PRIORITY_DEFAULT_ACTIONS_ORDER`) para
   incluir o novo tipo.
+
+## Presença registrada — 2026-10-14
+
+O resultado `presenca_confirmada` recebe título “Presenca registrada pelo
+WhatsApp” e informa que horário e status foram preservados. Não usa texto de
+reserva confirmada ou atendimento realizado. Mantém preferências e catálogo
+existentes; reentregas idempotentes não emitem outro evento de agenda.

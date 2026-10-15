@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     WHATSAPP_REMINDER_MIN_LEAD_MINUTES: int = 45
     WHATSAPP_REMINDER_MAX_ATTEMPTS: int = 3
     WHATSAPP_REMINDER_RECIPIENT_TYPE: str = "clinica"
+    # Ativar somente depois da aprovação do modelo com serviço nas duas WABAs.
+    WHATSAPP_REMINDER_SERVICE_TEMPLATE_ENABLED: bool = False
     WHATSAPP_BOT_ENABLED: bool = False
     # Liberacao operacional independente do modo escolhido na interface.
     WHATSAPP_BOT_AUTO_SEND_ENABLED: bool = False

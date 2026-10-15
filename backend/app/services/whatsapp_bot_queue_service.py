@@ -56,6 +56,14 @@ def enqueue_job_for_inbound_message(
     if not wa_identity or not conversation_id or not wa_message_id:
         return False
 
+    from app.services.whatsapp_bot_agenda_receipts import confirmacao_agenda_processada
+    if confirmacao_agenda_processada(
+        db, wa_identity=wa_identity, wa_message_id=wa_message_id, message_type=message_type,
+    ):
+        # O domínio já tratou a confirmação. Não cria handoff nem substitui
+        # outro texto que ainda aguarda processamento nesta conversa.
+        return False
+
     existing = (
         db.query(WhatsAppBotJob)
         .filter(WhatsAppBotJob.wa_message_id == wa_message_id)

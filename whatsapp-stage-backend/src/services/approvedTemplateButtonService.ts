@@ -4,6 +4,7 @@ import { query, queryWithClient } from "./dbService";
 import { sendWhatsAppMessageWithRetry } from "./whatsappService";
 import { WebhookMessage } from "../types/whatsapp";
 import { logger } from "../utils/logger";
+import { AgendaButtonReceipt, buildAgendaButtonReceipt } from "./agendaButtonReceipt";
 import {
   areEquivalentWhatsAppNumbers,
   canonicalWhatsAppIdentity,
@@ -106,9 +107,10 @@ async function handleEnviarDados(binding: TemplateButtonBinding): Promise<Record
   return { link_sent: true };
 }
 
-async function handleFalarEquipe(
+async function handleAgendaResponse(
   binding: TemplateButtonBinding,
-  message: WebhookMessage
+  message: WebhookMessage,
+  action: "falar_equipe" | "confirmar_presenca" | "solicitar_alteracao"
 ): Promise<Record<string, unknown>> {
   const response = await axios.post(
     `${apiBackendUrl()}/api/v1/integracoes/whatsapp/agenda/respostas`,
@@ -116,7 +118,7 @@ async function handleFalarEquipe(
       provider_message_id: message.id,
       outbound_message_id: binding.wa_message_id,
       agendamento_id: Number(binding.subject_id),
-      action: "falar_equipe",
+      action,
       from_phone: canonicalWhatsAppIdentity(message.from as string)
     },
     {
@@ -133,7 +135,7 @@ async function handleFalarEquipe(
 export async function handleApprovedTemplateButtonReply(
   client: PoolClient,
   message: WebhookMessage
-): Promise<void> {
+): Promise<AgendaButtonReceipt | undefined> {
   if (message.type !== "button" || !message.button?.payload || !message.id || !message.from) {
     return;
   }
@@ -198,7 +200,11 @@ export async function handleApprovedTemplateButtonReply(
     if (binding.action === "enviar_dados") {
       result = await handleEnviarDados(binding);
     } else if (binding.action === "falar_equipe") {
-      result = await handleFalarEquipe(binding, message);
+      result = await handleAgendaResponse(binding, message, "falar_equipe");
+    } else if ((binding.template_key === "appointmentReminder" || binding.template_key === "appointmentReminderService")
+        && binding.subject_type === "agendamento"
+        && (binding.action === "confirmar_presenca" || binding.action === "solicitar_alteracao")) {
+      result = await handleAgendaResponse(binding, message, binding.action);
     } else {
       await queryWithClient(
         client,
@@ -221,6 +227,7 @@ export async function handleApprovedTemplateButtonReply(
       `,
       [eventId, JSON.stringify(result)]
     );
+    return buildAgendaButtonReceipt(binding.template_key, binding.action, Number(binding.subject_id), result);
   } catch (error) {
     await queryWithClient(
       client,

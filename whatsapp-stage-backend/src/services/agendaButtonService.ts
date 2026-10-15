@@ -3,6 +3,7 @@ import { PoolClient } from "pg";
 import { queryWithClient } from "./dbService";
 import { WebhookMessage } from "../types/whatsapp";
 import { logger } from "../utils/logger";
+import { AgendaButtonReceipt, buildAgendaButtonReceipt } from "./agendaButtonReceipt";
 import {
   areEquivalentWhatsAppNumbers,
   canonicalWhatsAppIdentity
@@ -19,7 +20,7 @@ interface ReservationBinding {
 export async function handleAgendaButtonReply(
   client: PoolClient,
   message: WebhookMessage
-): Promise<void> {
+): Promise<AgendaButtonReceipt | undefined> {
   if (message.type !== "button" || !message.button?.payload || !message.id || !message.from) {
     return;
   }
@@ -121,4 +122,5 @@ export async function handleAgendaButtonReply(
     `,
     [eventId, JSON.stringify(response.data ?? {})]
   );
+  return buildAgendaButtonReceipt("reservation", binding.action, Number(binding.reservation_id), response.data);
 }

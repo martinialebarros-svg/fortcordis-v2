@@ -1,13 +1,14 @@
 # Spec - whatsapp-approved-template-catalog
 
-Data: 2026-08-16
+Data: 2026-10-15
 Responsavel: Martiniano + Codex
-Status: ready-for-release-user-confirmed-meta-approved
+Status: meta-approved-production-release-authorized
 
 ## 1) Requisitos funcionais
 
-- RF-001: o servico mantem um catalogo tipado com onze modelos aprovados na WABA Fort Cordis; o
-  oitavo modelo antigo continua apenas no historico anterior ao cutover.
+- RF-001: o servico mantem um catalogo tipado de modelos operacionais e uma nova variante
+  de lembrete com servico aprovada na WABA de producao. O modelo anterior
+  de quatro variaveis continua disponivel e preserva seu contrato.
 - RF-002: cada entrada registra chave interna, nome Meta, ID operacional, corpo e ordem dos botoes.
 - RF-003: o idioma de todos os modelos catalogados e `pt_BR`.
 - RF-004: o gerador de payload rejeita quantidade divergente de variaveis de corpo.
@@ -28,12 +29,13 @@ Status: ready-for-release-user-confirmed-meta-approved
 - RF-017: recibos PDF usam upload de midia e cabecalho de documento, sem persistir o binario no
   servico WhatsApp.
 
-## 2) Catalogo aprovado
+## 2) Contratos documentados nesta feature
 
 | Chave interna | Nome Meta | ID Meta | Variaveis | Respostas rapidas |
 | --- | --- | --- | ---: | ---: |
 | `reservation` | `reserva_de_agendamento` | `1850190569695780` | 5 | 2 |
 | `appointmentReminder` | `lembrete_de_agendamento` | `2196951517539589` | 4 | 2 |
+| `appointmentReminderService` | `lembrete_de_agendamento_servico_v2` | `1647759970059717` | 5 | 2 |
 | `appointmentChange` | `alteracao_de_agendamento` | `1325207582741137` | 4 | 2 |
 | `appointmentCancellation` | `cancelamento_de_agendamento` | `1072585772303343` | 4 | 2 |
 | `appointmentMissingData` | `dados_pendentes_agendamento` | `2094851784715594` | 4 | 2 |
@@ -54,7 +56,10 @@ Status: ready-for-release-user-confirmed-meta-approved
 - NFR-006 (idempotencia): reutilizar uma chave com o mesmo conteudo retorna o envio anterior; conteudo divergente ou entrega ambigua exige revisao operacional.
 - NFR-007 (destino): o usuario nao pode informar um telefone que nao esteja cadastrado no destinatario vinculado ao registro.
 - NFR-008 (observabilidade): mensagens enviadas sao persistidas na conversa e associadas ao tipo e ID do objeto de dominio.
-- NFR-009 (aprovacao): contratos com ID Meta pendente bloqueiam a publicacao do codigo que os utiliza.
+- NFR-009 (aprovacao): antes de ativar um novo contrato, exige-se aprovacao Meta
+  verificada na conta do ambiente. A variante com servico exige ID numerico e
+  `WHATSAPP_BUSINESS_ACCOUNT_ID=1369494994627980`; conta ausente/divergente
+  bloqueia antes de banco/provedor. A WABA de stage nao possui essa aprovacao.
 - NFR-010 (cutover): o modelo ativo de quatro variaveis nao e editado durante a aprovacao; o novo
   nome permite trocar o codigo sem interromper o snapshot atualmente publicado.
 
@@ -64,12 +69,13 @@ Status: ready-for-release-user-confirmed-meta-approved
 - envio automatico ao liberar laudo, emitir recibo ou detectar pendencia;
 - alteracao automatica de Agenda, Portal ou Financeiro pelas respostas dos sete novos modelos; as respostas continuam visiveis na caixa de entrada;
 - modelo de autenticacao, que continua indisponivel para esta WABA;
-- publicacao em producao.
+- publicacao de outras funcionalidades em producao; a variante de lembrete foi
+  autorizada para publicacao e ativacao em 15/10/2026.
 
 ## 5) Criterios de aceitacao
 
 - CA-001: TypeScript compila em modo estrito.
-- CA-002: teste cobre os onze contratos e o idioma `pt_BR`.
+- CA-002: teste cobre os contratos aprovados, a aprovacao por WABA e o idioma `pt_BR`.
 - CA-003: teste prova payload sem botao e payload com dois botoes.
 - CA-004: teste prova falha local para quantidade incorreta de variaveis.
 - CA-005: teste existente de `reserva_de_agendamento` continua passando.
@@ -80,3 +86,50 @@ Status: ready-for-release-user-confirmed-meta-approved
 - CA-010: validacoes Python, TypeScript, lint, build e SDD passam localmente.
 - CA-011: recibos PDF exigem cabecalho de documento, upload de midia, idempotencia e referencias de
   uma ou mais OS.
+
+## 6) Lembrete com servico — 2026-10-14
+
+- RF-SERV01: `appointmentReminderService` preserva destinatario, paciente, data e
+  hora nas quatro primeiras variaveis e acrescenta o nome completo do servico em
+  `{{5}}`. Os botoes sao `Confirmar presenca` e `Solicitar alteracao`, com as acoes
+  `confirmar_presenca` e `solicitar_alteracao`, respectivamente.
+- RF-SERV02: a fonte e `Agendamento.servico_id -> Servico.nome`, com fallback para
+  `Agendamento.servico` somente se o vinculo nao resolver ou o nome do catalogo
+  estiver vazio apos normalizar espacos. Combos permanecem
+  completos. Espacos sao normalizados; nome ausente ou acima de 300 caracteres
+  bloqueia o modelo, sem truncamento ou inferencia por observacao, OS ou laudo.
+- RF-SERV03: a previa pos-criacao da Agenda escolhe a variante e mostra o mesmo
+  texto/ordem de parametros do envio oficial. A interface usa `Modelo de mensagem`
+  e mantem o modelo anterior selecionavel. Servico ausente/invalido bloqueia
+  copiar, abrir WhatsApp e enviar essa variante, com aviso visivel no modal.
+- RF-SERV04: o nome na previa vem do servico selecionado no cadastro ou do
+  agendamento salvo com o mesmo `servico_id`; nunca reaproveita um servico anterior
+  depois de trocar a selecao.
+- RF-SERV05: `Solicitar alteracao` cria pendencia interna preservando servico,
+  status e horario; a equipe revisa qualquer inclusao de exame, consulta ou valor.
+- NFR-SERV01: enquanto o ID Meta estiver pendente/invalido ou a WABA nao for a aprovada, o envio da variante
+  retorna 409 antes de reservar entrega no banco ou chamar a Graph API. O envio
+  direto usa a mesma validacao. Contratos antigos permanecem inalterados.
+- NFR-SERV02: a automacao continua usando o modelo anterior enquanto
+  `WHATSAPP_REMINDER_SERVICE_TEMPLATE_ENABLED=false`. Ativacao depende de aprovacao
+  do novo modelo nos ambientes pertinentes e publicacao autorizada.
+- NFR-SERV03: o novo lembrete exige status `Agendado` ou `Confirmado`, inclusive
+  no envio manual. Com a flag ligada, preview e worker nao selecionam `Reservado`
+  e nao consomem tentativas desses registros; reservas pendentes seguem seu fluxo
+  proprio de confirmacao. Com a flag desligada o filtro legado e preservado.
+- CA-SERV01: testes comprovam combo completo, fallback, nome ausente/invalido,
+  precedencia de catalogo e preservacao das quatro variaveis legadas.
+- CA-SERV02: testes provam zero acesso ao banco e zero chamadas Graph para a
+  variante em WABA ausente/divergente; a conta aprovada valida o payload de cinco variaveis.
+- CA-SERV03: testes de UI comprovam previa completa, mudanca de servico, fallback
+  do registro salvo, estados compativeis e bloqueio visivel de nomes invalidos.
+
+Texto submetido em 14/10/2026 (Utility, `pt_BR`, exemplos sinteticos):
+
+> Olá, {{1}}. Lembramos que o atendimento de {{2}} está agendado para {{3}}, às {{4}}. Serviço agendado: {{5}}. Confira o serviço e o horário. Se precisar corrigir ou incluir outro serviço, toque em Solicitar alteração e envie o que deve ser ajustado.
+
+Submissao autorizada em 14/10/2026 na WABA de producao
+`1369494994627980`. Em 15/10/2026, o detalhe autenticado da Meta confirmou
+ID `1647759970059717`, categoria Utilidade, `pt_BR` e status
+`Ativo — Qualidade pendente`. O usuario autorizou publicar e ativar a variante.
+A aprovacao fica limitada a essa WABA; stage continua bloqueado.

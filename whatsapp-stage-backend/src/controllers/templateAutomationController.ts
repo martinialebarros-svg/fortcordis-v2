@@ -8,6 +8,7 @@ import {
 import {
   APPROVED_UTILITY_TEMPLATES,
   ApprovedUtilityTemplateKey,
+  assertTemplateDeliveryApproved,
   getTemplateBodyParameterCount,
   renderApprovedTemplateBody,
   templateRequiresDocumentHeader
@@ -38,6 +39,7 @@ interface UtilityTemplateRow {
 
 const SUBJECT_BY_TEMPLATE: Record<UtilityTemplateKey, SubjectType> = {
   appointmentReminder: "agendamento",
+  appointmentReminderService: "agendamento",
   appointmentChange: "agendamento",
   appointmentCancellation: "agendamento",
   appointmentMissingData: "agendamento",
@@ -278,6 +280,16 @@ export async function sendApprovedUtilityTemplate(req: Request, res: Response): 
     payload = parseRequest(req.body);
   } catch (error) {
     res.status(422).json({ error: error instanceof Error ? error.message : "invalid request" });
+    return;
+  }
+
+  try {
+    assertTemplateDeliveryApproved(payload.template_key);
+  } catch (error) {
+    res.status(409).json({
+      code: "WHATSAPP_TEMPLATE_APPROVAL_PENDING",
+      error: error instanceof Error ? error.message : "O lembrete com serviço aguarda aprovação da Meta."
+    });
     return;
   }
 
