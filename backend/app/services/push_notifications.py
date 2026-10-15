@@ -531,6 +531,7 @@ def send_web_push_payload(
 
 
 _WHATSAPP_RESERVA_RESPOSTA_TITULOS = {
+    "presenca_confirmada": "Presenca registrada pelo WhatsApp",
     "confirmado": "Reserva confirmada pelo WhatsApp",
     "ja_confirmado": "Reserva ja estava confirmada",
     "confirmacao_apos_prazo": "Confirmacao recebida apos o prazo",
@@ -541,12 +542,13 @@ _WHATSAPP_RESERVA_RESPOSTA_TITULOS = {
 }
 
 _WHATSAPP_RESERVA_RESPOSTA_CORPOS = {
+    "presenca_confirmada": "Cliente confirmou a presenca pelo lembrete; horario e status da agenda foram preservados.",
     "confirmado": "Reserva confirmada com sucesso pelo cliente via WhatsApp.",
     "ja_confirmado": "Cliente confirmou, mas a reserva ja estava confirmada.",
     "confirmacao_apos_prazo": "Cliente confirmou apos o prazo; o horario nao foi reativado automaticamente.",
     "confirmacao_dados_pendentes": "Cliente confirmou, mas paciente e tutor ainda precisam ser vinculados.",
     "revisao_manual": "Resposta recebida, mas o status atual do agendamento exige revisao manual.",
-    "alteracao_solicitada": "Cliente pediu alteracao do horario pelo WhatsApp.",
+    "alteracao_solicitada": "Cliente pediu alteracao do agendamento pelo WhatsApp; confira o servico e o horario solicitados.",
     "agendamento_nao_encontrado": "Resposta recebida para um agendamento que nao foi encontrado.",
 }
 

@@ -78,7 +78,7 @@ describe("WhatsAppStagePage", () => {
     })).toBe(false);
   });
 
-  const routerComEstadoDoBot = (estadoDoBot: Record<string, unknown> | null) =>
+  const routerComEstadoDoBot = (estadoDoBot: Record<string, unknown> | null, messages?: unknown[]) =>
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/whatsapp/quick-replies") return jsonResponse({ data: [] });
@@ -101,12 +101,12 @@ describe("WhatsAppStagePage", () => {
       if (url === "/whatsapp/agents") return jsonResponse({ data: [] });
       if (url.startsWith("/whatsapp/conversations/3926/messages?")) {
         return jsonResponse({
-          data: [{
+          data: messages ?? [{
             id: "1", conversation_id: "3926", wa_message_id: "wamid.test",
             from_me: false, body: "Oi", type: "text", status: "received",
             created_at: "2026-08-14T02:26:00.000Z",
           }],
-          pagination: { page: 1, limit: 50, total: 1 },
+          pagination: { page: 1, limit: 50, total: messages?.length ?? 1 },
           customer_service_window: {
             last_inbound_at: "2026-08-14T02:26:00.000Z",
             expires_at: "2026-08-15T02:26:00.000Z", is_open: true,
@@ -137,6 +137,44 @@ describe("WhatsAppStagePage", () => {
       await act(async () => { await Promise.resolve(); });
     }
   };
+
+  it.each([
+    [{ source: "appointmentReminder", action: "confirmar_presenca", result: "presenca_confirmada", status: "Agendado" }, "Presença registrada na agenda."],
+    [{ source: "reservation", action: "confirmar", result: "ja_confirmado", status: "Confirmado" }, "Reserva confirmada na agenda."],
+  ] as const)("mostra o resultado persistido da agenda abaixo do botão recebido: %j", async (receipt, label) => {
+    vi.stubGlobal("fetch", routerComEstadoDoBot(null, [{
+      id: "receipt-1", conversation_id: "3926", wa_message_id: "wamid.receipt",
+      from_me: false, body: "Confirmar", type: "button", status: "received",
+      created_at: "2026-08-14T02:26:00.000Z", metadata: { agenda_receipt: receipt },
+    }]));
+    await abrirConversa();
+    const badge = screen.getByText(label);
+    expect(badge).toHaveClass("fc-wa-bot-badge");
+    const bubble = badge.closest("article");
+    expect(bubble).toHaveClass("fc-wa-bubble-client");
+    expect(bubble?.querySelector("p")?.textContent).toBe("Confirmar");
+    expect(bubble?.querySelector("p")?.nextElementSibling).toBe(badge);
+    expect(bubble).not.toHaveTextContent("Realizado");
+  });
+
+  it("mantém botões sem prova da agenda e recibos inválidos como mensagens normais", async () => {
+    const button = {
+      conversation_id: "3926", from_me: false, body: "Confirmar", type: "button", status: "received",
+      created_at: "2026-08-14T02:26:00.000Z",
+    };
+    vi.stubGlobal("fetch", routerComEstadoDoBot(null, [
+      { ...button, id: "unknown", metadata: { button: { payload: "confirmar:1" } } },
+      { ...button, id: "missing-source", metadata: { agenda_receipt: { action: "confirmar", result: "confirmado", status: "Confirmado" } } },
+      { ...button, id: "wrong-source", metadata: { agenda_receipt: { source: "appointmentReminder", action: "confirmar", result: "confirmado", status: "Confirmado" } } },
+      { ...button, id: "failed", metadata: { agenda_receipt: { source: "reservation", action: "confirmar", result: "erro", status: "Confirmado" } } },
+      { ...button, id: "realizado", metadata: { agenda_receipt: { source: "appointmentReminder", action: "confirmar_presenca", result: "presenca_confirmada", status: "Realizado" } } },
+      { ...button, id: "sent", from_me: true, metadata: { agenda_receipt: { source: "reservation", action: "confirmar", result: "confirmado", status: "Confirmado" } } },
+    ]));
+    await abrirConversa();
+    expect(screen.getAllByText("Confirmar")).toHaveLength(6);
+    expect(screen.queryByText("Presença registrada na agenda.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reserva confirmada na agenda.")).not.toBeInTheDocument();
+  });
 
   it("mostra solicitação conferida sem apresentar agendamento confirmado", async () => {
     vi.stubGlobal("fetch", routerComEstadoDoBot({

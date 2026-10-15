@@ -2437,3 +2437,49 @@ Configuração e build Node aprovados. Cinco testes do diagnóstico agora cobrem
 redação, estado seguro dos serviços e bloqueio de uma instalação remota ativa;
 YAML e injeção de pool exclusivamente stage verificados. A próxima execução deve
 comprovar estado inicial estável, cincowebhooks200, canário e deployterminal.
+
+## Confirmações de agenda — revisão e implementação local 2026-10-14
+
+Observado em produção, por leitura da central: a conversa teste #49 e uma
+conversa de clínica receberam o botão “Confirmar presença” e depois mostraram
+handoff/tipo_nao_suportado com pausa. A auditoria de código confirmou que
+appointmentReminder/confirmar_presenca era ignorado pelo handler de templates
+aprovados, enquanto o callback do bot era disparado para qualquer botão.
+
+Implementado e coberto em `test_whatsapp_bot_agenda_receipts.py`: classificação
+por recibo persistido e remetente equivalente, pares positivos exatos, revisão
+manual/vencimento/dados pendentes sem silêncio, JSON inválido, ausência de
+recibo, não supersede de texto pendente, job legado sem pausa/alerta/LLM/envio,
+replay idempotente e reconciliação sem reenfileirar confirmações tratadas.
+
+A leitura não demonstra confirmação histórica dos cliques ignorados e não
+autoriza reprocessá-los. Pausas antigas não são removidas. Sem publicação,
+migração, mudança de credenciais ou envio externo nesta entrega.
+
+Backlog observado por reproduções sintéticas independentes, sem alteração neste
+incremento: saudação + comando exato agrupados podem neutralizar sim/opção/
+confirmo os dados; referências explícitas a pedido diferente podem ser associadas
+ao último pedido da clínica. São próximos escopos, não comportamentos corrigidos
+por esta mudança.
+### Resultado final da validação local
+
+- Backend completo: 1.775 testes e 607 subtestes aprovados; 25 testes
+  ignorados pelas dependências/opt-ins de ambiente. Suíte WhatsApp: 536
+  testes e 340 subtestes aprovados, 10 skips de ambiente.
+- Frontend completo: 661 testes Vitest em 85 arquivos e 9 testes Node
+  aprovados. Lint completo e build Next.js/TypeScript aprovados.
+- Node: build e compilação do teste aprovados. Contratos de fila em
+  PostgreSQL 16 descartável com webhooks assinados, reentrega, recibos
+  positivos, respostas incorretas, erro de callback, desconhecidos, revisão
+  humana e perguntas anteriores/posteriores aprovados. Regressão de
+  formalização/equipe aprovada; servidor descartável encerrado.
+- Revisão independente sem bloqueadores; sete testes de recibo/fila/worker
+  reconferidos. Guardrail SDD com diff e arquivos novos e diff-check aprovados.
+- Base origin/stage ab0481ce, branch codex/whatsapp-continuidade-20261014
+  no worktree whatsapp-triagem. Código e dados de produção preservados;
+  melhoria ainda não publicada. Nenhum envio real ou chamada de IA paga.
+
+Logs: /tmp/fortcordis-bot-presence-backend-full.log,
+/tmp/fortcordis-bot-presence-whatsapp-tests.log,
+/tmp/fortcordis-bot-presence-frontend-tests.log,
+/tmp/fortcordis-bot-presence-lint.log e /tmp/fortcordis-bot-presence-build.log.

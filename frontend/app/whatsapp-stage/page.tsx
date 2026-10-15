@@ -22,6 +22,7 @@ import {
   shouldOfferMessageResend,
 } from "@/lib/whatsapp-message-retry";
 import { useWhatsAppDrafts } from "@/lib/use-whatsapp-drafts";
+import { agendaReceiptLabel } from "@/lib/whatsapp-agenda-receipt";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import QuickReplyLibrary from "@/components/whatsapp/QuickReplyLibrary";
 
@@ -1421,10 +1422,12 @@ export default function WhatsAppStagePage() {
               <div className="fc-wa-empty">Carregando mensagens...</div> : messages.length === 0 ? <div className="fc-wa-empty"><MessageSquare className="h-8 w-8" /><strong>A conversa ainda não tem mensagens</strong></div> :
               <div className="space-y-3">{messages.map((message, index) => {
                 const previous = messages[index - 1]; const showDay = !previous || new Date(previous.created_at).toDateString() !== new Date(message.created_at).toDateString();
+                const receiptLabel = agendaReceiptLabel(message);
                 return <Fragment key={message.id}>{showDay ? <div className="fc-wa-day-separator"><span>{formatMessageDay(message.created_at)}</span></div> : null}
                   <article className={`fc-wa-bubble ${message.from_me ? "fc-wa-bubble-agent" : "fc-wa-bubble-client"}`}>
                     {isBotAssistedMessage(message) ? <span className="fc-wa-bot-badge"><Sparkles className="h-3 w-3" /> Rascunho do bot aprovado</span> : null}
                     <p>{message.body || `[${message.type}]`}</p>
+                    {receiptLabel ? <span className="fc-wa-bot-badge mt-1.5"><Check className="h-3 w-3" /> {receiptLabel}</span> : null}
                     {selectedConversationId ? <WhatsAppMediaViewer conversationId={selectedConversationId} message={message} /> : null}
                     <footer><time>{formatMessageTime(message.created_at)}</time><span className={`fc-wa-delivery fc-wa-delivery-${message.status}`}>{messageStatusIcon(message.status)} {messageStatusLabel(message.status)}</span>
                       {shouldOfferMessageResend(message) ? <button type="button" className="fc-wa-resend-button"

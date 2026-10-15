@@ -7,6 +7,7 @@ import {
   APPROVED_TEMPLATE_LANGUAGE,
   APPROVED_UTILITY_TEMPLATES,
   ApprovedUtilityTemplateKey,
+  assertTemplateDeliveryApproved,
   getTemplateBodyParameterCount,
   templateRequiresDocumentHeader
 } from "../templates/approvedTemplates";
@@ -328,6 +329,7 @@ export async function sendWhatsAppApprovedUtilityTemplateWithRetry(
       `Template '${definition.name}' expects ${expectedQuickReplies} quick reply payloads, received ${params.quickReplyPayloads.length}`
     );
   }
+  assertTemplateDeliveryApproved(params.templateKey);
 
   const requiresDocument = templateRequiresDocumentHeader(params.templateKey);
   if (requiresDocument && !params.documentHeader) {

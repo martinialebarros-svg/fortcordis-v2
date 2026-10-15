@@ -82,3 +82,10 @@ nenhum comportamento de aplicação.
 - [ ] Aprovado para produção (depende do deploy reexecutar com sucesso
   após este commit).
 - [ ] Não aprovado.
+
+## Presença pelo lembrete — validação local 2026-10-14
+
+Teste de presença valida título/corpo do push administrativo sem afirmar reserva
+confirmada ou atendimento realizado. Preferências e caminhos anteriores não são
+alterados; TestClient cobre notificação de agenda somente uma vez por
+provider_message_id. Os envios de notificação são simulados.
