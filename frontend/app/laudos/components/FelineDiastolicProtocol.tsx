@@ -19,8 +19,8 @@ export function FelineDiastolicProtocol({ especie, medidas, onMedidaChange }: Pr
     const number = Number(String(value).replace(",", "."));
     return Number.isFinite(number) && number > 0;
   }).map(([key]) => canonicalFelineDiastolicKey(key));
-  const hasFlow = present.some((key) => FLOW_KEYS.has(key));
-  const hasTissue = present.some((key) => TISSUE_KEYS.has(key));
+  const hasFlow = present.some((key) => FLOW_KEYS.has(key)) || Boolean(medidas.Diastolica_ondas);
+  const hasTissue = present.some((key) => TISSUE_KEYS.has(key)) || Boolean(medidas.TDI_ondas);
   if (!hasFlow && !hasTissue) return null;
   const select = (key: string, label: string, children: ReactNode) => (
     <div className="min-w-0">

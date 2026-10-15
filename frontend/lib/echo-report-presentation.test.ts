@@ -26,10 +26,35 @@ describe("prévia de ecocardiograma", () => {
   it.each(["fundidas", ""])("mantém o motivo e não atribui publicação a ondas %s", (waves) => {
     const rows = buildEchoReportGroups({ Onda_E: "1.08", Diastolica_ondas: waves }, null, new Set(), undefined, "Felina")
       .flatMap((group) => group.rows);
-    expect(rows[0]).toMatchObject({ value: "1.08 m/s", referenceMetadata: {
+    expect(rows[0]).toMatchObject({ value: waves ? "Não mensurável" : "1.08 m/s", referenceMetadata: {
       source: "", doi: "", statistic: "", kind: waves ? "uninterpretable" : "unconfirmed",
       note: expect.stringMatching(waves ? /não são separadamente mensuráveis/ : /Confirme/),
     } });
+  });
+
+  it("não apresenta números inválidos como resultados mesmo após limpar as origens", () => {
+    const raw = { Onda_E: "0", Onda_A: "0", E_A: "1.14", E_TRIV: "2.7", E_E_linha: "6.95",
+      TRIV: "40", e_doppler: "0.16", Diastolica_ondas: "fundidas", TDI_ondas: "separadas",
+      TDI_metodo: "felino_pw_anel_lateral" };
+    const rows = buildEchoReportGroups(raw, null, new Set(), undefined, "Gato").flatMap((group) => group.rows);
+    const blocked = ["Onda_E", "Onda_A", "E_A", "TD", "E_TRIV", "E_E_linha"];
+    for (const key of blocked) expect(rows.find((row) => row.key === key)).toMatchObject({ value: "Não mensurável", reference: "Ondas E/A fundidas" });
+    expect(rows.find((row) => row.key === "TRIV")?.value).toBe("40.00 ms");
+    expect(rows.find((row) => row.key === "e_doppler")?.value).toBe("0.16 m/s");
+    expect(raw.E_A).toBe("1.14");
+    const cleared = buildEchoReportGroups({ Diastolica_ondas: "fundidas" }, null, new Set(), undefined, "Cat");
+    expect(cleared.flatMap((group) => group.rows)).toHaveLength(6);
+    expect(cleared.flatMap((group) => group.rows).every((row) => row.value === "Não mensurável")).toBe(true);
+  });
+
+  it("fusão tecidual oculta apenas e', a', e'/a' e E/e'", () => {
+    const raw = { Onda_E: "1.08", Onda_A: "0.95", E_A: "1.14", TRIV: "40", E_TRIV: "2.7",
+      e_doppler: "0.16", a_doppler: "0.06", doppler_tecidual_relacao: "2.67", E_E_linha: "6.75",
+      Diastolica_ondas: "separadas", TDI_ondas: "fundidas" };
+    const rows = buildEchoReportGroups(raw, null, new Set(), undefined, "Cat").flatMap((group) => group.rows);
+    for (const key of ["e_doppler", "a_doppler", "doppler_tecidual_relacao", "E_E_linha"]) expect(rows.find((row) => row.key === key)?.value).toBe("Não mensurável");
+    expect(rows.find((row) => row.key === "Onda_E")?.value).toBe("1.08 m/s");
+    expect(rows.find((row) => row.key === "E_A")?.value).toBe("1.14");
   });
 
   it("mantém a confirmação histórica de TRIV sem pressupor confirmação apical para o Doppler transmitral", () => {
@@ -48,12 +73,12 @@ describe("prévia de ecocardiograma", () => {
     expect(row).toEqual({ key: "DIVEd", label: "DIVEd · diâmetro interno do VE em diástole", value: "30.00 mm", reference: "20.00–40.00 mm" });
     const ambiguous = buildEchoReportGroups({ Onda_E: "1.08", Diastolica_ondas: "fundidas" }, null, new Set(["Onda_E"]), undefined, "Gato")
       .flatMap((group) => group.rows)[0];
-    expect(ambiguous.reference).toBe("—");
-    expect(ambiguous).not.toHaveProperty("referenceMetadata");
+    expect(ambiguous.value).toBe("Não mensurável");
+    expect(ambiguous.referenceMetadata?.kind).toBe("uninterpretable");
   });
 
   it.each(["Gato", "Cat", "felino", " Felina "])
-    ("preserva valores e exibe fusão independente para o alias %s", (species) => {
+    ("preserva registro bruto e oculta números de fusão para o alias %s", (species) => {
       const raw = { Onda_E: "1.08", E_A: "1.13", TRIV: "40", e_doppler: "0.16", E_E_linha: "6.95",
         Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "fundidas",
         TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas", DIVEd_normalizado: "0.9",
@@ -64,9 +89,9 @@ describe("prévia de ecocardiograma", () => {
       expect(measurements).not.toHaveProperty("DIVEd_normalizado");
       const reference = { id: 1, especie: species, peso_kg: 5.5, mv_e_min: 0.5, mv_e_max: 1.5 } as ReferenciaEco;
       const rows = buildEchoReportGroups(measurements, reference, new Set(), 5.6, species).flatMap((group) => group.rows);
-      expect(rows.find((row) => row.key === "Onda_E")).toMatchObject({ value: "1.08 m/s", reference: "Ondas E/A fundidas" });
+      expect(rows.find((row) => row.key === "Onda_E")).toMatchObject({ value: "Não mensurável", reference: "Ondas E/A fundidas" });
       expect(rows.find((row) => row.key === "e_doppler")?.reference).toBe("0,11 ± 0,03 m/s");
-      expect(rows.find((row) => row.key === "E_E_linha")).toMatchObject({ value: "6.95", reference: "Ondas E/A fundidas" });
+      expect(rows.find((row) => row.key === "E_E_linha")).toMatchObject({ value: "Não mensurável", reference: "Ondas E/A fundidas" });
       expect(raw).toEqual(before);
     });
 
@@ -75,7 +100,7 @@ describe("prévia de ecocardiograma", () => {
       Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "fundidas", TDI_metodo: "felino_pw_anel_lateral", TDI_ondas: "separadas" };
     const groups = buildEchoReportGroups(measurements, null, new Set(), undefined, "Felina");
     const rows = groups.flatMap((group) => group.rows);
-    expect(rows.find((row) => row.key === "Onda_E")).toMatchObject({ value: "1.08 m/s", reference: "Ondas E/A fundidas" });
+    expect(rows.find((row) => row.key === "Onda_E")).toMatchObject({ value: "Não mensurável", reference: "Ondas E/A fundidas" });
     expect(rows.find((row) => row.key === "e_doppler")).toMatchObject({ value: "0.16 m/s", reference: "0,11 ± 0,03 m/s" });
     expect(rows.find((row) => row.key === "TRIV")?.reference).toBe("46,2 ± 7,6 ms");
     expect(rows.find((row) => row.key === "E_E_linha")?.reference).toBe("Ondas E/A fundidas");
