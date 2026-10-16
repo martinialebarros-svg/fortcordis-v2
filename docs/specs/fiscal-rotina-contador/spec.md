@@ -32,7 +32,11 @@
 4. Andamento manual linear, auditável e idempotente, com CAS sob concorrência; independência entre OS e arquivo imutável.
 5. Migração aditiva repetível e RLS/revogações comprovadas; nenhuma alteração em NotaFiscal, pagamento ou mensageria.
 6. Interface padrão semanal, prioridade por serviço, preferências e histórico por OS conferidos; mudança de contexto descarta respostas antigas e exige nova conferência.
-7. Stage publicado com CI/deploy terminais, SHA instalado, canário sintético limpo e smoke autenticado/HTTP/bundles aprovados. Produção não é alterada por este trabalho.
+7. Stage publicado com CI/deploy terminais, SHA instalado, canário sintético transitório limpo e smoke autenticado/HTTP/bundles aprovados. As demonstrações mantidas por solicitação do usuário pertencem somente ao banco de stage.
+
+## Publicação autorizada
+
+Em 15/10/2026, o usuário autorizou a promoção para produção com sexta-feira às 18h de Fortaleza e Vet Fauna por serviço. Publicar somente aplicação/migração pelo fluxo `stage -> main`; não copiar cadastros, OS, preferências de teste ou pacotes do banco de stage. A preferência da clínica real será conferida/configurada no próprio cadastro de produção, sem alterar seus dados fiscais. Não emitir notas, enviar informações ao contador, gerar pacotes reais ou registrar etapas históricas como parte da publicação.
 
 ## Rollback
 
