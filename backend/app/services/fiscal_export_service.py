@@ -261,6 +261,9 @@ def _pacote_xlsx(servicos: list[dict], resumo: list[dict], pendencias: list[dict
         ["Conferência", "A competência segue a data de prestação conferida da OS, independentemente do recebimento."],
         ["Tributos", "ISS e demais enquadramentos devem ser conferidos pelo contador."],
     ]
+    if manifesto.get("rotina"):
+        metadata.extend([["Modo de preparação", manifesto["rotina"]["modo"]],
+                         ["Corte da rotina (Fortaleza)", manifesto["rotina"].get("corte_em") or "Por serviço"]])
     for row in metadata:
         ws.append(row)
     for row in ws:
@@ -309,6 +312,9 @@ def _pacote_pdf(servicos: list[dict], resumo: list[dict], pendencias: list[dict]
                 p(f"Competência de prestação: {manifesto['competencia']} | Lote: {manifesto['lote_id']}"),
                 p(f"Gerado em: {manifesto['gerado_em']} (horário de Fortaleza)"),
                 p("Relatório informativo de conferência. Não é nota fiscal e não comprova envio ou emissão.")]
+    if manifesto.get("rotina"):
+        rotina = manifesto["rotina"]
+        elements.append(p(f"Preparação: {rotina['modo']} | Corte: {rotina.get('corte_em') or 'Por serviço'} | Fortaleza | Confirmação manual"))
     prestador = manifesto["prestador"]
     elements.append(Paragraph("Prestador", heading))
     fields = [("Nome", prestador["nome"]), ("CNPJ/IE cadastrado", prestador["cnpj_ie_cadastrado"]),
@@ -354,6 +360,7 @@ def _pacote_pdf(servicos: list[dict], resumo: list[dict], pendencias: list[dict]
 def gerar_pacote_contador(
     os_items: list[dict[str, Any]], db_session, *, competencia: str, lote_id: str,
     pendencias: Optional[list[dict]] = None, dados_tomador: Optional[dict[str, Any]] = None,
+    contexto_rotina: Optional[dict[str, Any]] = None,
 ) -> tuple[bytes, str]:
     """Prepara informações para contador; não emite nota nem realiza envio.
 
@@ -382,10 +389,17 @@ def gerar_pacote_contador(
         ],
         "observacao": "Relatório informativo. Não comprova envio ao contador ou emissão de nota fiscal.",
     }
+    if contexto_rotina is not None:
+        manifesto["rotina"] = {
+            "modo": contexto_rotina["modo"], "data_corte": contexto_rotina.get("data_corte"),
+            "corte_em": contexto_rotina.get("corte_em"), "timezone": "America/Fortaleza", "automatico": False,
+        }
     texto = [f"Informações para emissão pelo contador - competência de prestação {competencia}",
              f"Prestador: {manifesto['prestador']['nome']}", f"Lote: {lote_id}",
              f"Gerado em: {manifesto['gerado_em']}", "",
              "Seguem os serviços conferidos por data de prestação, independentemente do recebimento."]
+    if contexto_rotina is not None:
+        texto += [f"Preparação: {manifesto['rotina']['modo']} | Corte: {manifesto['rotina']['corte_em'] or 'Por serviço'} | Fortaleza | Ação manual"]
     for group in resumo:
         texto += ["", f"Tomador: {group['cliente_nome']} | CPF/CNPJ: {group['cliente_documento']}",
                   f"Competência: {competencia} | {group['quantidade_os']} OS",

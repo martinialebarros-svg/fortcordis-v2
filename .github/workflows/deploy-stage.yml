@@ -104,6 +104,7 @@ jobs:
           psql postgresql://postgres:postgres@127.0.0.1:5432/postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE fiscal_test'
           psql postgresql://postgres:postgres@127.0.0.1:5432/fiscal_test -v ON_ERROR_STOP=1 -c 'CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN;'
           python -m unittest discover -s backend/tests -p 'test_fiscal_fechamento_competencia.py'
+          python -m unittest discover -s backend/tests -p 'test_fiscal_rotina_postgres.py'
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -121,6 +122,10 @@ jobs:
       - name: Test Financeiro batch receipt interface
         working-directory: frontend
         run: npx vitest run app/financeiro/page.test.tsx
+
+      - name: Test manual fiscal routines and package regressions
+        working-directory: frontend
+        run: npx vitest run app/fiscal/components/FechamentoCompetenciaPage.test.tsx app/fiscal/components/RotinaFiscalPage.test.tsx lib/fiscal-fechamento.test.ts lib/fiscal-rotina.test.ts
 
       - name: Run frontend lint
         working-directory: frontend
@@ -684,3 +689,13 @@ jobs:
             ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
               ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
               'backend_user="$(systemctl show fortcordis-stage-backend --property=User --value)"; exec sudo -S -p "" -u "${backend_user:-root}" /var/www/fortcordis-stage/backend/venv/bin/python /var/www/fortcordis-stage/scripts/fiscal_fechamento_stage_canary.py'
+
+      - name: Verify manual fiscal routine with isolated Stage fixtures
+        if: contains(github.event.head_commit.message, '[fiscal-rotina-canary]')
+        env:
+          VPS_SUDO_PASSWORD: ${{ secrets.VPS_SUDO_PASSWORD }}
+        run: |
+          printf '%s\n' "$VPS_SUDO_PASSWORD" | \
+            ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+              'backend_user="$(systemctl show fortcordis-stage-backend --property=User --value)"; exec sudo -S -p "" -u "${backend_user:-root}" /var/www/fortcordis-stage/backend/venv/bin/python /var/www/fortcordis-stage/scripts/fiscal_rotina_stage_canary.py'
