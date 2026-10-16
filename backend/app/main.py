@@ -313,7 +313,10 @@ async def enforce_csrf_for_cookie_session(request: Request, call_next):
         return _append_security_headers(request.url.path, response)
 
     path = request.url.path
-    has_session_cookie = bool(request.cookies.get(settings.AUTH_COOKIE_NAME))
+    has_session_cookie = bool(
+        request.cookies.get(settings.AUTH_COOKIE_NAME)
+        or request.cookies.get(settings.SUPABASE_REFRESH_COOKIE_NAME)
+    )
     if not should_protect_request(path, request.method, has_session_cookie):
         response = await call_next(request)
         return _append_security_headers(path, response)

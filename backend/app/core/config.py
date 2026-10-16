@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION: bool = True
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 720
+    AUTH_PROVIDER: Literal["local", "supabase"] = "local"
+    SUPABASE_URL: str = ""
+    SUPABASE_PUBLISHABLE_KEY: str = ""
+    SUPABASE_AUTH_TIMEOUT_SECONDS: int = Field(default=10, ge=1, le=30)
+    SUPABASE_REFRESH_COOKIE_NAME: str = "fortcordis_supabase_refresh"
+    SUPABASE_ACCESS_COOKIE_NAME: str = "fortcordis_supabase_access"
+    SUPABASE_REFRESH_MAX_AGE_SECONDS: int = Field(default=2592000, ge=60)
     AUTH_COOKIE_NAME: str = "fortcordis_session"
     AUTH_COOKIE_PATH: str = "/"
     AUTH_COOKIE_SAMESITE: str = "lax"

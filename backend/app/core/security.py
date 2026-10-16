@@ -146,6 +146,13 @@ def _decode_token_and_load_user(db: Session, token: str) -> User:
     user = db.query(User).filter(User.email == email).first()
     if user is None:
         raise JWTError("usuario nao encontrado")
+    if settings.AUTH_PROVIDER == "supabase":
+        if (
+            payload.get("auth_provider") != "supabase"
+            or not user.supabase_auth_id
+            or payload.get("supabase_user_id") != user.supabase_auth_id
+        ):
+            raise JWTError("sessao nao vinculada ao Supabase")
     return user
 
 
