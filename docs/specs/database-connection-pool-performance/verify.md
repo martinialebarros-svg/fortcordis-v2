@@ -44,3 +44,75 @@ pool ainda depende da PERF-17.
   cinco amostras, p50 86,41 ms, p95 115,16 ms (limite 1200 ms), release16dfb369.
 - Quatro testes de configuracao do pool passaram. A suite backend sobre a
   integracao em stage72327f com a feature passou: 1896 testes, 44 skips.
+
+## Incidente de busca de horarios — 2026-10-15
+
+### Observado em producao (somente leitura)
+
+- SHA instalado `01b13fb62950db1efca3f8fea673d906be529784`, backend ativo.
+- Logs de 15/10, 21h30–21h33 (America/Fortaleza), mostram repetidos HTTP 500
+  em `POST /api/v1/agenda/assistente/ofertas` e na busca de tutores por
+  `QueuePool limit of size 3 overflow 0 reached`, timeout de 15 segundos.
+- O traceback de ofertas termina em `_listar_bloqueios_ativos`, na
+  introspeccao `inspect(db.bind)`. Esse caminho solicita uma segunda conexao
+  enquanto a sessao da requisicao ja ocupa uma.
+- O SSE usa autenticacao com sessao de banco e resposta continua. Na versao
+  fixada FastAPI 0.104.1, o encerramento da dependencia ocorre depois do fim
+  da resposta; uma aba conectada pode reter a conexao de autenticacao.
+
+### Regressao local
+
+- `test_agenda_connection_pool.py`: antes da correcao, tres testes produziram
+  quatro erros de timeout com pool de uma conexao e overflow zero; depois,
+  passaram. Cobrem tabela ausente/cache, bloqueios ativos, rollback de dados
+  pendentes e preservacao dos HTTP 409 nas transicoes de atendimento vinculado.
+- `test_tutor_schema_pool.py`: os tres cenarios (tabela ausente, schema legado
+  e schema atual) falharam antes com timeout e passaram apos reutilizar a
+  conexao. A suite de tutores totalizou 17 testes aprovados.
+- A suite focada de Agenda/pool/schema/primeira saida/preferencias/orquestrador
+  totalizou 92 testes aprovados.
+- `test_agenda_stream_connection_pool.py`: FastAPI 0.104.1 real, JWT e matriz
+  de permissao preservados. Antes, o stream ativo ocupava a unica conexao;
+  depois, ocupa zero e permite outra consulta autenticada HTTP 200. Tres
+  testes aprovados cobrem eventos, desconexao durante `connected`, descarte
+  de subscribers e respostas 401/403. A revisao independente reexecutou os
+  cenarios SSE/tutores sem encontrar problemas pendentes.
+- Os sete novos testes de regressao passaram juntos; `git diff --check` e
+  o guardrail SDD sobre arquivos alterados/novos tambem passaram.
+- Suite geral final: `python -m unittest discover -s backend/tests -p
+  'test_*.py'` executou 1.861 testes em 85,623 s, com 1.832 aprovados e 29
+  ignorados, sem falhas. Ambiente local com `DATABASE_URL=sqlite:///:memory:`
+  e papel de processo `api`.
+- Integracao para publicacao sobre `origin/stage` `12a7c422`: 1.903 testes
+  backend executados, 1.859 aprovados e 44 ignorados, sem falhas (81,023 s).
+  Lint frontend, TypeScript e guardrail SDD aprovados no mesmo snapshot.
+
+### Publicacao e validacao em stage — 2026-10-15
+
+- PR #377 integrado em `88b588013c1d09c99e143c9e3aa2f1bb5682154a`.
+  Deploy Stage `38831411638`, Frontend CI `38831411567` e Migration CI
+  `38831411616` terminaram com sucesso; SHA instalado conferido na VPS.
+- Os seis arquivos de runtime foram preservados/restaurados. Readiness,
+  runtime gate, backup/restore drill e canario autenticado passaram
+  (5/5 amostras, p95 223,33 ms).
+- Rota `/agenda` HTTP 200 no dominio canonico e nos dois aliases stage;
+  `/api/v1/agenda` sem credencial respondeu 401.
+- Com 11 canais SSE simultaneos (capacidade do pool stage 5+5), duas buscas
+  sem preferencia retornaram HTTP 200 e duas ofertas para 16/10/2026:
+  08h30–09h00 e 09h00–09h30. Latencias: 7.189 ms e 2.690,4 ms.
+  Preferencia explicita 08h–17h retornou as duas ofertas em 403,3 ms.
+- Busca de tutores e listagem da agenda tambem responderam 200. Todos os
+  11 streams permaneceram vivos durante as consultas e foram fechados.
+  Nenhuma rota de criar/salvar agendamento foi chamada; a quantidade de
+  agendamentos permaneceu igual antes e depois.
+- Validacao realizada pela API autenticada usada pelo modal. A publicacao
+  em producao isola estes sete arquivos pela rota de hotfix do runbook,
+  pois stage tambem contem a rotina fiscal fora do escopo deste incidente.
+
+### Limite da evidencia
+
+- Reproducao usa banco SQLite efemero e QueuePool limitado; nao mede latencia
+  nem concorrencia do PostgreSQL em producao.
+- A publicacao e o smoke de producao devem verificar simultaneamente SSE
+  aberto e consultas autenticadas, alem do canario existente. Os resultados
+  de stage acima nao constituem evidencia de funcionamento em producao.
