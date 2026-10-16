@@ -43,7 +43,9 @@
 
 ## Promoção autorizada para produção
 
-O usuário autorizou a publicação em 15/10/2026, mantendo sexta-feira às 18h e Vet Fauna por serviço, sem dados fictícios, emissão de notas ou envio automático. A promoção deve ocorrer por PR direto `stage -> main`, sem exceção documental ou alteração de dados de stage. A migração 98 contém somente DDL, índices, constraints, RLS e revogações; não contém seed ou cópia de registros.
+O usuário autorizou a publicação em 15/10/2026 e a retomou em 16/10, mantendo sexta-feira às 18h e Vet Fauna por serviço, sem dados fictícios, emissão de notas ou envio automático. A migração 98 contém somente DDL, índices, constraints, RLS e revogações; não contém seed ou cópia de registros.
+
+O PR documental #381 foi integrado a stage `43c81a7c` após quatro checks aprovados. A promoção padrão #383 foi convertida para draft quando stage avançou para `74784bce` com o incremento clínico #382, expressamente limitado a stage. Para preservar o escopo fiscal autorizado, a publicação foi recortada do snapshot `43c81a7c`, que contém main `43269428` como ancestral e difere dele em somente 22 arquivos fiscais. A PR isolada usa o escape explícito `hotfix` com todos os gates, sem `promocao-com-pendencia`. Não há reset de stage, cópia de banco ou publicação do incremento clínico; a ancestralidade e os documentos serão reintegrados preservando o stage atual.
 
 A preferência efetiva da Vet Fauna será conferida no cadastro existente de produção. Se necessário, uma preferência explícita `por_servico` com pagamento dependente de NF poderá ser salva na clínica identificada de forma única, com CAS e auditoria. Essa configuração não preenche CNPJ/endereço, não prepara pacote real, não avança andamentos e não cria nota fiscal.
 

@@ -36,7 +36,9 @@
 
 ## Publicação autorizada
 
-Em 15/10/2026, o usuário autorizou a promoção para produção com sexta-feira às 18h de Fortaleza e Vet Fauna por serviço. Publicar somente aplicação/migração pelo fluxo `stage -> main`; não copiar cadastros, OS, preferências de teste ou pacotes do banco de stage. A preferência da clínica real será conferida/configurada no próprio cadastro de produção, sem alterar seus dados fiscais. Não emitir notas, enviar informações ao contador, gerar pacotes reais ou registrar etapas históricas como parte da publicação.
+Em 15/10/2026, com retomada autorizada em 16/10, o usuário autorizou a promoção para produção com sexta-feira às 18h de Fortaleza e Vet Fauna por serviço. Publicar somente aplicação/migração já validada em stage por PR protegida; não copiar cadastros, OS, preferências de teste ou pacotes do banco de stage. A preferência da clínica real será conferida/configurada no próprio cadastro de produção, sem alterar seus dados fiscais. Não emitir notas, enviar informações ao contador, gerar pacotes reais ou registrar etapas históricas como parte da publicação.
+
+Na retomada, a promoção padrão `stage -> main` foi preparada, mas stage recebeu em paralelo um incremento clínico autorizado apenas para stage. O recorte desta publicação usa o snapshot fiscal `43c81a7c` em PR isolada com o escape explícito `hotfix`, preservando todos os gates e sem exceção de critérios pendentes. A alteração clínica permanece em stage; a ancestralidade e a documentação da publicação serão reintegradas a stage após o merge, sem revertê-la.
 
 ## Rollback
 
