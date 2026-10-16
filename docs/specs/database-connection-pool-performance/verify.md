@@ -87,11 +87,32 @@ pool ainda depende da PERF-17.
   backend executados, 1.859 aprovados e 44 ignorados, sem falhas (81,023 s).
   Lint frontend, TypeScript e guardrail SDD aprovados no mesmo snapshot.
 
+### Publicacao e validacao em stage — 2026-10-15
+
+- PR #377 integrado em `88b588013c1d09c99e143c9e3aa2f1bb5682154a`.
+  Deploy Stage `38831411638`, Frontend CI `38831411567` e Migration CI
+  `38831411616` terminaram com sucesso; SHA instalado conferido na VPS.
+- Os seis arquivos de runtime foram preservados/restaurados. Readiness,
+  runtime gate, backup/restore drill e canario autenticado passaram
+  (5/5 amostras, p95 223,33 ms).
+- Rota `/agenda` HTTP 200 no dominio canonico e nos dois aliases stage;
+  `/api/v1/agenda` sem credencial respondeu 401.
+- Com 11 canais SSE simultaneos (capacidade do pool stage 5+5), duas buscas
+  sem preferencia retornaram HTTP 200 e duas ofertas para 16/10/2026:
+  08h30–09h00 e 09h00–09h30. Latencias: 7.189 ms e 2.690,4 ms.
+  Preferencia explicita 08h–17h retornou as duas ofertas em 403,3 ms.
+- Busca de tutores e listagem da agenda tambem responderam 200. Todos os
+  11 streams permaneceram vivos durante as consultas e foram fechados.
+  Nenhuma rota de criar/salvar agendamento foi chamada; a quantidade de
+  agendamentos permaneceu igual antes e depois.
+- Validacao realizada pela API autenticada usada pelo modal. A publicacao
+  em producao isola estes sete arquivos pela rota de hotfix do runbook,
+  pois stage tambem contem a rotina fiscal fora do escopo deste incidente.
+
 ### Limite da evidencia
 
 - Reproducao usa banco SQLite efemero e QueuePool limitado; nao mede latencia
   nem concorrencia do PostgreSQL em producao.
-- Publicacao e smoke de stage/producao ainda nao executados para esta
-  correcao. O deploy deve verificar simultaneamente SSE aberto e consultas
-  autenticadas, alem do canario existente, antes de considerar resolvido o
-  incidente no ambiente real.
+- A publicacao e o smoke de producao devem verificar simultaneamente SSE
+  aberto e consultas autenticadas, alem do canario existente. Os resultados
+  de stage acima nao constituem evidencia de funcionamento em producao.
