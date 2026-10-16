@@ -744,7 +744,7 @@ export default function NovoLaudoPage() {
       : clinicaNome;
     const ecoEstruturadoPayload =
       serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado);
-    const legadoEco = ecoEstruturadoPayload
+    const legadoEco = ecoEstruturadoPayload?.usar_no_laudo
       ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
       : null;
     const qualitativaPayload = legadoEco?.qualitativa || qualitativa;
@@ -937,7 +937,7 @@ export default function NovoLaudoPage() {
   };
 
   const estruturadoParaConferencia = serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado);
-  const legadoParaConferencia = estruturadoParaConferencia
+  const legadoParaConferencia = estruturadoParaConferencia?.usar_no_laudo
     ? derivarLegadoDeEcocardiogramaEstruturado(estruturadoParaConferencia) : null;
   const qualitativaParaConferencia = legadoParaConferencia?.qualitativa || qualitativa;
   const conclusaoParaConferencia = estruturadoParaConferencia?.usar_no_laudo && legadoParaConferencia
@@ -1582,6 +1582,12 @@ export default function NovoLaudoPage() {
                           onMedidaChange={handleMedidaChange}
                           onDiscard={(kind) => setMedidas(prev => discardFelineFusedMeasurements(prev, paciente.especie, kind))}
                         />
+                        <EchoNarrativeConsistencyNotice
+                          species={paciente.especie}
+                          measurements={medidas}
+                          qualitative={qualitativaParaConferencia}
+                          conclusion={conclusaoParaConferencia}
+                        />
                         
                         <MedidaInput 
                           label="Onda E (m/s)"
@@ -1819,6 +1825,7 @@ export default function NovoLaudoPage() {
                 {aba === "qualitativa" && (
                   <div className="space-y-4">
                     <EchoNarrativeConsistencyNotice
+                      species={paciente.especie}
                       measurements={medidas}
                       qualitative={qualitativaParaConferencia}
                       conclusion={conclusaoParaConferencia}
