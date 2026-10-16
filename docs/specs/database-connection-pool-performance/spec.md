@@ -39,3 +39,23 @@ finito, `pool_pre_ping`, reciclagem e timeouts de pool e conexao.
 - RF-010: readiness, canario autenticado e rollback continuam obrigatorios.
   Reduzir pools nao autoriza trocar session mode por transaction mode,
   encerrar sessoes arbitrarias ou desabilitar gates.
+
+## Ciclo de conexoes da Agenda — 2026-10-15
+
+- RF-011: a verificacao de tabelas de bloqueios e de atendimentos vinculados
+  da Agenda deve reutilizar a conexao da sessao atual. Uma requisicao que ja
+  ocupa a ultima conexao disponivel nao pode solicitar outra apenas para
+  introspeccao. Preservar o cache de disponibilidade por sessao, os bloqueios
+  ativos e as restricoes de conclusao/reabertura de atendimento vinculado.
+- RF-012: a compatibilidade de colunas georreferenciadas na busca de tutores
+  deve usar a mesma conexao da autenticacao/consulta, preservando o suporte
+  legado e a idempotencia, sem alterar o schema atual.
+- RF-013: o SSE `/api/v1/agenda/stream` deve autenticar e autorizar pela mesma
+  matriz vigente, copiar somente o ID necessario ao evento `connected` e
+  liberar a sessao de banco antes de manter o canal aberto. O gerador nao
+  pode acessar objetos ORM nem reabrir a conexao durante eventos/keep-alive.
+- RF-014: manter os contratos dos eventos, o descarte do subscriber ao
+  desconectar e as respostas 401/403 de autenticacao/permissao. Abrir varios
+  streams nao deve impedir consultas HTTP autenticadas com pool limitado.
+- RF-015: a correcao nao altera o orcamento 3+3+2 de producao, regras de
+  disponibilidade, deslocamento, preferencia de horario ou aceite humano.

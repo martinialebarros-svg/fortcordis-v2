@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, exists, func, inspect, or_, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.db.database import get_db
 from app.models.agendamento import Agendamento
@@ -154,7 +155,9 @@ def _listar_bloqueios_ativos(db: Session) -> list[AgendaBloqueio]:
     cache_key = "_agenda_bloqueios_table_available"
     available = db.info.get(cache_key)
     if available is None:
-        available = "agenda_bloqueios" in inspect(db.bind).get_table_names()
+        # A sessao ja retém uma conexao; inspecionar o Engine pediria outra
+        # ao pool e poderia bloquear a propria requisicao sob concorrencia.
+        available = "agenda_bloqueios" in inspect(db.connection()).get_table_names()
         db.info[cache_key] = available
     if not available:
         return []
@@ -4475,21 +4478,25 @@ def agendamentos_hoje(
 @router.get("/stream")
 async def stream_agenda(
     request: Request,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Canal SSE para atualizacao em tempo real da agenda."""
+    # FastAPI 0.104 encerra dependencias yield somente depois do body. O canal
+    # pode ficar aberto indefinidamente, mas so precisa do ID ja autorizado.
+    user_id = current_user.id
+    await asyncio.to_thread(db.close)
     subscriber = agenda_realtime_manager.subscribe()
 
     async def event_generator():
         connected_payload = {
             "type": "connected",
             "module": "agenda",
-            "user_id": current_user.id,
+            "user_id": user_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        yield f"event: connected\ndata: {json.dumps(connected_payload, ensure_ascii=False)}\n\n"
-
         try:
+            yield f"event: connected\ndata: {json.dumps(connected_payload, ensure_ascii=False)}\n\n"
             while True:
                 if await request.is_disconnected():
                     break
@@ -4506,6 +4513,8 @@ async def stream_agenda(
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
+        # Desconexao durante o envio pode suspender o generator no yield.
+        background=BackgroundTask(agenda_realtime_manager.unsubscribe, subscriber),
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
@@ -6797,7 +6806,7 @@ def atualizar_status(
     )
     if (
         transicao_clinica_protegida
-        and "atendimentos_clinicos" in inspect(db.get_bind()).get_table_names()
+        and "atendimentos_clinicos" in inspect(db.connection()).get_table_names()
     ):
         from app.models.atendimento_clinico import AtendimentoClinico
 

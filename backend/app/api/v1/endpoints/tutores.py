@@ -56,8 +56,8 @@ def _legacy_now_dt() -> datetime:
 
 
 def _ensure_tutores_georef_columns(db: Session) -> None:
-    bind = db.get_bind()
-    insp = inspect(bind)
+    # A autenticacao ja pode ocupar uma conexao; reutilize-a na introspeccao.
+    insp = inspect(db.connection())
     if "tutores" not in insp.get_table_names():
         return
 
