@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,6 +19,134 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+
+
+def sanitized_database_diagnostic(context):
+    """Classify locally; never emit exception text, DSN, SQL or parameters."""
+    original = context.original_exception
+    code = getattr(original, "pgcode", None)
+    if code is not None and (len(str(code)) != 5 or not str(code).isalnum()):
+        code = None
+    statement = (context.statement or "").upper()
+    operation = "connect" if not statement else ("advisory_lock" if "PG_ADVISORY_XACT_LOCK" in statement else "database_operation")
+    message = str(original).lower()
+    if code == "55P03":
+        category = "lock_timeout"
+    elif code == "57014":
+        category = "statement_timeout_or_cancel"
+    elif code == "53300" or any(fragment in message for fragment in (
+        "maxclientsinsessionmode", "max clients reached", "max client connections",
+        "remaining connection slots", "too many clients", "too many connections",
+    )):
+        category = "connection_capacity"
+    elif "timeout" in message or "timed out" in message:
+        category = "connection_timeout" if operation == "connect" else "database_timeout"
+    elif "password authentication failed" in message:
+        category = "authentication_failure"
+    elif "tenant or user not found" in message:
+        category = "tenant_routing_failure"
+    elif "could not translate host name" in message:
+        category = "dns_failure"
+    elif "connection refused" in message:
+        category = "connection_refused"
+    elif "ssl" in message or "server closed the connection" in message:
+        category = "connection_transport"
+    else:
+        category = "connection_establishment" if operation == "connect" else "database_error"
+    return {"exception_class": type(original).__name__, "pgcode": code,
+            "operation": operation, "category": category}
+
+
+def probe_reservation_race(guard, provider, outbound, *, user_id=999999, attempts=8, daily_limit=4):
+    """Race reservations, keep fail-closed errors visible, then test the exact cap.
+
+    Grants are claimed sequentially so connection acquisition in a preliminary
+    claim cannot abort the budget test before it reaches the paid boundary.
+    Transient ledger failures count as denials, never as successful reservations.
+    At most `daily_limit` sequential calls fill any capacity left by the race.
+    An extra preclaimed action proves the next reservation is blocked by budget.
+    """
+    path = "/api/v1/logistica/deslocamento"
+    query = {"origem_clinica_id": "1", "destino_clinica_id": "2"}
+    cleanup_denials = []
+
+    def quote():
+        return guard.create_preview(user_id, "GET", path, query, None)
+
+    def grant():
+        preview = quote()
+        assert not preview["blocked"], "Unexpected sequential preview denial"
+        token = guard.confirm_preview(user_id, preview["quote_id"])["token"]
+        return token, guard.claim_execution(user_id, token, "GET", path, query, None)
+
+    def reserve(execution):
+        context = guard.bind_execution(execution)
+        try:
+            assert provider() is not None, "Synthetic provider returned no route"
+            return "sent"
+        except guard.GoogleMapsCostBlocked as exc:
+            return exc.reason
+        finally:
+            guard.reset_execution(context)
+
+    def finish(execution):
+        try:
+            guard.finish_execution(execution)
+        except guard.GoogleMapsCostBlocked as exc:
+            assert exc.reason == "ledger_unavailable", "Unexpected finalization denial"
+            cleanup_denials.append(exc.reason)
+
+    abandoned = quote()
+    assert abandoned["required"] and not outbound
+    claimed = [grant() for _ in range(attempts + 1)]
+    with ThreadPoolExecutor(max_workers=attempts) as pool:
+        results = list(pool.map(reserve, [execution for _, execution in claimed[:attempts]]))
+    concurrent_sent = results.count("sent")
+    denied = Counter(result for result in results if result != "sent")
+    assert set(denied) <= {"day_limit", "ledger_unavailable"}, "Unexpected concurrent denial reason"
+    assert concurrent_sent == len(outbound) <= daily_limit, "Reservation/transport mismatch or overspend"
+    for _, execution in claimed[:attempts]:
+        finish(execution)
+
+    sequential_sent = 0
+    for _ in range(daily_limit - concurrent_sent):
+        _, execution = grant()
+        try:
+            outcome = reserve(execution)
+            assert outcome == "sent", f"Sequential capacity probe denied: {outcome}"
+            sequential_sent += 1
+        finally:
+            finish(execution)
+    assert len(outbound) == daily_limit
+
+    overflow_execution = claimed[-1][1]
+    try:
+        assert reserve(overflow_execution) == "day_limit", "Next call was not denied by daily budget"
+    finally:
+        finish(overflow_execution)
+    assert len(outbound) == daily_limit
+    try:
+        guard.claim_execution(user_id, claimed[0][0], "GET", path, query, None)
+        raise AssertionError("Replay accepted")
+    except guard.GoogleMapsCostBlocked as exc:
+        assert exc.reason == "invalid_grant", "Replay not verified: another failure occurred"
+    try:
+        with guard.automatic_action("whatsapp_agenda", "synthetic-one-job"):
+            provider()
+        raise AssertionError("Automatic operation without policy accepted")
+    except guard.GoogleMapsCostBlocked as exc:
+        assert exc.reason == "automatic_policy_required", "Automatic policy denial not verified"
+    assert len(outbound) == daily_limit
+    usage = guard.get_status()["consumption"]
+    assert usage["day"]["calls"] == daily_limit and usage["month"]["calls"] == daily_limit
+    return {
+        "cancelled_preview_paid_calls": 0, "concurrent_attempts": attempts,
+        "concurrent_successful_reservations": concurrent_sent,
+        "concurrent_denials": dict(denied), "sequential_completion_calls": sequential_sent,
+        "synthetic_outbound_calls": len(outbound), "daily_limit": daily_limit,
+        "next_call_blocked_reason": "day_limit", "replay_blocked": True,
+        "automatic_without_policy_blocked": True, "cleanup_denials": cleanup_denials,
+    }, usage
 
 
 def main():
@@ -54,7 +183,7 @@ def main():
     })
     assert code == 200 and denied_preview["blocked"] and denied_preview["quote_id"] is None
 
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import create_engine, event, text
     from app.db import database
     from app.models.google_maps_cost_control import COST_TABLES
     from app.services import google_maps_cost_control as guard, logistica_service, geocoding_service
@@ -64,6 +193,12 @@ def main():
         connection.execute(text(f'CREATE SCHEMA "{schema}"'))
     synthetic = create_engine(settings.DATABASE_URL, pool_pre_ping=True, pool_size=8,
                               execution_options={"schema_translate_map": {None: schema}})
+    database_diagnostics = []
+    def record_sanitized_database_error(context):
+        diagnostic = sanitized_database_diagnostic(context)
+        database_diagnostics.append(diagnostic)
+        print(json.dumps({"sanitized_database_diagnostic": diagnostic}), file=sys.stderr, flush=True)
+    event.listen(synthetic, "handle_error", record_sanitized_database_error)
     try:
         for table in COST_TABLES:
             table.create(synthetic)
@@ -84,8 +219,6 @@ def main():
         def fake_http(*args, **kwargs):
             outbound.append("synthetic")
             return {"routes": [{"distanceMeters": 1000, "duration": "600s"}]}
-        path = "/api/v1/logistica/deslocamento"
-        query = {"origem_clinica_id": "1", "destino_clinica_id": "2"}
         with (patch.object(database, "engine", synthetic),
               patch.object(settings, "GOOGLE_MAPS_API_KEY", "synthetic-stage-only"),
               patch.object(logistica_service, "urlopen", side_effect=AssertionError("Unexpected real transport")),
@@ -93,47 +226,14 @@ def main():
               patch.object(geocoding_service, "urlopen", side_effect=AssertionError("Unexpected geocoding transport")),
               patch.object(logistica_service, "_http_post_json", side_effect=fake_http)):
             guard.update_configuration(999999, config, 0)
-            def quote():
-                return guard.create_preview(999999, "GET", path, query, None)
-            abandoned = quote()
-            assert abandoned["required"] and not outbound
-            tokens = [guard.confirm_preview(999999, quote()["quote_id"])["token"] for _ in range(8)]
-            def run(token):
-                execution = guard.claim_execution(999999, token, "GET", path, query, None)
-                context = guard.bind_execution(execution)
-                try:
-                    logistica_service._consultar_google_routes_api_raw({"address": "synthetic A"}, {"address": "synthetic B"})
-                    return True
-                except guard.GoogleMapsCostBlocked:
-                    return False
-                finally:
-                    guard.reset_execution(context)
-                    guard.finish_execution(execution)
-            with ThreadPoolExecutor(max_workers=8) as pool:
-                results = list(pool.map(run, tokens))
-            assert sum(results) == 4 and len(outbound) == 4
-            try:
-                guard.claim_execution(999999, tokens[0], "GET", path, query, None)
-                raise AssertionError("Replay aceito")
-            except guard.GoogleMapsCostBlocked:
-                pass
-            try:
-                with guard.automatic_action("whatsapp_agenda", "synthetic-one-job"):
-                    logistica_service._consultar_google_routes_api_raw({"address": "synthetic A"}, {"address": "synthetic B"})
-                raise AssertionError("Automação sem política aceita")
-            except guard.GoogleMapsCostBlocked:
-                pass
-            assert len(outbound) == 4
-            usage = guard.get_status()["consumption"]
-            assert usage["day"]["calls"] == 4 and usage["month"]["calls"] == 4
+            proof, usage = probe_reservation_race(guard, lambda: logistica_service._consultar_google_routes_api_raw(
+                {"address": "synthetic A"}, {"address": "synthetic B"}), outbound)
             # Reopen the pool: authorization/usage is durable, not process cache.
             synthetic.dispose()
             assert guard.get_status()["consumption"] == usage
         print(json.dumps({"stage_live_direct_request_blocked": True,
             "stage_live_preview_blocked": True, "isolated_postgresql": True,
-            "cancelled_preview_paid_calls": 0, "concurrent_attempts": 8,
-            "synthetic_outbound_calls": len(outbound), "daily_limit": 4,
-            "replay_blocked": True, "automatic_without_policy_blocked": True,
+            **proof, "database_diagnostics": database_diagnostics,
             "usage_survives_reconnect": True, "actual_google_calls": 0,
             "existing_operational_records_modified": 0}))
     finally:

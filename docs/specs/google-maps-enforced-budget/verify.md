@@ -1,6 +1,6 @@
 # Verificação — Google Maps
 
-Status: implementação e verificações locais concluídas; validação de stage em andamento. Produção não autorizada.
+Status: implementação e validações locais/stage concluídas; ajuste do canário e evidência final registrados neste fechamento. Produção não autorizada.
 
 ## Evidências de entrada
 
@@ -35,3 +35,15 @@ Mocks provam envio/cancelamento no transporte da aplicação, não tarifação r
 - Navegador real com API sintética e hosts externos bloqueados: cancelar em Logística e Agenda enviou zero operações originais; popup acima do modal real; painel desktop/mobile sem overflow horizontal nem erro JS. Rodapé mobile corrigido e revalidado: Cancelar/Confirmar permanecem visíveis. Evidência em `evidence/browser-synthetic.json` e imagens `.synthetic.png`.
 
 O JSON de auditoria agregada foi coletado readonly de produção/stage. Nenhuma chave, endereço ou dado clínico foi versionado.
+
+## Validação de stage — snapshot `53307512`
+
+- [PR #392](https://github.com/martinialebarros-svg/fortcordis-v2/pull/392) integrado em stage; [deploy 39164041129](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39164041129) concluído com sucesso. Migração 99 aplicada; arquivos de runtime preservados/restaurados e `Backup restore drill OK`.
+- Quality gate: 1.964 testes backend, 67 skips no ambiente CI; etapa específica PostgreSQL executou 47 testes sem skips/falhas. Frontend CI, Migration CI, Google Maps Cost Control e SDD concluídos com sucesso.
+- Checkout stage conferido `53307512d361e1259562d256fc2a9d8f8ab08a67`; produção permanece `9137d39fea18c795bb1cb7b1cc9bc204dce05d69`. Não houve publicação em produção.
+- HTTP: `app.stage.fortcordis.com.br`, `stage.fortcordis.com.br` e `www.stage.fortcordis.com.br` retornaram 200 na rota de Configurações, com aliases redirecionados ao canônico. API administrativa sem autenticação retorna 401. Fluxos de preview/confirm/status e botão de confirmação encontrados entre os 15 chunks servidos.
+- Navegador com bundle real de stage e todas as APIs substituídas por fixtures: 27 assets reais, 44 requests de API simulados, dois previews, zero confirmações e zero ações enviadas após cancelar. Popup acima do modal real de Agenda, botões mobile visíveis, sem overflow ou erro JavaScript. Nenhuma API real ou Google foi chamada nesse teste de UI.
+- Evidências sanitizadas: `evidence/stage-workflows.json`, `evidence/stage-http-smoke.json`, `evidence/stage-browser-synthetic.json`.
+- A primeira execução do canário concorrente interrompeu por `ledger_unavailable` ao abrir conexões no banco remoto. A política bloqueou as operações; esse resultado não foi contado como prova de sucesso do canário. O diagnóstico e a repetição controlada são registrados na evidência final do canário.
+- Repetição controlada do canário, com candidato executado em memória sobre o código implantado: oito reservas concorrentes, quatro envios simulados e quatro recusas `ledger_unavailable`; diagnóstico sanitizado `connection_capacity` na abertura de conexões. Nenhum preenchimento sequencial foi necessário. A tentativa seguinte retornou `day_limit`; replay retornou `invalid_grant`; tarefa sem política retornou `automatic_policy_required`. Uso persistiu após reconexão. Zero Google real, zero alteração em registros operacionais existentes, zero schemas temporários restantes. Evidência: `evidence/stage-canary.json`.
+- O ajuste do canário separa claim de autorização da disputa de reservas e registra indisponibilidade como recusa, sem alterar o guard, timeout ou limite. Cinco testes aprovados garantem que excesso real, motivo inesperado ou diagnóstico inseguro continuam reprovando a prova. A falha de capacidade observada neste teste não é atribuída ao aumento histórico de julho/agosto.
