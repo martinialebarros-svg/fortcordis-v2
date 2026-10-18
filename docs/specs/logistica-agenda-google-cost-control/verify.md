@@ -1,5 +1,13 @@
 # Verify - logistica-agenda-google-cost-control
 
+## Estado atual — incremento `cache_only`, 18/10/2026
+
+Produção Maps autorizada com custo adicional zero. Implementação, testes locais focados e suítes integrais aprovados: backend 1.991/69 skips, frontend 980 Vitest/23 Node. Publicação, configuração efetiva e quotas permanecem **pendentes**. A verificação anterior abaixo não prova esse incremento. Exigir: cache Google válido/manual sem rede, miss/expirado/heurística, TTL não positivo e primeira saída sem timestamp/TTL bloqueados, zero transportes em API direta/jobs/concorrência, motivo visível, agenda atômica e preservação de `paid_budget`. Não preencher preços/FX/baseline artificiais.
+
+Console autenticado de 1–18/10 mostrou 6.114 Routes Essentials e 21 Geocoding, ambos R$ 0; isso não comprova saldo livre. Quotas diárias Routes/Compute Route Matrix observadas ilimitadas e sem alteração aplicada. Evidência e checklist atualizado em `../google-maps-enforced-budget/verify.md`; produção e segunda barreira só serão marcadas concluídas após prova efetiva.
+
+O estado `done` e a decisão de release abaixo referem-se exclusivamente ao ciclo de abril/maio.
+
 Data: 2026-04-22  
 Responsavel: Codex  
 Status: done

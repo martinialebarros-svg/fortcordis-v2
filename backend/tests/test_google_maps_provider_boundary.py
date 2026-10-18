@@ -19,9 +19,20 @@ os.environ.setdefault("SECRET_KEY", "google-boundary-synthetic-test-secret-key-1
 from app.models.clinica_deslocamento import ClinicaDeslocamento
 from app.models.google_maps_usage_metrica import GoogleMapsUsageMetrica
 from app.services import geocoding_service, logistica_service
+from app.services import google_maps_cost_control as cost_guard
+from app.models.google_maps_cost_control import COST_TABLES
 
 
 class GoogleMapsProviderBoundaryTest(unittest.TestCase):
+    def setUp(self):
+        ledger = create_engine("sqlite://")
+        for table in COST_TABLES:
+            table.create(ledger)
+        self.addCleanup(ledger.dispose)
+        policy = patch.object(cost_guard.database, "engine", ledger)
+        policy.start()
+        self.addCleanup(policy.stop)
+
     def test_all_providers_reserve_before_any_outbound_io(self):
         # This exception represents an unavailable ledger. No generic provider
         # fallback may catch it, perform I/O or convert it into a local route.

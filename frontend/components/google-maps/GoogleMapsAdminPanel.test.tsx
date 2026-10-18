@@ -59,4 +59,59 @@ describe("administração de custos Google Maps", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Nenhum teto será presumido");
     expect(mocks.put).not.toHaveBeenCalled();
   });
+
+  it("salva cache-only com limites zero, sem preços, câmbio ou consumo inicial fictícios", async () => {
+    mocks.get.mockResolvedValue({ data: { configured: false, revision: 0, config: null } });
+    mocks.put.mockResolvedValue({ data: {} });
+    render(<GoogleMapsAdminPanel />);
+    await screen.findByLabelText("Modo de operação");
+    fireEvent.change(screen.getByLabelText("Modo de operação"), { target: { value: "cache_only" } });
+    expect(screen.getByText(/Rotas já armazenadas e ainda válidas/)).toBeVisible();
+    expect(screen.getByText(/Não presume saldo de franquia gratuita/)).toBeVisible();
+    expect(screen.queryByLabelText("Câmbio máximo — R$ por USD")).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /Habilitar chamadas/ })).toBeNull();
+    fireEvent.submit(screen.getByRole("button", { name: "Salvar controles" }).closest("form")!);
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledWith("/google-maps-control/config", {
+      operation_mode: "cache_only", enabled: true, expected_revision: 0,
+      limits: { action: { calls: 0, estimated_brl: 0 }, day: { calls: 0, estimated_brl: 0 }, month: { calls: 0, estimated_brl: 0 } },
+    }));
+  });
+
+  it("alternar para cache não reescreve o consumo inicial já registrado no servidor", async () => {
+    mocks.get.mockResolvedValue({ data: existing });
+    mocks.put.mockResolvedValue({ data: {} });
+    render(<GoogleMapsAdminPanel />);
+    await screen.findByLabelText("Modo de operação");
+    fireEvent.change(screen.getByLabelText("Modo de operação"), { target: { value: "cache_only" } });
+    fireEvent.submit(screen.getByRole("button", { name: "Salvar controles" }).closest("form")!);
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledWith("/google-maps-control/config", expect.objectContaining({
+      operation_mode: "cache_only", expected_revision: 7,
+    })));
+    const payload = mocks.put.mock.calls[0][1];
+    expect(payload).not.toHaveProperty("prices_usd");
+    expect(payload).not.toHaveProperty("fx_brl_per_usd_upper");
+    expect(payload).not.toHaveProperty("opening_usage");
+    expect(payload).not.toHaveProperty("opening_usage_as_of");
+    expect(payload).not.toHaveProperty("opening_usage_basis");
+  });
+
+  it("exibe histórico anterior no cache e exige nova escolha explícita para modo pago", async () => {
+    mocks.get.mockResolvedValue({ data: {
+      configured: true, enabled: true, revision: 8, blocked: false,
+      config: { operation_mode: "cache_only", enabled: true, limits: { action: { calls: 0, estimated_brl: 0 }, day: { calls: 0, estimated_brl: 0 }, month: { calls: 0, estimated_brl: 0 } } },
+      consumption: { day: { calls: 3, estimated_brl: 0.5 }, month: { calls: 20, estimated_brl: 4 } },
+      history: existing.history,
+    } });
+    render(<GoogleMapsAdminPanel />);
+    await screen.findByText(/Novas chamadas ao Google estão bloqueadas/);
+    expect(screen.getByText(/20 chamadas/)).toBeVisible();
+    expect(screen.getByText(/Limite diário atingido/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Modo de operação"), { target: { value: "paid_budget" } });
+    expect(screen.getByLabelText("Máximo de chamadas — por mês")).toHaveValue(null);
+    expect(screen.getByLabelText("Máximo estimado em R$ — por mês")).toHaveValue(null);
+    expect(screen.getByRole("checkbox", { name: /Habilitar chamadas/ })).not.toBeChecked();
+    fireEvent.submit(screen.getByRole("button", { name: "Salvar controles" }).closest("form")!);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Nenhum teto será presumido");
+    expect(mocks.put).not.toHaveBeenCalled();
+  });
 });

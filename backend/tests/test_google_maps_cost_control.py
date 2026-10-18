@@ -407,6 +407,27 @@ class GoogleMapsCostControlTest(unittest.TestCase):
                 rows = conn.execute(text("SELECT relrowsecurity FROM pg_class JOIN pg_namespace ON pg_class.relnamespace=pg_namespace.oid WHERE nspname=:schema AND relname IN ('google_maps_cost_config', 'google_maps_cost_actions', 'google_maps_cost_events')"), {"schema": self.schema}).scalars().all()
                 self.assertEqual(rows, [True, True, True])
 
+    def test_stage_cache_only_canary_keeps_previous_usage_and_blocks_new_transports(self):
+        from app.services import logistica_service, geocoding_service
+        self.configure()
+        _, token = self.grant()
+        self.reserve(self.claim(token))
+        path = BACKEND_DIR.parent / "scripts/google_maps_stage_canary.py"
+        spec = importlib.util.spec_from_file_location("maps_cache_stage_canary", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with (
+            patch.object(logistica_service, "_http_post_json", side_effect=AssertionError("Cache-only sent a route")) as route_transport,
+            patch.object(logistica_service, "_http_get_json", side_effect=AssertionError("Cache-only sent a matrix")) as matrix_transport,
+            patch.object(geocoding_service, "_http_get_json", side_effect=AssertionError("Cache-only sent a geocode")) as geocode_transport,
+        ):
+            proof = module.probe_cache_only(guard, self.engine)
+            self.assertTrue(all(proof.values()))
+            route_transport.assert_not_called()
+            matrix_transport.assert_not_called()
+            geocode_transport.assert_not_called()
+        self.assertEqual(guard.get_status()["consumption"]["day"]["calls"], 1)
+
 
 @unittest.skipUnless(os.environ.get("MAPS_COST_TEST_POSTGRES_URL"), "Set disposable MAPS_COST_TEST_POSTGRES_URL for real PostgreSQL proof")
 class GoogleMapsCostControlPostgresTest(GoogleMapsCostControlTest):

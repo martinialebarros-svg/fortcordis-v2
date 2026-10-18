@@ -149,6 +149,81 @@ def probe_reservation_race(guard, provider, outbound, *, user_id=999999, attempt
     }, usage
 
 
+def probe_cache_only(guard, engine, *, user_id=999999):
+    """Real zero-call API proof in the caller's disposable schema only."""
+    from types import SimpleNamespace
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import sessionmaker
+    from app.core.security import get_current_user
+    from app.models.clinica import Clinica
+    from app.models.clinica_deslocamento import ClinicaDeslocamento
+    from app.api.v1.endpoints import logistica, google_maps_cost_control as control_api
+    from app.services import google_maps_cost_middleware as middleware
+
+    before = guard.get_status()
+    cache_config = guard.CostConfiguration.model_validate({
+        "operation_mode": "cache_only", "enabled": True,
+        "limits": {period: {"calls": 0, "estimated_brl": 0} for period in ("action", "day", "month")},
+    })
+    status = guard.update_configuration(user_id, cache_config, before["revision"])
+    assert status["operation_mode"] == "cache_only" and not status["paid_calls_allowed"]
+    assert "prices_usd" not in status["config"] and "fx_brl_per_usd_upper" not in status["config"]
+    assert status["opening_usage"] == before["opening_usage"], "Existing baseline must not be erased or fabricated"
+    for model in (Clinica, ClinicaDeslocamento):
+        model.__table__.create(engine)
+    sessions = sessionmaker(bind=engine, autoflush=False)
+    with sessions() as db:
+        db.add_all([Clinica(id=1, nome="Synthetic cache canary A", latitude=-3.7, longitude=-38.5),
+                    Clinica(id=2, nome="Synthetic cache canary B", latitude=-3.8, longitude=-38.6),
+                    ClinicaDeslocamento(origem_clinica_id=1, destino_clinica_id=2, perfil="comercial",
+                        distancia_km=1, duracao_min=10, fonte="google_routes_api", updated_at=datetime.now(timezone.utc))])
+        db.commit()
+    app = FastAPI()
+    app.include_router(logistica.router, prefix="/api/v1/logistica")
+    app.include_router(control_api.router, prefix="/api/v1/google-maps-control")
+    app.add_middleware(middleware.GoogleMapsCostMiddleware)
+    def request_db():
+        with sessions() as db:
+            yield db
+    app.dependency_overrides[logistica.get_db] = request_db
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=user_id, tem_papel=lambda _: True)
+    path = "/api/v1/logistica/deslocamento"
+    with patch.object(middleware, "_authenticate", return_value=user_id), TestClient(app) as client:
+        quote = client.post("/api/v1/google-maps-control/preview", json={"method": "GET", "path": path})
+        assert quote.status_code == 200
+        assert not quote.json()["required"] and quote.json()["max_calls"] == 0 and quote.json()["quote_id"] is None
+        hit = client.get(path, params={"origem_clinica_id": 1, "destino_clinica_id": 2})
+        assert hit.status_code == 200 and hit.json()["item"]["duracao_min"] == 10
+        cold = client.get(path, params={"origem_clinica_id": 2, "destino_clinica_id": 1})
+        assert cold.status_code == 409 and cold.json()["detail"]["reason"] == "cache_only"
+        with sessions() as db:
+            row = db.query(ClinicaDeslocamento).one()
+            row.fonte = "heuristica_haversine"
+            db.commit()
+        heuristic = client.get(path, params={"origem_clinica_id": 1, "destino_clinica_id": 2})
+        assert heuristic.status_code == 409 and heuristic.json()["detail"]["reason"] == "cache_only"
+    for automatic in (False, True):
+        def attempt():
+            try:
+                guard.authorize_google_call("routes_essentials")
+            except guard.GoogleMapsCostBlocked as exc:
+                assert exc.reason == "cache_only", "A connection error is not proof of cache-only denial"
+            else:
+                raise AssertionError("Cache-only unexpectedly authorized a paid call")
+        if automatic:
+            with guard.automatic_action("whatsapp_agenda", "isolated-cache-canary"):
+                attempt()
+        else:
+            attempt()
+    engine.dispose()
+    assert guard.get_status()["consumption"] == before["consumption"]
+    assert guard.get_status()["operation_mode"] == "cache_only"
+    return {"cache_only_real_api_hit_without_grant": True, "cache_only_cold_and_heuristic_blocked": True,
+            "cache_only_direct_and_automatic_blocked": True, "cache_only_survives_reconnect": True,
+            "cache_only_previous_usage_preserved": True}
+
+
 def main():
     root = Path(__file__).resolve().parents[1]
     backend = root / "backend"
@@ -231,9 +306,11 @@ def main():
             # Reopen the pool: authorization/usage is durable, not process cache.
             synthetic.dispose()
             assert guard.get_status()["consumption"] == usage
+            cache_proof = probe_cache_only(guard, synthetic)
+            assert len(outbound) == proof["synthetic_outbound_calls"], "Cache-only must not call the provider transport"
         print(json.dumps({"stage_live_direct_request_blocked": True,
             "stage_live_preview_blocked": True, "isolated_postgresql": True,
-            **proof, "database_diagnostics": database_diagnostics,
+            **proof, **cache_proof, "database_diagnostics": database_diagnostics,
             "usage_survives_reconnect": True, "actual_google_calls": 0,
             "existing_operational_records_modified": 0}))
     finally:

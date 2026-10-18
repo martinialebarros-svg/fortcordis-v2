@@ -1,0 +1,124 @@
+{
+  "collected_at_utc": "2026-10-18T21:36:14.477079+00:00",
+  "read_only": true,
+  "upstream_google_requests": 0,
+  "period": "2026-10",
+  "scope": "Application telemetry only; Google Billing/account-wide allowance not queried",
+  "timestamp_limitation": "Legacy column is timestamp without time zone; raw and assumed-UTC/Fortaleza aggregates are reported separately. Current DB session UTC does not prove all historical session timezones.",
+  "privacy": "Aggregates only: no keys, addresses, identity or clinical fields",
+  "source_file_sha256": "ad2fcfc801bbaddde3c13a850737b235c0ab37e8f1f32d58ab6b2650e3b5060c",
+  "production": {
+    "sha": "9137d39fea18c795bb1cb7b1cc9bc204dce05d69",
+    "database_clock": [
+      {
+        "collected_at_utc": "2026-10-18 21:36:17.401369+00:00",
+        "collected_at_fortaleza": "2026-10-18 18:36:17.401369",
+        "session_timezone": "UTC"
+      }
+    ],
+    "metrics_timestamp_default": [
+      {
+        "data_type": "timestamp without time zone",
+        "column_default": "CURRENT_TIMESTAMP"
+      }
+    ],
+    "metrics_coverage": [
+      {
+        "total": 60545,
+        "oldest": "2026-04-11 11:30:27.566186",
+        "newest": "2026-10-17 18:02:48.285425"
+      }
+    ],
+    "october_operations_assuming_naive_utc": [
+      {
+        "service": "routes",
+        "operation": "compute_routes",
+        "provider": "routes_api_basic",
+        "status": "ok",
+        "n": 5934,
+        "oldest": "2026-10-01 11:54:39.966328",
+        "newest": "2026-10-17 18:02:48.285425"
+      }
+    ],
+    "october_boundary_utc": [
+      {
+        "service": "routes",
+        "operation": "compute_routes",
+        "provider": "routes_api_basic",
+        "status": "ok",
+        "n": 5934
+      }
+    ],
+    "current_day_assuming_naive_utc_to_fortaleza": [],
+    "guard_tables_present": [],
+    "guard_configuration_state": {
+      "error_class": "ProgrammingError"
+    },
+    "guard_october_sku_events": {
+      "error_class": "ProgrammingError"
+    }
+  },
+  "stage": {
+    "sha": "cb93d4c661cf8ecab9eab047df50e36d6b4332c7",
+    "database_clock": [
+      {
+        "collected_at_utc": "2026-10-18 21:36:20.267285+00:00",
+        "collected_at_fortaleza": "2026-10-18 18:36:20.267285",
+        "session_timezone": "UTC"
+      }
+    ],
+    "metrics_timestamp_default": [
+      {
+        "data_type": "timestamp without time zone",
+        "column_default": "CURRENT_TIMESTAMP"
+      }
+    ],
+    "metrics_coverage": [
+      {
+        "total": 109,
+        "oldest": "2026-04-13 15:07:37.176988",
+        "newest": "2026-08-16 05:14:20.431039"
+      }
+    ],
+    "october_operations_assuming_naive_utc": [],
+    "october_boundary_utc": [],
+    "current_day_assuming_naive_utc_to_fortaleza": [],
+    "guard_tables_present": [
+      {
+        "table_name": "google_maps_cost_actions"
+      },
+      {
+        "table_name": "google_maps_cost_config"
+      },
+      {
+        "table_name": "google_maps_cost_events"
+      }
+    ],
+    "guard_configuration_state": [
+      {
+        "configurations": 0,
+        "enabled_configurations": 0
+      }
+    ],
+    "guard_october_sku_events": [
+      {
+        "day": "2026-10-18",
+        "sku": null,
+        "kind": "blocked",
+        "reason": "confirmation_required",
+        "events": 4,
+        "calls": 0,
+        "estimated_cost_micros": "0"
+      },
+      {
+        "day": "2026-10-18",
+        "sku": null,
+        "kind": "blocked",
+        "reason": "unconfigured",
+        "events": 4,
+        "calls": 0,
+        "estimated_cost_micros": "0"
+      }
+    ]
+  }
+}

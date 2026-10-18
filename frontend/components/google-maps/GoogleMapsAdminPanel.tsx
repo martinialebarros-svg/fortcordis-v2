@@ -3,16 +3,17 @@
 import { useEffect, useState, type FormEvent } from "react";
 import api from "@/lib/axios";
 import { extractApiErrorMessageSync } from "@/lib/api-error";
-import { formatMapsBrl, MAPS_SKU_LABELS, type MapsPeriods } from "@/lib/google-maps-control";
+import { formatMapsBrl, MAPS_SKU_LABELS, type MapsOperationMode, type MapsPeriods } from "@/lib/google-maps-control";
 import { MapsConsumption } from "./GoogleMapsActionGuard";
 
 type Config = {
+  operation_mode?: MapsOperationMode;
   enabled: boolean;
   limits: MapsPeriods;
-  prices_usd: Record<string, number>;
-  fx_brl_per_usd_upper: number;
-  price_multiplier: number;
-  pricing_valid_until: string;
+  prices_usd?: Record<string, number> | null;
+  fx_brl_per_usd_upper?: number | null;
+  price_multiplier?: number | null;
+  pricing_valid_until?: string | null;
   action_call_caps?: Record<string, number>;
   automatic_policies?: Record<string, { enabled: boolean; limits: MapsPeriods; skus: string[] }>;
   opening_usage?: MapsPeriods | null;
@@ -62,6 +63,7 @@ export default function GoogleMapsAdminPanel() {
   const [status, setStatus] = useState<Status | null>(null);
   const [fields, setFields] = useState<Fields>({});
   const [enabled, setEnabled] = useState(false);
+  const [operationMode, setOperationMode] = useState<MapsOperationMode>("paid_budget");
   const [automaticEnabled, setAutomaticEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -73,6 +75,7 @@ export default function GoogleMapsAdminPanel() {
     try {
       const { data } = await api.get<Status>("/google-maps-control/status");
       setStatus(data); setFields(configToFields(data.config)); setEnabled(Boolean(data.config?.enabled));
+      setOperationMode(data.config?.operation_mode ?? "paid_budget");
       setAutomaticEnabled(Boolean(data.config?.automatic_policies?.whatsapp_agenda?.enabled));
     } catch (error) {
       setError(extractApiErrorMessageSync(error, "Não foi possível consultar os controles do Google Maps."));
@@ -80,11 +83,32 @@ export default function GoogleMapsAdminPanel() {
   };
   useEffect(() => { void load(); }, []);
 
+  const changeOperationMode = (next: MapsOperationMode) => {
+    setOperationMode(next);
+    if (next === "paid_budget" && status?.config?.operation_mode === "cache_only") {
+      // Opening a paid budget is a new administrative choice, never an
+      // implicit conversion of cache-only zeros into an approved budget.
+      setFields(configToFields(null));
+      setEnabled(false);
+      setAutomaticEnabled(false);
+    }
+  };
+
   const save = async (event: FormEvent) => {
     event.preventDefault();
     if (!status) return;
     setSaving(true); setError(""); setMessage("");
     try {
+      if (operationMode === "cache_only") {
+        await api.put("/google-maps-control/config", {
+          operation_mode: "cache_only", enabled: true,
+          limits: Object.fromEntries(periods.map(([period]) => [period, { calls: 0, estimated_brl: 0 }])),
+          expected_revision: status.revision,
+        });
+        await load();
+        setMessage("Modo R$ 0 — somente cache salvo. Novas chamadas ao Google ficam bloqueadas; o histórico de consumo é preservado.");
+        return;
+      }
       const requiredKeys = [...periods.flatMap(([period]) => [`${period}_calls`, `${period}_brl`]), ...Object.keys(skuLabels).map((sku) => `price_${sku}`), "fx", "multiplier"];
       if (automaticEnabled) requiredKeys.push(...periods.flatMap(([period]) => [`auto_${period}_calls`, `auto_${period}_brl`]));
       if (enabled && !status.config?.opening_usage) requiredKeys.push("opening_day_calls", "opening_day_brl", "opening_month_calls", "opening_month_brl");
@@ -105,7 +129,7 @@ export default function GoogleMapsAdminPanel() {
         automaticPolicies.whatsapp_agenda = { enabled: true, limits: automaticLimits, skus: Object.keys(skuLabels).filter((sku) => sku !== "geocoding") };
       } else if (automaticPolicies.whatsapp_agenda) automaticPolicies.whatsapp_agenda = { ...automaticPolicies.whatsapp_agenda, enabled: false };
       await api.put("/google-maps-control/config", {
-        enabled, limits, prices_usd: prices, fx_brl_per_usd_upper: Number(fields.fx),
+        operation_mode: "paid_budget", enabled, limits, prices_usd: prices, fx_brl_per_usd_upper: Number(fields.fx),
         price_multiplier: Number(fields.multiplier), pricing_valid_until: new Date(fields.validUntil).toISOString(),
         action_call_caps: status.config?.action_call_caps ?? {},
         automatic_policies: automaticPolicies,
@@ -140,7 +164,7 @@ export default function GoogleMapsAdminPanel() {
     {message && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-emerald-800">{message}</p>}
     {loading ? <p role="status">Consultando limites…</p> : status && <>
       <p className={`rounded-lg p-3 text-sm ${status.config?.enabled && !status.blocked ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-900"}`}>
-        {status.config?.enabled && !status.blocked ? "Chamadas habilitadas sob limites e confirmação por ação." : status.reason === "pricing_expired" ? "Chamadas pagas suspensas: a validade dos preços/câmbio expirou. Revise a configuração." : "Chamadas pagas suspensas. Defina os limites e a política de preços antes de habilitar."}
+        {status.config?.operation_mode === "cache_only" ? "Modo R$ 0 — somente cache. Novas chamadas ao Google estão bloqueadas, inclusive em tarefas automáticas." : status.config?.enabled && !status.blocked ? "Chamadas habilitadas sob limites e confirmação por ação." : status.reason === "pricing_expired" ? "Chamadas pagas suspensas: a validade dos preços/câmbio expirou. Revise a configuração." : "Chamadas pagas suspensas. Defina os limites e a política de preços antes de habilitar."}
       </p>
       <MapsConsumption consumption={status.consumption} remaining={status.remaining} limits={status.limits ?? status.config?.limits} />
       <p className="text-sm text-gray-600">O consumo inclui o saldo inicial informado e os envios registrados{status.consumed_since ? ` desde ${dateLabel(status.consumed_since)}` : " após a ativação"}. Não representa uma reconstrução da fatura ou do histórico completo da conta Google.</p>
@@ -149,6 +173,19 @@ export default function GoogleMapsAdminPanel() {
       <form onSubmit={save} className="space-y-5">
         <fieldset disabled={saving || loading} className="space-y-4">
           <legend className="font-semibold">Limites escolhidos pela administração</legend>
+          <label className="block text-sm font-medium text-gray-700">Modo de operação
+            <select value={operationMode} onChange={(event) => changeOperationMode(event.target.value as MapsOperationMode)} className={inputClass}>
+              <option value="cache_only">R$ 0 — somente cache</option>
+              <option value="paid_budget">Chamadas Google com limites e confirmação</option>
+            </select>
+          </label>
+          {operationMode === "cache_only" ? <div className="space-y-3 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950">
+            <h3 className="font-semibold">Zero novas chamadas e R$ 0 de custo adicional</h3>
+            <p>Rotas já armazenadas e ainda válidas e ajustes manuais podem ser utilizados. Novas rotas, atualizações de rota e consultas de coordenadas ao Google ficam bloqueadas.</p>
+            <p>Sem uma rota válida disponível, a operação é suspensa. As regras da agenda são preservadas; nenhuma distância, duração ou disponibilidade é presumida.</p>
+            <div className="grid gap-3 sm:grid-cols-3">{periods.map(([key, label]) => <div key={key} className="rounded-lg border border-teal-200 bg-white p-3"><h4 className="font-semibold">{label}</h4><p>0 novas chamadas</p><p>R$ 0 de custo adicional</p></div>)}</div>
+            <p>Este modo também bloqueia chamadas externas das tarefas automáticas. Não presume saldo de franquia gratuita, não exige preços ou câmbio e não reinicia o histórico de consumo.</p>
+          </div> : <>
           <p className="text-sm text-gray-600">Nenhum teto financeiro é preenchido automaticamente. O limite de chamadas e o limite em reais precisam ser respeitados ao mesmo tempo.</p>
           <div className="grid gap-4 md:grid-cols-3">{periods.map(([key, label]) => <div key={key} className="space-y-3 rounded-xl border p-4"><h3 className="font-medium">{label}</h3>{field(`${key}_calls`, `Máximo de chamadas — ${label.toLowerCase()}`, { step: "1" })}{field(`${key}_brl`, `Máximo estimado em R$ — ${label.toLowerCase()}`)}</div>)}</div>
           <details className="rounded-xl border p-4" open={!status.config}>
@@ -178,6 +215,7 @@ export default function GoogleMapsAdminPanel() {
               <label className="block font-medium">Origem do saldo inicial<select required value={fields.openingBasis ?? ""} onChange={(event) => setFields({ ...fields, openingBasis: event.target.value })} className={inputClass}><option value="">Selecione a evidência</option><option value="verified_telemetry">Telemetria verificada</option><option value="conservative_upper_bound">Teto conservador documentado</option><option value="synthetic_stage">Valores sintéticos de teste/stage</option></select></label>
             </div> : <p>Será solicitado ao marcar a habilitação. Nenhum consumo anterior é presumido como zero.</p>}
           </div>
+          </>}
           <button type="submit" className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white disabled:opacity-50">{saving ? "Salvando…" : "Salvar controles"}</button>
         </fieldset>
       </form>

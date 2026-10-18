@@ -1,0 +1,41 @@
+{
+  "observed_at": "2026-10-18T21:41:41.341456+00:00",
+  "source": "authenticated Google Cloud Console visible UI",
+  "period": "2026-10-01 through 2026-10-18",
+  "linked_projects": [
+    "fortcordis-maps"
+  ],
+  "billing_report_rows": [
+    {
+      "sku": "Routes: Compute Routes Essentials",
+      "usage": 6114,
+      "reported_brl": 0
+    },
+    {
+      "sku": "Geocoding",
+      "usage": 21,
+      "reported_brl": 0
+    }
+  ],
+  "quota_before": [
+    {
+      "name": "Directions - ComputeRoutes per request quota per day",
+      "limit": "unlimited",
+      "displayed_current_usage": 0
+    },
+    {
+      "name": "DistanceMatrix - ComputeRouteMatrix per-element quota per day",
+      "limit": "unlimited",
+      "displayed_current_usage": 0
+    }
+  ],
+  "quota_changes_applied": false,
+  "free_allowance_remaining_verified": false,
+  "limitations": [
+    "Billing can arrive late; reported zero cost does not prove free balance.",
+    "Current usage shown for daily quota is not the monthly billing ledger.",
+    "Only current linked-project inventory verified."
+  ],
+  "chosen_additional_charge_cap_brl": 0,
+  "chosen_mode": "cache_only"
+}

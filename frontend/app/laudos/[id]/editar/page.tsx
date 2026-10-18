@@ -1740,12 +1740,6 @@ export default function EditarLaudoPage() {
                           onMedidaChange={handleMedidaChange}
                           onDiscard={(kind) => setMedidas(prev => discardFelineFusedMeasurements(prev, pacienteForm.especie, kind))}
                         />
-                        {!laudoEhPressao && <EchoNarrativeConsistencyNotice
-                          species={pacienteForm.especie}
-                          measurements={medidas}
-                          qualitative={textoParaConferencia.qualitativa}
-                          conclusion={textoParaConferencia.conclusao}
-                        />}
 
                         <MedidaInput
                           label="Onda E (m/s)"
@@ -1983,7 +1977,6 @@ export default function EditarLaudoPage() {
                 {aba === "qualitativa" && (
                   <div className="space-y-4">
                     {!laudoEhPressao && <EchoNarrativeConsistencyNotice
-                      species={pacienteForm.especie}
                       measurements={medidas}
                       qualitative={textoParaConferencia.qualitativa}
                       conclusion={textoParaConferencia.conclusao}

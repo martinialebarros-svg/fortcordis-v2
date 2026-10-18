@@ -187,6 +187,51 @@ class GoogleMapsPostgresIntegrationTest(unittest.TestCase):
         self.assertEqual(status["consumption"]["day"], {"calls": 1, "estimated_brl": 0.06})
         self.assertTrue(any(event["kind"] == "blocked" and event["reason"] == "action_limit" for event in status["history"]))
 
+    def _cache_only_update(self, *, missing_second_leg=False):
+        guard.update_configuration(7, guard.CostConfiguration.model_validate({
+            "operation_mode": "cache_only", "enabled": True,
+            "limits": {period: {"calls": 0, "estimated_brl": 0} for period in ("action", "day", "month")},
+        }), 0)
+        with self.sessions() as db:
+            ids = [clinic.id for clinic in db.query(Clinica).order_by(Clinica.id).all()]
+            pairs = [(ids[0], ids[1])] if missing_second_leg else [(ids[0], ids[1]), (ids[1], ids[2])]
+            for origin, destination in pairs:
+                for profile in ("comercial", "plantao"):
+                    db.add(ClinicaDeslocamento(origem_clinica_id=origin, destino_clinica_id=destination,
+                        perfil=profile, distancia_km=1, duracao_min=10,
+                        fonte="google_routes_api", updated_at=datetime.now(timezone.utc)))
+            db.commit()
+        path = f"/api/v1/agenda/{self.appointment_id}"
+        payload = {"inicio": "2099-05-25T11:30:00-03:00", "fim": "2099-05-25T12:00:00-03:00"}
+        with patch.object(logistica_service, "_http_post_json", side_effect=AssertionError("Cache-only must never send a route")) as transport, TestClient(self.app) as client:
+            preview = client.post("/api/v1/google-maps-control/preview", json={"method": "PUT", "path": path, "body": payload})
+            self.assertEqual(preview.status_code, 200, preview.text)
+            self.assertFalse(preview.json()["required"])
+            self.assertIsNone(preview.json()["quote_id"])
+            response = client.put(path, json=payload)  # No paid consent token.
+            transport.assert_not_called()
+        return response
+
+    def test_cache_only_two_real_legs_commit_without_new_calls_or_financial_baseline(self):
+        response = self._cache_only_update()
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.sessions() as db:
+            self.assertEqual(db.get(Agendamento, self.appointment_id).inicio, datetime.fromisoformat("2099-05-25T11:30:00-03:00"))
+            self.assertEqual(db.query(ClinicaDeslocamento).count(), 4)
+        status = guard.get_status()
+        self.assertIsNone(status["opening_usage"])
+        self.assertEqual(status["consumption"]["day"], {"calls": 0, "estimated_brl": 0})
+
+    def test_cache_only_missing_second_leg_rolls_back_business_without_any_google_call(self):
+        response = self._cache_only_update(missing_second_leg=True)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()["detail"]["reason"], "cache_only")
+        with self.sessions() as db:
+            self.assertEqual(db.get(Agendamento, self.appointment_id).inicio, self.original_start)
+            self.assertEqual(db.query(ClinicaDeslocamento).count(), 2)
+            self.assertEqual(db.query(GoogleMapsUsageMetrica).count(), 0)
+        self.assertEqual(guard.get_status()["consumption"]["day"], {"calls": 0, "estimated_brl": 0})
+
 
 if __name__ == "__main__":
     unittest.main()
