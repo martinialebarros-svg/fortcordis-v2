@@ -2,6 +2,12 @@
 
 Projeto com `backend` (FastAPI) e `frontend` (Next.js) para operacao clinica veterinaria.
 
+## Alternar entre computadores
+
+Use `git sync` ao comecar e `git sync enviar "Descricao"` ao terminar na mesma
+branch de trabalho. Instalacao e rotina de Windows/macOS:
+[Sincronizacao entre Samsung e MacBook](docs/SINCRONIZACAO-COMPUTADORES.md).
+
 ## Primeiros documentos para IA
 
 Antes de mudancas grandes, leia:
