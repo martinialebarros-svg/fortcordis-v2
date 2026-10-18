@@ -1,6 +1,39 @@
 # Verificação — Google Maps
 
-Status: implementação e validações locais/stage concluídas; ajuste do canário e evidência final registrados neste fechamento. Produção não autorizada.
+Status do incremento atual: produção Maps autorizada com gasto adicional zero; `cache_only` implementado e aprovado nas suítes locais integrais de backend e frontend, além dos testes focados. Configuração efetiva, publicação e prova do novo modo em stage/produção permanecem **pendentes**. Os resultados do ciclo anterior, preservados abaixo, não provam o novo modo nem publicação em produção.
+
+## Decisão e observações anteriores à publicação do modo R$ 0
+
+- O usuário autorizou produção sem ultrapassar o teto gratuito. Decisão: `operation_mode=cache_only`, zero novos envios Google; usar somente rota Google persistida ainda válida ou override manual já autorizado. `paid_budget` não está autorizado para ativação nesta promoção.
+- Console Google autenticado observado em 18/10/2026 às 21:41 UTC: a conta mostra somente o projeto `fortcordis-maps`; relatório de 1–18/10 registra Routes Compute Routes Essentials 6.114 / R$ 0 e Geocoding 21 / R$ 0. O inventário de projetos é atual, não histórico. Não declarar 3.886 chamadas como saldo gratuito verificado: Billing pode chegar com atraso e o uso de quota diária não é o ledger mensal.
+- Quotas observadas: Compute Routes por dia ilimitado, Compute Route Matrix por elemento/dia ilimitado, uso atual exibido zero; limite por minuto observado 3.000. Nenhuma quota foi alterada até essa coleta. Um formulário com valor zero foi preparado e cancelado, o que não aplica bloqueio. Avaliar limites nativos zero depois da proteção em produção continua **planejado**, sujeito à comprovação do valor efetivo por API/métrica.
+- SQL readonly às 18:36 de Fortaleza: produção `9137d39f` contém 5.934 registros Routes `routes_api_basic/ok` em outubro; stage `cb93d4c6`, zero. Hoje, zero registros nos dois. A diferença de 180 para o relatório Google não foi conciliada nem atribuída a um defeito. Geocoding/primeira saída e persistência da telemetria têm lacunas conhecidas.
+- `created_at` real é `timestamp without time zone DEFAULT CURRENT_TIMESTAMP`; a sessão consultada está em UTC. O agregado supondo UTC→Fortaleza e o agregado bruto mantêm 5.934 no mês, mas não provam o fuso histórico. A franquia mensal Google reinicia às 00:00 do Pacífico dos EUA no primeiro dia, enquanto o ledger operacional usa Fortaleza.
+- Produção ainda não tinha tabelas do guard na coleta; stage tinha zero configurações e somente bloqueios, sem reservas. Esses dados descrevem o estado anterior à nova publicação, não sua conclusão.
+- Os 13 caminhos clínicos restaurados pela PR #391 foram isolados no candidato local, iguais à produção `9137d39f`. Restaurá-los em stage a partir de `cb93d4c6` depois da promoção continua obrigatório. A alteração de payload clínico/avisos felinos não integra a autorização Maps.
+- Evidências sanitizadas: `evidence/console-free-ceiling-20261018.sanitized.json`, `evidence/october-application-usage-20261018.sanitized.json` e `evidence/clinical-isolation-for-maps.json`. A auditoria histórica em `audit.md` permanece um retrato anterior à implementação.
+
+## Aceitação do incremento `cache_only` — local versus instalado
+
+| Verificação | Estado |
+|---|---|
+| Configurar sem preços/FX/baseline; limites zero; preservar eventos e baseline anterior sem inventar consumo | Local aprovado; instalação pendente |
+| Preview `required=false`, sem quote/token/popup pago; uso de rota Google válida/manual sem transporte | Local aprovado; instalação pendente |
+| Cache ausente, expirado, heurístico, TTL não positivo, manual sem override e primeira saída sem TTL bloqueiam com motivo; agenda preservada | Local aprovado; instalação pendente |
+| Acesso direto, jobs, force refresh e todos os providers não enviam Google; falta de key/flag não libera fallback, mudança de modo revalida a política | Local aprovado; instalação pendente |
+| Concorrência/reconexão/banco indisponível não abrem autorização; regressão `paid_budget` preservada | Local aprovado em SQLite/PostgreSQL descartável; instalação pendente |
+| Testes frontend, painel sem campos financeiros fabricados, bloqueio visível, build e regressões | Local aprovado; bundle instalado pendente |
+| Gates e deploy terminal em stage do novo modo, transporte simulado e dados sintéticos | Pendente |
+| Promoção isolada stage→main; runtime preservado; configuração cache-only relida e smoke instalado sem Google real | Pendente |
+| Segunda barreira nativa com valores efetivos comprovados e restauração dos 13 caminhos em stage | Pendente |
+
+## Resultados locais do incremento `cache_only` — 18/10/2026
+
+- Backend focado: 74 testes Maps, sem skips, incluindo PostgreSQL descartável e prova do canário com API real/banco isolado; mais dez casos Agenda/IA de atomicidade, 26 de primeira saída e dez de logística, todos aprovados. Incluem atualização de modo, cancelamento/replay pago, providers/jobs negados, histórico preservado, TTL não positivo, fonte manual sem override e cache de sessão da primeira saída sem validade verificável. As contagens são de conjuntos executados, não uma soma livre de sobreposição com a suíte integral.
+- Suíte integral backend do candidato clínico isolado: **1.991 testes, 69 skips, zero falhas/erros, 94,142 s**. A primeira execução final teve 24 erros porque fixtures antigas de Agenda não criavam as tabelas/engine do controle compartilhado; as fixtures passaram a usar ledger SQLite vazio isolado e cleanup de engine. Após isso, 208 testes Agenda e 20 WhatsApp Opções passaram e a suíte integral foi repetida com sucesso. O guard permaneceu exigindo validade verificável para primeira saída, sem afrouxar o bloqueio.
+- Frontend: 980 testes Vitest em 107 arquivos e 23 testes Node aprovados, com dois workers; 20 testes focados Maps, ESLint, TypeScript e build aprovados. Uma primeira execução ampla encontrou quatro timeouts de 5 s em testes fora de Maps; a repetição com concorrência reduzida passou sem mudança no código. Os casos novos comprovam payload zero sem preços/FX/baseline, preservação do histórico, troca para pago com valores explícitos, preview sem popup/token e bloqueio de cache sem repetir/confirmar.
+- Revisão independente do script operacional local de ativação: payload mínimo, validação de destino/SHA, rejeição de configuração paga habilitada, revisão otimista, recarga independente, tripwires dos três providers, HTTP sintético negado, snapshots agregados e hashes dos seis arquivos de runtime. Somente análise estática/AST; o script **não foi executado** e não prova configuração em produção.
+- Os testes usam dados sintéticos e transportes interceptados. Não houve envio Google para validar esse incremento local. Resumo sanitizado e hashes dos logs em `evidence/cache-only-local-validation.json`; os logs integrais ficam fora do Git.
 
 ## Evidências de entrada
 
@@ -8,7 +41,7 @@ Status: implementação e validações locais/stage concluídas; ajuste do caná
 - Evidência original privada permanece fora do Git; diagnóstico sanitizado em `audit.md`.
 - Código base stage `74f0148c`; produção observada readonly `9137d39f`.
 
-## Casos obrigatórios
+## Casos obrigatórios do controle pago preservado
 
 - Cancelamento/abort do popup não executa ação; confirmação não é lembrada.
 - Concorrência de reservas em SQLite e PostgreSQL descartáveis; persistência/replay.
@@ -21,9 +54,11 @@ Status: implementação e validações locais/stage concluídas; ajuste do caná
 
 ## Limites da prova
 
-Mocks provam envio/cancelamento no transporte da aplicação, não tarifação real do Google. Nenhum teste deve usar chave paga. Métricas antigas não trazem action_id; o defeito do cache é reproduzido, mas não autoriza atribuir toda a diferença histórica à mesma causa. Quotas nativas só podem ser consideradas ativas após verificar o projeto no console. SQLite comprova invariantes do núcleo; com a transação operacional aberta, sua contenção de escrita pode bloquear uma segunda reserva por indisponibilidade do ledger. A pilha operacional ativada usa PostgreSQL; sucesso integrado com múltiplas pernas deve ser provado nesse banco.
+Uma reserva paga anterior à troca para `cache_only` pode já ter passado pela checagem e estar em trânsito. Trocar o modo não cancela retroativamente esse transporte. A primeira ativação exige verificar guard inicialmente sem orçamento habilitado, deploy/reinício dos processos no snapshot aprovado e estado efetivo da segunda barreira nativa quando aplicada. SHA do checkout sozinho não atesta todos os workers vivos. Nenhuma dessas etapas está comprovada por testes locais.
 
-## Resultados locais observados em 18/10/2026
+Mocks provam envio/cancelamento no transporte da aplicação, não tarifação real do Google. Nenhum teste deve enviar uma chamada paga ao Google. Métricas antigas não trazem action_id; o defeito do cache é reproduzido, mas não autoriza atribuir toda a diferença histórica à mesma causa. Quotas nativas só podem ser consideradas ativas após verificar o projeto no console. SQLite comprova invariantes do núcleo; com a transação operacional aberta, sua contenção de escrita pode bloquear uma segunda reserva por indisponibilidade do ledger. A pilha operacional de stage/produção usa PostgreSQL; sucesso integrado com múltiplas pernas deve ser provado nesse banco.
+
+## Resultados locais do primeiro ciclo — 18/10/2026, anteriores a `cache_only`
 
 - Núcleo de orçamento: 40 testes em SQLite e PostgreSQL 16 descartável, todos aprovados. Incluem seis processos simultâneos com teto de duas reservas e oito claims concorrentes com somente um aceito, replay/reabertura de conexão, saldo inicial imutável, permissões, falha do banco, limite por SKU, mensal independente do diário e política automática própria.
 - Providers/cache: cinco testes aprovados, incluindo bloqueio antes dos três transportes, ausência de fallback pago, mensagens sem chave/endereço, TTL renovado para valores idênticos e override manual preservado.

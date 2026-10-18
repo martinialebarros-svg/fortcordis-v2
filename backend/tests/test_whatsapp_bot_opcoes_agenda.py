@@ -249,7 +249,9 @@ class OpcoesTests(unittest.TestCase):
                 helper._criar_agendamento(db,clinica_id=clinic.id,data='2099-05-20',hora=op.local(chosen['inicio']).strftime('%H:%M'))
                 after=op.slots_seguros(op.consultar_dia(db,clinic.id,service,self.now.date()),service,self.now.date(),self.now)
                 self.assertNotIn(chosen,after)
-        finally: db.close();engine.dispose();tmp.cleanup()
+        finally:
+            helper.doCleanups()
+            db.close();engine.dispose();tmp.cleanup()
 
     def test_consulta_disponibilidade_sem_modelo_e_sem_duplicar_pedido(self):
         from app.services.whatsapp_bot_generation import gerar_resposta

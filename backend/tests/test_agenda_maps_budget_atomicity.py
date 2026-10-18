@@ -26,10 +26,12 @@ from app.models.clinica import Clinica
 from app.models.clinica_deslocamento import ClinicaDeslocamento
 from app.models.configuracao import Configuracao
 from app.models.google_maps_usage_metrica import GoogleMapsUsageMetrica
+from app.models.google_maps_cost_control import COST_TABLES
 from app.models.paciente import Paciente
 from app.models.servico import Servico
 from app.models.tutor import Tutor
 from app.services import assistente_ia_tools, logistica_service
+from app.services import google_maps_cost_control as cost_guard
 from app.services.google_maps_cost_control import GoogleMapsCostBlocked
 
 
@@ -39,6 +41,13 @@ class AgendaMapsBudgetAtomicityTest(unittest.TestCase):
         self.engine = create_engine("sqlite:///" + str(Path(self.temp.name) / "synthetic.db"), connect_args={"check_same_thread": False})
         for model in (Agendamento, AssistenteIAAcaoPendente, Clinica, ClinicaDeslocamento, Configuracao, GoogleMapsUsageMetrica, Paciente, Servico, Tutor):
             model.__table__.create(self.engine)
+        # Atomicity unit cases stub reservations explicitly; policy reads still
+        # need a real isolated table, never the developer/global database.
+        for table in COST_TABLES:
+            table.create(self.engine)
+        ledger = patch.object(cost_guard.database, "engine", self.engine)
+        ledger.start()
+        self.addCleanup(ledger.stop)
         self.sessions = sessionmaker(bind=self.engine, autoflush=False)
         with self.sessions() as db:
             db.add(Configuracao(

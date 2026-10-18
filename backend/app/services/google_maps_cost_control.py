@@ -141,12 +141,13 @@ class AutomaticPolicy(BaseModel):
 
 class CostConfiguration(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    operation_mode: Literal["paid_budget", "cache_only"] = "paid_budget"
     enabled: StrictBool
     limits: Limits
-    prices_usd: dict[str, Decimal]
-    fx_brl_per_usd_upper: Decimal = Field(gt=0, le=1000)
-    price_multiplier: Decimal = Field(ge=1, le=100)
-    pricing_valid_until: datetime
+    prices_usd: dict[str, Decimal] | None = None
+    fx_brl_per_usd_upper: Decimal | None = Field(default=None, gt=0, le=1000)
+    price_multiplier: Decimal | None = Field(default=None, ge=1, le=100)
+    pricing_valid_until: datetime | None = None
     action_call_caps: dict[str, StrictInt] = Field(default_factory=dict)
     automatic_policies: dict[str, AutomaticPolicy] = Field(default_factory=dict)
     opening_usage: OpeningUsage | None = None
@@ -155,6 +156,16 @@ class CostConfiguration(BaseModel):
 
     @model_validator(mode="after")
     def validate_financial_envelope(self):
+        if self.operation_mode == "cache_only":
+            if any(getattr(self.limits, period).calls != 0 or getattr(self.limits, period).estimated_brl != 0 for period in ("action", "day", "month")):
+                raise ValueError("O modo somente cache exige limites de chamadas e novas cobranças exatamente zero.")
+            if self.prices_usd is not None or self.fx_brl_per_usd_upper is not None or self.price_multiplier is not None or self.pricing_valid_until is not None:
+                raise ValueError("O modo somente cache não usa preços ou câmbio; não informe estimativas financeiras.")
+            if self.action_call_caps or self.automatic_policies:
+                raise ValueError("O modo somente cache não autoriza chamadas por ação nem por política automática.")
+            return self
+        if any(value is None for value in (self.prices_usd, self.fx_brl_per_usd_upper, self.price_multiplier, self.pricing_valid_until)):
+            raise ValueError("O modo com orçamento exige preços, câmbio, multiplicador e validade explícitos.")
         if set(self.prices_usd) != set(SKUS):
             raise ValueError("Informe o preço USD por unidade de todos os SKUs conhecidos.")
         if any(not price.is_finite() or not (0 < price <= 100) for price in self.prices_usd.values()):
@@ -175,6 +186,7 @@ class CostConfiguration(BaseModel):
 
 
 REASONS = {
+    "cache_only": "Modo somente cache: novas chamadas ao Google Maps estão bloqueadas para manter novas cobranças em R$ 0. Esta operação exige uma rota Google ainda válida ou um ajuste manual autorizado; não será criada uma estimativa alternativa.",
     "unconfigured": "Controle Google Maps sem configuração aprovada. Nenhuma chamada paga foi autorizada.",
     "disabled": "Chamadas ao Google Maps estão suspensas na configuração administrativa.",
     "pricing_expired": "A validade da estimativa de preços/câmbio expirou; atualize a configuração antes de continuar.",
@@ -209,6 +221,7 @@ class Execution:
     automatic_fingerprint: str | None = None
     automatic_claimed: bool = False
     closed: bool = False
+    operation_mode: str | None = None
 
 
 def _now() -> int:
@@ -290,9 +303,51 @@ def _configuration(conn, *, require_enabled=True):
     if require_enabled:
         if not cfg.enabled:
             _deny(conn, "disabled")
-        if cfg.pricing_valid_until.timestamp() <= _now():
+        if cfg.operation_mode == "paid_budget" and cfg.pricing_valid_until.timestamp() <= _now():
             _deny(conn, "pricing_expired")
     return cfg, row["revision"]
+
+
+def _configuration_reason(cfg):
+    if cfg is None:
+        return "unconfigured"
+    if not cfg.enabled:
+        return "disabled"
+    if cfg.operation_mode == "paid_budget" and cfg.pricing_valid_until.timestamp() <= _now():
+        return "pricing_expired"
+    return None
+
+
+def cache_only_operation() -> bool:
+    """A cache-only execution never becomes paid after an admin mode change.
+
+    Internal/automatic callers also inspect durable policy. This is a read-only
+    connection: business cache reads must not acquire the ledger's writer lock.
+    The actual transport boundary always rechecks policy under its shared lock.
+    """
+    execution = _execution.get()
+    if execution is not None and execution.operation_mode == "cache_only":
+        return True
+    try:
+        with database.engine.connect() as conn:
+            raw = conn.execute(select(CONFIG.c.config_json).where(CONFIG.c.id == 1)).scalar()
+        if raw is None:
+            return False
+        cfg = CostConfiguration.model_validate_json(raw)
+    except Exception:
+        raise GoogleMapsCostBlocked("ledger_unavailable", status_code=503) from None
+    if cfg.operation_mode == "cache_only":
+        if execution is not None:
+            execution.operation_mode = "cache_only"
+        return True
+    return False
+
+
+def block_cache_only_lookup() -> None:
+    """No fallback, expired cache reuse or TTL extension after a missing route."""
+    execution = _execution.get()
+    with _locked() as conn:
+        _deny(conn, "cache_only", action_id=execution.action_id if execution else None)
 
 
 def _usage(conn, policy=None):
@@ -357,7 +412,19 @@ def create_preview(user_id, method, path, query=None, body=None):
     with _locked() as conn:
         cfg, revision = _configuration(conn, require_enabled=False)
         usage = _usage(conn)
-        reason = "unconfigured" if cfg is None else ("disabled" if not cfg.enabled else ("pricing_expired" if cfg.pricing_valid_until.timestamp() <= _now() else None))
+        reason = _configuration_reason(cfg)
+        if cfg is not None and cfg.operation_mode == "cache_only":
+            return {
+                "required": False, "blocked": reason is not None, "reason": reason,
+                "operation_mode": "cache_only", "paid_calls_allowed": False,
+                "message": REASONS[reason or "cache_only"], "quote_id": None,
+                "action": spec.label, "action_key": spec.key,
+                "service": "Google Maps Platform", "services": list(spec.skus),
+                "max_calls": 0, "estimated_cost_min_brl": 0, "estimated_cost_max_brl": 0,
+                "uncertainty": ["Saldo gratuito atual não verificado. Nenhuma nova consulta externa é permitida."],
+                "consumption": _usage_view(usage), "remaining": _remaining(cfg, usage),
+                "limits": _limits_view(cfg.limits),
+            }
         max_calls, max_cost = 0, 0
         if cfg is not None:
             unit = max(_unit_cost(cfg, sku) for sku in spec.skus)
@@ -389,6 +456,7 @@ def create_preview(user_id, method, path, query=None, body=None):
             _event(conn, kind="blocked", action=spec.key, user_id=user_id, reason=reason)
         return {
             "required": True, "blocked": reason is not None, "reason": reason,
+            "operation_mode": "paid_budget", "paid_calls_allowed": reason is None,
             "message": REASONS.get(reason), "quote_id": quote_id, "action": spec.label,
             "action_key": spec.key, "service": "Google Maps Platform", "services": list(spec.skus),
             "max_calls": max_calls, "estimated_cost_min_brl": 0,
@@ -406,7 +474,9 @@ def create_preview(user_id, method, path, query=None, body=None):
 
 def confirm_preview(user_id: int, quote_id: str):
     with _locked() as conn:
-        _, revision = _configuration(conn)
+        cfg, revision = _configuration(conn)
+        if cfg.operation_mode == "cache_only":
+            _deny(conn, "cache_only", user_id=user_id)
         row = conn.execute(select(ACTIONS).where(ACTIONS.c.id == quote_id)).mappings().first()
         if not row or row["user_id"] != user_id or row["state"] != "quoted" or row["expires_at"] <= _now():
             _deny(conn, "invalid_grant", user_id=user_id)
@@ -422,9 +492,22 @@ def claim_execution(user_id, token, method, path, query=None, body=None) -> Exec
     spec = identify_action(method, path, query, body)
     action = spec.key if spec else "unscoped"
     with _locked() as conn:
+        cfg, revision = _configuration(conn)
+        if cfg.operation_mode == "cache_only":
+            if spec is None:
+                _deny(conn, "invalid_grant", action=action, user_id=user_id)
+            action_id, now = secrets.token_urlsafe(32), _now()
+            conn.execute(insert(ACTIONS).values(
+                id=action_id, user_id=user_id,
+                fingerprint=request_fingerprint(user_id, method, path, query, body),
+                action=action, revision=revision, state="claimed", max_calls=0,
+                max_cost_micros=0, used_calls=0, used_cost_micros=0, skus_json="[]",
+                created_at=now, claimed_at=now, expires_at=now + EXECUTION_TTL_SECONDS,
+            ))
+            _event(conn, kind="cache_only", action=action, action_id=action_id, user_id=user_id)
+            return Execution(action_id, operation_mode="cache_only")
         if not token:
             _deny(conn, "confirmation_required", action=action, user_id=user_id)
-        _, revision = _configuration(conn)
         row = conn.execute(select(ACTIONS).where(ACTIONS.c.token_hash == _token_digest(token))).mappings().first()
         expected = request_fingerprint(user_id, method, path, query, body)
         if not row or row["user_id"] != user_id or row["state"] != "confirmed" or row["expires_at"] <= _now() or not hmac.compare_digest(row["fingerprint"], expected):
@@ -436,7 +519,7 @@ def claim_execution(user_id, token, method, path, query=None, body=None) -> Exec
             state="claimed", claimed_at=now, expires_at=now + EXECUTION_TTL_SECONDS,
         ))
         _event(conn, kind="claimed", action=row["action"], action_id=row["id"], user_id=user_id)
-        return Execution(row["id"])
+        return Execution(row["id"], operation_mode="paid_budget")
 
 
 def bind_execution(execution: Execution):
@@ -470,11 +553,17 @@ def authorize_google_call(sku: str) -> None:
     """
     execution = _execution.get()
     with _locked() as conn:
+        if execution is not None and execution.operation_mode == "cache_only":
+            _deny(conn, "cache_only", action_id=execution.action_id, policy=execution.automatic_policy)
+        cfg, revision = _configuration(conn)
+        if cfg.operation_mode == "cache_only":
+            if execution is not None:
+                execution.operation_mode = "cache_only"
+            _deny(conn, "cache_only", action_id=execution.action_id if execution else None)
         if execution is None:
             _deny(conn, "confirmation_required")
         if execution.closed:
             _deny(conn, "invalid_grant")
-        cfg, revision = _configuration(conn)
         if execution.automatic_policy and not execution.automatic_claimed:
             policy = cfg.automatic_policies.get(execution.automatic_policy)
             if not policy or not policy.enabled:
@@ -546,9 +635,19 @@ def update_configuration(user_id, config: CostConfiguration, expected_revision: 
         if revision != expected_revision:
             _deny(conn, "configuration_changed", action="configuration", user_id=user_id)
         initialized = conn.execute(select(EVENTS.c.id).where(EVENTS.c.kind == "opening").limit(1)).first()
+        opening_fields = ("opening_usage", "opening_usage_as_of", "opening_usage_basis")
         if initialized:
             previous = CostConfiguration.model_validate_json(row["config_json"])
-            if any(getattr(config, key) != getattr(previous, key) for key in ("opening_usage", "opening_usage_as_of", "opening_usage_basis")):
+            if config.operation_mode == "cache_only":
+                # Retain the real historical baseline on mode changes. Omission
+                # is never interpreted as zero or a request to reset usage.
+                if any(getattr(config, key) is not None and getattr(config, key) != getattr(previous, key) for key in opening_fields):
+                    _deny(conn, "invalid_configuration", action="opening_usage", user_id=user_id)
+                config = config.model_copy(update={key: getattr(previous, key) for key in opening_fields})
+            elif any(getattr(config, key) != getattr(previous, key) for key in opening_fields):
+                _deny(conn, "invalid_configuration", action="opening_usage", user_id=user_id)
+        elif config.operation_mode == "cache_only":
+            if any(getattr(config, key) is not None for key in opening_fields):
                 _deny(conn, "invalid_configuration", action="opening_usage", user_id=user_id)
         elif config.enabled:
             day, month = _periods(_now())
@@ -564,7 +663,7 @@ def update_configuration(user_id, config: CostConfiguration, expected_revision: 
                     reason=config.opening_usage_basis, calls=calls, estimated_cost_micros=cost,
                     day=day_key, month=month, created_at=_now(),
                 ))
-        values = {"revision": revision + 1, "config_json": config.model_dump_json(), "updated_at": _now(), "updated_by": user_id}
+        values = {"revision": revision + 1, "config_json": config.model_dump_json(exclude_none=True), "updated_at": _now(), "updated_by": user_id}
         if row:
             conn.execute(update(CONFIG).where(CONFIG.c.id == 1).values(**values))
         else:
@@ -577,13 +676,16 @@ def get_status():
     with _locked() as conn:
         cfg, revision = _configuration(conn, require_enabled=False)
         usage = _usage(conn)
-        reason = "unconfigured" if cfg is None else ("disabled" if not cfg.enabled else ("pricing_expired" if cfg.pricing_valid_until.timestamp() <= _now() else None))
+        reason = _configuration_reason(cfg)
         history = conn.execute(select(EVENTS).order_by(EVENTS.c.id.desc()).limit(100)).mappings().all()
         started = conn.execute(select(func.min(EVENTS.c.created_at)).where(EVENTS.c.kind == "opening")).scalar()
         return {
             "configured": cfg is not None, "enabled": cfg.enabled if cfg else False,
             "blocked": reason is not None, "reason": reason, "revision": revision,
-            "config": cfg.model_dump(mode="json") if cfg else None,
+            "operation_mode": cfg.operation_mode if cfg else None,
+            "paid_calls_allowed": cfg is not None and cfg.operation_mode == "paid_budget" and reason is None,
+            "message": REASONS["cache_only"] if cfg and cfg.operation_mode == "cache_only" else REASONS.get(reason),
+            "config": cfg.model_dump(mode="json", exclude_none=True) if cfg else None,
             "consumed_since": _iso(started) if started is not None else None,
             "opening_usage": cfg.opening_usage.model_dump(mode="json") if cfg and cfg.opening_usage else None,
             "consumption": _usage_view(usage), "remaining": _remaining(cfg, usage) if cfg else None,
@@ -593,5 +695,5 @@ def get_status():
             "actions": [{"key": key, "label": spec.label} for key, spec in ACTION_SPECS.items()],
             "pricing_reference_date": PRICING_REFERENCE_DATE,
             "minimum_unit_prices_usd": {sku: str(price) for sku, price in MIN_UNIT_PRICES_USD.items()},
-            "billing_note": "Estimativa de tentativas reservadas, não fatura Google. Não desconta franquia compartilhada nem descontos de volume; o Billing pode chegar com atraso. Falhas não devolvem a reserva.",
+            "billing_note": ("Somente cache: teto de novas chamadas e novas cobranças R$ 0. O saldo da franquia gratuita não foi verificado; cobranças por uso anterior podem chegar com atraso. Consumo exibido é o histórico do controle, não o total da conta Google." if cfg and cfg.operation_mode == "cache_only" else "Estimativa de tentativas reservadas, não fatura Google. Não desconta franquia compartilhada nem descontos de volume; o Billing pode chegar com atraso. Falhas não devolvem a reserva."),
         }

@@ -4,6 +4,10 @@
 
 O gate de lookup e o relatório legado não são tetos financeiros. A proteção efetiva passa a ser especificada em `../google-maps-enforced-budget/spec.md`, com autorização única por ação e ledger atômico no servidor. Consultas Google são recusadas quando não houver política e saldo verificáveis, inclusive com lookup ao vivo habilitado. Revalidação Google de rota expirada renova `updated_at` mesmo se distância/duração/fonte forem idênticas; ajustes manuais continuam protegidos.
 
+Decisão posterior para produção: `operation_mode=cache_only` impõe zero envios Google independentemente de flags, chave, force refresh, políticas automáticas ou origem HTTP. Somente cache Google ainda válido ou override manual persistido/autorizado pode atender à rota. Miss, expiração e heurística retornam bloqueio `cache_only`; nenhuma duração, distância ou disponibilidade é fabricada. O cache Google exige TTL configurado positivo e timestamp válido; TTL zero/negativo, manual sem `manual_override=true` e cache de sessão da primeira saída sem timestamp/TTL são recusados. A leitura não renova TTL. Operações sem custo têm preview `required=false`, sem quote/grant pago; isso não autoriza chamadas futuras.
+
+Em `cache_only`, limites de chamadas/BRL por ação/dia/mês são zero; preços, FX e baseline são omitidos do payload, e eventos/baseline existentes são preservados pelo servidor. `paid_budget` mantém os requisitos de reserva/consentimento e dados financeiros confiáveis. As regras históricas RF-002, CA-002 e CA-007 abaixo não autorizam heurística ou lookup ao vivo no novo modo. A validação operacional continua atômica, inclusive em IA e reativação de reservas.
+
 Data: 2026-04-22  
 Responsavel: Codex  
 Status: done
@@ -51,7 +55,7 @@ O ciclo endurece o controle de custo de Google Maps na agenda/logistica com cach
 - Sem alteracao de schema.
 - Migracao necessaria: nao.
 
-## 5) Compatibilidade e rollout
+## 5) Compatibilidade e rollout históricos — abril/maio de 2026
 
 - Backward compatibility: mantida; comportamento padrao fica conservador (`False` no gate).
 - Backward compatibility: mantida; lookup ao vivo na leitura permanece habilitado por padrao para evitar regressao de precisao.
@@ -68,3 +72,5 @@ O ciclo endurece o controle de custo de Google Maps na agenda/logistica com cach
 - CA-006: custo e quotas ficam disponiveis em `cost_and_quotas` no resumo e no endpoint dedicado.
 - CA-007: default de leitura preserva lookup ao vivo para nao degradar precisao sem rollout explicito.
 - CA-008: recomendacao de `qpm_soft` nao fica artificialmente inflada em baixo volume.
+
+Critérios adicionais para `cache_only`: cache permitido funciona sem rede; miss/stale/heurística bloqueiam; providers, jobs e acesso direto não contornam o modo; falha do controle compartilhado fecha o envio; troca concorrente de modo não aumenta o teto da ação; bloqueio fica visível e não altera parcialmente a agenda. Registrar a nova prova em `../google-maps-enforced-budget/verify.md`, sem reutilizar resultados históricos como prova de produção.

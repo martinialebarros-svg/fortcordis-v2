@@ -62,7 +62,7 @@ from app.services.logistica_service import (
     obter_duracao_deslocamento_entidades,
 )
 from app.services.geocoding_service import GeocodingError, geocodificar_endereco_google
-from app.services.google_maps_cost_control import GoogleMapsCostBlocked
+from app.services.google_maps_cost_control import GoogleMapsCostBlocked, block_cache_only_lookup, cache_only_operation
 from app.services.precos_service import calcular_preco_servico, calcular_precos_servicos_em_lote, to_decimal
 from app.services.auditoria_service import registrar_auditoria
 from app.services.push_notifications import (
@@ -1089,6 +1089,10 @@ def _obter_deslocamento_primeira_saida(
     )
     cache = db.info.setdefault("_agenda_primeira_saida_deslocamento", {})
     if chave in cache:
+        # This per-session cache has no timestamp or durable freshness proof.
+        # Cache-only policy cannot treat it as a validated stored route.
+        if cache_only_operation():
+            block_cache_only_lookup()
         return cache[chave]
 
     try:

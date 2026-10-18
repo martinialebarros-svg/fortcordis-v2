@@ -2,12 +2,14 @@ import { CanceledError, type AxiosInstance, type InternalAxiosRequestConfig } fr
 
 export type MapsBudget = { calls: number | null; estimated_brl: number | null };
 export type MapsPeriods = { action?: MapsBudget; day?: MapsBudget; month?: MapsBudget };
+export type MapsOperationMode = "paid_budget" | "cache_only";
 export const MAPS_SKU_LABELS: Record<string, string> = {
   routes_essentials: "Routes Essentials", routes_pro: "Routes Pro",
   distance_matrix_essentials: "Distance Matrix Essentials", distance_matrix_pro: "Distance Matrix Advanced",
   geocoding: "Geocoding",
 };
 export type MapsQuote = {
+  operation_mode?: MapsOperationMode;
   required: boolean;
   blocked: boolean;
   reason?: string;

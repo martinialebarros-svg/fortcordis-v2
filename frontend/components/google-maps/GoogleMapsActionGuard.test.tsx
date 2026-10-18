@@ -133,4 +133,28 @@ describe("confirmação de custo antes do envio", () => {
     expect(requests.filter((item) => item.url === "/agenda")).toHaveLength(1);
     expect(requests.filter((item) => item.url === "/google-maps-control/confirm")).toHaveLength(1);
   });
+
+  it("consulta cache sem popup ou token de custo quando o servidor declara zero chamadas", async () => {
+    quoteResult = { ...quote, operation_mode: "cache_only", required: false, max_calls: 0, estimated_cost_min_brl: 0, estimated_cost_max_brl: 0 };
+    render(<GoogleMapsActionGuard />);
+    await api.get("/logistica/deslocamento", { headers: { "X-Google-Maps-Action": "old-paid-token" } });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(requests.map((item) => item.url)).toEqual(["/google-maps-control/preview", "/logistica/deslocamento"]);
+    expect(requests[1].headers.has("X-Google-Maps-Action")).toBe(false);
+  });
+
+  it("miss de cache mostra bloqueio e não tenta autorizar cobrança ou repetir a consulta", async () => {
+    quoteResult = { ...quote, operation_mode: "cache_only", required: false, max_calls: 0, estimated_cost_min_brl: 0, estimated_cost_max_brl: 0 };
+    const adapter = api.defaults.adapter as AxiosAdapter;
+    api.defaults.adapter = async (config) => {
+      const response = await adapter(config);
+      if (config.url === "/logistica/deslocamento") throw Object.assign(new Error("Bloqueado"), { response: { status: 409, data: { detail: { code: "GOOGLE_MAPS_COST_BLOCKED", message: "Modo somente cache: não há rota válida disponível. Nenhuma chamada ao Google foi enviada." } } } });
+      return response;
+    };
+    render(<GoogleMapsActionGuard />);
+    await api.get("/logistica/deslocamento").catch(() => undefined);
+    expect(await screen.findByRole("alert")).toHaveTextContent("não há rota válida disponível");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(requests.map((item) => item.url)).toEqual(["/google-maps-control/preview", "/logistica/deslocamento"]);
+  });
 });
