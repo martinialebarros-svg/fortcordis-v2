@@ -148,3 +148,42 @@ Status: stage-br-phone-alias-fix
 - CA-SERV01: fontes, combo, fallback, limite, preview, contrato API e cinco
   parametros oficiais passam em testes locais; a variante pendente nao faz
   nenhum envio real. O formulario Meta preparado usa apenas dados sinteticos.
+
+## Confirmacao automatica do pedido de alteracao — 2026-10-16
+
+- RF-ACK01: apos `Solicitar alteracao` em lembrete vinculado, somente a resposta
+  confiavel `alteracao_solicitada` da API interna autoriza uma mensagem curta ao
+  destinatario, informando que o pedido foi recebido e sera analisado pela
+  equipe. O texto nao afirma que servico, horario ou valor ja foram alterados.
+- RF-ACK02: a confirmacao automatica aparece no historico com
+  `metadata.source='approved_template_button.solicitar_alteracao_ack'` e origem
+  automatica. Mesmo quando enviada com sucesso, nao substitui a resposta da
+  equipe: a conversa permanece em `needs_reply=true` e o alerta interno segue
+  disponivel para revisao humana.
+- NFR-ACK01: reentrega do mesmo clique nao gera outra confirmacao. Remetente
+  divergente, botao sem vinculo e resposta de dominio diferente de
+  `alteracao_solicitada` nao autorizam envio. Falha de envio permanece visivel
+  no historico sem modificar agendamento ou marcar a revisao como resolvida.
+- NFR-ACK02: o envio so ocorre apos o commit do webhook, dentro da janela de
+  atendimento de 24 horas aberta pelo clique, com uma tentativa Graph e chave
+  unica por mensagem de clique. Reinicio antes da reserva recupera a intencao;
+  reserva pendente por mais de cinco minutos vira falha para revisao, sem
+  reenvio automatico de resultado incerto. Uma resposta humana ja enviada
+  depois do clique dispensa a confirmacao tardia.
+- NFR-ACK03: a busca periodica usa indices parciais nos eventos processados de
+  alteracao e nas mensagens de saida pendentes, e encerra candidatos inelegiveis;
+  eventos anteriores sem intencao
+  explicita nao recebem mensagem retroativa. O bot reconhece o pedido ja
+  alertado pela Agenda e evita um segundo handoff generico.
+- NFR-ACK04: ao encerrar o processo, o worker espera o envio em andamento
+  terminar antes de fechar o banco e nao inicia outro candidato.
+- CA-ACK01: webhook sintetico comprova um envio para a alteracao valida e
+  nenhum envio nos caminhos rejeitados ou repetidos.
+- CA-ACK02: apos a confirmacao automatica enviada, a conversa continua na fila
+  `needs_reply`; uma resposta humana posterior segue o comportamento normal de
+  resolucao da pendencia.
+- CA-ACK03: falha da Graph, reserva interrompida, janela vencida, resposta
+  humana previa e mais de cinquenta eventos antigos nao causam reenvio ou
+  bloqueio de um clique novo valido.
+- CA-ACK04: encerramento durante um envio espera o resultado e preserva o
+  estado final da mensagem no historico.

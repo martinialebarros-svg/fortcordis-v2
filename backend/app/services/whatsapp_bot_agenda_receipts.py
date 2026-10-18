@@ -1,4 +1,4 @@
-"""Reconhece apenas confirmações concluídas pelo fluxo autenticado de agenda."""
+"""Reconhece respostas de botão já tratadas pelo fluxo autenticado de agenda."""
 from __future__ import annotations
 
 import json
@@ -14,7 +14,7 @@ def confirmacao_agenda_processada(
     db: Session, *, wa_identity: str, wa_message_id: str, message_type: str | None,
 ) -> bool:
     # Texto visível, payload do botão e metadados recebidos não são prova de
-    # confirmação. A evidência vem do recibo persistido pela API de agenda.
+    # tratamento. A evidência vem do recibo persistido pela API de agenda.
     if message_type != "button" or not wa_message_id:
         return False
     receipt = db.query(WhatsappAgendaResposta).filter(
@@ -38,6 +38,10 @@ def confirmacao_agenda_processada(
         return False
     if receipt.action == "confirmar_presenca":
         return receipt.result == "presenca_confirmada" and payload.get("status") in ("Agendado", "Confirmado")
+    if receipt.action == "solicitar_alteracao":
+        # A API de agenda já gerou o alerta para a equipe. Não criar um segundo
+        # handoff genérico pelo tipo de mensagem do clique.
+        return receipt.result == "alteracao_solicitada"
     return (
         receipt.action == "confirmar"
         and receipt.result in {"confirmado", "ja_confirmado"}

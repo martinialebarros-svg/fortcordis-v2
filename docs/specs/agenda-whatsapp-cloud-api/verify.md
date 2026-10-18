@@ -137,3 +137,21 @@ de `whatsapp-approved-template-catalog`.
   divergente comprovam zero conexao e zero envio, com legado preservado.
 - Nenhuma mensagem de teste foi enviada nem marcador de lembrete foi limpo.
   A publicacao e a ativacao ainda dependem da conclusao dos gates de release.
+
+## Confirmacao automatica do pedido de alteracao — validacao local 2026-10-16
+
+| Criterio | Evidencia | Estado |
+| --- | --- | --- |
+| CA-ACK01 | `test-change-request-acknowledgement.ts`: webhook assinado gera uma confirmacao apos commit; repeticao do payload/clique, remetente divergente, callback falho, resultado diferente e janela vencida nao geram envio adicional. `test-conversation-reply-queue.ts` mantem botao desconhecido sem recibo confiavel | passou |
+| CA-ACK02 | PostgreSQL isolado: confirmacao enviada com `metadata.source='approved_template_button.solicitar_alteracao_ack'` e `origem='bot'` mantem `needs_reply=true`; resposta humana posterior encerra a pendencia | passou |
+| CA-ACK03 | Teste cobre falha Graph sem reenvio, reserva vencida marcada `failed`, mais de 50 eventos expirados antes de clique valido, resposta humana antecipada e retry humano com ID antigo | passou |
+| CA-ACK04 | Teste segura a resposta Graph durante o encerramento do worker; o encerramento aguarda o resultado e a mensagem termina como `sent` | passou |
+
+`npm run migrate` aplicou os dois indices parciais no PostgreSQL local; `npm run build`,
+`test:change-request-acknowledgement`, `test:conversation-reply-queue`,
+`test:approved-templates`, `test:customer-service-window` e o teste de eventos
+de botoes passaram. Os 36 testes Python focados de recibos, fila do bot e
+lembrete passaram. `python3 -m unittest backend.tests.test_sdd_guardrail`,
+parse YAML dos workflows e `git diff --check` passaram. O teste usou apenas
+destinos e transporte Graph sinteticos; esta mudanca ainda nao foi publicada
+nem gerou mensagem real.

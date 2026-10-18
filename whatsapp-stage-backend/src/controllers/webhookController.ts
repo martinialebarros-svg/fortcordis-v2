@@ -18,6 +18,7 @@ import {
 } from "../types/whatsapp";
 import { handleAgendaButtonReply } from "../services/agendaButtonService";
 import { handleApprovedTemplateButtonReply } from "../services/approvedTemplateButtonService";
+import { runPendingChangeRequestAcknowledgements } from "../services/changeRequestAcknowledgementService";
 import { notifyPushForInboundMessage } from "../services/whatsappPushNotificationService";
 import { canonicalWhatsAppIdentity } from "../utils/phoneNumber";
 
@@ -545,6 +546,15 @@ async function processWebhookEvent(eventId: string): Promise<void> {
 
       return "processed" as const;
     });
+
+    if (status === "processed") {
+      // The callback and inbound message are committed before any external send.
+      void runPendingChangeRequestAcknowledgements().catch((error) => {
+        logger.error("Failed to dispatch pending change-request acknowledgement", {
+          message: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
 
     if (status === "already_processed") {
       logger.debug("Webhook event already processed", { eventId });
