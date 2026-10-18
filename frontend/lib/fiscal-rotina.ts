@@ -76,10 +76,10 @@ export function proximaEtapaFiscal(etapa: EtapaFiscal): EtapaFiscal | null {
   return ({ preparado: "enviado_contador", enviado_contador: "nota_recebida", nota_recebida: "nota_encaminhada", nota_encaminhada: null } as const)[etapa];
 }
 
-export function sextaFeiraFiscal(data: string): boolean {
+export function domingoFiscal(data: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return false;
   const parsed = new Date(`${data}T12:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === data && parsed.getUTCDay() === 5;
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === data && parsed.getUTCDay() === 0;
 }
 
 export function assinaturaRotina(contexto: { competencia: string; modo: ModoFiscalRotina; data_corte?: string | null; clinica_id?: number | null }, osIds: number[]): string {

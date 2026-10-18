@@ -151,7 +151,7 @@ def main() -> None:
 
         status, raw, _ = request(f"/rotinas/clinicas/{own.id}", {"modo": "semanal", "pagamento_depende_nf": True, "versao_esperada": 0}, "PUT")
         assert status == 200 and json.loads(raw)["versao"] == 1
-        query = f"?competencia=2026-08&modo=semanal&data_corte=2026-08-28&clinica_id={own.id}"
+        query = f"?competencia=2026-08&modo=semanal&data_corte=2026-08-30&clinica_id={own.id}"
         preview = get_json("/rotinas/previa" + query)
         items = {item["os_id"]: item for item in preview["items"]}
         assert set(items).issubset(set(fixtures["os"]) - {os_outro})
@@ -159,7 +159,7 @@ def main() -> None:
         assert items[os_agenda]["fonte_realizacao"] == "agenda" and items[os_laudo]["fonte_realizacao"] == "laudo"
         assert not items[os_sem_prova]["realizacao_confirmada"] and not items[os_sem_prova]["elegivel"]
         assert preview["rotina"]["automatico"] is False
-        assert preview["rotina"]["corte_em"] == "2026-08-28T18:00:00-03:00"
+        assert preview["rotina"]["corte_em"] == "2026-08-30T17:00:00-03:00"
         assert items[os_agenda]["pagamento_depende_nf"] is True
         checks["backlog_corte_fortaleza_e_escopo_clinica"] = True
         checks["prova_direta_sem_inferencia_paciente_data"] = True
@@ -177,7 +177,7 @@ def main() -> None:
         for name, changes in (("batch", {"os_ids": [os_agenda, os_laudo]}),
                               ("sem_prova", {"os_ids": [os_sem_prova]}),
                               ("outra_clinica", {"os_ids": [os_outro]}),
-                              ("corte_fora_semanal", {"data_corte": "2026-08-28"})):
+                              ("corte_fora_semanal", {"data_corte": "2026-08-30"})):
             bad_key = str(uuid4())
             package_keys.append(bad_key)
             assert request("/rotinas/preparar", {**payload, **changes, "chave_idempotencia": bad_key})[0] in (409, 422), name
