@@ -771,6 +771,7 @@ export default function VisualizarLaudoPage() {
 
           {laudoEhEco && (
             <EchoNarrativeConsistencyNotice
+              species={paciente?.especie}
               measurements={medidas}
               qualitative={qualitativa}
               conclusion={laudo.diagnostico || ""}

@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import VisualizarLaudoPage from "./page";
+import { montarDescricaoEcocardiograma } from "@/lib/ecocardiograma-estruturado";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(), post: vi.fn(), put: vi.fn(),
@@ -167,5 +168,42 @@ describe("referências diastólicas no visualizador do laudo salvo", () => {
     expect(within(reference("DIVEd · diâmetro interno do VE em diástole")).queryByRole("link")).not.toBeInTheDocument();
     expect(cells("DIVEd · diâmetro interno do VE em diástole")[1]).toHaveTextContent("30.00 mm");
     expect(mocks.buscarReferencia).toHaveBeenCalledWith("Canina", 10);
+  });
+
+  it.each([
+    { species: "Cat", waves: "fundidas", expected: true },
+    { species: "Felina", waves: "separadas", expected: false },
+    { species: "Canina", waves: "fundidas", expected: false },
+  ])("confere a narrativa oficial na prévia $species/$waves sem escrever no laudo", async ({ species, waves, expected }) => {
+    const text = "Função diastólica preservada, com padrão de enchimento adequado ao Doppler transmitral.";
+    const measurements = { ...stored, Diastolica_ondas: waves, TDI_ondas: "separadas" };
+    const description = montarDescricaoEcocardiograma(measurements,
+      { valvas: "", camaras: "", funcao: text, pericardio: "", vasos: "", ad_vd: "" });
+    const data = {
+      id: 91, tipo: "ecocardiograma", titulo: "QA CONFERÊNCIA NARRATIVA", descricao: description,
+      medidas: measurements, diagnostico: "Conclusão clínica integrada preservada.", status: "Rascunho",
+      data_laudo: "2026-10-15T12:00:00",
+      paciente: { id: 8, nome: "QA NARRATIVA FELINA", especie: species, peso_kg: 0 },
+      ecocardiograma_estruturado: { usar_no_laudo: true,
+        textos: { funcao_diastolica: "Ondas fundidas; avaliação limitada aos demais parâmetros disponíveis." } },
+    };
+    const before = structuredClone(data);
+    mocks.get.mockResolvedValue({ data });
+    render(<VisualizarLaudoPage />);
+    await screen.findByRole("heading", { name: "Medidas Ecocardiográficas" });
+    const notice = screen.queryByRole("status", { name: "Conferência de coerência do laudo" });
+    if (expected) {
+      expect(notice).toHaveAttribute("data-echo-consistency-review");
+      expect(notice!.querySelector("blockquote")).toHaveTextContent(text);
+      expect(within(notice!).getByText("Sugestão para sua revisão:")).toBeInTheDocument();
+      expect(notice).toHaveTextContent(/Função/);
+    } else {
+      expect(notice).not.toBeInTheDocument();
+    }
+    expect(screen.getByText("Conclusão clínica integrada preservada.")).toBeInTheDocument();
+    expect(data).toEqual(before);
+    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("/laudos/91");
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.put).not.toHaveBeenCalled();
   });
 });
