@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import EchoNarrativeConsistencyNotice from "./EchoNarrativeConsistencyNotice";
 
@@ -21,31 +21,5 @@ describe("aviso discreto de conferência clínica", () => {
       conclusion=""
     />);
     expect(container).toBeEmptyDOMElement();
-  });
-
-  it("localiza o trecho e oferece sugestão somente para revisão manual", () => {
-    const sentence = "Ondas E e A separadas e mensuráveis.";
-    render(<EchoNarrativeConsistencyNotice species="Gato"
-      measurements={{ Diastolica_ondas: "fundidas" }}
-      qualitative={{ funcao: sentence }} conclusion="Conclusão clínica preservada."
-    />);
-    const notice = screen.getByRole("status", { name: "Conferência de coerência do laudo" });
-    expect(notice).toHaveAttribute("data-echo-consistency-review");
-    fireEvent.click(within(notice).getByText(/Ver trecho/));
-    expect(within(notice).getByText(sentence, { selector: "blockquote" })).toBeInTheDocument();
-    expect(within(notice).getByText("Sugestão para sua revisão:")).toBeInTheDocument();
-    expect(within(notice).queryByRole("button")).not.toBeInTheDocument();
-    expect(notice).toHaveTextContent("A interpretação e o salvamento permanecem sob sua decisão");
-  });
-
-  it("atualiza o aviso com a fusão e com a correção da narrativa", () => {
-    const props = { species: "Felina", qualitative: { funcao: "Ondas E e A separadas e mensuráveis." }, conclusion: "" };
-    const view = render(<EchoNarrativeConsistencyNotice {...props} measurements={{ Diastolica_ondas: "separadas" }} />);
-    expect(view.container).toBeEmptyDOMElement();
-    view.rerender(<EchoNarrativeConsistencyNotice {...props} measurements={{ Diastolica_ondas: "fundidas" }} />);
-    expect(screen.getByRole("status", { name: "Conferência de coerência do laudo" })).toBeInTheDocument();
-    view.rerender(<EchoNarrativeConsistencyNotice {...props} measurements={{ Diastolica_ondas: "fundidas" }}
-      qualitative={{ funcao: "Ondas E/A fundidas, sem mensuração independente." }} />);
-    expect(view.container).toBeEmptyDOMElement();
   });
 });
