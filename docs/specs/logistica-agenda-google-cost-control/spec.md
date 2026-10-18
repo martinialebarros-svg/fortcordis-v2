@@ -1,5 +1,9 @@
 # Spec - logistica-agenda-google-cost-control
 
+## Evolução em 18/10/2026
+
+O gate de lookup e o relatório legado não são tetos financeiros. A proteção efetiva passa a ser especificada em `../google-maps-enforced-budget/spec.md`, com autorização única por ação e ledger atômico no servidor. Consultas Google são recusadas quando não houver política e saldo verificáveis, inclusive com lookup ao vivo habilitado. Revalidação Google de rota expirada renova `updated_at` mesmo se distância/duração/fonte forem idênticas; ajustes manuais continuam protegidos.
+
 Data: 2026-04-22  
 Responsavel: Codex  
 Status: done

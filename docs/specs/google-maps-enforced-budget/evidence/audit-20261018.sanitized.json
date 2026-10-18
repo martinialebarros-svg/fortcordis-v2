@@ -1,0 +1,850 @@
+{
+  "as_of": "2026-10-18",
+  "read_only": true,
+  "upstream_google_requests": 0,
+  "privacy": "Aggregates only; no keys, URLs with secrets, addresses, names, patient data or entity IDs.",
+  "production": {
+    "sha": "9137d39fea18c795bb1cb7b1cc9bc204dce05d69",
+    "safe_config": {
+      "GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS": 30,
+      "GOOGLE_MAPS_USAGE_METRICS_RETENTION_DAYS": 90,
+      "LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ": true,
+      "LOGISTICA_FORCE_REFRESH_HEURISTICA_COM_API_KEY": false,
+      "LOGISTICA_GOOGLE_TRAFFIC_AWARE": false
+    },
+    "google_key_configured": true,
+    "metrics_coverage": [
+      {
+        "total": 60545,
+        "oldest": "2026-04-11 11:30:27.566186",
+        "newest": "2026-10-17 18:02:48.285425"
+      }
+    ],
+    "monthly_operations": [
+      {
+        "month": "2026-04-01",
+        "operation": "compute_routes_pro",
+        "provider": "routes_api",
+        "status": "empty",
+        "n": 238
+      },
+      {
+        "month": "2026-04-01",
+        "operation": "compute_routes_pro",
+        "provider": "routes_api",
+        "status": "ok",
+        "n": 856
+      },
+      {
+        "month": "2026-04-01",
+        "operation": "distance_matrix",
+        "provider": "distance_matrix",
+        "status": "empty",
+        "n": 238
+      },
+      {
+        "month": "2026-05-01",
+        "operation": "compute_routes_pro",
+        "provider": "routes_api",
+        "status": "ok",
+        "n": 2142
+      },
+      {
+        "month": "2026-06-01",
+        "operation": "compute_routes",
+        "provider": "routes_api_basic",
+        "status": "empty",
+        "n": 46
+      },
+      {
+        "month": "2026-06-01",
+        "operation": "compute_routes",
+        "provider": "routes_api_basic",
+        "status": "error",
+        "n": 32
+      },
+      {
+        "month": "2026-06-01",
+        "operation": "compute_routes",
+        "provider": "routes_api_basic",
+        "status": "ok",
+        "n": 4004
+      },
+      {
+        "month": "2026-06-01",
+        "operation": "distance_matrix",
+        "provider": "distance_matrix_basic",
+        "status": "empty",
+        "n": 78
+      },
+      {
+        "month": "2026-07-01",
+        "operation": "compute_routes",
+        "provider": "routes_api_basic",
+        "status": "ok",
+        "n": 12915
+      },
+      {
+        "month": "2026-08-01",
+        "operation": "compute_routes",
+        "provider": "routes_api_basic",
+        "status": "error",
+        "n": 1
+      },
+      {
+        "month": "2026-08-01",
+        "operation": "compute_routes",
+        "provider": "routes_api_basic",
+        "status": "ok",
+        "n": 22708
+      },
+      {
+        "month": "2026-08-01",
+        "operation": "distance_matrix",
+        "provider": "distance_matrix_basic",
+        "status": "empty",
+        "n": 1
+      },
+      {
+        "month": "2026-09-01",
+        "operation": "compute_routes",
+        "provider": "routes_api_basic",
+        "status": "ok",
+        "n": 11352
+      },
+      {
+        "month": "2026-10-01",
+        "operation": "compute_routes",
+        "provider": "routes_api_basic",
+        "status": "ok",
+        "n": 5934
+      }
+    ],
+    "daily_metrics": [
+      {
+        "date_ref": "2026-07-01",
+        "n": 172
+      },
+      {
+        "date_ref": "2026-07-02",
+        "n": 181
+      },
+      {
+        "date_ref": "2026-07-03",
+        "n": 368
+      },
+      {
+        "date_ref": "2026-07-04",
+        "n": 141
+      },
+      {
+        "date_ref": "2026-07-05",
+        "n": 29
+      },
+      {
+        "date_ref": "2026-07-06",
+        "n": 331
+      },
+      {
+        "date_ref": "2026-07-07",
+        "n": 294
+      },
+      {
+        "date_ref": "2026-07-08",
+        "n": 569
+      },
+      {
+        "date_ref": "2026-07-09",
+        "n": 510
+      },
+      {
+        "date_ref": "2026-07-10",
+        "n": 286
+      },
+      {
+        "date_ref": "2026-07-11",
+        "n": 647
+      },
+      {
+        "date_ref": "2026-07-12",
+        "n": 55
+      },
+      {
+        "date_ref": "2026-07-13",
+        "n": 553
+      },
+      {
+        "date_ref": "2026-07-14",
+        "n": 472
+      },
+      {
+        "date_ref": "2026-07-15",
+        "n": 439
+      },
+      {
+        "date_ref": "2026-07-16",
+        "n": 477
+      },
+      {
+        "date_ref": "2026-07-17",
+        "n": 394
+      },
+      {
+        "date_ref": "2026-07-18",
+        "n": 187
+      },
+      {
+        "date_ref": "2026-07-19",
+        "n": 27
+      },
+      {
+        "date_ref": "2026-07-20",
+        "n": 419
+      },
+      {
+        "date_ref": "2026-07-21",
+        "n": 787
+      },
+      {
+        "date_ref": "2026-07-22",
+        "n": 1107
+      },
+      {
+        "date_ref": "2026-07-23",
+        "n": 891
+      },
+      {
+        "date_ref": "2026-07-24",
+        "n": 542
+      },
+      {
+        "date_ref": "2026-07-25",
+        "n": 192
+      },
+      {
+        "date_ref": "2026-07-27",
+        "n": 393
+      },
+      {
+        "date_ref": "2026-07-28",
+        "n": 636
+      },
+      {
+        "date_ref": "2026-07-29",
+        "n": 1064
+      },
+      {
+        "date_ref": "2026-07-30",
+        "n": 470
+      },
+      {
+        "date_ref": "2026-07-31",
+        "n": 282
+      },
+      {
+        "date_ref": "2026-08-01",
+        "n": 512
+      },
+      {
+        "date_ref": "2026-08-02",
+        "n": 33
+      },
+      {
+        "date_ref": "2026-08-03",
+        "n": 1343
+      },
+      {
+        "date_ref": "2026-08-04",
+        "n": 1079
+      },
+      {
+        "date_ref": "2026-08-05",
+        "n": 520
+      },
+      {
+        "date_ref": "2026-08-06",
+        "n": 790
+      },
+      {
+        "date_ref": "2026-08-07",
+        "n": 1144
+      },
+      {
+        "date_ref": "2026-08-08",
+        "n": 859
+      },
+      {
+        "date_ref": "2026-08-09",
+        "n": 147
+      },
+      {
+        "date_ref": "2026-08-10",
+        "n": 1186
+      },
+      {
+        "date_ref": "2026-08-11",
+        "n": 669
+      },
+      {
+        "date_ref": "2026-08-12",
+        "n": 903
+      },
+      {
+        "date_ref": "2026-08-13",
+        "n": 868
+      },
+      {
+        "date_ref": "2026-08-14",
+        "n": 1163
+      },
+      {
+        "date_ref": "2026-08-15",
+        "n": 341
+      },
+      {
+        "date_ref": "2026-08-16",
+        "n": 97
+      },
+      {
+        "date_ref": "2026-08-17",
+        "n": 1599
+      },
+      {
+        "date_ref": "2026-08-18",
+        "n": 838
+      },
+      {
+        "date_ref": "2026-08-19",
+        "n": 1071
+      },
+      {
+        "date_ref": "2026-08-20",
+        "n": 1222
+      },
+      {
+        "date_ref": "2026-08-21",
+        "n": 321
+      },
+      {
+        "date_ref": "2026-08-22",
+        "n": 469
+      },
+      {
+        "date_ref": "2026-08-24",
+        "n": 945
+      },
+      {
+        "date_ref": "2026-08-25",
+        "n": 566
+      },
+      {
+        "date_ref": "2026-08-26",
+        "n": 735
+      },
+      {
+        "date_ref": "2026-08-27",
+        "n": 468
+      },
+      {
+        "date_ref": "2026-08-28",
+        "n": 1107
+      },
+      {
+        "date_ref": "2026-08-29",
+        "n": 717
+      },
+      {
+        "date_ref": "2026-08-30",
+        "n": 49
+      },
+      {
+        "date_ref": "2026-08-31",
+        "n": 948
+      }
+    ],
+    "clinic_count": [
+      {
+        "total": 183,
+        "active": 178
+      }
+    ],
+    "per_pair_monthly_distribution": [
+      {
+        "month": "2026-07-01",
+        "pairs": 3097,
+        "calls": "12915",
+        "max_per_pair": 205,
+        "median_per_pair": 1.0,
+        "pairs_over30": 64
+      },
+      {
+        "month": "2026-08-01",
+        "pairs": 3992,
+        "calls": "22709",
+        "max_per_pair": 212,
+        "median_per_pair": 1.0,
+        "pairs_over30": 168
+      }
+    ],
+    "repeated_pairs_in_hour": [
+      {
+        "month": "2026-07-01",
+        "calls": "12915",
+        "extra_same_pair_same_hour": "7757",
+        "max_per_pair_hour": 33
+      },
+      {
+        "month": "2026-08-01",
+        "calls": "22709",
+        "extra_same_pair_same_hour": "15103",
+        "max_per_pair_hour": 45
+      }
+    ],
+    "calls_after_current_row_ttl": [
+      {
+        "month": "2026-07-01",
+        "metric_calls": 12915,
+        "paired_current_cache": 12915,
+        "cache_already_stale_at_call": 3541,
+        "current_cache_predates_call": 6944
+      },
+      {
+        "month": "2026-08-01",
+        "metric_calls": 22708,
+        "paired_current_cache": 22708,
+        "cache_already_stale_at_call": 12311,
+        "current_cache_predates_call": 16979
+      }
+    ],
+    "short_interval_calls": [
+      {
+        "month": "2026-07-01",
+        "within_one_second": 1613,
+        "within_one_minute": 6910
+      },
+      {
+        "month": "2026-08-01",
+        "within_one_second": 2818,
+        "within_one_minute": 13641
+      }
+    ],
+    "audit_aggregate": [
+      {
+        "month": "2026-07-01",
+        "acao": "ASSISTENTE_AGENDA_OFERTA_GERADA",
+        "n": 725
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "AGENDAMENTO_STATUS_ALTERADO",
+        "n": 676
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "ASSISTENTE_AGENDA_ACEITE",
+        "n": 421
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "AGENDAMENTO_CRIADO",
+        "n": 250
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "AGENDAMENTO_ATUALIZADO",
+        "n": 217
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "AGENDAMENTO_CANCELADO",
+        "n": 61
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "AGENDAMENTO_EXCLUIDO",
+        "n": 26
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "ASSISTENTE_AGENDA_EXCECAO_CONCEDIDA",
+        "n": 21
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "AGENDAMENTO_REALIZADO_DESFEITO",
+        "n": 8
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "AGENDAMENTO_REALIZADO_POR_ATENDIMENTO",
+        "n": 1
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "ASSISTENTE_AGENDA_OFERTA_GERADA",
+        "n": 794
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDAMENTO_STATUS_ALTERADO",
+        "n": 601
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "ASSISTENTE_AGENDA_ACEITE",
+        "n": 371
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDAMENTO_CRIADO",
+        "n": 252
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDAMENTO_ATUALIZADO",
+        "n": 184
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "ASSISTENTE_AGENDA_EXCECAO_CONCEDIDA",
+        "n": 40
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDAMENTO_CANCELADO",
+        "n": 37
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDAMENTO_EXCLUIDO",
+        "n": 31
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDA_WHATSAPP_MODELO_ENVIADO",
+        "n": 14
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDAMENTO_REALIZADO_POR_ATENDIMENTO",
+        "n": 13
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "RESERVA_WHATSAPP_TEMPLATE_ENVIADO",
+        "n": 10
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDA_EXCECAO_DESLOCAMENTO_CONCEDIDA",
+        "n": 7
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDAMENTO_AGENDA_FECHADA_CONFIRMADO",
+        "n": 6
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDAMENTO_REALIZADO_DESFEITO",
+        "n": 4
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDAMENTO_RESERVA_REABILITADA",
+        "n": 1
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDA_EXCECAO_DESLOCAMENTO_APLICADA",
+        "n": 1
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "RESERVA_WHATSAPP_RESPOSTA_PROCESSADA",
+        "n": 1
+      }
+    ]
+  },
+  "stage": {
+    "sha": "74f0148c3bbd7a3365753d15fe2e85fbc72d2282",
+    "safe_config": {
+      "GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS": 30,
+      "GOOGLE_MAPS_USAGE_METRICS_RETENTION_DAYS": 90,
+      "LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ": true,
+      "LOGISTICA_FORCE_REFRESH_HEURISTICA_COM_API_KEY": false,
+      "LOGISTICA_GOOGLE_TRAFFIC_AWARE": false
+    },
+    "google_key_configured": true,
+    "metrics_coverage": [
+      {
+        "total": 109,
+        "oldest": "2026-04-13 15:07:37.176988",
+        "newest": "2026-08-16 05:14:20.431039"
+      }
+    ],
+    "monthly_operations": [
+      {
+        "month": "2026-04-01",
+        "operation": "compute_routes_pro",
+        "provider": "routes_api",
+        "status": "ok",
+        "n": 2
+      },
+      {
+        "month": "2026-05-01",
+        "operation": "compute_routes_pro",
+        "provider": "routes_api",
+        "status": "empty",
+        "n": 21
+      },
+      {
+        "month": "2026-05-01",
+        "operation": "compute_routes_pro",
+        "provider": "routes_api",
+        "status": "ok",
+        "n": 61
+      },
+      {
+        "month": "2026-05-01",
+        "operation": "distance_matrix",
+        "provider": "distance_matrix",
+        "status": "empty",
+        "n": 21
+      },
+      {
+        "month": "2026-07-01",
+        "operation": "compute_routes",
+        "provider": "routes_api_basic",
+        "status": "ok",
+        "n": 2
+      },
+      {
+        "month": "2026-08-01",
+        "operation": "compute_routes",
+        "provider": "routes_api_basic",
+        "status": "ok",
+        "n": 2
+      }
+    ],
+    "daily_metrics": [
+      {
+        "date_ref": "2026-07-21",
+        "n": 2
+      },
+      {
+        "date_ref": "2026-08-14",
+        "n": 1
+      },
+      {
+        "date_ref": "2026-08-16",
+        "n": 1
+      }
+    ],
+    "clinic_count": [
+      {
+        "total": 55,
+        "active": 47
+      }
+    ],
+    "per_pair_monthly_distribution": [
+      {
+        "month": "2026-07-01",
+        "pairs": 2,
+        "calls": "2",
+        "max_per_pair": 1,
+        "median_per_pair": 1.0,
+        "pairs_over30": 0
+      },
+      {
+        "month": "2026-08-01",
+        "pairs": 2,
+        "calls": "2",
+        "max_per_pair": 1,
+        "median_per_pair": 1.0,
+        "pairs_over30": 0
+      }
+    ],
+    "repeated_pairs_in_hour": [
+      {
+        "month": "2026-07-01",
+        "calls": "2",
+        "extra_same_pair_same_hour": "0",
+        "max_per_pair_hour": 1
+      },
+      {
+        "month": "2026-08-01",
+        "calls": "2",
+        "extra_same_pair_same_hour": "0",
+        "max_per_pair_hour": 1
+      }
+    ],
+    "calls_after_current_row_ttl": [
+      {
+        "month": "2026-07-01",
+        "metric_calls": 2,
+        "paired_current_cache": 2,
+        "cache_already_stale_at_call": 0,
+        "current_cache_predates_call": 0
+      },
+      {
+        "month": "2026-08-01",
+        "metric_calls": 2,
+        "paired_current_cache": 2,
+        "cache_already_stale_at_call": 0,
+        "current_cache_predates_call": 0
+      }
+    ],
+    "short_interval_calls": [
+      {
+        "month": "2026-07-01",
+        "within_one_second": 0,
+        "within_one_minute": 0
+      },
+      {
+        "month": "2026-08-01",
+        "within_one_second": 0,
+        "within_one_minute": 0
+      }
+    ],
+    "audit_aggregate": [
+      {
+        "month": "2026-07-01",
+        "acao": "AGENDAMENTO_CRIADO",
+        "n": 11
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "ASSISTENTE_AGENDA_OFERTA_GERADA",
+        "n": 11
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "ASSISTENTE_AGENDA_ACEITE",
+        "n": 9
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "AGENDAMENTO_STATUS_ALTERADO",
+        "n": 3
+      },
+      {
+        "month": "2026-07-01",
+        "acao": "AGENDAMENTO_EXCLUIDO",
+        "n": 1
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDAMENTO_STATUS_ALTERADO",
+        "n": 12
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "ASSISTENTE_AGENDA_OFERTA_GERADA",
+        "n": 11
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "ASSISTENTE_AGENDA_ACEITE",
+        "n": 11
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDAMENTO_CRIADO",
+        "n": 10
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "RESERVA_WHATSAPP_RESPOSTA_PROCESSADA",
+        "n": 3
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "RESERVA_WHATSAPP_TEMPLATE_ENVIADO",
+        "n": 3
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDA_WHATSAPP_MODELO_ENVIADO",
+        "n": 2
+      },
+      {
+        "month": "2026-08-01",
+        "acao": "AGENDAMENTO_ATUALIZADO",
+        "n": 1
+      }
+    ]
+  },
+  "production_journal": {
+    "requested_interval": "2026-07-01 through 2026-08-31",
+    "available_oldest_utc": "2026-08-09T12:48:15.420997+00:00",
+    "available_newest_utc": "2026-08-31T23:59:26.382933+00:00",
+    "journal_records": 151201,
+    "http_request_records": 140454,
+    "selected_cost_capable_routes": [
+      {
+        "method": "POST",
+        "path": "/api/v1/agenda/sugestao-proximidade",
+        "status": "200",
+        "n": 810
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/agenda/sugestao-proximidade",
+        "status": "500",
+        "n": 13
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/agenda/assistente/ofertas",
+        "status": "200",
+        "n": 582
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/agenda/assistente/ofertas",
+        "status": "500",
+        "n": 43
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/agenda/sugestoes-horario",
+        "status": "200",
+        "n": 71
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/assistente-ia/chat",
+        "status": "200",
+        "n": 7
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/logistica/deslocamento",
+        "status": "200",
+        "n": 4
+      }
+    ],
+    "all_logistics_http_routes": [
+      {
+        "method": "GET",
+        "path": "/api/v1/logistica/matriz",
+        "status": "200",
+        "n": 13
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/logistica/google-maps/resumo",
+        "status": "200",
+        "n": 17
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/logistica/deslocamento",
+        "status": "200",
+        "n": 4
+      }
+    ],
+    "interpretation": "No POST /logistica/recalcular found in available journal window. No historical Google action correlation IDs, so endpoint-to-upstream count attribution is unavailable. No July journal retained in scanned backend unit."
+  }
+}

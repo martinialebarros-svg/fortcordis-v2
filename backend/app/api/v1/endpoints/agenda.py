@@ -62,6 +62,7 @@ from app.services.logistica_service import (
     obter_duracao_deslocamento_entidades,
 )
 from app.services.geocoding_service import GeocodingError, geocodificar_endereco_google
+from app.services.google_maps_cost_control import GoogleMapsCostBlocked
 from app.services.precos_service import calcular_preco_servico, calcular_precos_servicos_em_lote, to_decimal
 from app.services.auditoria_service import registrar_auditoria
 from app.services.push_notifications import (
@@ -415,6 +416,7 @@ def _obter_duracao_deslocamento_cacheado(
     perfil: str,
     permitir_estimativa_fallback: bool = True,
     cache: Optional[dict[tuple[int, int, str, bool], tuple[int, str]]] = None,
+    commit_cache: bool = True,
 ) -> tuple[int, str]:
     perfil_norm = normalizar_perfil(perfil)
     chave = (
@@ -432,6 +434,7 @@ def _obter_duracao_deslocamento_cacheado(
         destino_clinica_id=destino_clinica_id,
         perfil=perfil_norm,
         permitir_estimativa_fallback=permitir_estimativa_fallback,
+        commit_cache=commit_cache,
     )
     if isinstance(cache, dict):
         cache[chave] = resultado
@@ -784,6 +787,7 @@ def _obter_duracao_deslocamento_operacional(
     cache_clinicas: Optional[dict[tuple[int, int, str, bool], tuple[int, str]]] = None,
     cache_operacional: Optional[dict[tuple[str, int, str, int, str], tuple[int, str]]] = None,
     cache_google: Optional[dict] = None,
+    commit_cache: bool = True,
 ) -> tuple[int, str]:
     if not isinstance(origem, dict) or not isinstance(destino, dict):
         return 0, "indefinido"
@@ -809,6 +813,7 @@ def _obter_duracao_deslocamento_operacional(
             perfil=perfil_norm,
             permitir_estimativa_fallback=True,
             cache=cache_clinicas,
+            commit_cache=commit_cache,
         )
 
     chave = (origem_tipo, origem_entity_id, destino_tipo, destino_entity_id, perfil_norm)
@@ -827,6 +832,7 @@ def _obter_duracao_deslocamento_operacional(
             perfil=perfil_norm,
             permitir_estimativa_fallback=True,
             google_cache=cache_google,
+            commit_cache=commit_cache,
         )
         resultado = (max(0, int(duracao_min or 0)), str(fonte or "indefinido"))
 
@@ -1155,6 +1161,10 @@ def _obter_deslocamento_primeira_saida(
             perfil=perfil_norm,
             permitir_google_lookup=permitir_google,
         )
+    except GoogleMapsCostBlocked:
+        # Preserve the actionable cost/consent failure; never synthesize a route
+        # or hide this as ordinary lack of availability.
+        raise
     except Exception:
         resultado = (None, "rota_indisponivel")
         cache[chave] = resultado
@@ -2135,6 +2145,7 @@ def _validar_deslocamento_agendamento(
     perfil_deslocamento: str = "comercial",
     confirmar_conflito_deslocamento: bool = False,
     validar_primeira_saida: bool = True,
+    commit_cache: bool = False,
 ) -> Optional[dict[str, str]]:
     """Bloqueia conflitos de rota, salvo excecao confirmada agora ou persistida.
 
@@ -2232,6 +2243,7 @@ def _validar_deslocamento_agendamento(
                 cache_clinicas=cache_duracoes_clinicas,
                 cache_operacional=cache_duracoes_operacionais,
                 cache_google=cache_google,
+                commit_cache=commit_cache,
             )
             folga_prev = _minutos_entre(anterior["fim"], inicio_dt)
             destino_anterior_nome = _rotulo_destino_operacional(destino_anterior)
@@ -2247,6 +2259,7 @@ def _validar_deslocamento_agendamento(
                 cache_clinicas=cache_duracoes_clinicas,
                 cache_operacional=cache_duracoes_operacionais,
                 cache_google=cache_google,
+                commit_cache=commit_cache,
             )
             folga_next = _minutos_entre(fim_dt, proximo["inicio"])
             destino_proximo_nome = _rotulo_destino_operacional(destino_proximo)
@@ -2433,6 +2446,7 @@ def _validar_deslocamento_agendamento(
             cache_clinicas=cache_duracoes_clinicas,
             cache_operacional=cache_duracoes_operacionais,
             cache_google=cache_google,
+            commit_cache=commit_cache,
         )
         if duracao_direta > 0:
             duracao_via_novo = int(duracao_prev + duracao_next)
@@ -5070,7 +5084,12 @@ def validar_oferta_assistente_agenda(
             candidato,
             agendamento_id_excluir=payload.ignorar_agendamento_id,
             perfil_deslocamento=payload.perfil_deslocamento,
+            # This endpoint has no pending appointment write. Preserve cache
+            # persistence for this read-only validation; writers keep False.
+            commit_cache=True,
         )
+    except GoogleMapsCostBlocked:
+        raise
     except HTTPException as exc:
         detalhe = exc.detail if isinstance(exc.detail, dict) else {"mensagem": str(exc.detail)}
         return {

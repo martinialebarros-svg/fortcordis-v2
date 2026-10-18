@@ -24,6 +24,7 @@ from app.api.v1.endpoints import (
     eco_study_import,
     financeiro,
     fiscal,
+    google_maps_cost_control,
     frases_ecocardiograma_estruturado_teste,
     frases_ultrassom_abdominal,
     imagens,
@@ -62,6 +63,7 @@ from app.services.background_workers import (
     shutdown_background_workers as shutdown_background_worker_services,
     start_background_workers,
 )
+from app.services.google_maps_cost_middleware import GoogleMapsCostMiddleware
 from app.services.runtime_observability import (
     begin_http_request_observation,
     end_http_request_observation,
@@ -290,6 +292,7 @@ if cors_has_wildcard:
         "CORS_ALLOW_ORIGINS contem '*'. Cookies/credenciais via CORS foram desabilitados."
     )
 
+app.add_middleware(GoogleMapsCostMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_allow_origins,
@@ -413,6 +416,7 @@ async def monitor_runtime_http_status(request: Request, call_next):
     return _append_security_headers(path, response)
 
 # Rotas REST
+app.include_router(google_maps_cost_control.router, prefix="/api/v1/google-maps-control", tags=["google_maps_control"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(observability.router, prefix="/api/v1/observability", tags=["observability"])

@@ -493,7 +493,12 @@ def run_whatsapp_bot_worker_due_once(*, limit: int = 50) -> dict[str, int]:
             db.commit()
 
             try:
-                result = _process_job(db, job)
+                # Stable run identity is shared by all retries. The lazy scope
+                # consults Maps policy only if this job actually needs Google.
+                from app.services.google_maps_cost_control import automatic_action
+
+                with automatic_action("whatsapp_agenda", str(job.id)):
+                    result = _process_job(db, job)
             except Exception as exc:
                 db.rollback()
                 safe_error = _safe_job_error(exc)
