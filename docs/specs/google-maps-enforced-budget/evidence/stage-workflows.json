@@ -1,0 +1,37 @@
+[
+  {
+    "conclusion": "skipped",
+    "databaseId": 39165118317,
+    "headSha": "53307512d361e1259562d256fc2a9d8f8ab08a67",
+    "name": "Deploy Discard Guard",
+    "status": "completed"
+  },
+  {
+    "conclusion": "success",
+    "databaseId": 39164041128,
+    "headSha": "53307512d361e1259562d256fc2a9d8f8ab08a67",
+    "name": "Migration CI",
+    "status": "completed"
+  },
+  {
+    "conclusion": "success",
+    "databaseId": 39164041114,
+    "headSha": "53307512d361e1259562d256fc2a9d8f8ab08a67",
+    "name": "Google Maps Cost Control",
+    "status": "completed"
+  },
+  {
+    "conclusion": "success",
+    "databaseId": 39164041099,
+    "headSha": "53307512d361e1259562d256fc2a9d8f8ab08a67",
+    "name": "Frontend CI",
+    "status": "completed"
+  },
+  {
+    "conclusion": "success",
+    "databaseId": 39164041129,
+    "headSha": "53307512d361e1259562d256fc2a9d8f8ab08a67",
+    "name": "Deploy to Stage (VPS)",
+    "status": "completed"
+  }
+]

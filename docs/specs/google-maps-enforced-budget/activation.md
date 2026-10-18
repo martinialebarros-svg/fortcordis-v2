@@ -10,11 +10,13 @@ Estas são **opções para decisão, não configurações aplicadas**. O teto fi
 
 | Perfil proposto | Limite estimado por ação / dia / mês | Chamadas por ação / dia / mês | Consequência operacional |
 |---|---|---|---|
-| Contenção | R$ 1 / R$ 5 / R$ 100 | 20 / 300 / 10.000 | Aproxima o teto mensal do patamar pago em julho; maior chance de suspender buscas extensas. |
-| Intermediário | R$ 2 / R$ 10 / R$ 200 | 40 / 500 / 15.000 | Folga superior ao volume de julho, com custo limitado abaixo do observado em agosto. |
-| Continuidade com limite | R$ 3 / R$ 15 / R$ 350 | 80 / 900 / 25.000 | Volume mensal superior ao agosto observado, mas teto de estimativa inferior à cobrança daquele mês. |
+| Contenção | R$ 1 / R$ 5 / R$ 100 | 20 / 300 / 10.000 | Menor reserva financeira; pode suspender buscas extensas e atingir o teto monetário com bem menos de 10.000 chamadas. |
+| Intermediário | R$ 2 / R$ 10 / R$ 200 | 40 / 500 / 15.000 | Reserva financeira intermediária; o teto de 15.000 chamadas não significa que esse volume caberá em R$ 200. |
+| Continuidade com limite | R$ 3 / R$ 15 / R$ 350 | 80 / 900 / 25.000 | Maior reserva entre as opções; a estimativa conservadora pode bloquear antes de 25.000 chamadas. |
 
 As opções não prometem concluir uma matriz completa. Com 178 clínicas, uma matriz fria pode precisar de 31.506 Routes, mais fallbacks; deve ser planejada como operação excepcional com teto específico, nunca autorizada indefinidamente. O teto de uma ação também pode impedir uma busca longa antes de terminar. Depois de corrigir o TTL, medir consumo real por ação antes de aumentar os valores.
+
+Exemplo somente didático, sem aplicar câmbio ou margem: com USD 0,005 por Routes Essentials, câmbio superior de R$ 6/USD e multiplicador 1,20, cada tentativa reserva R$ 0,036. Os tetos de R$ 100 / R$ 200 / R$ 350 comportariam, no máximo, 2.777 / 5.555 / 9.722 dessas tentativas, antes de limites diários, outras chamadas ou consumo inicial. A franquia não é abatida dessa reserva; portanto não comparar esses tetos diretamente à fatura histórica para prever capacidade.
 
 Os números acima não são previsão de fatura nem escolha do usuário. Podem ser substituídos livremente por outros valores aprovados. O orçamento automático do WhatsApp precisa ser escolhido separadamente, dentro do global; permanece desligado até isso ocorrer.
 
@@ -42,7 +44,7 @@ Os números acima não são previsão de fatura nem escolha do usuário. Podem s
 
 - Backend: `python -m unittest discover -s backend/tests -p 'test_google_maps*.py' -v`; para concorrência real, usar banco PostgreSQL descartável local `maps_cost_test` e `MAPS_COST_TEST_POSTGRES_URL`.
 - Frontend: `npx vitest run components/google-maps app/clinicas/geocode-explicit-action.test.tsx`, além de `npm test`, lint e build.
-- Stage: `backend/venv/bin/python scripts/google_maps_stage_canary.py`. O script recusa checkout/projeto/ambiente de produção, cria schema próprio e o remove ao final. A API real é consultada apenas para comprovar bloqueio; sucesso e corrida usam o código implantado com transporte simulado.
+- Stage: `backend/venv/bin/python scripts/google_maps_stage_canary.py`. O script recusa checkout/projeto/ambiente de produção, cria schema próprio e o remove ao final. Declara separadamente recusas por limite e por indisponibilidade de conexão; a disputa usa reservas concorrentes, completa o saldo sintético sequencialmente se necessário e exige bloqueio da chamada seguinte. Não aumente pools ou timeouts apenas para eliminar a recusa: investigue o ciclo de conexões e a capacidade do ambiente. A API real é consultada apenas para comprovar bloqueio; sucesso e corrida usam o código implantado com transporte simulado.
 - Auditoria readonly: `backend/venv/bin/python scripts/google_maps_readonly_audit.py`; somente agregados e sem chamadas Google. Não usar as métricas antigas como autorização financeira.
 
 Fontes: [preços oficiais](https://developers.google.com/maps/billing-and-pricing/pricing), [uso e faturamento Routes](https://developers.google.com/maps/documentation/routes/usage-and-billing), [gestão de custos](https://developers.google.com/maps/billing-and-pricing/manage-costs), [faturamento compartilhado](https://developers.google.com/maps/billing-and-pricing/billing-overview).
