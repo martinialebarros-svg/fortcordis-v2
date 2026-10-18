@@ -181,6 +181,7 @@ jobs:
           npm run test:conversation-productivity
           npm run test:conversation-ordering
           npm run test:conversation-reply-queue
+          npm run test:change-request-acknowledgement
           npm run test:quick-replies
           npm run test:follow-ups
           WHATSAPP_ACCESS_TOKEN=synthetic-test-token PHONE_NUMBER_ID=synthetic-number npm run test:bot-auto

@@ -32,6 +32,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_messages_bot_idempotency_key
   ON messages ((metadata->>'idempotency_key'))
   WHERE metadata ? 'idempotency_key';
 
+CREATE INDEX IF NOT EXISTS idx_messages_pending_outbound_age
+  ON messages(created_at)
+  WHERE from_me = TRUE AND status = 'pending';
+
 ALTER TABLE conversations
   ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ;
 
@@ -244,6 +248,10 @@ CREATE TABLE IF NOT EXISTS approved_template_button_events (
   processed_at TIMESTAMPTZ,
   CONSTRAINT approved_template_button_events_provider_message_id_key UNIQUE (provider_message_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_approved_template_button_events_change_ack
+  ON approved_template_button_events(created_at, id)
+  WHERE processing_status = 'processed' AND action = 'solicitar_alteracao';
 
 -- normalize duplicated conversations by phone (preserve oldest row)
 WITH ranked_phone AS (
