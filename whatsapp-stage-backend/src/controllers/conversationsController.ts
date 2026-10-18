@@ -91,7 +91,8 @@ const SUCCESSFUL_AGENDA_RECEIPT_SQL = `COALESCE((m.type = 'button' AND (
     AND m.metadata->'agenda_receipt'->>'status' = 'Confirmado')
 )), FALSE)`;
 
-// Delivery failures and reading the inbox never answer a customer. Retry may
+// Delivery failures, reading the inbox and an automatic change-request
+// acknowledgement do not resolve a request awaiting human review. Retry may
 // reuse an outbound ID and refresh created_at, so use the history's tuple order
 // for replies, and the persisted ID frontier only for explicit resolution.
 const REPLY_QUEUE_JOINS_SQL = `
@@ -100,6 +101,7 @@ const REPLY_QUEUE_JOINS_SQL = `
     FROM messages m
     WHERE m.conversation_id = c.id AND m.from_me = TRUE
       AND m.status IN ('sent', 'delivered', 'read')
+      AND m.metadata->>'source' IS DISTINCT FROM 'approved_template_button.solicitar_alteracao_ack'
     ORDER BY m.created_at DESC, m.id DESC
     LIMIT 1
   ) successful_reply ON true

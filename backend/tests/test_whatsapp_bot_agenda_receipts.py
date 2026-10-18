@@ -83,13 +83,21 @@ class AgendaReceiptBotTest(unittest.TestCase):
             self.db.commit()
             self.assertFalse(self.recognized())
 
-    def test_revisoes_e_alteracoes_nao_sao_confirmacoes_tratadas(self):
+    def test_alteracao_ja_alertada_e_reconhecida_sem_confirmar_agenda(self):
+        for i, status in enumerate(("Agendado", "Confirmado", "Reservado")):
+            with self.subTest(status=status):
+                message_id = f"wamid.alteracao.{i}"
+                self.receipt(message_id=message_id, action="solicitar_alteracao",
+                             result="alteracao_solicitada", status=status)
+                self.assertTrue(self.recognized(message_id=message_id))
+
+    def test_revisoes_e_outros_pedidos_nao_sao_respostas_tratadas(self):
         for i, (action, result, status) in enumerate((
             ("confirmar_presenca", "revisao_manual", "Cancelado"),
             ("confirmar", "confirmacao_apos_prazo", "Expirado"),
             ("confirmar", "confirmacao_dados_pendentes", "Reservado"),
             ("falar_equipe", "falar_equipe_solicitado", "Confirmado"),
-            ("solicitar_alteracao", "alteracao_solicitada", "Confirmado"),
+            ("solicitar_alteracao", "agendamento_nao_encontrado", "Confirmado"),
         )):
             message_id = f"wamid.manual.{i}"
             self.receipt(message_id=message_id, action=action, result=result, status=status)
@@ -101,6 +109,20 @@ class AgendaReceiptBotTest(unittest.TestCase):
             wa_message_id="wamid.question", message_type="text",
         ))
         self.receipt()
+        self.assertFalse(queue.enqueue_job_for_inbound_message(
+            self.db, wa_identity="558588018899", conversation_id="c1",
+            wa_message_id="wamid.receipt", message_type="button",
+        ))
+        jobs = self.db.query(WhatsAppBotJob).all()
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0].status, "pending")
+
+    def test_callback_alteracao_nao_cria_handoff_nem_substitui_texto_pendente(self):
+        self.assertTrue(queue.enqueue_job_for_inbound_message(
+            self.db, wa_identity="558588018899", conversation_id="c1",
+            wa_message_id="wamid.question", message_type="text",
+        ))
+        self.receipt(action="solicitar_alteracao", result="alteracao_solicitada", status="Agendado")
         self.assertFalse(queue.enqueue_job_for_inbound_message(
             self.db, wa_identity="558588018899", conversation_id="c1",
             wa_message_id="wamid.receipt", message_type="button",
@@ -152,8 +174,45 @@ class AgendaReceiptBotTest(unittest.TestCase):
         self.assertEqual(len(responses), 1)
         self.assertEqual(responses[0].motivo, "confirmacao_agenda_processada")
 
+    def test_worker_legado_nao_pausa_por_ack_apos_alteracao_ja_alertada(self):
+        self.receipt(action="solicitar_alteracao", result="alteracao_solicitada", status="Agendado")
+        job = self.job()
+        now = datetime.now(timezone.utc).isoformat()
+        conversation = {
+            "id": "c1", "last_message_at": now, "last_inbound_at": now,
+            "last_message_from_me": True, "last_message_type": "text",
+            "last_message_origem": "bot",
+            "last_message_wa_message_id": "wamid.ack", "last_message_body": "Recebemos sua solicitação.",
+        }
+        with patch.object(worker, "is_whatsapp_bot_enabled", return_value=True), \
+             patch.object(worker, "resolve_conversation_mode", return_value="auto"), \
+             patch.object(worker, "_bot_internal_client_config", return_value=("http://synthetic", {}, 1)), \
+             patch.object(worker, "_fetch_conversation_by_phone", return_value=conversation), \
+             patch.object(worker, "_fetch_historico", return_value=[]), \
+             patch.object(worker, "gerar_resposta") as generate, \
+             patch.object(worker, "trigger_active_handoff") as handoff, \
+             patch.object(worker, "pause_conversation") as pause:
+            self.assertEqual(worker._process_job(self.db, job), "done")
+        generate.assert_not_called()
+        handoff.assert_not_called()
+        pause.assert_not_called()
+        self.assertEqual(self.db.query(WhatsAppBotResposta).one().motivo, "conversa_atualizada")
+
     def test_reconciliacao_nao_ressuscita_confirmacao_tratada(self):
         self.receipt()
+        with patch.object(worker, "_bot_internal_client_config", return_value=("http://synthetic", {}, 1)), \
+             patch.object(worker, "_fetch_recently_active_conversations", return_value=[{
+                 "id": "c1", "wa_phone_number": "558588018899",
+             }]), \
+             patch.object(worker, "_fetch_last_message", return_value={
+                 "type": "button", "from_me": False, "wa_message_id": "wamid.receipt",
+                 "created_at": datetime.now(timezone.utc).isoformat(),
+             }):
+            self.assertEqual(worker.run_reconciliation_sweep(self.db), {"checked": 1, "enqueued": 0})
+        self.assertEqual(self.db.query(WhatsAppBotJob).count(), 0)
+
+    def test_reconciliacao_nao_ressuscita_alteracao_ja_alertada(self):
+        self.receipt(action="solicitar_alteracao", result="alteracao_solicitada", status="Agendado")
         with patch.object(worker, "_bot_internal_client_config", return_value=("http://synthetic", {}, 1)), \
              patch.object(worker, "_fetch_recently_active_conversations", return_value=[{
                  "id": "c1", "wa_phone_number": "558588018899",

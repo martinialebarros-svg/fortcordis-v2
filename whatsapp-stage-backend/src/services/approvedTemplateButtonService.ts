@@ -132,6 +132,17 @@ async function handleAgendaResponse(
   return response.data ?? {};
 }
 
+function changeRequestAcknowledgementInboundAt(message: WebhookMessage): string | null {
+  if (!message.timestamp || !/^\d+$/.test(String(message.timestamp))) return null;
+  const timestamp = Number(message.timestamp) * 1000;
+  const now = Date.now();
+  // Signed provider timestamps are the basis for the customer-service window.
+  if (!Number.isSafeInteger(timestamp) || timestamp > now + 5 * 60_000
+      || timestamp <= now - 24 * 60 * 60_000) return null;
+  const inboundAt = new Date(timestamp);
+  return Number.isNaN(inboundAt.getTime()) ? null : inboundAt.toISOString();
+}
+
 export async function handleApprovedTemplateButtonReply(
   client: PoolClient,
   message: WebhookMessage
@@ -205,6 +216,17 @@ export async function handleApprovedTemplateButtonReply(
         && binding.subject_type === "agendamento"
         && (binding.action === "confirmar_presenca" || binding.action === "solicitar_alteracao")) {
       result = await handleAgendaResponse(binding, message, binding.action);
+      if (binding.action === "solicitar_alteracao"
+          && result.action === "solicitar_alteracao"
+          && result.result === "alteracao_solicitada"
+          && result.agendamento_id === Number(binding.subject_id)) {
+        const inboundAt = changeRequestAcknowledgementInboundAt(message);
+        if (inboundAt) {
+          // A committed event is a durable send intent. The sender runs after
+          // the webhook transaction, when the conversation lock is released.
+          result = { ...result, acknowledgement_requested: true, acknowledgement_inbound_at: inboundAt };
+        }
+      }
     } else {
       await queryWithClient(
         client,
