@@ -449,7 +449,9 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 perfil,
                 permitir_estimativa_fallback=True,
                 cache=None,
+                commit_cache=True,
             ):
+                self.assertTrue(commit_cache, "Consultas de leitura preservam cache persistente")
                 if (
                     int(origem_clinica_id or 0) == int(clinica_base.id)
                     and int(destino_clinica_id or 0) == int(clinica_proxima.id)
@@ -508,7 +510,9 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 perfil,
                 permitir_estimativa_fallback=True,
                 cache=None,
+                commit_cache=True,
             ):
+                self.assertTrue(commit_cache, "Consultas de leitura preservam cache persistente")
                 ids = {int(origem_clinica_id or 0), int(destino_clinica_id or 0)}
                 if ids == {int(clinica_destino.id), int(clinica_anterior.id)}:
                     return (39, "mock")
@@ -1867,7 +1871,9 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 perfil: str,
                 permitir_estimativa_fallback: bool = True,
                 cache=None,
+                commit_cache=True,
             ):
+                self.assertTrue(commit_cache, "Consultas de leitura preservam cache persistente")
                 if int(destino_clinica_id) == int(clinica_ancora_longa.id):
                     return (53, "mock")
                 if int(destino_clinica_id) == int(clinica_ancora_curta.id):

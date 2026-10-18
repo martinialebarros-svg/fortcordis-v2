@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { APP_BASE_URL, APP_PREVIEW_IMAGE, buildPortalMetadata } from "@/lib/portal-metadata";
 import { DashboardShell } from "./layout-dashboard";
+import GoogleMapsActionGuard from "@/components/google-maps/GoogleMapsActionGuard";
 import "./globals.css";
 
 const inter = localFont({
@@ -52,6 +53,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <DashboardShell>{children}</DashboardShell>
+        <GoogleMapsActionGuard />
       </body>
     </html>
   );

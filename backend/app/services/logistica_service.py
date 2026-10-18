@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.models.clinica import Clinica
 from app.models.clinica_deslocamento import ClinicaDeslocamento
 from app.models.google_maps_usage_metrica import GoogleMapsUsageMetrica
+from app.services.google_maps_cost_control import authorize_google_call
 
 PERFIS_VALIDOS = {"comercial", "plantao"}
 VELOCIDADE_MEDIA_KMH = {
@@ -610,6 +611,9 @@ def _consultar_google_routes_api_raw(
         "X-Goog-FieldMask": GOOGLE_ROUTES_FIELD_MASK,
     }
 
+    # Reserve before network I/O, outside the provider's fallback handler. A
+    # budget/consent failure must never become a second API call or a heuristic.
+    authorize_google_call("routes_pro" if traffic_aware else "routes_essentials")
     try:
         data = _http_post_json(GOOGLE_ROUTES_API_URL, body, headers=headers)
     except Exception:
@@ -728,6 +732,7 @@ def _consultar_google_distance_matrix_raw(
     params = urlencode(params_payload)
     url = f"{GOOGLE_DISTANCE_MATRIX_URL}?{params}"
 
+    authorize_google_call("distance_matrix_pro" if traffic_aware else "distance_matrix_essentials")
     try:
         data = _http_get_json(url)
     except Exception:
@@ -1013,6 +1018,10 @@ def upsert_deslocamento(
         row.fonte = fonte_texto
         mudou = True
 
+    # A successful revalidation renews TTL even if Google's distance/duration
+    # did not change. Otherwise a stable expired route is billed on every read.
+    if fonte_texto.startswith("google_"):
+        mudou = True
     if mudou:
         row.updated_at = datetime.utcnow()
 
@@ -1065,6 +1074,10 @@ def materializar_deslocamento_par(
     registrar_google_maps_metricas(db, eventos_google)
     if commit:
         db.commit()
+    else:
+        # Validation may already have pending appointment changes. Make cache
+        # rows visible in this transaction without accepting the business write.
+        db.flush()
     return rows
 
 
@@ -1287,6 +1300,7 @@ def obter_duracao_deslocamento(
     destino_clinica_id: Optional[int],
     perfil: str = "comercial",
     permitir_estimativa_fallback: bool = True,
+    commit_cache: bool = True,
 ) -> tuple[int, str]:
     """Returns travel duration for a clinic pair and persists cache misses."""
     origem_id = int(origem_clinica_id or 0)
@@ -1325,6 +1339,7 @@ def obter_duracao_deslocamento(
         destino=destino,
         perfis=["comercial", "plantao"],
         permitir_google_lookup=_allow_live_google_lookups_on_read(),
+        commit=commit_cache,
     )
     row = rows.get(perfil_norm)
     if row and row.duracao_min is not None:
@@ -1342,6 +1357,7 @@ def obter_duracao_deslocamento_entidades(
     permitir_google_lookup_on_refresh: Optional[bool] = None,
     google_cache: Optional[dict] = None,
     telemetry_events: Optional[list[dict]] = None,
+    commit_cache: bool = True,
 ) -> tuple[int, str]:
     """Retorna duracao para quaisquer entidades operacionais persistidas na matriz.
 
@@ -1386,6 +1402,7 @@ def obter_duracao_deslocamento_entidades(
         permitir_google_lookup=permitir_google_lookup,
         google_cache=google_cache,
         telemetry_events=telemetry_events,
+        commit=commit_cache,
     )
     row = rows.get(perfil_norm)
     if row and row.duracao_min is not None:

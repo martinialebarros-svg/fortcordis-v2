@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { extractApiErrorMessage } from './api-error';
 import { invalidateStableCatalogForMutation } from './stable-catalog-cache';
+import { isMapsControlError, mapsConfirmationStore, prepareMapsAction } from './google-maps-control';
 
 const SAFE_METHODS = new Set(['get', 'head', 'options', 'trace']);
 const BINARY_RESPONSE_TYPES = new Set(['arraybuffer', 'blob', 'stream']);
@@ -45,7 +46,7 @@ const api = axios.create({
 
 // Se for FormData, remove Content-Type para o browser enviar boundary correto.
 api.interceptors.request.use(
-  (config) => {
+  async (config) => {
     const method = String(config.method || 'get').toLowerCase();
     if (shouldApplyDefaultSafeRequestTimeout(config)) {
       config.timeout = DEFAULT_SAFE_REQUEST_TIMEOUT_MS;
@@ -62,7 +63,7 @@ api.interceptors.request.use(
       delete config.headers['Content-Type'];
     }
 
-    return config;
+    return prepareMapsAction(api, config);
   },
   (error) => {
     return Promise.reject(error);
@@ -80,6 +81,7 @@ api.interceptors.response.use(
     if (error && typeof error === "object") {
       (error as { userMessage?: string }).userMessage = normalizedMessage;
     }
+    if (isMapsControlError(error)) mapsConfirmationStore.notify(normalizedMessage);
 
     if (error.response?.status === 401) {
       // Sessao expirada/invalidada.

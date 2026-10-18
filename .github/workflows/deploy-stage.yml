@@ -74,6 +74,16 @@ jobs:
           SECRET_KEY: whatsapp-triage-ci-secret-key-1234567890
         run: python -m pytest -q backend/tests/test_whatsapp_bot_reacoes.py backend/tests/test_whatsapp_bot_mensagens_automaticas.py backend/tests/test_whatsapp_bot_saudacoes_agrupadas.py
 
+      - name: Test Google Maps shared limits and operational transactions in PostgreSQL
+        env:
+          FORTCORDIS_PROCESS_ROLE: api
+          DATABASE_URL: sqlite:///./fortcordis-ci.db
+          SECRET_KEY: maps-cost-stage-ci-synthetic-secret-123456789
+          MAPS_COST_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/maps_cost_test
+        run: |
+          psql postgresql://postgres:postgres@127.0.0.1:5432/postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE maps_cost_test'
+          python -m unittest discover -s backend/tests -p 'test_google_maps*.py' -v
+
       - name: Test clinical edit history, document persistence and PostgreSQL concurrency
         env:
           FORTCORDIS_PROCESS_ROLE: api
@@ -130,6 +140,10 @@ jobs:
       - name: Run frontend lint
         working-directory: frontend
         run: npm run lint
+
+      - name: Verify Google Maps cost confirmation and cancellation
+        working-directory: frontend
+        run: npx vitest run components/google-maps app/clinicas/geocode-explicit-action.test.tsx
 
       - name: Run frontend build
         working-directory: frontend

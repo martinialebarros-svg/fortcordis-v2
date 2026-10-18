@@ -46,3 +46,6 @@ Resumo:
 - [x] Aprovado para stage.
 - [ ] Aprovado para producao.
 - [ ] Nao aprovado.
+# Ciclo de proteção financeira — 18/10/2026
+
+Evidências e testes do bloqueio obrigatório estão em `../google-maps-enforced-budget/verify.md`. O relatório legado estima custos por janela e não constitui prova de limite, franquia disponível ou cobrança efetiva. Regressão adicionada para cache expirado com retorno Google idêntico, incluindo persistência e leitura por nova sessão.

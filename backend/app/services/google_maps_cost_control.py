@@ -1,0 +1,597 @@
+"""Fail-closed Google Maps cost boundary, independent of business transactions.
+
+Every outgoing attempt is committed BEFORE HTTP. A timeout is never refunded:
+Google may have billed it. PostgreSQL advisory transaction locks (all workers)
+and SQLite BEGIN IMMEDIATE serialize checks plus reservations. No process-local
+counter, billing lag or assumed free account allowance is used as authority.
+"""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import logging
+import re
+import secrets
+import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
+from decimal import Decimal, ROUND_CEILING
+from typing import Any, Literal
+from urllib.parse import parse_qs
+from zoneinfo import ZoneInfo
+
+from fastapi import HTTPException
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
+from sqlalchemy import func, insert, select, text, update
+
+from app.core.config import settings
+from app.db import database
+from app.models.google_maps_cost_control import (
+    GoogleMapsCostAction, GoogleMapsCostConfig, GoogleMapsCostEvent,
+)
+
+logger = logging.getLogger(__name__)
+SKUS = (
+    "routes_essentials", "routes_pro", "distance_matrix_essentials",
+    "distance_matrix_pro", "geocoding",
+)
+ROUTE_SKUS = SKUS[:4]
+# Public highest marginal tier per billable unit, verified against the Google
+# Maps global price list on this date. Discounts/free tiers never lower guard
+# reservations. The configured envelope may be higher, but not below this floor.
+PRICING_REFERENCE_DATE = "2026-10-18"
+MIN_UNIT_PRICES_USD = {
+    "routes_essentials": Decimal("0.005"), "routes_pro": Decimal("0.01"),
+    "distance_matrix_essentials": Decimal("0.005"), "distance_matrix_pro": Decimal("0.01"),
+    "geocoding": Decimal("0.005"),
+}
+CONFIG = GoogleMapsCostConfig.__table__
+ACTIONS = GoogleMapsCostAction.__table__
+EVENTS = GoogleMapsCostEvent.__table__
+LEDGER_TIMEZONE = ZoneInfo("America/Fortaleza")
+QUOTE_TTL_SECONDS = 300
+EXECUTION_TTL_SECONDS = 600
+_LOCK_ID = 715064291071
+_execution: ContextVar[Execution | None] = ContextVar("google_maps_cost_execution", default=None)
+
+
+@dataclass(frozen=True)
+class ActionSpec:
+    key: str
+    label: str
+    skus: tuple[str, ...] = SKUS
+    theoretical_cap: int | None = None
+
+
+ACTION_ROUTES = (
+    ("POST", r"/api/v1/agenda/sugestoes-horario", ActionSpec("agenda_search", "Buscar horários na agenda")),
+    ("POST", r"/api/v1/agenda/assistente/validar-oferta", ActionSpec("agenda_validate_offer", "Validar oferta da agenda")),
+    ("POST", r"/api/v1/agenda/sugestao-proximidade", ActionSpec("agenda_proximity", "Buscar horários por proximidade")),
+    ("POST", r"/api/v1/agenda/assistente/ofertas", ActionSpec("agenda_offers", "Preparar ofertas da agenda")),
+    ("POST", r"/api/v1/agenda", ActionSpec("agenda_create", "Criar agendamento e validar deslocamentos")),
+    ("PUT", r"/api/v1/agenda/\d+", ActionSpec("agenda_update", "Atualizar agendamento e validar deslocamentos")),
+    ("PATCH", r"/api/v1/agenda/\d+/status", ActionSpec("agenda_status", "Alterar situação do agendamento")),
+    ("POST", r"/api/v1/agenda/\d+/reabilitar-reserva", ActionSpec("agenda_reservation", "Reabilitar reserva da agenda")),
+    ("GET", r"/api/v1/logistica/deslocamento", ActionSpec("route_lookup", "Consultar deslocamento entre clínicas", ROUTE_SKUS, 2)),
+    ("POST", r"/api/v1/logistica/recalcular", ActionSpec("matrix_recalculate", "Recalcular matriz de deslocamentos", ROUTE_SKUS)),
+    ("POST", r"/api/v1/clinicas/geocode-endereco", ActionSpec("clinic_geocode", "Consultar coordenadas da clínica", ("geocoding",), 1)),
+    ("POST", r"/api/v1/tutores/geocode-endereco", ActionSpec("tutor_geocode", "Consultar coordenadas do tutor", ("geocoding",), 1)),
+    ("POST", r"/api/v1/assistente-ia/chat", ActionSpec("assistant_chat", "Executar assistente com consultas de rota")),
+    ("POST", r"/api/v1/assistente-ia/acoes/[a-zA-Z0-9-]+/decisao", ActionSpec("assistant_decision", "Confirmar ação do assistente com consultas de rota")),
+)
+ACTION_SPECS = {spec.key: spec for _, _, spec in ACTION_ROUTES}
+
+
+def identify_action(method: str, path: str, query=None, body=None) -> ActionSpec | None:
+    for expected_method, pattern, spec in ACTION_ROUTES:
+        if method.upper() == expected_method and re.fullmatch(pattern, path.rstrip("/")):
+            if spec.key == "agenda_status" and query is not None:
+                values = parse_qs(query, keep_blank_values=True) if isinstance(query, str) else query
+                status = values.get("status")
+                status = status[-1] if isinstance(status, list) and status else status
+                # Endpoint takes status from QUERY, never from JSON. These final
+                # states do not enter AGENDA_STATUS_BLOQUEIAM_SLOT and no route
+                # validation is run. Provider boundary remains fail-closed.
+                if isinstance(status, str) and status.strip().casefold() in {"cancelado", "faltou", "expirado", "realizado"}:
+                    return None
+            return spec
+    return None
+
+
+class Budget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    calls: StrictInt = Field(ge=0, le=10_000_000)
+    estimated_brl: Decimal = Field(ge=0, le=100_000_000, max_digits=16, decimal_places=6)
+
+
+class Limits(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Budget
+    day: Budget
+    month: Budget
+
+
+class OpeningUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    day: Budget
+    month: Budget
+
+    @model_validator(mode="after")
+    def month_includes_day(self):
+        if self.month.calls < self.day.calls or self.month.estimated_brl < self.day.estimated_brl:
+            raise ValueError("O saldo inicial mensal deve incluir o consumo do dia.")
+        return self
+
+
+class AutomaticPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: StrictBool = False
+    limits: Limits
+    skus: list[str]
+
+    @model_validator(mode="after")
+    def known_skus(self):
+        if not self.skus or set(self.skus) - set(SKUS):
+            raise ValueError("Política automática precisa de SKUs reconhecidos.")
+        return self
+
+
+class CostConfiguration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: StrictBool
+    limits: Limits
+    prices_usd: dict[str, Decimal]
+    fx_brl_per_usd_upper: Decimal = Field(gt=0, le=1000)
+    price_multiplier: Decimal = Field(ge=1, le=100)
+    pricing_valid_until: datetime
+    action_call_caps: dict[str, StrictInt] = Field(default_factory=dict)
+    automatic_policies: dict[str, AutomaticPolicy] = Field(default_factory=dict)
+    opening_usage: OpeningUsage | None = None
+    opening_usage_as_of: date | None = None
+    opening_usage_basis: Literal["verified_telemetry", "conservative_upper_bound", "synthetic_stage"] | None = None
+
+    @model_validator(mode="after")
+    def validate_financial_envelope(self):
+        if set(self.prices_usd) != set(SKUS):
+            raise ValueError("Informe o preço USD por unidade de todos os SKUs conhecidos.")
+        if any(not price.is_finite() or not (0 < price <= 100) for price in self.prices_usd.values()):
+            raise ValueError("Preços por unidade devem ser positivos e finitos.")
+        if any(price < MIN_UNIT_PRICES_USD[sku] for sku, price in self.prices_usd.items()):
+            raise ValueError("O envelope de preços não pode ser menor que a maior faixa marginal pública por unidade: USD 0.005 Essentials/Geocoding e USD 0.01 Pro.")
+        if self.pricing_valid_until.tzinfo is None:
+            raise ValueError("Validade de preços/câmbio deve incluir fuso horário.")
+        if any(key not in ACTION_SPECS or cap < 0 or cap > 10_000_000 for key, cap in self.action_call_caps.items()):
+            raise ValueError("Teto por ação inválido.")
+        if any(not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", key) for key in self.automatic_policies):
+            raise ValueError("Identificador de política automática inválido.")
+        if self.enabled and (self.opening_usage is None or self.opening_usage_as_of is None or self.opening_usage_basis is None):
+            raise ValueError("A ativação exige consumo inicial do dia/mês, data e base da apuração explícitos.")
+        if self.opening_usage_basis == "synthetic_stage" and settings.APP_ENV.lower() in {"production", "prod"}:
+            raise ValueError("Consumo sintético não pode ser usado em produção.")
+        return self
+
+
+REASONS = {
+    "unconfigured": "Controle Google Maps sem configuração aprovada. Nenhuma chamada paga foi autorizada.",
+    "disabled": "Chamadas ao Google Maps estão suspensas na configuração administrativa.",
+    "pricing_expired": "A validade da estimativa de preços/câmbio expirou; atualize a configuração antes de continuar.",
+    "ledger_unavailable": "Não foi possível verificar o limite compartilhado. A operação que gera custo foi suspensa.",
+    "confirmation_required": "Confirme esta ação no aviso de custo antes de consultar o Google Maps.",
+    "invalid_grant": "A confirmação não corresponde a esta ação, expirou ou já foi usada. Revise e confirme novamente.",
+    "configuration_changed": "Os limites ou preços mudaram. Revise a estimativa e confirme novamente.",
+    "action_limit": "O limite de chamadas ou custo desta ação foi atingido. Nenhuma chamada extra foi enviada.",
+    "day_limit": "O limite diário de chamadas ou custo estimado foi atingido.",
+    "month_limit": "O limite mensal de chamadas ou custo estimado foi atingido.",
+    "automatic_policy_required": "A tarefa automática não tem uma política explícita habilitada com limites próprios.",
+    "automatic_replay": "Esta execução automática já foi iniciada. A repetição foi bloqueada.",
+    "sku_not_authorized": "Este serviço/SKU não foi autorizado para a ação apresentada.",
+    "invalid_configuration": "A configuração de limites ou preços é inválida. Chamadas pagas estão suspensas.",
+}
+
+
+class GoogleMapsCostBlocked(HTTPException):
+    def __init__(self, reason="confirmation_required", action=None, status_code=409):
+        self.reason = reason
+        super().__init__(status_code=status_code, detail={
+            "code": "GOOGLE_MAPS_COST_BLOCKED", "reason": reason,
+            "message": REASONS.get(reason, REASONS["ledger_unavailable"]),
+            "action": action,
+        })
+
+
+@dataclass
+class Execution:
+    action_id: str
+    automatic_policy: str | None = None
+    automatic_fingerprint: str | None = None
+    automatic_claimed: bool = False
+    closed: bool = False
+
+
+def _now() -> int:
+    return int(time.time())
+
+
+def _micros(amount: Decimal | str | float) -> int:
+    return int((Decimal(str(amount)) * Decimal(1_000_000)).to_integral_value(rounding=ROUND_CEILING))
+
+
+def _brl(micros: int) -> float:
+    return float(Decimal(micros) / Decimal(1_000_000))
+
+
+def _periods(now: int):
+    local = datetime.fromtimestamp(now, tz=timezone.utc).astimezone(LEDGER_TIMEZONE)
+    return local.strftime("%Y-%m-%d"), local.strftime("%Y-%m")
+
+
+def _iso(now: int):
+    return datetime.fromtimestamp(now, tz=timezone.utc).isoformat()
+
+
+@contextmanager
+def _locked():
+    """Never borrow/commit the caller's business session or silently fall back."""
+    try:
+        with database.engine.connect() as conn:
+            if conn.dialect.name == "postgresql":
+                conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+                conn.execute(text("SET LOCAL statement_timeout = '5s'"))
+                conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _LOCK_ID})
+            elif conn.dialect.name == "sqlite":
+                conn.exec_driver_sql("PRAGMA busy_timeout = 5000")
+                conn.exec_driver_sql("BEGIN IMMEDIATE")
+            else:
+                raise GoogleMapsCostBlocked("ledger_unavailable", status_code=503)
+            try:
+                yield conn
+            except GoogleMapsCostBlocked:
+                # Persist the redacted denial even when the action itself aborts.
+                conn.commit()
+                raise
+            else:
+                conn.commit()
+    except GoogleMapsCostBlocked:
+        raise
+    except Exception:
+        # Do not log DB URLs, bound parameters or exception payloads.
+        logger.warning("google_maps_cost_guard: ledger_unavailable")
+        raise GoogleMapsCostBlocked("ledger_unavailable", status_code=503) from None
+
+
+def _event(conn, *, kind, action="unscoped", action_id=None, user_id=None, policy=None, sku=None, reason=None, cost=0, calls=0):
+    now = _now()
+    day, month = _periods(now)
+    conn.execute(insert(EVENTS).values(
+        action_id=action_id, action=action, user_id=user_id, policy=policy, sku=sku,
+        kind=kind, reason=reason, calls=calls, estimated_cost_micros=cost,
+        day=day, month=month, created_at=now,
+    ))
+
+
+def _deny(conn, reason, *, action="unscoped", action_id=None, user_id=None, policy=None):
+    _event(conn, kind="blocked", reason=reason, action=action, action_id=action_id, user_id=user_id, policy=policy)
+    raise GoogleMapsCostBlocked(reason, action)
+
+
+def _configuration(conn, *, require_enabled=True):
+    row = conn.execute(select(CONFIG).where(CONFIG.c.id == 1)).mappings().first()
+    if row is None:
+        if require_enabled:
+            _deny(conn, "unconfigured")
+        return None, 0
+    try:
+        cfg = CostConfiguration.model_validate_json(row["config_json"])
+    except Exception:
+        _deny(conn, "invalid_configuration")
+    if require_enabled:
+        if not cfg.enabled:
+            _deny(conn, "disabled")
+        if cfg.pricing_valid_until.timestamp() <= _now():
+            _deny(conn, "pricing_expired")
+    return cfg, row["revision"]
+
+
+def _usage(conn, policy=None):
+    day, month = _periods(_now())
+    result = {}
+    for period, value in (("day", day), ("month", month)):
+        statement = select(
+            func.coalesce(func.sum(EVENTS.c.calls), 0),
+            func.coalesce(func.sum(EVENTS.c.estimated_cost_micros), 0),
+        ).where(EVENTS.c.kind.in_(("reserved", "opening")), EVENTS.c[period] == value)
+        if policy is not None:
+            statement = statement.where(EVENTS.c.policy == policy)
+        calls, cost = conn.execute(statement).one()
+        result[period] = {"calls": int(calls), "cost": int(cost)}
+    return result
+
+
+def _usage_view(usage):
+    return {period: {"calls": value["calls"], "estimated_brl": _brl(value["cost"])} for period, value in usage.items()}
+
+
+def _limits_view(limits):
+    return {period: {"calls": getattr(limits, period).calls, "estimated_brl": float(getattr(limits, period).estimated_brl)} for period in ("action", "day", "month")}
+
+
+def _remaining(cfg, usage):
+    return {period: {
+        "calls": max(0, getattr(cfg.limits, period).calls - usage[period]["calls"]),
+        "estimated_brl": _brl(max(0, _micros(getattr(cfg.limits, period).estimated_brl) - usage[period]["cost"])),
+    } for period in ("day", "month")}
+
+
+def _unit_cost(cfg, sku):
+    return _micros(cfg.prices_usd[sku] * cfg.fx_brl_per_usd_upper * cfg.price_multiplier)
+
+
+def request_fingerprint(user_id: int, method: str, path: str, query: Any, body: Any) -> str:
+    """Store a keyed digest only, including identity and all execution inputs."""
+    if isinstance(query, str):
+        query = parse_qs(query, keep_blank_values=True)
+    else:
+        query = {str(k): [str(x) for x in (v if isinstance(v, list) else [v])] for k, v in (query or {}).items()}
+    canonical = json.dumps({
+        "user_id": user_id, "method": method.upper(), "path": path.rstrip("/"),
+        "query": query, "body": body,
+    }, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    key = settings.SECRET_KEY
+    if not key or len(key) < 32:
+        raise GoogleMapsCostBlocked("invalid_configuration", status_code=503)
+    return hmac.new(key.encode(), canonical.encode(), hashlib.sha256).hexdigest()
+
+
+def _token_digest(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def create_preview(user_id, method, path, query=None, body=None):
+    spec = identify_action(method, path, query, body)
+    if spec is None:
+        return {"required": False, "blocked": False}
+    fingerprint = request_fingerprint(user_id, method, path, query, body)
+    with _locked() as conn:
+        cfg, revision = _configuration(conn, require_enabled=False)
+        usage = _usage(conn)
+        reason = "unconfigured" if cfg is None else ("disabled" if not cfg.enabled else ("pricing_expired" if cfg.pricing_valid_until.timestamp() <= _now() else None))
+        max_calls, max_cost = 0, 0
+        if cfg is not None:
+            unit = max(_unit_cost(cfg, sku) for sku in spec.skus)
+            cap = min(cfg.limits.action.calls, cfg.action_call_caps.get(spec.key, cfg.limits.action.calls))
+            if spec.theoretical_cap is not None:
+                cap = min(cap, spec.theoretical_cap)
+            budget = _micros(cfg.limits.action.estimated_brl)
+            for period in ("day", "month"):
+                limit = getattr(cfg.limits, period)
+                cap = min(cap, limit.calls - usage[period]["calls"])
+                budget = min(budget, _micros(limit.estimated_brl) - usage[period]["cost"])
+                if (cap <= 0 or budget < unit) and reason is None:
+                    reason = f"{period}_limit"
+            max_calls = max(0, min(cap, budget // unit))
+            max_cost = max_calls * unit
+            if max_calls == 0 and reason is None:
+                reason = "action_limit"
+        now = _now()
+        quote_id = None
+        if reason is None:
+            quote_id = secrets.token_urlsafe(32)
+            conn.execute(insert(ACTIONS).values(
+                id=quote_id, user_id=user_id, fingerprint=fingerprint, action=spec.key,
+                revision=revision, state="quoted", max_calls=max_calls, max_cost_micros=max_cost,
+                used_calls=0, used_cost_micros=0, skus_json=json.dumps(spec.skus),
+                created_at=now, expires_at=now + QUOTE_TTL_SECONDS,
+            ))
+        else:
+            _event(conn, kind="blocked", action=spec.key, user_id=user_id, reason=reason)
+        return {
+            "required": True, "blocked": reason is not None, "reason": reason,
+            "message": REASONS.get(reason), "quote_id": quote_id, "action": spec.label,
+            "action_key": spec.key, "service": "Google Maps Platform", "services": list(spec.skus),
+            "max_calls": max_calls, "estimated_cost_min_brl": 0,
+            "estimated_cost_max_brl": _brl(max_cost), "expires_at": _iso(now + QUOTE_TTL_SECONDS),
+            "uncertainty": [
+                "Teto de execução verificável; consultas em cache podem reduzir o número real de chamadas.",
+                "Estimativa conservadora: todas as unidades são consideradas pagas, sem descontar a franquia compartilhada da conta.",
+                "A cobrança efetiva depende do SKU, faixas de volume da conta, câmbio e tributos. Dados do Billing têm atraso.",
+                "Falhas e timeouts reservam custo; uma ação pode parar antes de terminar ao atingir o teto.",
+            ],
+            "consumption": _usage_view(usage), "remaining": _remaining(cfg, usage) if cfg else None,
+            "limits": _limits_view(cfg.limits) if cfg else None,
+        }
+
+
+def confirm_preview(user_id: int, quote_id: str):
+    with _locked() as conn:
+        _, revision = _configuration(conn)
+        row = conn.execute(select(ACTIONS).where(ACTIONS.c.id == quote_id)).mappings().first()
+        if not row or row["user_id"] != user_id or row["state"] != "quoted" or row["expires_at"] <= _now():
+            _deny(conn, "invalid_grant", user_id=user_id)
+        if row["revision"] != revision:
+            _deny(conn, "configuration_changed", action=row["action"], user_id=user_id)
+        token = secrets.token_urlsafe(48)
+        conn.execute(update(ACTIONS).where(ACTIONS.c.id == quote_id).values(state="confirmed", token_hash=_token_digest(token)))
+        _event(conn, kind="confirmed", action=row["action"], action_id=row["id"], user_id=user_id)
+        return {"token": token, "expires_at": _iso(row["expires_at"])}
+
+
+def claim_execution(user_id, token, method, path, query=None, body=None) -> Execution:
+    spec = identify_action(method, path, query, body)
+    action = spec.key if spec else "unscoped"
+    with _locked() as conn:
+        if not token:
+            _deny(conn, "confirmation_required", action=action, user_id=user_id)
+        _, revision = _configuration(conn)
+        row = conn.execute(select(ACTIONS).where(ACTIONS.c.token_hash == _token_digest(token))).mappings().first()
+        expected = request_fingerprint(user_id, method, path, query, body)
+        if not row or row["user_id"] != user_id or row["state"] != "confirmed" or row["expires_at"] <= _now() or not hmac.compare_digest(row["fingerprint"], expected):
+            _deny(conn, "invalid_grant", action=action, user_id=user_id)
+        if row["revision"] != revision:
+            _deny(conn, "configuration_changed", action=action, user_id=user_id)
+        now = _now()
+        conn.execute(update(ACTIONS).where(ACTIONS.c.id == row["id"]).values(
+            state="claimed", claimed_at=now, expires_at=now + EXECUTION_TTL_SECONDS,
+        ))
+        _event(conn, kind="claimed", action=row["action"], action_id=row["id"], user_id=user_id)
+        return Execution(row["id"])
+
+
+def bind_execution(execution: Execution):
+    return _execution.set(execution)
+
+
+def reset_execution(token):
+    _execution.reset(token)
+
+
+def finish_execution(execution: Execution):
+    execution.closed = True
+    if execution.automatic_policy and not execution.automatic_claimed:
+        return
+    with _locked() as conn:
+        conn.execute(update(ACTIONS).where(ACTIONS.c.id == execution.action_id, ACTIONS.c.state == "claimed").values(state="finished"))
+
+
+def _check_periods(conn, cfg_limits, usage, cost, *, action, action_id, user_id, policy=None):
+    for period in ("day", "month"):
+        limit = getattr(cfg_limits, period)
+        if usage[period]["calls"] + 1 > limit.calls or usage[period]["cost"] + cost > _micros(limit.estimated_brl):
+            _deny(conn, f"{period}_limit", action=action, action_id=action_id, user_id=user_id, policy=policy)
+
+
+def authorize_google_call(sku: str) -> None:
+    """Reserve ONE billable unit before EACH HTTP attempt, including retries.
+
+    Distance Matrix callers must currently send exactly one origin x destination.
+    Batch adapters must reserve each element; one HTTP request is not one unit.
+    """
+    execution = _execution.get()
+    with _locked() as conn:
+        if execution is None:
+            _deny(conn, "confirmation_required")
+        if execution.closed:
+            _deny(conn, "invalid_grant")
+        cfg, revision = _configuration(conn)
+        if execution.automatic_policy and not execution.automatic_claimed:
+            policy = cfg.automatic_policies.get(execution.automatic_policy)
+            if not policy or not policy.enabled:
+                _deny(conn, "automatic_policy_required", action="automatic", policy=execution.automatic_policy)
+            if conn.execute(select(ACTIONS.c.id).where(ACTIONS.c.id == execution.action_id)).first():
+                _deny(conn, "automatic_replay", action="automatic", policy=execution.automatic_policy)
+            now = _now()
+            conn.execute(insert(ACTIONS).values(
+                id=execution.action_id, fingerprint=execution.automatic_fingerprint,
+                action="automatic", policy=execution.automatic_policy,
+                revision=revision, state="claimed", max_calls=min(cfg.limits.action.calls, policy.limits.action.calls),
+                max_cost_micros=min(_micros(cfg.limits.action.estimated_brl), _micros(policy.limits.action.estimated_brl)),
+                used_calls=0, used_cost_micros=0, skus_json=json.dumps(policy.skus), created_at=now,
+                expires_at=now + EXECUTION_TTL_SECONDS, claimed_at=now,
+            ))
+            _event(conn, kind="claimed", action="automatic", action_id=execution.action_id, policy=execution.automatic_policy)
+            execution.automatic_claimed = True
+        row = conn.execute(select(ACTIONS).where(ACTIONS.c.id == execution.action_id)).mappings().first()
+        if not row or row["state"] != "claimed" or row["expires_at"] <= _now():
+            _deny(conn, "invalid_grant")
+        meta = {"action": row["action"], "action_id": row["id"], "user_id": row["user_id"], "policy": row["policy"]}
+        if row["revision"] != revision:
+            _deny(conn, "configuration_changed", **meta)
+        if sku not in SKUS or sku not in json.loads(row["skus_json"]):
+            _deny(conn, "sku_not_authorized", **meta)
+        cost = _unit_cost(cfg, sku)
+        if row["used_calls"] + 1 > min(row["max_calls"], cfg.limits.action.calls) or row["used_cost_micros"] + cost > min(row["max_cost_micros"], _micros(cfg.limits.action.estimated_brl)):
+            _deny(conn, "action_limit", **meta)
+        _check_periods(conn, cfg.limits, _usage(conn), cost, **meta)
+        if row["policy"]:
+            policy = cfg.automatic_policies.get(row["policy"])
+            if not policy or not policy.enabled:
+                _deny(conn, "automatic_policy_required", **meta)
+            _check_periods(conn, policy.limits, _usage(conn, row["policy"]), cost, **meta)
+        conn.execute(update(ACTIONS).where(ACTIONS.c.id == row["id"]).values(
+            used_calls=row["used_calls"] + 1, used_cost_micros=row["used_cost_micros"] + cost,
+        ))
+        _event(conn, kind="reserved", sku=sku, calls=1, cost=cost, **meta)
+
+
+@contextmanager
+def automatic_execution(policy_name: str, run_key: str):
+    """Explicit machine consent; stable run_key must identify one job across retries.
+
+    No existing worker is enrolled automatically. An administrator must configure
+    this named policy and the caller must deliberately enter this context.
+    """
+    if not run_key or len(run_key) > 200 or not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", policy_name):
+        raise GoogleMapsCostBlocked("automatic_policy_required")
+    digest = request_fingerprint(0, "AUTOMATIC", policy_name, None, run_key)
+    # Lazy enrollment means unrelated chatbot work remains available. First paid
+    # call claims the durable run atomically, including across worker restarts.
+    execution = Execution("auto-" + digest[:59], policy_name, digest)
+    token = bind_execution(execution)
+    try:
+        yield execution
+    finally:
+        reset_execution(token)
+        finish_execution(execution)
+
+
+automatic_action = automatic_execution
+
+
+def update_configuration(user_id, config: CostConfiguration, expected_revision: int):
+    with _locked() as conn:
+        row = conn.execute(select(CONFIG).where(CONFIG.c.id == 1)).mappings().first()
+        revision = row["revision"] if row else 0
+        if revision != expected_revision:
+            _deny(conn, "configuration_changed", action="configuration", user_id=user_id)
+        initialized = conn.execute(select(EVENTS.c.id).where(EVENTS.c.kind == "opening").limit(1)).first()
+        if initialized:
+            previous = CostConfiguration.model_validate_json(row["config_json"])
+            if any(getattr(config, key) != getattr(previous, key) for key in ("opening_usage", "opening_usage_as_of", "opening_usage_basis")):
+                _deny(conn, "invalid_configuration", action="opening_usage", user_id=user_id)
+        elif config.enabled:
+            day, month = _periods(_now())
+            if config.opening_usage_as_of.isoformat() != day:
+                _deny(conn, "invalid_configuration", action="opening_usage", user_id=user_id)
+            opening = config.opening_usage
+            for day_key, calls, cost in (
+                (day, opening.day.calls, _micros(opening.day.estimated_brl)),
+                ("", opening.month.calls - opening.day.calls, _micros(opening.month.estimated_brl) - _micros(opening.day.estimated_brl)),
+            ):
+                conn.execute(insert(EVENTS).values(
+                    action="opening_usage", user_id=user_id, kind="opening",
+                    reason=config.opening_usage_basis, calls=calls, estimated_cost_micros=cost,
+                    day=day_key, month=month, created_at=_now(),
+                ))
+        values = {"revision": revision + 1, "config_json": config.model_dump_json(), "updated_at": _now(), "updated_by": user_id}
+        if row:
+            conn.execute(update(CONFIG).where(CONFIG.c.id == 1).values(**values))
+        else:
+            conn.execute(insert(CONFIG).values(id=1, **values))
+        _event(conn, kind="configuration", action="configuration", user_id=user_id)
+    return get_status()
+
+
+def get_status():
+    with _locked() as conn:
+        cfg, revision = _configuration(conn, require_enabled=False)
+        usage = _usage(conn)
+        reason = "unconfigured" if cfg is None else ("disabled" if not cfg.enabled else ("pricing_expired" if cfg.pricing_valid_until.timestamp() <= _now() else None))
+        history = conn.execute(select(EVENTS).order_by(EVENTS.c.id.desc()).limit(100)).mappings().all()
+        started = conn.execute(select(func.min(EVENTS.c.created_at)).where(EVENTS.c.kind == "opening")).scalar()
+        return {
+            "configured": cfg is not None, "enabled": cfg.enabled if cfg else False,
+            "blocked": reason is not None, "reason": reason, "revision": revision,
+            "config": cfg.model_dump(mode="json") if cfg else None,
+            "consumed_since": _iso(started) if started is not None else None,
+            "opening_usage": cfg.opening_usage.model_dump(mode="json") if cfg and cfg.opening_usage else None,
+            "consumption": _usage_view(usage), "remaining": _remaining(cfg, usage) if cfg else None,
+            "limits": _limits_view(cfg.limits) if cfg else None, "timezone": str(LEDGER_TIMEZONE),
+            "automatic_policies": {key: {"enabled": policy.enabled, "consumption": _usage_view(_usage(conn, key)), "limits": _limits_view(policy.limits)} for key, policy in (cfg.automatic_policies.items() if cfg else [])},
+            "history": [{"id": item["id"], "created_at": _iso(item["created_at"]), "action": item["action"], "kind": item["kind"], "reason": item["reason"], "message": REASONS.get(item["reason"]), "sku": item["sku"], "policy": item["policy"], "calls": item["calls"], "estimated_brl": _brl(item["estimated_cost_micros"])} for item in history],
+            "actions": [{"key": key, "label": spec.label} for key, spec in ACTION_SPECS.items()],
+            "pricing_reference_date": PRICING_REFERENCE_DATE,
+            "minimum_unit_prices_usd": {sku: str(price) for sku, price in MIN_UNIT_PRICES_USD.items()},
+            "billing_note": "Estimativa de tentativas reservadas, não fatura Google. Não desconta franquia compartilhada nem descontos de volume; o Billing pode chegar com atraso. Falhas não devolvem a reserva.",
+        }

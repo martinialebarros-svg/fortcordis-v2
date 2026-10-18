@@ -260,13 +260,13 @@ export default function EditarClinicaPage() {
     }
   };
 
-  const geocodificarNoBlur = async () => {
+  const orientarGeocodificacao = () => {
     if (!clinica.endereco.trim()) return;
     if (!clinica.numero.trim()) {
       setStatusEndereco("Informe o numero para concluir o geocoding.");
       return;
     }
-    await geocodificarEndereco(false);
+    setStatusEndereco("Endereco pronto. Use Geocodificar endereco para consultar o Google Maps e revisar o custo antes de confirmar.");
   };
 
   const carregarClinica = async () => {
@@ -658,7 +658,7 @@ export default function EditarClinicaPage() {
                     setClinica({ ...clinica, endereco: e.target.value });
                     limparGeocodeCache();
                   }}
-                  onBlur={geocodificarNoBlur}
+                  onBlur={orientarGeocodificacao}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   placeholder="Rua / Avenida"
                 />
@@ -676,7 +676,7 @@ export default function EditarClinicaPage() {
                       setClinica({ ...clinica, numero: e.target.value });
                       limparGeocodeCache();
                     }}
-                    onBlur={geocodificarNoBlur}
+                    onBlur={orientarGeocodificacao}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     placeholder="123"
                   />
@@ -693,7 +693,7 @@ export default function EditarClinicaPage() {
                       setClinica({ ...clinica, complemento: e.target.value });
                       limparGeocodeCache();
                     }}
-                    onBlur={geocodificarNoBlur}
+                    onBlur={orientarGeocodificacao}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     placeholder="Sala, bloco, etc."
                   />
