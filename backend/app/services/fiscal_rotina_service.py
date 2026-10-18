@@ -288,7 +288,7 @@ def preparar_rotina(db: Session, *, competencia: str, modo: str, os_ids: list[in
     try:
         return fechamento.preparar_fechamento(db, **argumentos, contexto_rotina=contexto)
     except FiscalRotinaError as exc:
-        if exc.status_code != 409 or not corte_implicito:
+        if exc.status_code != 409 or not corte_implicito or existente is not None:
             raise
         # Um retry concorrente pode ter calculado o próximo corte depois das
         # 17h, antes do primeiro commit ficar visível. A UUID já persistida fixa

@@ -193,6 +193,9 @@ class FiscalRotinaServiceTest(unittest.TestCase):
         for corte in (None, "2026-08-28"):
             retry = self._prepare([1], chave_idempotencia=key, data_corte=corte)
             self.assertEqual((retry.pacote_bytes, retry.snapshot_json, retry.checksum, retry.fingerprint), original)
+        for ids, changes in (([2], {}), ([1], {"confirmar_datas_prestacao": False}), ([1], {"confirmar_exportacoes_anteriores": True})):
+            detail = self._error(409, self._prepare, ids, chave_idempotencia=key, data_corte=None, **changes)
+            self.assertEqual(detail["fechamento_id"], pacote.id)
         self._error(409, self._prepare, [1], chave_idempotencia=key, data_corte="2026-08-30")
         self._error(409, self._prepare, [2], chave_idempotencia=key, data_corte="2026-08-28")
         self._error(409, self._prepare, [1], chave_idempotencia=key, data_corte="2026-08-28", clinica_id=3)
