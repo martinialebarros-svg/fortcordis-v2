@@ -68,3 +68,4 @@ Os resultados da instalação, migração e verificações finais de produção 
 
 - Pedido explícito: publicar domingo às 17h e preparar a documentação para envio manual em 19/10. Limites: sem emissão, envio automático ou repetição das OS já preparadas.
 - A evidência de PRs, checks terminais, SHA instalado, preservação/restauração, smoke HTTP/bundles e preparação real será acrescentada após a execução.
+- Revisão do PR #396 reproduziu perda do conflito 409 ao repetir UUID histórica com corte implícito e payload divergente. Correção: o fallback de rollover não reprocessa um registro já carregado. Regressão cobre seleção e ambas as confirmações divergentes, conservando fechamento_id e bytes. O pipeline de stage do snapshot anterior foi cancelado antes da instalação para validar somente o candidato corrigido.

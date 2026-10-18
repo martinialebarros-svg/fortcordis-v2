@@ -58,3 +58,5 @@ Esta etapa implementa e valida localmente o novo padrão; não autoriza nova pub
 ## Publicação e preparação autorizadas em 18/10/2026
 
 O usuário autorizou publicar o novo corte e preparar os documentos para encaminhamento manual ao contador em 19/10/2026. Promover o recorte fiscal pelos gates protegidos, preservando os dados operacionais e quaisquer outras entregas em andamento. Depois, conferir em produção as OS de outubro até 18/10 às 17h, preparar somente aptas ainda sem pacote e recuperar a segunda via do pacote #1 sem duplicar claims. Vet Fauna permanece por serviço. Não emitir notas nem enviar documentos ou mensagens. A divergência de corte do pacote #1 será apresentada separadamente, sem reescrever seu arquivo imutável.
+
+Retry de UUID histórica com seleção ou confirmações divergentes mantém conflito 409 e fechamento_id do pacote original, inclusive sem data_corte explícita. O fallback de virada de semana aplica-se apenas à UUID que ainda não estava carregada na entrada da operação.
