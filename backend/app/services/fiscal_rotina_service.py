@@ -25,7 +25,7 @@ FiscalRotinaError = fechamento.FiscalFechamentoError
 FUSO = fechamento.FISCAL_TIMEZONE
 VET_FAUNA_CNPJ = "14986833000188"
 ETAPAS = ("preparado", "enviado_contador", "nota_recebida", "nota_encaminhada")
-PADRAO = {"modo": "semanal", "dia_semana": "sexta-feira", "horario": "18:00", "timezone": "America/Fortaleza", "automatico": False}
+PADRAO = {"modo": "semanal", "dia_semana": "domingo", "horario": "17:00", "timezone": "America/Fortaleza", "automatico": False}
 
 
 def _agora_local() -> datetime:
@@ -101,10 +101,10 @@ def atualizar_preferencia(db: Session, clinica_id: int, *, modo: str, pagamento_
         raise
 
 
-def _proxima_sexta(instante: datetime) -> datetime:
+def _proximo_domingo(instante: datetime) -> datetime:
     instante = fechamento._data_local(instante)
-    dia = instante.date() + timedelta(days=(4 - instante.weekday()) % 7)
-    corte = datetime.combine(dia, time(18), tzinfo=FUSO)
+    dia = instante.date() + timedelta(days=(6 - instante.weekday()) % 7)
+    corte = datetime.combine(dia, time(17), tzinfo=FUSO)
     if corte < instante:
         corte += timedelta(days=7)
     return corte
@@ -121,17 +121,17 @@ def _contexto(competencia: str, modo: str, data_corte: str | None, clinica_id: i
             raise FiscalRotinaError(422, "A data de corte só é usada na rotina semanal.")
         return {"modo": modo, "competencia": competencia, "data_corte": None, "corte_em": None, "clinica_id": clinica_id}
     if data_corte is None:
-        corte = _proxima_sexta(agora)
+        corte = _proximo_domingo(agora)
     else:
         try:
             if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", data_corte):
                 raise ValueError
             dia = datetime.strptime(data_corte, "%Y-%m-%d").date()
-            if dia.weekday() != 4:
+            if dia.weekday() != 6:
                 raise ValueError
-            corte = datetime.combine(dia, time(18), tzinfo=FUSO)
+            corte = datetime.combine(dia, time(17), tzinfo=FUSO)
         except (ValueError, TypeError):
-            raise FiscalRotinaError(422, "Informe uma sexta-feira válida como data de corte (YYYY-MM-DD).")
+            raise FiscalRotinaError(422, "Informe um domingo válido como data de corte (YYYY-MM-DD).")
     return {"modo": modo, "competencia": competencia, "data_corte": corte.date().isoformat(), "corte_em": corte.isoformat(), "clinica_id": clinica_id}
 
 
@@ -204,7 +204,7 @@ def _aplicar_contexto(db: Session, base: dict, contexto: dict, agora: datetime) 
             "pagamento_depende_nf": preferencia["pagamento_depende_nf"],
             "realizacao_confirmada": realizado,
             "fonte_realizacao": fonte,
-            "prazo_preparacao": (_proxima_sexta(data).isoformat() if preferencia["modo"] == "semanal" else data.isoformat()) if data else None,
+            "prazo_preparacao": (_proximo_domingo(data).isoformat() if preferencia["modo"] == "semanal" else data.isoformat()) if data else None,
             "motivos_pendencia": list(dict.fromkeys(motivos)),
             "elegivel": not motivos,
         })
@@ -226,7 +226,7 @@ def _aplicar_contexto(db: Session, base: dict, contexto: dict, agora: datetime) 
         "valor_total": sum((item["valor_final"] for item in nao_canceladas), Decimal("0.00")),
         "valor_apto": sum((item["valor_final"] for item in items if item["elegivel"]), Decimal("0.00")),
     }
-    return {**base, "items": items, "resumo": resumo, "rotina": {"modo": modo, "data_corte": contexto["data_corte"], "corte_em": contexto["corte_em"], "proxima_preparacao_em": _proxima_sexta(agora).isoformat() if modo == "semanal" else None, "horario": "18:00", "timezone": "America/Fortaleza", "automatico": False}}
+    return {**base, "items": items, "resumo": resumo, "rotina": {"modo": modo, "data_corte": contexto["data_corte"], "corte_em": contexto["corte_em"], "proxima_preparacao_em": _proximo_domingo(agora).isoformat() if modo == "semanal" else None, "horario": "17:00", "timezone": "America/Fortaleza", "automatico": False}}
 
 
 def previa_rotina(db: Session, competencia: str, modo: str = "semanal", data_corte: str | None = None, clinica_id: int | None = None) -> dict:
@@ -277,7 +277,13 @@ def preparar_rotina(db: Session, *, competencia: str, modo: str, os_ids: list[in
         else:
             row = db.query(OrdemServico.clinica_id).filter(OrdemServico.id == os_ids[0]).first()
             clinica_id = row.clinica_id if row else None
-    contexto = _contexto(competencia, modo, data_corte, clinica_id, _agora_local())
+    # Repetir uma operação antiga conserva inclusive o corte de sexta às 18h.
+    # Somente a UUID já persistida pode recuperar esse contexto; o núcleo ainda
+    # confere todo o fingerprint, os bytes e o payload antes de retornar.
+    if existente and modo == "semanal" and armazenado.get("modo") == modo and data_corte == armazenado.get("data_corte"):
+        contexto = {**armazenado, "competencia": competencia, "clinica_id": clinica_id}
+    else:
+        contexto = _contexto(competencia, modo, data_corte, clinica_id, _agora_local())
     argumentos = dict(competencia=competencia, os_ids=os_ids, chave_idempotencia=key, confirmar_datas_prestacao=confirmar_datas_prestacao, confirmar_exportacoes_anteriores=confirmar_exportacoes_anteriores, usuario_id=usuario_id, usuario_nome=usuario_nome)
     try:
         return fechamento.preparar_fechamento(db, **argumentos, contexto_rotina=contexto)
@@ -285,7 +291,7 @@ def preparar_rotina(db: Session, *, competencia: str, modo: str, os_ids: list[in
         if exc.status_code != 409 or not corte_implicito:
             raise
         # Um retry concorrente pode ter calculado o próximo corte depois das
-        # 18h, antes do primeiro commit ficar visível. A UUID já persistida fixa
+        # 17h, antes do primeiro commit ficar visível. A UUID já persistida fixa
         # o corte implícito. O core ainda compara todos os campos da requisição.
         persistido = db.query(FiscalFechamento.snapshot_json).filter(FiscalFechamento.chave_idempotencia == key).first()
         if persistido is None:

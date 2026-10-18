@@ -94,7 +94,7 @@ class FiscalRotinaServiceTest(unittest.TestCase):
         return row
 
     def _prepare(self, ids, *, real=False, **kwargs):
-        args = dict(competencia="2026-08", modo="semanal", data_corte="2026-08-28", os_ids=ids, chave_idempotencia=uuid4(), confirmar_datas_prestacao=True, usuario_id=7, usuario_nome="Fiscal humano")
+        args = dict(competencia="2026-08", modo="semanal", data_corte="2026-08-30", os_ids=ids, chave_idempotencia=uuid4(), confirmar_datas_prestacao=True, usuario_id=7, usuario_nome="Fiscal humano")
         args.update(kwargs)
         if real:
             return rotina.preparar_rotina(self.db, **args)
@@ -114,7 +114,7 @@ class FiscalRotinaServiceTest(unittest.TestCase):
 
     def test_defaults_por_documento_sem_seed_nome_ou_ativo(self):
         result = rotina.listar_rotinas(self.db)
-        self.assertEqual(result["padrao"], {"modo": "semanal", "dia_semana": "sexta-feira", "horario": "18:00", "timezone": "America/Fortaleza", "automatico": False})
+        self.assertEqual(result["padrao"], {"modo": "semanal", "dia_semana": "domingo", "horario": "17:00", "timezone": "America/Fortaleza", "automatico": False})
         clinicas = {row["clinica_id"]: row for row in result["clinicas"]}
         self.assertEqual(clinicas[2]["modo"], "por_servico")
         self.assertTrue(clinicas[2]["pagamento_depende_nf"])
@@ -132,40 +132,89 @@ class FiscalRotinaServiceTest(unittest.TestCase):
         self._error(404, rotina.atualizar_preferencia, self.db, 999, modo="semanal", pagamento_depende_nf=False, versao_esperada=0)
         self.assertEqual(self.db.query(FiscalRotinaPreferencia).count(), 1)
 
-    def test_corte_antes_no_e_depois_sexta_18_com_fuso(self):
-        for horario, expected in (("17:59:59", "2026-10-16"), ("18:00:00", "2026-10-16"), ("18:00:01", "2026-10-23")):
-            with self.subTest(horario=horario), patch.object(rotina, "_agora_local", return_value=datetime.fromisoformat(f"2026-10-16T{horario}-03:00")):
+    def test_corte_antes_no_e_depois_domingo_17_com_fuso(self):
+        for horario, expected in (("16:59:59", "2026-10-18"), ("17:00:00", "2026-10-18"), ("17:00:01", "2026-10-25")):
+            with self.subTest(horario=horario), patch.object(rotina, "_agora_local", return_value=datetime.fromisoformat(f"2026-10-18T{horario}-03:00")):
                 meta = rotina.previa_rotina(self.db, "2026-08")["rotina"]
                 self.assertEqual(meta["data_corte"], expected)
-                self.assertEqual(meta["corte_em"], expected + "T18:00:00-03:00")
+                self.assertEqual(meta["corte_em"], expected + "T17:00:00-03:00")
                 self.assertEqual(meta["proxima_preparacao_em"], meta["corte_em"])
 
-    def test_corte_explicito_so_sexta_e_so_modo_semanal(self):
-        for cutoff in ("2026-08-27", "2026-02-30", "2026-8-28", "bad"):
+    def test_corte_explicito_so_domingo_e_so_modo_semanal(self):
+        for cutoff in ("2026-08-27", "2026-08-28", "2026-08-29", "2026-02-30", "2026-8-30", "bad"):
             self._error(422, rotina.previa_rotina, self.db, "2026-08", "semanal", cutoff)
         for modo in ("por_servico", "mensal"):
-            self._error(422, rotina.previa_rotina, self.db, "2026-08", modo, "2026-08-28")
+            self._error(422, rotina.previa_rotina, self.db, "2026-08", modo, "2026-08-30")
             meta = rotina.previa_rotina(self.db, "2026-08", modo)["rotina"]
             self.assertIsNone(meta["data_corte"])
             self.assertIsNone(meta["corte_em"])
             self.assertIsNone(meta["proxima_preparacao_em"])
 
+    def test_sabado_e_domingo_ate_17_entram_e_documentos_conservam_corte(self):
+        from openpyxl import load_workbook
+        from pypdf import PdfReader
+
+        for ident, data in enumerate(("2026-10-16T19:00:00-03:00", "2026-10-17T16:30:00-03:00", "2026-10-18T17:00:00-03:00", "2026-10-18T17:00:01-03:00", "2026-10-19T09:00:00-03:00"), 1):
+            self._os(ident, data=data)
+        with patch.object(rotina, "_agora_local", return_value=datetime.fromisoformat("2026-10-18T18:00:00-03:00")):
+            previa = rotina.previa_rotina(self.db, "2026-10", "semanal", "2026-10-18")
+            self.assertEqual({item["os_id"] for item in previa["items"]}, {1, 2, 3})
+            self.assertTrue(all(item["elegivel"] for item in previa["items"]))
+            pacote = self._prepare([1, 2, 3], competencia="2026-10", data_corte="2026-10-18", real=True)
+        self.assertEqual(json.loads(pacote.snapshot_json)["rotina"]["corte_em"], "2026-10-18T17:00:00-03:00")
+        with zipfile.ZipFile(io.BytesIO(pacote.pacote_bytes)) as archive:
+            manifesto = json.loads(archive.read("manifesto.json"))
+            self.assertEqual(manifesto["rotina"]["corte_em"], "2026-10-18T17:00:00-03:00")
+            self.assertEqual(set(manifesto["os_ids"]), {1, 2, 3})
+            self.assertIn("2026-10-18T17:00:00-03:00", archive.read("mensagem_contador.txt").decode())
+            workbook = load_workbook(io.BytesIO(archive.read("servicos_contador.xlsx")), data_only=True)
+            self.assertIn(("Corte da rotina (Fortaleza)", "2026-10-18T17:00:00-03:00"), list(workbook["Prestador e lote"].values))
+            pdf_text = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(archive.read("conferencia_contador.pdf"))).pages)
+            self.assertIn("2026-10-18T17:00:00-03:00", pdf_text)
+        self.assertEqual(self.db.query(NotaFiscal).count(), 0)
+        self.assertEqual(self.db.query(FiscalAndamentoEvento).count(), 0)
+
+    def test_fim_de_mes_conserva_competencias_separadas_no_domingo_seguinte(self):
+        self._os(1, data="2026-10-31T16:00:00-03:00")
+        self._os(2, data="2026-11-01T09:00:00-03:00")
+        with patch.object(rotina, "_agora_local", return_value=datetime.fromisoformat("2026-11-01T16:00:00-03:00")):
+            for competencia, expected in (("2026-10", [1]), ("2026-11", [2])):
+                previa = rotina.previa_rotina(self.db, competencia, "semanal", "2026-11-01")
+                self.assertEqual([item["os_id"] for item in previa["items"]], expected)
+                self.assertTrue(previa["items"][0]["elegivel"])
+
+    def test_retry_pacote_sexta_historico_preserva_bytes_e_nao_aceita_nova_operacao(self):
+        self._os(1)
+        key = uuid4()
+        contexto = {"modo": "semanal", "competencia": "2026-08", "data_corte": "2026-08-28", "corte_em": "2026-08-28T18:00:00-03:00", "clinica_id": None}
+        with patch.object(export, "gerar_pacote_contador", return_value=(b"PK-historico-sexta", "sexta.zip")):
+            pacote = core.preparar_fechamento(self.db, competencia="2026-08", os_ids=[1], chave_idempotencia=key, confirmar_datas_prestacao=True, contexto_rotina=contexto)
+        original = (pacote.pacote_bytes, pacote.snapshot_json, pacote.checksum, pacote.fingerprint)
+        for corte in (None, "2026-08-28"):
+            retry = self._prepare([1], chave_idempotencia=key, data_corte=corte)
+            self.assertEqual((retry.pacote_bytes, retry.snapshot_json, retry.checksum, retry.fingerprint), original)
+        self._error(409, self._prepare, [1], chave_idempotencia=key, data_corte="2026-08-30")
+        self._error(409, self._prepare, [2], chave_idempotencia=key, data_corte="2026-08-28")
+        self._error(409, self._prepare, [1], chave_idempotencia=key, data_corte="2026-08-28", clinica_id=3)
+        self._error(422, self._prepare, [1], data_corte="2026-08-28")
+        self.assertEqual(self.db.query(FiscalFechamento).count(), 1)
+
     def test_backlog_mes_inclui_os_anteriores_sem_usar_prefixo(self):
         self._os(1, data="2026-08-01T10:00:00-03:00")
         self._os(2, data="2026-08-27T10:00:00-03:00")
-        self._os(3, data="2026-08-28T18:00:01-03:00")
+        self._os(3, data="2026-08-30T17:00:01-03:00")
         self._os(4, data="2026-07-31T10:00:00-03:00")
-        result = rotina.previa_rotina(self.db, "2026-08", "semanal", "2026-08-28")
+        result = rotina.previa_rotina(self.db, "2026-08", "semanal", "2026-08-30")
         self.assertEqual([item["os_id"] for item in result["items"]], [1, 2])
         self.assertTrue(all(item["elegivel"] for item in result["items"]))
-        self.assertEqual(result["items"][0]["prazo_preparacao"], "2026-08-07T18:00:00-03:00")
+        self.assertEqual(result["items"][0]["prazo_preparacao"], "2026-08-02T17:00:00-03:00")
 
     def test_fontes_exatas_sem_heuristica_e_sem_informacao_clinica(self):
         self._os(1)
         self._os(2, fonte="atendimento")
         self._os(3, fonte="laudo")
         self._os(4, fonte="nenhuma", status="Pago")
-        result = rotina.previa_rotina(self.db, "2026-08", "semanal", "2026-08-28")
+        result = rotina.previa_rotina(self.db, "2026-08", "semanal", "2026-08-30")
         by_id = {item["os_id"]: item for item in result["items"]}
         self.assertEqual([by_id[i]["fonte_realizacao"] for i in (1, 2, 3, 4)], ["agenda", "atendimento", "laudo", "sem_evidencia"])
         self.assertTrue(all(by_id[i]["realizacao_confirmada"] for i in (1, 2, 3)))
@@ -244,11 +293,11 @@ class FiscalRotinaServiceTest(unittest.TestCase):
 
     def test_preparar_impede_futuro_sem_evidencia_e_fora_corte(self):
         self._os(1, fonte="nenhuma")
-        self._os(2, data="2026-08-29T10:00:00-03:00")
+        self._os(2, data="2026-08-31T10:00:00-03:00")
         self._os(3, data="2026-10-15T10:00:00-03:00")
         self._error(422, self._prepare, [1])
         self._error(422, self._prepare, [2])
-        self._error(422, self._prepare, [3], competencia="2026-10", data_corte="2026-10-16")
+        self._error(422, self._prepare, [3], competencia="2026-10", data_corte="2026-10-18")
         self.assertEqual(self.db.query(FiscalFechamentoOS).count(), 0)
 
     def test_snapshot_pendencias_escopo_e_export_contexto_sem_clinica_privada(self):
@@ -281,8 +330,8 @@ class FiscalRotinaServiceTest(unittest.TestCase):
         self.db.commit()
         retry = self._prepare([2, 1], chave_idempotencia=key, data_corte=None)
         self.assertEqual((retry.pacote_bytes, retry.snapshot_json, retry.fingerprint), original)
-        self.assertEqual(json.loads(retry.snapshot_json)["rotina"]["data_corte"], "2026-08-21")
-        self._error(409, self._prepare, [1, 2], chave_idempotencia=key, data_corte="2026-08-28")
+        self.assertEqual(json.loads(retry.snapshot_json)["rotina"]["data_corte"], "2026-08-23")
+        self._error(409, self._prepare, [1, 2], chave_idempotencia=key, data_corte="2026-08-30")
         self.assertEqual(self.db.query(FiscalFechamento).count(), 1)
 
     def test_flag_nf_atual_na_preparacao_sem_exigir_versao_preview(self):
@@ -308,7 +357,7 @@ class FiscalRotinaServiceTest(unittest.TestCase):
     def test_failure_export_atomica_sem_claim(self):
         self._os(1)
         with patch.object(export, "gerar_pacote_contador", side_effect=RuntimeError("falha de geração")), self.assertRaises(RuntimeError):
-            rotina.preparar_rotina(self.db, competencia="2026-08", modo="semanal", os_ids=[1], chave_idempotencia=uuid4(), confirmar_datas_prestacao=True, data_corte="2026-08-28")
+            rotina.preparar_rotina(self.db, competencia="2026-08", modo="semanal", os_ids=[1], chave_idempotencia=uuid4(), confirmar_datas_prestacao=True, data_corte="2026-08-30")
         self.assertEqual(self.db.query(FiscalFechamento).count(), 0)
         self.assertEqual(self.db.query(FiscalFechamentoOS).count(), 0)
 
@@ -379,7 +428,7 @@ class FiscalRotinaServiceTest(unittest.TestCase):
         with TestClient(app) as client:
             self.assertEqual(client.get("/fiscal/rotinas").status_code, 200)
             self.assertEqual(client.put("/fiscal/rotinas/clinicas/1", json={"modo": "semanal", "pagamento_depende_nf": "false", "versao_esperada": 0}).status_code, 422)
-            request = {"competencia": "2026-08", "modo": "semanal", "data_corte": "2026-08-28", "os_ids": [1], "chave_idempotencia": str(uuid4()), "confirmar_datas_prestacao": True}
+            request = {"competencia": "2026-08", "modo": "semanal", "data_corte": "2026-08-30", "os_ids": [1], "chave_idempotencia": str(uuid4()), "confirmar_datas_prestacao": True}
             with patch.object(export, "gerar_pacote_contador", return_value=(b"PK-http", "http.zip")):
                 prepared = client.post("/fiscal/rotinas/preparar", json=request)
             self.assertEqual(prepared.status_code, 200, prepared.text)
@@ -415,7 +464,7 @@ class FiscalRotinaMigrationTest(unittest.TestCase):
                 connection.execute(text("INSERT INTO fiscal_fechamentos_os VALUES (10), (11)"))
                 insert = text("""INSERT INTO fiscal_andamento_eventos
                     (os_id, versao, etapa_anterior, destino, chave_idempotencia, fingerprint, registrado_em)
-                    VALUES (:os_id, :versao, :anterior, :destino, :chave, 'hash', '2026-10-14T18:00:00-03:00')""")
+                    VALUES (:os_id, :versao, :anterior, :destino, :chave, 'hash', '2026-10-14T17:00:00-03:00')""")
                 base = {"os_id": 10, "versao": 1, "anterior": "preparado", "destino": "enviado_contador", "chave": str(uuid4())}
                 connection.execute(insert, base)
                 for invalid in ({**base, "os_id": 11}, {**base, "chave": str(uuid4())}, {**base, "os_id": 11, "chave": str(uuid4()), "destino": "nota_recebida"}, {**base, "os_id": 11, "versao": 0, "chave": str(uuid4())}):

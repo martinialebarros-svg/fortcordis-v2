@@ -50,3 +50,21 @@ O PR documental #381 foi integrado a stage `43c81a7c` após quatro checks aprova
 A preferência efetiva da Vet Fauna será conferida no cadastro existente de produção. Se necessário, uma preferência explícita `por_servico` com pagamento dependente de NF poderá ser salva na clínica identificada de forma única, com CAS e auditoria. Essa configuração não preenche CNPJ/endereço, não prepara pacote real, não avança andamentos e não cria nota fiscal.
 
 Os resultados da instalação, migração e verificações finais de produção serão registrados após o deploy. A autorização não substitui essa evidência.
+
+
+## Revisão local — domingo às 17h (18/10/2026)
+
+- Escopo: novo padrão semanal domingo às 17h de Fortaleza, sem emissão, cron ou envio; Vet Fauna por serviço preservada.
+- Backend: padrão, sugestão, validação explícita, prazo por OS e metadados calculados em America/Fortaleza. Corte inclusivo e regras de competência/realização/exclusividade preservados.
+- Interface: rótulos e preferências atualizados; “Corte deste pacote” usa a prévia; requisição envia seu corte confirmado e resposta de outro corte é bloqueada.
+- Regressões: sábado, domingo às 17h, um segundo após o corte, offsets UTC, próximo domingo e fronteira mensal; snapshot/ZIP/Excel/PDF/texto com corte único; retry histórico de sexta preserva bytes, checksum e contexto, sem permitir novos pacotes nesse padrão.
+- O pacote real #1 e os dados de produção permanecem intocados. Não há migração ou reparo do histórico nesta revisão.
+- Validação local: 91 testes de backend aprovados (SQLite, PostgreSQL 16 descartável e guards), incluindo 50 subcasos. O PostgreSQL foi criado exclusivamente em 127.0.0.1:55439 com banco fiscal_test UTF-8 e schemas sintéticos, sem conexão com stage/produção. O ambiente foi encerrado após a execução.
+- Frontend: 22 testes fiscais aprovados; TypeScript sem erros, ESLint dos arquivos alterados sem avisos e build Next.js concluído. Guardrail SDD dos arquivos alterados e git diff --check aprovados. Avisos existentes de depreciação Pydantic/SQLAlchemy e base Browserslist antiga não impediram os checks.
+- Os testes de pacote real sintético conferem a mesma referência no snapshot, manifesto, XLSX, PDF e texto; o teste de retry histórico compara bytes/checksum/fingerprint originais. A divergência observada no pacote #1 motivou a exibição e verificação do corte efetivo, sem afirmar diagnóstico reproduzido da interação anterior do navegador.
+- Publicação, canário remoto e QA autenticada desse novo padrão ainda não executados. Nenhum commit, push ou alteração do histórico real nesta etapa.
+
+## Publicação autorizada — 18/10/2026
+
+- Pedido explícito: publicar domingo às 17h e preparar a documentação para envio manual em 19/10. Limites: sem emissão, envio automático ou repetição das OS já preparadas.
+- A evidência de PRs, checks terminais, SHA instalado, preservação/restauração, smoke HTTP/bundles e preparação real será acrescentada após a execução.
