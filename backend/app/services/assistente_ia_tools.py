@@ -51,6 +51,7 @@ from app.services.assistente_ia_clinics360 import (
     compare_clinics_360,
 )
 from app.services.auditoria_service import registrar_auditoria
+from app.services.google_maps_cost_control import GoogleMapsCostBlocked
 from app.services.logistica_service import obter_ou_criar_deslocamento, serialize_deslocamento
 from app.services.precos_service import calcular_preco_servico
 
@@ -861,6 +862,12 @@ def verificar_disponibilidade(
                 db=ctx.db,
                 current_user=ctx.current_user,
             )
+        except GoogleMapsCostBlocked:
+            # A budget failure is not evidence that a day has no availability.
+            # Stop this action before querying another day or asking the model
+            # to infer a scheduling result from an incomplete search.
+            ctx.db.rollback()
+            raise
         except HTTPException as exc:
             dias_consultados.append(
                 {
@@ -1670,6 +1677,9 @@ def solicitar_criacao_agendamento(
     )
     try:
         _validate_appointment_candidate(ctx.db, candidate)
+    except GoogleMapsCostBlocked:
+        ctx.db.rollback()
+        raise
     except HTTPException as exc:
         return {"ok": False, "error": str(exc.detail)}
 
@@ -2449,6 +2459,11 @@ def _approve_appointment_creation(
             db=db,
             current_user=current_user,
         )
+    except GoogleMapsCostBlocked:
+        # Keep the operational approval pending and discard any uncommitted
+        # appointment/cache writes. The financial grant is already consumed.
+        db.rollback()
+        raise
     except HTTPException as exc:
         _invalidate_pending_action(
             db,
@@ -2727,6 +2742,11 @@ def _approve_reschedule_or_cancel(
                 current_user=current_user,
             )
             message = "Agendamento cancelado com sucesso."
+    except GoogleMapsCostBlocked:
+        # Invalidating the IA action would commit the appointment mutation from
+        # the endpoint as well. Roll it back and retain the pending approval.
+        db.rollback()
+        raise
     except HTTPException as exc:
         _invalidate_pending_action(
             db,

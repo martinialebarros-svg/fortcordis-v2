@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import GoogleMapsAdminPanel from "@/components/google-maps/GoogleMapsAdminPanel";
 import { useRoutePerformanceReady } from "@/lib/use-route-performance-ready";
 import { formatCalendarDate } from "@/lib/calendar-date";
 import {
@@ -343,7 +344,7 @@ interface DesempenhoFrontendResumo {
 
 export default function ConfiguracoesPage() {
   const router = useRouter();
-  const [aba, setAba] = useState<"empresa" | "usuario" | "usuarios" | "observabilidade">("empresa");
+  const [aba, setAba] = useState<"empresa" | "usuario" | "usuarios" | "observabilidade" | "maps">("empresa");
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [prontidaoClinicas, setProntidaoClinicas] = useState<ClinicaProntidaoWhatsapp | null>(null);
@@ -1705,7 +1706,7 @@ export default function ConfiguracoesPage() {
                   ? "Minha conta"
                   : aba === "usuarios"
                     ? "Usuários"
-                    : "Desempenho"}
+                    : aba === "maps" ? "Google Maps" : "Desempenho"}
             </strong>
           </div>
         </div>
@@ -1753,7 +1754,10 @@ export default function ConfiguracoesPage() {
               Desempenho
             </button>
           ) : null}
+          {isAdmin && <button type="button" role="tab" aria-selected={aba === "maps"} onClick={() => setAba("maps")} className={`fc-settings-tab ${aba === "maps" ? "fc-settings-tab-active" : ""}`}><Shield className="w-4 h-4" />Custos Google Maps</button>}
         </div>
+
+        {aba === "maps" && isAdmin && <GoogleMapsAdminPanel />}
 
         {aba === "empresa" && (
           <div className="fc-settings-content fc-settings-company">

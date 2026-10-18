@@ -24,6 +24,8 @@ from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
 from app.models.servico import Servico
 from app.models.tutor import Tutor
+from app.models.google_maps_cost_control import COST_TABLES
+from app.services import google_maps_cost_control as cost_guard
 
 
 def _agenda_semanal_aberta() -> dict[str, dict[str, object]]:
@@ -54,8 +56,14 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             Servico.__table__,
             Tutor.__table__,
             Agendamento.__table__,
+            *COST_TABLES,
         ):
             table.create(engine, checkfirst=True)
+        # Shared route-rule fixtures use deterministic providers. Policy reads
+        # still need an isolated, unconfigured ledger on an independent connection.
+        policy = patch.object(cost_guard.database, "engine", engine)
+        policy.start()
+        self.addCleanup(policy.stop)
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
         return tmpdir, session, engine
 
@@ -449,7 +457,9 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 perfil,
                 permitir_estimativa_fallback=True,
                 cache=None,
+                commit_cache=True,
             ):
+                self.assertTrue(commit_cache, "Consultas de leitura preservam cache persistente")
                 if (
                     int(origem_clinica_id or 0) == int(clinica_base.id)
                     and int(destino_clinica_id or 0) == int(clinica_proxima.id)
@@ -508,7 +518,9 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 perfil,
                 permitir_estimativa_fallback=True,
                 cache=None,
+                commit_cache=True,
             ):
+                self.assertTrue(commit_cache, "Consultas de leitura preservam cache persistente")
                 ids = {int(origem_clinica_id or 0), int(destino_clinica_id or 0)}
                 if ids == {int(clinica_destino.id), int(clinica_anterior.id)}:
                     return (39, "mock")
@@ -1867,7 +1879,9 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 perfil: str,
                 permitir_estimativa_fallback: bool = True,
                 cache=None,
+                commit_cache=True,
             ):
+                self.assertTrue(commit_cache, "Consultas de leitura preservam cache persistente")
                 if int(destino_clinica_id) == int(clinica_ancora_longa.id):
                     return (53, "mock")
                 if int(destino_clinica_id) == int(clinica_ancora_curta.id):

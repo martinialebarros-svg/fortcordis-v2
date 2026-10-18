@@ -1,5 +1,15 @@
 # Plan - logistica-agenda-google-cost-control
 
+## Incremento — provas locais e publicação pendente com zero novos envios (18/10/2026)
+
+- [x] Integrar `cache_only` aos leitores/materializadores de rota e aos três transportes Google, sem depender das flags legadas ou da presença de chave.
+- [x] Reutilizar somente cache Google válido/override manual autorizado; bloquear miss, expiração, heurística, TTL não positivo e primeira saída sem timestamp/TTL confiável.
+- [x] Provar via testes sintéticos que cache permitido não gera popup de custo nem rede; falha não inventa disponibilidade nem confirma parcialmente a agenda.
+- [x] Provar localmente acesso direto, jobs, concorrência, reconexão e troca de modo com zero envios; preservar regressões de `paid_budget`.
+- [ ] Validar stage e promover somente Maps pelo fluxo protegido, isolando a revisão clínica felina e restaurando-a em stage após a publicação.
+
+Os checks acima representam provas locais; suítes integrais aprovadas, etapa instalada pendente. O plano e os checks concluídos abaixo pertencem aos ciclos anteriores; não representam validação do novo modo. Detalhes em `../google-maps-enforced-budget/plan.md` e `verify.md`.
+
 Data: 2026-04-22  
 Responsavel: Codex  
 Status: done

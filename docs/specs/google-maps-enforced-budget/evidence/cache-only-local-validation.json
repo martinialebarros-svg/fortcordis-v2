@@ -1,0 +1,82 @@
+{
+  "recorded_at_utc": "2026-10-18T21:56:41.703023+00:00",
+  "scope": "Local isolated production candidate; no stage or production activation proof",
+  "google_network_calls": 0,
+  "backend_full": {
+    "tests_run": 1991,
+    "skipped": 69,
+    "errors": 0,
+    "failures": 0,
+    "seconds": 94.142,
+    "status": "passed"
+  },
+  "backend_focused_reported_by_implementation_agent": {
+    "maps_with_disposable_postgresql": 74,
+    "agenda": 208,
+    "whatsapp_options": 20,
+    "agenda_atomicity": 10,
+    "logistics": 10,
+    "first_departure": 26,
+    "status": "passed",
+    "counts_overlap_full_suite": true,
+    "maps_skipped": 0
+  },
+  "frontend_full": {
+    "vitest_tests": 980,
+    "vitest_files": 107,
+    "node_tests": 23,
+    "workers": 2,
+    "status": "passed"
+  },
+  "frontend_focused_reported_by_implementation_agent": {
+    "maps_tests": 20,
+    "lint": "passed",
+    "typescript": "passed",
+    "build": "passed"
+  },
+  "prior_attempts": {
+    "backend": {
+      "errors": 24,
+      "cause": "Legacy agenda fixtures lacked isolated ledger tables/engine; fixtures and cleanup corrected, guard unchanged"
+    },
+    "frontend": {
+      "timeouts": 4,
+      "cause": "5-second test timeouts outside Maps in initial wide concurrency; rerun with two workers passed without code change"
+    }
+  },
+  "installed_activation": "pending",
+  "native_quotas": "pending",
+  "clinical_stage_restore": "pending",
+  "log_metadata": [
+    {
+      "check": "backend_full",
+      "file_name": "fortcordis-maps-zero-charge-backend-final2.log",
+      "bytes": 118634,
+      "sha256": "d3eba753fd5f5a768980e11041631a3b745a8af69dc332108c3706705cc56a0f"
+    },
+    {
+      "check": "frontend_full",
+      "file_name": "fortcordis-maps-zero-charge-frontend-full-test-limited.log",
+      "bytes": 4896,
+      "sha256": "321b0e11363f10e1c3d53fa2f1863fe6308cdff3122893ee7c6f1a629c4814cd"
+    },
+    {
+      "check": "frontend_build",
+      "file_name": "fortcordis-maps-zero-charge-frontend-build.log",
+      "bytes": 4835,
+      "sha256": "2ae83cd369c8695c6144c1fe31b1574fa75532cc613f4640a6f5c45438668b33"
+    },
+    {
+      "check": "frontend_lint",
+      "file_name": "fortcordis-maps-zero-charge-frontend-lint.log",
+      "bytes": 87,
+      "sha256": "f8c73c94f66ca7b93f3e07baecea65b5a27f3b7806bd674268830f17d5e75fa9"
+    }
+  ],
+  "production_activation_script_review": {
+    "status": "reviewed_statically_only_not_executed",
+    "sha256": "f4eb74b757562ec55e4b553ef06bb3f93fcd260f8f4039765a4018aa867a398b",
+    "independent_review": true,
+    "limitation": "Disk SHA does not attest all live workers; terminal deploy and restart/drain must be verified before execution"
+  }
+}

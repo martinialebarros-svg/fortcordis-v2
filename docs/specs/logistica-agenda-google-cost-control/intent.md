@@ -1,5 +1,11 @@
 # Intent - logistica-agenda-google-cost-control
 
+## Decisão vigente — 18/10/2026
+
+A produção dos controles Maps foi autorizada com gasto adicional zero. O modo `cache_only` utiliza apenas rota Google persistida ainda válida ou ajuste manual já autorizado; nenhum lookup/refresh/geocoding Google é enviado. Ausência, expiração ou fonte heurística bloqueiam a operação dependente da rota, preservando as regras da agenda. A configuração omite preços/câmbio/baseline, sem fabricar consumo passado ou saldo gratuito. Implementação e suítes locais integrais aprovadas; publicação/ativação ainda pendentes; contrato e evidências em `../google-maps-enforced-budget/`.
+
+As decisões de abril/maio abaixo são históricas. Lookup ao vivo habilitado por flag e a compatibilidade antiga com heurística não superam o modo de custo zero.
+
 Data: 2026-04-22  
 Responsavel: Codex  
 Status: done

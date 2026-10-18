@@ -32,6 +32,7 @@ from app.services.assistente_ia_tools import (
 )
 from app.services.assistente_ia_management import approved_memory_context
 from app.services.auditoria_service import registrar_auditoria
+from app.services.google_maps_cost_control import GoogleMapsCostBlocked
 
 logger = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("America/Fortaleza")
@@ -591,6 +592,8 @@ def run_assistant_turn(
                         name=name,
                         arguments=arguments,
                     )
+                except GoogleMapsCostBlocked:
+                    raise
                 except Exception as exc:
                     logger.exception("Falha ao executar ferramenta do assistente IA: %s", name)
                     result = {"ok": False, "error": f"Falha controlada na ferramenta {name}."}
@@ -634,6 +637,14 @@ def run_assistant_turn(
         if not final_text:
             raise AssistenteIAProviderError("O assistente nao produziu uma resposta final.")
 
+    except GoogleMapsCostBlocked:
+        # A failed Maps validation must not commit pending business mutations
+        # while recording the assistant's failed response.
+        db.rollback()
+        user_message.provider_status = "failed"
+        db.add(user_message)
+        db.commit()
+        raise
     except AssistenteIAProviderError:
         user_message.provider_status = "failed"
         db.add(user_message)

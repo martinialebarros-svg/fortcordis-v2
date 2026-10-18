@@ -1,0 +1,22 @@
+{
+  "checked_at": "2026-10-18T21:41:41.340551+00:00",
+  "paths": [
+    "docs/specs/laudo-eco-revisao-apresentacao/plan.md",
+    "docs/specs/laudo-eco-revisao-apresentacao/spec.md",
+    "docs/specs/laudo-eco-revisao-apresentacao/verify.md",
+    "frontend/app/laudos/[id]/editar/page.tsx",
+    "frontend/app/laudos/[id]/page.echo-reference-metadata.test.tsx",
+    "frontend/app/laudos/[id]/page.tsx",
+    "frontend/app/laudos/components/EchoNarrativeConsistencyNotice.test.tsx",
+    "frontend/app/laudos/components/EchoNarrativeConsistencyNotice.tsx",
+    "frontend/app/laudos/feline-narrative-review-page.test.tsx",
+    "frontend/app/laudos/novo/page.tsx",
+    "frontend/lib/echo-feline-narrative-consistency.test.ts",
+    "frontend/lib/echo-feline-narrative-consistency.ts",
+    "frontend/lib/echo-narrative-consistency.ts"
+  ],
+  "excluded_from_production": true,
+  "content_matches_production_sha": "9137d39fea18c795bb1cb7b1cc9bc204dce05d69",
+  "restore_stage_from_sha": "cb93d4c661cf8ecab9eab047df50e36d6b4332c7",
+  "restore_required_after_production": true
+}

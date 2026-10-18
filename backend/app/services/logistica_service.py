@@ -18,6 +18,9 @@ from app.core.config import settings
 from app.models.clinica import Clinica
 from app.models.clinica_deslocamento import ClinicaDeslocamento
 from app.models.google_maps_usage_metrica import GoogleMapsUsageMetrica
+from app.services.google_maps_cost_control import (
+    authorize_google_call, block_cache_only_lookup, cache_only_operation,
+)
 
 PERFIS_VALIDOS = {"comercial", "plantao"}
 VELOCIDADE_MEDIA_KMH = {
@@ -565,6 +568,21 @@ def _deslocamento_esta_atual(
     return True
 
 
+def _cache_only_route_available(row, *, origem, destino) -> bool:
+    """Only existing route evidence may satisfy the zero-new-charge policy.
+
+    Manual overrides retain their existing authorized semantics. Google rows
+    must still satisfy the ordinary TTL/geocode freshness checks; this helper
+    never refreshes timestamps or treats historical heuristic rows as routes.
+    """
+    if row is None or row.duracao_min is None:
+        return False
+    if bool(getattr(row, "manual_override", False)):
+        return True
+    source = str(getattr(row, "fonte", "") or "").strip().lower()
+    return _cache_max_age_days() > 0 and source.startswith(("google_routes_api", "google_distance_matrix")) and _deslocamento_esta_atual(row, origem=origem, destino=destino)
+
+
 def _parse_duration_seconds(duration_value) -> Optional[int]:
     if duration_value is None:
         return None
@@ -610,6 +628,9 @@ def _consultar_google_routes_api_raw(
         "X-Goog-FieldMask": GOOGLE_ROUTES_FIELD_MASK,
     }
 
+    # Reserve before network I/O, outside the provider's fallback handler. A
+    # budget/consent failure must never become a second API call or a heuristic.
+    authorize_google_call("routes_pro" if traffic_aware else "routes_essentials")
     try:
         data = _http_post_json(GOOGLE_ROUTES_API_URL, body, headers=headers)
     except Exception:
@@ -728,6 +749,7 @@ def _consultar_google_distance_matrix_raw(
     params = urlencode(params_payload)
     url = f"{GOOGLE_DISTANCE_MATRIX_URL}?{params}"
 
+    authorize_google_call("distance_matrix_pro" if traffic_aware else "distance_matrix_essentials")
     try:
         data = _http_get_json(url)
     except Exception:
@@ -864,6 +886,12 @@ def estimar_deslocamento(
 
     if origem.id == destino.id:
         return 0.0, 0, "mesma_clinica"
+
+    # This function creates a new estimate, including key-missing/flag-disabled
+    # heuristic fallbacks. Cache-only callers must use a validated persisted row
+    # in the lookup functions instead. An in-memory unversioned dict is not proof.
+    if cache_only_operation():
+        block_cache_only_lookup()
 
     perfil_norm = normalizar_perfil(perfil)
 
@@ -1013,6 +1041,10 @@ def upsert_deslocamento(
         row.fonte = fonte_texto
         mudou = True
 
+    # A successful revalidation renews TTL even if Google's distance/duration
+    # did not change. Otherwise a stable expired route is billed on every read.
+    if fonte_texto.startswith("google_"):
+        mudou = True
     if mudou:
         row.updated_at = datetime.utcnow()
 
@@ -1065,6 +1097,10 @@ def materializar_deslocamento_par(
     registrar_google_maps_metricas(db, eventos_google)
     if commit:
         db.commit()
+    else:
+        # Validation may already have pending appointment changes. Make cache
+        # rows visible in this transaction without accepting the business write.
+        db.flush()
     return rows
 
 
@@ -1264,6 +1300,10 @@ def obter_ou_criar_deslocamento(
 
     # Regra operacional: ajuste manual sempre prevalece.
     # Mesmo com force_recalculate=True (ex.: "recalcular par"), nao sobrescreve manual_override.
+    if cache_only_operation():
+        if _cache_only_route_available(row, origem=origem, destino=destino) and (not force_recalculate or bool(row.manual_override)):
+            return row
+        block_cache_only_lookup()
     if row:
         if bool(row.manual_override):
             return row
@@ -1287,6 +1327,7 @@ def obter_duracao_deslocamento(
     destino_clinica_id: Optional[int],
     perfil: str = "comercial",
     permitir_estimativa_fallback: bool = True,
+    commit_cache: bool = True,
 ) -> tuple[int, str]:
     """Returns travel duration for a clinic pair and persists cache misses."""
     origem_id = int(origem_clinica_id or 0)
@@ -1310,6 +1351,10 @@ def obter_duracao_deslocamento(
     destino = db.query(Clinica).filter(Clinica.id == destino_id).first()
     if not origem or not destino:
         return 0, "clinica_nao_encontrada"
+    if cache_only_operation():
+        if _cache_only_route_available(row, origem=origem, destino=destino):
+            return max(0, int(row.duracao_min)), str(row.fonte)
+        block_cache_only_lookup()
     if row and row.duracao_min is not None and _deslocamento_esta_atual(row, origem=origem, destino=destino):
         return max(0, int(row.duracao_min)), str(row.fonte or "matriz")
 
@@ -1325,6 +1370,7 @@ def obter_duracao_deslocamento(
         destino=destino,
         perfis=["comercial", "plantao"],
         permitir_google_lookup=_allow_live_google_lookups_on_read(),
+        commit=commit_cache,
     )
     row = rows.get(perfil_norm)
     if row and row.duracao_min is not None:
@@ -1342,6 +1388,7 @@ def obter_duracao_deslocamento_entidades(
     permitir_google_lookup_on_refresh: Optional[bool] = None,
     google_cache: Optional[dict] = None,
     telemetry_events: Optional[list[dict]] = None,
+    commit_cache: bool = True,
 ) -> tuple[int, str]:
     """Retorna duracao para quaisquer entidades operacionais persistidas na matriz.
 
@@ -1367,6 +1414,10 @@ def obter_duracao_deslocamento_entidades(
         )
         .first()
     )
+    if cache_only_operation():
+        if _cache_only_route_available(row, origem=origem, destino=destino):
+            return max(0, int(row.duracao_min)), str(row.fonte)
+        block_cache_only_lookup()
     if row and row.duracao_min is not None and _deslocamento_esta_atual(row, origem=origem, destino=destino):
         return max(0, int(row.duracao_min)), str(row.fonte or "matriz")
 
@@ -1386,6 +1437,7 @@ def obter_duracao_deslocamento_entidades(
         permitir_google_lookup=permitir_google_lookup,
         google_cache=google_cache,
         telemetry_events=telemetry_events,
+        commit=commit_cache,
     )
     row = rows.get(perfil_norm)
     if row and row.duracao_min is not None:

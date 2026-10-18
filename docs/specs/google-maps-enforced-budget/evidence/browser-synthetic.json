@@ -1,0 +1,195 @@
+{
+  "passed": true,
+  "synthetic_only": true,
+  "real_google_calls": 0,
+  "original_dispatch_after_cancel": 0,
+  "confirmation_requests": 0,
+  "desktopOverflow": false,
+  "mobileOverflow": false,
+  "overlayProof": {
+    "above": true,
+    "dialogCount": 2,
+    "zIndex": "2147483647"
+  },
+  "mobileButtonsVisible": true,
+  "pageErrors": [],
+  "externalBlocked": [],
+  "requests": [
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes",
+      "method": "GET"
+    },
+    {
+      "path": "/agenda/configuracao",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes/usuario",
+      "method": "GET"
+    },
+    {
+      "path": "/observability/frontend-performance",
+      "method": "POST"
+    },
+    {
+      "path": "/configuracoes/usuario",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes/usuario/push/public-key",
+      "method": "GET"
+    },
+    {
+      "path": "/alertas-internos",
+      "method": "GET"
+    },
+    {
+      "path": "/google-maps-control/status",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes",
+      "method": "GET"
+    },
+    {
+      "path": "/agenda/configuracao",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes/usuario",
+      "method": "GET"
+    },
+    {
+      "path": "/observability/frontend-performance",
+      "method": "POST"
+    },
+    {
+      "path": "/configuracoes/usuario",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes/usuario/push/public-key",
+      "method": "GET"
+    },
+    {
+      "path": "/alertas-internos",
+      "method": "GET"
+    },
+    {
+      "path": "/google-maps-control/status",
+      "method": "GET"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes",
+      "method": "GET"
+    },
+    {
+      "path": "/clinicas",
+      "method": "GET"
+    },
+    {
+      "path": "/logistica/matriz",
+      "method": "GET"
+    },
+    {
+      "path": "/logistica/google-maps/resumo",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes/usuario",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes/usuario/push/public-key",
+      "method": "GET"
+    },
+    {
+      "path": "/alertas-internos",
+      "method": "GET"
+    },
+    {
+      "path": "/google-maps-control/preview",
+      "method": "POST"
+    },
+    {
+      "path": "/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes",
+      "method": "GET"
+    },
+    {
+      "path": "/financeiro/formas-pagamento",
+      "method": "GET"
+    },
+    {
+      "path": "/agenda",
+      "method": "GET"
+    },
+    {
+      "path": "/agenda/configuracao",
+      "method": "GET"
+    },
+    {
+      "path": "/agenda/stream",
+      "method": "GET"
+    },
+    {
+      "path": "/agenda/resumo-financeiro",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes/usuario",
+      "method": "GET"
+    },
+    {
+      "path": "/configuracoes/usuario/push/public-key",
+      "method": "GET"
+    },
+    {
+      "path": "/alertas-internos",
+      "method": "GET"
+    },
+    {
+      "path": "/pacientes",
+      "method": "GET"
+    },
+    {
+      "path": "/tutores",
+      "method": "GET"
+    },
+    {
+      "path": "/clinicas",
+      "method": "GET"
+    },
+    {
+      "path": "/servicos",
+      "method": "GET"
+    },
+    {
+      "path": "/google-maps-control/preview",
+      "method": "POST"
+    }
+  ]
+}

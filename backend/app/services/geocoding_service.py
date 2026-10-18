@@ -7,6 +7,8 @@ from typing import Optional
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from app.services.google_maps_cost_control import authorize_google_call
+
 
 class GeocodingError(Exception):
     pass
@@ -116,15 +118,17 @@ def geocodificar_endereco_google(endereco_completo: str, api_key: str) -> Geocod
     )
     url = f"https://maps.googleapis.com/maps/api/geocode/json?{params}"
 
+    authorize_google_call("geocoding")
     try:
         data = _http_get_json(url)
-    except Exception as exc:
-        raise GeocodingError(f"Falha ao consultar Google Geocoding: {exc}") from exc
+    except Exception:
+        # Provider exception strings may contain the URL, key and full address.
+        raise GeocodingError("Falha ao consultar Google Geocoding. Tente novamente com uma nova confirmacao.") from None
 
     status = str(data.get("status") or "").strip().upper()
     if status != "OK":
-        message = str(data.get("error_message") or "").strip()
-        detail = f"{status}: {message}" if message else status or "erro_desconhecido"
+        safe_statuses = {"ZERO_RESULTS", "OVER_DAILY_LIMIT", "OVER_QUERY_LIMIT", "REQUEST_DENIED", "INVALID_REQUEST", "UNKNOWN_ERROR"}
+        detail = status if status in safe_statuses else "erro_desconhecido"
         raise GeocodingError(f"Google Geocoding retornou erro ({detail}).")
 
     results = data.get("results") or []

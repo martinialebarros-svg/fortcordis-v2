@@ -21,9 +21,23 @@ from app.models.clinica import Clinica
 from app.models.clinica_deslocamento import ClinicaDeslocamento
 from app.models.google_maps_usage_metrica import GoogleMapsUsageMetrica
 from app.services import logistica_service
+from app.services import google_maps_cost_control as cost_guard
+from app.models.google_maps_cost_control import COST_TABLES
 
 
 class LogisticaGoogleCostControlsTest(unittest.TestCase):
+    def setUp(self):
+        # Legacy route unit cases have no active cache-only policy. Keep their
+        # policy lookup isolated from the developer database; transports retain
+        # the explicit mocks used in each individual computation test.
+        ledger = create_engine("sqlite://")
+        for table in COST_TABLES:
+            table.create(ledger)
+        self.addCleanup(ledger.dispose)
+        policy = patch.object(cost_guard.database, "engine", ledger)
+        policy.start()
+        self.addCleanup(policy.stop)
+
     def _build_session(self):
         tmpdir = tempfile.TemporaryDirectory()
         db_path = Path(tmpdir.name) / "logistica-google-cost-controls.db"
@@ -83,6 +97,7 @@ class LogisticaGoogleCostControlsTest(unittest.TestCase):
         with (
             patch.object(logistica_service.settings, "GOOGLE_MAPS_API_KEY", "fake-key"),
             patch.object(logistica_service.settings, "LOGISTICA_GOOGLE_TRAFFIC_AWARE", False),
+            patch.object(logistica_service, "authorize_google_call"),
             patch.object(logistica_service, "_http_post_json", side_effect=_fake_post),
         ):
             out = logistica_service._consultar_google_routes_api_raw(
@@ -119,6 +134,7 @@ class LogisticaGoogleCostControlsTest(unittest.TestCase):
         with (
             patch.object(logistica_service.settings, "GOOGLE_MAPS_API_KEY", "fake-key"),
             patch.object(logistica_service.settings, "LOGISTICA_GOOGLE_TRAFFIC_AWARE", False),
+            patch.object(logistica_service, "authorize_google_call"),
             patch.object(logistica_service, "_http_get_json", side_effect=_fake_get),
         ):
             out = logistica_service._consultar_google_distance_matrix_raw(
