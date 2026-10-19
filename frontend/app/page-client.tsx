@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import axios from "axios";
+import { safeLoginDestination } from "@/lib/protected-routes";
 import {
   Building2,
   Eye,
@@ -53,7 +54,7 @@ export default function LoginPage() {
       );
 
       if (typeof window !== "undefined") {
-        window.location.replace("/dashboard");
+        window.location.replace(safeLoginDestination(new URLSearchParams(window.location.search).get("next")));
         return;
       }
     } catch (err: unknown) {

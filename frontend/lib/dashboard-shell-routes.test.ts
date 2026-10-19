@@ -13,6 +13,7 @@ describe("dashboard shell routes", () => {
   it("does not mount the authenticated shell for public or similarly named routes", () => {
     expect(usesDashboardShell("/")).toBe(false);
     expect(usesDashboardShell("/portal/clinica")).toBe(false);
+    expect(usesDashboardShell("/agenda/formalizar/invite-token")).toBe(false);
     expect(usesDashboardShell("/agendado")).toBe(false);
     expect(usesDashboardShell(null)).toBe(false);
   });

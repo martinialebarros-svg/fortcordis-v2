@@ -5,6 +5,20 @@ import { isMapsControlError, mapsConfirmationStore, prepareMapsAction } from './
 
 const SAFE_METHODS = new Set(['get', 'head', 'options', 'trace']);
 const BINARY_RESPONSE_TYPES = new Set(['arraybuffer', 'blob', 'stream']);
+let refreshInFlight: Promise<void> | null = null;
+
+function refreshCookieSession(): Promise<void> {
+  if (!refreshInFlight) {
+    refreshInFlight = axios.post('/api/v1/auth/refresh', null, {
+      withCredentials: true,
+      timeout: DEFAULT_SAFE_REQUEST_TIMEOUT_MS,
+      headers: { 'x-csrf-token': getCookie('fortcordis_csrf') || '' },
+    }).then((response) => {
+      localStorage.setItem('token', response.data.access_token);
+    }).finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
+}
 
 export const DEFAULT_SAFE_REQUEST_TIMEOUT_MS = 15_000;
 
@@ -73,6 +87,9 @@ api.interceptors.request.use(
 // Interceptor para tratamento de erros de autenticação
 api.interceptors.response.use(
   (response) => {
+    if (typeof window !== 'undefined' && response.headers['x-fortcordis-session']) {
+      localStorage.setItem('token', response.headers['x-fortcordis-session']);
+    }
     invalidateStableCatalogForMutation(response.config.method, response.config.url);
     return response;
   },
@@ -84,6 +101,24 @@ api.interceptors.response.use(
     if (isMapsControlError(error)) mapsConfirmationStore.notify(normalizedMessage);
 
     if (error.response?.status === 401) {
+      const config = error.config;
+      if (typeof window !== 'undefined' && config && !config._authRetried
+          && !['/auth/login', '/auth/logout', '/auth/refresh'].includes(String(config.url || ''))) {
+        try {
+          await refreshCookieSession();
+          config._authRetried = true;
+          // Chamadores legados podem ter enviado o JWT que acabou de expirar.
+          if (config.headers?.Authorization) {
+            config.headers.Authorization = `Bearer ${localStorage.getItem('token')}`;
+          }
+          return api.request(config);
+        } catch (refreshError) {
+          if (axios.isAxiosError(refreshError)
+              && ![401, 403, 404].includes(refreshError.response?.status || 0)) {
+            return Promise.reject(refreshError);
+          }
+        }
+      }
       // Sessao expirada/invalidada.
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token');
