@@ -8,12 +8,12 @@ vi.mock("@/lib/axios", () => ({ default: api }));
 vi.mock("@/lib/calendar-date", () => ({ operationalTodayDateInput: () => "2026-10-14", formatCalendarDate: (value: string | null) => value ? value.slice(0, 10).split("-").reverse().join("/") : "—" }));
 
 function servico(changes: Partial<FiscalServicoRotina> = {}): FiscalServicoRotina {
-  return { os_id: 1, numero_os: "OS-001", data_atendimento: "2026-10-14T09:00:00-03:00", data_prestacao: "2026-10-14", competencia: "2026-10", valor_final: 250, status_os: "Pendente", tipo_cliente: "PJ", cliente_nome: "Clínica Alfa", cliente_documento: "12345678000195", clinica_id: 10, clinica_nome: "Clínica Alfa", servico_nome: "Serviço veterinário", elegivel: true, motivos_pendencia: [], fechamento_id: null, exportacoes_anteriores: 0, modo_preparacao: "semanal", pagamento_depende_nf: false, realizacao_confirmada: true, fonte_realizacao: "agenda", prazo_preparacao: "2026-10-16T18:00:00-03:00", ...changes };
+  return { os_id: 1, numero_os: "OS-001", data_atendimento: "2026-10-14T09:00:00-03:00", data_prestacao: "2026-10-14", competencia: "2026-10", valor_final: 250, status_os: "Pendente", tipo_cliente: "PJ", cliente_nome: "Clínica Alfa", cliente_documento: "12345678000195", clinica_id: 10, clinica_nome: "Clínica Alfa", servico_nome: "Serviço veterinário", elegivel: true, motivos_pendencia: [], fechamento_id: null, exportacoes_anteriores: 0, modo_preparacao: "semanal", pagamento_depende_nf: false, realizacao_confirmada: true, fonte_realizacao: "agenda", prazo_preparacao: "2026-10-18T17:00:00-03:00", ...changes };
 }
 function previa(modo: ModoFiscalRotina = "semanal", items = [servico()], competencia = "2026-10"): FiscalPreviaRotina {
-  return { competencia, data_inicio: `${competencia}-01`, data_fim: `${competencia}-31`, items, rotina: { modo, data_corte: modo === "semanal" ? "2026-10-16" : null, corte_em: modo === "semanal" ? "2026-10-16T18:00:00-03:00" : null, proxima_preparacao_em: modo === "semanal" ? "2026-10-16T18:00:00-03:00" : null, horario: "18:00", timezone: "America/Fortaleza", automatico: false }, resumo: { quantidade_os: items.length, quantidade_aptas: items.filter((item) => item.elegivel).length, quantidade_pendentes: items.filter((item) => !item.elegivel).length, quantidade_canceladas: 0, quantidade_ja_preparadas: 0, quantidade_exportadas_anteriormente: 0, valor_total: 250, valor_apto: 250, quantidade_por_servico: items.filter((item) => item.modo_preparacao === "por_servico").length, quantidade_pagamento_depende_nf: items.filter((item) => item.pagamento_depende_nf).length } };
+  return { competencia, data_inicio: `${competencia}-01`, data_fim: `${competencia}-31`, items, rotina: { modo, data_corte: modo === "semanal" ? "2026-10-18" : null, corte_em: modo === "semanal" ? "2026-10-18T17:00:00-03:00" : null, proxima_preparacao_em: modo === "semanal" ? "2026-10-18T17:00:00-03:00" : null, horario: "17:00", timezone: "America/Fortaleza", automatico: false }, resumo: { quantidade_os: items.length, quantidade_aptas: items.filter((item) => item.elegivel).length, quantidade_pendentes: items.filter((item) => !item.elegivel).length, quantidade_canceladas: 0, quantidade_ja_preparadas: 0, quantidade_exportadas_anteriormente: 0, valor_total: 250, valor_apto: 250, quantidade_por_servico: items.filter((item) => item.modo_preparacao === "por_servico").length, quantidade_pagamento_depende_nf: items.filter((item) => item.pagamento_depende_nf).length } };
 }
-const configuracao = (): FiscalRotinas => ({ padrao: { modo: "semanal", dia_semana: "sexta-feira", horario: "18:00", timezone: "America/Fortaleza", automatico: false }, clinicas: [{ clinica_id: 10, nome: "Clínica Alfa", modo: "semanal", pagamento_depende_nf: false, versao: 0, origem: "padrao" }, { clinica_id: 20, nome: "Parceiro com prioridade", modo: "por_servico", pagamento_depende_nf: true, versao: 3, origem: "vet_fauna" }] });
+const configuracao = (): FiscalRotinas => ({ padrao: { modo: "semanal", dia_semana: "domingo", horario: "17:00", timezone: "America/Fortaleza", automatico: false }, clinicas: [{ clinica_id: 10, nome: "Clínica Alfa", modo: "semanal", pagamento_depende_nf: false, versao: 0, origem: "padrao" }, { clinica_id: 20, nome: "Parceiro com prioridade", modo: "por_servico", pagamento_depende_nf: true, versao: 3, origem: "vet_fauna" }] });
 const pacote = { id: 7, competencia: "2026-10", quantidade_os: 2, valor_total: 500, arquivo_nome: "contador.zip", usuario_nome: "Equipe", preparado_em: "2026-10-14T10:00:00-03:00" };
 const andamento = (changes: Partial<FiscalAndamento> = {}): FiscalAndamento => ({ os_id: 1, numero_os: "OS-001", cliente_nome: "Clínica Alfa", clinica_nome: "Clínica Alfa", etapa: "preparado", versao: 0, referencia_nota: null, atualizado_em: null, eventos: [], ...changes });
 const zipResponse = () => ({ data: new Blob(["zip"]), headers: { "x-fechamento-id": "7", "content-disposition": 'attachment; filename="contador.zip"' } });
@@ -21,7 +21,14 @@ function deferred<T>() { let resolve!: (value: T) => void; const promise = new P
 type Config = { params?: { modo?: ModoFiscalRotina; competencia?: string; data_corte?: string; clinica_id?: number; skip?: number; limit?: number }; signal?: AbortSignal };
 function defaultGet(url: string, config?: Config): Promise<unknown> {
   if (url === "/fiscal/rotinas") return Promise.resolve({ data: configuracao() });
-  if (url.endsWith("previa")) return Promise.resolve({ data: previa(config?.params?.modo, undefined, config?.params?.competencia) });
+  if (url.endsWith("previa")) {
+    const data = previa(config?.params?.modo, undefined, config?.params?.competencia);
+    if (config?.params?.data_corte) {
+      data.rotina.data_corte = config.params.data_corte;
+      data.rotina.corte_em = `${config.params.data_corte}T17:00:00-03:00`;
+    }
+    return Promise.resolve({ data });
+  }
   if (url.endsWith("andamentos")) return Promise.resolve({ data: { fechamento_id: 7, items: [andamento()] } });
   if (url.endsWith("download")) return Promise.resolve(zipResponse());
   return Promise.resolve({ data: { items: [pacote], total: 1 } });
@@ -42,7 +49,7 @@ describe("RotinaFiscalPage", () => {
     await screen.findByText("OS-001");
     expect(screen.getByRole("button", { name: "Semana" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText("Competência dos serviços")).toHaveValue("2026-10");
-    expect(screen.getByLabelText("Sexta-feira de corte · 18h")).toHaveValue("2026-10-16");
+    expect(screen.getByLabelText("Domingo de corte · 17h")).toHaveValue("2026-10-18");
     expect(api.get).toHaveBeenCalledWith("/fiscal/rotinas/previa", expect.objectContaining({ params: { competencia: "2026-10", modo: "semanal" } }));
     expect(screen.getByRole("checkbox", { name: "Selecionar OS OS-002" })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "Selecionar OS OS-003" })).toBeDisabled();
@@ -50,7 +57,7 @@ describe("RotinaFiscalPage", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /conferi as datas de prestação/i }));
     fireEvent.click(screen.getByRole("button", { name: "Preparar e baixar pacote semanal" }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
-    expect(api.post.mock.calls[0]).toEqual(["/fiscal/rotinas/preparar", { competencia: "2026-10", modo: "semanal", os_ids: [1], data_corte: "2026-10-16", chave_idempotencia: expect.any(String), confirmar_datas_prestacao: true, confirmar_exportacoes_anteriores: false }, { responseType: "blob" }]);
+    expect(api.post.mock.calls[0]).toEqual(["/fiscal/rotinas/preparar", { competencia: "2026-10", modo: "semanal", os_ids: [1], data_corte: "2026-10-18", chave_idempotencia: expect.any(String), confirmar_datas_prestacao: true, confirmar_exportacoes_anteriores: false }, { responseType: "blob" }]);
     expect(await screen.findByText(/Pacote #7 preparado/)).toBeInTheDocument();
     expect(api.post.mock.calls.every(([url]) => !/notas-fiscais|whatsapp/.test(url))).toBe(true);
   });
@@ -88,7 +95,7 @@ describe("RotinaFiscalPage", () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
-  it("rejeita corte que não seja sexta e ignora prévia atrasada de outro contexto", async () => {
+  it("rejeita corte que não seja domingo e ignora prévia atrasada de outro contexto", async () => {
     const old = deferred<unknown>();
     api.get.mockImplementation((url: string, config?: Config) => url.endsWith("previa") && config?.params?.modo === "semanal" ? old.promise : defaultGet(url, config));
     render(<RotinaFiscalPage />);
@@ -99,9 +106,35 @@ describe("RotinaFiscalPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Semana" }));
     await screen.findByText("OS-ANTIGA");
     const count = api.get.mock.calls.filter(([url]) => url.endsWith("previa")).length;
-    fireEvent.change(screen.getByLabelText("Sexta-feira de corte · 18h"), { target: { value: "2026-10-15" } });
-    expect(await screen.findByText(/Escolha uma sexta-feira/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Domingo de corte · 17h"), { target: { value: "2026-10-15" } });
+    expect(await screen.findByText(/Escolha um domingo/)).toBeInTheDocument();
     expect(api.get.mock.calls.filter(([url]) => url.endsWith("previa"))).toHaveLength(count);
+  });
+
+  it("mostra e envia o corte conferido, mesmo que a próxima referência seja outro domingo", async () => {
+    api.get.mockImplementation((url: string, config?: Config) => {
+      if (!url.endsWith("previa")) return defaultGet(url, config);
+      const data = previa();
+      data.rotina.proxima_preparacao_em = "2026-10-25T17:00:00-03:00";
+      return Promise.resolve({ data });
+    });
+    render(<RotinaFiscalPage />);
+    await screen.findByText("OS-001");
+    expect(screen.getByText(/Corte deste pacote:/)).toHaveTextContent("18/10/2026, 17:00");
+    fireEvent.click(screen.getByRole("checkbox", { name: /conferi as datas de prestação/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Preparar e baixar pacote semanal" }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(api.post.mock.calls[0][1].data_corte).toBe("2026-10-18");
+  });
+
+  it("bloqueia preparação se a API devolver corte diferente do domingo escolhido", async () => {
+    render(<RotinaFiscalPage />);
+    await screen.findByText("OS-001");
+    api.get.mockImplementation((url: string, config?: Config) => url.endsWith("previa") ? Promise.resolve({ data: previa() }) : defaultGet(url, config));
+    fireEvent.change(screen.getByLabelText("Domingo de corte · 17h"), { target: { value: "2026-10-25" } });
+    await screen.findByText(/não corresponde ao domingo de corte escolhido/);
+    expect(screen.queryByRole("button", { name: "Preparar e baixar pacote semanal" })).not.toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
   });
 
   it("retry conserva UUID, mas trocar corte muda a operação e exige nova conferência", async () => {
@@ -116,14 +149,14 @@ describe("RotinaFiscalPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Preparar e baixar pacote semanal" }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
     expect(api.post.mock.calls[1][1].chave_idempotencia).toBe(api.post.mock.calls[0][1].chave_idempotencia);
-    fireEvent.change(screen.getByLabelText("Sexta-feira de corte · 18h"), { target: { value: "2026-10-23" } });
+    fireEvent.change(screen.getByLabelText("Domingo de corte · 17h"), { target: { value: "2026-10-25" } });
     await screen.findByText("OS-001");
     expect(screen.getByRole("checkbox", { name: /conferi as datas de prestação/i })).not.toBeChecked();
     fireEvent.click(screen.getByRole("checkbox", { name: /conferi as datas de prestação/i }));
     fireEvent.click(screen.getByRole("button", { name: "Preparar e baixar pacote semanal" }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(3));
     expect(api.post.mock.calls[2][1].chave_idempotencia).not.toBe(api.post.mock.calls[1][1].chave_idempotencia);
-    expect(api.post.mock.calls[2][1].data_corte).toBe("2026-10-23");
+    expect(api.post.mock.calls[2][1].data_corte).toBe("2026-10-25");
   });
 
   it("preferência usa origem da API e só salva explicitamente com versão esperada", async () => {

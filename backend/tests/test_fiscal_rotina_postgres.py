@@ -158,7 +158,7 @@ class FiscalRotinaPostgresTest(unittest.TestCase):
                                    valor_final=Decimal("100.10"), status=status, origem_atendimento="clinica_parceira"))
         self.db.commit()
 
-    def _preview(self, *, modo="semanal", competencia="2026-08", clinica_id=1, data_corte="2026-08-28"):
+    def _preview(self, *, modo="semanal", competencia="2026-08", clinica_id=1, data_corte="2026-08-30"):
         params = {"competencia": competencia, "modo": modo}
         if clinica_id is not None:
             params["clinica_id"] = clinica_id
@@ -177,7 +177,7 @@ class FiscalRotinaPostgresTest(unittest.TestCase):
         payload = {"competencia": "2026-08", "modo": modo, "clinica_id": clinic_id, "os_ids": ids,
                    "chave_idempotencia": str(key or uuid4()), "confirmar_datas_prestacao": True}
         if modo == "semanal":
-            payload["data_corte"] = "2026-08-28"
+            payload["data_corte"] = "2026-08-30"
         return self.client.post("/api/v1/fiscal/rotinas/preparar", json=payload)
 
     def _event(self, os_id, destination, version, *, key=None, reference=None, confirmed=True):
@@ -206,25 +206,25 @@ class FiscalRotinaPostgresTest(unittest.TestCase):
         self.assertEqual(stale.status_code, 409)
         self.assertEqual(stale.json()["detail"]["versao_atual"], 1)
 
-    def test_proxima_sexta_18_fortaleza_antes_e_exatamente_no_corte(self):
-        for now, expected in [("2026-10-16T17:59:59-03:00", "2026-10-16T18:00:00-03:00"),
-                              ("2026-10-16T18:00:00-03:00", "2026-10-16T18:00:00-03:00"),
-                              ("2026-10-16T18:00:00.000001-03:00", "2026-10-23T18:00:00-03:00")]:
+    def test_proximo_domingo_17_fortaleza_antes_e_exatamente_no_corte(self):
+        for now, expected in [("2026-10-18T16:59:59-03:00", "2026-10-18T17:00:00-03:00"),
+                              ("2026-10-18T17:00:00-03:00", "2026-10-18T17:00:00-03:00"),
+                              ("2026-10-18T17:00:00.000001-03:00", "2026-10-25T17:00:00-03:00")]:
             with self.subTest(now=now), patch.object(self.rotina, "_agora_local", return_value=datetime.fromisoformat(now)):
                 preview = self._preview(competencia="2026-10", data_corte=None)
                 self.assertEqual(preview["rotina"]["corte_em"], expected)
                 self.assertEqual(preview["rotina"]["timezone"], "America/Fortaleza")
-                self.assertEqual(preview["rotina"]["horario"], "18:00")
+                self.assertEqual(preview["rotina"]["horario"], "17:00")
                 self.assertIs(preview["rotina"]["automatico"], False)
 
     def test_backlog_direto_futuro_e_mes_nao_misturam_com_pg_em_utc(self):
         self.assertEqual(self.db.execute(text("SHOW TIME ZONE")).scalar(), "UTC")
         self._os(1, data="2026-08-01T10:00:00-03:00")
-        self._os(2, data="2026-08-28T20:59:59+00:00")
-        self._os(3, data="2026-08-28T21:00:01+00:00")
+        self._os(2, data="2026-08-30T20:00:00+00:00")
+        self._os(3, data="2026-08-30T20:00:01+00:00")
         self._os(4, data="2026-09-01T03:00:00+00:00")
         self._os(5, data="2026-08-10T10:00:00-03:00", proof="agendado", status="Pago")
-        with patch.object(self.rotina, "_agora_local", return_value=datetime.fromisoformat("2026-08-28T19:00:00-03:00")):
+        with patch.object(self.rotina, "_agora_local", return_value=datetime.fromisoformat("2026-08-30T19:00:00-03:00")):
             items = {row["os_id"]: row for row in self._preview()["items"]}
         self.assertNotIn(4, items)
         self.assertTrue(items[1]["elegivel"])
@@ -234,8 +234,8 @@ class FiscalRotinaPostgresTest(unittest.TestCase):
         self.assertFalse(items[5]["realizacao_confirmada"])
 
     def test_prestacao_futura_dentro_do_proximo_corte_fica_pendente(self):
-        self._os(1, data="2026-08-28T17:30:00-03:00")
-        with patch.object(self.rotina, "_agora_local", return_value=datetime.fromisoformat("2026-08-28T17:00:00-03:00")):
+        self._os(1, data="2026-08-30T16:30:00-03:00")
+        with patch.object(self.rotina, "_agora_local", return_value=datetime.fromisoformat("2026-08-30T16:00:00-03:00")):
             items = self._preview()["items"]
         self.assertEqual(len(items), 1)
         self.assertFalse(items[0]["elegivel"])
@@ -244,11 +244,11 @@ class FiscalRotinaPostgresTest(unittest.TestCase):
     def test_limite_competencia_utc_local_recusa_pacote_misto(self):
         self._os(1, data="2026-09-01T02:59:59+00:00")
         self._os(2, data="2026-09-01T03:00:00+00:00")
-        preview = self._preview(data_corte="2026-09-04")
+        preview = self._preview(data_corte="2026-09-06")
         self.assertEqual([item["os_id"] for item in preview["items"]], [1])
         response = self.client.post("/api/v1/fiscal/rotinas/preparar", json={
             "competencia": "2026-08", "modo": "semanal", "clinica_id": 1,
-            "data_corte": "2026-09-04", "os_ids": [1, 2],
+            "data_corte": "2026-09-06", "os_ids": [1, 2],
             "chave_idempotencia": str(uuid4()), "confirmar_datas_prestacao": True,
         })
         self.assertEqual(response.status_code, 422)
@@ -279,7 +279,7 @@ class FiscalRotinaPostgresTest(unittest.TestCase):
         self.assertIsNone(preview["rotina"]["data_corte"])
         self.assertIsNone(preview["rotina"]["corte_em"])
         self.assertIsNone(preview["rotina"]["proxima_preparacao_em"])
-        self.assertEqual(self.client.get("/api/v1/fiscal/rotinas/previa", params={"competencia": "2026-08", "modo": "por_servico", "data_corte": "2026-08-28"}).status_code, 422)
+        self.assertEqual(self.client.get("/api/v1/fiscal/rotinas/previa", params={"competencia": "2026-08", "modo": "por_servico", "data_corte": "2026-08-30"}).status_code, 422)
         self.assertEqual(self._prepare([2], modo="semanal").status_code, 409)
 
     def test_snapshot_single_clinic_omite_outros_cadastros_e_clinica(self):
@@ -378,12 +378,12 @@ class FiscalRotinaPostgresTest(unittest.TestCase):
         original_context = self.rotina._contexto
 
         def clock():
-            value = "2026-10-16T18:00:00.000001-03:00" if first_generating.is_set() else "2026-10-16T17:59:59-03:00"
+            value = "2026-10-18T17:00:00.000001-03:00" if first_generating.is_set() else "2026-10-18T16:59:59-03:00"
             return datetime.fromisoformat(value)
 
         def context(*args, **kwargs):
             result = original_context(*args, **kwargs)
-            if result["corte_em"] == "2026-10-23T18:00:00-03:00":
+            if result["corte_em"] == "2026-10-25T17:00:00-03:00":
                 second_context.set()
             return result
 

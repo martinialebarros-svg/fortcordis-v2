@@ -5,7 +5,7 @@ import { AlertCircle, CheckSquare, Download, FileSpreadsheet, Loader2, RefreshCw
 import api from "@/lib/axios";
 import { formatCalendarDate, operationalTodayDateInput } from "@/lib/calendar-date";
 import { competenciaValida, formatarCompetencia, lerErroFiscal, nomeArquivoFiscal, servicoSelecionavel, type FiscalErro } from "@/lib/fiscal-fechamento";
-import { assinaturaRotina, dataHoraFiscal, sextaFeiraFiscal, type FiscalPacoteRotina, type FiscalPreviaRotina, type FiscalRotinaClinica, type FiscalRotinas, type ModoFiscalRotina } from "@/lib/fiscal-rotina";
+import { assinaturaRotina, dataHoraFiscal, domingoFiscal, type FiscalPacoteRotina, type FiscalPreviaRotina, type FiscalRotinaClinica, type FiscalRotinas, type ModoFiscalRotina } from "@/lib/fiscal-rotina";
 import FiscalAndamentos from "./FiscalAndamentos";
 import FiscalRotinaPreferencias from "./FiscalRotinaPreferencias";
 
@@ -103,7 +103,7 @@ export default function RotinaFiscalPage({ onBusyChange }: { onBusyChange?: (bus
     const generation = ++previewGeneration.current;
     const controller = new AbortController();
     setPrevia(null); setSelected(new Set()); setDatasConferidas(false); setExportacoesConferidas(false); setErroPrevia(""); setErroPreparacao(null);
-    if (!competenciaValida(competencia) || (modo === "semanal" && dataCorte && !sextaFeiraFiscal(dataCorte))) {
+    if (!competenciaValida(competencia) || (modo === "semanal" && dataCorte && !domingoFiscal(dataCorte))) {
       setLoadingPrevia(false);
       return () => controller.abort();
     }
@@ -115,6 +115,7 @@ export default function RotinaFiscalPage({ onBusyChange }: { onBusyChange?: (bus
         });
         if (controller.signal.aborted || generation !== previewGeneration.current) return;
         if (response.data.competencia !== competencia || response.data.rotina.modo !== modo) throw new Error("A prévia recebida pertence a outro contexto. Atualize a consulta.");
+        if (modo === "semanal" && dataCorte && response.data.rotina.data_corte !== dataCorte) throw new Error("A prévia recebida não corresponde ao domingo de corte escolhido. Atualize a consulta.");
         setPrevia(response.data);
         const ids = response.data.items.filter((item) => servicoSelecionavel(item, competencia)).map((item) => item.os_id);
         setSelected(new Set(modo === "por_servico" ? ids.slice(0, 1) : modo === "mensal" ? [] : ids));
@@ -132,8 +133,8 @@ export default function RotinaFiscalPage({ onBusyChange }: { onBusyChange?: (bus
   const selecionadas = useMemo(() => aptas.filter((item) => selected.has(item.os_id)), [aptas, selected]);
   const totalSelecionado = selecionadas.reduce((total, item) => total + Number(item.valor_final || 0), 0);
   const temExportacoesAnteriores = selecionadas.some((item) => item.exportacoes_anteriores > 0);
-  const corteEfetivo = modo === "semanal" ? dataCorte || previa?.rotina.data_corte || "" : "";
-  const podePreparar = modo !== "mensal" && selecionadas.length > 0 && (modo !== "por_servico" || selecionadas.length === 1) && datasConferidas && (!temExportacoesAnteriores || exportacoesConferidas) && !loadingPrevia && !busy && (modo !== "semanal" || sextaFeiraFiscal(corteEfetivo));
+  const corteEfetivo = modo === "semanal" ? previa?.rotina.data_corte || "" : "";
+  const podePreparar = modo !== "mensal" && selecionadas.length > 0 && (modo !== "por_servico" || selecionadas.length === 1) && datasConferidas && (!temExportacoesAnteriores || exportacoesConferidas) && !loadingPrevia && !busy && (modo !== "semanal" || domingoFiscal(corteEfetivo));
 
   function alterarSelecao(next: Set<number>) {
     setSelected(next); setDatasConferidas(false); setExportacoesConferidas(false); setErroPreparacao(null);
@@ -180,11 +181,11 @@ export default function RotinaFiscalPage({ onBusyChange }: { onBusyChange?: (bus
       <div className="fc-fiscal-section-heading"><div><span>Preparação manual</span><h2>Como organizar os serviços</h2></div></div>
       <div className="flex flex-wrap gap-2" role="group" aria-label="Modo da rotina fiscal">{MODOS.map((option) => <button key={option.id} type="button" aria-pressed={modo === option.id} disabled={busy} onClick={() => { setModo(option.id); setDataCorte(""); }} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${modo === option.id ? "border-teal-700 bg-teal-50 text-teal-900" : "border-slate-200 text-slate-600"}`}>{option.label}</button>)}</div>
       <div className="mt-4 grid gap-3 sm:grid-cols-3"><div><label htmlFor="rotina-competencia" className="mb-1 block text-sm">Competência dos serviços</label><input id="rotina-competencia" type="month" value={competencia} disabled={busy} onChange={(event) => { setCompetencia(event.target.value); setDataCorte(""); }} className="w-full rounded-lg border px-3 py-2" /></div>
-        {modo === "semanal" && <div><label htmlFor="rotina-corte" className="mb-1 block text-sm">Sexta-feira de corte · 18h</label><input id="rotina-corte" type="date" value={corteEfetivo} disabled={busy} onChange={(event) => setDataCorte(event.target.value)} className="w-full rounded-lg border px-3 py-2" /></div>}
+        {modo === "semanal" && <div><label htmlFor="rotina-corte" className="mb-1 block text-sm">Domingo de corte · 17h</label><input id="rotina-corte" type="date" value={dataCorte || corteEfetivo} disabled={busy} onChange={(event) => setDataCorte(event.target.value)} className="w-full rounded-lg border px-3 py-2" /></div>}
         <div><label htmlFor="rotina-clinica" className="mb-1 block text-sm">Filtrar clínica</label><select id="rotina-clinica" value={clinicaId} disabled={busy || loadingConfig} onChange={(event) => setClinicaId(event.target.value)} className="w-full rounded-lg border px-3 py-2"><option value="">Todas as clínicas e atendimentos domiciliares</option>{config?.clinicas.map((item) => <option key={item.clinica_id} value={item.clinica_id}>{item.nome}</option>)}</select></div>
       </div>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-slate-600">{modo === "semanal" ? "Padrão semanal: sexta-feira às 18h, no horário de Fortaleza. O corte reúne os serviços da competência até essa data." : modo === "por_servico" ? "Priorize as clínicas que precisam das informações a cada serviço. Cada pacote contém uma única OS." : "Conferência de todos os serviços do mês. A preparação de pacotes fica nos modos Semana e Por serviço."}</p><button type="button" disabled={loadingPrevia || busy || !competenciaValida(competencia)} onClick={() => setAtualizacao((value) => value + 1)} className="fc-fiscal-primary"><RefreshCw className="h-4 w-4" />Atualizar serviços</button></div>
-      {modo === "semanal" && previa?.rotina.proxima_preparacao_em && <p className="mt-2 text-sm font-semibold text-teal-900">Próxima referência: {dataHoraFiscal(previa.rotina.proxima_preparacao_em)} · Fortaleza</p>}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-slate-600">{modo === "semanal" ? "Padrão semanal: domingo às 17h, no horário de Fortaleza. O corte reúne os serviços da competência até essa data." : modo === "por_servico" ? "Priorize as clínicas que precisam das informações a cada serviço. Cada pacote contém uma única OS." : "Conferência de todos os serviços do mês. A preparação de pacotes fica nos modos Semana e Por serviço."}</p><button type="button" disabled={loadingPrevia || busy || !competenciaValida(competencia)} onClick={() => setAtualizacao((value) => value + 1)} className="fc-fiscal-primary"><RefreshCw className="h-4 w-4" />Atualizar serviços</button></div>
+      {modo === "semanal" && previa?.rotina.corte_em && <p className="mt-2 text-sm font-semibold text-teal-900">Corte deste pacote: {dataHoraFiscal(previa.rotina.corte_em)} · Fortaleza</p>}
       <p className="mt-3 text-xs text-slate-500">Nenhum pacote, mensagem ou nota é enviado ou emitido automaticamente. O recebimento financeiro não define a competência. Confira as datas de prestação antes de preparar.</p>
     </section>
 
@@ -192,7 +193,7 @@ export default function RotinaFiscalPage({ onBusyChange }: { onBusyChange?: (bus
     {config && <FiscalRotinaPreferencias clinicas={config.clinicas} disabled={busy || loadingConfig || modo === "mensal"} onSaved={preferenciaSalva} onRefresh={() => void carregarConfig()} onBusyChange={setPreferenciaBusy} />}
     {modo === "mensal" && <p className="text-sm text-slate-600">Conferência mensal em modo de leitura. Para preparar informações, alterar preferências ou registrar andamentos, abra Semana ou Por serviço.</p>}
     {!competenciaValida(competencia) && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Escolha o mês e o ano da prestação.</p>}
-    {modo === "semanal" && dataCorte && !sextaFeiraFiscal(dataCorte) && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Escolha uma sexta-feira para o corte semanal às 18h de Fortaleza.</p>}
+    {modo === "semanal" && dataCorte && !domingoFiscal(dataCorte) && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Escolha um domingo para o corte semanal às 17h de Fortaleza.</p>}
     {erroPrevia && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800"><p>{erroPrevia}</p><button type="button" onClick={() => setAtualizacao((value) => value + 1)} className="mt-2 font-semibold underline">Tentar carregar serviços novamente</button></div>}
     {loadingPrevia && <div role="status" className="fc-fiscal-empty flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Carregando rotina de {formatarCompetencia(competencia)}...</div>}
     {previa && !loadingPrevia && <>
