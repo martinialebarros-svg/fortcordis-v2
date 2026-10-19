@@ -1,5 +1,14 @@
 # Plano de implementação e entrega
 
+## Incremento vigente — controle sem interrupção global da Agenda
+
+1. Corrigir a antecipação do bloqueio: contexto local autenticado, sem consulta ao ledger antes de saber se há envio Google.
+2. Manter cache confiável; impedir nova heurística após falha. Conservar grants/limites/concorrência no transporte e a atomicidade de Agenda.
+3. Acrescentar no cliente uma única repetição exclusivamente após resposta de consentimento do servidor; popup antes da nova execução paga e dados do formulário preservados.
+4. Exibir demonstração administrativa sem custo, com exemplos explicitamente fictícios e a limitação de uma rota inédita sem saldo.
+5. Testar PostgreSQL descartável, criação real de agendamento sintético com cache, falha do ledger, cancelamento, replay e concorrência. Validar o código instalado em stage em schemas isolados, sem Google ou alterações de dados operacionais.
+6. Publicar somente em stage e comprovar SHA, serviços, HTTP/bundle, canário e preservação de runtime. Deixar produção no modo emergencial vigente e demonstrar o resultado ao usuário antes de qualquer reativação.
+
 ## Liberação emergencial solicitada em 19/10/2026
 
 O usuário informou que a recepção não consegue agendar e autorizou: “Deixe liberado por enquanto”. Esta instrução suspende a ativação do modo R$ 0 e autoriza temporariamente as consultas potencialmente cobradas. A observação instalada mostrou `reason=unconfigured`, revisão 0 e nenhuma política aprovada; o bloqueio ocorria antes de qualquer consulta Google. Não houve ativação de quota nativa zero.

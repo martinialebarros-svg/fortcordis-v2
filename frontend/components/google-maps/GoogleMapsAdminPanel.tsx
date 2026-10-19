@@ -5,6 +5,7 @@ import api from "@/lib/axios";
 import { extractApiErrorMessageSync } from "@/lib/api-error";
 import { formatMapsBrl, MAPS_SKU_LABELS, type MapsOperationMode, type MapsPeriods } from "@/lib/google-maps-control";
 import { MapsConsumption } from "./GoogleMapsActionGuard";
+import GoogleMapsControlDemo from "./GoogleMapsControlDemo";
 
 type Config = {
   operation_mode?: MapsOperationMode;
@@ -22,6 +23,7 @@ type Config = {
 };
 type History = { id?: number; created_at: number | string; kind: string; reason?: string; message?: string; action: string; sku?: string; calls: number; estimated_brl?: number };
 type Status = {
+  agenda_cache_first?: boolean;
   operation_mode?: MapsOperationMode; message?: string;
   configured: boolean; enabled?: boolean; revision: number | null; config: Config | null;
   limits?: MapsPeriods; consumption?: MapsPeriods; remaining?: MapsPeriods; history?: History[];
@@ -177,6 +179,13 @@ export default function GoogleMapsAdminPanel() {
     {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-800">{error}</p>}
     {message && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-emerald-800">{message}</p>}
     {loading ? <p role="status">Consultando limites…</p> : status && <>
+      {status.agenda_cache_first && <>
+        <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-sm text-teal-950">
+          <h3 className="font-semibold">Agenda: cache primeiro, confirmação somente para consulta nova</h3>
+          <p className="mt-1">Agendamentos com rota válida e operações sem consulta paga seguem pela validação normal, mesmo se o orçamento estiver esgotado ou indisponível. Uma consulta externa exige confirmação e saldo no servidor. Se ela for suspensa, o formulário é preservado.</p>
+        </div>
+        <GoogleMapsControlDemo />
+      </>}
       <p className={`rounded-lg p-3 text-sm ${status.config?.enabled && !status.blocked ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-900"}`}>
         {status.config?.operation_mode === "cache_only" ? "Modo R$ 0 — somente cache. Novas chamadas ao Google estão bloqueadas, inclusive em tarefas automáticas." : status.config?.enabled && !status.blocked ? "Chamadas habilitadas sob limites e confirmação por ação." : status.reason === "pricing_expired" ? "Chamadas pagas suspensas: a validade dos preços/câmbio expirou. Revise a configuração." : "Chamadas pagas suspensas. Defina os limites e a política de preços antes de habilitar."}
       </p>

@@ -2,7 +2,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 from app.core.security import get_current_user, require_papel
 from app.models.user import User
@@ -19,6 +19,7 @@ class PreviewRequest(BaseModel):
     path: str = Field(min_length=1, max_length=500, pattern=r"^/api/v1/")
     query: str | dict[str, Any] | None = None
     body: Any = None
+    paid_call_required: StrictBool = False
 
 
 class ConfirmRequest(BaseModel):

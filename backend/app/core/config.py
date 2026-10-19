@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # Temporary, explicit operational release. Removing it and restarting all
     # API/worker processes restores the persisted fail-closed cost policy.
     GOOGLE_MAPS_COST_EMERGENCY_RELEASE: bool = False
+    # Stage-first rollout: resolve Agenda locally; ask for consent only when a
+    # provider would actually be called. This does not authorize paid traffic.
+    GOOGLE_MAPS_AGENDA_CACHE_FIRST: bool = False
     GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS: int = 30
     GOOGLE_MAPS_USAGE_METRICS_RETENTION_DAYS: int = 90
     LOGISTICA_FORCE_REFRESH_HEURISTICA_COM_API_KEY: bool = False

@@ -1,5 +1,17 @@
 # Verificação — Google Maps
 
+## Incremento vigente — cache primeiro, validação de stage em andamento
+
+Código preparado para rollout apenas em stage. Produção permanece na liberação temporária; nenhuma nova ativação financeira ou quota Google é autorizada por esta verificação.
+
+Local: suíte Maps com PostgreSQL descartável aprovou 100 casos sem skips (inclui concorrência/replay/providers legados e casos novos). Os dez cenários novos de Agenda também foram executados separadamente com schema traduzido e search_path isolado em PostgreSQL, todos aprovados. Criar agendamento sintético com cache retornou HTTP201 e persistiu o registro, mesmo sem ledger disponível. A tentativa sem consentimento sobre cache vazio retornou 409 antes do transporte e sem commit/notificação; confirmação de uso único permitiu duas pernas reais do código com HTTP simulado. Replay foi recusado e o uso permaneceu contabilizado.
+
+Frontend: 29 casos Maps focados aprovados e quatro casos do formulário real de reserva aprovados (dois novos de preservação após cancelamento/limite), incluindo cache, cancelamento após tentativa local, payload exato, repetição limitada, preview indisponível, saldo esgotado, concorrência e demonstração sem API. TypeScript e ESLint aprovados. O preview local tem timeout de 3 segundos com continuidade sem token; estimativa paga/confirm usam 15 segundos e falham sem autorizar transporte. Os 29 casos Maps foram repetidos após esse ajuste e passaram. A primeira execução de um caso legado ainda esperava bloquear toda a Agenda quando o preview falhava; foi atualizada para comprovar a suspensão de lote. O caso específico da Agenda comprova o novo comportamento. Uma asserção de criação foi corrigida de HTTP200 para o HTTP201 real; não houve falha do fluxo.
+
+Build de produção aprovado; 1.062 testes Vitest e 23 testes Node aprovados. O comando inicial npm test com argumento de concorrência passou o argumento indevidamente ao Node, que o recusou; os 23 testes Node foram então executados separadamente e passaram. A suíte backend ampliada aprovou 2.019 casos/74 skips no snapshot anterior ao último caso adicional de criação; esse caso está incluído na suíte final de 100 testes Maps/PostgreSQL aprovada. CI executará novamente o head final. A publicação ainda precisa de resultado instalado. `scripts/google_maps_cache_first_stage_canary.py` exige checkout/SHA/APP_ENV/projeto stage, política operacional paga desligada e flags efetivas. Usa somente schemas temporários, DML traduzido e search_path local por transação, transportes interceptados e limpeza obrigatória. A prova instalada é registrada depois do deploy; testes locais não são publicação.
+
+A demonstração e os testes não implementam o cadastro persistente de solicitação pendente. O comportamento com rota inédita e orçamento esgotado será revisado com o usuário antes da reativação; não prometer confirmação universal sem dados de rota.
+
 ## Liberação operacional confirmada em produção — 19/10/2026
 
 Produção `ac054398` (PR #399): API reiniciada às 13:26:57 UTC e worker às 13:27:27 UTC, ambos após preparar `GOOGLE_MAPS_COST_EMERGENCY_RELEASE=true` às 13:17:05 UTC. Smoke autenticado às 13:28 UTC confirmou `temporary_open`, `blocked=false`, `paid_calls_allowed=true` e limites/custo desconhecidos, sem teto fictício. O serviço não tinha override de ambiente conflitante; worker foi verificado pelo diretório/processo e reinício após a configuração, enquanto a API teve status relido via HTTP.

@@ -38,7 +38,10 @@ from app.services.google_maps_cost_control import GoogleMapsCostBlocked
 class AgendaMapsBudgetAtomicityTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.engine = create_engine("sqlite:///" + str(Path(self.temp.name) / "synthetic.db"), connect_args={"check_same_thread": False})
+        # The stage canary supplies only its newly created isolated schema.
+        self.engine = getattr(self, "_isolated_engine", None)
+        if self.engine is None:
+            self.engine = create_engine("sqlite:///" + str(Path(self.temp.name) / "synthetic.db"), connect_args={"check_same_thread": False})
         for model in (Agendamento, AssistenteIAAcaoPendente, Clinica, ClinicaDeslocamento, Configuracao, GoogleMapsUsageMetrica, Paciente, Servico, Tutor):
             model.__table__.create(self.engine)
         # Atomicity unit cases stub reservations explicitly; policy reads still

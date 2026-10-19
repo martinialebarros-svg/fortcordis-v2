@@ -66,7 +66,7 @@ export default function GoogleMapsActionGuard() {
   if (typeof document === "undefined") return null;
   return createPortal(<>
     {state.notice && <div role="alert" className="fixed inset-x-4 top-4 mx-auto flex max-w-3xl items-start gap-4 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-950 shadow-xl" style={{ zIndex: 2147483646 }}>
-      <div className="flex-1"><strong>Consulta ao Google Maps suspensa</strong><p className="mt-1">{state.notice}</p><p className="mt-1">A agenda mantém as regras de deslocamento. Nenhuma rota ou disponibilidade será presumida.</p></div>
+      <div className="flex-1"><strong>Esta consulta de rota precisa de atenção</strong><p className="mt-1">{state.notice}</p><p className="mt-1">Os dados preenchidos permanecem no formulário. Rotas já válidas e ações sem consulta paga continuam disponíveis. Nenhuma rota ou disponibilidade será presumida.</p></div>
       <button type="button" className="rounded border border-red-300 px-2 py-1" onClick={mapsConfirmationStore.dismissNotice}>Fechar aviso</button>
     </div>}
     {current && <div className="fixed inset-0 flex items-center justify-center bg-slate-950/60 p-4" style={{ zIndex: 2147483647 }}>

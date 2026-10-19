@@ -114,6 +114,15 @@ def identify_action(method: str, path: str, query=None, body=None) -> ActionSpec
     return None
 
 
+def agenda_cache_first_enabled(spec: ActionSpec | None) -> bool:
+    return settings.GOOGLE_MAPS_AGENDA_CACHE_FIRST is True and spec is not None and spec.key.startswith("agenda_")
+
+
+def cache_first_operation() -> bool:
+    execution = _execution.get()
+    return execution is not None and execution.cache_first
+
+
 class Budget(BaseModel):
     model_config = ConfigDict(extra="forbid")
     calls: StrictInt = Field(ge=0, le=10_000_000)
@@ -199,6 +208,7 @@ class CostConfiguration(BaseModel):
 
 
 REASONS = {
+    "route_unavailable": "Não foi possível obter uma rota confiável. Os dados do formulário foram mantidos; revise a consulta de rota antes de confirmar o horário. Nenhuma distância, duração ou disponibilidade foi presumida.",
     "cache_only": "Modo somente cache: novas chamadas ao Google Maps estão bloqueadas para manter novas cobranças em R$ 0. Esta operação exige uma rota Google ainda válida ou um ajuste manual autorizado; não será criada uma estimativa alternativa.",
     "unconfigured": "Controle Google Maps sem configuração aprovada. Nenhuma chamada paga foi autorizada.",
     "disabled": "Chamadas ao Google Maps estão suspensas na configuração administrativa.",
@@ -224,6 +234,9 @@ class GoogleMapsCostBlocked(HTTPException):
             "code": "GOOGLE_MAPS_COST_BLOCKED", "reason": reason,
             "message": REASONS.get(reason, REASONS["ledger_unavailable"]),
             "action": action,
+            # Only the server's unpaid Agenda attempt may request one replay.
+            # All cost reservations and single-use consent checks still apply.
+            "can_retry_with_confirmation": reason == "confirmation_required" and cache_first_operation(),
         })
 
 
@@ -235,6 +248,7 @@ class Execution:
     automatic_claimed: bool = False
     closed: bool = False
     operation_mode: str | None = None
+    cache_first: bool = False
 
 
 def _now() -> int:
@@ -341,6 +355,10 @@ def cache_only_operation() -> bool:
     if emergency_release_enabled():
         return False
     execution = _execution.get()
+    if execution is not None and execution.cache_first:
+        # A missing/down financial ledger must not stop local reads. At the
+        # provider boundary the durable policy is checked before every send.
+        return False
     if execution is not None and execution.operation_mode == "cache_only":
         return True
     try:
@@ -419,7 +437,7 @@ def _token_digest(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def create_preview(user_id, method, path, query=None, body=None):
+def create_preview(user_id, method, path, query=None, body=None, paid_call_required=False):
     spec = identify_action(method, path, query, body)
     if spec is None:
         return {"required": False, "blocked": False}
@@ -434,6 +452,16 @@ def create_preview(user_id, method, path, query=None, body=None):
             "estimated_cost_max_brl": None, "consumption": None,
             "remaining": None, "limits": None,
             "uncertainty": ["Custo e quantidade sem teto durante a liberação temporária; não há garantia de franquia gratuita."],
+        }
+    if agenda_cache_first_enabled(spec) and not paid_call_required:
+        return {
+            "required": False, "blocked": False, "reason": "local_attempt",
+            "operation_mode": "cache_first", "paid_calls_allowed": False,
+            "quote_id": None, "action": spec.label, "action_key": spec.key,
+            "service": "Google Maps Platform", "services": list(spec.skus),
+            "max_calls": 0, "estimated_cost_min_brl": 0, "estimated_cost_max_brl": 0,
+            "message": "A Agenda tentará usar uma rota válida já armazenada. Se precisar consultar o Google, pedirá confirmação antes do envio.",
+            "uncertainty": ["Zero chamadas nesta tentativa local. Uma consulta externa exige nova estimativa e confirmação limitada."],
         }
     fingerprint = request_fingerprint(user_id, method, path, query, body)
     with _locked() as conn:
@@ -522,6 +550,8 @@ def claim_execution(user_id, token, method, path, query=None, body=None) -> Exec
         # Authentication still runs in middleware. No token, ledger, fake
         # financial baseline or artificial high limit is needed for release.
         return Execution(secrets.token_urlsafe(32), operation_mode="temporary_open")
+    if agenda_cache_first_enabled(spec) and not token:
+        return Execution(secrets.token_urlsafe(32), operation_mode="cache_first", cache_first=True)
     with _locked() as conn:
         cfg, revision = _configuration(conn)
         if cfg.operation_mode == "cache_only":
@@ -550,7 +580,7 @@ def claim_execution(user_id, token, method, path, query=None, body=None) -> Exec
             state="claimed", claimed_at=now, expires_at=now + EXECUTION_TTL_SECONDS,
         ))
         _event(conn, kind="claimed", action=row["action"], action_id=row["id"], user_id=user_id)
-        return Execution(row["id"], operation_mode="paid_budget")
+        return Execution(row["id"], operation_mode="paid_budget", cache_first=agenda_cache_first_enabled(spec))
 
 
 def bind_execution(execution: Execution):
@@ -563,7 +593,7 @@ def reset_execution(token):
 
 def finish_execution(execution: Execution):
     execution.closed = True
-    if execution.operation_mode == "temporary_open" or emergency_release_enabled():
+    if execution.operation_mode in {"temporary_open", "cache_first"} or emergency_release_enabled():
         return
     if execution.automatic_policy and not execution.automatic_claimed:
         return
@@ -608,6 +638,8 @@ def authorize_google_call(sku: str) -> None:
             _deny(conn, "confirmation_required")
         if execution.closed:
             _deny(conn, "invalid_grant")
+        if execution.operation_mode == "cache_first":
+            _deny(conn, "confirmation_required")
         if execution.automatic_policy and not execution.automatic_claimed:
             policy = cfg.automatic_policies.get(execution.automatic_policy)
             if not policy or not policy.enabled:
@@ -719,6 +751,7 @@ def update_configuration(user_id, config: CostConfiguration, expected_revision: 
 def get_status():
     if emergency_release_enabled():
         return {
+            "agenda_cache_first": settings.GOOGLE_MAPS_AGENDA_CACHE_FIRST is True,
             "configured": False, "enabled": False, "blocked": False,
             "reason": "emergency_release", "revision": None,
             "operation_mode": "temporary_open", "emergency_release": True,
@@ -738,6 +771,7 @@ def get_status():
         history = conn.execute(select(EVENTS).order_by(EVENTS.c.id.desc()).limit(100)).mappings().all()
         started = conn.execute(select(func.min(EVENTS.c.created_at)).where(EVENTS.c.kind == "opening")).scalar()
         return {
+            "agenda_cache_first": settings.GOOGLE_MAPS_AGENDA_CACHE_FIRST is True,
             "configured": cfg is not None, "enabled": cfg.enabled if cfg else False,
             "blocked": reason is not None, "reason": reason, "revision": revision,
             "operation_mode": cfg.operation_mode if cfg else None,
