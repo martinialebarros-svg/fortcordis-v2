@@ -22,7 +22,8 @@ type Config = {
 };
 type History = { id?: number; created_at: number | string; kind: string; reason?: string; message?: string; action: string; sku?: string; calls: number; estimated_brl?: number };
 type Status = {
-  configured: boolean; enabled?: boolean; revision: number; config: Config | null;
+  operation_mode?: MapsOperationMode; message?: string;
+  configured: boolean; enabled?: boolean; revision: number | null; config: Config | null;
   limits?: MapsPeriods; consumption?: MapsPeriods; remaining?: MapsPeriods; history?: History[];
   blocked?: boolean; reason?: string; billing_note?: string; consumed_since?: string | null;
   automatic_policies?: Record<string, { enabled: boolean; consumption: MapsPeriods; limits: MapsPeriods }>;
@@ -154,6 +155,19 @@ export default function GoogleMapsAdminPanel() {
       <input required type="number" min={options.min ?? 0} step={options.step ?? "0.000001"} value={fields[key] ?? ""} placeholder={options.placeholder ?? "Escolha um valor"} onChange={(event) => setFields({ ...fields, [key]: event.target.value })} className={inputClass} />
     </label>
   );
+
+  if (status?.operation_mode === "temporary_open") return <section className="fc-settings-card space-y-4" aria-labelledby="maps-admin-title">
+    <h2 id="maps-admin-title" className="text-lg font-semibold">Custos do Google Maps</h2>
+    <div role="alert" className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950">
+      <h3 className="font-semibold">Liberação temporária ativa</h3>
+      <p>As consultas Google estão liberadas, inclusive na Agenda e nas tarefas automáticas. O bloqueio financeiro e a confirmação de custo por ação estão temporariamente suspensos.</p>
+      <p>Pode haver cobrança. Não há teto de gasto aplicado por este controle durante a liberação.</p>
+    </div>
+    <p className="text-sm text-gray-600">{status.billing_note || "Consumo e custo desta liberação não foram conciliados. O histórico anterior foi preservado."}</p>
+    <p className="text-sm text-gray-600">A reativação dos controles exige encerrar a liberação operacional e revisar o consumo acumulado. Salvar um orçamento neste painel não encerra a liberação.</p>
+    {error && <p role="alert" className="text-red-800">{error}</p>}
+    <button type="button" disabled={loading} onClick={() => void load()} className="rounded-lg border px-3 py-2 text-sm">Atualizar situação</button>
+  </section>;
 
   return <section className="fc-settings-card space-y-6" aria-labelledby="maps-admin-title">
     <div className="flex flex-wrap items-start justify-between gap-3">

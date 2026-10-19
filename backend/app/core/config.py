@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     CSRF_TRUST_SAME_SITE_FETCH_METADATA: bool = True
     UPLOAD_DIR: str = "/opt/fortcordis/uploads"
     GOOGLE_MAPS_API_KEY: str = ""
+    # Temporary, explicit operational release. Removing it and restarting all
+    # API/worker processes restores the persisted fail-closed cost policy.
+    GOOGLE_MAPS_COST_EMERGENCY_RELEASE: bool = False
     GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS: int = 30
     GOOGLE_MAPS_USAGE_METRICS_RETENTION_DAYS: int = 90
     LOGISTICA_FORCE_REFRESH_HEURISTICA_COM_API_KEY: bool = False
