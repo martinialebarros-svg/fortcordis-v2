@@ -1,0 +1,14 @@
+{
+  "checked_at": "2026-10-19T13:20:44.575580+00:00",
+  "source_sha": "cb93d4c661cf8ecab9eab047df50e36d6b4332c7",
+  "clinical_paths_restored": 13,
+  "all_exact": true,
+  "tests": {
+    "vitest": 80,
+    "files": 4,
+    "passed": true,
+    "typescript": true
+  },
+  "stage_only": true,
+  "production_clinical_changes": false
+}

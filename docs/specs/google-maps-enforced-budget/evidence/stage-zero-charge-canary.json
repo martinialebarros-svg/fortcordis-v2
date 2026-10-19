@@ -1,0 +1,48 @@
+{
+  "stage_live_direct_request_blocked": true,
+  "stage_live_preview_blocked": true,
+  "isolated_postgresql": true,
+  "cancelled_preview_paid_calls": 0,
+  "concurrent_attempts": 8,
+  "concurrent_successful_reservations": 4,
+  "concurrent_denials": {
+    "ledger_unavailable": 3,
+    "day_limit": 1
+  },
+  "sequential_completion_calls": 0,
+  "synthetic_outbound_calls": 4,
+  "daily_limit": 4,
+  "next_call_blocked_reason": "day_limit",
+  "replay_blocked": true,
+  "automatic_without_policy_blocked": true,
+  "cleanup_denials": [],
+  "cache_only_real_api_hit_without_grant": true,
+  "cache_only_cold_and_heuristic_blocked": true,
+  "cache_only_direct_and_automatic_blocked": true,
+  "cache_only_survives_reconnect": true,
+  "cache_only_previous_usage_preserved": true,
+  "database_diagnostics": [
+    {
+      "exception_class": "OperationalError",
+      "pgcode": null,
+      "operation": "connect",
+      "category": "connection_capacity"
+    },
+    {
+      "exception_class": "OperationalError",
+      "pgcode": null,
+      "operation": "connect",
+      "category": "connection_capacity"
+    },
+    {
+      "exception_class": "OperationalError",
+      "pgcode": null,
+      "operation": "connect",
+      "category": "connection_capacity"
+    }
+  ],
+  "usage_survives_reconnect": true,
+  "actual_google_calls": 0,
+  "existing_operational_records_modified": 0,
+  "source_sha256": "6d459ef245b955f087056ca8364b6dfe1bc17deec00740d5b7c7b9b01c5032e0"
+}

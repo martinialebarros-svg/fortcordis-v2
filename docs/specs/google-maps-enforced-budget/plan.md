@@ -34,3 +34,7 @@ Encerrar a liberação requer retirar a flag (ou `false`) e reiniciar API e work
 Estado deste incremento: implementação e validações locais concluídas; backend integral aprovado (1.991 testes, 69 skips, zero falhas/erros). Frontend integral aprovado (980 Vitest/107 arquivos e 23 Node), além de 20 focados Maps, lint, TypeScript e build. Stage, produção, configuração efetiva, quotas nativas e restauração clínica continuam pendentes; detalhes e limites em `verify.md`.
 
 Rollback seguro: desabilitar novas chamadas na configuração e manter o ledger; reverter a proteção restauraria o risco de gasto e exige decisão explícita. A migração é aditiva e não remove dados operacionais.
+
+## Encerramento operacional do hotfix
+
+Reintegrar o hotfix de produção em stage junto da restauração byte a byte dos 13 caminhos clínicos de cb93d4c6. Preservar mudanças fiscais já integradas em 55068935/21035136. Manter os registros históricos da auditoria e canário isolado, sem executar a ativação de cache_only suspensa. Conferir flag efetiva na API, reinício do worker e canário recepção sem escrita; acompanhar os dois deploys até terminal.

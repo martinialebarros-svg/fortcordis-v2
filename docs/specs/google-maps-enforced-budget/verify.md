@@ -1,5 +1,12 @@
 # Verificação — Google Maps
 
+## Reintegração do hotfix e restauração de stage
+
+A PR #399 integrou o hotfix operacional em produção (`ac05439819fc4b8ba65bb699f7edfab669cfd00e`). A flag foi preparada em produção, preservando as demais variáveis; sua efetividade exige API/worker reiniciados e prova autenticada. A reintegração em stage inclui o mesmo hotfix e restaura exatamente os 13 caminhos clínicos do snapshot de stage `cb93d4c6`, que haviam sido retirados temporariamente para isolar a promoção Maps. Essa restauração é somente stage; não altera o conteúdo clínico de produção. Conferência dos 13 caminhos exatos aprovada, assim como 80 testes clínicos focados e TypeScript. Evidência: `evidence/clinical-stage-restoration.json`.
+
+A validação anterior do modo R$ 0 em stage (`f0009e40`) está preservada nos cinco arquivos `evidence/stage-zero-charge-*.json` e `evidence/zero-charge-stage-workflows.json`: deploy terminal, 1.991 testes backend/70 skips no CI, 74 testes Maps PostgreSQL, canário isolado com quatro transportes simulados em oito concorrentes, uma recusa por limite e três por capacidade de conexão. A API operacional de stage ficou sem configuração aprovada; não confundir o canário PostgreSQL isolado com ativação da política no banco operacional. As provas são históricas: o usuário suspendeu a ativação R$ 0 após relatar interrupção da Agenda.
+
+
 ## Hotfix operacional de 19/10/2026
 
 Pedido vigente: liberar temporariamente os agendamentos, suspendendo bloqueios financeiros Maps. Diagnóstico readonly da produção `21035136`: guard sem configuração, revisão 0, motivo `unconfigured`. A tentativa anterior de ativar cache_only parou no preflight antes da gravação; cotas zero não foram aplicadas.
