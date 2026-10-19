@@ -1,5 +1,18 @@
 # Verificação — Google Maps
 
+## Hotfix operacional de 19/10/2026
+
+Pedido vigente: liberar temporariamente os agendamentos, suspendendo bloqueios financeiros Maps. Diagnóstico readonly da produção `21035136`: guard sem configuração, revisão 0, motivo `unconfigured`. A tentativa anterior de ativar cache_only parou no preflight antes da gravação; cotas zero não foram aplicadas.
+
+Backend emergencial: 11 testes aprovados, sem Google real. Cobrem API com cache vazio e rota simulada, cache reaproveitado, primeira saída, três provedores, tarefa automática, autenticação negada, SKU desconhecido, revogação da flag e preservação do ledger.
+
+Regressão local: 85 testes Maps aprovados (25 skips de PostgreSQL opcional não configurado nesta execução), mais 10 testes de atomicidade Agenda aprovados. Os 11 casos emergenciais não tiveram skips. Revisão independente não encontrou bloqueante.
+
+Frontend local: 18 testes Maps aprovados, TypeScript e ESLint aprovados. O caso novo libera a ação sem popup/token com máximos nulos; o painel mostra cobrança possível e oculta formulário de orçamento ineficaz. Nenhuma chamada Google real.
+
+A prova deste hotfix cobre liberação sem grant/ledger, três provedores com transporte simulado, tarefas automáticas, manutenção de autenticação, retorno ao bloqueio quando a flag é desligada e ausência de limites/custo zero fictícios. Publicação e ativação são comprovadas separadamente após a integração; testes não são prova de instalação. As seções anteriores abaixo são histórico do ciclo de proteção, cuja ativação de custo zero foi suspensa pelo usuário.
+
+
 Status do incremento atual: produção Maps autorizada com gasto adicional zero; `cache_only` implementado e aprovado nas suítes locais integrais de backend e frontend, além dos testes focados. Configuração efetiva, publicação e prova do novo modo em stage/produção permanecem **pendentes**. Os resultados do ciclo anterior, preservados abaixo, não provam o novo modo nem publicação em produção.
 
 ## Decisão e observações anteriores à publicação do modo R$ 0

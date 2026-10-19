@@ -20,6 +20,17 @@ const existing = {
 };
 
 describe("administração de custos Google Maps", () => {
+  it("informa liberação temporária sem mostrar saldo fictício ou formulário ineficaz", async () => {
+    mocks.get.mockResolvedValue({ data: { operation_mode: "temporary_open", configured: false, config: null, revision: 0, blocked: false, limits: null, consumption: null, remaining: null } });
+    render(<GoogleMapsAdminPanel />);
+    expect(await screen.findByText("Liberação temporária ativa")).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("Pode haver cobrança");
+    expect(screen.queryByRole("button", { name: "Salvar controles" })).toBeNull();
+    expect(screen.queryByText(/Chamadas pagas suspensas/)).toBeNull();
+    expect(screen.queryByLabelText("Modo de operação")).toBeNull();
+    expect(mocks.put).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => { mocks.get.mockReset(); mocks.put.mockReset(); });
 
   it("começa com limites vazios e chamadas suspensas; não presume um teto", async () => {

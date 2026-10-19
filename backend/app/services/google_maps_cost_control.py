@@ -4,6 +4,9 @@ Every outgoing attempt is committed BEFORE HTTP. A timeout is never refunded:
 Google may have billed it. PostgreSQL advisory transaction locks (all workers)
 and SQLite BEGIN IMMEDIATE serialize checks plus reservations. No process-local
 counter, billing lag or assumed free account allowance is used as authority.
+
+An explicitly enabled server emergency release suspends this cost policy and
+records sanitized attempts in server logs. It does not claim a financial cap.
 """
 from __future__ import annotations
 
@@ -56,6 +59,16 @@ QUOTE_TTL_SECONDS = 300
 EXECUTION_TTL_SECONDS = 600
 _LOCK_ID = 715064291071
 _execution: ContextVar[Execution | None] = ContextVar("google_maps_cost_execution", default=None)
+EMERGENCY_RELEASE_MESSAGE = (
+    "Liberação temporária do Google Maps ativa: confirmação e limites de custo "
+    "estão suspensos. Novas consultas podem gerar cobrança, sem teto financeiro."
+)
+
+
+def emergency_release_enabled() -> bool:
+    # Only the server setting can authorize the exception; a request, token or
+    # previously created execution can never keep it active after revocation.
+    return settings.GOOGLE_MAPS_COST_EMERGENCY_RELEASE is True
 
 
 @dataclass(frozen=True)
@@ -325,6 +338,8 @@ def cache_only_operation() -> bool:
     connection: business cache reads must not acquire the ledger's writer lock.
     The actual transport boundary always rechecks policy under its shared lock.
     """
+    if emergency_release_enabled():
+        return False
     execution = _execution.get()
     if execution is not None and execution.operation_mode == "cache_only":
         return True
@@ -408,6 +423,18 @@ def create_preview(user_id, method, path, query=None, body=None):
     spec = identify_action(method, path, query, body)
     if spec is None:
         return {"required": False, "blocked": False}
+    if emergency_release_enabled():
+        return {
+            "required": False, "blocked": False, "reason": "emergency_release",
+            "operation_mode": "temporary_open", "emergency_release": True,
+            "paid_calls_allowed": True, "message": EMERGENCY_RELEASE_MESSAGE,
+            "quote_id": None, "action": spec.label, "action_key": spec.key,
+            "service": "Google Maps Platform", "services": list(spec.skus),
+            "max_calls": None, "estimated_cost_min_brl": None,
+            "estimated_cost_max_brl": None, "consumption": None,
+            "remaining": None, "limits": None,
+            "uncertainty": ["Custo e quantidade sem teto durante a liberação temporária; não há garantia de franquia gratuita."],
+        }
     fingerprint = request_fingerprint(user_id, method, path, query, body)
     with _locked() as conn:
         cfg, revision = _configuration(conn, require_enabled=False)
@@ -491,6 +518,10 @@ def confirm_preview(user_id: int, quote_id: str):
 def claim_execution(user_id, token, method, path, query=None, body=None) -> Execution:
     spec = identify_action(method, path, query, body)
     action = spec.key if spec else "unscoped"
+    if emergency_release_enabled():
+        # Authentication still runs in middleware. No token, ledger, fake
+        # financial baseline or artificial high limit is needed for release.
+        return Execution(secrets.token_urlsafe(32), operation_mode="temporary_open")
     with _locked() as conn:
         cfg, revision = _configuration(conn)
         if cfg.operation_mode == "cache_only":
@@ -532,6 +563,8 @@ def reset_execution(token):
 
 def finish_execution(execution: Execution):
     execution.closed = True
+    if execution.operation_mode == "temporary_open" or emergency_release_enabled():
+        return
     if execution.automatic_policy and not execution.automatic_claimed:
         return
     with _locked() as conn:
@@ -552,6 +585,17 @@ def authorize_google_call(sku: str) -> None:
     Batch adapters must reserve each element; one HTTP request is not one unit.
     """
     execution = _execution.get()
+    if emergency_release_enabled():
+        if sku not in SKUS:
+            raise GoogleMapsCostBlocked("sku_not_authorized")
+        # Whitelisted metadata only: never log request inputs, IDs, tokens,
+        # provider URLs, addresses, credentials or an invented zero cost.
+        logger.warning("%s", json.dumps({
+            "event": "google_maps_emergency_release_attempt", "sku": sku,
+            "execution_type": "automatic" if execution and execution.automatic_policy else "http" if execution else "unscoped",
+            "estimated_cost_brl": None, "financial_limit_enforced": False,
+        }, sort_keys=True))
+        return
     with _locked() as conn:
         if execution is not None and execution.operation_mode == "cache_only":
             _deny(conn, "cache_only", action_id=execution.action_id, policy=execution.automatic_policy)
@@ -673,6 +717,20 @@ def update_configuration(user_id, config: CostConfiguration, expected_revision: 
 
 
 def get_status():
+    if emergency_release_enabled():
+        return {
+            "configured": False, "enabled": False, "blocked": False,
+            "reason": "emergency_release", "revision": None,
+            "operation_mode": "temporary_open", "emergency_release": True,
+            "paid_calls_allowed": True, "message": EMERGENCY_RELEASE_MESSAGE,
+            "config": None, "consumed_since": None, "opening_usage": None,
+            "consumption": None, "remaining": None, "limits": None,
+            "timezone": str(LEDGER_TIMEZONE), "automatic_policies": {},
+            "history": [], "actions": [{"key": key, "label": spec.label} for key, spec in ACTION_SPECS.items()],
+            "pricing_reference_date": PRICING_REFERENCE_DATE,
+            "minimum_unit_prices_usd": {sku: str(price) for sku, price in MIN_UNIT_PRICES_USD.items()},
+            "billing_note": "Estimativa indisponível durante a liberação temporária; pode haver cobrança. O histórico de limites permanece preservado, sem contabilizar estas chamadas como R$ 0. As tentativas são registradas nos logs do servidor, sem dados pessoais.",
+        }
     with _locked() as conn:
         cfg, revision = _configuration(conn, require_enabled=False)
         usage = _usage(conn)
