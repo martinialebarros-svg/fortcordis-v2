@@ -1,5 +1,14 @@
 # Verificação — Google Maps
 
+## Liberação operacional confirmada em produção — 19/10/2026
+
+Produção `ac054398` (PR #399): API reiniciada às 13:26:57 UTC e worker às 13:27:27 UTC, ambos após preparar `GOOGLE_MAPS_COST_EMERGENCY_RELEASE=true` às 13:17:05 UTC. Smoke autenticado às 13:28 UTC confirmou `temporary_open`, `blocked=false`, `paid_calls_allowed=true` e limites/custo desconhecidos, sem teto fictício. O serviço não tinha override de ambiente conflitante; worker foi verificado pelo diretório/processo e reinício após a configuração, enquanto a API teve status relido via HTTP.
+
+Perfil real de recepção, token efêmero mantido em memória: previews de criação e sugestões retornaram HTTP200/required=false; POSTs com corpo vazio retornaram HTTP422 exclusivamente por campos obrigatórios (`inicio` e `data`). Isso comprova que o bloqueio financeiro foi removido e a autenticação permite chegar à validação normal; não é alegação de agendamento real criado. Sem token, status continua HTTP401. Nenhum payload válido de negócio ou consulta de teste Google foi enviado. Os seis hashes operacionais permaneceram iguais ao preflight. A primeira sonda ocorreu durante a instalação e não completou; a repetição posterior aos reinícios passou.
+
+Evidência: `evidence/production-emergency-live-smoke.json`. Na hora dessa sonda, a instalação visual/pipeline ainda estava em execução; sua conclusão e o smoke do bundle são verificados separadamente, sem transformar este resultado em prova antecipada de deploy terminal. Cotas Google zero e ativação cache_only não foram realizadas.
+
+
 ## Reintegração do hotfix e restauração de stage
 
 A PR #399 integrou o hotfix operacional em produção (`ac05439819fc4b8ba65bb699f7edfab669cfd00e`). A flag foi preparada em produção, preservando as demais variáveis; sua efetividade exige API/worker reiniciados e prova autenticada. A reintegração em stage inclui o mesmo hotfix e restaura exatamente os 13 caminhos clínicos do snapshot de stage `cb93d4c6`, que haviam sido retirados temporariamente para isolar a promoção Maps. Essa restauração é somente stage; não altera o conteúdo clínico de produção. Conferência dos 13 caminhos exatos aprovada, assim como 80 testes clínicos focados e TypeScript. Evidência: `evidence/clinical-stage-restoration.json`.

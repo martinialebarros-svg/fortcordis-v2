@@ -1,5 +1,7 @@
 # Ativação — produção com custo adicional zero
 
+**Estado operacional em 19/10/2026, 13:28 UTC:** liberação temporária efetiva na API de produção `ac054398`, com API/worker reiniciados; perfil de recepção passou pelo controle de custo em criar/sugerir horários. Evidência em `evidence/production-emergency-live-smoke.json`. Esse teste não criou agendamento nem consultou Google. O pipeline completo e a atualização visual são conferências separadas da ativação backend.
+
 ## Liberação emergencial solicitada em 19/10/2026
 
 O usuário informou que a recepção não consegue agendar e autorizou: “Deixe liberado por enquanto”. Esta instrução suspende a ativação do modo R$ 0 e autoriza temporariamente as consultas potencialmente cobradas. A observação instalada mostrou `reason=unconfigured`, revisão 0 e nenhuma política aprovada; o bloqueio ocorria antes de qualquer consulta Google. Não houve ativação de quota nativa zero.
