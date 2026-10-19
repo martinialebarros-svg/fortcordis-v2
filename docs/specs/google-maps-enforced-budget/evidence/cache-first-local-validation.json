@@ -51,7 +51,7 @@
       "bytes": 2987
     },
     "ui": {
-      "sha256": "e331a24cfac141a2c41d176b981cd7b7f3870ec1299f9007e9640c4c9c35438f",
+      "sha256": "5f0ba49d1420a36d411191aa3673d37eaafbee0aec36e886b5a6b656b4002655",
       "bytes": 271
     },
     "real-form": {
@@ -86,5 +86,7 @@
       "sha256": "55a4c5675011e6a65cff69ce6e22c9e225b270ee523b2ab33ecc55fc7b587aae",
       "bytes": 2113
     }
-  }
+  },
+  "initial_preview_timeout_ms": 3000,
+  "paid_preview_confirmation_timeout_ms": 15000
 }

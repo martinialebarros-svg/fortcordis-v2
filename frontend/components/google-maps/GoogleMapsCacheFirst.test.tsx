@@ -57,6 +57,7 @@ describe("Agenda cache-first sem bloquear trabalho local", () => {
     const result = await api.post("/agenda", { inicio: "2099-05-25T11:30:00" });
     expect(result.data.id).toBe(123); expect(paidCalls).toBe(0);
     expect(requests.map((r) => r.url)).toEqual(["/google-maps-control/preview", "/agenda"]);
+    expect(requests[0].timeout).toBe(3_000);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
@@ -82,6 +83,8 @@ describe("Agenda cache-first sem bloquear trabalho local", () => {
     expect(agenda).toHaveLength(2); expect(JSON.parse(agenda[0].data)).toEqual(payload); expect(JSON.parse(agenda[1].data)).toEqual(payload);
     expect(agenda[0].headers.has("X-Google-Maps-Action")).toBe(false);
     expect(agenda[1].headers.get("X-Google-Maps-Action")).toMatch(/^synthetic-once-/);
+    const paidPreview = requests.find((r) => r.url === "/google-maps-control/preview" && JSON.parse(r.data).paid_call_required);
+    expect(paidPreview?.timeout).toBe(15_000);
     const retry = api.request(agenda[1]).catch((e) => e);
     await screen.findByRole("dialog"); fireEvent.click(screen.getByRole("button", { name: "Cancelar" })); await retry;
     expect(paidCalls).toBe(1);

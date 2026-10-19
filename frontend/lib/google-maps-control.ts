@@ -124,7 +124,7 @@ export async function prepareMapsAction(
     const response = await api.post<MapsQuote>("/google-maps-control/preview", {
       method, path: url.pathname, query: url.search.slice(1), body,
       ...(mapsConfig.mapsConsentReplay ? { paid_call_required: true } : {}),
-    }, { signal: config.signal });
+    }, { signal: config.signal, timeout: !mapsConfig.mapsConsentReplay && /^\/api\/v1\/agenda(?:\/|$)/.test(url.pathname) ? 3_000 : 15_000 });
     quote = response.data;
   } catch (error) {
     if (config.signal?.aborted) throw new CanceledError("Ação cancelada.");
@@ -153,7 +153,7 @@ export async function prepareMapsAction(
   try {
     const response = await api.post<{ token: string }>("/google-maps-control/confirm", {
       quote_id: quote.quote_id,
-    }, { signal: config.signal });
+    }, { signal: config.signal, timeout: 15_000 });
     if (config.signal?.aborted) throw new CanceledError("Ação cancelada.");
     if (!response.data.token) throw new Error("Autorização ausente.");
     config.headers.set("X-Google-Maps-Action", response.data.token);
