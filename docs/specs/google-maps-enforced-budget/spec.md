@@ -1,5 +1,19 @@
 # Especificação — autorização e orçamento Google Maps
 
+## Contrato vigente — Agenda com cache primeiro (rollout apenas stage)
+
+- CF-001: `GOOGLE_MAPS_AGENDA_CACHE_FIRST=false` por padrão; quando habilitada, ações registradas `agenda_*` sem token recebem contexto local, sem acessar o ledger. Autenticação/permissões e validações de negócio permanecem exigidas. A liberação emergencial tem precedência.
+- CF-002: preview inicial retorna `operation_mode=cache_first`, zero transportes nesta fase, sem quote/token/consentimento. Isso não declara que a ação inteira custará zero. Só o ponto real de envio Google pode solicitar uma estimativa paga (`paid_call_required=true`). Esse parâmetro não autoriza transporte.
+- CF-003: cache Google válido e ajuste manual autorizado seguem sem popup, inclusive sem política, com limite esgotado ou indisponibilidade do ledger. Cache expirado/heurístico não fornece uma nova disponibilidade; falha de transporte/configuração não cria uma estimativa alternativa. Primeira saída mantém sua exigência de rota confiável.
+- CF-004: no primeiro transporte necessário, o servidor consulta a política compartilhada. Sem grant pago, para antes do Google e retorna `confirmation_required`/`can_retry_with_confirmation=true`. Nenhuma criação/alteração de agendamento ou notificação é concluída nessa tentativa. As validações são repetidas sobre o estado atual após consentimento.
+- CF-005: somente para essa resposta atestada da Agenda, o cliente obtém quote e mostra o popup; cancelar não envia Google nem conclui agendamento. Confirmar permite no máximo uma repetição com token de uso único e payload exato. Outras falhas, 422, erros de rede ou recusa após o grant não causam repetição automática.
+- CF-006: se o preview inicial falhar, o cliente pode tentar a Agenda sem token, mantendo a barreira no servidor. Se a estimativa paga falhar, o transporte continua suspenso. Lotes, IA e jobs não recebem essa exceção de tentativa HTTP; políticas automáticas e limites globais permanecem obrigatórios.
+- CF-007: aviso na própria tela explica a consulta específica e mantém o formulário. Não afirmar que a agenda inteira está bloqueada. Rotas já válidas continuam disponíveis; uma rota desconhecida sem saldo não vira distância/duração/horário inventados.
+- CF-008: painel mostra a estratégia e demonstra três casos (cache, nova consulta com cancelar/confirmar, limite atingido). Números da demonstração são fictícios; todos os botões da demonstração enviam zero APIs/Google e não criam agendamento/configuração.
+- CF-009: produção permanece `temporary_open`, sem reativação de limites ou quotas nativas. A política para solicitações que dependam de rota nova sem saldo e os limites reais precisam ser escolhidos/revisados antes da ativação. Não há neste incremento um cadastro persistente novo de pré-agendamentos; formulário preservado não é solicitação salva nem horário confirmado.
+
+As seções seguintes preservam o histórico dos ciclos anteriores. Declarações de ativação/custo zero nelas não substituem o estado vigente acima.
+
 ## Liberação emergencial solicitada em 19/10/2026
 
 O usuário informou que a recepção não consegue agendar e autorizou: “Deixe liberado por enquanto”. Esta instrução suspende a ativação do modo R$ 0 e autoriza temporariamente as consultas potencialmente cobradas. A observação instalada mostrou `reason=unconfigured`, revisão 0 e nenhuma política aprovada; o bloqueio ocorria antes de qualquer consulta Google. Não houve ativação de quota nativa zero.

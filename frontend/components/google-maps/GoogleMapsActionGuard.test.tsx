@@ -115,14 +115,14 @@ describe("confirmação de custo antes do envio", () => {
     expect(preview).toEqual({ method: "GET", path: "/api/v1/logistica/deslocamento", query: "clinica_ids=1&clinica_ids=2&perfil=comercial", body: null });
   });
 
-  it("suspende quando a verificação compartilhada está indisponível", async () => {
+  it("suspende lote quando a verificação compartilhada está indisponível", async () => {
     const adapter = api.defaults.adapter as AxiosAdapter;
     api.defaults.adapter = async (config) => {
       if (config.url === "/google-maps-control/preview") throw new Error("Falha de rede");
       return adapter(config);
     };
     render(<GoogleMapsActionGuard />);
-    await api.post("/agenda", {}).catch(() => undefined);
+    await api.post("/logistica/recalcular", {}).catch(() => undefined);
     expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível verificar o limite");
     expect(requests).toHaveLength(0);
   });

@@ -1,0 +1,90 @@
+{
+  "scope": "stage only; production temporary release stays enabled",
+  "maps_postgresql": {
+    "tests": 100,
+    "skips": 0,
+    "passed": true
+  },
+  "cache_first_cases_in_isolated_postgresql": {
+    "tests": 10,
+    "passed": true
+  },
+  "backend_full": {
+    "tests": 2019,
+    "skips": 74,
+    "passed": true,
+    "note": "Full run before the last added creation-consent case; final focused PostgreSQL suite includes it. Fresh CI validates final head."
+  },
+  "frontend_full_vitest": {
+    "tests": 1062,
+    "files": 111,
+    "passed": true,
+    "note": "Before two added real-form retention cases; four real-form cases passed separately."
+  },
+  "frontend_maps": {
+    "tests": 29,
+    "passed": true
+  },
+  "real_form_retention": {
+    "tests": 4,
+    "passed": true
+  },
+  "node": {
+    "tests": 23,
+    "passed": true
+  },
+  "typecheck": true,
+  "eslint": true,
+  "build": true,
+  "real_google_calls": 0,
+  "logs": {
+    "backend": {
+      "sha256": "3e1a39d33a97b822e6fc5b1ce1d9114df6c7572d495213a539da3521b0f2aece",
+      "bytes": 4779
+    },
+    "pg-tests": {
+      "sha256": "1830cf2ac973373defcf91e05404859aaa53772ec7a95b0c8718350c5bbdc250",
+      "bytes": 19685
+    },
+    "isolated-pg": {
+      "sha256": "71cac1a20d895bc6d66d5b0a80576eef84bcaf66b965e5597095ea13750f287f",
+      "bytes": 2987
+    },
+    "ui": {
+      "sha256": "e331a24cfac141a2c41d176b981cd7b7f3870ec1299f9007e9640c4c9c35438f",
+      "bytes": 271
+    },
+    "real-form": {
+      "sha256": "e9c464b6ed988dc63df3d51c975808109737e7c69279e97a4c25edf00502d64e",
+      "bytes": 269
+    },
+    "node-tests": {
+      "sha256": "51c422b7fd0417ed6348273c0f48a14a3763bc32d2732c544373a15a6bad03aa",
+      "bytes": 4388
+    },
+    "tsc": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "eslint": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "build": {
+      "sha256": "f27698d676a442a5723e5fcaf46b1cad11ca5c671b840a5c2dff61d4da7face6",
+      "bytes": 5026
+    },
+    "full-backend": {
+      "sha256": "5b74be618bc64a4079d5143985fbde0e82e4a275bb668ac8f233a8048c2f0507",
+      "bytes": 186316
+    },
+    "full-frontend": {
+      "sha256": "f4eb492de9a490596b64ddd55172f6c088ea6afedd919bd2b85cdd96daa532b4",
+      "bytes": 635
+    },
+    "atomicity": {
+      "sha256": "55a4c5675011e6a65cff69ce6e22c9e225b270ee523b2ab33ecc55fc7b587aae",
+      "bytes": 2113
+    }
+  }
+}
