@@ -1,0 +1,85 @@
+{
+  "ok": true,
+  "checked_at": "2026-10-19T13:28:36.805903+00:00",
+  "last_validation_status": 422,
+  "last_validation_shape": [
+    {
+      "type": "missing",
+      "loc": [
+        "body",
+        "data"
+      ]
+    }
+  ],
+  "google_and_business_execution_prevented_by_required_fields_validation": true,
+  "installed_sha": "ac05439819fc4b8ba65bb699f7edfab669cfd00e",
+  "services": {
+    "fortcordis-backend": {
+      "active": true,
+      "started_at": "2026-10-19T13:26:57+00:00"
+    },
+    "fortcordis-backend-worker": {
+      "active": true,
+      "started_at": "2026-10-19T13:27:27+00:00"
+    }
+  },
+  "operation_mode": "temporary_open",
+  "paid_calls_allowed": true,
+  "financial_cap": null,
+  "reception_checks": [
+    {
+      "path": "/api/v1/agenda",
+      "preview": 200,
+      "confirmation_required": false,
+      "action_response": 422,
+      "normal_required_fields_validation": true,
+      "authenticated_role": "recepcao"
+    },
+    {
+      "path": "/api/v1/agenda/sugestoes-horario",
+      "preview": 200,
+      "confirmation_required": false,
+      "action_response": 422,
+      "normal_required_fields_validation": true,
+      "authenticated_role": "recepcao"
+    }
+  ],
+  "unauthenticated_status": 401,
+  "runtime_hashes": [
+    {
+      "path": "backend/fortcordis.db",
+      "bytes": 13570048,
+      "sha256": "b7e05e3756e87462cd126d13c6962fbb653f107ae2191a59e9a0997d1c763de9"
+    },
+    {
+      "path": "backend/data/frases.json",
+      "bytes": 157587,
+      "sha256": "803215e7b18b1118472e9af70924a70601a57369fe471f5ccb2f0dc59650fe5b"
+    },
+    {
+      "path": "backend/data/patologias.json",
+      "bytes": 1489,
+      "sha256": "74b1d84896072578767ddffda590b20ecdc5eb33f339d88b4de06df33dcb6e05"
+    },
+    {
+      "path": "backend/data/frases_ecocardiograma_estruturado_teste.json",
+      "bytes": 425340,
+      "sha256": "d14d04766e7d58b0d33f236ca76fbe4393cf0cda86163f4a68f48ada234bbcc4"
+    },
+    {
+      "path": "backend/data/frases_ultrassom_abdominal.json",
+      "bytes": 65808,
+      "sha256": "da0e216d6e67421611d8417ff84e730b6de3f0a122657f4112a065b5b17330e3"
+    },
+    {
+      "path": "backend/data/atendimento_clinical_phrases.json",
+      "bytes": 6895,
+      "sha256": "49529b56c3ba989ac2f6b488345dff25da7a87db8a73b9f0ee001b2b7976f67a"
+    }
+  ],
+  "runtime_matches_predeploy": true,
+  "native_quota_zero_applied_by_this_task": false,
+  "first_probe_during_deploy_completed": false,
+  "pipeline_terminal_at_this_probe": false,
+  "note": "API and worker restarted; reception HTTP422 proves required-field validation after cost release, not a completed appointment. No valid business payload or Google probe sent."
+}

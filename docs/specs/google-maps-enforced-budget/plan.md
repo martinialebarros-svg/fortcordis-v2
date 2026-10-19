@@ -1,5 +1,16 @@
 # Plano de implementação e entrega
 
+## Liberação emergencial solicitada em 19/10/2026
+
+O usuário informou que a recepção não consegue agendar e autorizou: “Deixe liberado por enquanto”. Esta instrução suspende a ativação do modo R$ 0 e autoriza temporariamente as consultas potencialmente cobradas. A observação instalada mostrou `reason=unconfigured`, revisão 0 e nenhuma política aprovada; o bloqueio ocorria antes de qualquer consulta Google. Não houve ativação de quota nativa zero.
+
+`GOOGLE_MAPS_COST_EMERGENCY_RELEASE=true`, exclusivamente no servidor, libera temporariamente preview/execução/provedores, inclusive tarefas automáticas. Default `false`. Não altera autenticação, permissões funcionais, regras de deslocamento, cache ou registros de agenda. Nenhum preço, baseline, saldo gratuito ou teto financeiro é inventado. Preview retorna `required=false`, `operation_mode=temporary_open` e máximos de chamadas/custo `null`. O painel administrativo mostra a suspensão e oculta controles que não surtiriam efeito durante a exceção.
+
+Cada tentativa de provedor registra aviso sem chave/endereço/payload, com SKU e custo desconhecido. O ledger anterior fica preservado; não representa nem contabiliza o gasto desta exceção como R$ 0. A conciliação desse intervalo é obrigatória antes de voltar a orçamento pago. A exceção não depende de ler o ledger: indisponibilidade dele não deve reproduzir a interrupção operacional autorizadamente removida. A autenticação e o banco de negócio continuam necessários.
+
+Encerrar a liberação requer retirar a flag (ou `false`) e reiniciar API e worker. A decisão é relida em cada chamada; um contexto temporário não mantém autorização após a flag desligada. Sem configuração aprovada, isso volta a bloquear agendamentos dependentes de Maps. Portanto, não reativar os controles sem resolver e validar antes a política operacional escolhida. Não há prazo ou teto financeiro presumido.
+
+
 1. Rastrear frontend → endpoint → serviço → transporte Google; inventariar leituras, lotes, ferramentas IA e worker WhatsApp. Cruzar histórico Git e métricas agregadas readonly com Billing, separando observação e hipótese.
 2. Corrigir renovação de TTL após revalidação Google bem-sucedida mesmo sem alteração dos valores, preservando ajustes manuais.
 3. Criar ledger independente da transação de negócio, configuração persistida, grants vinculados à requisição/usuário, expiração e consumo único. Serializar reservas no PostgreSQL e SQLite; indisponibilidade fecha o acesso pago.
@@ -23,3 +34,7 @@
 Estado deste incremento: implementação e validações locais concluídas; backend integral aprovado (1.991 testes, 69 skips, zero falhas/erros). Frontend integral aprovado (980 Vitest/107 arquivos e 23 Node), além de 20 focados Maps, lint, TypeScript e build. Stage, produção, configuração efetiva, quotas nativas e restauração clínica continuam pendentes; detalhes e limites em `verify.md`.
 
 Rollback seguro: desabilitar novas chamadas na configuração e manter o ledger; reverter a proteção restauraria o risco de gasto e exige decisão explícita. A migração é aditiva e não remove dados operacionais.
+
+## Encerramento operacional do hotfix
+
+Reintegrar o hotfix de produção em stage junto da restauração byte a byte dos 13 caminhos clínicos de cb93d4c6. Preservar mudanças fiscais já integradas em 55068935/21035136. Manter os registros históricos da auditoria e canário isolado, sem executar a ativação de cache_only suspensa. Conferir flag efetiva na API, reinício do worker e canário recepção sem escrita; acompanhar os dois deploys até terminal.

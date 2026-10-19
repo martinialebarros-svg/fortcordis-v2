@@ -37,6 +37,16 @@ describe("confirmação de custo antes do envio", () => {
     api.defaults.adapter = previousAdapter;
   });
 
+  it("liberação temporária despacha a Agenda sem popup nem custo zero fictício", async () => {
+    quoteResult = { ...quote, operation_mode: "temporary_open", required: false, blocked: false,
+      max_calls: null, estimated_cost_min_brl: null, estimated_cost_max_brl: null };
+    render(<GoogleMapsActionGuard />);
+    await api.post("/agenda/sugestoes-horario", { clinica_id: 1 });
+    expect(requests.map((item) => item.url)).toEqual(["/google-maps-control/preview", "/agenda/sugestoes-horario"]);
+    expect(requests[1].headers.has("X-Google-Maps-Action")).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("cancelar não envia a ação nem pede um token", async () => {
     render(<GoogleMapsActionGuard />);
     const result = api.post("/agenda/sugestoes-horario", { clinica_id: 1 }).catch((error) => error);

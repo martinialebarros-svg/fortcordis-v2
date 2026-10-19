@@ -2,7 +2,7 @@ import { CanceledError, type AxiosInstance, type InternalAxiosRequestConfig } fr
 
 export type MapsBudget = { calls: number | null; estimated_brl: number | null };
 export type MapsPeriods = { action?: MapsBudget; day?: MapsBudget; month?: MapsBudget };
-export type MapsOperationMode = "paid_budget" | "cache_only";
+export type MapsOperationMode = "paid_budget" | "cache_only" | "temporary_open";
 export const MAPS_SKU_LABELS: Record<string, string> = {
   routes_essentials: "Routes Essentials", routes_pro: "Routes Pro",
   distance_matrix_essentials: "Distance Matrix Essentials", distance_matrix_pro: "Distance Matrix Advanced",
@@ -18,9 +18,9 @@ export type MapsQuote = {
   action: string;
   service: string;
   services?: string[];
-  max_calls: number;
-  estimated_cost_min_brl: number;
-  estimated_cost_max_brl: number;
+  max_calls: number | null;
+  estimated_cost_min_brl: number | null;
+  estimated_cost_max_brl: number | null;
   uncertainty?: string[];
   consumption?: MapsPeriods;
   remaining?: MapsPeriods;

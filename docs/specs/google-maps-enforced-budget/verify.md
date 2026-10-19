@@ -1,5 +1,34 @@
 # Verificação — Google Maps
 
+## Liberação operacional confirmada em produção — 19/10/2026
+
+Produção `ac054398` (PR #399): API reiniciada às 13:26:57 UTC e worker às 13:27:27 UTC, ambos após preparar `GOOGLE_MAPS_COST_EMERGENCY_RELEASE=true` às 13:17:05 UTC. Smoke autenticado às 13:28 UTC confirmou `temporary_open`, `blocked=false`, `paid_calls_allowed=true` e limites/custo desconhecidos, sem teto fictício. O serviço não tinha override de ambiente conflitante; worker foi verificado pelo diretório/processo e reinício após a configuração, enquanto a API teve status relido via HTTP.
+
+Perfil real de recepção, token efêmero mantido em memória: previews de criação e sugestões retornaram HTTP200/required=false; POSTs com corpo vazio retornaram HTTP422 exclusivamente por campos obrigatórios (`inicio` e `data`). Isso comprova que o bloqueio financeiro foi removido e a autenticação permite chegar à validação normal; não é alegação de agendamento real criado. Sem token, status continua HTTP401. Nenhum payload válido de negócio ou consulta de teste Google foi enviado. Os seis hashes operacionais permaneceram iguais ao preflight. A primeira sonda ocorreu durante a instalação e não completou; a repetição posterior aos reinícios passou.
+
+Evidência: `evidence/production-emergency-live-smoke.json`. Na hora dessa sonda, a instalação visual/pipeline ainda estava em execução; sua conclusão e o smoke do bundle são verificados separadamente, sem transformar este resultado em prova antecipada de deploy terminal. Cotas Google zero e ativação cache_only não foram realizadas.
+
+
+## Reintegração do hotfix e restauração de stage
+
+A PR #399 integrou o hotfix operacional em produção (`ac05439819fc4b8ba65bb699f7edfab669cfd00e`). A flag foi preparada em produção, preservando as demais variáveis; sua efetividade exige API/worker reiniciados e prova autenticada. A reintegração em stage inclui o mesmo hotfix e restaura exatamente os 13 caminhos clínicos do snapshot de stage `cb93d4c6`, que haviam sido retirados temporariamente para isolar a promoção Maps. Essa restauração é somente stage; não altera o conteúdo clínico de produção. Conferência dos 13 caminhos exatos aprovada, assim como 80 testes clínicos focados e TypeScript. Evidência: `evidence/clinical-stage-restoration.json`.
+
+A validação anterior do modo R$ 0 em stage (`f0009e40`) está preservada nos cinco arquivos `evidence/stage-zero-charge-*.json` e `evidence/zero-charge-stage-workflows.json`: deploy terminal, 1.991 testes backend/70 skips no CI, 74 testes Maps PostgreSQL, canário isolado com quatro transportes simulados em oito concorrentes, uma recusa por limite e três por capacidade de conexão. A API operacional de stage ficou sem configuração aprovada; não confundir o canário PostgreSQL isolado com ativação da política no banco operacional. As provas são históricas: o usuário suspendeu a ativação R$ 0 após relatar interrupção da Agenda.
+
+
+## Hotfix operacional de 19/10/2026
+
+Pedido vigente: liberar temporariamente os agendamentos, suspendendo bloqueios financeiros Maps. Diagnóstico readonly da produção `21035136`: guard sem configuração, revisão 0, motivo `unconfigured`. A tentativa anterior de ativar cache_only parou no preflight antes da gravação; cotas zero não foram aplicadas.
+
+Backend emergencial: 11 testes aprovados, sem Google real. Cobrem API com cache vazio e rota simulada, cache reaproveitado, primeira saída, três provedores, tarefa automática, autenticação negada, SKU desconhecido, revogação da flag e preservação do ledger.
+
+Regressão local: 85 testes Maps aprovados (25 skips de PostgreSQL opcional não configurado nesta execução), mais 10 testes de atomicidade Agenda aprovados. Os 11 casos emergenciais não tiveram skips. Revisão independente não encontrou bloqueante.
+
+Frontend local: 18 testes Maps aprovados, TypeScript e ESLint aprovados. O caso novo libera a ação sem popup/token com máximos nulos; o painel mostra cobrança possível e oculta formulário de orçamento ineficaz. Nenhuma chamada Google real.
+
+A prova deste hotfix cobre liberação sem grant/ledger, três provedores com transporte simulado, tarefas automáticas, manutenção de autenticação, retorno ao bloqueio quando a flag é desligada e ausência de limites/custo zero fictícios. Publicação e ativação são comprovadas separadamente após a integração; testes não são prova de instalação. As seções anteriores abaixo são histórico do ciclo de proteção, cuja ativação de custo zero foi suspensa pelo usuário.
+
+
 Status do incremento atual: produção Maps autorizada com gasto adicional zero; `cache_only` implementado e aprovado nas suítes locais integrais de backend e frontend, além dos testes focados. Configuração efetiva, publicação e prova do novo modo em stage/produção permanecem **pendentes**. Os resultados do ciclo anterior, preservados abaixo, não provam o novo modo nem publicação em produção.
 
 ## Decisão e observações anteriores à publicação do modo R$ 0

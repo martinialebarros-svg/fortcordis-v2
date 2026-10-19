@@ -1,6 +1,21 @@
 # Ativação — produção com custo adicional zero
 
-## Decisão vigente
+**Estado operacional em 19/10/2026, 13:28 UTC:** liberação temporária efetiva na API de produção `ac054398`, com API/worker reiniciados; perfil de recepção passou pelo controle de custo em criar/sugerir horários. Evidência em `evidence/production-emergency-live-smoke.json`. Esse teste não criou agendamento nem consultou Google. O pipeline completo e a atualização visual são conferências separadas da ativação backend.
+
+## Liberação emergencial solicitada em 19/10/2026
+
+O usuário informou que a recepção não consegue agendar e autorizou: “Deixe liberado por enquanto”. Esta instrução suspende a ativação do modo R$ 0 e autoriza temporariamente as consultas potencialmente cobradas. A observação instalada mostrou `reason=unconfigured`, revisão 0 e nenhuma política aprovada; o bloqueio ocorria antes de qualquer consulta Google. Não houve ativação de quota nativa zero.
+
+`GOOGLE_MAPS_COST_EMERGENCY_RELEASE=true`, exclusivamente no servidor, libera temporariamente preview/execução/provedores, inclusive tarefas automáticas. Default `false`. Não altera autenticação, permissões funcionais, regras de deslocamento, cache ou registros de agenda. Nenhum preço, baseline, saldo gratuito ou teto financeiro é inventado. Preview retorna `required=false`, `operation_mode=temporary_open` e máximos de chamadas/custo `null`. O painel administrativo mostra a suspensão e oculta controles que não surtiriam efeito durante a exceção.
+
+Cada tentativa de provedor registra aviso sem chave/endereço/payload, com SKU e custo desconhecido. O ledger anterior fica preservado; não representa nem contabiliza o gasto desta exceção como R$ 0. A conciliação desse intervalo é obrigatória antes de voltar a orçamento pago. A exceção não depende de ler o ledger: indisponibilidade dele não deve reproduzir a interrupção operacional autorizadamente removida. A autenticação e o banco de negócio continuam necessários.
+
+Encerrar a liberação requer retirar a flag (ou `false`) e reiniciar API e worker. A decisão é relida em cada chamada; um contexto temporário não mantém autorização após a flag desligada. Sem configuração aprovada, isso volta a bloquear agendamentos dependentes de Maps. Portanto, não reativar os controles sem resolver e validar antes a política operacional escolhida. Não há prazo ou teto financeiro presumido.
+
+**Procedimento emergencial:** publicar o hotfix revisado, definir somente a flag na configuração de produção, reiniciar os processos pelo deploy e conferir preview autenticado + API da Agenda sem escrita/Google real. Não executar o script anterior de ativação cache_only nem enviar o formulário de quotas zero. A configuração emergencial deve ser comprovada na API e no worker instalados.
+
+
+## Decisão histórica de custo zero — suspensa em 19/10/2026
 
 O usuário autorizou a publicação dos controles Maps em produção, sem ultrapassar o teto gratuito. A decisão de execução é **`cache_only`: zero novas chamadas Google e R$ 0 de custo adicional por novos envios deste backend**. Rotas Google persistidas ainda válidas e ajustes manuais já autorizados podem ser utilizados. Cache Google com TTL positivo e validade verificável é necessário; ajuste manual exige override autorizado. Cache ausente, expirado, heurístico, TTL não positivo ou cache de primeira saída sem timestamp/TTL suspende a operação dependente da rota, com explicação na tela.
 
@@ -16,7 +31,7 @@ A tabela pública oferece 10.000 eventos mensais gratuitos para Compute Routes E
 
 As quotas diárias observadas para Compute Routes e Compute Route Matrix estavam ilimitadas, com uso atual exibido zero; o limite por minuto observado era 3.000. Nenhuma quota foi alterada nessa coleta. O valor diário exibido não é consumo mensal. As evidências estão em `evidence/console-free-ceiling-20261018.sanitized.json` e `evidence/october-application-usage-20261018.sanitized.json`.
 
-## Procedimento da publicação autorizada
+## Procedimento anterior de custo zero — não executar durante a liberação
 
 1. Confirmar os SHAs de stage/main imediatamente antes da promoção. Isolar os 13 caminhos da revisão clínica felina da PR #391, mantendo-os iguais à produção `9137d39f`; o snapshot para restaurá-los posteriormente em stage é `cb93d4c6`. A autorização atual é para Maps. Não modificar registros reais ou sobrescrever dados de runtime com conteúdo de Git.
 2. Validar o novo modo em stage com dados sintéticos e transportes Google simulados: cache válido/manual, miss/stale/heurística, primeira saída, acesso direto, jobs, concorrência, troca de modo, falha do banco e regressão do orçamento pago. Aguardar testes/gates terminais; a evidência de `paid_budget` anterior não substitui essa prova.
