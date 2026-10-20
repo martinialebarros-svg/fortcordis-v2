@@ -88,7 +88,7 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
         self.outbound.assert_not_called()
         broken.connect.assert_not_called()
         with self.sessions() as db:
-            self.assertEqual(db.get(Agendamento, self.id).inicio.replace(tzinfo=None), datetime(2099, 5, 25, 11, 30))
+            self.assertEqual(agenda._to_local_naive(db.get(Agendamento, self.id).inicio), datetime(2099, 5, 25, 11, 30))
 
     def test_unpaid_probe_rolls_back_then_one_confirmed_execution_succeeds(self):
         self.configure()
@@ -288,6 +288,38 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
         self.assertEqual(status["consumption"]["day"], {"calls": 8, "estimated_brl": 0.48})
         self.assertEqual(len([e for e in status["history"] if e["kind"] == "budget_alert"]), 4)
         self.outbound.assert_not_called()
+
+    def test_agenda_tutor_geocode_uses_one_confirmed_unit_above_references(self):
+        from app.services import geocoding_service
+        self.configure(monitor=True)
+        path = "/api/v1/agenda/geocode-endereco-tutor"
+        body = {"endereco": "Synthetic address", "numero": "1", "cidade": "Synthetic city", "estado": "CE"}
+        response = {"status": "OK", "results": [{"geometry": {"location": {"lat": -3.7, "lng": -38.5}}, "formatted_address": "Synthetic address", "place_id": "synthetic"}]}
+        with patch.object(geocoding_service, "_http_get_json", return_value=response) as transport:
+            empty = self.client.post(path, json={})
+            self.assertEqual(empty.status_code, 422, empty.text)
+            transport.assert_not_called()
+            probe = self.client.post(path, json=body)
+            self.assertEqual(probe.status_code, 409, probe.text)
+            self.assertTrue(probe.json()["detail"]["can_retry_with_confirmation"])
+            transport.assert_not_called()
+            quote = self.client.post("/api/v1/google-maps-control/preview", json={"method": "POST", "path": path, "body": body, "paid_call_required": True}).json()
+            self.assertFalse(quote["blocked"])
+            self.assertEqual(quote["max_calls"], 1)
+            self.assertEqual(quote["services"], ["geocoding"])
+            self.assertEqual(quote["budget_policy"], "agenda_monitor")
+            # Cancel/discard without confirming: no provider request.
+            transport.assert_not_called()
+            token = self.client.post("/api/v1/google-maps-control/confirm", json={"quote_id": quote["quote_id"]}).json()["token"]
+            result = self.client.post(path, json=body, headers={"X-Google-Maps-Action": token})
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertEqual(result.json()["item"]["latitude"], -3.7)
+            self.assertEqual(transport.call_count, 1)
+            replay = self.client.post(path, json=body, headers={"X-Google-Maps-Action": token})
+            self.assertEqual(replay.status_code, 409)
+            self.assertEqual(transport.call_count, 1)
+        self.assertTrue(guard.create_preview(7, "POST", "/api/v1/tutores/geocode-endereco", body=body)["blocked"])
+        self.assertEqual(guard.get_status()["consumption"]["day"]["calls"], 1)
 
     def test_cache_only_rejects_monitor_exception(self):
         with self.assertRaises(ValueError):

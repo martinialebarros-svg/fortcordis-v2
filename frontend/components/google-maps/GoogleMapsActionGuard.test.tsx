@@ -60,6 +60,17 @@ describe("confirmação de custo antes do envio", () => {
     expect(screen.getByRole("alert")).toHaveClass("bg-amber-50");
     expect(requests.filter((item) => item.url === "/agenda")).toHaveLength(1);
   });
+  it("georreferenciar tutor na Agenda pede consentimento limitado a uma unidade", async () => {
+    quoteResult = { ...quote, budget_policy: "agenda_monitor", action: "Localizar endereço do tutor para agendamento", services: ["geocoding"], max_calls: 1, estimated_cost_max_brl: 0.06 };
+    render(<GoogleMapsActionGuard />);
+    const result = api.post("/agenda/geocode-endereco-tutor", { endereco: "Synthetic address" }).catch((error) => error);
+    expect(await screen.findByRole("dialog")).toHaveTextContent("1 chamadas/unidades cobradas");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Geocoding");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect((await result).code).toBe("ERR_CANCELED");
+    expect(requests.map((item) => item.url)).toEqual(["/google-maps-control/preview"]);
+  });
+
   it("cancelar não envia a ação nem pede um token", async () => {
     render(<GoogleMapsActionGuard />);
     const result = api.post("/agenda/sugestoes-horario", { clinica_id: 1 }).catch((error) => error);

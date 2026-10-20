@@ -66,6 +66,7 @@ def main():
         'test_monitor_quote_and_cancel_do_not_send_and_extras_automatics_still_stop',
         'test_monitor_parallel_grants_remain_finite_and_durable',
         'test_cache_only_rejects_monitor_exception',
+        'test_agenda_tutor_geocode_uses_one_confirmed_unit_above_references',
     ]
     try:
         for name in cases:

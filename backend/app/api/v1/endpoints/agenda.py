@@ -22,6 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
+from app.api.v1.endpoints.tutores import GeocodeEnderecoPayload, geocode_endereco_tutor
 from app.db.database import get_db
 from app.models.agendamento import Agendamento
 from app.models.agenda_bloqueio import AgendaBloqueio
@@ -4539,6 +4540,19 @@ async def stream_agenda(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/geocode-endereco-tutor")
+def geocode_tutor_para_agendamento(
+    payload: GeocodeEnderecoPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # A single address entered inside Agenda is part of scheduling. Its own
+    # registered action permits one confirmed Geocoding unit, never a batch.
+    if not all(str(getattr(payload, field) or "").strip() for field in ("endereco", "numero", "cidade", "estado")):
+        raise HTTPException(status_code=422, detail="Preencha endereço, número, cidade e UF para localizar o tutor na Agenda.")
+    return geocode_endereco_tutor(payload, db=db, current_user=current_user)
 
 
 @router.post("/sugestoes-horario")
