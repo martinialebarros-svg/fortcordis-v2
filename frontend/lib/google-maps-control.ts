@@ -10,6 +10,9 @@ export const MAPS_SKU_LABELS: Record<string, string> = {
 };
 export type MapsQuote = {
   operation_mode?: MapsOperationMode;
+  budget_policy?: "agenda_monitor" | "enforced";
+  financial_limit_enforced?: boolean;
+  alerts?: string[];
   required: boolean;
   blocked: boolean;
   reason?: string;
@@ -31,7 +34,7 @@ export type MapsQuote = {
 type Signal = InternalAxiosRequestConfig["signal"];
 type MapsRequestConfig = InternalAxiosRequestConfig & { mapsConsentReplay?: boolean; mapsCacheFirst?: boolean };
 type Confirmation = { id: number; quote: MapsQuote; resolve: (confirmed: boolean) => void };
-type Snapshot = { queue: Confirmation[]; notice: string | null };
+type Snapshot = { queue: Confirmation[]; notice: string | null; noticeKind?: "warning" | "error" };
 let snapshot: Snapshot = { queue: [], notice: null };
 let sequence = 0;
 const subscribers = new Set<() => void>();
@@ -58,7 +61,7 @@ export const mapsConfirmationStore = {
     pending.forEach((item) => item.resolve(false));
   },
   dismissNotice() { publish({ ...snapshot, notice: null }); },
-  notify(message: string) { publish({ ...snapshot, notice: message }); },
+  notify(message: string, noticeKind: "warning" | "error" = "error") { publish({ ...snapshot, notice: message, noticeKind }); },
 };
 
 export function requestMapsConfirmation(quote: MapsQuote, signal?: Signal): Promise<boolean> {
@@ -157,6 +160,7 @@ export async function prepareMapsAction(
     if (config.signal?.aborted) throw new CanceledError("Ação cancelada.");
     if (!response.data.token) throw new Error("Autorização ausente.");
     config.headers.set("X-Google-Maps-Action", response.data.token);
+    if (quote.budget_policy === "agenda_monitor" && quote.alerts?.length) mapsConfirmationStore.notify(quote.alerts.join(" "), "warning");
     return config;
   } catch (error) {
     if (config.signal?.aborted) throw new CanceledError("Ação cancelada.");

@@ -7,13 +7,16 @@ import GoogleMapsControlDemo from "./GoogleMapsControlDemo";
 vi.mock("next/navigation", () => ({ usePathname: () => "/configuracoes" }));
 afterEach(() => { act(() => mapsConfirmationStore.cancelAll()); vi.restoreAllMocks(); });
 describe("demonstração segura do controle Maps", () => {
-  it("mostra cache e teto atingido sem chamar API", () => {
+  it("mostra cache e permite Agenda acima da referência sem chamar API", async () => {
     const request = vi.spyOn(api, "request"); const post = vi.spyOn(api, "post");
-    render(<GoogleMapsControlDemo />);
+    render(<><GoogleMapsControlDemo /><GoogleMapsActionGuard /></>);
     fireEvent.click(screen.getByRole("button", { name: "Rota já armazenada" }));
     expect(screen.getByRole("status")).toHaveTextContent("sem popup, token ou nova consulta paga");
-    fireEvent.click(screen.getByRole("button", { name: "Limite atingido" }));
-    expect(screen.getByRole("status")).toHaveTextContent("não é confirmado automaticamente");
+    fireEvent.click(screen.getByRole("button", { name: "Referência atingida — Agenda liberada" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Agenda liberada acima da referência");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Referência atingida: a Agenda continua liberada");
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar esta ação" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("inclusive acima da referência diária/mensal");
     expect(request).not.toHaveBeenCalled(); expect(post).not.toHaveBeenCalled();
   });
   it.each(["Cancelar", "Confirmar esta ação"])("%s no popup é apenas simulação", async (button) => {

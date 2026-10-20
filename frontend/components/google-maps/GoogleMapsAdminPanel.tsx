@@ -9,6 +9,7 @@ import GoogleMapsControlDemo from "./GoogleMapsControlDemo";
 
 type Config = {
   operation_mode?: MapsOperationMode;
+  agenda_budget_mode?: "enforce" | "monitor";
   enabled: boolean;
   limits: MapsPeriods;
   prices_usd?: Record<string, number> | null;
@@ -24,6 +25,8 @@ type Config = {
 type History = { id?: number; created_at: number | string; kind: string; reason?: string; message?: string; action: string; sku?: string; calls: number; estimated_brl?: number };
 type Status = {
   agenda_cache_first?: boolean;
+  agenda_budget_mode?: "enforce" | "monitor";
+  alerts?: string[];
   operation_mode?: MapsOperationMode; message?: string;
   configured: boolean; enabled?: boolean; revision: number | null; config: Config | null;
   limits?: MapsPeriods; consumption?: MapsPeriods; remaining?: MapsPeriods; history?: History[];
@@ -67,6 +70,7 @@ export default function GoogleMapsAdminPanel() {
   const [fields, setFields] = useState<Fields>({});
   const [enabled, setEnabled] = useState(false);
   const [operationMode, setOperationMode] = useState<MapsOperationMode>("paid_budget");
+  const [agendaBudgetMode, setAgendaBudgetMode] = useState<"enforce" | "monitor">("monitor");
   const [automaticEnabled, setAutomaticEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -79,6 +83,7 @@ export default function GoogleMapsAdminPanel() {
       const { data } = await api.get<Status>("/google-maps-control/status");
       setStatus(data); setFields(configToFields(data.config)); setEnabled(Boolean(data.config?.enabled));
       setOperationMode(data.config?.operation_mode ?? "paid_budget");
+      setAgendaBudgetMode(data.config ? data.config.agenda_budget_mode ?? "enforce" : "monitor");
       setAutomaticEnabled(Boolean(data.config?.automatic_policies?.whatsapp_agenda?.enabled));
     } catch (error) {
       setError(extractApiErrorMessageSync(error, "Não foi possível consultar os controles do Google Maps."));
@@ -132,7 +137,7 @@ export default function GoogleMapsAdminPanel() {
         automaticPolicies.whatsapp_agenda = { enabled: true, limits: automaticLimits, skus: Object.keys(skuLabels).filter((sku) => sku !== "geocoding") };
       } else if (automaticPolicies.whatsapp_agenda) automaticPolicies.whatsapp_agenda = { ...automaticPolicies.whatsapp_agenda, enabled: false };
       await api.put("/google-maps-control/config", {
-        operation_mode: "paid_budget", enabled, limits, prices_usd: prices, fx_brl_per_usd_upper: Number(fields.fx),
+        operation_mode: "paid_budget", agenda_budget_mode: agendaBudgetMode, enabled, limits, prices_usd: prices, fx_brl_per_usd_upper: Number(fields.fx),
         price_multiplier: Number(fields.multiplier), pricing_valid_until: new Date(fields.validUntil).toISOString(),
         action_call_caps: status.config?.action_call_caps ?? {},
         automatic_policies: automaticPolicies,
@@ -182,14 +187,15 @@ export default function GoogleMapsAdminPanel() {
       {status.agenda_cache_first && <>
         <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-sm text-teal-950">
           <h3 className="font-semibold">Agenda: cache primeiro, confirmação somente para consulta nova</h3>
-          <p className="mt-1">Agendamentos com rota válida e operações sem consulta paga seguem pela validação normal, mesmo se o orçamento estiver esgotado ou indisponível. Uma consulta externa exige confirmação e saldo no servidor. Se ela for suspensa, o formulário é preservado.</p>
+          <p className="mt-1">Agendamentos com rota válida e operações sem consulta paga seguem pela validação normal, mesmo se o orçamento estiver esgotado ou indisponível. Uma consulta externa exige confirmação limitada no servidor. No modo de alertas, o orçamento da Agenda pode ser ultrapassado; lotes e extras continuam sujeitos ao teto rígido. Se ela for suspensa, o formulário é preservado.</p>
         </div>
         <GoogleMapsControlDemo />
       </>}
       <p className={`rounded-lg p-3 text-sm ${status.config?.enabled && !status.blocked ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-900"}`}>
         {status.config?.operation_mode === "cache_only" ? "Modo R$ 0 — somente cache. Novas chamadas ao Google estão bloqueadas, inclusive em tarefas automáticas." : status.config?.enabled && !status.blocked ? "Chamadas habilitadas sob limites e confirmação por ação." : status.reason === "pricing_expired" ? "Chamadas pagas suspensas: a validade dos preços/câmbio expirou. Revise a configuração." : "Chamadas pagas suspensas. Defina os limites e a política de preços antes de habilitar."}
       </p>
-      <MapsConsumption consumption={status.consumption} remaining={status.remaining} limits={status.limits ?? status.config?.limits} />
+      {status.agenda_budget_mode === "monitor" && <div role="status" className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><strong>Agenda liberada com alertas; lotes e extras sob teto rígido</strong><p>Não há teto financeiro diário ou mensal para a Agenda neste modo. Cada consulta nova continua exigindo confirmação com quantidade e custo máximos finitos. O consumo da Agenda também reduz o saldo dos extras.</p>{status.alerts?.map((alert, index) => <p key={index}>{alert}</p>)}</div>}
+      <MapsConsumption reference={status.agenda_budget_mode === "monitor"} consumption={status.consumption} remaining={status.remaining} limits={status.limits ?? status.config?.limits} />
       <p className="text-sm text-gray-600">O consumo inclui o saldo inicial informado e os envios registrados{status.consumed_since ? ` desde ${dateLabel(status.consumed_since)}` : " após a ativação"}. Não representa uma reconstrução da fatura ou do histórico completo da conta Google.</p>
       {status.billing_note && <p className="text-sm text-gray-600">{status.billing_note}</p>}
       <p className="text-sm text-gray-600">O consumo contabiliza o teto estimado dos envios registrados. Uma franquia pode estar sendo consumida por outros projetos da conta; ela não é deduzida do limite local. Descontos por volume e dados atrasados do Billing não liberam saldo automaticamente.</p>
@@ -209,7 +215,13 @@ export default function GoogleMapsAdminPanel() {
             <div className="grid gap-3 sm:grid-cols-3">{periods.map(([key, label]) => <div key={key} className="rounded-lg border border-teal-200 bg-white p-3"><h4 className="font-semibold">{label}</h4><p>0 novas chamadas</p><p>R$ 0 de custo adicional</p></div>)}</div>
             <p>Este modo também bloqueia chamadas externas das tarefas automáticas. Não presume saldo de franquia gratuita, não exige preços ou câmbio e não reinicia o histórico de consumo.</p>
           </div> : <>
-          <p className="text-sm text-gray-600">Nenhum teto financeiro é preenchido automaticamente. O limite de chamadas e o limite em reais precisam ser respeitados ao mesmo tempo.</p>
+          <label className="block text-sm font-medium text-gray-700">Ao atingir o orçamento da Agenda
+            <select value={agendaBudgetMode} onChange={(event) => setAgendaBudgetMode(event.target.value as "enforce" | "monitor")} className={inputClass}>
+              <option value="monitor">Manter Agenda liberada com alertas; bloquear lotes e extras</option>
+              <option value="enforce">Bloquear também novas consultas pagas da Agenda</option>
+            </select>
+          </label>
+          <p className="text-sm text-gray-600">Nenhum valor financeiro é preenchido automaticamente. {agendaBudgetMode === "monitor" ? "Na Agenda, os valores em reais e os totais por dia/mês são referências de alerta. O máximo de chamadas por ação define o teto finito da confirmação. Lotes e tarefas extras respeitam todos os limites." : "O limite de chamadas e o limite em reais precisam ser respeitados ao mesmo tempo."}</p>
           <div className="grid gap-4 md:grid-cols-3">{periods.map(([key, label]) => <div key={key} className="space-y-3 rounded-xl border p-4"><h3 className="font-medium">{label}</h3>{field(`${key}_calls`, `Máximo de chamadas — ${label.toLowerCase()}`, { step: "1" })}{field(`${key}_brl`, `Máximo estimado em R$ — ${label.toLowerCase()}`)}</div>)}</div>
           <details className="rounded-xl border p-4" open={!status.config}>
             <summary className="cursor-pointer font-medium">Preços, câmbio e validade da estimativa</summary>
@@ -243,7 +255,7 @@ export default function GoogleMapsAdminPanel() {
         </fieldset>
       </form>
       <div><h3 className="mb-3 font-semibold">Histórico recente de consumo e bloqueios</h3>
-        {(status.history ?? []).length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b"><th className="p-2">Horário</th><th className="p-2">Ação</th><th className="p-2">Resultado / motivo</th><th className="p-2">Chamadas</th><th className="p-2">Estimativa</th></tr></thead><tbody>{status.history?.map((item, index) => <tr className="border-b" key={item.id ?? index}><td className="p-2">{dateLabel(item.created_at)}</td><td className="p-2">{item.action}</td><td className="p-2">{item.kind === "blocked" ? "Bloqueada" : item.kind === "call" ? "Envio registrado" : item.kind === "configuration" ? "Configuração atualizada" : item.kind}{item.message ? ` — ${item.message}` : item.reason ? ` — ${item.reason}` : ""}</td><td className="p-2">{item.calls}</td><td className="p-2">{formatMapsBrl(item.estimated_brl)}</td></tr>)}</tbody></table></div> : <p className="text-sm text-gray-600">Nenhum registro disponível nesta janela.</p>}
+        {(status.history ?? []).length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b"><th className="p-2">Horário</th><th className="p-2">Ação</th><th className="p-2">Resultado / motivo</th><th className="p-2">Chamadas</th><th className="p-2">Estimativa</th></tr></thead><tbody>{status.history?.map((item, index) => <tr className="border-b" key={item.id ?? index}><td className="p-2">{dateLabel(item.created_at)}</td><td className="p-2">{item.action}</td><td className="p-2">{item.kind === "budget_alert" ? "Alerta — Agenda liberada" : item.kind === "blocked" ? "Bloqueada" : item.kind === "call" ? "Envio registrado" : item.kind === "configuration" ? "Configuração atualizada" : item.kind}{item.message ? ` — ${item.message}` : item.reason ? ` — ${item.reason}` : ""}</td><td className="p-2">{item.calls}</td><td className="p-2">{formatMapsBrl(item.estimated_brl)}</td></tr>)}</tbody></table></div> : <p className="text-sm text-gray-600">Nenhum registro disponível nesta janela.</p>}
         <p className="mt-3 text-xs text-gray-500">Histórico sem chaves, endereços, coordenadas ou conteúdo dos atendimentos. Horários em Fortaleza.</p>
       </div>
     </>}

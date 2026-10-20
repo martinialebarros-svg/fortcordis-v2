@@ -62,6 +62,10 @@ def main():
         'test_unpaid_probe_rolls_back_then_one_confirmed_execution_succeeds',
         'test_new_booking_stops_before_google_and_requires_single_use_consent',
         'test_cold_cache_and_unavailable_ledger_never_send_or_commit',
+        'test_monitor_allows_new_booking_above_references_but_keeps_consent_and_replay_guard',
+        'test_monitor_quote_and_cancel_do_not_send_and_extras_automatics_still_stop',
+        'test_monitor_parallel_grants_remain_finite_and_durable',
+        'test_cache_only_rejects_monitor_exception',
     ]
     try:
         for name in cases:

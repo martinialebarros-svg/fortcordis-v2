@@ -165,6 +165,7 @@ class CostConfiguration(BaseModel):
     model_config = ConfigDict(extra="forbid")
     operation_mode: Literal["paid_budget", "cache_only"] = "paid_budget"
     enabled: StrictBool
+    agenda_budget_mode: Literal["enforce", "monitor"] = "enforce"
     limits: Limits
     prices_usd: dict[str, Decimal] | None = None
     fx_brl_per_usd_upper: Decimal | None = Field(default=None, gt=0, le=1000)
@@ -179,6 +180,8 @@ class CostConfiguration(BaseModel):
     @model_validator(mode="after")
     def validate_financial_envelope(self):
         if self.operation_mode == "cache_only":
+            if self.agenda_budget_mode != "enforce":
+                raise ValueError("Somente cache não permite liberação de consultas da Agenda.")
             if any(getattr(self.limits, period).calls != 0 or getattr(self.limits, period).estimated_brl != 0 for period in ("action", "day", "month")):
                 raise ValueError("O modo somente cache exige limites de chamadas e novas cobranças exatamente zero.")
             if self.prices_usd is not None or self.fx_brl_per_usd_upper is not None or self.price_multiplier is not None or self.pricing_valid_until is not None:
@@ -194,6 +197,8 @@ class CostConfiguration(BaseModel):
             raise ValueError("Preços por unidade devem ser positivos e finitos.")
         if any(price < MIN_UNIT_PRICES_USD[sku] for sku, price in self.prices_usd.items()):
             raise ValueError("O envelope de preços não pode ser menor que a maior faixa marginal pública por unidade: USD 0.005 Essentials/Geocoding e USD 0.01 Pro.")
+        if self.agenda_budget_mode == "monitor" and self.limits.action.calls * (max(self.prices_usd.values()) * self.fx_brl_per_usd_upper * self.price_multiplier * 1_000_000).to_integral_value(rounding=ROUND_CEILING) > 2**63 - 1:
+            raise ValueError("O envelope por confirmação excede a capacidade do registro financeiro; reduza o máximo de chamadas ou revise preços/câmbio.")
         if self.pricing_valid_until.tzinfo is None:
             raise ValueError("Validade de preços/câmbio deve incluir fuso horário.")
         if any(key not in ACTION_SPECS or cap < 0 or cap > 10_000_000 for key, cap in self.action_call_caps.items()):
@@ -208,6 +213,8 @@ class CostConfiguration(BaseModel):
 
 
 REASONS = {
+    "day_reference_exceeded": "Referência diária atingida: a Agenda continua liberada mediante confirmação; lotes e tarefas extras seguem bloqueados pelo teto.",
+    "month_reference_exceeded": "Referência mensal atingida: a Agenda continua liberada mediante confirmação; lotes e tarefas extras seguem bloqueados pelo teto.",
     "route_unavailable": "Não foi possível obter uma rota confiável. Os dados do formulário foram mantidos; revise a consulta de rota antes de confirmar o horário. Nenhuma distância, duração ou disponibilidade foi presumida.",
     "cache_only": "Modo somente cache: novas chamadas ao Google Maps estão bloqueadas para manter novas cobranças em R$ 0. Esta operação exige uma rota Google ainda válida ou um ajuste manual autorizado; não será criada uma estimativa alternativa.",
     "unconfigured": "Controle Google Maps sem configuração aprovada. Nenhuma chamada paga foi autorizada.",
@@ -417,6 +424,20 @@ def _unit_cost(cfg, sku):
     return _micros(cfg.prices_usd[sku] * cfg.fx_brl_per_usd_upper * cfg.price_multiplier)
 
 
+def agenda_monitored(cfg, action):
+    # Only registered human HTTP actions qualify. Automatic executions always
+    # store action="automatic", even when calling Agenda services internally.
+    return cfg is not None and cfg.agenda_budget_mode == "monitor" and action in ACTION_SPECS and action.startswith("agenda_")
+
+
+def _reference_alerts(cfg, usage, calls=0, cost=0):
+    return [f"{period}_reference_exceeded" for period in ("day", "month")
+        if usage[period]["calls"] + calls > getattr(cfg.limits, period).calls
+        or usage[period]["cost"] + cost > _micros(getattr(cfg.limits, period).estimated_brl)
+        or (calls == 0 and (usage[period]["calls"] >= getattr(cfg.limits, period).calls
+            or usage[period]["cost"] >= _micros(getattr(cfg.limits, period).estimated_brl)))]
+
+
 def request_fingerprint(user_id: int, method: str, path: str, query: Any, body: Any) -> str:
     """Store a keyed digest only, including identity and all execution inputs."""
     if isinstance(query, str):
@@ -486,14 +507,19 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
             cap = min(cfg.limits.action.calls, cfg.action_call_caps.get(spec.key, cfg.limits.action.calls))
             if spec.theoretical_cap is not None:
                 cap = min(cap, spec.theoretical_cap)
-            budget = _micros(cfg.limits.action.estimated_brl)
-            for period in ("day", "month"):
-                limit = getattr(cfg.limits, period)
-                cap = min(cap, limit.calls - usage[period]["calls"])
-                budget = min(budget, _micros(limit.estimated_brl) - usage[period]["cost"])
-                if (cap <= 0 or budget < unit) and reason is None:
-                    reason = f"{period}_limit"
-            max_calls = max(0, min(cap, budget // unit))
+            if agenda_monitored(cfg, spec.key):
+                # Daily/monthly budgets are references for the human Agenda.
+                # Consent still has a finite call AND monetary envelope.
+                max_calls = max(0, cap)
+            else:
+                budget = _micros(cfg.limits.action.estimated_brl)
+                for period in ("day", "month"):
+                    limit = getattr(cfg.limits, period)
+                    cap = min(cap, limit.calls - usage[period]["calls"])
+                    budget = min(budget, _micros(limit.estimated_brl) - usage[period]["cost"])
+                    if (cap <= 0 or budget < unit) and reason is None:
+                        reason = f"{period}_limit"
+                max_calls = max(0, min(cap, budget // unit))
             max_cost = max_calls * unit
             if max_calls == 0 and reason is None:
                 reason = "action_limit"
@@ -511,6 +537,9 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
             _event(conn, kind="blocked", action=spec.key, user_id=user_id, reason=reason)
         return {
             "required": True, "blocked": reason is not None, "reason": reason,
+            "budget_policy": "agenda_monitor" if agenda_monitored(cfg, spec.key) else "enforced",
+            "financial_limit_enforced": not agenda_monitored(cfg, spec.key),
+            "alerts": [REASONS[key] for key in _reference_alerts(cfg, usage, max_calls, max_cost)] if agenda_monitored(cfg, spec.key) else [],
             "operation_mode": "paid_budget", "paid_calls_allowed": reason is None,
             "message": REASONS.get(reason), "quote_id": quote_id, "action": spec.label,
             "action_key": spec.key, "service": "Google Maps Platform", "services": list(spec.skus),
@@ -666,9 +695,19 @@ def authorize_google_call(sku: str) -> None:
         if sku not in SKUS or sku not in json.loads(row["skus_json"]):
             _deny(conn, "sku_not_authorized", **meta)
         cost = _unit_cost(cfg, sku)
-        if row["used_calls"] + 1 > min(row["max_calls"], cfg.limits.action.calls) or row["used_cost_micros"] + cost > min(row["max_cost_micros"], _micros(cfg.limits.action.estimated_brl)):
+        monitored = agenda_monitored(cfg, row["action"]) and not row["policy"]
+        cost_cap = row["max_cost_micros"] if monitored else min(row["max_cost_micros"], _micros(cfg.limits.action.estimated_brl))
+        if row["used_calls"] + 1 > min(row["max_calls"], cfg.limits.action.calls) or row["used_cost_micros"] + cost > cost_cap:
             _deny(conn, "action_limit", **meta)
-        _check_periods(conn, cfg.limits, _usage(conn), cost, **meta)
+        usage = _usage(conn)
+        if monitored:
+            for reason in _reference_alerts(cfg, usage, 1, cost):
+                # One sanitized warning per action/period; no double counting.
+                exists = conn.execute(select(EVENTS.c.id).where(EVENTS.c.action_id == row["id"], EVENTS.c.kind == "budget_alert", EVENTS.c.reason == reason)).first()
+                if not exists:
+                    _event(conn, kind="budget_alert", reason=reason, **meta)
+        else:
+            _check_periods(conn, cfg.limits, usage, cost, **meta)
         if row["policy"]:
             policy = cfg.automatic_policies.get(row["policy"])
             if not policy or not policy.enabled:
@@ -772,6 +811,8 @@ def get_status():
         started = conn.execute(select(func.min(EVENTS.c.created_at)).where(EVENTS.c.kind == "opening")).scalar()
         return {
             "agenda_cache_first": settings.GOOGLE_MAPS_AGENDA_CACHE_FIRST is True,
+            "agenda_budget_mode": cfg.agenda_budget_mode if cfg else None,
+            "alerts": [REASONS[key] for key in _reference_alerts(cfg, usage)] if cfg and cfg.agenda_budget_mode == "monitor" else [],
             "configured": cfg is not None, "enabled": cfg.enabled if cfg else False,
             "blocked": reason is not None, "reason": reason, "revision": revision,
             "operation_mode": cfg.operation_mode if cfg else None,

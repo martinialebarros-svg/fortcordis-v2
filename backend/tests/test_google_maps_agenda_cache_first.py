@@ -52,8 +52,15 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
     def tearDown(self):
         fixtures.AgendaMapsBudgetAtomicityTest.tearDown(self)
 
-    def configure(self, day_calls=20):
+    def configure(self, day_calls=20, monitor=False):
         cfg = guard.CostConfiguration.model_validate({'enabled': True, 'limits': {'action': {'calls': 4, 'estimated_brl': 1}, 'day': {'calls': day_calls, 'estimated_brl': 5}, 'month': {'calls': 100, 'estimated_brl': 20}}, 'prices_usd': {sku: '0.01' for sku in guard.SKUS}, 'fx_brl_per_usd_upper': 6, 'price_multiplier': 1, 'pricing_valid_until': (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(), 'opening_usage': {'day': {'calls': 0, 'estimated_brl': 0}, 'month': {'calls': 0, 'estimated_brl': 0}}, 'opening_usage_as_of': guard._periods(guard._now())[0], 'opening_usage_basis': 'synthetic_stage'})
+        if monitor:
+            data = cfg.model_dump(mode="json")
+            data["agenda_budget_mode"] = "monitor"
+            data["limits"]["action"]["estimated_brl"] = 0
+            data["limits"]["day"] = data["limits"]["month"] = {"calls": 0, "estimated_brl": 0}
+            data["automatic_policies"] = {"synthetic_job": {"enabled": True, "limits": {key: {"calls": 5, "estimated_brl": 1} for key in ("action", "day", "month")}, "skus": ["routes_essentials"]}}
+            cfg = guard.CostConfiguration.model_validate(data)
         return guard.update_configuration(7, cfg, 0)
 
     def seed_cache(self, age_days=0, source='google_routes_api'):
@@ -214,6 +221,77 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
         self.assertEqual(replay.status_code, 409, replay.text)
         with self.sessions() as db:
             self.assertEqual(db.query(Agendamento).count(), 4)
+
+    def test_monitor_allows_new_booking_above_references_but_keeps_consent_and_replay_guard(self):
+        original = self.configure
+        self.configure = lambda: original(monitor=True)
+        self.test_new_booking_stops_before_google_and_requires_single_use_consent()
+        status = guard.get_status()
+        self.assertEqual(status["agenda_budget_mode"], "monitor")
+        self.assertEqual(status["consumption"]["day"], {"calls": 1, "estimated_brl": 0.06})
+        self.assertEqual(status["remaining"]["day"], {"calls": 0, "estimated_brl": 0})
+        self.assertEqual(len([event for event in status["history"] if event["kind"] == "budget_alert"]), 2)
+        self.assertEqual(len(status["alerts"]), 2)
+
+    def test_monitor_quote_and_cancel_do_not_send_and_extras_automatics_still_stop(self):
+        self.configure(monitor=True)
+        q = self.preview(paid=True).json()
+        self.assertFalse(q["blocked"])
+        self.assertEqual(q["budget_policy"], "agenda_monitor")
+        self.assertEqual(q["max_calls"], 4)
+        self.assertEqual(q["estimated_cost_max_brl"], 0.24)
+        self.assertEqual(len(q["alerts"]), 2)
+        # Discard/cancel the quote. Neither a provider reservation nor send.
+        self.assertEqual(guard.get_status()["consumption"]["day"]["calls"], 0)
+        self.outbound.assert_not_called()
+        extras = guard.create_preview(7, "POST", "/api/v1/logistica/recalcular")
+        self.assertTrue(extras["blocked"])
+        self.assertEqual(extras["budget_policy"], "enforced")
+        self.assertEqual(extras["reason"], "day_limit")
+        data = guard.get_status()["config"]
+        data["limits"]["action"]["estimated_brl"] = 1
+        guard.update_configuration(7, guard.CostConfiguration.model_validate(data), 1)
+        with guard.automatic_execution("synthetic_job", "one-stable-run"):
+            with self.assertRaises(guard.GoogleMapsCostBlocked) as caught:
+                guard.authorize_google_call("routes_essentials")
+            self.assertEqual(caught.exception.reason, "day_limit")
+        with guard.automatic_execution("no_policy", "another-run"):
+            with self.assertRaises(guard.GoogleMapsCostBlocked) as caught:
+                guard.authorize_google_call("routes_essentials")
+            self.assertEqual(caught.exception.reason, "automatic_policy_required")
+        self.outbound.assert_not_called()
+
+    def test_monitor_parallel_grants_remain_finite_and_durable(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        self.configure(monitor=True)
+        executions = []
+        for i in range(2):
+            q = self.preview(paid=True).json()
+            token = guard.confirm_preview(7, q["quote_id"])["token"]
+            executions.append(guard.claim_execution(7, token, "PUT", self.path, None, self.body))
+        barrier = Barrier(2)
+        def reserve(execution):
+            context = guard.bind_execution(execution)
+            try:
+                barrier.wait(timeout=10)
+                for _ in range(4): guard.authorize_google_call("routes_essentials")
+                with self.assertRaises(guard.GoogleMapsCostBlocked) as caught:
+                    guard.authorize_google_call("routes_essentials")
+                self.assertEqual(caught.exception.reason, "action_limit")
+                guard.finish_execution(execution)
+            finally: guard.reset_execution(context)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(reserve, executions))
+        self.ledger.dispose() # Reopen connections: the ledger survives restart.
+        status = guard.get_status()
+        self.assertEqual(status["consumption"]["day"], {"calls": 8, "estimated_brl": 0.48})
+        self.assertEqual(len([e for e in status["history"] if e["kind"] == "budget_alert"]), 4)
+        self.outbound.assert_not_called()
+
+    def test_cache_only_rejects_monitor_exception(self):
+        with self.assertRaises(ValueError):
+            guard.CostConfiguration.model_validate({"operation_mode": "cache_only", "agenda_budget_mode": "monitor", "enabled": True, "limits": {p: {"calls": 0, "estimated_brl": 0} for p in ("action", "day", "month")}})
 
 import test_google_maps_postgres_integration as pg_fixtures
 

@@ -1,5 +1,18 @@
 # Especificação — autorização e orçamento Google Maps
 
+## Política escolhida — Agenda com alertas, extras com teto (stage)
+
+Esta seção atualiza os critérios financeiros anteriores para a escolha expressa do usuário em 19/10: **“Manter a Agenda liberada com alertas de custo; o teto rígido bloqueia apenas consultas em lote e tarefas extras.”** Nenhuma reativação em produção está autorizada neste ciclo.
+
+- AM-001: configuração paga aceita `agenda_budget_mode=monitor|enforce`; legado permanece `enforce`. Somente ações HTTP humanas registradas `agenda_*` recebem `monitor`; IA, lotes, geocode, lookup avulso e ação `automatic` continuam sujeitos a todos os limites. `cache_only` rejeita a exceção `monitor`.
+- AM-002: em `monitor`, valores financeiros por ação e totais de chamadas/custo por dia/mês são referências da Agenda e tetos rígidos dos extras. A cotação da Agenda não é reduzida/recusada por seu esgotamento. Uso da Agenda integra os totais compartilhados e pode esgotar o saldo dos extras.
+- AM-003: cada ação da Agenda ainda exige confirmação com máximo finito de chamadas e custo (`max_calls × maior custo unitário conservador`). O máximo de chamadas por ação e eventual cap específico limitam a confirmação. Não existe confirmação permanente nem repetição ilimitada. O teto desta confirmação não corresponde ao valor financeiro de referência dos extras.
+- AM-004: reservas continuam persistidas sob lock compartilhado antes do I/O. Ao ultrapassar referência, registrar `budget_alert` sanitizado uma vez por ação/período, sem duplicar chamadas/custo. Revalidar usuário, payload, revisão, validade, estado, SKUs e teto da confirmação a cada envio. Reiniciar processos não renova autorização.
+- AM-005: popup e painel distinguem referência diária/mensal, saldo dos extras, alerta e teto desta confirmação. Exibir que **a Agenda pode gerar cobrança acima das referências e não possui teto financeiro diário/mensal neste modo**. Após confirmação, aviso amarelo não bloqueia a execução. Cancelar continua sem chamada paga.
+- AM-006: ausência de política/preços/baseline/ledger/grant válido não é consentimento. Cache continua independente do ledger; uma nova rota exige controle verificável e resposta confiável. Não fabricar deslocamento/disponibilidade. Falha Google ou teto finito da execução ainda pode impedir um horário específico, com formulário mantido.
+- AM-007: painel permite escolher a política sem preencher valores financeiros. Para nova configuração, apresenta a opção escolhida `monitor`; não converte config legada nem ativa por visita. Demonstração fictícia mostra cache, popup cancelar/confirmar e Agenda acima da referência, sem API/Google ou gravação.
+- AM-008: stage operacional fica sem orçamento pago; canário executa configuração sintética somente em schemas descartáveis isolados. Produção continua em liberação emergencial sem alteração. Antes de ativar: conciliar consumo real, escolher valores, revisar preços/câmbio/validade e validar dimensionamento do máximo de chamadas por ação. Quota Google compartilhada baixa/zero também bloqueia Agenda; só aplicar segunda barreira compatível após decisão operacional, ou separar projetos/chaves/cotas dos extras. Nenhuma quota nativa foi alterada.
+
 ## Contrato vigente — Agenda com cache primeiro (rollout apenas stage)
 
 - CF-001: `GOOGLE_MAPS_AGENDA_CACHE_FIRST=false` por padrão; quando habilitada, ações registradas `agenda_*` sem token recebem contexto local, sem acessar o ledger. Autenticação/permissões e validações de negócio permanecem exigidas. A liberação emergencial tem precedência.
@@ -10,7 +23,7 @@
 - CF-006: se o preview inicial falhar ou exceder 3 segundos, o cliente pode tentar a Agenda sem token, mantendo a barreira no servidor. Se a estimativa paga falhar, o transporte continua suspenso. Lotes, IA e jobs não recebem essa exceção de tentativa HTTP; políticas automáticas e limites globais permanecem obrigatórios.
 - CF-007: aviso na própria tela explica a consulta específica e mantém o formulário. Não afirmar que a agenda inteira está bloqueada. Rotas já válidas continuam disponíveis; uma rota desconhecida sem saldo não vira distância/duração/horário inventados.
 - CF-008: painel mostra a estratégia e demonstra três casos (cache, nova consulta com cancelar/confirmar, limite atingido). Números da demonstração são fictícios; todos os botões da demonstração enviam zero APIs/Google e não criam agendamento/configuração.
-- CF-009: produção permanece `temporary_open`, sem reativação de limites ou quotas nativas. A política para solicitações que dependam de rota nova sem saldo e os limites reais precisam ser escolhidos/revisados antes da ativação. Não há neste incremento um cadastro persistente novo de pré-agendamentos; formulário preservado não é solicitação salva nem horário confirmado.
+- CF-009: produção permanece `temporary_open`, sem reativação de limites ou quotas nativas. A política para rotas novas acima da referência foi escolhida e está descrita em AM-001–008; os valores reais precisam ser revisados antes da ativação. Não há neste incremento um cadastro persistente novo de pré-agendamentos; formulário preservado não é solicitação salva nem horário confirmado.
 
 As seções seguintes preservam o histórico dos ciclos anteriores. Declarações de ativação/custo zero nelas não substituem o estado vigente acima.
 
