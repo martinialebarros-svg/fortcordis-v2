@@ -47,6 +47,19 @@ describe("confirmação de custo antes do envio", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+
+  it("confirma Agenda acima da referência e mostra alerta sem bloquear o envio", async () => {
+    quoteResult = { ...quote, budget_policy: "agenda_monitor", financial_limit_enforced: false, alerts: ["Referência diária atingida; Agenda liberada."] };
+    render(<GoogleMapsActionGuard />);
+    const result = api.post("/agenda", {});
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Agenda liberada acima da referência");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Teto desta confirmação");
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar esta ação" }));
+    await result;
+    expect(screen.getByRole("alert")).toHaveTextContent("Alerta de custo — Agenda liberada");
+    expect(screen.getByRole("alert")).toHaveClass("bg-amber-50");
+    expect(requests.filter((item) => item.url === "/agenda")).toHaveLength(1);
+  });
   it("cancelar não envia a ação nem pede um token", async () => {
     render(<GoogleMapsActionGuard />);
     const result = api.post("/agenda/sugestoes-horario", { clinica_id: 1 }).catch((error) => error);

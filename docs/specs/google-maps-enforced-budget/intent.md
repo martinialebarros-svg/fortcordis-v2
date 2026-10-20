@@ -1,5 +1,9 @@
 # Intenção — limites efetivos de Google Maps
 
+## Decisão operacional atual — 19/10/2026
+
+O usuário escolheu manter a Agenda liberada com alertas quando o orçamento de referência for atingido e aplicar teto rígido somente a lotes/tarefas extras. Implementar essa política em stage, preservando consentimento por ação e registro compartilhado de todos os envios. A Agenda não tem teto financeiro diário/mensal neste modo; os valores não são promessa de custo zero. Não reativar em produção neste ciclo nem escolher números financeiros reais.
+
 ## Pedido vigente — ajuste em stage antes de reativar produção
 
 O usuário pediu ajustar o controle sem interromper novamente a Agenda, validar em stage e demonstrar antes de reativar em produção. A liberação temporária de produção permanece ativa; não há autorização para desativá-la, escolher teto financeiro, aplicar quota Google zero ou promover este incremento para main.

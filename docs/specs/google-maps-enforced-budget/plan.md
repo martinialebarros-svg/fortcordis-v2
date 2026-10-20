@@ -1,5 +1,12 @@
 # Plano de implementação e entrega
 
+## Incremento Agenda monitorada — stage
+
+1. Adicionar `agenda_budget_mode`, com padrão estrito para legado e opção explícita de monitoramento somente para ações humanas registradas da Agenda.
+2. Manter cotação/consentimento finitos, lock/reserva duráveis e identidade/payload/revisão; transformar referências globais esgotadas em alertas para Agenda, preservando bloqueios de extras/automáticos.
+3. Mostrar distinção no popup, alerta amarelo, painel e demonstração sem rede. Atualizar canário para Agenda acima de referências, cancelamento, bloqueio dos extras e concorrência.
+4. Testar localmente em PostgreSQL descartável, publicar somente stage via PR protegida, aguardar workflows terminais, verificar binários/configuração e canário com recepção sintética em schemas isolados. Preservar runtime e produção.
+
 ## Incremento vigente — controle sem interrupção global da Agenda
 
 1. Corrigir a antecipação do bloqueio: contexto local autenticado, sem consulta ao ledger antes de saber se há envio Google.

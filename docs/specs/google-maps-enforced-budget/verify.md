@@ -1,5 +1,11 @@
 # Verificação — Google Maps
 
+## Verificação do incremento — Agenda monitorada (stage)
+
+Critérios: Agenda com cache segue sem Google/ledger; nova rota acima de referências diárias/mensais e custo por ação dos extras pode criar agendamento após confirmação finita; descartar/cancelar cotação não envia; replay e consumo além da confirmação falham; duas execuções simultâneas preservam reservas e alertas sem dupla contagem; tarefas automáticas e lotes não herdam a liberação. `cache_only` não aceita monitoramento. A opção administrativa não cria orçamento nem altera produção.
+
+Testes em `test_google_maps_agenda_cache_first.py`, componentes Google Maps e canário instalado `scripts/google_maps_cache_first_stage_canary.py`. Canário usa recepção sintética, PostgreSQL em schemas novos isolados, transportes interceptados e remoção dos schemas; nunca criar agendamento real nem consultar Google para esta validação. Evidências desta entrega em `evidence/agenda-monitor-stage-validation.json` (preencher somente após checks instalados). Valores dos testes/demonstração são fictícios. Não considerar CI local ou SHA do checkout sozinho prova de publicação.
+
 ## Incremento vigente — cache primeiro, validação de stage em andamento
 
 Código preparado para rollout apenas em stage. Produção permanece na liberação temporária; nenhuma nova ativação financeira ou quota Google é autorizada por esta verificação.
