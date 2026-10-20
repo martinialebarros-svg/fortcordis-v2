@@ -1,5 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { requiresLogin } from "@/lib/auth-routes";
+import { protectRoute } from "@/lib/server-route-auth";
 import {
   isAppRoutePath,
   isInstitutionalHost,
@@ -15,7 +17,7 @@ function resolveProtocol(request: NextRequest): string {
   return request.nextUrl.protocol.replace(":", "");
 }
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const host = resolveRequestHost({
     host: request.headers.get("host"),
     forwardedHost: request.headers.get("x-forwarded-host"),
@@ -23,7 +25,7 @@ export function middleware(request: NextRequest) {
   });
 
   if (!isInstitutionalHost(host)) {
-    return NextResponse.next();
+    return requiresLogin(request.nextUrl.pathname) ? protectRoute(request) : NextResponse.next();
   }
 
   if (!isAppRoutePath(request.nextUrl.pathname)) {

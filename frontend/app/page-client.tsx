@@ -4,6 +4,8 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import axios from "axios";
+import { rememberSession } from "@/lib/auth-session";
+import { safeLoginDestination } from "@/lib/auth-routes";
 import {
   Building2,
   Eye,
@@ -40,20 +42,10 @@ export default function LoginPage() {
         withCredentials: true,
       });
 
-      // Compatibilidade temporaria: alguns fluxos ainda leem token do localStorage.
-      localStorage.setItem("token", response.data.access_token);
-      localStorage.setItem(
-        "user",
-        JSON.stringify({
-          id: response.data.user_id,
-          nome: response.data.nome,
-          email: response.data.email,
-          papeis: Array.isArray(response.data.papeis) ? response.data.papeis : [],
-        })
-      );
+      rememberSession(response.data);
 
       if (typeof window !== "undefined") {
-        window.location.replace("/dashboard");
+        window.location.replace(safeLoginDestination(new URLSearchParams(window.location.search).get("next")));
         return;
       }
     } catch (err: unknown) {
