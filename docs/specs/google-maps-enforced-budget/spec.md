@@ -1,5 +1,13 @@
 # Especificação — autorização e orçamento Google Maps
 
+## Endereço do tutor usado no agendamento domiciliar
+
+O botão de georreferenciar endereço dentro da Agenda utiliza `POST /agenda/geocode-endereco-tutor`, ação registrada `agenda_tutor_geocode`, limitada a uma unidade Geocoding por confirmação e vinculada ao endereço exato. Como parte do agendamento humano, essa consulta pode ultrapassar referências em `monitor`, após consentimento. O endpoint cadastral avulso continua sujeito ao teto rígido. Não usar flag arbitrária de payload para promover lote a ação da Agenda. Testar tentativa sem token/cancelamento sem transporte, confirmação de uma unidade, replay negado e preservação da regra do endpoint avulso.
+
+## Canário independente do fuso PostgreSQL
+
+Datas dos agendamentos sintéticos usam `LOCAL_TZ` explícito. A leitura de horário no teste converte o timestamp para Fortaleza antes da comparação; não remover o fuso de um timestamp UTC e compará-lo com relógio local. A validação instalada inicial de `f948dd60` concluiu o update HTTP 200 sem Google e depois acusou diferença na asserção de horário (14h30 UTC versus 11h30 Fortaleza). Isso é falha do fixture/comparação, sem evidência de falha do agendamento ou bloqueio de custo. Repetir a suíte integrada com conexão PostgreSQL em UTC e com o fuso Fortaleza. Não alterar fuso do banco de stage para contornar a prova.
+
 ## Política escolhida — Agenda com alertas, extras com teto (stage)
 
 Esta seção atualiza os critérios financeiros anteriores para a escolha expressa do usuário em 19/10: **“Manter a Agenda liberada com alertas de custo; o teto rígido bloqueia apenas consultas em lote e tarefas extras.”** Nenhuma reativação em produção está autorizada neste ciclo.

@@ -1767,7 +1767,7 @@ export default function NovoAgendamentoModal({
     try {
       setGeocodificandoTutor(true);
       setStatusEnderecoTutor("");
-      const response = await api.post("/tutores/geocode-endereco", {
+      const response = await api.post("/agenda/geocode-endereco-tutor", {
         endereco: novoTutor.endereco,
         numero: novoTutor.numero,
         complemento: novoTutor.complemento,

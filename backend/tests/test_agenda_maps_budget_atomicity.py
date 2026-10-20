@@ -68,7 +68,7 @@ class AgendaMapsBudgetAtomicityTest(unittest.TestCase):
             db.flush()
             rows = []
             for clinic, hour in zip(clinics, (9, 11, 14)):
-                start = datetime(2099, 5, 25, hour)
+                start = datetime(2099, 5, 25, hour, tzinfo=agenda.LOCAL_TZ)
                 rows.append(Agendamento(clinica_id=clinic.id, tutor_id=tutor.id, paciente_id=patient.id,
                     servico_id=service.id, inicio=start, fim=start + timedelta(minutes=30),
                     data="2099-05-25", hora=f"{hour:02}:00", status="Agendado"))

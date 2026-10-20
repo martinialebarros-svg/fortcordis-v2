@@ -87,7 +87,7 @@ export function needsMapsPreflight(method: string, path: string): boolean {
   if (verb === "POST") {
     return [
       "/logistica/recalcular", "/clinicas/geocode-endereco", "/tutores/geocode-endereco",
-      "/agenda", "/agenda/sugestao-proximidade",
+      "/agenda", "/agenda/geocode-endereco-tutor", "/agenda/sugestao-proximidade",
       "/agenda/sugestoes-horario", "/agenda/assistente/ofertas", "/agenda/assistente/validar-oferta",
       "/assistente-ia/chat",
     ].includes(relative) || /^\/agenda\/\d+\/reabilitar-reserva$/.test(relative) ||

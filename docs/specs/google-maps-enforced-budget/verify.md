@@ -1,5 +1,13 @@
 # Verificação — Google Maps
 
+## Endereço do tutor usado no agendamento domiciliar
+
+O botão de georreferenciar endereço dentro da Agenda utiliza `POST /agenda/geocode-endereco-tutor`, ação registrada `agenda_tutor_geocode`, limitada a uma unidade Geocoding por confirmação e vinculada ao endereço exato. Como parte do agendamento humano, essa consulta pode ultrapassar referências em `monitor`, após consentimento. O endpoint cadastral avulso continua sujeito ao teto rígido. Não usar flag arbitrária de payload para promover lote a ação da Agenda. Testar tentativa sem token/cancelamento sem transporte, confirmação de uma unidade, replay negado e preservação da regra do endpoint avulso.
+
+## Canário independente do fuso PostgreSQL
+
+Datas dos agendamentos sintéticos usam `LOCAL_TZ` explícito. A leitura de horário no teste converte o timestamp para Fortaleza antes da comparação; não remover o fuso de um timestamp UTC e compará-lo com relógio local. A validação instalada inicial de `f948dd60` concluiu o update HTTP 200 sem Google e depois acusou diferença na asserção de horário (14h30 UTC versus 11h30 Fortaleza). Isso é falha do fixture/comparação, sem evidência de falha do agendamento ou bloqueio de custo. Repetir a suíte integrada com conexão PostgreSQL em UTC e com o fuso Fortaleza. Não alterar fuso do banco de stage para contornar a prova.
+
 ## Verificação do incremento — Agenda monitorada (stage)
 
 Critérios: Agenda com cache segue sem Google/ledger; nova rota acima de referências diárias/mensais e custo por ação dos extras pode criar agendamento após confirmação finita; descartar/cancelar cotação não envia; replay e consumo além da confirmação falham; duas execuções simultâneas preservam reservas e alertas sem dupla contagem; tarefas automáticas e lotes não herdam a liberação. `cache_only` não aceita monitoramento. A opção administrativa não cria orçamento nem altera produção.

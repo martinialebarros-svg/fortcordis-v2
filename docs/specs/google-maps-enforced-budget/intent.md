@@ -1,5 +1,9 @@
 # Intenção — limites efetivos de Google Maps
 
+## Endereço do tutor usado no agendamento domiciliar
+
+O botão de georreferenciar endereço dentro da Agenda utiliza `POST /agenda/geocode-endereco-tutor`, ação registrada `agenda_tutor_geocode`, limitada a uma unidade Geocoding por confirmação e vinculada ao endereço exato. Como parte do agendamento humano, essa consulta pode ultrapassar referências em `monitor`, após consentimento. O endpoint cadastral avulso continua sujeito ao teto rígido. Não usar flag arbitrária de payload para promover lote a ação da Agenda. Testar tentativa sem token/cancelamento sem transporte, confirmação de uma unidade, replay negado e preservação da regra do endpoint avulso.
+
 ## Decisão operacional atual — 19/10/2026
 
 O usuário escolheu manter a Agenda liberada com alertas quando o orçamento de referência for atingido e aplicar teto rígido somente a lotes/tarefas extras. Implementar essa política em stage, preservando consentimento por ação e registro compartilhado de todos os envios. A Agenda não tem teto financeiro diário/mensal neste modo; os valores não são promessa de custo zero. Não reativar em produção neste ciclo nem escolher números financeiros reais.

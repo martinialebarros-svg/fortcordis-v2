@@ -80,6 +80,7 @@ class ActionSpec:
 
 
 ACTION_ROUTES = (
+    ("POST", r"/api/v1/agenda/geocode-endereco-tutor", ActionSpec("agenda_tutor_geocode", "Localizar endereço do tutor para agendamento", ("geocoding",), 1)),
     ("POST", r"/api/v1/agenda/sugestoes-horario", ActionSpec("agenda_search", "Buscar horários na agenda")),
     ("POST", r"/api/v1/agenda/assistente/validar-oferta", ActionSpec("agenda_validate_offer", "Validar oferta da agenda")),
     ("POST", r"/api/v1/agenda/sugestao-proximidade", ActionSpec("agenda_proximity", "Buscar horários por proximidade")),

@@ -1,5 +1,9 @@
 # Plano de implementação e entrega
 
+## Endereço do tutor usado no agendamento domiciliar
+
+O botão de georreferenciar endereço dentro da Agenda utiliza `POST /agenda/geocode-endereco-tutor`, ação registrada `agenda_tutor_geocode`, limitada a uma unidade Geocoding por confirmação e vinculada ao endereço exato. Como parte do agendamento humano, essa consulta pode ultrapassar referências em `monitor`, após consentimento. O endpoint cadastral avulso continua sujeito ao teto rígido. Não usar flag arbitrária de payload para promover lote a ação da Agenda. Testar tentativa sem token/cancelamento sem transporte, confirmação de uma unidade, replay negado e preservação da regra do endpoint avulso.
+
 ## Incremento Agenda monitorada — stage
 
 1. Adicionar `agenda_budget_mode`, com padrão estrito para legado e opção explícita de monitoramento somente para ações humanas registradas da Agenda.
