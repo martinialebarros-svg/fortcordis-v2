@@ -5,6 +5,8 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import api from "@/lib/axios";
+import axios from "axios";
+import { refreshBrowserSession, restoreBrowserSession, type BrowserSession } from "@/lib/auth-session";
 import FrontendPerformanceMonitor from "@/components/observability/FrontendPerformanceMonitor";
 import { FortinhoProvider } from "@/components/fortinho/FortinhoProvider";
 import { usesDashboardShell } from "@/lib/dashboard-shell-routes";
@@ -115,6 +117,8 @@ function DashboardFrame({
 }) {
   const [user, setUser] = useState<any>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [sessionError, setSessionError] = useState("");
+  const [logoutError, setLogoutError] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [nomeClinica, setNomeClinica] = useState("FortCordis");
@@ -244,25 +248,67 @@ function DashboardFrame({
 
   useEffect(() => {
     let cancelado = false;
+    let renewalTimer: ReturnType<typeof setTimeout> | undefined;
+    let expiresAt = 0;
+
+    const invalidSession = (error: unknown) => axios.isAxiosError(error)
+      && [401, 403].includes(error.response?.status || 0);
+    const renew = async () => {
+      try {
+        const session = await refreshBrowserSession();
+        if (!cancelado) {
+          setUser({ ...session, id: session.user_id });
+          scheduleRenewal(session);
+        }
+      } catch (error) {
+        if (cancelado) return;
+        if (invalidSession(error)) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          localStorage.removeItem("auth_provider");
+          setUser(null);
+          redirecionarParaLogin();
+        } else {
+          renewalTimer = setTimeout(() => { void renew(); }, 30000);
+        }
+      }
+    };
+    const scheduleRenewal = (session: BrowserSession) => {
+      if (renewalTimer) clearTimeout(renewalTimer);
+      if (session.provider !== "supabase" || !session.expires_at) return;
+      expiresAt = session.expires_at * 1000;
+      renewalTimer = setTimeout(() => { void renew(); }, Math.max(1000, expiresAt - Date.now() - 60000));
+    };
+    const onFocus = () => {
+      if (expiresAt && Date.now() >= expiresAt - 60000) {
+        if (renewalTimer) clearTimeout(renewalTimer);
+        void renew();
+      }
+    };
 
     const validarSessao = async () => {
       try {
-        const meResponse = await api.get("/auth/me");
+        const session = await restoreBrowserSession();
         if (cancelado) {
           return;
         }
 
-        const currentUser = meResponse.data;
+        const currentUser = { ...session, id: session.id ?? session.user_id };
         setUser(currentUser);
-        localStorage.setItem("user", JSON.stringify(currentUser));
+        scheduleRenewal(session);
         await carregarBranding();
       } catch (error) {
         if (cancelado) {
           return;
         }
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        redirecionarParaLogin();
+        if (invalidSession(error)) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          localStorage.removeItem("auth_provider");
+          redirecionarParaLogin();
+        } else {
+          setSessionError("Nao foi possivel verificar a sessao. Recarregue a pagina para tentar novamente.");
+        }
       } finally {
         if (!cancelado) {
           setAuthChecked(true);
@@ -271,19 +317,16 @@ function DashboardFrame({
     };
 
     void validarSessao();
+    window.addEventListener("focus", onFocus);
     return () => {
       cancelado = true;
+      if (renewalTimer) clearTimeout(renewalTimer);
+      window.removeEventListener("focus", onFocus);
     };
   }, [router]);
 
   useEffect(() => {
     capturarFaviconOriginal();
-  }, []);
-
-  useEffect(() => {
-    // Fallback para evitar tela presa em "Carregando..." caso algum efeito falhe em dev/HMR.
-    const timeout = window.setTimeout(() => setAuthChecked(true), 1200);
-    return () => window.clearTimeout(timeout);
   }, []);
 
   useEffect(() => {
@@ -334,20 +377,23 @@ function DashboardFrame({
   }, [logoUrl]);
 
   const handleLogout = async () => {
-    try {
-      await api.post("/auth/logout");
-    } catch {
-      // best effort
-    }
+    setLogoutError("");
     try {
       const { removePushSubscriptionForCurrentDevice } = await import("@/lib/usePushNotifications");
       await removePushSubscriptionForCurrentDevice();
     } catch {
       // best effort
     }
+    try {
+      await api.post("/auth/logout");
+    } catch {
+      setLogoutError("Nao foi possivel encerrar a sessao. Tente novamente.");
+      return;
+    }
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    router.push("/");
+    localStorage.removeItem("auth_provider");
+    window.location.replace("/");
   };
 
   const userIsAdmin = Array.isArray(user?.papeis)
@@ -375,7 +421,7 @@ function DashboardFrame({
   if (!user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-shell">
-        <div className="text-ink-500">Redirecionando para login...</div>
+        <div className="text-ink-500" role={sessionError ? "alert" : undefined}>{sessionError || "Redirecionando para login..."}</div>
       </div>
     );
   }
@@ -544,6 +590,7 @@ function DashboardFrame({
                   <LogOut className="w-5 h-5" />
                   Sair
                 </button>
+                {logoutError && <p role="alert" className="mt-2 text-sm text-white">{logoutError}</p>}
                 <p className="mt-3 px-3 text-[11px] leading-4 text-white/40">
                   Sistema proprietario da FortCordis. Desenvolvido por Martiniano Le Barros.
                 </p>

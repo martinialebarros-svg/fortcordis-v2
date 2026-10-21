@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { extractApiErrorMessage } from './api-error';
 import { invalidateStableCatalogForMutation } from './stable-catalog-cache';
+import { refreshBrowserSession } from './auth-session';
 import { isMapsControlError, mapsConfirmationStore, prepareMapsAction, retryMapsActionWithConsent } from './google-maps-control';
 
 const SAFE_METHODS = new Set(['get', 'head', 'options', 'trace']);
@@ -86,11 +87,28 @@ api.interceptors.response.use(
     if (isMapsControlError(error)) mapsConfirmationStore.notify(normalizedMessage);
 
     if (error.response?.status === 401) {
+      const config = error.config;
+      if (typeof window !== 'undefined' && config && !config._authRetried
+        && !String(config.url || '').startsWith('/auth/')
+        && localStorage.getItem('auth_provider') === 'supabase') {
+        config._authRetried = true;
+        try {
+          const session = await refreshBrowserSession();
+          if (config.headers?.Authorization) config.headers.Authorization = `Bearer ${session.access_token}`;
+          return api.request(config);
+        } catch (refreshError) {
+          // Preserve the browser session during an Auth service outage.
+          if (!axios.isAxiosError(refreshError) || ![401, 403].includes(refreshError.response?.status || 0)) {
+            return Promise.reject(refreshError);
+          }
+        }
+      }
       // Sessao expirada/invalidada.
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        window.location.href = '/';
+        localStorage.removeItem('auth_provider');
+        window.location.href = `/?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
       }
     }
     return Promise.reject(error);
