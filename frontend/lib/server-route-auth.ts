@@ -11,11 +11,22 @@ function privateResponse(response: NextResponse): NextResponse {
 }
 
 function loginRedirect(request: NextRequest): NextResponse {
-  const url = request.nextUrl.clone();
-  url.pathname = "/";
-  url.search = "";
-  url.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
-  return privateResponse(NextResponse.redirect(url));
+  // Next may expose its internal localhost origin behind the reverse proxy.
+  // Next requires absolute redirect URLs, so rebuild the public origin from
+  // the proxy's Host header and only accept known application/dev hosts.
+  try {
+    const url = new URL(`http://${request.headers.get("host") || request.nextUrl.host}`);
+    const publicHost = ["app.fortcordis.com.br", "app.stage.fortcordis.com.br"].includes(url.hostname);
+    const localHost = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if ((!publicHost && !localHost) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+      throw new Error("Invalid application host");
+    }
+    url.protocol = publicHost ? "https:" : request.nextUrl.protocol;
+    url.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+    return privateResponse(NextResponse.redirect(url));
+  } catch {
+    return privateResponse(new NextResponse("Host de aplicativo invalido.", { status: 503 }));
+  }
 }
 
 export async function protectRoute(request: NextRequest): Promise<NextResponse> {

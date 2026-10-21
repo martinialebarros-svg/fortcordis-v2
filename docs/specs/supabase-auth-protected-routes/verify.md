@@ -1,5 +1,16 @@
 # Verificacao
 
+Smoke do build Next real com Host app.stage e URL interna localhost encontrou
+redirecionamento para localhost antes do deploy. A tentativa 39523484593 foi
+cancelada antes de publicar; o ajuste usa a origem publica validada e acrescenta
+regressao com essa combinacao de URL/Host e query string e rejeicao de hosts
+externos/malformados. O build real deve confirmar o destino HTTPS correto.
+
+`npm run test:auth-proxy-smoke` inicia o build Next em loopback e valida 10
+casos HTTP sem credenciais: dominios publicos simulados pelo Host do proxy,
+query/RSC, dominio institucional, host externo, caminho codificado e portal.
+O gate de deploy stage executa esse smoke apos o build, antes de publicar.
+
 Isolamento de release: test_stage_auth_release_isolation.py executa o wrapper com
 flags herdadas de producao e comandos de servico inertes. Confere os destinos
 stage, backups separados e ausencia de chamadas ao Nginx quando desabilitado;
