@@ -17,19 +17,23 @@ const APP_HOST_BY_INSTITUTIONAL_HOST: Record<string, string> = {
 };
 
 const APP_ROUTE_PREFIXES = [
+  "/assistente-ia",
   "/agenda",
   "/atendimento",
   "/clinicas",
   "/configuracoes",
   "/dashboard",
   "/financeiro",
+  "/fiscal",
   "/laudos",
   "/logistica",
   "/pacientes",
   "/referencias-eco",
+  "/relatorios",
   "/servicos",
   "/whatsapp-stage",
   "/ultrassonografia-abdominal",
+  "/visualizador-vivid-iq",
 ];
 
 function normalizeHostValue(hostValue: string | null): string {

@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -77,7 +78,32 @@ def _token_from_login(
     return token
 
 
-def _token_from_internal_backend(backend_dir: str) -> str:
+def _supabase_canary_token(db, user, cleanup: ExitStack) -> str:
+    """Issue a real, locally revoked session; never send email or change a password."""
+    from app.services import supabase_auth
+
+    identity = supabase_auth.find_identity(user)
+    if identity is None or supabase_auth.load_app_user(db, identity).id != user.id:
+        raise RuntimeError("Usuario canary sem identidade Supabase vinculada.")
+    generated = supabase_auth.request_auth(
+        "POST", "admin/generate_link", admin=True,
+        body={"type": "magiclink", "email": user.email},
+    )
+    if generated.get("id") != identity["id"] or not generated.get("hashed_token"):
+        raise RuntimeError("Vinculo Supabase do canary inconsistente.")
+    session = supabase_auth.request_auth(
+        "POST", "verify", body={"type": "email", "token_hash": generated["hashed_token"]},
+    )
+    token = session.get("access_token")
+    if not isinstance(token, str) or not token:
+        raise RuntimeError("Sessao Supabase canary ausente.")
+    cleanup.callback(supabase_auth.sign_out, token)
+    if supabase_auth.get_user(db, token).id != user.id:
+        raise RuntimeError("Sessao Supabase canary inconsistente.")
+    return token
+
+
+def _token_from_internal_backend(backend_dir: str, cleanup: ExitStack) -> str:
     backend_dir = os.path.abspath(backend_dir)
     if not os.path.isdir(backend_dir):
         raise RuntimeError(f"backend_dir invalido: {backend_dir}")
@@ -117,6 +143,11 @@ def _token_from_internal_backend(backend_dir: str) -> str:
         if admin_user is None:
             raise RuntimeError("Nenhum usuario ativo encontrado para token canary.")
 
+        if settings.AUTH_PROVIDER == "supabase":
+            if not admin_user.tem_papel("admin"):
+                raise RuntimeError("Nenhum administrador ativo para canary Supabase.")
+            return _supabase_canary_token(db, admin_user, cleanup)
+
         papeis = [str(p.nome) for p in getattr(admin_user, "papeis", []) if getattr(p, "nome", None)]
         payload = {
             "sub": str(admin_user.email),
@@ -134,7 +165,7 @@ def _token_from_internal_backend(backend_dir: str) -> str:
         os.chdir(previous_cwd)
 
 
-def _resolve_token(args: argparse.Namespace) -> str:
+def _resolve_token(args: argparse.Namespace, cleanup: ExitStack) -> str:
     if args.bearer_token:
         return args.bearer_token
     env_token = str(os.getenv("CANARY_BEARER_TOKEN", "")).strip()
@@ -154,7 +185,7 @@ def _resolve_token(args: argparse.Namespace) -> str:
     if args.disable_internal_token:
         raise RuntimeError("Token canary indisponivel (sem token, sem login e fallback interno desativado).")
 
-    return _token_from_internal_backend(args.backend_dir)
+    return _token_from_internal_backend(args.backend_dir, cleanup)
 
 
 def _validate_admin_payload(payload: Dict[str, Any]) -> List[str]:
@@ -316,8 +347,13 @@ def _run_agenda_latency_canary(
 
 
 def _run_canary(args: argparse.Namespace) -> List[str]:
+    with ExitStack() as cleanup:
+        token = _resolve_token(args, cleanup)
+        return _run_authenticated_canary(args, token)
+
+
+def _run_authenticated_canary(args: argparse.Namespace, token: str) -> List[str]:
     errors: List[str] = []
-    token = _resolve_token(args)
     auth_header = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
     checks = [

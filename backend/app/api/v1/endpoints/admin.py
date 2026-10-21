@@ -18,6 +18,7 @@ from app.models.papel import Papel
 from app.models.papel_permissao import PapelPermissao
 from app.models.user import User
 from app.services.runtime_observability import get_persisted_http_latency_summary
+from app.services import supabase_auth
 from app.services.frontend_performance import get_frontend_performance_summary
 
 router = APIRouter()
@@ -755,6 +756,10 @@ def criar_usuario(
     novo_usuario.papeis = papeis
 
     db.add(novo_usuario)
+    if settings.AUTH_PROVIDER == "supabase":
+        # Obtain the local ID before provisioning; no user metadata controls it.
+        db.flush()
+        supabase_auth.create_identity(novo_usuario, password=payload.senha)
     db.commit()
     db.refresh(novo_usuario)
     return _serializar_usuario(novo_usuario)
@@ -805,6 +810,9 @@ def atualizar_usuario(
     if payload.papeis is not None:
         papeis = _resolver_papeis(db, payload.papeis)
         usuario.papeis = papeis
+
+    if settings.AUTH_PROVIDER == "supabase" and (payload.email is not None or payload.senha):
+        supabase_auth.update_identity(usuario, password=payload.senha)
 
     db.commit()
     db.refresh(usuario)

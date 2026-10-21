@@ -112,6 +112,7 @@ BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR="${BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR:-
 ENABLE_ECO_STUDY_OCR="${ENABLE_ECO_STUDY_OCR:-1}"
 REQUIRE_ECO_STUDY_OCR="${REQUIRE_ECO_STUDY_OCR:-0}"
 ENABLE_NGINX_HTTP2="${ENABLE_NGINX_HTTP2:-0}"
+RELOAD_NGINX_ON_DEPLOY="${RELOAD_NGINX_ON_DEPLOY:-1}"
 NGINX_HTTP2_EXPECTED_HOSTS="${NGINX_HTTP2_EXPECTED_HOSTS:-}"
 NGINX_HTTP2_SITE_ROOT="${NGINX_HTTP2_SITE_ROOT:-/etc/nginx/sites-available}"
 NGINX_HTTP2_ENABLED_ROOT="${NGINX_HTTP2_ENABLED_ROOT:-/etc/nginx/sites-enabled}"
@@ -263,6 +264,10 @@ print_service_diagnostics() {
 }
 
 reload_nginx_if_possible() {
+  if [[ "${RELOAD_NGINX_ON_DEPLOY}" != "1" ]]; then
+    log "Nginx reload disabled for this deploy."
+    return 0
+  fi
   local nginx_bin
   nginx_bin="$(command -v nginx 2>/dev/null || true)"
   if [[ -z "$nginx_bin" ]]; then

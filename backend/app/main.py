@@ -56,6 +56,7 @@ from app.core.csrf import (
 )
 from app.core.security_headers import build_security_headers
 from app.core.security import get_current_websocket_user
+from starlette.concurrency import run_in_threadpool
 from app.core.websocket import manager
 from app.db.database import SessionLocal, engine, get_db
 from app.models import user, papel, agendamento
@@ -304,6 +305,9 @@ app.add_middleware(
 
 
 def _append_security_headers(path: str, response):
+    if path.startswith("/api/v1/auth/"):
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["Pragma"] = "no-cache"
     for header_name, header_value in build_security_headers(path).items():
         response.headers[header_name] = header_value
     return response
@@ -316,7 +320,10 @@ async def enforce_csrf_for_cookie_session(request: Request, call_next):
         return _append_security_headers(request.url.path, response)
 
     path = request.url.path
-    has_session_cookie = bool(request.cookies.get(settings.AUTH_COOKIE_NAME))
+    has_session_cookie = bool(
+        request.cookies.get(settings.AUTH_COOKIE_NAME)
+        or request.cookies.get(settings.SUPABASE_REFRESH_COOKIE_NAME)
+    )
     if not should_protect_request(path, request.method, has_session_cookie):
         response = await call_next(request)
         return _append_security_headers(path, response)
@@ -502,7 +509,7 @@ async def websocket_endpoint(
     client_id: str,
     db: Session = Depends(get_db),
 ):
-    get_current_websocket_user(websocket, db)
+    await run_in_threadpool(get_current_websocket_user, websocket, db)
     await manager.connect(websocket, client_id)
     try:
         while True:
