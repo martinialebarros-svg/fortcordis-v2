@@ -79,3 +79,13 @@ NovoAgendamentoModal (1077 passaram); o arquivo usa mock completo de axios e nao
 foi alterado pela feature. A reexecucao focada desse arquivo junto dos testes
 Auth passou (14 testes). Esse resultado deve ser conferido novamente no CI; nao
 foi alterado codigo de Agenda para contornar a falha.
+
+O primeiro gate de deploy stage (run 39522210663) passou backend, PostgreSQL,
+lint, build frontend e testes funcionais WhatsApp; parou no npm audit da versao
+1.16.0 de follow-redirects. O deploy foi pulado. A correcao atualiza somente essa
+entrada transitiva para 1.16.1 e exige auditoria sem achados, build e testes de
+Auth, HTTP Express e retries antes de repetir o gate completo.
+
+Validacao local da correcao: npm audit --omit=dev encontrou 0 vulnerabilidades;
+build TypeScript e testes auth-policy, express-http e whatsapp-retry passaram.
+Achados nas dependencias de desenvolvimento nao foram incluidos nesta correcao.
