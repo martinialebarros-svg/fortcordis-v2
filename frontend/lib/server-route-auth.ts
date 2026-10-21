@@ -11,11 +11,12 @@ function privateResponse(response: NextResponse): NextResponse {
 }
 
 function loginRedirect(request: NextRequest): NextResponse {
-  const url = request.nextUrl.clone();
-  url.pathname = "/";
-  url.search = "";
-  url.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
-  return privateResponse(NextResponse.redirect(url));
+  // Next may expose its internal localhost origin behind the reverse proxy.
+  // A relative Location keeps the browser on the actual application origin.
+  const query = new URLSearchParams({ next: `${request.nextUrl.pathname}${request.nextUrl.search}` });
+  return privateResponse(new NextResponse(null, {
+    status: 307, headers: { Location: `/?${query}` },
+  }));
 }
 
 export async function protectRoute(request: NextRequest): Promise<NextResponse> {

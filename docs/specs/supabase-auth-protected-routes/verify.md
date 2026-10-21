@@ -1,5 +1,10 @@
 # Verificacao
 
+Smoke do build Next real com Host app.stage e URL interna localhost encontrou
+redirecionamento para localhost antes do deploy. A tentativa 39523484593 foi
+cancelada antes de publicar; o ajuste usa Location relativo e acrescenta teste
+de regressao com essa combinacao de URL/Host e query string.
+
 Isolamento de release: test_stage_auth_release_isolation.py executa o wrapper com
 flags herdadas de producao e comandos de servico inertes. Confere os destinos
 stage, backups separados e ausencia de chamadas ao Nginx quando desabilitado;

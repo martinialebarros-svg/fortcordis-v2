@@ -16,7 +16,7 @@ describe("server authentication boundary", () => {
       expect(requiresLogin(`/${path}/42`)).toBe(true);
       const response = await middleware(req(`/${path}`, ""));
       expect(response.status).toBe(307);
-      expect(new URL(response.headers.get("location")!).searchParams.get("next")).toBe(`/${path}`);
+      expect(new URL(response.headers.get("location")!, "https://app.fortcordis.com.br").searchParams.get("next")).toBe(`/${path}`);
     }
   });
 
@@ -35,7 +35,17 @@ describe("server authentication boundary", () => {
     const response = await protectRoute(req("/laudos/42?aba=medidas"));
     expect(response.status).toBe(307);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expect(new URL(response.headers.get("location")!).searchParams.get("next")).toBe("/laudos/42?aba=medidas");
+    expect(new URL(response.headers.get("location")!, "https://app.fortcordis.com.br").searchParams.get("next")).toBe("/laudos/42?aba=medidas");
+  });
+
+  it("keeps login on the browser origin when Next exposes an internal proxy URL", async () => {
+    const request = new NextRequest("http://localhost:3001/fiscal?aba=rotina", {
+      headers: { host: "app.stage.fortcordis.com.br", "x-forwarded-proto": "https" },
+    });
+    const response = await protectRoute(request);
+    const location = response.headers.get("location")!;
+    expect(location).toBe("/?next=%2Ffiscal%3Faba%3Drotina");
+    expect(new URL(location, "https://app.stage.fortcordis.com.br").origin).toBe("https://app.stage.fortcordis.com.br");
   });
 
   it("refreshes expired sessions and forwards all rotated cookies", async () => {

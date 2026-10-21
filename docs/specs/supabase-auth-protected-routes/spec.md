@@ -2,6 +2,10 @@
 
 ## Isolamento do deploy stage
 
+Redirecionamentos de login usam Location relativo, preservando a origem HTTPS
+publica mesmo quando Next recebe URL interna localhost pelo proxy. O parametro
+next preserva caminho/query e continua restrito a rotas privadas na tela de login.
+
 O wrapper stage desabilita configuracao HTTP/2 e reload do Nginx compartilhado,
 inclusive no rollback. Usa diretorio de backups exclusivo de stage para que a
 retencao nao remova backups de producao. O deploy generico preserva o default de
