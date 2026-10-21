@@ -2,6 +2,11 @@ import importlib.util
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from contextlib import ExitStack
+from unittest.mock import patch
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 REPO_DIR = Path(__file__).resolve().parents[2]
@@ -14,6 +19,35 @@ SPEC.loader.exec_module(CANARY)
 
 
 class DeployAuthenticatedCanaryValidationTest(unittest.TestCase):
+    def test_supabase_session_is_real_and_revoked_even_when_check_fails(self):
+        from app.services import supabase_auth
+        user = SimpleNamespace(id=1, email="canary@example.invalid")
+        identity = {"id": "identity-1"}
+        with patch.object(supabase_auth, "find_identity", return_value=identity), \
+             patch.object(supabase_auth, "load_app_user", return_value=user), \
+             patch.object(supabase_auth, "get_user", return_value=user), \
+             patch.object(supabase_auth, "request_auth", side_effect=[
+                 {"id": "identity-1", "hashed_token": "one-use"},
+                 {"access_token": "temporary-session"},
+             ]) as request, patch.object(supabase_auth, "sign_out") as logout:
+            with self.assertRaisesRegex(RuntimeError, "check failed"):
+                with ExitStack() as cleanup:
+                    self.assertEqual(CANARY._supabase_canary_token(None, user, cleanup), "temporary-session")
+                    raise RuntimeError("check failed")
+            logout.assert_called_once_with("temporary-session")
+            self.assertEqual(request.call_args_list[0].args, ("POST", "admin/generate_link"))
+            self.assertEqual(request.call_args_list[1].kwargs["body"], {"type": "email", "token_hash": "one-use"})
+
+    def test_supabase_canary_rejects_changed_identity_before_session(self):
+        from app.services import supabase_auth
+        user = SimpleNamespace(id=1, email="canary@example.invalid")
+        with patch.object(supabase_auth, "find_identity", return_value={"id": "expected"}), \
+             patch.object(supabase_auth, "load_app_user", return_value=user), \
+             patch.object(supabase_auth, "request_auth", return_value={"id": "other", "hashed_token": "one-use"}) as request:
+            with ExitStack() as cleanup, self.assertRaisesRegex(RuntimeError, "inconsistente"):
+                CANARY._supabase_canary_token(None, user, cleanup)
+            self.assertEqual(request.call_count, 1)
+
     def test_validate_admin_payload_ok(self) -> None:
         payload = {
             "runtime": {

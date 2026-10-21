@@ -12,3 +12,8 @@
    portais independentes e links com token.
 7. Entregar importador idempotente em dry-run por padrao, configuracao e runbook.
 8. Executar testes sinteticos backend/frontend, lint, typecheck, build e guardrail SDD.
+
+9. Preparar publicacao de Auth isolada, backup consistente de contas/permissoes e
+   configuracao privada, sem incluir funcionalidades de stage fora do escopo.
+10. Adequar o canario permanente ao provedor Supabase com sessao efemera revogada;
+    validar esse caminho com fixture real em stage antes da ativacao de producao.

@@ -26,7 +26,9 @@ em ~/fortcordis-stage-runtime-backups. Publicar com AUTH_PROVIDER=legacy para o
 canario atual, que gera JWT legado. A homologacao sintetica pode ativar Supabase
 temporariamente; retornar a legacy apos limpar fixtures preserva o acesso da
 equipe ainda nao importada. Ativacao permanente exige importar contas autorizadas
-e configurar canario com credencial sintetica Supabase, sem desabilitar checks.
+e usar o canario interno compativel com Supabase, sem desabilitar checks.
+Esse canario usa uma identidade administrativa ja vinculada, emite sessao sem
+enviar email e revoga somente a propria sessao ao terminar; nao cria conta extra.
 
 1. Usar projeto/ambiente de stage separado e contas sinteticas; manter chaves,
    dados e cookies de producao fora da homologacao.
