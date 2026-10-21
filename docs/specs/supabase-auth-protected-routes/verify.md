@@ -100,3 +100,25 @@ Auth, HTTP Express e retries antes de repetir o gate completo.
 Validacao local da correcao: npm audit --omit=dev encontrou 0 vulnerabilidades;
 build TypeScript e testes auth-policy, express-http e whatsapp-retry passaram.
 Achados nas dependencias de desenvolvimento nao foram incluidos nesta correcao.
+
+## Preparacao de producao em 21/10/2026
+
+A homologacao real de stage foi concluida no release 5e177a52: 89 checks HTTP,
+login/navegacao/logout no navegador, rollback legado e limpeza das fixtures.
+Stage ficou em legacy para preservar acesso da equipe ainda nao importada.
+
+O pacote isolado sobre main ac054398 preserva os controles Maps de producao;
+nao inclui os ajustes Maps/laudos existentes somente em stage. Validacao dessa
+base: 35 testes Auth/WebSocket/CSRF passaram; 19 testes frontend em 4 arquivos,
+typecheck, lint, build e 10 checks HTTP do Next compilado passaram.
+
+O canario foi ampliado para emitir sessao Supabase real sem enviar email e
+revogar apenas sua propria sessao. 34 testes Auth/canario passaram. O helper
+foi executado com conta sintetica real em stage: vinculo validado, sessao emitida
+e revogacao confirmada via GET user. As 4 identidades/3 contas locais sinteticas
+foram removidas e o projeto stage voltou a zero identidades Auth.
+
+Backup novo e consistente de producao: 4 usuarios, todos bcrypt, 5 papeis,
+5 vinculos usuario/papel, 80 permissoes e zero identidades Auth. Snapshot READ
+ONLY/REPEATABLE READ, arquivos privados 0600 e checksum conferido. Os valores
+sensíveis permanecem no servidor. Ativacao de producao ainda nao executada.

@@ -109,3 +109,13 @@ Para liberar a homologacao stage, o lockfile do servico WhatsApp usa
 follow-redirects 1.16.1. A versao 1.16.0 foi bloqueada no npm audit pelos avisos
 GHSA-q3jh-wrc6-jgq8 e GHSA-8r9p-f939-6h3c. A atualizacao e transitiva e nao muda
 fluxos de mensagens, configuracao Meta ou destinos de producao.
+
+## Canary de publicacao com Auth ativo
+
+O canario interno mantém o caminho legado quando AUTH_PROVIDER=legacy. Em modo
+Supabase, exige administrador local ativo com identidade ja vinculada, gera
+magiclink administrativo sem enviar email e troca o token de uso unico por uma
+sessao real. Confere a identidade retornada antes e depois da emissao. A sessao
+corrente e revogada em finally, inclusive se um check falhar. Nao cria contas,
+nao altera senhas/papeis nem revoga sessoes de outros dispositivos. Credenciais
+explicitamente fornecidas ao canario continuam tendo precedencia.
