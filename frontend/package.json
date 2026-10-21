@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx --max-warnings=0",
     "test": "vitest run && node --test",
+    "test:auth-proxy-smoke": "node scripts/auth-proxy-smoke.mjs",
     "test:watch": "vitest"
   },
   "dependencies": {

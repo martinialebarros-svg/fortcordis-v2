@@ -149,6 +149,10 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      - name: Verify compiled Auth redirects behind the Stage proxy
+        working-directory: frontend
+        run: npm run test:auth-proxy-smoke
+
       - name: Install WhatsApp backend dependencies
         working-directory: whatsapp-stage-backend
         run: npm ci

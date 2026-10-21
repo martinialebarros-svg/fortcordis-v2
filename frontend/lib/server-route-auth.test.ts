@@ -44,8 +44,16 @@ describe("server authentication boundary", () => {
     });
     const response = await protectRoute(request);
     const location = response.headers.get("location")!;
-    expect(location).toBe("/?next=%2Ffiscal%3Faba%3Drotina");
+    expect(location).toBe("https://app.stage.fortcordis.com.br/?next=%2Ffiscal%3Faba%3Drotina");
     expect(new URL(location, "https://app.stage.fortcordis.com.br").origin).toBe("https://app.stage.fortcordis.com.br");
+  });
+
+  it("rejects unknown or malformed Host values instead of redirecting off site", async () => {
+    for (const host of ["evil.invalid", "app.stage.fortcordis.com.br@evil.invalid", "app.stage.fortcordis.com.br/path"]) {
+      const response = await protectRoute(new NextRequest("http://localhost:3001/dashboard", { headers: { host } }));
+      expect(response.status).toBe(503);
+      expect(response.headers.get("location")).toBeNull();
+    }
   });
 
   it("refreshes expired sessions and forwards all rotated cookies", async () => {
