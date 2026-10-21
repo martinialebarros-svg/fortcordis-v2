@@ -1,5 +1,12 @@
 # Contrato
 
+## Isolamento do deploy stage
+
+O wrapper stage desabilita configuracao HTTP/2 e reload do Nginx compartilhado,
+inclusive no rollback. Usa diretorio de backups exclusivo de stage para que a
+retencao nao remova backups de producao. O deploy generico preserva o default de
+reload para seus demais chamadores; esta entrega nao publica em producao.
+
 ## Evidencia inicial
 
 Em 20/10/2026, consultas agregadas read-only no projeto wycxoueogfxdhyouhfhw

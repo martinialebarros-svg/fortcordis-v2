@@ -21,6 +21,13 @@ compartilhe sessao entre stage e producao.
 
 ## Preparacao e homologacao
 
+O deploy stage nao reconfigura nem recarrega Nginx compartilhado e guarda backups
+em ~/fortcordis-stage-runtime-backups. Publicar com AUTH_PROVIDER=legacy para o
+canario atual, que gera JWT legado. A homologacao sintetica pode ativar Supabase
+temporariamente; retornar a legacy apos limpar fixtures preserva o acesso da
+equipe ainda nao importada. Ativacao permanente exige importar contas autorizadas
+e configurar canario com credencial sintetica Supabase, sem desabilitar checks.
+
 1. Usar projeto/ambiente de stage separado e contas sinteticas; manter chaves,
    dados e cookies de producao fora da homologacao.
 2. Configurar no Dashboard Auth o acesso da equipe como administrado, desabilitando

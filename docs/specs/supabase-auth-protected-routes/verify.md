@@ -1,5 +1,10 @@
 # Verificacao
 
+Isolamento de release: test_stage_auth_release_isolation.py executa o wrapper com
+flags herdadas de producao e comandos de servico inertes. Confere os destinos
+stage, backups separados e ausencia de chamadas ao Nginx quando desabilitado;
+o caminho habilitado continua validando/recarregando o servico.
+
 Implementacao local, sem deploy e sem importacao de contas reais.
 Os testes de autenticacao usam usuarios sinteticos, SQLite em memoria e respostas
 Auth simuladas; nao provam um login real no projeto de producao.
