@@ -98,3 +98,8 @@ o vinculo/email inconsistente bloqueia login, sem promover acesso por email.
 Nao repetir criacao/importacao indiscriminadamente nem excluir contas para
 resolver divergencias. A importacao valida todos os conflitos antes de escrever,
 e uma execucao parcial e retomavel; nunca sobrescreve identidades existentes.
+
+Para liberar a homologacao stage, o lockfile do servico WhatsApp usa
+follow-redirects 1.16.1. A versao 1.16.0 foi bloqueada no npm audit pelos avisos
+GHSA-q3jh-wrc6-jgq8 e GHSA-8r9p-f939-6h3c. A atualizacao e transitiva e nao muda
+fluxos de mensagens, configuracao Meta ou destinos de producao.
