@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Production deploy script with guardrails:
-# - hard reset to origin/main (avoids stash/pop conflicts)
+# - hard reset to the resolved deploy SHA (avoids stash/pop conflicts)
 # - backend deps + migrations + health check
 # - frontend clean build (.next) + service checks
 #
@@ -12,6 +12,10 @@ set -euo pipefail
 # Optional env overrides:
 #   APP_DIR=/var/www/fortcordis-v2
 #   BRANCH=main
+#   DEPLOY_SHA=<full 40-character workflow SHA>
+#   DEPLOY_REF=refs/heads/main
+#   Without both DEPLOY_SHA and DEPLOY_REF, local legacy calls resolve the
+#   remote branch once and log a warning. Workflows always require both.
 #   BACKEND_SERVICE=fortcordis-backend
 #   BACKGROUND_WORKER_SERVICE=fortcordis-backend-worker
 #   FRONTEND_SERVICE=fortcordis-frontend
@@ -58,6 +62,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-/var/www/fortcordis-v2}"
 BRANCH="${BRANCH:-main}"
+DEPLOY_SHA="${DEPLOY_SHA:-}"
+DEPLOY_REF="${DEPLOY_REF:-}"
+DEPLOY_TARGET_SHA=""
 SUDO_PASSWORD="${SUDO_PASSWORD:-${VPS_SUDO_PASSWORD:-}}"
 
 BACKEND_DIR="${APP_DIR}/backend"
@@ -127,6 +134,69 @@ NPM_BIN="/usr/bin/npm"
 
 log() {
   printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"
+}
+
+validate_deploy_target() {
+  if ! git check-ref-format --branch "$BRANCH" >/dev/null; then
+    echo "[ERROR] Invalid deploy branch." >&2
+    return 1
+  fi
+  if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "[ERROR] DEPLOY_SHA must be a full 40-character lowercase commit SHA." >&2
+    return 1
+  fi
+  if [[ "$DEPLOY_REF" != "refs/heads/${BRANCH}" ]]; then
+    echo "[ERROR] DEPLOY_REF does not match the deployment branch." >&2
+    return 1
+  fi
+}
+
+resolve_deploy_target() {
+  if [[ -n "$DEPLOY_SHA" ]]; then
+    validate_deploy_target || return 1
+  else
+    if [[ -n "$DEPLOY_REF" ]]; then
+      echo "[ERROR] DEPLOY_REF requires DEPLOY_SHA; refusing legacy fallback." >&2
+      return 1
+    fi
+    git check-ref-format --branch "$BRANCH" >/dev/null || return 1
+    log "WARNING: legacy deploy without DEPLOY_SHA; resolving origin/${BRANCH} once."
+  fi
+
+  git fetch --no-tags origin \
+    "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}" || return 1
+  if [[ -n "$DEPLOY_SHA" ]]; then
+    git fetch --no-tags origin "$DEPLOY_SHA" || return 1
+    DEPLOY_TARGET_SHA="$(git rev-parse --verify "${DEPLOY_SHA}^{commit}")" || return 1
+    if [[ "$DEPLOY_TARGET_SHA" != "$DEPLOY_SHA" ]]; then
+      echo "[ERROR] Fetched commit does not match DEPLOY_SHA." >&2
+      return 1
+    fi
+    if ! git merge-base --is-ancestor "$DEPLOY_TARGET_SHA" "refs/remotes/origin/${BRANCH}"; then
+      echo "[ERROR] DEPLOY_SHA is not reachable from the expected remote branch." >&2
+      return 1
+    fi
+  else
+    DEPLOY_TARGET_SHA="$(git rev-parse --verify "refs/remotes/origin/${BRANCH}^{commit}")" || return 1
+  fi
+  log "Resolved deploy SHA: ${DEPLOY_TARGET_SHA} (branch=${BRANCH})"
+}
+
+update_deploy_code() {
+  if [[ ! "$DEPLOY_TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "[ERROR] Resolve a full deploy SHA before updating code." >&2
+    return 1
+  fi
+  git checkout "$BRANCH" || return 1
+  git reset --hard "$DEPLOY_TARGET_SHA" || return 1
+  CODE_UPDATED=1
+  local installed_sha
+  installed_sha="$(git rev-parse HEAD)" || return 1
+  if [[ "$installed_sha" != "$DEPLOY_TARGET_SHA" ]]; then
+    echo "[ERROR] Installed HEAD differs from the resolved deploy SHA." >&2
+    return 1
+  fi
+  log "Installed deploy SHA: ${installed_sha}"
 }
 
 run_with_sudo() {
@@ -1209,6 +1279,11 @@ if [[ -n "${PRE_DEPLOY_HASH}" ]]; then
   fi
 fi
 
+# Fail before runtime backup/reset/services when the requested revision cannot
+# be fetched or does not belong to this environment's branch.
+DEPLOY_STAGE="resolve_target"
+resolve_deploy_target
+
 mkdir -p "$RUNTIME_BACKUP_DIR"
 prune_runtime_backups
 STAMP="$(date +%Y%m%d_%H%M%S)"
@@ -1225,11 +1300,8 @@ backup_runtime_file "backend/data/frases_ultrassom_abdominal.json"
 backup_runtime_file "backend/data/atendimento_clinical_phrases.json"
 
 DEPLOY_STAGE="update_code"
-log "Updating code from origin/${BRANCH}"
-git fetch origin
-git checkout "$BRANCH"
-git reset --hard "origin/${BRANCH}"
-CODE_UPDATED=1
+log "Updating code to ${DEPLOY_TARGET_SHA}"
+update_deploy_code
 restore_runtime_artifacts
 NEW_HASH="$(git rev-parse --short HEAD)"
 log "Current HEAD: ${NEW_HASH}"

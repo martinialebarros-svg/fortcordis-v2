@@ -1,0 +1,23 @@
+# Intent — deploy-immutable-sha
+
+Data: 2026-10-22
+Status: autorizado para implementação e teste em stage
+
+## Problema
+
+Os gates avaliam `github.sha`, mas os workflows extraem o instalador de
+`origin/main` ou `origin/stage` e o instalador volta a resolver essa ponta.
+Quando a branch avança durante a fila, outra revisão pode ser instalada. A
+assertiva posterior de SHA da sincronização de presets detecta a diferença
+depois da instalação.
+
+## Objetivo e limites
+
+Vincular checkout, scripts extraídos e código instalado ao SHA completo do run,
+em stage e produção. Preservar os gates, a assertiva da sincronização, os seis
+arquivos runtime e o rollback. Esta autorização permite publicar somente em
+stage; produção requer autorização posterior. Não mudar Auth, dados, catálogo,
+serviços, segredos ou o comportamento dos presets.
+
+Chamadas operacionais antigas do script sem SHA continuam disponíveis, com
+resolução única e aviso explícito; os workflows sempre exigem SHA e ref.
