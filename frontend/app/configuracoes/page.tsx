@@ -2482,6 +2482,59 @@ export default function ConfiguracoesPage() {
                   </div>
                 </div>
 
+                <div className="rounded-lg border border-teal-200 bg-teal-50 p-3">
+                  <label className="inline-flex items-center gap-2 text-sm font-semibold text-gray-800">
+                    <input
+                      type="checkbox"
+                      checked={agendaRotaRegrasAtual.route_policy.regional_transition_enabled}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) => atualizarRegraRotaPolicy("regional_transition_enabled", e.target.checked)}
+                      className="h-4 w-4 text-teal-600"
+                    />
+                    Permitir uma transição regional por dia
+                  </label>
+                  <p className="mt-1 text-xs text-gray-600">
+                    Permite um único deslocamento acima do limite normal de {agendaRotaRegrasAtual.thresholds.max_neighbor_travel_min} min,
+                    com tempo de viagem e margem reservados. Os demais trechos seguem o limite normal.
+                  </p>
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div>
+                      <label htmlFor="transicao-regional-deslocamento" className="mb-1 block text-xs font-medium text-gray-600">
+                        Viagem máxima da transição (min)
+                      </label>
+                      <input
+                        id="transicao-regional-deslocamento"
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={agendaRotaRegrasAtual.route_policy.regional_transition_max_travel_min}
+                        disabled={somenteLeituraAgenda || !agendaRotaRegrasAtual.route_policy.regional_transition_enabled}
+                        onChange={(e) => atualizarRegraRotaPolicy("regional_transition_max_travel_min", Number(e.target.value || 0))}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 disabled:bg-gray-100 disabled:text-gray-400"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="transicao-regional-margem" className="mb-1 block text-xs font-medium text-gray-600">
+                        Margem total além da viagem (min)
+                      </label>
+                      <input
+                        id="transicao-regional-margem"
+                        type="number"
+                        min={15}
+                        max={120}
+                        value={agendaRotaRegrasAtual.route_policy.regional_transition_margin_min}
+                        disabled={somenteLeituraAgenda || !agendaRotaRegrasAtual.route_policy.regional_transition_enabled}
+                        onChange={(e) => atualizarRegraRotaPolicy("regional_transition_margin_min", Number(e.target.value || 0))}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 disabled:bg-gray-100 disabled:text-gray-400"
+                      />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-600">
+                    Limite fixo de uma transição por dia, com viagem de até 50 min e margem mínima de 15 min.
+                    A recorrência considera os últimos 60 dias para priorizar clínicas, sem excluir as demais.
+                  </p>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">

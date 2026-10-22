@@ -43,6 +43,11 @@ DEFAULT_AGENDA_ROTA_REGRAS = {
         "bonus_near_base_score": 15,
         "penalty_far_base_score": 10,
         "reject_clear_inefficiency": True,
+        "regional_transition_enabled": False,
+        "regional_transition_max_travel_min": 50,
+        "regional_transition_margin_min": 15,
+        "regional_transition_max_legs_per_day": 1,
+        "recurrent_clinic_history_days": 60,
     },
     "fallback_policy": {
         "suggest_alternative_slots_when_blocked": True,
@@ -264,6 +269,26 @@ def normalizar_agenda_rota_regras(payload: Any) -> dict[str, Any]:
             route_src.get("reject_clear_inefficiency"),
             default["route_policy"]["reject_clear_inefficiency"],
         ),
+        "regional_transition_enabled": _normalizar_bool(
+            route_src.get("regional_transition_enabled"),
+            default["route_policy"]["regional_transition_enabled"],
+        ),
+        "regional_transition_max_travel_min": _normalizar_int(
+            route_src.get("regional_transition_max_travel_min"),
+            default["route_policy"]["regional_transition_max_travel_min"],
+            1,
+            50,
+        ),
+        "regional_transition_margin_min": _normalizar_int(
+            route_src.get("regional_transition_margin_min"),
+            default["route_policy"]["regional_transition_margin_min"],
+            15,
+            120,
+        ),
+        # Esta etapa admite somente um trecho excepcional e usa a mesma
+        # janela historica em todas as ofertas; payloads nao ampliam esses limites.
+        "regional_transition_max_legs_per_day": 1,
+        "recurrent_clinic_history_days": 60,
     }
 
     fallback_src = source.get("fallback_policy") if isinstance(source.get("fallback_policy"), dict) else {}

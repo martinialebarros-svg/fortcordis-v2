@@ -112,3 +112,93 @@ describe("horarios minimos do primeiro atendimento", () => {
     );
   });
 });
+
+describe("transicao regional controlada", () => {
+  it("mantem a transicao desativada em configuracoes antigas e preserva o limite normal", () => {
+    const regras = normalizarAgendaRotaRegras({
+      thresholds: { max_neighbor_travel_min: 30, safe_margin_min: 5 },
+      route_policy: { end_of_route_window_start: "15:30" },
+    });
+
+    expect(regras.route_policy).toMatchObject({
+      regional_transition_enabled: false,
+      regional_transition_max_travel_min: 50,
+      regional_transition_margin_min: 15,
+      regional_transition_max_legs_per_day: 1,
+      recurrent_clinic_history_days: 60,
+      end_of_route_window_start: "15:30",
+    });
+    expect(regras.thresholds.max_neighbor_travel_min).toBe(30);
+    expect(regras.thresholds.safe_margin_min).toBe(5);
+  });
+
+  it("aceita strings e preserva transicao, pisos e demais ajustes no round trip", () => {
+    const entrada = {
+      thresholds: { max_neighbor_travel_min: 30, same_location_transition_min: 0 },
+      route_policy: {
+        regional_transition_enabled: "sim",
+        regional_transition_max_travel_min: "45",
+        regional_transition_margin_min: "20",
+        first_appointment_city_floors: { Aquiraz: "10:00" },
+        reject_clear_inefficiency: false,
+      },
+    };
+    const regras = normalizarAgendaRotaRegras(entrada);
+    const recarregado = normalizarAgendaRotaRegras(JSON.parse(JSON.stringify(regras)));
+
+    expect(recarregado).toEqual(regras);
+    expect(recarregado.route_policy).toMatchObject({
+      regional_transition_enabled: true,
+      regional_transition_max_travel_min: 45,
+      regional_transition_margin_min: 20,
+      reject_clear_inefficiency: false,
+    });
+    expect(recarregado.route_policy.first_appointment_city_floors.aquiraz).toBe("10:00");
+    expect(recarregado.thresholds.same_location_transition_min).toBe(0);
+    expect(entrada.route_policy.regional_transition_max_travel_min).toBe("45");
+  });
+
+  it.each([null, 0, -1, "2", 99])("mantem cota e janela fixas para entrada %j", (valor) => {
+    const { route_policy: politica } = normalizarAgendaRotaRegras({
+      route_policy: {
+        regional_transition_max_travel_min: 999,
+        regional_transition_margin_min: 0,
+        regional_transition_max_legs_per_day: valor,
+        recurrent_clinic_history_days: valor,
+      },
+    });
+
+    expect(politica.regional_transition_max_travel_min).toBe(50);
+    expect(politica.regional_transition_margin_min).toBe(15);
+    expect(politica.regional_transition_max_legs_per_day).toBe(1);
+    expect(politica.recurrent_clinic_history_days).toBe(60);
+  });
+
+  it.each([null, "invalido", [], {}])("usa fallback seguro para valores invalidos: %j", (valor) => {
+    const { route_policy: politica } = normalizarAgendaRotaRegras({
+      route_policy: {
+        regional_transition_enabled: valor,
+        regional_transition_max_travel_min: valor,
+        regional_transition_margin_min: valor,
+      },
+    });
+
+    expect(politica.regional_transition_enabled).toBe(false);
+    expect(politica.regional_transition_max_travel_min).toBe(50);
+    expect(politica.regional_transition_margin_min).toBe(15);
+  });
+
+  it("preserva desativacao explicita e limita valores extremos", () => {
+    const { route_policy: politica } = normalizarAgendaRotaRegras({
+      route_policy: {
+        regional_transition_enabled: "0",
+        regional_transition_max_travel_min: 0,
+        regional_transition_margin_min: 999,
+      },
+    });
+
+    expect(politica.regional_transition_enabled).toBe(false);
+    expect(politica.regional_transition_max_travel_min).toBe(1);
+    expect(politica.regional_transition_margin_min).toBe(120);
+  });
+});

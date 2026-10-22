@@ -61,6 +61,7 @@ from app.services.logistica_service import (
     obter_duracao_deslocamento,
     obter_duracao_deslocamento_entidades,
 )
+from app.services.agenda_regional_transition import avaliar_transicao_regional
 from app.services.geocoding_service import GeocodingError, geocodificar_endereco_google
 from app.services.google_maps_cost_control import GoogleMapsCostBlocked, block_cache_only_lookup, cache_only_operation
 from app.services.precos_service import calcular_preco_servico, calcular_precos_servicos_em_lote, to_decimal
@@ -277,6 +278,12 @@ class SugestaoHorarioPayload(BaseModel):
     limite: int = Field(default=8, ge=1, le=50)
     perfil_deslocamento: str = Field(default="comercial")
     ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
+
+
+class OportunidadesDiaPayload(BaseModel):
+    data: str
+    servico_id: Optional[int] = Field(default=None, ge=1)
+    limite: int = Field(default=20, ge=1, le=50)
 
 
 class ValidarOfertaAssistentePayload(BaseModel):
@@ -2141,6 +2148,25 @@ def _registrar_auditoria_excecao_deslocamento(
     )
 
 
+def _capturar_baseline_regional_agendamento(
+    db: Session,
+    inicio: Any,
+) -> Optional[list[dict]]:
+    """Snapshot the target day before a writer mutates its ORM appointment.
+
+    A later SELECT can return the already changed identity-map object, even
+    without autoflush. The route dictionaries must therefore be captured first.
+    Disabled policy never queries the day's appointments for this snapshot.
+    """
+    regras = _obter_regras_rota_agenda(db)
+    if not (regras.get("route_policy") or {}).get("regional_transition_enabled"):
+        return None
+    inicio_local = _to_local_naive(_coerce_datetime(inicio))
+    if inicio_local is None:
+        return None
+    return _listar_agendamentos_ativos_do_dia(db, inicio_local.date().isoformat())
+
+
 def _validar_deslocamento_agendamento(
     db: Session,
     agendamento: Agendamento,
@@ -2150,6 +2176,7 @@ def _validar_deslocamento_agendamento(
     confirmar_conflito_deslocamento: bool = False,
     validar_primeira_saida: bool = True,
     commit_cache: bool = False,
+    baseline_regional: Optional[list[dict]] = None,
 ) -> Optional[dict[str, str]]:
     """Bloqueia conflitos de rota, salvo excecao confirmada agora ou persistida.
 
@@ -2268,6 +2295,30 @@ def _validar_deslocamento_agendamento(
             folga_next = _minutos_entre(fim_dt, proximo["inicio"])
             destino_proximo_nome = _rotulo_destino_operacional(destino_proximo)
 
+    baseline_avaliacao = baseline_regional if baseline_regional is not None else agendamentos_dia
+    if baseline_regional is None and route_policy.get("regional_transition_enabled") and agendamento_id_excluir:
+        baseline_avaliacao = _listar_agendamentos_ativos_do_dia(db, data_iso)
+    regional = avaliar_transicao_regional(
+        baseline_avaliacao,
+        {"id": agendamento_id_excluir, "inicio": inicio_dt, "fim": fim_dt,
+         "status": status_atual, "destino_operacional": destino_atual},
+        regras_rota=regras_rota,
+        agendamento_id_excluir=agendamento_id_excluir,
+        resolver_deslocamento=lambda origem, destino: _obter_duracao_deslocamento_operacional(
+            db, origem=origem, destino=destino, perfil=perfil_norm,
+            cache_clinicas=cache_duracoes_clinicas, cache_operacional=cache_duracoes_operacionais,
+            cache_google=cache_google, commit_cache=commit_cache,
+        ),
+    )
+    if regional is not None and not regional.permitida:
+        raise HTTPException(status_code=409, detail={
+            "codigo": "CONFLITO_DESLOCAMENTO", "motivo_regional": regional.codigo,
+            "mensagem": "A rota permite uma transicao de ate 50 minutos no dia, com pelo menos 15 minutos de margem. Revise a viagem, a folga e as demais transicoes.",
+            "confirmavel": False, "transicao_regional": regional.as_dict(),
+        })
+    regional_prev = bool(regional and regional.trecho_anterior and regional.trecho_anterior.longo)
+    regional_next = bool(regional and regional.trecho_proximo and regional.trecho_proximo.longo)
+
     ancora_anterior_adjacente = _vizinho_e_ancora_adjacente(
         anterior,
         destino_anterior,
@@ -2284,14 +2335,16 @@ def _validar_deslocamento_agendamento(
         limite_ancora_min=int(thresholds.get("nearby_anchor_max_travel_min") or 20),
         margem_segura_min=margem_segura_min,
     )
-    relaxar_limite_prev_por_ancora = (
-        limite_trecho_vizinho_min > 0
+    relaxar_limite_prev_por_ancora = regional_prev or (
+        regional is None
+        and limite_trecho_vizinho_min > 0
         and duracao_prev > limite_trecho_vizinho_min
         and ancora_proxima_adjacente
         and _folga_cobre_deslocamento(folga_prev, duracao_prev, margem_min=margem_segura_min)
     )
-    relaxar_limite_next_por_ancora = (
-        limite_trecho_vizinho_min > 0
+    relaxar_limite_next_por_ancora = regional_next or (
+        regional is None
+        and limite_trecho_vizinho_min > 0
         and duracao_next > limite_trecho_vizinho_min
         and ancora_anterior_adjacente
         and _folga_cobre_deslocamento(folga_next, duracao_next, margem_min=margem_segura_min)
@@ -2326,6 +2379,8 @@ def _validar_deslocamento_agendamento(
         margem_segura_min=margem_segura_min, transicao_mesmo_local_min=transicao_mesmo_local_min,
         ancora_adjacente=ancora_anterior_adjacente,
     )
+    if regional_prev:
+        folga_necessaria_prev = duracao_prev + regional.margem_min
     if mesmo_local_prev and folga_prev < folga_necessaria_prev:
         if ignorar_conflito:
             return {"origem": origem_excecao, "bloqueio": "transicao_mesmo_local_prev"}
@@ -2393,6 +2448,8 @@ def _validar_deslocamento_agendamento(
         margem_segura_min=margem_segura_min, transicao_mesmo_local_min=transicao_mesmo_local_min,
         ancora_adjacente=ancora_proxima_adjacente,
     )
+    if regional_next:
+        folga_necessaria_next = duracao_next + regional.margem_min
     if mesmo_local_next and folga_next < folga_necessaria_next:
         if ignorar_conflito:
             return {"origem": origem_excecao, "bloqueio": "transicao_mesmo_local_next"}
@@ -2438,7 +2495,7 @@ def _validar_deslocamento_agendamento(
         and proximo
         and duracao_prev > 0
         and duracao_next > 0
-        and not (relaxar_limite_prev_por_ancora or relaxar_limite_next_por_ancora)
+        and (regional is not None or not (relaxar_limite_prev_por_ancora or relaxar_limite_next_por_ancora))
     ):
         destino_anterior = anterior.get("destino_operacional") if isinstance(anterior, dict) else None
         destino_proximo = proximo.get("destino_operacional") if isinstance(proximo, dict) else None
@@ -4541,12 +4598,26 @@ async def stream_agenda(
     )
 
 
+@router.post("/oportunidades-dia")
+def listar_oportunidades_dia(
+    payload: OportunidadesDiaPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.agenda_day_opportunities import buscar_oportunidades_dia
+    return buscar_oportunidades_dia(payload, db, current_user)
+
+
 @router.post("/sugestoes-horario")
 def sugerir_horarios_agenda(
     payload: SugestaoHorarioPayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    return _sugerir_horarios_agenda(payload, db, current_user)
+
+
+def _sugerir_horarios_agenda(payload, db, current_user, *, resolver_viagem=None, contexto_dia=None):
     """Sugere horarios operacionais considerando conflito de agenda e deslocamento entre destinos operacionais."""
     data_iso = _extract_date_filter(payload.data)
     if not data_iso:
@@ -4567,14 +4638,15 @@ def sugerir_horarios_agenda(
             "items": [],
         }
 
-    destino_base = _resolver_destino_operacional_payload(
+    contexto_dia = contexto_dia or {}
+    destino_base = contexto_dia.get("destinos", {}).get(payload.clinica_id) or _resolver_destino_operacional_payload(
         db,
         origem_atendimento=origem_atendimento,
         clinica_id=payload.clinica_id,
         tutor_id=payload.tutor_id,
         contexto="sugerir horarios",
     )
-    regras_rota = _obter_regras_rota_agenda(db)
+    regras_rota = contexto_dia.get("regras") or _obter_regras_rota_agenda(db)
     thresholds = regras_rota.get("thresholds") if isinstance(regras_rota.get("thresholds"), dict) else {}
     route_policy = regras_rota.get("route_policy") if isinstance(regras_rota.get("route_policy"), dict) else {}
     base_cfg = regras_rota.get("base") if isinstance(regras_rota.get("base"), dict) else {}
@@ -4582,13 +4654,13 @@ def sugerir_horarios_agenda(
     duracao_minutos = int(payload.duracao_minutos or 0)
     duracao_fallback = max(5, duracao_minutos if duracao_minutos > 0 else 30)
     # Fonte de verdade: quando houver servico selecionado, usa sempre a duracao cadastrada.
-    duracao_minutos = _resolver_duracao_servico(
+    duracao_minutos = contexto_dia.get("duracao_minutos") or _resolver_duracao_servico(
         db,
         servico_id=payload.servico_id,
         fallback_minutos=duracao_fallback,
     )
 
-    janela_inicio, janela_fim, motivo_fechado = _obter_janela_funcionamento_data(db, data_iso)
+    janela_inicio, janela_fim, motivo_fechado = contexto_dia.get("janela") or _obter_janela_funcionamento_data(db, data_iso)
     if janela_inicio is None or janela_fim is None:
         return {
             "ok": True,
@@ -4603,11 +4675,13 @@ def sugerir_horarios_agenda(
             "items": [],
         }
 
-    agendamentos_dia_todos = _listar_agendamentos_ativos_do_dia(
-        db,
-        data_iso,
-        agendamento_id_excluir=payload.ignorar_agendamento_id,
-    )
+    agendamentos_dia_todos = contexto_dia.get("agendamentos")
+    if agendamentos_dia_todos is None:
+        agendamentos_dia_todos = _listar_agendamentos_ativos_do_dia(
+            db,
+            data_iso,
+            agendamento_id_excluir=payload.ignorar_agendamento_id,
+        )
     agendamentos_dia = _filtrar_agendamentos_por_janela_funcionamento(
         db,
         agendamentos_dia_todos,
@@ -4622,7 +4696,7 @@ def sugerir_horarios_agenda(
                 "duracao_minutos": duracao_minutos}
 
     bloqueios_dia: list[tuple[datetime, datetime]] = []
-    for bloqueio in _listar_bloqueios_ativos(db):
+    for bloqueio in contexto_dia.get("bloqueios", []) if "bloqueios" in contexto_dia else _listar_bloqueios_ativos(db):
         bloqueio_inicio = _to_local_naive(_coerce_datetime(bloqueio.inicio))
         bloqueio_fim = _to_local_naive(_coerce_datetime(bloqueio.fim))
         if bloqueio_inicio is None or bloqueio_fim is None:
@@ -4670,6 +4744,11 @@ def sugerir_horarios_agenda(
     cache_duracoes_clinicas: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
     cache_duracoes_operacionais: dict[tuple[str, int, str, int, str], tuple[int, str]] = {}
     cache_google: dict = {}
+    resolver_viagem = resolver_viagem or _obter_duracao_deslocamento_operacional
+    cache_regional: dict = contexto_dia.setdefault("cache_regional", {})
+    baseline_regional = agendamentos_dia_todos
+    if route_policy.get("regional_transition_enabled") and payload.ignorar_agendamento_id:
+        baseline_regional = _listar_agendamentos_ativos_do_dia(db, data_iso)
 
     sugestoes: list[dict] = []
     primeira_saida_sem_estimativa = False
@@ -4708,16 +4787,24 @@ def sugerir_horarios_agenda(
         if conflita:
             continue
 
-        primeira_saida = _avaliar_primeira_saida(
-            db,
-            inicio=inicio_candidato,
-            destino=destino_base,
-            agendamentos_dia=agendamentos_dia_todos,
-            regras_rota=regras_rota,
-            perfil=perfil_norm,
-            agora_local=agora_local,
-            abertura_agenda=abertura_agenda,
-        )
+        if contexto_dia.get("somente_cache"):
+            # Completing an anchored day must never trigger a base lookup,
+            # including malformed/overnight legacy intervals.
+            if not any(_status_conta_como_ancora(item.get("status")) and item["inicio"] < inicio_candidato
+                       for item in agendamentos_dia_todos):
+                continue
+            primeira_saida = None
+        else:
+            primeira_saida = _avaliar_primeira_saida(
+                db,
+                inicio=inicio_candidato,
+                destino=destino_base,
+                agendamentos_dia=agendamentos_dia_todos,
+                regras_rota=regras_rota,
+                perfil=perfil_norm,
+                agora_local=agora_local,
+                abertura_agenda=abertura_agenda,
+            )
         if primeira_saida is not None and not primeira_saida["viavel"]:
             primeira_saida_sem_estimativa = primeira_saida_sem_estimativa or primeira_saida["tempo_deslocamento_base_min"] is None
             minimo_primeira_saida = primeira_saida.get("inicio_minimo_primeira_saida")
@@ -4744,7 +4831,7 @@ def sugerir_horarios_agenda(
         ancora_proxima_adjacente = False
 
         if isinstance(destino_anterior, dict) and (bool(destino_anterior.get("localizacao_confiavel")) or _destinos_operacionais_mesma_referencia(destino_anterior, destino_base)):
-            tempo_prev, fonte_prev = _obter_duracao_deslocamento_operacional(
+            tempo_prev, fonte_prev = resolver_viagem(
                 db,
                 origem=destino_anterior,
                 destino=destino_base,
@@ -4756,7 +4843,7 @@ def sugerir_horarios_agenda(
             folga_prev = _minutos_entre(anterior["fim"], inicio_candidato)
 
         if isinstance(destino_proximo, dict) and (bool(destino_proximo.get("localizacao_confiavel")) or _destinos_operacionais_mesma_referencia(destino_base, destino_proximo)):
-            tempo_next, fonte_next = _obter_duracao_deslocamento_operacional(
+            tempo_next, fonte_next = resolver_viagem(
                 db,
                 origem=destino_base,
                 destino=destino_proximo,
@@ -4766,6 +4853,24 @@ def sugerir_horarios_agenda(
                 cache_google=cache_google,
             )
             folga_next = _minutos_entre(fim_candidato, proximo["inicio"])
+
+        regional = avaliar_transicao_regional(
+            baseline_regional,
+            {"id": payload.ignorar_agendamento_id, "inicio": inicio_candidato, "fim": fim_candidato,
+             "status": "Agendado", "destino_operacional": destino_base},
+            regras_rota=regras_rota,
+            agendamento_id_excluir=payload.ignorar_agendamento_id,
+            cache_deslocamentos=cache_regional,
+            resolver_deslocamento=lambda origem, destino: resolver_viagem(
+                db, origem=origem, destino=destino, perfil=perfil_norm,
+                cache_clinicas=cache_duracoes_clinicas, cache_operacional=cache_duracoes_operacionais,
+                cache_google=cache_google,
+            ),
+        )
+        if regional is not None and not regional.permitida:
+            continue
+        regional_prev = bool(regional and regional.trecho_anterior and regional.trecho_anterior.longo)
+        regional_next = bool(regional and regional.trecho_proximo and regional.trecho_proximo.longo)
 
         ancora_anterior_adjacente = _vizinho_e_ancora_adjacente(
             anterior,
@@ -4783,14 +4888,16 @@ def sugerir_horarios_agenda(
             limite_ancora_min=limite_proximo_base_min,
             margem_segura_min=margem_segura_min,
         )
-        relaxar_limite_prev_por_ancora = (
-            limite_trecho_vizinho_min > 0
+        relaxar_limite_prev_por_ancora = regional_prev or (
+            regional is None
+            and limite_trecho_vizinho_min > 0
             and tempo_prev > limite_trecho_vizinho_min
             and ancora_proxima_adjacente
             and _folga_cobre_deslocamento(folga_prev, tempo_prev, margem_min=margem_segura_min)
         )
-        relaxar_limite_next_por_ancora = (
-            limite_trecho_vizinho_min > 0
+        relaxar_limite_next_por_ancora = regional_next or (
+            regional is None
+            and limite_trecho_vizinho_min > 0
             and tempo_next > limite_trecho_vizinho_min
             and ancora_anterior_adjacente
             and _folga_cobre_deslocamento(folga_next, tempo_next, margem_min=margem_segura_min)
@@ -4808,6 +4915,8 @@ def sugerir_horarios_agenda(
             margem_segura_min=margem_segura_min, transicao_mesmo_local_min=transicao_mesmo_local_min,
             ancora_adjacente=ancora_anterior_adjacente,
         )
+        if regional_prev:
+            folga_necessaria_prev = tempo_prev + regional.margem_min
         if (tempo_prev > 0 or mesmo_local_prev) and folga_prev < folga_necessaria_prev:
             continue
 
@@ -4823,6 +4932,8 @@ def sugerir_horarios_agenda(
             margem_segura_min=margem_segura_min, transicao_mesmo_local_min=transicao_mesmo_local_min,
             ancora_adjacente=ancora_proxima_adjacente,
         )
+        if regional_next:
+            folga_necessaria_next = tempo_next + regional.margem_min
         if (tempo_next > 0 or mesmo_local_next) and folga_next < folga_necessaria_next:
             continue
 
@@ -4833,9 +4944,9 @@ def sugerir_horarios_agenda(
             and isinstance(destino_proximo, dict)
             and tempo_prev > 0
             and tempo_next > 0
-            and not (relaxar_limite_prev_por_ancora or relaxar_limite_next_por_ancora)
+            and (regional is not None or not (relaxar_limite_prev_por_ancora or relaxar_limite_next_por_ancora))
         ):
-            duracao_direta, _fonte_direta = _obter_duracao_deslocamento_operacional(
+            duracao_direta, _fonte_direta = resolver_viagem(
                 db,
                 origem=destino_anterior,
                 destino=destino_proximo,
@@ -4849,8 +4960,8 @@ def sugerir_horarios_agenda(
                 if desvio_insercao > limite_desvio_insercao:
                     continue
 
-        tempo_prev_contabilizado = 0 if relaxar_limite_prev_por_ancora else tempo_prev
-        tempo_next_contabilizado = 0 if relaxar_limite_next_por_ancora else tempo_next
+        tempo_prev_contabilizado = 0 if relaxar_limite_prev_por_ancora and regional is None else tempo_prev
+        tempo_next_contabilizado = 0 if relaxar_limite_next_por_ancora and regional is None else tempo_next
         margem_prev = (folga_prev - tempo_prev) if folga_prev is not None else None
         margem_next = (folga_next - tempo_next) if folga_next is not None else None
         ociosidade_min = max(0, margem_prev or 0) + max(0, margem_next or 0)
@@ -4893,6 +5004,7 @@ def sugerir_horarios_agenda(
                 "inicio": inicio_candidato.strftime("%Y-%m-%d %H:%M"),
                 "fim": fim_candidato.strftime("%Y-%m-%d %H:%M"),
                 "score": score,
+                "transicao_regional": regional.as_dict() if regional else None,
                 "risco": risco,
                 "preferencia_ancora_ordem": preferencia_ancora_ordem,
                 "espera_ancora_min": espera_ancora_min if preferencia_ancora_ordem == 0 else None,
@@ -4923,8 +5035,8 @@ def sugerir_horarios_agenda(
                         "margem_min": margem_prev,
                         "fonte": fonte_prev,
                         "ancora_adjacente": bool(ancora_anterior_adjacente),
-                        "trecho_desconsiderado_ancora_adjacente": bool(relaxar_limite_prev_por_ancora),
-                        "margem_segura_relaxada_ancora_adjacente": bool(ancora_anterior_adjacente),
+                        "trecho_desconsiderado_ancora_adjacente": bool(relaxar_limite_prev_por_ancora and regional is None),
+                        "margem_segura_relaxada_ancora_adjacente": bool(ancora_anterior_adjacente and not regional_prev),
                     }
                     if anterior
                     else None
@@ -4943,8 +5055,8 @@ def sugerir_horarios_agenda(
                         "margem_min": margem_next,
                         "fonte": fonte_next,
                         "ancora_adjacente": bool(ancora_proxima_adjacente),
-                        "trecho_desconsiderado_ancora_adjacente": bool(relaxar_limite_next_por_ancora),
-                        "margem_segura_relaxada_ancora_adjacente": bool(ancora_proxima_adjacente),
+                        "trecho_desconsiderado_ancora_adjacente": bool(relaxar_limite_next_por_ancora and regional is None),
+                        "margem_segura_relaxada_ancora_adjacente": bool(ancora_proxima_adjacente and not regional_next),
                     }
                     if proximo
                     else None
@@ -5001,6 +5113,9 @@ def sugerir_horarios_agenda(
         "perfil_deslocamento": perfil_norm,
         "intervalo_minutos": intervalo_minutos,
         "regras_aplicadas": {
+            "regional_transition_enabled": bool(route_policy.get("regional_transition_enabled")),
+            "regional_transition_max_travel_min": route_policy.get("regional_transition_max_travel_min", 50),
+            "regional_transition_margin_min": route_policy.get("regional_transition_margin_min", 15),
             "safe_margin_min": margem_segura_min,
             "same_location_transition_min": transicao_mesmo_local_min,
             "max_neighbor_travel_min": limite_trecho_vizinho_min,
@@ -6523,6 +6638,18 @@ def atualizar_agendamento(
                 },
             )
 
+    baseline_regional = None
+    altera_rota = any(campo in update_data for campo in (
+        "inicio", "fim", "servico_id", "clinica_id", "origem_atendimento", "tutor_id",
+    )) or (
+        status_anterior in {"Cancelado", "Expirado"}
+        and update_data.get("status", status_anterior) not in {"Cancelado", "Expirado"}
+    )
+    if altera_rota:
+        baseline_regional = _capturar_baseline_regional_agendamento(
+            db, update_data.get("inicio", inicio_original),
+        )
+
     for field, value in update_data.items():
         setattr(db_agendamento, field, value)
 
@@ -6615,6 +6742,7 @@ def atualizar_agendamento(
                 db_agendamento,
                 agendamento_id_excluir=agendamento_id,
                 confirmar_conflito_deslocamento=override_conflito_deslocamento,
+                baseline_regional=baseline_regional,
                 validar_primeira_saida=not (
                     inicio_original_local is not None
                     and inicio_original_local <= agora_local
@@ -6640,6 +6768,7 @@ def atualizar_agendamento(
             db_agendamento,
             agendamento_id_excluir=agendamento_id,
             confirmar_conflito_deslocamento=override_conflito_deslocamento,
+            baseline_regional=baseline_regional,
             validar_primeira_saida=not atendimento_ja_iniciado,
         )
     if bypass_deslocamento and bypass_deslocamento.get("origem") == "confirmacao_admin":
@@ -6866,9 +6995,13 @@ def atualizar_status(
         related=related_validacao,
     )
 
-    db_agendamento.status = status_normalizado
     reativando_cancelado = status_anterior == "Cancelado" and status_normalizado != "Cancelado"
     reativando_inativo = reativando_cancelado or reativando_expirado
+    baseline_regional = (
+        _capturar_baseline_regional_agendamento(db, db_agendamento.inicio)
+        if reativando_inativo and status_normalizado in AGENDA_STATUS_BLOQUEIAM_SLOT else None
+    )
+    db_agendamento.status = status_normalizado
     reservas_expiradas_revisadas: list[Agendamento] = []
     bypass_deslocamento: Optional[dict[str, str]] = None
     if status_normalizado in AGENDA_STATUS_BLOQUEIAM_SLOT:
@@ -6894,6 +7027,7 @@ def atualizar_status(
                 db_agendamento,
                 agendamento_id_excluir=agendamento_id,
                 confirmar_conflito_deslocamento=confirmar_conflito_deslocamento,
+                baseline_regional=baseline_regional,
                 # Como no PUT, corrigir o status apos o inicio original nao
                 # exige uma nova saida da base; os conflitos entre vizinhos
                 # continuam sendo validados.
@@ -7292,6 +7426,7 @@ def reabilitar_reserva_expirada(
         prazo_explicito=payload.reserva_expira_em,
     )
 
+    baseline_regional = _capturar_baseline_regional_agendamento(db, db_agendamento.inicio)
     db_agendamento.status = "Reservado"
     db_agendamento.reserva_expira_em = novo_prazo
     _apply_service_duration_if_needed(db, db_agendamento)
@@ -7313,6 +7448,7 @@ def reabilitar_reserva_expirada(
         db_agendamento,
         agendamento_id_excluir=agendamento_id,
         confirmar_conflito_deslocamento=payload.confirmar_conflito_deslocamento,
+        baseline_regional=baseline_regional,
     )
     if bypass_deslocamento and bypass_deslocamento.get("origem") == "confirmacao_admin":
         _conceder_excecao_deslocamento(
