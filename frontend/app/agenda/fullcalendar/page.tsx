@@ -17,6 +17,7 @@ import { CalendarDays, ChevronDown, Download, FileText, List, MapPin, RefreshCw,
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
+import AgendaDayOpportunities from "@/components/agenda/AgendaDayOpportunities";
 import { normalizarCoordenadaOpcional } from "@/lib/coordinates";
 import { agruparIdsAgendamentosVisiveis } from "@/lib/agenda-loading";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
@@ -466,6 +467,8 @@ export default function AgendaFullCalendarPage() {
   const fortinho = useFortinho();
   const [authChecked, setAuthChecked] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [identidadeAgenda, setIdentidadeAgenda] = useState("");
+  const [transicaoRegionalAtiva, setTransicaoRegionalAtiva] = useState(false);
   const [intervalo, setIntervalo] = useState<IntervaloConsulta | null>(null);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
@@ -844,7 +847,21 @@ export default function AgendaFullCalendarPage() {
       return;
     }
     setIsAdmin(usuarioEhAdmin());
+    const atualizarIdentidade = () => {
+      try {
+        const usuario = JSON.parse(localStorage.getItem("user") || "{}");
+        setIdentidadeAgenda(String(usuario?.id ?? ""));
+      } catch {
+        setIdentidadeAgenda("");
+      }
+    };
+    atualizarIdentidade();
+    const aoAtualizarSessao = (event: StorageEvent) => {
+      if (event.key === "user" || event.key === null) atualizarIdentidade();
+    };
+    window.addEventListener("storage", aoAtualizarSessao);
     setAuthChecked(true);
+    return () => window.removeEventListener("storage", aoAtualizarSessao);
   }, [router]);
 
   useEffect(() => {
@@ -1085,6 +1102,7 @@ export default function AgendaFullCalendarPage() {
       setAgendaExcecoes(normalizarAgendaExcecoes(response.data?.agenda_excecoes));
       const regrasRota = normalizarAgendaRotaRegras(response.data?.agenda_rota_regras);
       setRenderingPolicy(regrasRota.rendering_policy);
+      setTransicaoRegionalAtiva(regrasRota.route_policy.regional_transition_enabled);
     } catch (error: any) {
       try {
         if (error?.response?.status === 404) {
@@ -1094,6 +1112,7 @@ export default function AgendaFullCalendarPage() {
           setAgendaExcecoes(normalizarAgendaExcecoes(fallback.data?.agenda_excecoes));
           const regrasRota = normalizarAgendaRotaRegras(fallback.data?.agenda_rota_regras);
           setRenderingPolicy(regrasRota.rendering_policy);
+          setTransicaoRegionalAtiva(regrasRota.route_policy.regional_transition_enabled);
           return;
         }
       } catch (fallbackError) {
@@ -1105,6 +1124,7 @@ export default function AgendaFullCalendarPage() {
       setAgendaFeriados([]);
       setAgendaExcecoes([]);
       setRenderingPolicy(DEFAULT_AGENDA_ROTA_REGRAS.rendering_policy);
+      setTransicaoRegionalAtiva(false);
     }
   }, []);
 
@@ -2568,6 +2588,8 @@ export default function AgendaFullCalendarPage() {
           {jornadaDataControle.motivo ? ` (${jornadaDataControle.motivo})` : ""}
           {excecaoDataControle ? " - com excecao cadastrada." : ""}
         </div>
+
+        {transicaoRegionalAtiva && <AgendaDayOpportunities key={identidadeAgenda} data={dataControleAgenda} identityKey={identidadeAgenda} />}
 
         <div
           className={`fc-agenda-livebar ${

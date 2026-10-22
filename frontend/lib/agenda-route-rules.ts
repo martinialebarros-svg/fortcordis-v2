@@ -36,6 +36,11 @@ export interface AgendaRotaRoutePolicyConfig {
   bonus_near_base_score: number;
   penalty_far_base_score: number;
   reject_clear_inefficiency: boolean;
+  regional_transition_enabled: boolean;
+  regional_transition_max_travel_min: number;
+  regional_transition_margin_min: number;
+  regional_transition_max_legs_per_day: 1;
+  recurrent_clinic_history_days: 60;
 }
 
 export interface AgendaRotaFallbackPolicyConfig {
@@ -105,6 +110,11 @@ export const DEFAULT_AGENDA_ROTA_REGRAS: AgendaRotaRegrasConfig = {
     bonus_near_base_score: 15,
     penalty_far_base_score: 10,
     reject_clear_inefficiency: true,
+    regional_transition_enabled: false,
+    regional_transition_max_travel_min: 50,
+    regional_transition_margin_min: 15,
+    regional_transition_max_legs_per_day: 1,
+    recurrent_clinic_history_days: 60,
   },
   fallback_policy: {
     suggest_alternative_slots_when_blocked: true,
@@ -358,6 +368,24 @@ export const normalizarAgendaRotaRegras = (payload: unknown): AgendaRotaRegrasCo
         routeRaw.reject_clear_inefficiency,
         defaultCfg.route_policy.reject_clear_inefficiency
       ),
+      regional_transition_enabled: normalizarBool(
+        routeRaw.regional_transition_enabled,
+        defaultCfg.route_policy.regional_transition_enabled
+      ),
+      regional_transition_max_travel_min: normalizarInt(
+        routeRaw.regional_transition_max_travel_min,
+        defaultCfg.route_policy.regional_transition_max_travel_min,
+        1,
+        50
+      ),
+      regional_transition_margin_min: normalizarInt(
+        routeRaw.regional_transition_margin_min,
+        defaultCfg.route_policy.regional_transition_margin_min,
+        15,
+        120
+      ),
+      regional_transition_max_legs_per_day: 1,
+      recurrent_clinic_history_days: 60,
     },
     fallback_policy: {
       suggest_alternative_slots_when_blocked: normalizarBool(
