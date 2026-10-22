@@ -21,7 +21,7 @@ UNITS = ('fortcordis-backend', 'fortcordis-backend-worker')
 def observed_baseline(route_month, route_day, emergency_month, emergency_day):
     # These sources overlap. Max is an observable floor, never a reconciled total
     # or an upper bound; extra actions stay zero regardless of remaining budget.
-    month = max(route_month, emergency_month.get('routes_essentials', 0), 6388) + max(emergency_month.get('geocoding', 0), 23)
+    month = max(route_month, emergency_month.get('routes_essentials', 0), 6487) + max(emergency_month.get('geocoding', 0), 23)
     day = max(route_day, emergency_day.get('routes_essentials', 0)) + emergency_day.get('geocoding', 0)
     return {'day': {'calls': day, 'estimated_brl': str(Decimal(day) * Decimal('0.036'))},
             'month': {'calls': max(month, day), 'estimated_brl': str(Decimal(max(month, day)) * Decimal('0.036'))}}
@@ -137,7 +137,7 @@ def main():
         baseline=observed_baseline(route_month,route_day,emergency_month,emergency_day)
         result.update({'cutover_at':now.isoformat(),'telemetry':{'route_month':route_month,'route_day':route_day},
                        'emergency_month':emergency_month,'emergency_day':emergency_day,'opening_usage':baseline,
-                       'baseline_note':'Observable historical floor; incomplete Billing reconciliation. Overlapping sources use max, never sum. Known Google snapshot 1-21 Oct: 6388 Routes and 23 Geocoding. No free credit inferred. All non-Agenda caps remain zero.'})
+                       'baseline_note':'Observable historical floor; incomplete Billing reconciliation. Overlapping sources use max, never sum. Known Google snapshot 1-22 Oct: 6487 Routes and 23 Geocoding. No free credit inferred. All non-Agenda caps remain zero.'})
         upsert_env(ROOT/'backend/.env',{'APP_ENV':'production','GOOGLE_MAPS_AGENDA_CACHE_FIRST':'true','GOOGLE_MAPS_COST_EMERGENCY_RELEASE':'false'})
         # Import the service only AFTER env transition; never reuse cached settings.
         os.environ.update(APP_ENV='production',GOOGLE_MAPS_AGENDA_CACHE_FIRST='true',GOOGLE_MAPS_COST_EMERGENCY_RELEASE='false')

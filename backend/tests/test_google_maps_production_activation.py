@@ -17,7 +17,7 @@ class ProductionMapsCutoverTests(unittest.TestCase):
 
     def test_older_google_observation_is_not_discarded_by_shorter_logs(self):
         usage=cutover.observed_baseline(6258,27,{'routes_essentials':413,'geocoding':5},{})
-        self.assertEqual(usage['month']['calls'],6411)
+        self.assertEqual(usage['month']['calls'],6510)
         self.assertEqual(usage['day']['calls'],27)
 
     def test_newer_observation_is_counted_and_month_includes_day(self):
