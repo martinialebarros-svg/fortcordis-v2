@@ -122,3 +122,18 @@ Backup novo e consistente de producao: 4 usuarios, todos bcrypt, 5 papeis,
 5 vinculos usuario/papel, 80 permissoes e zero identidades Auth. Snapshot READ
 ONLY/REPEATABLE READ, arquivos privados 0600 e checksum conferido. Os valores
 sensíveis permanecem no servidor. Ativacao de producao ainda nao executada.
+
+## Excecao de publicacao autorizada em 21/10/2026
+
+O usuario autorizou explicitamente PR isolado de Supabase Auth como excecao
+controlada ao fluxo stage -> main, excluindo Maps e laudos. O diff de producao
+parte de ac054398 e contem somente Auth, protecao de rotas e suporte operacional
+necessario; mantem a implementacao Maps de main no arquivo axios.ts.
+
+O canario ja foi integrado via PR #407 e publicado em stage 70e31328. Run
+39588887721 concluiu quality-gate, sdd-guardrail, diagnosticos e deploy-stage com
+sucesso. No pacote isolado sobre main, suite frontend completa: 109 arquivos e
+997 testes Vitest mais 23 testes Node passaram. Os guards SDD e de criterios de
+promocao passaram localmente sem excecao de criterios pendentes. A suite completa
+de backend sera exigida pelo gate de producao antes do deploy; nao confundir a
+execucao local interrompida com sucesso dessa suite.
