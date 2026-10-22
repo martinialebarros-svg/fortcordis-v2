@@ -9,13 +9,13 @@ set -euo pipefail
 # Usage (on VPS):
 #   bash scripts/deploy_prod_vps.sh
 #
+# Required deploy identity (including manual invocations):
+#   DEPLOY_SHA=<full 40-character approved workflow SHA>
+#   DEPLOY_REF=refs/heads/main
 # Optional env overrides:
 #   APP_DIR=/var/www/fortcordis-v2
 #   BRANCH=main
-#   DEPLOY_SHA=<full 40-character workflow SHA>
-#   DEPLOY_REF=refs/heads/main
-#   Without both DEPLOY_SHA and DEPLOY_REF, local legacy calls resolve the
-#   remote branch once and log a warning. Workflows always require both.
+#   Missing identity always fails; the branch tip is never a fallback.
 #   BACKEND_SERVICE=fortcordis-backend
 #   BACKGROUND_WORKER_SERVICE=fortcordis-backend-worker
 #   FRONTEND_SERVICE=fortcordis-frontend
@@ -137,10 +137,6 @@ log() {
 }
 
 validate_deploy_target() {
-  if ! git check-ref-format --branch "$BRANCH" >/dev/null; then
-    echo "[ERROR] Invalid deploy branch." >&2
-    return 1
-  fi
   if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
     echo "[ERROR] DEPLOY_SHA must be a full 40-character lowercase commit SHA." >&2
     return 1
@@ -149,42 +145,32 @@ validate_deploy_target() {
     echo "[ERROR] DEPLOY_REF does not match the deployment branch." >&2
     return 1
   fi
+  if ! git check-ref-format --branch "$BRANCH" >/dev/null; then
+    echo "[ERROR] Invalid deploy branch." >&2
+    return 1
+  fi
 }
 
 resolve_deploy_target() {
-  if [[ -n "$DEPLOY_SHA" ]]; then
-    validate_deploy_target || return 1
-  else
-    if [[ -n "$DEPLOY_REF" ]]; then
-      echo "[ERROR] DEPLOY_REF requires DEPLOY_SHA; refusing legacy fallback." >&2
-      return 1
-    fi
-    git check-ref-format --branch "$BRANCH" >/dev/null || return 1
-    log "WARNING: legacy deploy without DEPLOY_SHA; resolving origin/${BRANCH} once."
-  fi
-
+  validate_deploy_target || return 1
   git fetch --no-tags origin \
     "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}" || return 1
-  if [[ -n "$DEPLOY_SHA" ]]; then
-    git fetch --no-tags origin "$DEPLOY_SHA" || return 1
-    DEPLOY_TARGET_SHA="$(git rev-parse --verify "${DEPLOY_SHA}^{commit}")" || return 1
-    if [[ "$DEPLOY_TARGET_SHA" != "$DEPLOY_SHA" ]]; then
-      echo "[ERROR] Fetched commit does not match DEPLOY_SHA." >&2
-      return 1
-    fi
-    if ! git merge-base --is-ancestor "$DEPLOY_TARGET_SHA" "refs/remotes/origin/${BRANCH}"; then
-      echo "[ERROR] DEPLOY_SHA is not reachable from the expected remote branch." >&2
-      return 1
-    fi
-  else
-    DEPLOY_TARGET_SHA="$(git rev-parse --verify "refs/remotes/origin/${BRANCH}^{commit}")" || return 1
+  git fetch --no-tags origin "$DEPLOY_SHA" || return 1
+  DEPLOY_TARGET_SHA="$(git rev-parse --verify "${DEPLOY_SHA}^{commit}")" || return 1
+  if [[ "$DEPLOY_TARGET_SHA" != "$DEPLOY_SHA" ]]; then
+    echo "[ERROR] Fetched commit does not match DEPLOY_SHA." >&2
+    return 1
+  fi
+  if ! git merge-base --is-ancestor "$DEPLOY_TARGET_SHA" "refs/remotes/origin/${BRANCH}"; then
+    echo "[ERROR] DEPLOY_SHA is not reachable from the expected remote branch." >&2
+    return 1
   fi
   log "Resolved deploy SHA: ${DEPLOY_TARGET_SHA} (branch=${BRANCH})"
 }
 
 update_deploy_code() {
-  if [[ ! "$DEPLOY_TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "[ERROR] Resolve a full deploy SHA before updating code." >&2
+  if [[ ! "$DEPLOY_TARGET_SHA" =~ ^[0-9a-f]{40}$ || "$DEPLOY_TARGET_SHA" != "$DEPLOY_SHA" ]]; then
+    echo "[ERROR] Resolve the approved deploy SHA before updating code." >&2
     return 1
   fi
   git checkout "$BRANCH" || return 1
@@ -1254,7 +1240,8 @@ if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
   return 0
 fi
 
-trap 'on_exit $?' EXIT
+# Invalid identity must not enter cleanup/rollback handlers or inspect services.
+validate_deploy_target
 
 require_cmd git
 require_cmd curl
@@ -1283,6 +1270,8 @@ fi
 # be fetched or does not belong to this environment's branch.
 DEPLOY_STAGE="resolve_target"
 resolve_deploy_target
+
+trap 'on_exit $?' EXIT
 
 mkdir -p "$RUNTIME_BACKUP_DIR"
 prune_runtime_backups

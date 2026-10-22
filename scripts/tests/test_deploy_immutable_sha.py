@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 
@@ -120,16 +121,14 @@ class ImmutableDeployShaTests(unittest.TestCase):
                 self.assertEqual(head, PREVIOUS)
                 self.assertFalse(any(x.startswith(("checkout ", "reset ")) for x in trace))
 
-    def test_legacy_call_resolves_once_and_reports_its_limit(self):
+    def test_manual_call_without_identity_is_rejected_without_io(self):
         run, trace, head, state = self.run_deploy_functions(
             DEPLOY_SHA="", DEPLOY_REF="", ADVANCE_ON_CHECKOUT="1")
-        self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn("WARNING: legacy deploy without DEPLOY_SHA", run.stdout)
-        self.assertEqual(head, TIP)
-        self.assertEqual(state, [TIP, "1"])
-        self.assertEqual(sum(x.startswith("fetch ") for x in trace), 1)
-        self.assertIn(f"reset --hard {TIP}", trace)
-        self.assertNotIn(f"reset --hard {LATER}", trace)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("DEPLOY_SHA must be", run.stderr)
+        self.assertEqual(head, PREVIOUS)
+        self.assertEqual(state, [])
+        self.assertFalse(any(x.startswith(("fetch ", "checkout ", "reset ")) for x in trace))
 
     def test_installed_head_mismatch_remains_a_rollback_failure(self):
         commands = r'''
@@ -184,6 +183,13 @@ update_deploy_code
                 self.assertIn('DEPLOY_REF="$DEPLOY_REF" \\', text)
                 self.assertIn('test "$(git rev-parse HEAD)" = "${{ github.sha }}"', text)
                 self.assertIn("run: python3 scripts/tests/test_deploy_immutable_sha.py", text)
+                preflight = "- name: Verify approved SHA on VPS before configuration"
+                self.assertEqual(text.count(preflight), 1)
+                self.assertLess(text.index(preflight), text.index("- name: Configure OpenAI secret"))
+                remote_check = "\n".join(step_blocks(text, preflight.removeprefix("- name: "))[0])
+                self.assertIn("source /dev/stdin", remote_check)
+                self.assertIn("resolve_deploy_target", remote_check)
+                self.assertIn(f"DEPLOY_REF='refs/heads/{branch}'", remote_check)
                 # A remote job must validate before even SSH secret preparation.
                 jobs = re.split(r"(?m)^  ([a-z][a-z0-9-]*):\n", text)
                 for name, body in zip(jobs[1::2], jobs[2::2]):
@@ -205,6 +211,137 @@ update_deploy_code
         self.assertFalse(any(x.startswith(("fetch ", "checkout ", "reset ")) for x in trace))
         run, _, _, _ = self.run_deploy_functions("validate_deploy_target", DEPLOY_SHA="")
         self.assertNotEqual(run.returncode, 0)
+
+
+class RealGitDeployTests(unittest.TestCase):
+    """Use a disposable remote and checkout, never an operational checkout."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="deploy-real-git-")
+        self.addCleanup(self.temp.cleanup)
+        self.folder = Path(self.temp.name)
+        self.remote = self.folder / "remote.git"
+        self.seed = self.folder / "seed"
+        self.checkout = self.folder / "app"
+        self.env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
+                        GIT_AUTHOR_NAME="Synthetic deploy test", GIT_AUTHOR_EMAIL="deploy@example.invalid",
+                        GIT_COMMITTER_NAME="Synthetic deploy test", GIT_COMMITTER_EMAIL="deploy@example.invalid")
+        self.git("init", "--bare", str(self.remote))
+        self.git("init", "-b", "main", str(self.seed))
+        self.git("-C", str(self.seed), "remote", "add", "origin", str(self.remote))
+        self.previous = self.commit("previous")
+        self.git("-C", str(self.seed), "push", "origin", "HEAD:main", "HEAD:stage")
+        self.git("clone", "--branch", "main", str(self.remote), str(self.checkout))
+        self.pin = self.commit("approved")
+        self.git("-C", str(self.seed), "push", "origin", "HEAD:main", "HEAD:stage")
+        self.tip = self.commit("parallel")
+        self.git("-C", str(self.seed), "push", "origin", "HEAD:main", "HEAD:stage")
+        (self.checkout / "backend").mkdir()
+        (self.checkout / "backend/.env").write_text("SYNTHETIC_PRESERVE=yes\n")
+        self.runtime = self.folder / "backups"
+
+    def git(self, *args):
+        return subprocess.check_output(["git", *args], env=self.env, stderr=subprocess.DEVNULL,
+                                       text=True).strip()
+
+    def commit(self, value):
+        (self.seed / "release.txt").write_text(value)
+        self.git("-C", str(self.seed), "add", "release.txt")
+        self.git("-C", str(self.seed), "commit", "-m", value)
+        return self.git("-C", str(self.seed), "rev-parse", "HEAD")
+
+    def context(self, **changes):
+        return dict(self.env, APP_DIR=str(self.checkout), BRANCH="main", DEPLOY_SHA=self.pin,
+                    DEPLOY_REF="refs/heads/main", RUNTIME_BACKUP_DIR=str(self.runtime), **changes)
+
+    def run_functions(self, commands="resolve_deploy_target\nupdate_deploy_code", **changes):
+        env = self.context()
+        env.update(changes)
+        return subprocess.run(["bash", "-c", 'set -euo pipefail; source "$1"; cd "$APP_DIR";\n' + commands,
+                               "fixture", str(ROOT / "scripts/deploy_prod_vps.sh")], env=env,
+                              capture_output=True, text=True, timeout=20)
+
+    def assert_untouched(self):
+        self.assertEqual(self.git("-C", str(self.checkout), "rev-parse", "HEAD"), self.previous)
+        self.assertEqual((self.checkout / "backend/.env").read_text(), "SYNTHETIC_PRESERVE=yes\n")
+        self.assertFalse(self.runtime.exists())
+
+    def test_real_remote_advances_after_resolution_but_only_approved_tree_is_installed(self):
+        for branch in ("main", "stage"):
+            with self.subTest(branch=branch):
+                # Reset only the disposable checkout for the second environment.
+                self.git("-C", str(self.checkout), "reset", "--hard", self.previous)
+                later = self.commit("later-" + branch)
+                commands = '''resolve_deploy_target
+git -C "$SEED" push origin "HEAD:$BRANCH"
+update_deploy_code
+'''
+                run = self.run_functions(commands, BRANCH=branch, DEPLOY_REF=f"refs/heads/{branch}",
+                                         SEED=str(self.seed))
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(self.git("-C", str(self.checkout), "rev-parse", "HEAD"), self.pin)
+                self.assertEqual((self.checkout / "release.txt").read_text(), "approved")
+                self.assertEqual(self.git("--git-dir", str(self.remote), "rev-parse", branch), later)
+
+    def test_real_unavailable_and_foreign_commits_do_not_touch_runtime(self):
+        self.git("-C", str(self.seed), "checkout", "--orphan", "foreign")
+        foreign = self.commit("unrelated")
+        self.git("-C", str(self.seed), "push", "origin", "foreign")
+        for sha in ("0" * 40, foreign):
+            with self.subTest(sha=sha):
+                run = self.run_functions(DEPLOY_SHA=sha)
+                self.assertNotEqual(run.returncode, 0)
+                self.assert_untouched()
+
+    def test_entrypoint_missing_or_invalid_identity_fails_before_any_command(self):
+        fake_bin = self.folder / "bin"
+        fake_bin.mkdir()
+        calls = self.folder / "calls"
+        for name in ("git", "systemctl", "curl", "npm", "python3", "sudo"):
+            path = fake_bin / name
+            path.write_text('#!/bin/sh\nprintf "%s\\n" "$0 $*" >> "$CALLS"\nexit 97\n')
+            path.chmod(0o700)
+        for identity in ("", "bad-sha"):
+            for entrypoint in ("deploy_prod_vps.sh", "deploy_stage_vps.sh"):
+                with self.subTest(identity=identity, entrypoint=entrypoint):
+                    env = self.context()
+                    env.update(DEPLOY_SHA=identity, DEPLOY_REF="", CALLS=str(calls),
+                               PATH=f"{fake_bin}:{os.environ['PATH']}")
+                    run = subprocess.run(["/bin/bash", str(ROOT / "scripts" / entrypoint)], env=env,
+                                         capture_output=True, text=True, timeout=10)
+                    self.assertNotEqual(run.returncode, 0)
+                    self.assertIn("DEPLOY_SHA must be", run.stderr)
+                    self.assertFalse(calls.exists(), "Invalid SHA reached an external command")
+                    self.assertNotIn("rollback", run.stderr)
+                    self.assert_untouched()
+
+    def test_actual_remote_workflow_preflight_checks_commit_before_runtime_writes(self):
+        fake_bin = self.folder / "ssh-bin"
+        fake_bin.mkdir()
+        ssh = fake_bin / "ssh"
+        # Execute the actual SSH command locally, substituting only its fixture path.
+        ssh.write_text('''#!/bin/bash
+command="${@: -1}"
+command="${command//\/var\/www\/fortcordis-v2/$FIXTURE_CHECKOUT}"
+command="${command//\/var\/www\/fortcordis-stage/$FIXTURE_CHECKOUT}"
+exec bash -c "$command"
+''')
+        ssh.chmod(0o700)
+        for workflow in ("deploy.yml", "deploy-stage.yml"):
+            block = step_blocks((ROOT / ".github/workflows" / workflow).read_text(),
+                                "Verify approved SHA on VPS before configuration")[0]
+            start = next(i for i, line in enumerate(block) if line.strip() == "run: |") + 1
+            code = textwrap.dedent("\n".join(block[start:]))
+            code = code.replace("${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}", "fixture@host")
+            for sha, expected in ((self.pin, 0), ("0" * 40, 1)):
+                with self.subTest(workflow=workflow, sha=sha):
+                    env = self.context()
+                    env.update(DEPLOY_SHA=sha, FIXTURE_CHECKOUT=str(self.checkout),
+                               PATH=f"{fake_bin}:{os.environ['PATH']}")
+                    run = subprocess.run(["bash", "-c", code], cwd=ROOT, env=env,
+                                         capture_output=True, text=True, timeout=20)
+                    self.assertEqual(run.returncode == 0, expected == 0, run.stderr)
+                    self.assert_untouched()
 
 
 if __name__ == "__main__":

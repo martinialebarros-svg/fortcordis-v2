@@ -19,5 +19,7 @@ arquivos runtime e o rollback. Esta autorização permite publicar somente em
 stage; produção requer autorização posterior. Não mudar Auth, dados, catálogo,
 serviços, segredos ou o comportamento dos presets.
 
-Chamadas operacionais antigas do script sem SHA continuam disponíveis, com
-resolução única e aviso explícito; os workflows sempre exigem SHA e ref.
+Chamadas manuais também exigem SHA e ref: não há resolução implícita da ponta.
+Antes de configurar qualquer arquivo de ambiente na VPS, os workflows verificam
+o objeto aprovado e sua presença na história da branch esperada. Esta etapa
+atualiza apenas metadados Git, sem alterar checkout, runtime ou serviços.
