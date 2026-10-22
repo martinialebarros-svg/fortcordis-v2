@@ -1,5 +1,55 @@
 # Verify - atendimento-pdf-auth-hardening
 
+## Revisao 2026-10-22 — sessao Supabase nos PDFs
+
+Base local: `origin/stage` em `ec956a0f`, worktree isolado `receita-impressao`.
+Status: correcao e validacao locais concluidas; nenhuma publicacao executada neste ciclo.
+
+### Diagnostico observado (somente leitura em producao)
+
+- Producao em `1a7cd0aa`, `AUTH_PROVIDER=supabase`.
+- Logs de 2026-10-22 entre 17:01 e 17:06 UTC mostram repetidos `401` nos downloads de receita dos dois atendimentos associados ao relato da paciente. Consulta com transacao `READ ONLY` confirmou a correspondencia; nenhum dado clinico foi alterado ou exportado.
+- `_autenticar_usuario_pdf` extraia o cookie corretamente, mas tentava decodifica-lo com a chave JWT legada. `get_current_user`, usado nas demais rotas, ja validava Supabase e o vinculo com usuario/permissoes locais.
+- Tambem ha `QueuePool TimeoutError` em outras chamadas. Sao uma ocorrencia distinta; nao se atribui a eles o `401` dos PDFs nem se altera o pool nesta correcao.
+
+### Matriz atual
+
+| ID | Evidencia local | Status |
+| --- | --- | --- |
+| CA-001 | Token na URL retorna `400` nas quatro rotas antes de consultar o provedor | ok |
+| CA-002 | Sem credenciais retorna `401`; cookie valido permite download | ok |
+| CA-003 | Bearer legado invalido e sessao Supabase revogada retornam `401` | ok |
+| CA-004 | Bearer legado e Supabase sao aceitos pelos respectivos provedores | ok |
+| CA-005 | 203 testes de Atendimento e 20 de Supabase Auth passam | ok |
+| CA-006 | HTTP com cookie atual + bearer antigo chega ao `404` funcional de atendimento inexistente nas quatro rotas; download de receita principal/complementar existente retorna `200 application/pdf`, texto correto e sem mistura de medicamentos; atendimento continua concluido | ok |
+| CA-007 | Usuario inativo/sem permissao recebem `403`, vinculo apenas em `user_metadata` recebe `401`, indisponibilidade recebe `503` | ok |
+
+Os testes HTTP usam SQLite descartavel e identidades/receitas sinteticas. Apenas o retorno do provedor externo e o branding sao simulados; autenticacao central, vinculo com usuario local, matriz, selecao da receita e geracao do PDF sao reais. Nao e uma prova de publicacao ou de sessao Supabase real.
+
+### Validacao reproduzivel
+
+Executado na raiz do worktree, usando o Python do ambiente local existente:
+
+```bash
+/Users/martiniano/fortcordis-v2/backend/venv/bin/python -m unittest discover -s backend/tests -p 'test_atendimento*.py' -q
+# 203 testes, OK (inclui 14 de auth PDF)
+/Users/martiniano/fortcordis-v2/backend/venv/bin/python -m unittest discover -s backend/tests -p test_supabase_auth.py -q
+# 20 testes, OK
+git diff --check
+```
+
+Antes da correcao, os novos testes HTTP reproduziram `401` com sessao Supabase valida; depois da delegacao ao resolvedor central, a mesma requisicao emite PDF ou chega ao erro funcional esperado. Sintaxe Python e gate SDD sobre a lista de arquivos modificados tambem validados.
+
+### Limites e proxima validacao operacional
+
+- Sem mudanca de layout, frontend, schema, configuracao, contas, papeis ou dados da paciente.
+- A validacao em stage e a publicacao em producao continuam sendo etapas separadas. Apos publicacao autorizada: testar o download pela sessao real da equipe e verificar ausencia de novos `401` na rota de receita.
+- Rollback: reverter somente esta correcao; nao exige restauracao de dados nem alteracao do provedor de login.
+
+---
+
+## Registro historico de 2026-04-03 (anterior a migracao de autenticacao)
+
 Data: 2026-04-03  
 Responsavel: Equipe FortCordis  
 Status: approved
