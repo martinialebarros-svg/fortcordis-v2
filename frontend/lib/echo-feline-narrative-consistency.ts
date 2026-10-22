@@ -27,7 +27,7 @@ function isQualified(text: string): boolean {
     || /\b(?:historia|historico|historica|historicos|historicas|previamente|anteriormente|importad[oa]s?)\b/.test(text)
     || /\b(?:exame|estudo|avaliacao|laudo)\s+(?:anterior|previo|previa|passado)\b/.test(text)
     || /\b(?:exame|estudo|avaliacao|laudo)\s+(?:de|em)\s+(?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4})\b/.test(text)
-    || /\b(?:caso|quando|poderia|poderiam|possivel|possivelmente|hipotese|suspeita)\b/.test(text)
+    || /\b(?:caso|quando|when|poderia|poderiam|possivel|possivelmente|hipotese|suspeita)\b/.test(text)
     || /(?:^|[\s(,;:])se\s+/.test(text)
     || /\?\s*$/.test(text)
     || /^(?:[-•]\s*)?(?:avaliar|verificar|confirmar|revisar)\b/.test(text);
@@ -41,6 +41,14 @@ const NUMERIC = String.raw`(?:\s*(?:de|em|igual\s+a|foi|e|=|:)\s*)?\s*\d+(?:[.,]
 const PREDICATE = String.raw`\s*(?:(?:e|esta|mostra|encontra-se)\s+)?(?:(?:aparentemente|acentuadamente|discretamente|marcadamente)\s+)?(?:normal|invertida|aumentada|elevada|reduzida|preservada)\b`;
 const E_A_PAIR = String.raw`(?:e\s*(?:e|\/)\s*a)(?![\w'])`;
 const TDI_PAIR = String.raw`(?:e\s*'\s*(?:e|\/)\s*a\s*')`;
+// A velocity unit makes a bare E/A label unambiguous. Exclude ratios and
+// apostrophes so an isolated transmitral peak never captures a tissue peak.
+const TRANSMITRAL_PEAK = String.raw`(?<![\w'/])\b[ea](?![\w'/])${NUMERIC}\s*(?:m\/s|cm\/s)\b`;
+
+function individualTransmitralPeakClaim(text: string): boolean {
+  return [...text.matchAll(new RegExp(TRANSMITRAL_PEAK, "g"))]
+    .some((match) => !/\/\s*$/.test(text.slice(0, match.index)));
+}
 
 function ratioClaim(text: string, ratio: string): boolean {
   return new RegExp(`${ratio}${NUMERIC}`).test(text)
@@ -54,6 +62,7 @@ function separatedClaim(text: string, pair: string): boolean {
 
 function transmitralClaim(text: string): boolean {
   return separatedClaim(text, E_A_PAIR)
+    || individualTransmitralPeakClaim(text)
     || ratioClaim(text, E_A) || ratioClaim(text, E_E) || ratioClaim(text, E_TRIV)
     || /\bpadrao\s+(?:de\s+enchimento\s+)?[^\n]{0,110}\b(?:normal|adequado|restritivo|pseudonormal)\b[^\n]{0,80}\b(?:doppler|fluxo)\s+transmitral\b/.test(text)
     || /\b(?:doppler|fluxo)\s+transmitral\b[^\n]{0,60}\bpadrao\s+(?:de\s+enchimento\s+)?(?:normal|adequado|restritivo|pseudonormal)\b/.test(text);
@@ -62,6 +71,82 @@ function transmitralClaim(text: string): boolean {
 function tissueClaim(text: string): boolean {
   return separatedClaim(text, TDI_PAIR) || ratioClaim(text, TDI_RATIO) || ratioClaim(text, E_E)
     || /\b[ea]\s*'\s*(?:(?:lateral|septal)\s*)?(?:de|=|:)?\s*\d+(?:[.,]\d+)?\s*(?:m\/s|cm\/s)\b/.test(text);
+}
+
+type NarrativeClause = { text: string; boundary: string };
+
+function narrativeClauses(text: string): NarrativeClause[] {
+  // Commas inside decimal values belong to the claim. A conjunction starts a
+  // new clause only before an explicit subject/claim, never inside "E e A".
+  const boundary = /;|,(?!\d)|\s+\b(?:mas|porem|contudo|entretanto|todavia)\b\s+|\s+e\s+(?=(?:(?:a|o|as|os)\s+)?(?:relacao\b|onda\b|pico\b|doppler\b|fluxo\b|padrao\b|nao\b|sem\b)|[ea]\s*(?:'|[=:]|(?:de\s+)?\d))/g;
+  const clauses: NarrativeClause[] = [];
+  let start = 0;
+  let previousBoundary = "";
+  for (const match of text.matchAll(boundary)) {
+    if (/^\s+e\s+/.test(match[0]) && /\b[ea]\s*'\s*$/.test(text.slice(start, match.index))) continue;
+    clauses.push({ text: text.slice(start, match.index).trim(), boundary: previousBoundary });
+    start = match.index + match[0].length;
+    previousBoundary = match[0];
+  }
+  clauses.push({ text: text.slice(start).trim(), boundary: previousBoundary });
+  return clauses;
+}
+
+function isContextHeader(text: string): boolean {
+  return /\b(?:historia|historico|historica|previamente|anteriormente|quando|when|caso|hipotese|suspeita)\b/.test(text)
+    || /\b(?:exame|estudo|avaliacao|laudo)\s+(?:anterior|previo|previa|passado|(?:de|em)\s+(?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}))\b/.test(text)
+    || /^(?:[-•]\s*)?(?:se|avaliar|verificar|confirmar|revisar)\b/.test(text);
+}
+
+function isQualificationContinuation(text: string): boolean {
+  // A following limitation may qualify the preceding value. An unrelated
+  // negative finding (e.g. "não há refluxo") must not qualify that value.
+  return /^(?:(?:e|mas|porem|contudo)\s+)?(?:(?:ambos|ambas|todos|todas|valores|picos|medidas|relacoes)\s+)?(?:(?:nao\s+(?:(?:e|sao|esta|estao|foi|foram)\s+)?(?:mensurave(?:l|is)|interpretave(?:l|is)|avaliave(?:l|is)|valid[oa]|individualizad|separad))|impossivel|limitad[oa]|indeterminad[oa]|inconclusiv[oa]|fundid[oa]|fusionad[oa]|descartad[oa]|desconsiderad[oa]|invalid[oa]|incorret[oa]|artefato|sem\s+(?:(?:possibilidade|condicoes)\s+de\s+)?(?:mensuracao|interpretacao|separacao|individualizacao|avaliacao))/.test(text);
+}
+
+function continuationTargetsClaim(text: string, claim: (text: string) => boolean, preceding: string): boolean {
+  // Bind an explicit subject to its own family. Only a subjectless limitation
+  // can qualify the preceding value by proximity alone.
+  if (/\bfuncao\s+sistolica\b/.test(text)) return false;
+  if (new RegExp(E_E).test(text) || ratioClaim(preceding, E_E)) return true; // E/e′ depends on both families.
+  const targetsTissue = /\b(?:tecidual|tdi)\b|\b[ea]\s*'/.test(text);
+  const targetsTransmitral = /\btransmitral\b/.test(text)
+    || new RegExp(`${E_A}|${E_TRIV}|\\b(?:onda|pico)s?\\s+[ea](?![\\w'])`).test(text);
+  return claim === transmitralClaim ? !targetsTissue || targetsTransmitral : !targetsTransmitral || targetsTissue;
+}
+
+function isPluralQualification(text: string): boolean {
+  return /\b(?:ambos|ambas|todos|todas|valores|picos|medidas|relacoes|mensuraveis|interpretaveis|avaliaveis|(?:valid|individualizad|separad|limitad|indeterminad|inconclusiv|fundid|fusionad|descartad|desconsiderad|invalid|incorret)[oa]s)\b/.test(text);
+}
+
+function hasUnqualifiedClaim(text: string, claim: (text: string) => boolean): boolean {
+  if (/\?\s*$/.test(text)) return false;
+  const clauses = narrativeClauses(text);
+  const anyClaim = (value: string) => transmitralClaim(value) || tissueClaim(value);
+  let inheritedContext = false;
+  for (const [index, clause] of clauses.entries()) {
+    // Historical/conditional headers carry across commas, but not across a new
+    // sentence-level assertion or an explicit return to the current exam.
+    if (clause.boundary.includes(";") || /\b(?:mas|porem|contudo|entretanto|todavia)\b/.test(clause.boundary)
+      || /\b(?:atualmente|agora|neste\s+exame|exame\s+atual)\b/.test(clause.text)) inheritedContext = false;
+    if (!anyClaim(clause.text) && isContextHeader(clause.text)) inheritedContext = true;
+    if (inheritedContext || !claim(clause.text) || isQualified(clause.text)) continue;
+
+    let qualifiedAfter = false;
+    for (let next = index + 1; next < clauses.length; next++) {
+      const following = clauses[next];
+      if (/\b(?:mas|porem|contudo|entretanto|todavia)\b/.test(following.boundary)) break;
+      if (isQualificationContinuation(following.text) && continuationTargetsClaim(following.text, claim, clause.text)) {
+        // "Ambos descartados" also qualifies a preceding list of peaks;
+        // singular limitations qualify only the immediately preceding claim.
+        qualifiedAfter = next === index + 1 || isPluralQualification(following.text);
+        break;
+      }
+      if (!anyClaim(following.text) || isQualified(following.text) || following.boundary.includes(";")) break;
+    }
+    if (!qualifiedAfter) return true;
+  }
+  return false;
 }
 
 export function findFelineNarrativeDiscrepancies(
@@ -91,7 +176,7 @@ export function findFelineNarrativeDiscrepancies(
       for (const fragment of source.text.split(/[\r\n]+|(?<=[.!?])\s+/)) {
         const excerpt = fragment.trim();
         const text = normalized(excerpt);
-        if (!text || isQualified(text) || !family.claim(text)) continue;
+        if (!text || !hasUnqualifiedClaim(text, family.claim)) continue;
         results.push({ key: family.key, section: source.section, excerpt,
           message: `${source.section}: ${family.message}`, suggestion: family.suggestion });
         found = true;
