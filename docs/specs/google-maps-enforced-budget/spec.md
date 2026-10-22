@@ -103,3 +103,7 @@ CA-016: TTL configurado não positivo, fonte manual sem override e cache de sess
 # Revisão de limites em 21/10/2026
 
 Preparação/demonstração autorizadas em stage, sem reativação em produção. A demonstração exibe proposta de referências 650/R$25 por dia e 13.000/R$500 por mês, sem salvá-la, com valores conservadores brutos distintos da fatura após franquia. Mostra Agenda acima da referência e lote suspenso; não chama APIs nem altera dados. Rascunho tipado `proposed-monitor-config.json` permanece desabilitado, com lotes/IA/automação sem autorização de novas consultas. Endereços fictícios/incompletos de stage não validam rotas reais nem são enviados ao Google para testes. Procedimento, fonte histórica e condições em `preparation-20261021.md`.
+
+A futura transição de produção deve drenar os emissores antigos antes de fechar o baseline e iniciar a política nova. Configurar o orçamento enquanto a emergência continua ativa não contabiliza essa janela. Sem baseline superior confiável, todas as ações não Agenda ficam com teto zero, preservando a política humana explicitamente escolhida. Procedimento em `activation-cutover.md`.
+
+O componente público compilado da demonstração não incorpora pagamentos ou volumes históricos reais. Esses dados permanecem no relatório de auditoria; a tela mostra apenas referências propostas, cenários hipotéticos e consumo fictício.

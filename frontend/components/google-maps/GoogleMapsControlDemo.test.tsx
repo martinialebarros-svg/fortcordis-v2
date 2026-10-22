@@ -13,6 +13,8 @@ describe("demonstração segura do controle Maps", () => {
     fireEvent.click(screen.getByRole("button", { name: "Rota já armazenada" }));
     expect(screen.getByRole("status")).toHaveTextContent("sem popup, token ou nova consulta paga");
     expect(screen.getByRole("table")).toHaveTextContent("13.000 chamadas ou R$ 500 estimados");
+    expect(document.body).not.toHaveTextContent("R$ 90,12");
+    expect(document.body).not.toHaveTextContent("R$ 372,45");
     fireEvent.click(screen.getByRole("button", { name: "Lote bloqueado — Agenda liberada" }));
     expect(screen.getByRole("status")).toHaveTextContent("não autoriza recalcular a matriz nem tarefas automáticas pagas");
     fireEvent.click(screen.getByRole("button", { name: "Referência atingida — Agenda liberada" }));
