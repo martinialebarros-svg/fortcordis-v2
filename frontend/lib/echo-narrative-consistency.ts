@@ -1,7 +1,12 @@
+import { findFelineNarrativeDiscrepancies, type FelineNarrativeDiscrepancy } from "./echo-feline-narrative-consistency";
+
 export type EchoNarrativeDiscrepancy = {
   key: "FE" | "FEC" | "Vmax_aorta";
   message: string;
-};
+  section?: string;
+  excerpt?: string;
+  suggestion?: string;
+} | FelineNarrativeDiscrepancy;
 
 function numeric(value: unknown): number | null {
   const parsed = Number.parseFloat(String(value ?? "").replace(",", "."));
@@ -26,6 +31,7 @@ export function findEchoNarrativeDiscrepancies(
   measurements: Record<string, string>,
   qualitative: object,
   conclusion: string,
+  species?: string,
 ): EchoNarrativeDiscrepancy[] {
   const mode = selectedMode(measurements);
   const text = [...Object.values(qualitative), conclusion]
@@ -66,5 +72,5 @@ export function findEchoNarrativeDiscrepancies(
       message: `O texto cita velocidade aórtica acima de ${format(threshold)} m/s; a tabela mostra Vmax aorta de ${format(aorticVelocity)} m/s. Confirme o local da medida e documente-o se for distinto.`,
     });
   }
-  return results;
+  return [...results, ...findFelineNarrativeDiscrepancies(measurements, qualitative, conclusion, species)];
 }
