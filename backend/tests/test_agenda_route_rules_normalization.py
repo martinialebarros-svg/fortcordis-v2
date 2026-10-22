@@ -1,4 +1,4 @@
-"""Pisos municipais permanecem estáveis ao carregar e salvar configurações."""
+"""Regras operacionais permanecem estáveis ao carregar e salvar configurações."""
 
 import json
 import unittest
@@ -58,6 +58,7 @@ class AgendaRouteRulesNormalizationTest(unittest.TestCase):
         self.assertNotIn("municipio excedente", normalizados)
         self.assertEqual(normalizar_agenda_rota_regras(regras), regras)
 
+
     def test_chaves_vazias_ou_invalidas_nao_consumem_limite(self):
         regras = self._normalizar({
             "": "09:00",
@@ -84,3 +85,76 @@ class AgendaRouteRulesNormalizationTest(unittest.TestCase):
         self.assertEqual(pisos["aquiraz"], "08:00")
         self.assertEqual(pisos["fortaleza"], "00:00")
         self.assertEqual(normalizar_agenda_rota_regras(regras), regras)
+
+
+class AgendaRegionalTransitionNormalizationTest(unittest.TestCase):
+    def test_configuracao_legada_mantem_transicao_desativada(self):
+        regras = normalizar_agenda_rota_regras({
+            "thresholds": {"max_neighbor_travel_min": 30, "safe_margin_min": 5},
+            "route_policy": {"end_of_route_window_start": "15:30"},
+        })
+        politica = regras["route_policy"]
+        self.assertFalse(politica["regional_transition_enabled"])
+        self.assertEqual(politica["regional_transition_max_travel_min"], 50)
+        self.assertEqual(politica["regional_transition_margin_min"], 15)
+        self.assertEqual(politica["regional_transition_max_legs_per_day"], 1)
+        self.assertEqual(politica["recurrent_clinic_history_days"], 60)
+        self.assertEqual(regras["thresholds"]["max_neighbor_travel_min"], 30)
+        self.assertEqual(regras["thresholds"]["safe_margin_min"], 5)
+        self.assertEqual(politica["end_of_route_window_start"], "15:30")
+
+    def test_strings_e_round_trip_preservam_politica_e_demais_ajustes(self):
+        entrada = {
+            "thresholds": {"max_neighbor_travel_min": 30, "same_location_transition_min": 0},
+            "route_policy": {
+                "regional_transition_enabled": "sim",
+                "regional_transition_max_travel_min": "45",
+                "regional_transition_margin_min": "20",
+                "first_appointment_city_floors": {"Aquiraz": "10:00"},
+                "reject_clear_inefficiency": False,
+            },
+        }
+        regras = normalizar_agenda_rota_regras(entrada)
+        self.assertTrue(regras["route_policy"]["regional_transition_enabled"])
+        self.assertEqual(regras["route_policy"]["regional_transition_max_travel_min"], 45)
+        self.assertEqual(regras["route_policy"]["regional_transition_margin_min"], 20)
+        self.assertEqual(regras["route_policy"]["first_appointment_city_floors"]["aquiraz"], "10:00")
+        self.assertFalse(regras["route_policy"]["reject_clear_inefficiency"])
+        self.assertEqual(regras["thresholds"]["same_location_transition_min"], 0)
+        self.assertEqual(carregar_agenda_rota_regras(json.dumps(regras)), regras)
+        self.assertEqual(entrada["route_policy"]["regional_transition_max_travel_min"], "45")
+
+    def test_limites_nao_permitem_ampliar_viagem_cota_ou_reduzir_margem(self):
+        for quantidade in (None, 0, -1, "2", 99):
+            with self.subTest(quantidade=quantidade):
+                regras = normalizar_agenda_rota_regras({"route_policy": {
+                    "regional_transition_max_travel_min": 999,
+                    "regional_transition_margin_min": 0,
+                    "regional_transition_max_legs_per_day": quantidade,
+                    "recurrent_clinic_history_days": quantidade,
+                }})
+                politica = regras["route_policy"]
+                self.assertEqual(politica["regional_transition_max_travel_min"], 50)
+                self.assertEqual(politica["regional_transition_margin_min"], 15)
+                self.assertEqual(politica["regional_transition_max_legs_per_day"], 1)
+                self.assertEqual(politica["recurrent_clinic_history_days"], 60)
+
+    def test_valores_nulos_invalidos_e_extremos_tem_fallback_seguro(self):
+        for valor in (None, "invalido", [], {}):
+            with self.subTest(valor=valor):
+                politica = normalizar_agenda_rota_regras({"route_policy": {
+                    "regional_transition_enabled": valor,
+                    "regional_transition_max_travel_min": valor,
+                    "regional_transition_margin_min": valor,
+                }})["route_policy"]
+                self.assertFalse(politica["regional_transition_enabled"])
+                self.assertEqual(politica["regional_transition_max_travel_min"], 50)
+                self.assertEqual(politica["regional_transition_margin_min"], 15)
+        politica = normalizar_agenda_rota_regras({"route_policy": {
+            "regional_transition_enabled": "0",
+            "regional_transition_max_travel_min": 0,
+            "regional_transition_margin_min": 999,
+        }})["route_policy"]
+        self.assertFalse(politica["regional_transition_enabled"])
+        self.assertEqual(politica["regional_transition_max_travel_min"], 1)
+        self.assertEqual(politica["regional_transition_margin_min"], 120)

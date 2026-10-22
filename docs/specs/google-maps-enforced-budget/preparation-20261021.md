@@ -44,7 +44,7 @@ Configurações → Custos Google Maps → Experimentar o controle sem gerar cus
 
 1. Revalidar SHAs/diff, ambiente, banco, preços e baseline naquele instante. Não usar o rascunho desabilitado como configuração efetiva.
 2. Isolar delta clínico e dependências; promover apenas snapshot aprovado pelo fluxo protegido. Preservar/restaurar runtime, esperar gates/deploy terminais.
-3. Manter emergência true durante instalação. Ativar configuração `monitor` com baseline real e revisão esperada; comprovar por leitura independente. Só depois retirar emergência, reiniciar API/worker, conferir cache-first e executar smoke seguro da recepção sem Google/agendamento real.
+3. Manter emergência true durante instalação e executar a [transição com drenagem](activation-cutover.md): parar emissores antigos, fechar o baseline, persistir orçamento monitorado antes de iniciar API/worker sem emergência e comprovar a política efetiva. Não coletar um baseline e deixar chamadas liberadas sem contabilização até um restart posterior. Sem baseline superior confiável, todos os extras permanecem com teto zero; a Agenda segue sua política de confirmação finita e referências.
 4. Se houver incidente, recolocar emergência true e reiniciar/verificar processos: reversível, mas suspende limites e pode gerar cobrança sem teto. Não apagar ledger ou inventar rotas.
 
 Fontes: [preços Google](https://developers.google.com/maps/billing-and-pricing/pricing), [franquia/conta](https://developers.google.com/maps/billing-and-pricing/overview), [quotas e atraso Billing](https://developers.google.com/maps/billing-and-pricing/manage-costs), evidências privadas sanitizadas em `/Users/martiniano/Documents/Codex/2026-10-21/maps-activation-preparation/`.
