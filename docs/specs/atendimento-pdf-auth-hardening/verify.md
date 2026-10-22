@@ -48,6 +48,51 @@ Antes da correcao, os novos testes HTTP reproduziram `401` com sessao Supabase v
 
 ---
 
+## Producao e receita real validadas — 22/10/2026
+
+- PR #425 publicou `3d1cb8c740af873a5d19e7b3f5c2101a3db23f66`.
+  Workflow automatico `39834453171` terminou `completed/success`, com quality
+  e deploy aprovados. Foram 2.097 testes backend, 1.099 testes Vitest e 23
+  testes Node; lint, build, concorrencia PostgreSQL e integracoes passaram.
+  Migration CI automatico `39834453193` e manual `39834462831` passaram.
+- O disparo manual duplicado `39834457250` foi cancelado antes de executar
+  jobs quando o push automatico voltou a funcionar, evitando dois deploys.
+- SDD: o log do workflow registra `[sdd-guardrail] PASSED`, todas as etapas
+  desse job encerraram com sucesso e o SDD da PR #425 tambem terminou com
+  sucesso. A API de jobs ainda exibia esse job como `in_progress` mesmo apos
+  o workflow inteiro terminar com sucesso; essa inconsistencia de exibicao
+  foi distinguida do resultado terminal do workflow e do log do gate.
+- Logs confirmam seis `Preserved runtime file`, seis `Restored runtime file`,
+  `Current HEAD: 3d1cb8c7`, canario autenticado aprovado e
+  `Backup restore drill OK`. Antes da geracao real do PDF, os hashes dos seis
+  arquivos runtime e dos atendimentos, receitas e itens envolvidos eram
+  identicos aos do preflight imediatamente anterior ao deploy.
+- Canario real em `https://app.fortcordis.com.br`, com Supabase: sessao `200`,
+  cookie atual aceito nas quatro rotas PDF mesmo com bearer antigo, anonimo
+  `401` e token na URL `400`. A sessao tecnica foi revogada ao terminar, sem
+  email nem alteracao de senha.
+- A receita principal do atendimento mais recente da paciente do relato
+  retornou `200 application/pdf`, com uma pagina A4 e um item. Cinco campos
+  nao vazios do item foram reconciliados com o registro persistido; paciente,
+  estado do atendimento e conteudo clinico permaneceram iguais. Apenas o
+  registro normal de primeira emissao do PDF foi preenchido.
+- SHA-256 do PDF local conferido:
+  `ae4d7ae9a7739de11e461e0ebb23671cad13532084d6b33785ac051a5039af47`.
+  Renderizacao visual e abertura no Preview confirmaram texto legivel e
+  ausencia de corte de conteudo. O dialogo de impressao abriu em A4, pagina
+  1 de 1. A HP selecionada estava desconectada; nenhum trabalho foi enviado
+  a impressora e nao se afirma saida fisica em papel.
+- Cinco dominios (`app.fortcordis.com.br`, raiz e www em `.com.br` e `.com`):
+  rota de atendimento redireciona para login e retorna `200`; PDF anonimo
+  retorna `401`, sem divergencia TLS observada.
+- PR #428 reintegrou main em stage `3713351e`, com todos os gates aprovados.
+  O diff em relacao ao stage instalado `5138dddc` era somente `verify.md`;
+  codigo de aplicacao, scripts e workflows eram identicos. O redeploy
+  documental `39834942518`, ainda sem jobs, foi cancelado por redundancia.
+  A correcao regional exclusiva de stage permaneceu fora de producao.
+
+---
+
 ## Registro historico de 2026-04-03 (anterior a migracao de autenticacao)
 
 Data: 2026-04-03  
