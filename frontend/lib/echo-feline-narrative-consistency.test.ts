@@ -157,6 +157,11 @@ describe("conferência conservadora da narrativa diastólica felina", () => {
       "Não há relação E/A de 1,14 mensurável neste exame.",
       "Relação E/A de 1,14 desconsiderada por artefato.",
       "Relação E/A de 1,14 registrada no exame anterior.",
+      "Relação E/A de 1,14, registrada no exame anterior.",
+      "Relação E/A de 1,14, com ondas fundidas.",
+      "Relação E/A de1,14, importada do relatório anterior.",
+      "Relação E/A de1,14, previamente registrada no exame anterior.",
+      "Relação E/A de1,14, sobreposição de ondas.",
       "Em exame anterior, relação E/A de 1,14.",
       "Se as ondas forem individualizadas, avaliar relação E/A de 1,14.",
       "Quando as ondas estiverem separadas, relação E/A de 1,14 poderá ser avaliada.",
@@ -167,6 +172,9 @@ describe("conferência conservadora da narrativa diastólica felina", () => {
       "Anteriormente, relação e′/a′ de 1,33.",
       "Se as ondas teciduais forem separadas, avaliar relação e′/a′ de 1,33.",
       "Relação e′/a′ de 1,33 não interpretável por fusão.",
+      "Relação e′/a′ de 1,33, registrada no exame anterior.",
+      "Relação e′/a′ de 1,33, com ondas fundidas.",
+      "No exame anterior, relação E/A de 1,14; relação e′/a′ de 1,33.",
     ])("continua respeitando negação, histórico e condição aplicados ao claim: %s", (text) => {
       expect(check(text, { Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" })).toEqual([]);
     });
@@ -189,6 +197,9 @@ describe("conferência conservadora da narrativa diastólica felina", () => {
       { text: "Relação E/A de 1,14 desconsiderada por artefato; relação E/A de 1,20.", key: "feline_transmitral_fusion" },
       { text: "Em exame anterior, relação E/A de 1,14; atualmente relação E/A de 1,20.", key: "feline_transmitral_fusion" },
       { text: "Se as ondas estiverem separadas, relação E/A de 1,14; atualmente relação E/A de 1,20.", key: "feline_transmitral_fusion" },
+      { text: "No exame anterior, relação E/A de 1,14; atualmente relação e′/a′ de 1,33.", key: "feline_tissue_fusion" },
+      { text: "No exame anterior, relação E/A de 1,14; neste exame relação e′/a′ de 1,33.", key: "feline_tissue_fusion" },
+      { text: "No exame anterior, relação E/A de 1,14; no exame atual relação e′/a′ de 1,33.", key: "feline_tissue_fusion" },
     ])("detecta somente o claim afirmativo na frase mista: $text", ({ text, key }) => {
       const issues = check(text, { Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" });
       expect(issues).toHaveLength(1);

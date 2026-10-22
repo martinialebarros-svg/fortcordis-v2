@@ -99,11 +99,29 @@ describe("aviso discreto de conferência clínica", () => {
     "E / A = 1,14 m/s, desconsiderada por artefato.",
     "E/e′=6,75, não interpretável por fusão tecidual.",
     "E/e′=6,75, não interpretável por fusão transmitral.",
+    "Relação E/A de 1,14, registrada no exame anterior.",
+    "Relação E/A de 1,14, com ondas fundidas.",
+    "Relação e′/a′ de 1,33, registrada no exame anterior.",
+    "Relação e′/a′ de 1,33, com ondas fundidas.",
+    "No exame anterior, relação E/A de 1,14; relação e′/a′ de 1,33.",
   ])("P2: continua vazio quando a afirmação está explicitamente desconsiderada ou condicionada: %s", (sentence) => {
     const { container } = render(<EchoNarrativeConsistencyNotice species="Felina"
       measurements={{ Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" }}
       qualitative={{ funcao: sentence }}
       conclusion="Interpretação integrada preservada." />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it.each(["atualmente", "neste exame", "no exame atual"])("histórico na UI termina somente no retorno explícito %s", (current) => {
+    const sentence = `No exame anterior, relação E/A de 1,14; ${current} relação e′/a′ de 1,33.`;
+    render(<EchoNarrativeConsistencyNotice species="Gato"
+      measurements={{ Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" }}
+      qualitative={{ funcao: sentence }} conclusion="Conclusão oficial preservada." />);
+    const notice = screen.getByRole("status", { name: "Conferência de coerência do laudo" });
+    expect(within(notice).getAllByRole("listitem")).toHaveLength(1);
+    expect(notice).toHaveTextContent("Ondas e′/a′ registradas como fundidas");
+    expect(notice).not.toHaveTextContent("Ondas E/A registradas como fundidas");
+    fireEvent.click(within(notice).getByText(/Ver trecho/));
+    expect(notice.querySelector("blockquote")?.textContent).toBe(sentence);
   });
 });

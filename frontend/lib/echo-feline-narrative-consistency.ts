@@ -93,15 +93,22 @@ function narrativeClauses(text: string): NarrativeClause[] {
 }
 
 function isContextHeader(text: string): boolean {
-  return /\b(?:historia|historico|historica|previamente|anteriormente|quando|when|caso|hipotese|suspeita)\b/.test(text)
-    || /\b(?:exame|estudo|avaliacao|laudo)\s+(?:anterior|previo|previa|passado|(?:de|em)\s+(?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}))\b/.test(text)
+  return isHistoricalContext(text)
+    || /\b(?:quando|when|caso|hipotese|suspeita)\b/.test(text)
     || /^(?:[-•]\s*)?(?:se|avaliar|verificar|confirmar|revisar)\b/.test(text);
+}
+
+function isHistoricalContext(text: string): boolean {
+  return /\b(?:historia|historico|historica|historicos|historicas|previamente|anteriormente)\b/.test(text)
+    || /\b(?:exame|estudo|avaliacao|laudo)\s+(?:anterior|previo|previa|passado|(?:de|em)\s+(?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}))\b/.test(text);
 }
 
 function isQualificationContinuation(text: string): boolean {
   // A following limitation may qualify the preceding value. An unrelated
   // negative finding (e.g. "não há refluxo") must not qualify that value.
-  return /^(?:(?:e|mas|porem|contudo)\s+)?(?:(?:ambos|ambas|todos|todas|valores|picos|medidas|relacoes)\s+)?(?:(?:nao\s+(?:(?:e|sao|esta|estao|foi|foram)\s+)?(?:mensurave(?:l|is)|interpretave(?:l|is)|avaliave(?:l|is)|valid[oa]|individualizad|separad))|impossivel|limitad[oa]|indeterminad[oa]|inconclusiv[oa]|fundid[oa]|fusionad[oa]|descartad[oa]|desconsiderad[oa]|invalid[oa]|incorret[oa]|artefato|sem\s+(?:(?:possibilidade|condicoes)\s+de\s+)?(?:mensuracao|interpretacao|separacao|individualizacao|avaliacao))/.test(text);
+  return /^(?:(?:e|mas|porem|contudo)\s+)?(?:(?:ambos|ambas|todos|todas|valores|picos|medidas|relacoes)\s+)?(?:(?:nao\s+(?:(?:e|sao|esta|estao|foi|foram)\s+)?(?:mensurave(?:l|is)|interpretave(?:l|is)|avaliave(?:l|is)|valid[oa]|individualizad|separad))|impossivel|limitad[oa]|indeterminad[oa]|inconclusiv[oa]|fundid[oa]|fusionad[oa]|sobreposicao|descartad[oa]|desconsiderad[oa]|invalid[oa]|incorret[oa]|artefato|sem\s+(?:(?:possibilidade|condicoes)\s+de\s+)?(?:mensuracao|interpretacao|separacao|individualizacao|avaliacao))/.test(text)
+    || (/^(?:(?:registrad|obtid|medid|aferid|calculad|avaliad|importad)[oa]s?|previamente|anteriormente)\b/.test(text) && isQualified(text))
+    || (/^(?:com|por|devido\s+a)\s+(?:(?:as|os)\s+)?(?:ondas|picos|medidas|valores|relacoes|fusao|sobreposicao|artefato)\b/.test(text) && isQualified(text));
 }
 
 function continuationTargetsClaim(text: string, claim: (text: string) => boolean, preceding: string): boolean {
@@ -124,13 +131,18 @@ function hasUnqualifiedClaim(text: string, claim: (text: string) => boolean): bo
   const clauses = narrativeClauses(text);
   const anyClaim = (value: string) => transmitralClaim(value) || tissueClaim(value);
   let inheritedContext = false;
+  let historicalContext = false;
   for (const [index, clause] of clauses.entries()) {
-    // Historical/conditional headers carry across commas, but not across a new
-    // sentence-level assertion or an explicit return to the current exam.
-    if (clause.boundary.includes(";") || /\b(?:mas|porem|contudo|entretanto|todavia)\b/.test(clause.boundary)
-      || /\b(?:atualmente|agora|neste\s+exame|exame\s+atual)\b/.test(clause.text)) inheritedContext = false;
+    // Punctuation alone does not end a historical exam. Conditional headers
+    // apply to their clause group; returning to the current exam is explicit.
+    if (clause.boundary.includes(";") || /\b(?:mas|porem|contudo|entretanto|todavia)\b/.test(clause.boundary)) inheritedContext = false;
+    if (/\b(?:atualmente|agora|neste\s+exame|exame\s+atual)\b/.test(clause.text)) {
+      inheritedContext = false;
+      historicalContext = false;
+    }
+    if (isHistoricalContext(clause.text)) historicalContext = true;
     if (!anyClaim(clause.text) && isContextHeader(clause.text)) inheritedContext = true;
-    if (inheritedContext || !claim(clause.text) || isQualified(clause.text)) continue;
+    if (historicalContext || inheritedContext || !claim(clause.text) || isQualified(clause.text)) continue;
 
     let qualifiedAfter = false;
     for (let next = index + 1; next < clauses.length; next++) {
