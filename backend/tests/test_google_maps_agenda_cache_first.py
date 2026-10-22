@@ -1,4 +1,5 @@
 """Real Agenda transactions, separate test ledger, zero external Google traffic."""
+import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -69,6 +70,38 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
                 for profile in ('comercial', 'plantao'):
                     db.add(ClinicaDeslocamento(origem_clinica_id=a, destino_clinica_id=b, perfil=profile, distancia_km=1, duracao_min=10, fonte=source, updated_at=datetime.utcnow() - timedelta(days=age_days)))
             db.commit()
+
+    def test_proposed_monitor_config_keeps_reception_above_references_and_extras_closed(self):
+        proposal = Path(__file__).resolve().parents[2] / 'docs/specs/google-maps-enforced-budget/proposed-monitor-config.json'
+        data = json.loads(proposal.read_text())
+        self.assertFalse(data['enabled'])
+        data.update(enabled=True, opening_usage_as_of=guard._periods(guard._now())[0],
+                    opening_usage_basis='synthetic_stage',
+                    pricing_valid_until=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+                    opening_usage={'day': {'calls': 651, 'estimated_brl': 26},
+                                   'month': {'calls': 13001, 'estimated_brl': 501}})
+        guard.update_configuration(7, guard.CostConfiguration.model_validate(data), 0)
+        quote = self.preview(paid=True).json()
+        self.assertFalse(quote['blocked'])
+        self.assertFalse(quote['financial_limit_enforced'])
+        self.assertEqual(quote['max_calls'], 64)
+        self.assertEqual(quote['estimated_cost_max_brl'], 4.608)
+        self.assertTrue(quote['alerts'])
+        self.outbound.assert_not_called()  # Displaying/cancelling the quote is unpaid.
+        token = self.client.post('/api/v1/google-maps-control/confirm', json={'quote_id': quote['quote_id']}).json()['token']
+        result = self.client.put(self.path, json=self.body, headers={'X-Google-Maps-Action': token})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(self.outbound.call_count, 2)
+        replay = self.client.put(self.path, json=self.body, headers={'X-Google-Maps-Action': token})
+        self.assertEqual(replay.status_code, 409)
+        for path in ('/api/v1/logistica/recalcular', '/api/v1/tutores/geocode-endereco'):
+            extra = self.client.post('/api/v1/google-maps-control/preview', json={'method': 'POST', 'path': path, 'body': {}}).json()
+            self.assertTrue(extra['blocked'])
+        with self.assertRaises(guard.GoogleMapsCostBlocked) as denied:
+            with guard.automatic_action('whatsapp_agenda', 'synthetic-proposal-job'):
+                guard.authorize_google_call('routes_essentials')
+        self.assertEqual(denied.exception.reason, 'automatic_policy_required')
+        self.assertEqual(self.outbound.call_count, 2)
 
     def preview(self, paid=False):
         return self.client.post('/api/v1/google-maps-control/preview', json={'method': 'PUT', 'path': self.path, 'body': self.body, 'paid_call_required': paid})

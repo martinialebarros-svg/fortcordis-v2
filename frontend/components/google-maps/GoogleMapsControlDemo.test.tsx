@@ -12,6 +12,9 @@ describe("demonstração segura do controle Maps", () => {
     render(<><GoogleMapsControlDemo /><GoogleMapsActionGuard /></>);
     fireEvent.click(screen.getByRole("button", { name: "Rota já armazenada" }));
     expect(screen.getByRole("status")).toHaveTextContent("sem popup, token ou nova consulta paga");
+    expect(screen.getByRole("table")).toHaveTextContent("13.000 chamadas ou R$ 500 estimados");
+    fireEvent.click(screen.getByRole("button", { name: "Lote bloqueado — Agenda liberada" }));
+    expect(screen.getByRole("status")).toHaveTextContent("não autoriza recalcular a matriz nem tarefas automáticas pagas");
     fireEvent.click(screen.getByRole("button", { name: "Referência atingida — Agenda liberada" }));
     expect(await screen.findByRole("dialog")).toHaveTextContent("Agenda liberada acima da referência");
     expect(screen.getByRole("dialog")).toHaveTextContent("Referência atingida: a Agenda continua liberada");
