@@ -2,6 +2,7 @@
 """Stage-only real Agenda proof in disposable schemas; zero Google or real-data writes."""
 from __future__ import annotations
 import argparse
+from contextlib import ExitStack
 import json
 import os
 import re
@@ -34,21 +35,22 @@ def main():
     assert settings.GOOGLE_MAPS_AGENDA_CACHE_FIRST is True
     assert settings.GOOGLE_MAPS_COST_EMERGENCY_RELEASE is False
     from deploy_authenticated_canary import _token_from_internal_backend
-    bearer = _token_from_internal_backend(str(backend))
-    def live(path, body=None):
-        request = Request('http://127.0.0.1:8001/api/v1'+path,
-            data=json.dumps(body).encode() if body is not None else None,
-            headers={'Authorization':'Bearer '+bearer,'Content-Type':'application/json'})
-        try:
-            with urlopen(request,timeout=20) as response: return response.status,json.loads(response.read())
-        except HTTPError as exc: return exc.code,json.loads(exc.read())
-    code,status = live('/google-maps-control/status')
-    assert code == 200 and status['agenda_cache_first'] and status['operation_mode'] != 'temporary_open'
-    assert not status['paid_calls_allowed'], 'Operational stage must have no paid budget enabled'
-    code,preview = live('/google-maps-control/preview',{'method':'POST','path':'/api/v1/agenda','body':{}})
-    assert code == 200 and not preview['required'] and not preview['blocked'] and preview['max_calls'] == 0
-    code,_ = live('/agenda',{})
-    assert code == 422, 'Unconfigured finance must not mask normal Agenda form validation'
+    with ExitStack() as cleanup:
+        bearer = _token_from_internal_backend(str(backend), cleanup)
+        def live(path, body=None):
+            request = Request('http://127.0.0.1:8001/api/v1'+path,
+                data=json.dumps(body).encode() if body is not None else None,
+                headers={'Authorization':'Bearer '+bearer,'Content-Type':'application/json'})
+            try:
+                with urlopen(request,timeout=20) as response: return response.status,json.loads(response.read())
+            except HTTPError as exc: return exc.code,json.loads(exc.read())
+        code,status = live('/google-maps-control/status')
+        assert code == 200 and status['agenda_cache_first'] and status['operation_mode'] != 'temporary_open'
+        assert not status['paid_calls_allowed'], 'Operational stage must have no paid budget enabled'
+        code,preview = live('/google-maps-control/preview',{'method':'POST','path':'/api/v1/agenda','body':{}})
+        assert code == 200 and not preview['required'] and not preview['blocked'] and preview['max_calls'] == 0
+        code,_ = live('/agenda',{})
+        assert code == 422, 'Unconfigured finance must not mask normal Agenda form validation'
     from sqlalchemy import create_engine,event,text
     from sqlalchemy.pool import NullPool
     from app.services import geocoding_service
