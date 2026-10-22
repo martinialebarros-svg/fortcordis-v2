@@ -119,3 +119,7 @@ sessao real. Confere a identidade retornada antes e depois da emissao. A sessao
 corrente e revogada em finally, inclusive se um check falhar. Nao cria contas,
 nao altera senhas/papeis nem revoga sessoes de outros dispositivos. Credenciais
 explicitamente fornecidas ao canario continuam tendo precedencia.
+
+A publicacao de producao usa PR isolado sobre main, como excecao explicitamente
+autorizada pelo usuario em 21/10/2026. O diff exclui mudancas Maps e laudos
+existentes somente em stage e preserva as senhas bcrypt e permissoes atuais.
