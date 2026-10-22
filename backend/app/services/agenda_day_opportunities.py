@@ -19,10 +19,6 @@ from app.schemas.agenda_preferencia import AgendaPreferencia
 from app.services.logistica_service import _cache_only_route_available
 
 
-class RotaSemEstimativa(Exception):
-    """Missing, stale or untrusted evidence cannot become a zero-minute route."""
-
-
 def buscar_oportunidades_dia(payload, db, current_user):
     from app.api.v1.endpoints import agenda
 
@@ -100,10 +96,10 @@ def buscar_oportunidades_dia(payload, db, current_user):
         if agenda._destinos_operacionais_mesma_referencia(origem, destino):
             return 0, "mesmo_destino"
         if not origem or not destino or origem.get("tipo") != "clinica_parceira" or destino.get("tipo") != "clinica_parceira":
-            raise RotaSemEstimativa()
+            return None, "sem_estimativa"
         row = rotas.get((origem.get("entity_id"), destino.get("entity_id")))
         if row is None:
-            raise RotaSemEstimativa()
+            return None, "sem_estimativa"
         return int(row.duracao_min), "manual" if row.manual_override else str(row.fonte)
 
     # No candidate is offered before the day's first anchor: this comparison
@@ -136,16 +132,15 @@ def buscar_oportunidades_dia(payload, db, current_user):
         if clinica.latitude is None or clinica.longitude is None:
             resposta["sem_estimativa"] += 1
             continue
-        try:
-            slots = agenda._sugerir_horarios_agenda(
-                agenda.SugestaoHorarioPayload(data=data_iso, clinica_id=clinica.id,
-                    servico_id=payload.servico_id, intervalo_minutos=15, limite=50, preferencia=preferencia),
-                db, current_user, resolver_viagem=resolver_viagem, contexto_dia=contexto_dia,
-            ).get("items", [])
-        except RotaSemEstimativa:
-            resposta["sem_estimativa"] += 1
-            continue
+        sugestao = agenda._sugerir_horarios_agenda(
+            agenda.SugestaoHorarioPayload(data=data_iso, clinica_id=clinica.id,
+                servico_id=payload.servico_id, intervalo_minutos=15, limite=50, preferencia=preferencia),
+            db, current_user, resolver_viagem=resolver_viagem, contexto_dia=contexto_dia,
+        )
+        slots = sugestao.get("items", [])
         if not slots:
+            if sugestao.get("teve_rota_sem_estimativa"):
+                resposta["sem_estimativa"] += 1
             continue
         slots_com_custo = [(slot, acrescimo(slot)) for slot in slots]
         slots_com_custo = [(slot, custo) for slot, custo in slots_com_custo if custo is not None]
