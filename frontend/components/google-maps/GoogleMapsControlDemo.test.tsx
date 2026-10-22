@@ -18,7 +18,7 @@ describe("demonstração segura do controle Maps", () => {
     fireEvent.click(screen.getByRole("button", { name: "Lote bloqueado — Agenda liberada" }));
     expect(screen.getByRole("status")).toHaveTextContent("não autoriza recalcular a matriz nem tarefas automáticas pagas");
     fireEvent.click(screen.getByRole("button", { name: "Referência atingida — Agenda liberada" }));
-    expect(await screen.findByRole("dialog")).toHaveTextContent("Agenda liberada acima da referência");
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Agenda liberada com alertas");
     expect(screen.getByRole("dialog")).toHaveTextContent("Referência atingida: a Agenda continua liberada");
     fireEvent.click(screen.getByRole("button", { name: "Confirmar esta ação" }));
     expect(await screen.findByRole("status")).toHaveTextContent("inclusive acima da referência diária/mensal");

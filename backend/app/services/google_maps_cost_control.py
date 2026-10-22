@@ -220,6 +220,7 @@ REASONS = {
     "cache_only": "Modo somente cache: novas chamadas ao Google Maps estão bloqueadas para manter novas cobranças em R$ 0. Esta operação exige uma rota Google ainda válida ou um ajuste manual autorizado; não será criada uma estimativa alternativa.",
     "unconfigured": "Controle Google Maps sem configuração aprovada. Nenhuma chamada paga foi autorizada.",
     "disabled": "Chamadas ao Google Maps estão suspensas na configuração administrativa.",
+    "pricing_review_due": "Revisão de preços/câmbio pendente: a Agenda continua liberada com a última estimativa cadastrada. O custo real pode variar. Cada nova consulta exige confirmação limitada; lotes e automações continuam sujeitos às suas restrições.",
     "pricing_expired": "A validade da estimativa de preços/câmbio expirou; atualize a configuração antes de continuar.",
     "ledger_unavailable": "Não foi possível verificar o limite compartilhado. A operação que gera custo foi suspensa.",
     "confirmation_required": "Confirme esta ação no aviso de custo antes de consultar o Google Maps.",
@@ -325,7 +326,7 @@ def _deny(conn, reason, *, action="unscoped", action_id=None, user_id=None, poli
     raise GoogleMapsCostBlocked(reason, action)
 
 
-def _configuration(conn, *, require_enabled=True):
+def _configuration(conn, *, require_enabled=True, action=None):
     row = conn.execute(select(CONFIG).where(CONFIG.c.id == 1)).mappings().first()
     if row is None:
         if require_enabled:
@@ -338,17 +339,21 @@ def _configuration(conn, *, require_enabled=True):
     if require_enabled:
         if not cfg.enabled:
             _deny(conn, "disabled")
-        if cfg.operation_mode == "paid_budget" and cfg.pricing_valid_until.timestamp() <= _now():
+        if _pricing_review_due(cfg) and not agenda_monitored(cfg, action):
             _deny(conn, "pricing_expired")
     return cfg, row["revision"]
 
 
-def _configuration_reason(cfg):
+def _pricing_review_due(cfg):
+    return cfg is not None and cfg.operation_mode == "paid_budget" and cfg.pricing_valid_until.timestamp() <= _now()
+
+
+def _configuration_reason(cfg, *, action=None):
     if cfg is None:
         return "unconfigured"
     if not cfg.enabled:
         return "disabled"
-    if cfg.operation_mode == "paid_budget" and cfg.pricing_valid_until.timestamp() <= _now():
+    if _pricing_review_due(cfg) and not agenda_monitored(cfg, action):
         return "pricing_expired"
     return None
 
@@ -432,7 +437,7 @@ def agenda_monitored(cfg, action):
 
 
 def _reference_alerts(cfg, usage, calls=0, cost=0):
-    return [f"{period}_reference_exceeded" for period in ("day", "month")
+    return (["pricing_review_due"] if _pricing_review_due(cfg) else []) + [f"{period}_reference_exceeded" for period in ("day", "month")
         if usage[period]["calls"] + calls > getattr(cfg.limits, period).calls
         or usage[period]["cost"] + cost > _micros(getattr(cfg.limits, period).estimated_brl)
         or (calls == 0 and (usage[period]["calls"] >= getattr(cfg.limits, period).calls
@@ -489,7 +494,7 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
     with _locked() as conn:
         cfg, revision = _configuration(conn, require_enabled=False)
         usage = _usage(conn)
-        reason = _configuration_reason(cfg)
+        reason = _configuration_reason(cfg, action=spec.key)
         if cfg is not None and cfg.operation_mode == "cache_only":
             return {
                 "required": False, "blocked": reason is not None, "reason": reason,
@@ -538,6 +543,8 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
             _event(conn, kind="blocked", action=spec.key, user_id=user_id, reason=reason)
         return {
             "required": True, "blocked": reason is not None, "reason": reason,
+            "pricing_review_due": _pricing_review_due(cfg),
+            "pricing_reference_valid_until": cfg.pricing_valid_until.isoformat() if cfg else None,
             "budget_policy": "agenda_monitor" if agenda_monitored(cfg, spec.key) else "enforced",
             "financial_limit_enforced": not agenda_monitored(cfg, spec.key),
             "alerts": [REASONS[key] for key in _reference_alerts(cfg, usage, max_calls, max_cost)] if agenda_monitored(cfg, spec.key) else [],
@@ -547,6 +554,7 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
             "max_calls": max_calls, "estimated_cost_min_brl": 0,
             "estimated_cost_max_brl": _brl(max_cost), "expires_at": _iso(now + QUOTE_TTL_SECONDS),
             "uncertainty": [
+                "Preços/câmbio usam a última estimativa cadastrada; a data de revisão vencida gera alerta na Agenda monitorada, sem certificar o custo atual.",
                 "Teto de execução verificável; consultas em cache podem reduzir o número real de chamadas.",
                 "Estimativa conservadora: todas as unidades são consideradas pagas, sem descontar a franquia compartilhada da conta.",
                 "A cobrança efetiva depende do SKU, faixas de volume da conta, câmbio e tributos. Dados do Billing têm atraso.",
@@ -559,10 +567,10 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
 
 def confirm_preview(user_id: int, quote_id: str):
     with _locked() as conn:
-        cfg, revision = _configuration(conn)
+        row = conn.execute(select(ACTIONS).where(ACTIONS.c.id == quote_id)).mappings().first()
+        cfg, revision = _configuration(conn, action=row["action"] if row and not row["policy"] else None)
         if cfg.operation_mode == "cache_only":
             _deny(conn, "cache_only", user_id=user_id)
-        row = conn.execute(select(ACTIONS).where(ACTIONS.c.id == quote_id)).mappings().first()
         if not row or row["user_id"] != user_id or row["state"] != "quoted" or row["expires_at"] <= _now():
             _deny(conn, "invalid_grant", user_id=user_id)
         if row["revision"] != revision:
@@ -583,7 +591,7 @@ def claim_execution(user_id, token, method, path, query=None, body=None) -> Exec
     if agenda_cache_first_enabled(spec) and not token:
         return Execution(secrets.token_urlsafe(32), operation_mode="cache_first", cache_first=True)
     with _locked() as conn:
-        cfg, revision = _configuration(conn)
+        cfg, revision = _configuration(conn, action=action)
         if cfg.operation_mode == "cache_only":
             if spec is None:
                 _deny(conn, "invalid_grant", action=action, user_id=user_id)
@@ -659,7 +667,12 @@ def authorize_google_call(sku: str) -> None:
     with _locked() as conn:
         if execution is not None and execution.operation_mode == "cache_only":
             _deny(conn, "cache_only", action_id=execution.action_id, policy=execution.automatic_policy)
-        cfg, revision = _configuration(conn)
+        # Use the durable human action, never a caller-supplied policy/name.
+        row = (conn.execute(select(ACTIONS).where(ACTIONS.c.id == execution.action_id)).mappings().first()
+               if execution is not None and not execution.automatic_policy else None)
+        expiry_action = (row["action"] if row and not row["policy"] else
+                         "agenda_create" if execution is not None and execution.operation_mode == "cache_first" and not execution.automatic_policy else None)
+        cfg, revision = _configuration(conn, action=expiry_action)
         if cfg.operation_mode == "cache_only":
             if execution is not None:
                 execution.operation_mode = "cache_only"
@@ -687,7 +700,8 @@ def authorize_google_call(sku: str) -> None:
             ))
             _event(conn, kind="claimed", action="automatic", action_id=execution.action_id, policy=execution.automatic_policy)
             execution.automatic_claimed = True
-        row = conn.execute(select(ACTIONS).where(ACTIONS.c.id == execution.action_id)).mappings().first()
+        if execution.automatic_policy:
+            row = conn.execute(select(ACTIONS).where(ACTIONS.c.id == execution.action_id)).mappings().first()
         if not row or row["state"] != "claimed" or row["expires_at"] <= _now():
             _deny(conn, "invalid_grant")
         meta = {"action": row["action"], "action_id": row["id"], "user_id": row["user_id"], "policy": row["policy"]}
@@ -807,12 +821,14 @@ def get_status():
     with _locked() as conn:
         cfg, revision = _configuration(conn, require_enabled=False)
         usage = _usage(conn)
-        reason = _configuration_reason(cfg)
+        reason = _configuration_reason(cfg, action="agenda_create" if cfg and cfg.agenda_budget_mode == "monitor" else None)
         history = conn.execute(select(EVENTS).order_by(EVENTS.c.id.desc()).limit(100)).mappings().all()
         started = conn.execute(select(func.min(EVENTS.c.created_at)).where(EVENTS.c.kind == "opening")).scalar()
         return {
             "agenda_cache_first": settings.GOOGLE_MAPS_AGENDA_CACHE_FIRST is True,
             "agenda_budget_mode": cfg.agenda_budget_mode if cfg else None,
+            "pricing_review_due": _pricing_review_due(cfg),
+            "pricing_review_policy": "agenda_alert_only" if cfg and cfg.agenda_budget_mode == "monitor" else "enforced",
             "alerts": [REASONS[key] for key in _reference_alerts(cfg, usage)] if cfg and cfg.agenda_budget_mode == "monitor" else [],
             "configured": cfg is not None, "enabled": cfg.enabled if cfg else False,
             "blocked": reason is not None, "reason": reason, "revision": revision,

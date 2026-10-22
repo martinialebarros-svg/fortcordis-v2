@@ -136,3 +136,13 @@ describe("administração de custos Google Maps", () => {
     expect(mocks.put).not.toHaveBeenCalled();
   });
 });
+
+it("mostra revisão vencida como alerta mantendo a Agenda habilitada", async () => {
+  mocks.get.mockReset(); mocks.put.mockReset();
+  mocks.get.mockResolvedValue({ data: { ...existing, blocked: false, agenda_budget_mode: "monitor", config: { ...existing.config, agenda_budget_mode: "monitor" }, alerts: ["Revisão de preços/câmbio pendente: a Agenda continua liberada com a última estimativa cadastrada."] } });
+  render(<GoogleMapsAdminPanel />);
+  expect(await screen.findByText(/Revisão de preços\/câmbio pendente/)).toBeVisible();
+  expect(screen.getByText(/Chamadas habilitadas sob limites/)).toBeVisible();
+  expect(screen.queryByText(/Chamadas pagas suspensas:/)).toBeNull();
+  expect(mocks.put).not.toHaveBeenCalled();
+});

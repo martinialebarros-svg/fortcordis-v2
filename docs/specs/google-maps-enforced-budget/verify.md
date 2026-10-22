@@ -169,3 +169,59 @@ histórica; todos os extras permanecem com teto zero independentemente do saldo.
 A estimativa inicial reserva tarifa cheia, sem créditos, usando o SKU Essentials
 observado. Novas tentativas usam a reserva do SKU efetivamente autorizado.
 Falhas da transição restauram emergência e reiniciam API/worker, preservando ledger.
+
+## Stage instalado — ativação autorizada de 22/10/2026
+
+Stage `097227a5` concluiu todos os workflows necessários. A suíte backend executou
+2.089 casos (com skips esperados documentados no log); a suíte Maps/PostgreSQL
+executou 110 casos. O canário instalado comprovou os 12 cenários como recepção
+sintética sem autoridade administrativa, com zero Google, zero agendamentos
+operacionais alterados e nenhum schema temporário restante. O smoke autenticado
+da configuração respondeu 200 nos três hosts de stage; API administrativa sem
+credencial respondeu 401. Marcadores verificados nos chunks, sem pagamentos
+históricos reais no JavaScript. Os seis arquivos de runtime foram preservados,
+restaurados e conferidos por hash; backup/restore drill aprovado.
+
+A PR #422 integrou somente os 41 caminhos Maps e do operador de ativação em
+main `1a7cd0aa`. A instalação e ativação efetivas precisam do smoke instalado
+e da transição drenada, não apenas do merge. Evidência privada sanitizada em
+`/Users/martiniano/Documents/Codex/2026-10-22/maps-production-activation/`.
+
+## Revisão de preços/câmbio sem corte da Agenda — 22/10/2026
+
+Por autorização explícita, `pricing_valid_until` funciona como data de revisão
+para as ações humanas registradas da Agenda em modo `monitor`. Vencer a data
+(inclusive 21/11/2026) gera `pricing_review_due`, sem impedir cotação, confirmação,
+execução ou reserva de tentativa. Manter preços, câmbio, margem e data originais;
+não prolongar a data nem apresentar a estimativa antiga como tarifa atual verificada.
+O aviso aparece no painel administrativo, na cotação/popup e no histórico (uma
+vez por execução, sem duplicar consumo). Quantidade máxima, custo estimado da
+confirmação, SKU, usuário/payload, validade do consentimento e revisão continuam
+verificados. Nenhuma alteração nos limites autorizados, no baseline ou nas flags
+de produção é necessária para publicar esta correção.
+
+A exceção não habilita lotes, consultas extras, políticas automáticas ou modo
+`enforce`, que continuam recusando preços vencidos. Cache primeiro permanece
+sem cobrança. Ledger indisponível, configuração inválida/desabilitada, falta de
+confirmação, replay, expiração do consentimento e excesso por ação continuam
+suspendendo apenas a operação paga correspondente. Não inventar rotas ou horários.
+
+Verificação: cinco novos cenários incluem update real do endpoint com transporte
+interceptado e revisão vencida, cancelamento sem envio, alerta sem custo duplicado,
+geocoding domiciliar de uma unidade, virada da data entre cotação/confirmação/envio,
+expiração própria do consentimento, concorrência de confirmações finitas e suspensão
+administrativa preservada. O canário instalado de recepção agrega esses cenários
+em PostgreSQL isolado, sem Google ou agendamentos operacionais. A publicação exige
+workflows terminais, smoke dos assets e confirmação de que configuração/consumo
+existentes foram preservados.
+
+A promoção desta correção isola os incrementos regionais/PDF e o gate de stage
+que ainda não estão em produção. O patch desses caminhos fica preservado para
+restauração imediata em stage após o deploy. Não promover nem reverter funções
+clínicas ou autenticação incidentalmente. A configuração ativa revisão 1 permanece
+inalterada; publicar código sem repetir o operador de ativação inicial.
+
+O popup explicita “Estimativa desatualizada — revisão pendente” e a data
+no fuso Fortaleza. “Confirmar esta ação” continua habilitado; abrir o aviso
+não despacha a ação, e confirmar produz uma única autorização. O título
+geral “Agenda liberada com alertas” não presume que o orçamento já foi excedido.
