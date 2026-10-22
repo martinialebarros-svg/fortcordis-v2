@@ -60,6 +60,16 @@ describe("administração de custos Google Maps", () => {
     })));
   });
 
+
+  it("salva monitoramento explícito e mostra referências sem alterar valores", async () => {
+    mocks.get.mockResolvedValue({ data: { ...existing, agenda_budget_mode: "monitor", config: { ...existing.config, agenda_budget_mode: "monitor" }, alerts: ["Referência atingida; Agenda liberada."] } });
+    mocks.put.mockResolvedValue({ data: {} });
+    render(<GoogleMapsAdminPanel />);
+    expect(await screen.findByText("Agenda liberada com alertas; lotes e extras sob teto rígido")).toBeVisible();
+    expect(screen.getByLabelText("Ao atingir o orçamento da Agenda")).toHaveValue("monitor");
+    fireEvent.submit(screen.getByRole("button", { name: "Salvar controles" }).closest("form")!);
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledWith("/google-maps-control/config", expect.objectContaining({ agenda_budget_mode: "monitor", limits: expect.objectContaining({ month: { calls: 500, estimated_brl: 50 } }) })));
+  });
   it("opt-in automático exige limites próprios e não copia os globais", async () => {
     mocks.get.mockResolvedValue({ data: existing });
     render(<GoogleMapsAdminPanel />);

@@ -1,0 +1,62 @@
+{
+  "checked_at": "2026-10-18T22:15:10.334175+00:00",
+  "environment": "stage",
+  "installed_sha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+  "services": {
+    "fortcordis-stage-backend": {
+      "ExecMainStartTimestamp": "Sun 2026-10-18 22:07:49 UTC",
+      "ActiveState": "active",
+      "SubState": "running"
+    },
+    "fortcordis-stage-backend-worker": {
+      "ExecMainStartTimestamp": "Sun 2026-10-18 22:08:02 UTC",
+      "ActiveState": "active",
+      "SubState": "running"
+    },
+    "fortcordis-stage-frontend": {
+      "ExecMainStartTimestamp": "Sun 2026-10-18 22:13:35 UTC",
+      "ActiveState": "active",
+      "SubState": "running"
+    }
+  },
+  "runtime_hashes": [
+    {
+      "path": "backend/fortcordis.db",
+      "bytes": 13570048,
+      "sha256": "b7e05e3756e87462cd126d13c6962fbb653f107ae2191a59e9a0997d1c763de9"
+    },
+    {
+      "path": "backend/data/frases.json",
+      "bytes": 157587,
+      "sha256": "803215e7b18b1118472e9af70924a70601a57369fe471f5ccb2f0dc59650fe5b"
+    },
+    {
+      "path": "backend/data/patologias.json",
+      "bytes": 1489,
+      "sha256": "74b1d84896072578767ddffda590b20ecdc5eb33f339d88b4de06df33dcb6e05"
+    },
+    {
+      "path": "backend/data/frases_ecocardiograma_estruturado_teste.json",
+      "bytes": 369472,
+      "sha256": "a1dced843b17d60887ecddf3b322b19142cdcfb45bdfa8dec963f1c2434296af"
+    },
+    {
+      "path": "backend/data/frases_ultrassom_abdominal.json",
+      "bytes": 65808,
+      "sha256": "da0e216d6e67421611d8417ff84e730b6de3f0a122657f4112a065b5b17330e3"
+    },
+    {
+      "path": "backend/data/atendimento_clinical_phrases.json",
+      "bytes": 6895,
+      "sha256": "49529b56c3ba989ac2f6b488345dff25da7a87db8a73b9f0ee001b2b7976f67a"
+    }
+  ],
+  "migration_99": true,
+  "temporary_canary_schemas": 0,
+  "config_summary": [],
+  "clinical_paths_equal_source": 13,
+  "clinical_source": "9137d39fea18c795bb1cb7b1cc9bc204dce05d69",
+  "read_only": true,
+  "google_calls": 0,
+  "source_sha256": "501a188dd7e582246d5452c76150343c5089426bf507d590b3ca20364e417f3d"
+}
