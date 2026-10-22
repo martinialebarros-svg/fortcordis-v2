@@ -15,8 +15,9 @@ depois da instalação.
 
 Vincular checkout, scripts extraídos e código instalado ao SHA completo do run,
 em stage e produção. Preservar os gates, a assertiva da sincronização, os seis
-arquivos runtime e o rollback. Esta autorização permite publicar somente em
-stage; produção requer autorização posterior. Não mudar Auth, dados, catálogo,
+arquivos runtime e o rollback. A homologação de stage terminou no SHA `d1e81bba`. A autorização posterior de
+22/10/2026 permite publicar isoladamente esta correção em produção, com backup,
+rollback e validação do SHA instalado. Não mudar Auth, dados, catálogo,
 serviços, segredos ou o comportamento dos presets.
 
 Chamadas manuais também exigem SHA e ref: não há resolução implícita da ponta.
