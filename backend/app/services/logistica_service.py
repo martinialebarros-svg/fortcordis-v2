@@ -19,7 +19,7 @@ from app.models.clinica import Clinica
 from app.models.clinica_deslocamento import ClinicaDeslocamento
 from app.models.google_maps_usage_metrica import GoogleMapsUsageMetrica
 from app.services.google_maps_cost_control import (
-    GoogleMapsCostBlocked, authorize_google_call, block_cache_only_lookup, cache_only_operation, cache_first_operation,
+    authorize_google_call, block_cache_only_lookup, cache_only_operation,
 )
 
 PERFIS_VALIDOS = {"comercial", "plantao"}
@@ -950,11 +950,6 @@ def estimar_deslocamento(
         duracao_min = max(MIN_DURACAO_MINUTOS, int(duracao_escolhida or 0))
         return distancia_km, duracao_min, fonte
 
-    if cache_first_operation():
-        # A financial/configuration/provider failure must never be converted
-        # into a newly invented travel time in the cache-first Agenda flow.
-        raise GoogleMapsCostBlocked("route_unavailable")
-
     if not permitir_google_lookup and str(settings.GOOGLE_MAPS_API_KEY or "").strip():
         _append_google_metric_event(
             telemetry_events,
@@ -1312,10 +1307,7 @@ def obter_ou_criar_deslocamento(
     if row:
         if bool(row.manual_override):
             return row
-        if not force_recalculate and (
-            _cache_only_route_available(row, origem=origem, destino=destino)
-            if cache_first_operation() else _deslocamento_esta_atual(row, origem=origem, destino=destino)
-        ):
+        if not force_recalculate and _deslocamento_esta_atual(row, origem=origem, destino=destino):
             return row
 
     rows = materializar_deslocamento_par(
@@ -1363,10 +1355,7 @@ def obter_duracao_deslocamento(
         if _cache_only_route_available(row, origem=origem, destino=destino):
             return max(0, int(row.duracao_min)), str(row.fonte)
         block_cache_only_lookup()
-    if row and row.duracao_min is not None and (
-        _cache_only_route_available(row, origem=origem, destino=destino)
-        if cache_first_operation() else _deslocamento_esta_atual(row, origem=origem, destino=destino)
-    ):
+    if row and row.duracao_min is not None and _deslocamento_esta_atual(row, origem=origem, destino=destino):
         return max(0, int(row.duracao_min)), str(row.fonte or "matriz")
 
     if not permitir_estimativa_fallback:
@@ -1429,10 +1418,7 @@ def obter_duracao_deslocamento_entidades(
         if _cache_only_route_available(row, origem=origem, destino=destino):
             return max(0, int(row.duracao_min)), str(row.fonte)
         block_cache_only_lookup()
-    if row and row.duracao_min is not None and (
-        _cache_only_route_available(row, origem=origem, destino=destino)
-        if cache_first_operation() else _deslocamento_esta_atual(row, origem=origem, destino=destino)
-    ):
+    if row and row.duracao_min is not None and _deslocamento_esta_atual(row, origem=origem, destino=destino):
         return max(0, int(row.duracao_min)), str(row.fonte or "matriz")
 
     if not permitir_estimativa_fallback:

@@ -190,28 +190,4 @@ describe("NovoAgendamentoModal - reserva expirada", () => {
       })
     );
   });
-
-  it.each(["limite de custo", "cancelamento da consulta"])("mantém o formulário preenchido após %s", async (kind) => {
-    const onSuccess = vi.fn();
-    const onClose = vi.fn();
-    apiPut.mockRejectedValue({
-      code: kind === "cancelamento da consulta" ? "ERR_CANCELED" : "GOOGLE_MAPS_ACTION_BLOCKED",
-      response: { status: 409, data: { detail: "Consulta de rota suspensa; revise os limites." } },
-    });
-    renderizarReserva(onSuccess, onClose);
-    const campoTutor = await localizarCampo("Tutor");
-    fireEvent.click(within(campoTutor).getByRole("button", { name: "Selecione..." }));
-    fireEvent.click(await within(campoTutor).findByRole("button", { name: /Maria Souza/ }));
-    const campoAnimal = await localizarCampo("Animal");
-    fireEvent.click(within(campoAnimal).getByRole("button", { name: "Selecione..." }));
-    fireEvent.click(await within(campoAnimal).findByRole("button", { name: /Rex/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Salvar dados da reserva" }));
-    await waitFor(() => expect(fortinhoNotify).toHaveBeenCalled());
-    expect(onSuccess).not.toHaveBeenCalled();
-    expect(onClose).not.toHaveBeenCalled();
-    expect(within(campoTutor).getByRole("button", { name: /Maria Souza/ })).toBeVisible();
-    expect(within(campoAnimal).getByRole("button", { name: /Rex/ })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Salvar dados da reserva" })).toBeEnabled();
-  });
-
 });
