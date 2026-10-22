@@ -288,6 +288,13 @@ As identidades Git do pacote comprovam backend e scripts idênticos aos de stage
 - scripts: `3cec1e9eb4b0f7e325b1615114c1aeb1859fc2bd`;
 - frontend: `cea61c54a03ebdee2723bbb11ff495e444767a6d`.
 
+A auditoria paralela do stage instalado
+`d1e81bba026e6398e58f7ac5d010b6e698a33ea2` confirmou essas mesmas árvores de
+backend/scripts e repetiu dez de dez checks, com schema removido e hashes de
+ENV/fontes preservados. A prova sanitizada está no artefato local
+`agenda-oportunidades-p1-production-stage-baseline-canary.json`. Não foi
+necessário novo deploy ou alternância do frontend de stage para essa prova.
+
 Validação local repetida no pacote isolado, sem banco operacional ou rede:
 
 - 249 testes Agenda passaram com URL SQLite e chave sintética.
