@@ -129,6 +129,33 @@ describe("conferência conservadora da narrativa diastólica felina", () => {
 
   describe("regressões P2: qualificador restrito à afirmação correspondente", () => {
     it.each([
+      "Com ondas fundidas, relação E/A de1,14.",
+      "Com ondas transmitrais fundidas, relação E/A de1,14.",
+      "Com ondas E/A fundidas, relação E/A de1,14.",
+      "Com ondas fundidas, relação e′/a′ de1,33.",
+      "Com ondas teciduais fundidas, relação e′/a′ de1,33.",
+      "Com ondas e′/a′ fundidas, relação e′/a′ de1,33.",
+      "Não interpretável a relação E/A, relação E/A de1,14.",
+      "Descartada a relação E/A, relação E/A de1,14.",
+      "Não interpretável o pico e′, e′ de 0,16 m/s.",
+      "Descartado o pico a′, a′ de 0,06 m/s.",
+    ])("ressalva inicial explícita limita a própria medida: %s", (text) => {
+      expect(check(text, { Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" })).toEqual([]);
+    });
+
+    it.each([
+      { text: "Com ondas E/A fundidas, relação e′/a′ de1,33.", key: "feline_tissue_fusion" },
+      { text: "Com ondas e′/a′ fundidas, relação E/A de1,14.", key: "feline_transmitral_fusion" },
+      { text: "Com ondas E/A fundidas, ondas e′ e a′ separadas e mensuráveis.", key: "feline_tissue_fusion" },
+      { text: "Com ondas e′/a′ fundidas, ondas E e A separadas e mensuráveis.", key: "feline_transmitral_fusion" },
+      { text: "Não há refluxo, relação E/A de1,14.", key: "feline_transmitral_fusion" },
+    ])("ressalva inicial não oculta afirmação de outra família ou achado independente: $text", ({ text, key }) => {
+      const issues = check(text, { Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" });
+      expect(issues).toHaveLength(1);
+      expect(issues[0]).toMatchObject({ key, section: "Função", excerpt: text });
+    });
+
+    it.each([
       "Não há aumento atrial, e a relação E/A é 1,14.",
       "Não há derrame pericárdico; relação E/A de 1,14.",
       "Não foi observado refluxo mitral, relação E/A = 1,14.",

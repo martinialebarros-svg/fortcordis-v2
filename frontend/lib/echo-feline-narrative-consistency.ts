@@ -136,13 +136,20 @@ function hasUnqualifiedClaim(text: string, claim: (text: string) => boolean): bo
     // Punctuation alone does not end a historical exam. Conditional headers
     // apply to their clause group; returning to the current exam is explicit.
     if (clause.boundary.includes(";") || /\b(?:mas|porem|contudo|entretanto|todavia)\b/.test(clause.boundary)) inheritedContext = false;
-    if (/\b(?:atualmente|agora|neste\s+exame|exame\s+atual)\b/.test(clause.text)) {
+    const currentExam = /\b(?:atualmente|agora|neste\s+exame|exame\s+atual)\b/.test(clause.text);
+    if (currentExam) {
       inheritedContext = false;
       historicalContext = false;
     }
     if (isHistoricalContext(clause.text)) historicalContext = true;
     if (!anyClaim(clause.text) && isContextHeader(clause.text)) inheritedContext = true;
-    if (historicalContext || inheritedContext || !claim(clause.text) || isQualified(clause.text)) continue;
+    const previous = clauses[index - 1];
+    // A leading limitation belongs only to the adjacent claim, in its own
+    // family. Never turn it into a sentence-wide historical/conditional header.
+    const qualifiedBefore = !currentExam && clause.boundary === "," && previous
+      && !anyClaim(previous.text) && isQualificationContinuation(previous.text)
+      && continuationTargetsClaim(previous.text, claim, clause.text);
+    if (historicalContext || inheritedContext || qualifiedBefore || !claim(clause.text) || isQualified(clause.text)) continue;
 
     let qualifiedAfter = false;
     for (let next = index + 1; next < clauses.length; next++) {

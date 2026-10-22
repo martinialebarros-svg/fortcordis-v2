@@ -104,6 +104,10 @@ describe("aviso discreto de conferência clínica", () => {
     "Relação e′/a′ de 1,33, registrada no exame anterior.",
     "Relação e′/a′ de 1,33, com ondas fundidas.",
     "No exame anterior, relação E/A de 1,14; relação e′/a′ de 1,33.",
+    "Com ondas fundidas, relação E/A de1,14.",
+    "Com ondas teciduais fundidas, relação e′/a′ de1,33.",
+    "Não interpretável a relação E/A, relação E/A de1,14.",
+    "Descartado o pico a′, a′ de 0,06 m/s.",
   ])("P2: continua vazio quando a afirmação está explicitamente desconsiderada ou condicionada: %s", (sentence) => {
     const { container } = render(<EchoNarrativeConsistencyNotice species="Felina"
       measurements={{ Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" }}
@@ -123,5 +127,30 @@ describe("aviso discreto de conferência clínica", () => {
     expect(notice).not.toHaveTextContent("Ondas E/A registradas como fundidas");
     fireEvent.click(within(notice).getByText(/Ver trecho/));
     expect(notice.querySelector("blockquote")?.textContent).toBe(sentence);
+  });
+
+  it.each([
+    { sentence: "Com ondas E/A fundidas, relação e′/a′ de1,33.", expected: "Ondas e′/a′ registradas como fundidas", absent: "Ondas E/A registradas como fundidas" },
+    { sentence: "Com ondas e′/a′ fundidas, relação E/A de1,14.", expected: "Ondas E/A registradas como fundidas", absent: "Ondas e′/a′ registradas como fundidas" },
+  ])("ressalva inicial preserva outra família e o texto oficial ao salvar: $sentence", ({ sentence, expected, absent }) => {
+    const measurements = Object.freeze({ Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" });
+    const qualitative = Object.freeze({ funcao: sentence });
+    const onSave = vi.fn();
+    render(<form onSubmit={(event) => { event.preventDefault(); onSave(); }}>
+      <textarea aria-label="Narrativa oficial" readOnly value={sentence} />
+      <EchoNarrativeConsistencyNotice species="Gato" measurements={measurements}
+        qualitative={qualitative} conclusion="Conclusão oficial preservada." />
+      <button type="submit">Salvar laudo sintético</button>
+    </form>);
+    const notice = screen.getByRole("status", { name: "Conferência de coerência do laudo" });
+    expect(within(notice).getAllByRole("listitem")).toHaveLength(1);
+    expect(notice).toHaveTextContent(expected);
+    expect(notice).not.toHaveTextContent(absent);
+    fireEvent.click(within(notice).getByText(/Ver trecho/));
+    expect(notice.querySelector("blockquote")?.textContent).toBe(sentence);
+    fireEvent.click(screen.getByRole("button", { name: "Salvar laudo sintético" }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("textbox", { name: "Narrativa oficial" })).toHaveValue(sentence);
+    expect(qualitative.funcao).toBe(sentence);
   });
 });
