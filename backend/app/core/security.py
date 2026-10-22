@@ -116,6 +116,12 @@ def _extract_bearer_token(authorization: str | None) -> str:
 
 
 def get_request_token(request: Request, bearer_token: str | None = None) -> str:
+    # Browser sessions can be refreshed while older screens still hold a bearer
+    # token. In Supabase mode the HttpOnly cookie is the current browser session.
+    if settings.AUTH_PROVIDER == "supabase":
+        cookie_token = request.cookies.get(settings.AUTH_COOKIE_NAME, "").strip()
+        if cookie_token:
+            return cookie_token
     token = (bearer_token or "").strip()
     if token:
         return token
@@ -129,6 +135,10 @@ def get_request_token(request: Request, bearer_token: str | None = None) -> str:
 
 
 def get_websocket_token(websocket: WebSocket) -> str:
+    if settings.AUTH_PROVIDER == "supabase":
+        cookie_token = websocket.cookies.get(settings.AUTH_COOKIE_NAME, "").strip()
+        if cookie_token:
+            return cookie_token
     token = _extract_bearer_token(websocket.headers.get("Authorization"))
     if token:
         return token
@@ -138,6 +148,9 @@ def get_websocket_token(websocket: WebSocket) -> str:
 
 
 def _decode_token_and_load_user(db: Session, token: str) -> User:
+    if settings.AUTH_PROVIDER == "supabase":
+        from app.services.supabase_auth import get_user
+        return get_user(db, token)
     payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     email: str = payload.get("sub")
     if email is None:
@@ -215,7 +228,7 @@ def get_current_websocket_user(websocket: WebSocket, db: Session) -> User:
 
     try:
         user = _decode_token_and_load_user(db, token)
-    except JWTError:
+    except (JWTError, HTTPException):
         raise WebSocketException(
             code=status.WS_1008_POLICY_VIOLATION,
             reason="Credenciais invalidas",

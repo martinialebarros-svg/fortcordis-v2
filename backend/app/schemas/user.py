@@ -31,3 +31,5 @@ class Token(BaseModel):
     nome: str
     email: str
     papeis: List[str] = []  # Lista de nomes de papéis
+    provider: str = "legacy"
+    expires_at: Optional[int] = None

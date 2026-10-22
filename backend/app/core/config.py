@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     AUTH_COOKIE_SAMESITE: str = "lax"
     AUTH_COOKIE_SECURE: bool = False
     AUTH_COOKIE_DOMAIN: Optional[str] = None
+    AUTH_PROVIDER: Literal["legacy", "supabase"] = "legacy"
+    SUPABASE_URL: str = ""
+    SUPABASE_PUBLISHABLE_KEY: str = ""
+    # Exclusivamente no servidor; necessario apenas para administrar/importar contas.
+    SUPABASE_SECRET_KEY: str = ""
+    SUPABASE_AUTH_TIMEOUT_SECONDS: int = Field(default=5, ge=1, le=30)
+    SUPABASE_REFRESH_COOKIE_NAME: str = "fortcordis_refresh"
+    SUPABASE_REFRESH_COOKIE_MAX_AGE: int = Field(default=2592000, ge=60)
     CSRF_PROTECTION_ENABLED: bool = True
     CSRF_COOKIE_NAME: str = "fortcordis_csrf"
     CSRF_HEADER_NAME: str = "x-csrf-token"
