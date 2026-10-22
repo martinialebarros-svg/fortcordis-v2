@@ -107,3 +107,20 @@ Preparação/demonstração autorizadas em stage, sem reativação em produção
 A futura transição de produção deve drenar os emissores antigos antes de fechar o baseline e iniciar a política nova. Configurar o orçamento enquanto a emergência continua ativa não contabiliza essa janela. Sem baseline superior confiável, todas as ações não Agenda ficam com teto zero, preservando a política humana explicitamente escolhida. Procedimento em `activation-cutover.md`.
 
 O componente público compilado da demonstração não incorpora pagamentos ou volumes históricos reais. Esses dados permanecem no relatório de auditoria; a tela mostra apenas referências propostas, cenários hipotéticos e consumo fictício.
+
+## Ativação autorizada em 22/10/2026
+
+O usuário autorizou produção com referências de 650 chamadas/R$ 25 por dia e
+13.000 chamadas/R$ 500 por mês, mantendo a Agenda em `monitor`.
+`approved-monitor-config.json` registra o template selecionado, ainda desabilitado
+e sem baseline: não aplicar como configuração ativa sem a coleta de transição.
+Todas as ações não Agenda ficam com teto zero e automações sem política habilitada.
+A Agenda usa cache primeiro; novas chamadas exigem confirmação individual e finita.
+As referências não interrompem a Agenda; estimativa não equivale à fatura Google.
+O consumo histórico não conciliado será identificado como incompleto, sem saldo
+gratuito presumido, e não permitirá reabrir extras. Manter a expiração dos preços
+visível e revalidar até 21/11/2026.
+
+A correção regional de oportunidades do PR #420, autorizada somente em stage,
+fica temporariamente fora do snapshot de promoção e será restaurada em stage
+após a publicação. Preservar o código regional e a autenticação já em produção.
