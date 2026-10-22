@@ -1,6 +1,7 @@
 name: Deploy to Stage (VPS)
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - stage
@@ -30,6 +31,21 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Validate immutable deploy target
+        env:
+          BRANCH: stage
+          DEPLOY_REF: ${{ github.ref }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          source scripts/deploy_prod_vps.sh
+          validate_deploy_target
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
+
+      - name: Test immutable deploy SHA
+        run: python3 scripts/tests/test_deploy_immutable_sha.py
 
       - name: Test WhatsApp stage Meta isolation
         run: bash scripts/tests/test_whatsapp_stage_meta_isolation.sh
@@ -210,6 +226,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Resolve diff range
@@ -239,6 +256,19 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Validate immutable deploy target
+        env:
+          BRANCH: stage
+          DEPLOY_REF: ${{ github.ref }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          source scripts/deploy_prod_vps.sh
+          validate_deploy_target
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
+
       - name: Configure SSH for read-only stage diagnostics
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
@@ -271,6 +301,18 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Validate immutable deploy target
+        env:
+          BRANCH: stage
+          DEPLOY_REF: ${{ github.ref }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          source scripts/deploy_prod_vps.sh
+          validate_deploy_target
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
 
       - name: Setup SSH key
         env:
@@ -285,6 +327,17 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Verify approved SHA on VPS before configuration
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          # Stream the gated installer functions; do not write runtime files.
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "APP_DIR='/var/www/fortcordis-stage' BRANCH='stage' DEPLOY_SHA='$DEPLOY_SHA' DEPLOY_REF='refs/heads/stage' bash -c 'set -euo pipefail; source /dev/stdin; cd \"\$APP_DIR\"; resolve_deploy_target'" \
+            < scripts/deploy_prod_vps.sh
 
       - name: Configure OpenAI secret on Stage VPS
         env:
@@ -579,6 +632,10 @@ jobs:
             set -euo pipefail
             APP_DIR="/var/www/fortcordis-stage"
             BRANCH="stage"
+            DEPLOY_SHA="${{ github.sha }}"
+            DEPLOY_REF="${{ github.ref }}"
+            test "$DEPLOY_REF" = "refs/heads/$BRANCH"
+            [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
 
             if [ ! -d "$APP_DIR/.git" ]; then
               echo "ERROR: $APP_DIR is not a git checkout"
@@ -586,14 +643,15 @@ jobs:
             fi
 
             cd "$APP_DIR"
-            echo "Loading the stage deploy scripts from origin/${BRANCH}..."
-            git fetch origin "$BRANCH"
+            echo "Loading stage deploy scripts from gated SHA $DEPLOY_SHA..."
+            git fetch --no-tags origin "$DEPLOY_SHA"
+            test "$(git rev-parse --verify "${DEPLOY_SHA}^{commit}")" = "$DEPLOY_SHA"
             deploy_scripts_dir="$(mktemp -d)"
             cleanup_deploy_scripts() {
               rm -rf -- "$deploy_scripts_dir"
             }
             trap cleanup_deploy_scripts EXIT
-            git archive --format=tar "origin/${BRANCH}" -- \
+            git archive --format=tar "$DEPLOY_SHA" -- \
               scripts/deploy_stage_vps.sh \
               scripts/deploy_prod_vps.sh \
               scripts/ensure_nginx_http2.sh | tar -xf - -C "$deploy_scripts_dir"
@@ -602,6 +660,8 @@ jobs:
             SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' \
               APP_DIR="$APP_DIR" \
               BRANCH="$BRANCH" \
+              DEPLOY_SHA="$DEPLOY_SHA" \
+              DEPLOY_REF="$DEPLOY_REF" \
               DEPLOY_ACTIVATE_WHATSAPP_REMINDER_SERVICE=0 \
               WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED=true \
               bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"
