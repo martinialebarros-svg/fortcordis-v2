@@ -23,6 +23,7 @@ from app.models.clinica import Clinica
 from app.models.clinica_deslocamento import ClinicaDeslocamento
 from app.models.servico import Servico
 from app.services import agenda_day_opportunities as opportunities
+from app.services import geocoding_service, logistica_service
 from tests import test_agenda_sugestao_janela_operacional as fixtures
 
 
@@ -103,6 +104,12 @@ class AgendaDayOpportunitiesTest(unittest.TestCase):
                              "geocodificar_endereco_google", "_obter_duracao_deslocamento_operacional"):
                     stack.enter_context(patch.object(agenda, name,
                         side_effect=AssertionError(f"Opportunities must not call {name}")))
+                for module, name in ((logistica_service, "urlopen"),
+                                     (logistica_service, "_http_get_json"),
+                                     (logistica_service, "_http_post_json"),
+                                     (geocoding_service, "urlopen")):
+                    stack.enter_context(patch.object(module, name,
+                        side_effect=AssertionError("Opportunities must not call external providers")))
                 result = opportunities.buscar_oportunidades_dia(
                     agenda.OportunidadesDiaPayload(data="2026-10-23", servico_id=self.service.id, limite=limit),
                     self.db, user or self.user)
@@ -155,6 +162,152 @@ class AgendaDayOpportunitiesTest(unittest.TestCase):
         self.route(self.anchor, heuristic, trusted=False)
         result = self.call()
         self.assertEqual(result["items"], [])
+        self.assertEqual(result["sem_estimativa"], 2)
+        self.assertEqual(result["consultas_google"], 0)
+
+    def test_missing_reverse_in_early_candidate_preserves_later_known_direction_and_regional_margin(self):
+        second = self.clinic("Synthetic second anchor")
+        candidate = self.clinic("Synthetic later opportunity")
+        self.book(second, "2026-10-23 11:00", "Agendado")
+        self.book(candidate, "2026-10-20 10:00")
+        self.route(self.anchor, second, 20)
+        self.route(self.anchor, candidate, 20)
+        self.route(second, candidate, 50)
+        # Before the second anchor the missing candidate -> second direction
+        # makes that slot unverifiable. After it, second -> candidate is known.
+        self.assertIsNone(self.db.query(ClinicaDeslocamento).filter_by(
+            origem_clinica_id=candidate.id, destino_clinica_id=second.id,
+        ).first())
+
+        result = self.call()
+
+        self.assertEqual([item["clinica_id"] for item in result["items"]], [candidate.id])
+        item = result["items"][0]
+        # 11:30 + 50 travel + 15 total margin = 12:35, rounded to the 15m grid.
+        self.assertEqual(item["inicio"], "2026-10-23 12:45")
+        self.assertEqual(item["tempo_deslocamento_total_min"], 50)
+        self.assertTrue(item["transicao_regional"])
+        self.assertEqual(result["sem_estimativa"], 0)
+        self.assertEqual(result["consultas_google"], 0)
+
+    def test_missing_route_in_late_candidate_preserves_already_valid_earlier_slots(self):
+        second = self.clinic("Synthetic noon anchor")
+        candidate = self.clinic("Synthetic earlier opportunity")
+        self.book(second, "2026-10-23 12:00", "Agendado")
+        self.book(candidate, "2026-10-20 10:00")
+        self.route(self.anchor, second, 40)
+        self.route(self.anchor, candidate, 20)
+        self.route(candidate, second, 20)
+        # Known short legs replace the existing long leg. After noon the
+        # missing second -> candidate direction must not erase this result.
+        self.assertIsNone(self.db.query(ClinicaDeslocamento).filter_by(
+            origem_clinica_id=second.id, destino_clinica_id=candidate.id,
+        ).first())
+
+        result = self.call()
+
+        self.assertEqual([item["clinica_id"] for item in result["items"]], [candidate.id])
+        item = result["items"][0]
+        self.assertEqual(item["inicio"], "2026-10-23 10:00")
+        self.assertEqual(item["tempo_deslocamento_total_min"], 40)
+        self.assertEqual(item["acrescimo_deslocamento_min"], 0)
+        self.assertFalse(item["transicao_regional"])
+        self.assertEqual(result["sem_estimativa"], 0)
+        self.assertEqual(result["consultas_google"], 0)
+
+    def test_unknown_fixed_baseline_preserves_normal_known_opportunity_after_last_anchor(self):
+        second = self.clinic("Synthetic unknown-baseline anchor")
+        candidate = self.clinic("Synthetic normal known opportunity")
+        self.book(second, "2026-10-23 11:00", "Agendado")
+        self.book(candidate, "2026-10-20 10:00")
+        self.route(self.anchor, candidate, 20)
+        self.route(candidate, second, 20)
+        self.route(second, candidate, 20)
+        # The fixed anchor -> second leg has no estimate. The later normal
+        # insertion needs only second -> candidate, which is explicitly known.
+        self.assertIsNone(self.db.query(ClinicaDeslocamento).filter_by(
+            origem_clinica_id=self.anchor.id, destino_clinica_id=second.id,
+        ).first())
+
+        result = self.call()
+
+        self.assertEqual([item["clinica_id"] for item in result["items"]], [candidate.id])
+        item = result["items"][0]
+        self.assertEqual(item["inicio"], "2026-10-23 12:00")
+        self.assertEqual(item["tempo_deslocamento_total_min"], 20)
+        self.assertFalse(item["transicao_regional"])
+        self.assertEqual(result["sem_estimativa"], 0)
+        self.assertEqual(result["consultas_google"], 0)
+
+    def test_unknown_fixed_baseline_cannot_authorize_new_long_opportunity(self):
+        second = self.clinic("Synthetic unknown-baseline anchor")
+        candidate = self.clinic("Synthetic long opportunity")
+        self.book(second, "2026-10-23 11:00", "Agendado")
+        self.book(candidate, "2026-10-20 10:00")
+        self.route(self.anchor, candidate, 40)
+        self.route(candidate, second, 40)
+        self.route(second, candidate, 40)
+
+        result = self.call()
+
+        self.assertEqual(result["items"], [])
+        self.assertEqual(result["total_clinicas_recorrentes"], 1)
+        self.assertEqual(result["sem_estimativa"], 1)
+        self.assertEqual(result["consultas_google"], 0)
+
+    def test_cached_unknown_baseline_counts_each_long_clinic_without_leaking_flag_to_normal_clinic(self):
+        anchor_booking = self.db.query(Agendamento).filter_by(
+            clinica_id=self.anchor.id, data="2026-10-23",
+        ).one()
+        anchor_booking.fim = datetime.fromisoformat("2026-10-23 11:00")
+        self.db.commit()
+        second = self.clinic("Synthetic contiguous second anchor")
+        self.book(second, "2026-10-23 11:00", "Agendado")
+        first_long = self.clinic("Synthetic Alpha long route")
+        second_long = self.clinic("Synthetic Beta long route")
+        normal = self.clinic("Synthetic Zulu normal route")
+        for clinic, duration in ((first_long, 40), (second_long, 40), (normal, 20)):
+            self.book(clinic, "2026-10-20 10:00")
+            self.route(second, clinic, duration)
+        # There is no free slot between the fixed anchors. Every candidate
+        # uses a known outgoing leg after 11:30, so only the regional evaluator
+        # can reject the long routes because their fixed baseline is unknown.
+        observations = []
+        suggest = agenda._sugerir_horarios_agenda
+
+        def observe(payload, *args, **kwargs):
+            result = suggest(payload, *args, **kwargs)
+            cache = kwargs["contexto_dia"]["cache_regional"]
+            observations.append((payload.clinica_id, result["teve_rota_sem_estimativa"],
+                any(getattr(estimate, "duracao_min", 0) is None for estimate in cache.values())))
+            return result
+
+        with patch.object(agenda, "_sugerir_horarios_agenda", side_effect=observe):
+            result = self.call()
+
+        self.assertEqual(observations, [
+            (first_long.id, True, True), (second_long.id, True, True), (normal.id, False, True),
+        ])
+        self.assertEqual([item["clinica_id"] for item in result["items"]], [normal.id])
+        self.assertEqual(result["items"][0]["inicio"], "2026-10-23 12:00")
+        self.assertFalse(result["items"][0]["transicao_regional"])
+        self.assertEqual(result["sem_estimativa"], 2)
+        self.assertEqual(result["consultas_google"], 0)
+
+    def test_missing_and_reverse_only_routes_are_not_inferred_while_known_clinic_remains_visible(self):
+        missing = self.clinic("Synthetic no route in either direction")
+        reverse_only = self.clinic("Synthetic reverse route only")
+        known = self.clinic("Synthetic known directed route")
+        for clinic in (missing, reverse_only, known):
+            self.book(clinic, "2026-10-20 10:00")
+        self.route(reverse_only, self.anchor, 20)
+        self.route(self.anchor, known, 20)
+
+        result = self.call()
+
+        self.assertEqual([item["clinica_id"] for item in result["items"]], [known.id])
+        self.assertEqual(result["items"][0]["tempo_deslocamento_total_min"], 20)
+        self.assertFalse(result["items"][0]["transicao_regional"])
         self.assertEqual(result["sem_estimativa"], 2)
         self.assertEqual(result["consultas_google"], 0)
 
