@@ -68,6 +68,26 @@ CLI, sem commit vazio, mudanca de workflow ou bypass dos gates.
 
 ---
 
+## Stage validado e reintegracao do hotfix — 22/10/2026
+
+- Stage instalado em `5138dddc8602e1823e5ce4debda22b6988cf91e7`.
+- Workflow manual `39824925973`: `quality-gate`, `sdd-guardrail`, diagnosticos
+  e `deploy-stage` terminaram com sucesso; Migration CI `39824930828` passou.
+- Canario no dominio real de stage: sessao `200`, cookie aceito nas quatro
+  rotas PDF, anonimo `401` e token na URL `400`, sem escrita clinica.
+- PR #425 integrada em main `3d1cb8c740af873a5d19e7b3f5c2101a3db23f66`.
+  O diff efetivo de producao contem somente os quatro arquivos da correcao
+  de PDF; Agenda e acionamento manual de stage permaneceram fora dele.
+- A presente reintegracao preserva os conteudos exclusivos de stage e inclui
+  main na ancestralidade. O unico conflito foi documental, resolvido mantendo
+  o registro de preflight e esta evidencia. Nenhum arquivo de aplicacao muda
+  em relacao ao stage ja validado.
+- Publicacao de producao em acompanhamento pelo workflow `39834457250`;
+  Migration CI de producao `39834462831`. A prova final do PDF sera anexada
+  depois dos gates e da instalacao.
+
+---
+
 ## Registro historico de 2026-04-03 (anterior a migracao de autenticacao)
 
 Data: 2026-04-03  
