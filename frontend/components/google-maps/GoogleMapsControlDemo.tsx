@@ -37,7 +37,7 @@ export default function GoogleMapsControlDemo() {
           <tr><td className="p-2">Recalcular matriz e tarefas automáticas</td><td className="p-2">0 novas chamadas na proposta inicial</td><td className="p-2">Exigem liberação própria posterior</td></tr>
         </tbody>
       </table>
-      <p className="mt-2">Histórico de cobrança: julho R$ 90,12 / 13.062 chamadas; agosto R$ 372,45 / 22.806. A referência de R$ 500 conta todas as tentativas com margem, sem descontar franquia. Não representa uma previsão de fatura de R$ 500.</p>
+      <p className="mt-2">A proposta considera o histórico analisado no relatório de auditoria. A referência de R$ 500 conta todas as tentativas com margem, sem descontar franquia. Não representa uma previsão de fatura de R$ 500.</p>
       <p className="mt-2">Com 13.000 consultas exclusivamente Essentials e 10.000 gratuitas integralmente disponíveis, o cenário seria cerca de R$ 87 a R$ 108. Essa franquia depende da conta compartilhada; sem ela, a estimativa conservadora das 13.000 consultas é R$ 468. A Agenda pode superar essas referências.</p>
     </div>
     <div className="flex flex-wrap gap-2">
