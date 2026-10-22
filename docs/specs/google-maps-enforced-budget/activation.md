@@ -1,21 +1,5 @@
 # Ativação — produção com custo adicional zero
 
-**Preparação vigente de 21/10/2026:** consultar [proposta e roteiro](preparation-20261021.md). Agenda em monitor com alertas, rascunho desabilitado e nenhuma reativação de produção neste ciclo. As instruções de custo zero abaixo são históricas e permanecem suspensas.
-
-## Reativação em produção suspensa — incremento atual somente stage
-
-Produção deve manter `GOOGLE_MAPS_COST_EMERGENCY_RELEASE=true`. Não executar as instruções históricas de cache_only/quotas zero deste documento para o pedido atual.
-
-Em stage, habilitar somente `GOOGLE_MAPS_AGENDA_CACHE_FIRST=true`, manter emergência false e orçamento operacional pago desabilitado. Reiniciar pelos mecanismos normais de deploy, comprovar status efetivo e executar o canário isolado no SHA instalado:
-
-```sh
-backend/venv/bin/python scripts/google_maps_cache_first_stage_canary.py --expected-sha <SHA_STAGE_VERIFICADO>
-```
-
-Painel de stage: Configurações → Custos do Google Maps → Experimentar o controle sem gerar custo. Os exemplos não configuram limites reais. Produção só poderá ser reativada após revisão da política para rotas inéditas sem saldo, limites escolhidos, conciliação do período de liberação e autorização separada do usuário.
-
-**Estado operacional em 19/10/2026, 13:28 UTC:** liberação temporária efetiva na API de produção `ac054398`, com API/worker reiniciados; perfil de recepção passou pelo controle de custo em criar/sugerir horários. Evidência em `evidence/production-emergency-live-smoke.json`. Esse teste não criou agendamento nem consultou Google. O pipeline completo e a atualização visual são conferências separadas da ativação backend.
-
 ## Liberação emergencial solicitada em 19/10/2026
 
 O usuário informou que a recepção não consegue agendar e autorizou: “Deixe liberado por enquanto”. Esta instrução suspende a ativação do modo R$ 0 e autoriza temporariamente as consultas potencialmente cobradas. A observação instalada mostrou `reason=unconfigured`, revisão 0 e nenhuma política aprovada; o bloqueio ocorria antes de qualquer consulta Google. Não houve ativação de quota nativa zero.

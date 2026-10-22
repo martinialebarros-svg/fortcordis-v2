@@ -1,9 +1,5 @@
 # Auditoria Google Maps / Fort Cordis — 18/10/2026
 
-## Atualização operacional — 19/10/2026
-
-Escolha expressa do usuário: Agenda liberada com alertas; teto rígido somente para lotes e extras. O incremento `agenda_budget_mode=monitor` trata essa regra sem atribuir a ela causalidade histórica. O limite de referência pode ser excedido pela Agenda e não representa teto de faturamento. Grants continuam finitos e uso compartilhado é registrado antes do envio. Stage não enviará Google real na validação; produção permanece temporariamente aberta e exige autorização separada para reativação. Evidências históricas do Billing e limites de atribuição abaixo permanecem inalterados.
-
 Este relatório descreve o estado **anterior à implementação**. Fontes de código: `origin/stage` `74f0148c3bbd7a3365753d15fe2e85fbc72d2282` e `origin/main` `9137d39fea18c795bb1cb7b1cc9bc204dce05d69`; ambos confirmados instalados nos respectivos ambientes por SSH. Nenhuma chamada Google foi executada. Não houve escrita remota, alteração de quotas, envio de mensagem ou acesso a dados clínicos. Consultas SQL foram executadas com `SET TRANSACTION READ ONLY` e `statement_timeout=12s`.
 
 Evidência agregada reproduzível: `evidence/audit-20261018.sanitized.json`. Coletor SQL reproduzível: `scripts/google_maps_readonly_audit.py`. Os agregados do journal foram apurados separadamente por comandos SSH readonly, normalizando os caminhos antes de salvar; o coletor SQL não reconstrói logs que já foram rotacionados. O JSON contém contagens, datas, fontes e configurações não secretas; não contém nomes, endereços, chaves, credenciais ou IDs de entidades. Evidência Billing original fornecida pelo usuário foi lida localmente, sem copiar dados da conta para o repositório.

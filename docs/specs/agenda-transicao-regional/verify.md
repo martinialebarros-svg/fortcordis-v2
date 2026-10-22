@@ -149,6 +149,40 @@ Evidências JSON locais, na pasta de artefatos desta tarefa:
 - `agenda-transicao-regional-stage-activation-smoke.json`: configuração, API autenticada e bundles.
 - `agenda-transicao-regional-stage-public-smoke.json`: canônico, alias e proteção anônima.
 
+## Pacote isolado para produção (22/10/2026; ainda não publicado)
+
+A autorização posterior do usuário abrange publicar a regra regional e validar
+a sexta-feira com Zoomare sem alterar agendamentos. A comparação de main
+`c0639fc0c19434fcb38655ffdda44bd7c3f783df` com stage
+`da7e38c6b0163f32404572c5dfe7229553f7e061` identificou incrementos pendentes de
+Maps e divergência na documentação clínica. Esses conteúdos não fazem parte da
+autorização desta publicação regional.
+
+Foi preparado um branch local a partir desse main, aplicando somente a feature
+`74c30c04463f889e3c028a9585410ad5687e3970` e sua evidência de stage
+`01a2af9b5a7ace0e807a67a6168908972414ce0f`. A única resolução de conflito foi no
+contexto dos endpoints de Agenda: incluiu-se `/oportunidades-dia`, mantendo de
+fora o endpoint de geocoding de tutor pendente em stage. Não foi necessária
+dependência adicional de Maps. A diferença resultante contém os 19 arquivos
+regionais; custo/logística Maps, Axios, controles e demonstração de custo,
+configuração de ambiente, modal de geocoding e documentação clínica permanecem
+idênticos a main.
+
+Validação do pacote isolado:
+
+- 39 testes backend regionais e de normalização passaram, incluindo snapshot
+  anterior à mutação do ORM, quota completa, margem, autenticação, histórico e
+  quantidade constante de consultas de oportunidades.
+- 28 testes frontend focados passaram nos componentes de oportunidades e nas
+  regras normalizadas.
+- O replay SQLite temporário passou os oito checks de sexta-feira, com zero
+  chamadas Google e zero registros operacionais existentes modificados.
+- `git diff --check` passou e a identidade dos arquivos de main que devem ser
+  preservados foi verificada por comparação Git.
+
+Esta preparação criou somente commits locais. Push, PR, deploy, ativação e
+validação de produção ainda dependem do fluxo protegido da publicação.
+
 ## Limites da evidência
 
 As clínicas, horários e durações são o recorte operacional mínimo do cenário já
@@ -161,4 +195,5 @@ ou reservas reais.
 
 - [x] Validação local concluída.
 - [x] Publicado e validado em stage.
-- [ ] Autorizado para produção — não solicitado nesta entrega.
+- [x] Autorizado para produção em 22/10/2026, limitado à feature regional.
+- [ ] Publicado e validado em produção.

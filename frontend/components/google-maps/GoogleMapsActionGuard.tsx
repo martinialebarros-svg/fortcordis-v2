@@ -5,14 +5,14 @@ import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { formatMapsBrl, MAPS_SKU_LABELS, mapsConfirmationStore, type MapsPeriods } from "@/lib/google-maps-control";
 
-export function MapsConsumption({ consumption, remaining, limits, reference = false }: {
-  consumption?: MapsPeriods; remaining?: MapsPeriods; limits?: MapsPeriods; reference?: boolean;
+export function MapsConsumption({ consumption, remaining, limits }: {
+  consumption?: MapsPeriods; remaining?: MapsPeriods; limits?: MapsPeriods;
 }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
         <caption className="sr-only">Consumo e saldo dos limites Google Maps</caption>
-        <thead><tr className="border-b"><th className="py-2 pr-3">Período</th><th className="p-2">Consumo</th><th className="p-2">{reference ? "Referência / teto dos extras" : "Limite"}</th><th className="p-2">Saldo</th></tr></thead>
+        <thead><tr className="border-b"><th className="py-2 pr-3">Período</th><th className="p-2">Consumo</th><th className="p-2">Limite</th><th className="p-2">Saldo</th></tr></thead>
         <tbody>{(["day", "month"] as const).map((period) => (
           <tr key={period} className="border-b align-top">
             <th className="py-2 pr-3 font-medium">{period === "day" ? "Dia" : "Mês"}</th>
@@ -65,8 +65,8 @@ export default function GoogleMapsActionGuard() {
 
   if (typeof document === "undefined") return null;
   return createPortal(<>
-    {state.notice && <div role="alert" className={`fixed inset-x-4 top-4 mx-auto flex max-w-3xl items-start gap-4 rounded-xl border p-4 text-sm shadow-xl ${state.noticeKind === "warning" ? "border-amber-300 bg-amber-50 text-amber-950" : "border-red-300 bg-red-50 text-red-950"}`} style={{ zIndex: 2147483646 }}>
-      <div className="flex-1"><strong>{state.noticeKind === "warning" ? "Alerta de custo — Agenda liberada" : "Esta consulta de rota precisa de atenção"}</strong><p className="mt-1">{state.notice}</p><p className="mt-1">{state.noticeKind === "warning" ? "Este alerta não suspende a ação confirmada. As regras de agendamento e o teto desta confirmação continuam valendo." : "Os dados preenchidos permanecem no formulário. Rotas já válidas e ações sem consulta paga continuam disponíveis. Nenhuma rota ou disponibilidade será presumida."}</p></div>
+    {state.notice && <div role="alert" className="fixed inset-x-4 top-4 mx-auto flex max-w-3xl items-start gap-4 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-950 shadow-xl" style={{ zIndex: 2147483646 }}>
+      <div className="flex-1"><strong>Consulta ao Google Maps suspensa</strong><p className="mt-1">{state.notice}</p><p className="mt-1">A agenda mantém as regras de deslocamento. Nenhuma rota ou disponibilidade será presumida.</p></div>
       <button type="button" className="rounded border border-red-300 px-2 py-1" onClick={mapsConfirmationStore.dismissNotice}>Fechar aviso</button>
     </div>}
     {current && <div className="fixed inset-0 flex items-center justify-center bg-slate-950/60 p-4" style={{ zIndex: 2147483647 }}>
@@ -79,10 +79,9 @@ export default function GoogleMapsActionGuard() {
           <dt className="font-semibold">Serviço</dt><dd>{current.quote.service}{current.quote.services?.length ? ` — ${current.quote.services.map((sku) => MAPS_SKU_LABELS[sku] || sku).join(", ")}` : ""}</dd>
           <dt className="font-semibold">Máximo</dt><dd>{current.quote.max_calls} chamadas/unidades cobradas</dd>
           <dt className="font-semibold">Custo adicional estimado</dt><dd>{formatMapsBrl(current.quote.estimated_cost_min_brl)} a {formatMapsBrl(current.quote.estimated_cost_max_brl)}</dd>
-          <dt className="font-semibold">{current.quote.budget_policy === "agenda_monitor" ? "Teto desta confirmação" : "Limite por ação"}</dt><dd>{current.quote.budget_policy === "agenda_monitor" ? current.quote.max_calls : current.quote.limits?.action?.calls ?? "Não definido"} chamadas · {formatMapsBrl(current.quote.budget_policy === "agenda_monitor" ? current.quote.estimated_cost_max_brl : current.quote.limits?.action?.estimated_brl)}</dd>
+          <dt className="font-semibold">Limite por ação</dt><dd>{current.quote.limits?.action?.calls ?? "Não definido"} chamadas · {formatMapsBrl(current.quote.limits?.action?.estimated_brl)}</dd>
         </dl>
-        {current.quote.budget_policy === "agenda_monitor" && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><strong>Agenda liberada acima da referência de orçamento</strong><p>Os valores diários e mensais abaixo são referências para alertas e tetos rígidos para lotes e tarefas extras. Esta ação da Agenda pode ultrapassá-los e gerar cobrança adicional. A confirmação autoriza somente a quantidade e o custo máximo apresentados nesta execução.</p>{current.quote.alerts?.map((alert, index) => <p className="mt-1" key={index}>{alert}</p>)}</div>}
-        <MapsConsumption reference={current.quote.budget_policy === "agenda_monitor"} consumption={current.quote.consumption} remaining={current.quote.remaining} limits={current.quote.limits} />
+        <MapsConsumption consumption={current.quote.consumption} remaining={current.quote.remaining} limits={current.quote.limits} />
         <div className="my-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">
           <p>A estimativa não é a cobrança efetiva. Franquia compartilhada, faixas de preço, câmbio e atraso do faturamento podem alterar o valor.</p>
           {current.quote.uncertainty?.map((item, index) => <p key={index} className="mt-1">{item}</p>)}
