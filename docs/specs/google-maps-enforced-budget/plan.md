@@ -1,5 +1,25 @@
 # Plano de implementação e entrega
 
+## Endereço do tutor usado no agendamento domiciliar
+
+O botão de georreferenciar endereço dentro da Agenda utiliza `POST /agenda/geocode-endereco-tutor`, ação registrada `agenda_tutor_geocode`, limitada a uma unidade Geocoding por confirmação e vinculada ao endereço exato. Como parte do agendamento humano, essa consulta pode ultrapassar referências em `monitor`, após consentimento. O endpoint cadastral avulso continua sujeito ao teto rígido. Não usar flag arbitrária de payload para promover lote a ação da Agenda. Testar tentativa sem token/cancelamento sem transporte, confirmação de uma unidade, replay negado e preservação da regra do endpoint avulso.
+
+## Incremento Agenda monitorada — stage
+
+1. Adicionar `agenda_budget_mode`, com padrão estrito para legado e opção explícita de monitoramento somente para ações humanas registradas da Agenda.
+2. Manter cotação/consentimento finitos, lock/reserva duráveis e identidade/payload/revisão; transformar referências globais esgotadas em alertas para Agenda, preservando bloqueios de extras/automáticos.
+3. Mostrar distinção no popup, alerta amarelo, painel e demonstração sem rede. Atualizar canário para Agenda acima de referências, cancelamento, bloqueio dos extras e concorrência.
+4. Testar localmente em PostgreSQL descartável, publicar somente stage via PR protegida, aguardar workflows terminais, verificar binários/configuração e canário com recepção sintética em schemas isolados. Preservar runtime e produção.
+
+## Incremento vigente — controle sem interrupção global da Agenda
+
+1. Corrigir a antecipação do bloqueio: contexto local autenticado, sem consulta ao ledger antes de saber se há envio Google.
+2. Manter cache confiável; impedir nova heurística após falha. Conservar grants/limites/concorrência no transporte e a atomicidade de Agenda.
+3. Acrescentar no cliente uma única repetição exclusivamente após resposta de consentimento do servidor; popup antes da nova execução paga e dados do formulário preservados.
+4. Exibir demonstração administrativa sem custo, com exemplos explicitamente fictícios e a limitação de uma rota inédita sem saldo.
+5. Testar PostgreSQL descartável, criação real de agendamento sintético com cache, falha do ledger, cancelamento, replay e concorrência. Validar o código instalado em stage em schemas isolados, sem Google ou alterações de dados operacionais.
+6. Publicar somente em stage e comprovar SHA, serviços, HTTP/bundle, canário e preservação de runtime. Deixar produção no modo emergencial vigente e demonstrar o resultado ao usuário antes de qualquer reativação.
+
 ## Liberação emergencial solicitada em 19/10/2026
 
 O usuário informou que a recepção não consegue agendar e autorizou: “Deixe liberado por enquanto”. Esta instrução suspende a ativação do modo R$ 0 e autoriza temporariamente as consultas potencialmente cobradas. A observação instalada mostrou `reason=unconfigured`, revisão 0 e nenhuma política aprovada; o bloqueio ocorria antes de qualquer consulta Google. Não houve ativação de quota nativa zero.
@@ -34,3 +54,7 @@ Encerrar a liberação requer retirar a flag (ou `false`) e reiniciar API e work
 Estado deste incremento: implementação e validações locais concluídas; backend integral aprovado (1.991 testes, 69 skips, zero falhas/erros). Frontend integral aprovado (980 Vitest/107 arquivos e 23 Node), além de 20 focados Maps, lint, TypeScript e build. Stage, produção, configuração efetiva, quotas nativas e restauração clínica continuam pendentes; detalhes e limites em `verify.md`.
 
 Rollback seguro: desabilitar novas chamadas na configuração e manter o ledger; reverter a proteção restauraria o risco de gasto e exige decisão explícita. A migração é aditiva e não remove dados operacionais.
+
+## Encerramento operacional do hotfix
+
+Reintegrar o hotfix de produção em stage junto da restauração byte a byte dos 13 caminhos clínicos de cb93d4c6. Preservar mudanças fiscais já integradas em 55068935/21035136. Manter os registros históricos da auditoria e canário isolado, sem executar a ativação de cache_only suspensa. Conferir flag efetiva na API, reinício do worker e canário recepção sem escrita; acompanhar os dois deploys até terminal.

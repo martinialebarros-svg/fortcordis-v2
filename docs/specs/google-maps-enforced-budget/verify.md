@@ -1,5 +1,47 @@
 # Verificação — Google Maps
 
+## Endereço do tutor usado no agendamento domiciliar
+
+O botão de georreferenciar endereço dentro da Agenda utiliza `POST /agenda/geocode-endereco-tutor`, ação registrada `agenda_tutor_geocode`, limitada a uma unidade Geocoding por confirmação e vinculada ao endereço exato. Como parte do agendamento humano, essa consulta pode ultrapassar referências em `monitor`, após consentimento. O endpoint cadastral avulso continua sujeito ao teto rígido. Não usar flag arbitrária de payload para promover lote a ação da Agenda. Testar tentativa sem token/cancelamento sem transporte, confirmação de uma unidade, replay negado e preservação da regra do endpoint avulso.
+
+## Canário independente do fuso PostgreSQL
+
+Datas dos agendamentos sintéticos usam `LOCAL_TZ` explícito. A leitura de horário no teste converte o timestamp para Fortaleza antes da comparação; não remover o fuso de um timestamp UTC e compará-lo com relógio local. A validação instalada inicial de `f948dd60` concluiu o update HTTP 200 sem Google e depois acusou diferença na asserção de horário (14h30 UTC versus 11h30 Fortaleza). Isso é falha do fixture/comparação, sem evidência de falha do agendamento ou bloqueio de custo. Repetir a suíte integrada com conexão PostgreSQL em UTC e com o fuso Fortaleza. Não alterar fuso do banco de stage para contornar a prova.
+
+## Verificação do incremento — Agenda monitorada (stage)
+
+Critérios: Agenda com cache segue sem Google/ledger; nova rota acima de referências diárias/mensais e custo por ação dos extras pode criar agendamento após confirmação finita; descartar/cancelar cotação não envia; replay e consumo além da confirmação falham; duas execuções simultâneas preservam reservas e alertas sem dupla contagem; tarefas automáticas e lotes não herdam a liberação. `cache_only` não aceita monitoramento. A opção administrativa não cria orçamento nem altera produção.
+
+Testes em `test_google_maps_agenda_cache_first.py`, componentes Google Maps e canário instalado `scripts/google_maps_cache_first_stage_canary.py`. Canário usa recepção sintética, PostgreSQL em schemas novos isolados, transportes interceptados e remoção dos schemas; nunca criar agendamento real nem consultar Google para esta validação. Evidências desta entrega em `/Users/martiniano/Documents/Codex/2026-10-19/maps-agenda-monitor/`: testes locais, checks/merge, workflows, hashes de runtime, smoke HTTP/bundles e canário instalado. O registro final só pode declarar aprovação após esses checks. Valores dos testes/demonstração são fictícios. Não considerar CI local ou SHA do checkout sozinho prova de publicação.
+
+## Incremento vigente — cache primeiro, validação de stage em andamento
+
+Código preparado para rollout apenas em stage. Produção permanece na liberação temporária; nenhuma nova ativação financeira ou quota Google é autorizada por esta verificação.
+
+Local: suíte Maps com PostgreSQL descartável aprovou 100 casos sem skips (inclui concorrência/replay/providers legados e casos novos). Os dez cenários novos de Agenda também foram executados separadamente com schema traduzido e search_path isolado em PostgreSQL, todos aprovados. Criar agendamento sintético com cache retornou HTTP201 e persistiu o registro, mesmo sem ledger disponível. A tentativa sem consentimento sobre cache vazio retornou 409 antes do transporte e sem commit/notificação; confirmação de uso único permitiu duas pernas reais do código com HTTP simulado. Replay foi recusado e o uso permaneceu contabilizado.
+
+Frontend: 29 casos Maps focados aprovados e quatro casos do formulário real de reserva aprovados (dois novos de preservação após cancelamento/limite), incluindo cache, cancelamento após tentativa local, payload exato, repetição limitada, preview indisponível, saldo esgotado, concorrência e demonstração sem API. TypeScript e ESLint aprovados. O preview local tem timeout de 3 segundos com continuidade sem token; estimativa paga/confirm usam 15 segundos e falham sem autorizar transporte. Os 29 casos Maps foram repetidos após esse ajuste e passaram. A primeira execução de um caso legado ainda esperava bloquear toda a Agenda quando o preview falhava; foi atualizada para comprovar a suspensão de lote. O caso específico da Agenda comprova o novo comportamento. Uma asserção de criação foi corrigida de HTTP200 para o HTTP201 real; não houve falha do fluxo.
+
+Build de produção aprovado; 1.062 testes Vitest e 23 testes Node aprovados. O comando inicial npm test com argumento de concorrência passou o argumento indevidamente ao Node, que o recusou; os 23 testes Node foram então executados separadamente e passaram. A suíte backend ampliada aprovou 2.019 casos/74 skips no snapshot anterior ao último caso adicional de criação; esse caso está incluído na suíte final de 100 testes Maps/PostgreSQL aprovada. CI executará novamente o head final. A publicação ainda precisa de resultado instalado. `scripts/google_maps_cache_first_stage_canary.py` exige checkout/SHA/APP_ENV/projeto stage, política operacional paga desligada e flags efetivas. Usa somente schemas temporários, DML traduzido e search_path local por transação, transportes interceptados e limpeza obrigatória. A prova instalada é registrada depois do deploy; testes locais não são publicação.
+
+A demonstração e os testes não implementam o cadastro persistente de solicitação pendente. O comportamento com rota inédita e orçamento esgotado será revisado com o usuário antes da reativação; não prometer confirmação universal sem dados de rota.
+
+## Liberação operacional confirmada em produção — 19/10/2026
+
+Produção `ac054398` (PR #399): API reiniciada às 13:26:57 UTC e worker às 13:27:27 UTC, ambos após preparar `GOOGLE_MAPS_COST_EMERGENCY_RELEASE=true` às 13:17:05 UTC. Smoke autenticado às 13:28 UTC confirmou `temporary_open`, `blocked=false`, `paid_calls_allowed=true` e limites/custo desconhecidos, sem teto fictício. O serviço não tinha override de ambiente conflitante; worker foi verificado pelo diretório/processo e reinício após a configuração, enquanto a API teve status relido via HTTP.
+
+Perfil real de recepção, token efêmero mantido em memória: previews de criação e sugestões retornaram HTTP200/required=false; POSTs com corpo vazio retornaram HTTP422 exclusivamente por campos obrigatórios (`inicio` e `data`). Isso comprova que o bloqueio financeiro foi removido e a autenticação permite chegar à validação normal; não é alegação de agendamento real criado. Sem token, status continua HTTP401. Nenhum payload válido de negócio ou consulta de teste Google foi enviado. Os seis hashes operacionais permaneceram iguais ao preflight. A primeira sonda ocorreu durante a instalação e não completou; a repetição posterior aos reinícios passou.
+
+Evidência: `evidence/production-emergency-live-smoke.json`. Na hora dessa sonda, a instalação visual/pipeline ainda estava em execução; sua conclusão e o smoke do bundle são verificados separadamente, sem transformar este resultado em prova antecipada de deploy terminal. Cotas Google zero e ativação cache_only não foram realizadas.
+
+
+## Reintegração do hotfix e restauração de stage
+
+A PR #399 integrou o hotfix operacional em produção (`ac05439819fc4b8ba65bb699f7edfab669cfd00e`). A flag foi preparada em produção, preservando as demais variáveis; sua efetividade exige API/worker reiniciados e prova autenticada. A reintegração em stage inclui o mesmo hotfix e restaura exatamente os 13 caminhos clínicos do snapshot de stage `cb93d4c6`, que haviam sido retirados temporariamente para isolar a promoção Maps. Essa restauração é somente stage; não altera o conteúdo clínico de produção. Conferência dos 13 caminhos exatos aprovada, assim como 80 testes clínicos focados e TypeScript. Evidência: `evidence/clinical-stage-restoration.json`.
+
+A validação anterior do modo R$ 0 em stage (`f0009e40`) está preservada nos cinco arquivos `evidence/stage-zero-charge-*.json` e `evidence/zero-charge-stage-workflows.json`: deploy terminal, 1.991 testes backend/70 skips no CI, 74 testes Maps PostgreSQL, canário isolado com quatro transportes simulados em oito concorrentes, uma recusa por limite e três por capacidade de conexão. A API operacional de stage ficou sem configuração aprovada; não confundir o canário PostgreSQL isolado com ativação da política no banco operacional. As provas são históricas: o usuário suspendeu a ativação R$ 0 após relatar interrupção da Agenda.
+
+
 ## Hotfix operacional de 19/10/2026
 
 Pedido vigente: liberar temporariamente os agendamentos, suspendendo bloqueios financeiros Maps. Diagnóstico readonly da produção `21035136`: guard sem configuração, revisão 0, motivo `unconfigured`. A tentativa anterior de ativar cache_only parou no preflight antes da gravação; cotas zero não foram aplicadas.
@@ -95,3 +137,35 @@ O JSON de auditoria agregada foi coletado readonly de produção/stage. Nenhuma 
 - A primeira execução do canário concorrente interrompeu por `ledger_unavailable` ao abrir conexões no banco remoto. A política bloqueou as operações; esse resultado não foi contado como prova de sucesso do canário. O diagnóstico e a repetição controlada são registrados na evidência final do canário.
 - Repetição controlada do canário, com candidato executado em memória sobre o código implantado: oito reservas concorrentes, quatro envios simulados e quatro recusas `ledger_unavailable`; diagnóstico sanitizado `connection_capacity` na abertura de conexões. Nenhum preenchimento sequencial foi necessário. A tentativa seguinte retornou `day_limit`; replay retornou `invalid_grant`; tarefa sem política retornou `automatic_policy_required`. Uso persistiu após reconexão. Zero Google real, zero alteração em registros operacionais existentes, zero schemas temporários restantes. Evidência: `evidence/stage-canary.json`.
 - O ajuste do canário separa claim de autorização da disputa de reservas e registra indisponibilidade como recusa, sem alterar o guard, timeout ou limite. Cinco testes aprovados garantem que excesso real, motivo inesperado ou diagnóstico inseguro continuam reprovando a prova. A falha de capacidade observada neste teste não é atribuída ao aumento histórico de julho/agosto.
+# Preparação de 21/10/2026
+
+Proposta desabilitada validada no contrato `CostConfiguration`; 32 testes dos componentes Maps, TypeScript e lint passaram localmente. A suíte cache-first executou 21 testes, com 16 aprovados e 5 skips esperados sem PostgreSQL local. O novo cenário aplica a proposta em banco sintético acima das referências e prova alteração de Agenda, confirmação finita/replay bloqueado e extras/automação suspensos. A emissão de token do canário usa cleanup compatível com o helper de autenticação atualizado. Após deploy, executar os 12 casos instalados de recepção em PostgreSQL isolado com transportes interceptados; conferir SHA, runtime e processos stage. Produção somente leitura, com dry-run de ambiente válido, sem aplicar configuração. Evidência atual: `/Users/martiniano/Documents/Codex/2026-10-21/maps-activation-preparation/`. Endereços fictícios/incompletos de stage não comprovam trajetos reais nem saldo Billing; nenhuma configuração financeira operacional é habilitada neste ciclo.
+
+Em 22/10, stage `e50192cb` concluiu deploy e os 12 cenários instalados de recepção passaram, sem Google ou alteração de registros operacionais e sem schemas restantes. O rascunho foi salvo para revisão na configuração de stage, revisão 1, `enabled=false`; nenhum orçamento pago foi habilitado. Três domínios responderam 200 à página autenticada, API administrativa anônima 401, marcadores presentes nos chunks servidos após normalizar escapes JS. Os seis arquivos de runtime foram preservados. Produção permaneceu `ac054398`, API `temporary_open`, configuração financeira ausente e checksum do ambiente inalterado. A etapa de privacidade seguinte remove pagamentos reais do componente compilado; validar novamente o componente e sua ausência nos assets publicados. Plano de transição em `activation-cutover.md` evita contabilização incompleta entre baseline e encerramento da emergência.
+
+## Ativação autorizada em 22/10/2026
+
+O usuário autorizou produção com referências de 650 chamadas/R$ 25 por dia e
+13.000 chamadas/R$ 500 por mês, mantendo a Agenda em `monitor`.
+`approved-monitor-config.json` registra o template selecionado, ainda desabilitado
+e sem baseline: não aplicar como configuração ativa sem a coleta de transição.
+Todas as ações não Agenda ficam com teto zero e automações sem política habilitada.
+A Agenda usa cache primeiro; novas chamadas exigem confirmação individual e finita.
+As referências não interrompem a Agenda; estimativa não equivale à fatura Google.
+O consumo histórico não conciliado será identificado como incompleto, sem saldo
+gratuito presumido, e não permitirá reabrir extras. Manter a expiração dos preços
+visível e revalidar até 21/11/2026.
+
+A correção regional de oportunidades do PR #420, autorizada somente em stage,
+fica temporariamente fora do snapshot de promoção e será restaurada em stage
+após a publicação. Preservar o código regional e a autenticação já em produção.
+
+A transição manual usa `maps-production-activation.yml`, exclusivamente a partir
+de main, com SHA instalado exato e ambiente production. O script compartilha o
+lock de deploy, usa a credencial sudo somente em stdin e encerra API/worker antes
+do baseline. A apuração usa o máximo entre fontes sobrepostas como piso observável,
+nunca como total conciliado ou limite superior. O painel explicita a incompletude
+histórica; todos os extras permanecem com teto zero independentemente do saldo.
+A estimativa inicial reserva tarifa cheia, sem créditos, usando o SKU Essentials
+observado. Novas tentativas usam a reserva do SKU efetivamente autorizado.
+Falhas da transição restauram emergência e reiniciam API/worker, preservando ledger.

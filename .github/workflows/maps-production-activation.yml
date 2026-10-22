@@ -1,0 +1,48 @@
+name: Activate Maps monitor (Production)
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact published main SHA approved for Maps activation"
+        required: true
+        type: string
+concurrency:
+  group: fortcordis-vps-deploy
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify protected production snapshot
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$EXPECTED_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Prepare SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s' "$VPS_SSH_KEY" > ~/.ssh/id_vps
+          chmod 600 ~/.ssh/id_vps
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+      - name: Drain, configure and start API and worker
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SUDO_PASSWORD: ${{ secrets.VPS_SUDO_PASSWORD }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          python3 -c 'import json,os; print(json.dumps({"sudo_password":os.environ["VPS_SUDO_PASSWORD"]}))' |
+            ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=15 "$VPS_USER@$VPS_HOST" \
+              "cd /var/www/fortcordis-v2 && backend/venv/bin/python scripts/activate_maps_monitor_production.py --expected-sha '$EXPECTED_SHA'"
