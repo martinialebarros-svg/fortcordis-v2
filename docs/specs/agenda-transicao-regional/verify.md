@@ -260,7 +260,9 @@ verificações em schema PostgreSQL sintético descartável. As provas incluem
 direção C→B ausente preservando C às 14h30 e baseline desconhecido permitindo
 trecho normal conhecido sem autorizar nova transição longa. O schema foi
 removido, houve zero Google e os 64 agendamentos operacionais permaneceram
-inalterados, assim como bloqueios, configuração, matriz, ENV e arquivos runtime.
+inalterados, assim como bloqueios, configuração, matriz e arquivos runtime.
+No ENV mudou somente o identificador de release previsto pelo deploy; a linha
+Maps e todos os demais bytes foram preservados.
 CA-010, CA-011 e CA-012 estão concluídos por essa prova instalada, não somente
 pelos testes locais. Não há critério de aceitação pendente para a promoção.
 
