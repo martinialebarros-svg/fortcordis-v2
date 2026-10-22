@@ -13,7 +13,6 @@ from xml.sax.saxutils import escape as xml_escape
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from jose import JWTError, jwt
 from app.api.v1.endpoints.ordens_servico import _bloquear_os_para_escrita, desfazer_recebimento_ordem
 from app.schemas.atendimento import (
     AdendoPayload,
@@ -48,10 +47,9 @@ from sqlalchemy import and_, func, or_, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.agenda_realtime import agenda_realtime_manager
 from app.core.portal_release import PORTAL_RELEASED_STATUS, is_portal_released_status
-from app.core.security import _authorize_request_by_matrix, get_current_user, get_request_token
+from app.core.security import get_current_user
 from app.db.database import get_db
 from app.models.agendamento import Agendamento
 from app.models.atendimento_clinico import (
@@ -1069,39 +1067,10 @@ def _autenticar_usuario_pdf(
             detail="Nao use access_token na URL. Use Authorization: Bearer <token>.",
         )
 
-    token = get_request_token(request)
-
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciais invalidas",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        email: str = payload.get("sub")
-        if not email:
-            raise ValueError("sub ausente")
-    except (JWTError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciais invalidas",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    user = db.query(User).filter(User.email == email).first()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciais invalidas",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    if user.ativo != 1:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario inativo")
-
-    _authorize_request_by_matrix(request, db, user)
-    return user
+    # PDFs must validate the same provider/session and local permissions as the
+    # rest of Atendimento. Pass token explicitly: this is a direct call, so
+    # FastAPI does not resolve the Depends default for us.
+    return get_current_user(request=request, token=None, db=db)
 
 
 def _excluir_anexo_registro(db: Session, anexo: AnexoAtendimento) -> None:
