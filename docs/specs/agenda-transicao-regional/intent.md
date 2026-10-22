@@ -18,9 +18,19 @@ realizados nos últimos 60 dias completos.
 
 ## Autorização e limites
 
-O usuário autorizou implementar a regra e validar em stage, sem alterar produção.
-O pedido não autoriza criar reservas reais, mudar compromissos existentes, enviar
-mensagens nem promover a implementação para `main`.
+A regra original foi publicada pelo PR #418. Em 22/10/2026, o usuário autorizou
+corrigir o P1 de rotas ausentes, incluir testes e validar a correção em stage.
+Após a homologação do PR #420 em `f93a455f`, autorizou publicar essa correção em
+produção e validar Completar dia na sexta-feira com Zoomare, sem alterar
+agendamentos. O pacote deve partir do main atual `4aa1364a` e conter somente os
+oito caminhos do P1, preservando Maps, PDFs, autenticação, deploy e incrementos
+clínicos de outras sessões. Criar reservas reais ou enviar mensagens continua
+fora do escopo.
+
+Uma estimativa dirigida ausente pode inviabilizar um horário, mas não deve
+interromper a busca de toda a clínica nem apagar horários já validados. Trechos
+desconhecidos que permanecem na rota não concedem uma nova exceção regional;
+inserções normais com viagens conhecidas seguem as regras habituais.
 
 A base continua com sua validação própria de primeira saída e não consome a
 transição entre atendimentos. A exceção regional não reduz a duração dos exames,
@@ -41,6 +51,6 @@ sem copiar pacientes, tutores, telefones ou observações.
 ## Definition of Ready
 
 - [x] Problema, objetivo e parâmetros autorizados são explícitos.
-- [x] Produção e alterações operacionais reais estão fora do escopo.
+- [x] Publicação do P1 em produção está autorizada; validação operacional é somente leitura.
 - [x] Riscos de quota, margem, histórico e privacidade estão registrados.
-- [x] Stage é o único destino de publicação autorizado nesta entrega.
+- [x] Stage foi homologado; produção deve seguir o fluxo protegido com pacote isolado.

@@ -17,13 +17,16 @@ Status: verified-stage
 | CA-007 | aceitação | Dias distintos Realizado/60 dias completos antes de volume | aprovado |
 | CA-008 | aceitação | Configuração autenticada, 17 chunks servidos e canário PostgreSQL isolado | aprovado |
 | CA-009 | aceitação | HTTP com âncora atravessando meia-noite retorna vazio sem base ou Google | aprovado |
+| CA-010 | aceitação | Regressões de direção ausente cedo e tarde, preservando slots conhecidos | aprovado em stage pelo PR #420 |
+| CA-011 | aceitação | Baseline desconhecido, custo direto, direção e contador por clínica | aprovado em stage pelo PR #420 |
+| CA-012 | aceitação | Replay instalado de matriz incompleta em stage, sem produção | aprovado em stage no workflow 39794689074 |
 | NFR-001 | não funcional | Zero escrita em produção, zero Google no replay e na consulta operacional | aprovado |
 | NFR-002 | não funcional | Schema descartável removido e nenhum paciente/contato copiado | aprovado |
 | NFR-003 | não funcional | Flag ativa só em stage; backup privado; limitações registradas | aprovado |
 
 ## Execução
 
-Implementação publicada e validada somente em stage. O replay instalado foi
+O primeiro ciclo validou a implementação em stage. O replay instalado foi
 executado com o merge `dd51af8c6f13709faa6957700169a648a0313c0b` do
 [PR #415](https://github.com/martinialebarros-svg/fortcordis-v2/pull/415), após
 sucesso terminal do
@@ -149,7 +152,10 @@ Evidências JSON locais, na pasta de artefatos desta tarefa:
 - `agenda-transicao-regional-stage-activation-smoke.json`: configuração, API autenticada e bundles.
 - `agenda-transicao-regional-stage-public-smoke.json`: canônico, alias e proteção anônima.
 
-## Pacote isolado para produção (22/10/2026; ainda não publicado)
+## Pacote isolado da regra original (preparação em 22/10/2026)
+
+Este registro descreve a preparação histórica. A regra original foi publicada
+pelo PR #418; a preparação posterior do P1 tem sua própria evidência abaixo.
 
 A autorização posterior do usuário abrange publicar a regra regional e validar
 a sexta-feira com Zoomare sem alterar agendamentos. A comparação de main
@@ -196,4 +202,115 @@ ou reservas reais.
 - [x] Validação local concluída.
 - [x] Publicado e validado em stage.
 - [x] Autorizado para produção em 22/10/2026, limitado à feature regional.
-- [ ] Publicado e validado em produção.
+- [x] Regra original publicada e validada em produção pelo PR #418.
+- [x] Correção do P1 publicada e validada em stage pelo PR #420.
+- [x] Correção do P1 autorizada para produção em 22/10/2026.
+- [ ] Correção do P1 instalada e validada em produção pelo fluxo protegido.
+
+## Correção do P1 do PR #418 — novo ciclo em 22/10/2026
+
+O diagnóstico confirmou que o resolvedor de oportunidades lançava
+`RotaSemEstimativa` para uma direção ausente, e o tratamento envolvia toda a
+busca da clínica. Um candidato inicial sem rota podia ocultar candidatos
+posteriores conhecidos; uma falha tardia também apagava os slots acumulados.
+Trechos fixos desconhecidos abortavam o avaliador antes do contrato de ausência
+explícita já suportado pelo helper. O resultado HTTP continuava com `ok: true`.
+
+A correção mantém ausência como duração desconhecida, rejeita candidatos que
+precisam dela antes de comparações ou somas e preserva os demais. O diagnóstico
+`teve_rota_sem_estimativa` pertence à chamada do motor, sem ficar no contexto
+compartilhado. O contador externo continua por clínica excluída; uma clínica com
+slots conhecidos não entra nele. Desvio/custo direto desconhecido não ganha
+valor estimado. O helper, limites e parâmetros de configuração não são alterados.
+
+A autorização inicial permitiu integração e validação em stage. O canário
+ampliado usa exclusivamente schema descartável e acrescenta direção C→B ausente
+com B→C conhecido, além de baseline desconhecido com trecho final curto/longa
+transição. O usuário autorizou depois publicar o P1 em produção e validar
+Completar dia na sexta com Zoomare sem alterar agendamentos. Configuração, ENV,
+mensagens e dados operacionais permanecem fora das mutações autorizadas.
+
+Validação local deste ciclo, com SQLite sintético e providers bloqueados:
+
+- Prova anterior ao fix: cinco regressões novas executadas; três falharam com
+  `items=[]` nos casos positivos de ausência cedo, ausência tarde e baseline
+  desconhecido. As duas guardas negativas já passavam.
+- Após o fix: 12 testes do módulo de oportunidades passaram, incluindo seis
+  regressões novas. O cache negativo compartilhado não perde o diagnóstico nas
+  duas clínicas recusadas nem contamina a clínica normal seguinte.
+- `python -m unittest discover -s tests -p 'test_agenda*.py'`: 249 testes passaram.
+- Replay local `run_checks(engine)` em SQLite descartável: dez verificações
+  integradas passaram, incluindo o caso C→B ausente que preserva C às 14h30 e
+  baseline desconhecido que permite trecho normal mas recusa novo trecho longo.
+- Frontend: 28 testes de oportunidades/regras passaram; TypeScript sem emissão
+  e ESLint do componente/contrato passaram, sem mudanças de frontend.
+- Sintaxe dos quatro arquivos Python e `git diff --check`: passaram.
+
+O preflight daquela homologação de stage registrou SHA `4e6af331`, 64
+agendamentos e hashes de bloqueios/configuração/matriz em transação READ ONLY;
+guardou também hashes de ENV e seis arquivos runtime. Nenhum desses registros
+ou parâmetros foi usado como fixture. A proteção de produção em `4c9a7865`
+referia-se àquele ciclo anterior à autorização posterior descrita abaixo.
+
+## Homologação instalada do P1 — PR #420
+
+O PR #420 publicou o snapshot `f93a455f` em stage. O workflow
+`39794689074` terminou com sucesso, e o replay instalado passou dez de dez
+verificações em schema PostgreSQL sintético descartável. As provas incluem
+direção C→B ausente preservando C às 14h30 e baseline desconhecido permitindo
+trecho normal conhecido sem autorizar nova transição longa. O schema foi
+removido, houve zero Google e os 64 agendamentos operacionais permaneceram
+inalterados, assim como bloqueios, configuração, matriz e arquivos runtime.
+No ENV mudou somente o identificador de release previsto pelo deploy; a linha
+Maps e todos os demais bytes foram preservados.
+CA-010, CA-011 e CA-012 estão concluídos por essa prova instalada, não somente
+pelos testes locais. Não há critério de aceitação pendente para a promoção.
+
+## Pacote isolado do P1 sobre main atual — 22/10/2026
+
+O usuário autorizou publicar o P1 e validar Completar dia de 23/10 com Zoomare,
+sem alterar agendamentos. O novo preflight, somente leitura, encontrou produção
+em `4aa1364a96984af11b8e6dabbb7b209024935c43`, com `APP_ENV=production`,
+autenticação Supabase e 1.580 agendamentos. A sexta agora contém duas âncoras:
+Zoomare 09h–09h30 e Pet Sanus Caucaia 10h45–11h45. Esse snapshot é uma leitura
+operacional, não fixture nem confirmação de demanda ou tempo atual de trânsito.
+
+O commit `c351606ea2c40d565c9b82cd44529c08fedaf8af` já consta na ancestralidade de
+main, mas sua correção não está no conteúdo atual. Por isso seu patch foi
+reaplicado com `cherry-pick -x` sobre o main atual, sem copiar arquivos completos
+do snapshot antigo. O pacote modifica somente os oito caminhos do P1. Maps,
+PDFs, autenticação, workflows de SHA aprovado, migrations, ENV/configuração e
+frontend permanecem idênticos a esse main; os incrementos clínicos pendentes em
+stage não fazem parte da publicação autorizada.
+
+As identidades Git do pacote comprovam backend e scripts idênticos aos de stage
+`339c8013` e `d1e81bba`, e frontend idêntico ao main `4aa1364a`:
+
+- backend: `ab5d23651d25477989caccb8d3e6db7bae736cbd`;
+- scripts: `3cec1e9eb4b0f7e325b1615114c1aeb1859fc2bd`;
+- frontend: `cea61c54a03ebdee2723bbb11ff495e444767a6d`.
+
+A auditoria paralela do stage instalado
+`d1e81bba026e6398e58f7ac5d010b6e698a33ea2` confirmou essas mesmas árvores de
+backend/scripts e repetiu dez de dez checks, com schema removido e hashes de
+ENV/fontes preservados. A prova sanitizada está no artefato local
+`agenda-oportunidades-p1-production-stage-baseline-canary.json`. Não foi
+necessário novo deploy ou alternância do frontend de stage para essa prova.
+
+Validação local repetida no pacote isolado, sem banco operacional ou rede:
+
+- 249 testes Agenda passaram com URL SQLite e chave sintética.
+- 28 testes frontend de oportunidades/regras passaram.
+- Dez de dez verificações do replay SQLite descartável passaram, com zero
+  Google, zero pacientes/contatos copiados e zero registros existentes alterados.
+- TypeScript sem emissão e ESLint do componente/contrato passaram.
+- Sintaxe Python, guardrail SDD e `git diff --check` integram o fechamento local.
+
+O fluxo protegido poderá reconciliar temporariamente o Git de stage para o
+pacote isolado, preservando/restaurando os caminhos pendentes de outras sessões.
+A identidade executável permite usar a homologação instalada sem alternar o
+frontend clínico do runtime de stage. Não se usa dispensa de promoção com
+pendência. Deploy terminal de produção e smoke autenticado/Completar dia são
+evidências posteriores de publicação, não critérios de stage em aberto. Esta
+preparação realizou somente commits locais; nenhum push, PR, deploy, consulta
+SSH ou escrita em banco operacional foi executado nela.

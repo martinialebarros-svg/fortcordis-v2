@@ -18,6 +18,19 @@ Status: in-progress
 6. Publicar o snapshot validado somente em stage e habilitar a política ali.
 7. Reproduzir a sexta com o código instalado em schema descartável, registrar
    prova de SHA, remoção do schema, zero Google e zero mudanças operacionais.
+8. Corrigir o P1 do PR #418: resolver ausência como estimativa desconhecida,
+   rejeitar por candidato e preservar slots conhecidos. Acrescentar regressões
+   de matriz dirigida incompleta e baseline desconhecido; publicar a correção
+   somente em stage e repetir o canário instalado sem alterar a configuração.
+9. Após a autorização posterior de produção, reaplicar o patch do PR #420 sobre
+   main `4aa1364a`, mantendo somente seus oito caminhos no delta. Preservar os
+   incrementos já publicados de Maps, PDFs, autenticação e deploy por SHA
+   aprovado; não copiar arquivos completos de snapshots antigos.
+10. Validar esse pacote localmente e entregar ao fluxo protegido de publicação.
+    Após deploy terminal, conferir Completar dia de 23/10 em leitura, preservando
+    Zoomare 09h–09h30 e Pet Sanus Caucaia 10h45–11h45, sem reservas nem escritas
+    em agendamentos, configuração ou ENV. Reconciliar e restaurar stage sem
+    remover entregas pendentes de outras sessões.
 
 ## Plano de testes
 
@@ -37,6 +50,12 @@ O replay inclui uma consulta HTTP com âncora legada atravessando a meia-noite e
 exige lista vazia sem primeira saída ou rede. O modo de oportunidades somente com
 cache impede avaliação da base também nos cenários normais.
 
+As regressões do P1 incluem direção ausente no primeiro e no último candidato,
+preservação de slots já aprovados, trecho fixo desconhecido com inserção curta
+conhecida e recusa de nova transição longa sem evidência suficiente. Também
+mantêm o contador de clínicas sem estimativa isolado de clínicas parcialmente
+avaliáveis e recusam atribuir custo incremental a trecho direto desconhecido.
+
 ## Rollback
 
 A política permanece desativada por padrão. Desativá-la em stage restaura o teto
@@ -55,5 +74,6 @@ transação dos dados operacionais existentes não é usada pelo canário; seu s
   um serviço e um clique e cancela respostas de contextos antigos.
 - A validação de stage usa rotas do cenário reproduzidas como fixtures. Não
   constitui consulta atual de trânsito nem confirmação de demanda das clínicas.
-- Somente após prova instalada os critérios de stage podem ser marcados `ok` em
-  `verify.md`. Produção permanece fora do escopo autorizado.
+- Somente após prova instalada os critérios podem ser marcados `ok` em
+  `verify.md`. O PR #420 já foi homologado em stage; a autorização posterior de
+  produção abrange somente a correção do P1 e a validação operacional em leitura.
