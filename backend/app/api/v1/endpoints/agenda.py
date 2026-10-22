@@ -4765,6 +4765,8 @@ def _sugerir_horarios_agenda(payload, db, current_user, *, resolver_viagem=None,
         baseline_regional = _listar_agendamentos_ativos_do_dia(db, data_iso)
 
     sugestoes: list[dict] = []
+    # Cache-only resolvers may know a later direction even if this slot's is missing.
+    teve_rota_sem_estimativa = False
     primeira_saida_sem_estimativa = False
     primeiro_inicio_viavel: Optional[str] = None
     inicio_minimo = janela_inicio
@@ -4854,6 +4856,9 @@ def _sugerir_horarios_agenda(payload, db, current_user, *, resolver_viagem=None,
                 cache_operacional=cache_duracoes_operacionais,
                 cache_google=cache_google,
             )
+            if tempo_prev is None:
+                teve_rota_sem_estimativa = True
+                continue
             folga_prev = _minutos_entre(anterior["fim"], inicio_candidato)
 
         if isinstance(destino_proximo, dict) and (bool(destino_proximo.get("localizacao_confiavel")) or _destinos_operacionais_mesma_referencia(destino_base, destino_proximo)):
@@ -4866,6 +4871,9 @@ def _sugerir_horarios_agenda(payload, db, current_user, *, resolver_viagem=None,
                 cache_operacional=cache_duracoes_operacionais,
                 cache_google=cache_google,
             )
+            if tempo_next is None:
+                teve_rota_sem_estimativa = True
+                continue
             folga_next = _minutos_entre(fim_candidato, proximo["inicio"])
 
         regional = avaliar_transicao_regional(
@@ -4882,6 +4890,8 @@ def _sugerir_horarios_agenda(payload, db, current_user, *, resolver_viagem=None,
             ),
         )
         if regional is not None and not regional.permitida:
+            if regional.codigo == "TRANSICAO_REGIONAL_ROTA_NAO_CONFIAVEL":
+                teve_rota_sem_estimativa = True
             continue
         regional_prev = bool(regional and regional.trecho_anterior and regional.trecho_anterior.longo)
         regional_next = bool(regional and regional.trecho_proximo and regional.trecho_proximo.longo)
@@ -4969,6 +4979,9 @@ def _sugerir_horarios_agenda(payload, db, current_user, *, resolver_viagem=None,
                 cache_operacional=cache_duracoes_operacionais,
                 cache_google=cache_google,
             )
+            if duracao_direta is None:
+                teve_rota_sem_estimativa = True
+                continue
             if duracao_direta > 0:
                 desvio_insercao = max(0, int((tempo_prev + tempo_next) - duracao_direta))
                 if desvio_insercao > limite_desvio_insercao:
@@ -5149,6 +5162,7 @@ def _sugerir_horarios_agenda(payload, db, current_user, *, resolver_viagem=None,
         "total_ancoras_mesma_clinica": len(ancoras_mesma_clinica),
         "tem_ancora_mesma_clinica_no_dia": bool(ancoras_mesma_clinica),
         "total_encontrados": len(sugestoes),
+        "teve_rota_sem_estimativa": teve_rota_sem_estimativa,
         "items": top_items,
     }
 

@@ -2,7 +2,7 @@
 
 Data: 2026-10-22
 Responsavel: Codex
-Status: verified-stage
+Status: in-progress-p1
 
 ## Matriz de rastreabilidade
 
@@ -17,13 +17,16 @@ Status: verified-stage
 | CA-007 | aceitação | Dias distintos Realizado/60 dias completos antes de volume | aprovado |
 | CA-008 | aceitação | Configuração autenticada, 17 chunks servidos e canário PostgreSQL isolado | aprovado |
 | CA-009 | aceitação | HTTP com âncora atravessando meia-noite retorna vazio sem base ou Google | aprovado |
+| CA-010 | aceitação | Regressões de direção ausente cedo e tarde, preservando slots conhecidos | aprovado localmente |
+| CA-011 | aceitação | Baseline desconhecido, custo direto, direção e contador por clínica | aprovado localmente |
+| CA-012 | aceitação | Replay instalado de matriz incompleta em stage, sem produção | pendente da instalação |
 | NFR-001 | não funcional | Zero escrita em produção, zero Google no replay e na consulta operacional | aprovado |
 | NFR-002 | não funcional | Schema descartável removido e nenhum paciente/contato copiado | aprovado |
 | NFR-003 | não funcional | Flag ativa só em stage; backup privado; limitações registradas | aprovado |
 
 ## Execução
 
-Implementação publicada e validada somente em stage. O replay instalado foi
+O primeiro ciclo validou a implementação em stage. O replay instalado foi
 executado com o merge `dd51af8c6f13709faa6957700169a648a0313c0b` do
 [PR #415](https://github.com/martinialebarros-svg/fortcordis-v2/pull/415), após
 sucesso terminal do
@@ -196,4 +199,61 @@ ou reservas reais.
 - [x] Validação local concluída.
 - [x] Publicado e validado em stage.
 - [x] Autorizado para produção em 22/10/2026, limitado à feature regional.
-- [ ] Publicado e validado em produção.
+- [x] Regra original publicada e validada em produção pelo PR #418.
+- [ ] Correção do P1 publicada e validada em stage (novo ciclo).
+- [ ] Correção do P1 autorizada ou publicada em produção.
+
+## Correção do P1 do PR #418 — novo ciclo em 22/10/2026
+
+O diagnóstico confirmou que o resolvedor de oportunidades lançava
+`RotaSemEstimativa` para uma direção ausente, e o tratamento envolvia toda a
+busca da clínica. Um candidato inicial sem rota podia ocultar candidatos
+posteriores conhecidos; uma falha tardia também apagava os slots acumulados.
+Trechos fixos desconhecidos abortavam o avaliador antes do contrato de ausência
+explícita já suportado pelo helper. O resultado HTTP continuava com `ok: true`.
+
+A correção mantém ausência como duração desconhecida, rejeita candidatos que
+precisam dela antes de comparações ou somas e preserva os demais. O diagnóstico
+`teve_rota_sem_estimativa` pertence à chamada do motor, sem ficar no contexto
+compartilhado. O contador externo continua por clínica excluída; uma clínica com
+slots conhecidos não entra nele. Desvio/custo direto desconhecido não ganha
+valor estimado. O helper, limites e parâmetros de configuração não são alterados.
+
+A autorização atual permite integração e validação somente em stage. O canário
+ampliado usa exclusivamente schema descartável e acrescenta direção C→B ausente
+com B→C conhecido, além de baseline desconhecido com trecho final curto/longa
+transição. Agendamentos operacionais, configuração, ENV e produção estão fora
+das mutações deste ciclo. A prova instalada e o SHA serão registrados no PR da
+correção após sucesso terminal do deploy de stage.
+
+Validação local deste ciclo, com SQLite sintético e providers bloqueados:
+
+- Prova anterior ao fix: cinco regressões novas executadas; três falharam com
+  `items=[]` nos casos positivos de ausência cedo, ausência tarde e baseline
+  desconhecido. As duas guardas negativas já passavam.
+- Após o fix: 12 testes do módulo de oportunidades passaram, incluindo seis
+  regressões novas. O cache negativo compartilhado não perde o diagnóstico nas
+  duas clínicas recusadas nem contamina a clínica normal seguinte.
+- `python -m unittest discover -s tests -p 'test_agenda*.py'`: 249 testes passaram.
+- Replay local `run_checks(engine)` em SQLite descartável: dez verificações
+  integradas passaram, incluindo o caso C→B ausente que preserva C às 14h30 e
+  baseline desconhecido que permite trecho normal mas recusa novo trecho longo.
+- Frontend: 28 testes de oportunidades/regras passaram; TypeScript sem emissão
+  e ESLint do componente/contrato passaram, sem mudanças de frontend.
+- Sintaxe dos quatro arquivos Python e `git diff --check`: passaram.
+
+O preflight de stage registrou SHA `4e6af331`, 64 agendamentos e hashes de
+bloqueios/configuração/matriz em transação READ ONLY; guardou também hashes de
+ENV e seis arquivos runtime. Nenhum desses registros ou parâmetros é usado como
+fixture. O canário instalado deverá operar apenas em schema novo descartável;
+comparações posteriores comprovarão a preservação operacional. Produção deve
+permanecer em `4c9a7865`, sem deploy desta correção.
+
+## Restauração após promoção Maps de 22/10/2026
+
+O pacote Maps foi isolado pela PR #421 e integrado a main pela PR #422.
+Esta restauração reaplica exatamente os oito caminhos do incremento regional
+do stage `f93a455f`, sem promover essa correção para produção. Os doze testes
+focados de oportunidades passaram localmente; repetir o canário instalado após
+o deploy. O código regional e a autenticação já existentes em produção foram
+preservados na promoção Maps.
