@@ -70,6 +70,12 @@ def main():
         'test_cache_only_rejects_monitor_exception',
         'test_agenda_tutor_geocode_uses_one_confirmed_unit_above_references',
         'test_proposed_monitor_config_keeps_reception_above_references_and_extras_closed',
+        'test_expired_monitor_prices_warn_and_complete_booking_without_freeing_extras',
+        'test_monitor_quote_survives_review_date_but_not_its_own_expiry_or_cap',
+        'test_expired_monitor_prices_keep_tutor_geocode_single_use',
+        'test_expired_monitor_parallel_confirmations_remain_finite',
+        'test_expired_monitor_date_does_not_override_admin_suspension',
+
     ]
     try:
         for name in cases:

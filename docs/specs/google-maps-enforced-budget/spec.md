@@ -107,3 +107,69 @@ Preparação/demonstração autorizadas em stage, sem reativação em produção
 A futura transição de produção deve drenar os emissores antigos antes de fechar o baseline e iniciar a política nova. Configurar o orçamento enquanto a emergência continua ativa não contabiliza essa janela. Sem baseline superior confiável, todas as ações não Agenda ficam com teto zero, preservando a política humana explicitamente escolhida. Procedimento em `activation-cutover.md`.
 
 O componente público compilado da demonstração não incorpora pagamentos ou volumes históricos reais. Esses dados permanecem no relatório de auditoria; a tela mostra apenas referências propostas, cenários hipotéticos e consumo fictício.
+
+## Ativação autorizada em 22/10/2026
+
+O usuário autorizou produção com referências de 650 chamadas/R$ 25 por dia e
+13.000 chamadas/R$ 500 por mês, mantendo a Agenda em `monitor`.
+`approved-monitor-config.json` registra o template selecionado, ainda desabilitado
+e sem baseline: não aplicar como configuração ativa sem a coleta de transição.
+Todas as ações não Agenda ficam com teto zero e automações sem política habilitada.
+A Agenda usa cache primeiro; novas chamadas exigem confirmação individual e finita.
+As referências não interrompem a Agenda; estimativa não equivale à fatura Google.
+O consumo histórico não conciliado será identificado como incompleto, sem saldo
+gratuito presumido, e não permitirá reabrir extras. Manter a expiração dos preços
+visível e revalidar até 21/11/2026.
+
+A correção regional de oportunidades do PR #420, autorizada somente em stage,
+fica temporariamente fora do snapshot de promoção e será restaurada em stage
+após a publicação. Preservar o código regional e a autenticação já em produção.
+
+A transição manual usa `maps-production-activation.yml`, exclusivamente a partir
+de main, com SHA instalado exato e ambiente production. O script compartilha o
+lock de deploy, usa a credencial sudo somente em stdin e encerra API/worker antes
+do baseline. A apuração usa o máximo entre fontes sobrepostas como piso observável,
+nunca como total conciliado ou limite superior. O painel explicita a incompletude
+histórica; todos os extras permanecem com teto zero independentemente do saldo.
+A estimativa inicial reserva tarifa cheia, sem créditos, usando o SKU Essentials
+observado. Novas tentativas usam a reserva do SKU efetivamente autorizado.
+Falhas da transição restauram emergência e reiniciam API/worker, preservando ledger.
+
+## Revisão de preços/câmbio sem corte da Agenda — 22/10/2026
+
+Por autorização explícita, `pricing_valid_until` funciona como data de revisão
+para as ações humanas registradas da Agenda em modo `monitor`. Vencer a data
+(inclusive 21/11/2026) gera `pricing_review_due`, sem impedir cotação, confirmação,
+execução ou reserva de tentativa. Manter preços, câmbio, margem e data originais;
+não prolongar a data nem apresentar a estimativa antiga como tarifa atual verificada.
+O aviso aparece no painel administrativo, na cotação/popup e no histórico (uma
+vez por execução, sem duplicar consumo). Quantidade máxima, custo estimado da
+confirmação, SKU, usuário/payload, validade do consentimento e revisão continuam
+verificados. Nenhuma alteração nos limites autorizados, no baseline ou nas flags
+de produção é necessária para publicar esta correção.
+
+A exceção não habilita lotes, consultas extras, políticas automáticas ou modo
+`enforce`, que continuam recusando preços vencidos. Cache primeiro permanece
+sem cobrança. Ledger indisponível, configuração inválida/desabilitada, falta de
+confirmação, replay, expiração do consentimento e excesso por ação continuam
+suspendendo apenas a operação paga correspondente. Não inventar rotas ou horários.
+
+Verificação: cinco novos cenários incluem update real do endpoint com transporte
+interceptado e revisão vencida, cancelamento sem envio, alerta sem custo duplicado,
+geocoding domiciliar de uma unidade, virada da data entre cotação/confirmação/envio,
+expiração própria do consentimento, concorrência de confirmações finitas e suspensão
+administrativa preservada. O canário instalado de recepção agrega esses cenários
+em PostgreSQL isolado, sem Google ou agendamentos operacionais. A publicação exige
+workflows terminais, smoke dos assets e confirmação de que configuração/consumo
+existentes foram preservados.
+
+A promoção desta correção isola os incrementos regionais/PDF e o gate de stage
+que ainda não estão em produção. O patch desses caminhos fica preservado para
+restauração imediata em stage após o deploy. Não promover nem reverter funções
+clínicas ou autenticação incidentalmente. A configuração ativa revisão 1 permanece
+inalterada; publicar código sem repetir o operador de ativação inicial.
+
+O popup explicita “Estimativa desatualizada — revisão pendente” e a data
+no fuso Fortaleza. “Confirmar esta ação” continua habilitado; abrir o aviso
+não despacha a ação, e confirmar produz uma única autorização. O título
+geral “Agenda liberada com alertas” não presume que o orçamento já foi excedido.

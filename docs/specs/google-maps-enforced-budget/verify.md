@@ -142,3 +142,111 @@ O JSON de auditoria agregada foi coletado readonly de produção/stage. Nenhuma 
 Proposta desabilitada validada no contrato `CostConfiguration`; 32 testes dos componentes Maps, TypeScript e lint passaram localmente. A suíte cache-first executou 21 testes, com 16 aprovados e 5 skips esperados sem PostgreSQL local. O novo cenário aplica a proposta em banco sintético acima das referências e prova alteração de Agenda, confirmação finita/replay bloqueado e extras/automação suspensos. A emissão de token do canário usa cleanup compatível com o helper de autenticação atualizado. Após deploy, executar os 12 casos instalados de recepção em PostgreSQL isolado com transportes interceptados; conferir SHA, runtime e processos stage. Produção somente leitura, com dry-run de ambiente válido, sem aplicar configuração. Evidência atual: `/Users/martiniano/Documents/Codex/2026-10-21/maps-activation-preparation/`. Endereços fictícios/incompletos de stage não comprovam trajetos reais nem saldo Billing; nenhuma configuração financeira operacional é habilitada neste ciclo.
 
 Em 22/10, stage `e50192cb` concluiu deploy e os 12 cenários instalados de recepção passaram, sem Google ou alteração de registros operacionais e sem schemas restantes. O rascunho foi salvo para revisão na configuração de stage, revisão 1, `enabled=false`; nenhum orçamento pago foi habilitado. Três domínios responderam 200 à página autenticada, API administrativa anônima 401, marcadores presentes nos chunks servidos após normalizar escapes JS. Os seis arquivos de runtime foram preservados. Produção permaneceu `ac054398`, API `temporary_open`, configuração financeira ausente e checksum do ambiente inalterado. A etapa de privacidade seguinte remove pagamentos reais do componente compilado; validar novamente o componente e sua ausência nos assets publicados. Plano de transição em `activation-cutover.md` evita contabilização incompleta entre baseline e encerramento da emergência.
+
+## Ativação autorizada em 22/10/2026
+
+O usuário autorizou produção com referências de 650 chamadas/R$ 25 por dia e
+13.000 chamadas/R$ 500 por mês, mantendo a Agenda em `monitor`.
+`approved-monitor-config.json` registra o template selecionado, ainda desabilitado
+e sem baseline: não aplicar como configuração ativa sem a coleta de transição.
+Todas as ações não Agenda ficam com teto zero e automações sem política habilitada.
+A Agenda usa cache primeiro; novas chamadas exigem confirmação individual e finita.
+As referências não interrompem a Agenda; estimativa não equivale à fatura Google.
+O consumo histórico não conciliado será identificado como incompleto, sem saldo
+gratuito presumido, e não permitirá reabrir extras. Manter a expiração dos preços
+visível e revalidar até 21/11/2026.
+
+A correção regional de oportunidades do PR #420, autorizada somente em stage,
+fica temporariamente fora do snapshot de promoção e será restaurada em stage
+após a publicação. Preservar o código regional e a autenticação já em produção.
+
+A transição manual usa `maps-production-activation.yml`, exclusivamente a partir
+de main, com SHA instalado exato e ambiente production. O script compartilha o
+lock de deploy, usa a credencial sudo somente em stdin e encerra API/worker antes
+do baseline. A apuração usa o máximo entre fontes sobrepostas como piso observável,
+nunca como total conciliado ou limite superior. O painel explicita a incompletude
+histórica; todos os extras permanecem com teto zero independentemente do saldo.
+A estimativa inicial reserva tarifa cheia, sem créditos, usando o SKU Essentials
+observado. Novas tentativas usam a reserva do SKU efetivamente autorizado.
+Falhas da transição restauram emergência e reiniciam API/worker, preservando ledger.
+
+## Stage instalado — ativação autorizada de 22/10/2026
+
+Stage `097227a5` concluiu todos os workflows necessários. A suíte backend executou
+2.089 casos (com skips esperados documentados no log); a suíte Maps/PostgreSQL
+executou 110 casos. O canário instalado comprovou os 12 cenários como recepção
+sintética sem autoridade administrativa, com zero Google, zero agendamentos
+operacionais alterados e nenhum schema temporário restante. O smoke autenticado
+da configuração respondeu 200 nos três hosts de stage; API administrativa sem
+credencial respondeu 401. Marcadores verificados nos chunks, sem pagamentos
+históricos reais no JavaScript. Os seis arquivos de runtime foram preservados,
+restaurados e conferidos por hash; backup/restore drill aprovado.
+
+A PR #422 integrou somente os 41 caminhos Maps e do operador de ativação em
+main `1a7cd0aa`. A instalação e ativação efetivas precisam do smoke instalado
+e da transição drenada, não apenas do merge. Evidência privada sanitizada em
+`/Users/martiniano/Documents/Codex/2026-10-22/maps-production-activation/`.
+
+## Revisão de preços/câmbio sem corte da Agenda — 22/10/2026
+
+Por autorização explícita, `pricing_valid_until` funciona como data de revisão
+para as ações humanas registradas da Agenda em modo `monitor`. Vencer a data
+(inclusive 21/11/2026) gera `pricing_review_due`, sem impedir cotação, confirmação,
+execução ou reserva de tentativa. Manter preços, câmbio, margem e data originais;
+não prolongar a data nem apresentar a estimativa antiga como tarifa atual verificada.
+O aviso aparece no painel administrativo, na cotação/popup e no histórico (uma
+vez por execução, sem duplicar consumo). Quantidade máxima, custo estimado da
+confirmação, SKU, usuário/payload, validade do consentimento e revisão continuam
+verificados. Nenhuma alteração nos limites autorizados, no baseline ou nas flags
+de produção é necessária para publicar esta correção.
+
+A exceção não habilita lotes, consultas extras, políticas automáticas ou modo
+`enforce`, que continuam recusando preços vencidos. Cache primeiro permanece
+sem cobrança. Ledger indisponível, configuração inválida/desabilitada, falta de
+confirmação, replay, expiração do consentimento e excesso por ação continuam
+suspendendo apenas a operação paga correspondente. Não inventar rotas ou horários.
+
+Verificação: cinco novos cenários incluem update real do endpoint com transporte
+interceptado e revisão vencida, cancelamento sem envio, alerta sem custo duplicado,
+geocoding domiciliar de uma unidade, virada da data entre cotação/confirmação/envio,
+expiração própria do consentimento, concorrência de confirmações finitas e suspensão
+administrativa preservada. O canário instalado de recepção agrega esses cenários
+em PostgreSQL isolado, sem Google ou agendamentos operacionais. A publicação exige
+workflows terminais, smoke dos assets e confirmação de que configuração/consumo
+existentes foram preservados.
+
+A promoção desta correção isola os incrementos regionais/PDF e o gate de stage
+que ainda não estão em produção. O patch desses caminhos fica preservado para
+restauração imediata em stage após o deploy. Não promover nem reverter funções
+clínicas ou autenticação incidentalmente. A configuração ativa revisão 1 permanece
+inalterada; publicar código sem repetir o operador de ativação inicial.
+
+O popup explicita “Estimativa desatualizada — revisão pendente” e a data
+no fuso Fortaleza. “Confirmar esta ação” continua habilitado; abrir o aviso
+não despacha a ação, e confirmar produz uma única autorização. O título
+geral “Agenda liberada com alertas” não presume que o orçamento já foi excedido.
+
+## Revisão vencida validada em stage — 22/10/2026
+
+O deploy `39836185306` terminou com sucesso em stage `82f2e781`. Os quatro
+workflows exigidos passaram; 17 cenários instalados de recepção passaram em
+PostgreSQL isolado, com zero Google, zero agendamentos operacionais alterados
+e nenhum schema temporário restante. Os cenários novos cobrem revisão vencida,
+virada da revisão durante confirmação, geocoding de uma unidade, concorrência
+e suspensão administrativa preservada. Os seis arquivos de runtime mantiveram
+os hashes. A página autenticada respondeu 200 nos três hosts de stage, API
+administrativa anônima 401 e os 16 chunks servidos contêm os avisos novos.
+
+Validação local: 115 testes Maps (85 aprovados, 30 skips esperados sem PostgreSQL),
+34 testes dos quatro componentes Maps, lint, TypeScript e SDD. CI PostgreSQL
+compartilhado aprovado. O head `a93c4b04` acrescentou apenas dois registros
+`verify.md` de PDF/gate; aplicação, testes, scripts e workflows foram conferidos
+como idênticos ao stage instalado. Seu redeploy documental foi cancelado e não
+foi contado como instalação. O check inconsistente de orçamento compartilhado
+(workflow concluído com todas as etapas aprovadas, job ainda em andamento na API)
+foi repetido: tentativa 2 de `39837904041` terminou com sucesso, sem bypass.
+
+A PR #432 promoveu o snapshot em main `3553c461`; a publicação efetiva requer
+workflow terminal e smoke instalado. Não reexecutar a ativação inicial: configuração
+e abertura financeira da revisão 1 devem permanecer idênticas. O registro final
+privado e sanitizado está em `/Users/martiniano/Documents/Codex/2026-10-22/maps-price-review-alerts/`.

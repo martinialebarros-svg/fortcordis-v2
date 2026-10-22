@@ -52,7 +52,7 @@ describe("confirmação de custo antes do envio", () => {
     quoteResult = { ...quote, budget_policy: "agenda_monitor", financial_limit_enforced: false, alerts: ["Referência diária atingida; Agenda liberada."] };
     render(<GoogleMapsActionGuard />);
     const result = api.post("/agenda", {});
-    expect(await screen.findByRole("dialog")).toHaveTextContent("Agenda liberada acima da referência");
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Agenda liberada com alertas");
     expect(screen.getByRole("dialog")).toHaveTextContent("Teto desta confirmação");
     fireEvent.click(screen.getByRole("button", { name: "Confirmar esta ação" }));
     await result;
@@ -60,6 +60,19 @@ describe("confirmação de custo antes do envio", () => {
     expect(screen.getByRole("alert")).toHaveClass("bg-amber-50");
     expect(requests.filter((item) => item.url === "/agenda")).toHaveLength(1);
   });
+  it("revisão vencida mostra data e alerta sem desabilitar a confirmação", async () => {
+    quoteResult = { ...quote, budget_policy: "agenda_monitor", pricing_review_due: true, pricing_reference_valid_until: "2026-11-21T23:59:59-03:00", alerts: ["Revisão de preços/câmbio pendente: Agenda liberada."] };
+    render(<GoogleMapsActionGuard />);
+    const result = api.post("/agenda", {});
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Estimativa desatualizada — revisão pendente desde 21/11/2026");
+    expect(screen.getByRole("button", { name: "Confirmar esta ação" })).toBeEnabled();
+    expect(requests.filter((item) => item.url === "/agenda")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar esta ação" }));
+    await result;
+    expect(requests.filter((item) => item.url === "/agenda")).toHaveLength(1);
+    expect(requests.filter((item) => item.url === "/google-maps-control/confirm")).toHaveLength(1);
+  });
+
   it("georreferenciar tutor na Agenda pede consentimento limitado a uma unidade", async () => {
     quoteResult = { ...quote, budget_policy: "agenda_monitor", action: "Localizar endereço do tutor para agendamento", services: ["geocoding"], max_calls: 1, estimated_cost_max_brl: 0.06 };
     render(<GoogleMapsActionGuard />);

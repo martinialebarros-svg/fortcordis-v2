@@ -248,3 +248,12 @@ ENV e seis arquivos runtime. Nenhum desses registros ou parâmetros é usado com
 fixture. O canário instalado deverá operar apenas em schema novo descartável;
 comparações posteriores comprovarão a preservação operacional. Produção deve
 permanecer em `4c9a7865`, sem deploy desta correção.
+
+## Restauração após promoção Maps de 22/10/2026
+
+O pacote Maps foi isolado pela PR #421 e integrado a main pela PR #422.
+Esta restauração reaplica exatamente os oito caminhos do incremento regional
+do stage `f93a455f`, sem promover essa correção para produção. Os doze testes
+focados de oportunidades passaram localmente; repetir o canário instalado após
+o deploy. O código regional e a autenticação já existentes em produção foram
+preservados na promoção Maps.

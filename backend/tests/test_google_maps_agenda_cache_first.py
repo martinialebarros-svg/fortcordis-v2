@@ -354,6 +354,122 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
         self.assertTrue(guard.create_preview(7, "POST", "/api/v1/tutores/geocode-endereco", body=body)["blocked"])
         self.assertEqual(guard.get_status()["consumption"]["day"]["calls"], 1)
 
+    def review_date(self, seconds=-5):
+        status = guard.get_status()
+        data = status["config"]
+        data["pricing_valid_until"] = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+        return guard.update_configuration(7, guard.CostConfiguration.model_validate(data), status["revision"])
+
+    def test_expired_monitor_prices_warn_and_complete_booking_without_freeing_extras(self):
+        self.configure(monitor=True)
+        status = self.review_date()
+        self.assertFalse(status["blocked"])
+        self.assertTrue(status["paid_calls_allowed"])
+        self.assertTrue(status["pricing_review_due"])
+        self.assertIn(guard.REASONS["pricing_review_due"], status["alerts"])
+        unpaid = self.client.put(self.path, json=self.body)
+        self.assertEqual(unpaid.status_code, 409, unpaid.text)
+        self.assertTrue(unpaid.json()["detail"]["can_retry_with_confirmation"])
+        self.outbound.assert_not_called()
+        quote = self.preview(paid=True).json()
+        self.assertFalse(quote["blocked"])
+        self.assertTrue(quote["pricing_review_due"])
+        self.assertEqual(quote["max_calls"], 4)
+        self.assertEqual(quote["estimated_cost_max_brl"], 0.24)
+        self.assertIn(guard.REASONS["pricing_review_due"], quote["alerts"])
+        self.outbound.assert_not_called()  # Cancelling the warning sends nothing.
+        confirmed = self.client.post('/api/v1/google-maps-control/confirm', json={'quote_id': quote['quote_id']})
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        token = confirmed.json()['token']
+        result = self.client.put(self.path, json=self.body, headers={'X-Google-Maps-Action': token})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(self.outbound.call_count, 2)
+        self.assertEqual(self.client.put(self.path, json=self.body, headers={'X-Google-Maps-Action': token}).status_code, 409)
+        events = [event for event in guard.get_status()['history'] if event['reason']=='pricing_review_due']
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]['kind'], 'budget_alert')
+        self.assertEqual(events[0]['estimated_brl'], 0)
+        for path in ('/api/v1/logistica/recalcular', '/api/v1/tutores/geocode-endereco'):
+            extra = guard.create_preview(7, 'POST', path)
+            self.assertTrue(extra['blocked'])
+            self.assertEqual(extra['reason'], 'pricing_expired')
+        with guard.automatic_execution('synthetic_job', 'expired-explicit-policy'):
+            with self.assertRaises(guard.GoogleMapsCostBlocked) as denied:
+                guard.authorize_google_call('routes_essentials')
+            self.assertEqual(denied.exception.reason, 'pricing_expired')
+
+    def test_monitor_quote_survives_review_date_but_not_its_own_expiry_or_cap(self):
+        self.configure(monitor=True)
+        self.review_date(seconds=3)
+        quote = self.preview(paid=True).json()
+        now = guard._now()
+        with patch.object(guard, '_now', return_value=now+6):
+            token = guard.confirm_preview(7, quote['quote_id'])['token']
+            execution = guard.claim_execution(7, token, 'PUT', self.path, None, self.body)
+            context = guard.bind_execution(execution)
+            try:
+                for _ in range(4): guard.authorize_google_call('routes_essentials')
+                with self.assertRaises(guard.GoogleMapsCostBlocked) as limit:
+                    guard.authorize_google_call('routes_essentials')
+                self.assertEqual(limit.exception.reason, 'action_limit')
+            finally:
+                guard.reset_execution(context)
+                guard.finish_execution(execution)
+            with self.assertRaises(guard.GoogleMapsCostBlocked):
+                guard.claim_execution(7, token, 'PUT', self.path, None, self.body)
+        self.outbound.assert_not_called()
+        fresh = self.preview(paid=True).json()
+        with patch.object(guard, '_now', return_value=now+guard.QUOTE_TTL_SECONDS+10):
+            with self.assertRaises(guard.GoogleMapsCostBlocked) as expired:
+                guard.confirm_preview(7, fresh['quote_id'])
+            self.assertEqual(expired.exception.reason, 'invalid_grant')
+
+    def test_expired_monitor_prices_keep_tutor_geocode_single_use(self):
+        configure = self.configure
+        def expired_configure(*args, **kwargs):
+            configure(*args, **kwargs)
+            return self.review_date()
+        self.configure = expired_configure
+        self.test_agenda_tutor_geocode_uses_one_confirmed_unit_above_references()
+
+    def test_expired_monitor_parallel_confirmations_remain_finite(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        self.configure(monitor=True)
+        self.review_date()
+        executions=[]
+        for _ in range(2):
+            quote=self.preview(paid=True).json()
+            token=guard.confirm_preview(7,quote['quote_id'])['token']
+            executions.append(guard.claim_execution(7,token,'PUT',self.path,None,self.body))
+        barrier=Barrier(2)
+        def reserve(execution):
+            context=guard.bind_execution(execution)
+            try:
+                barrier.wait(timeout=10)
+                for _ in range(4):guard.authorize_google_call('routes_essentials')
+                with self.assertRaises(guard.GoogleMapsCostBlocked) as denied:guard.authorize_google_call('routes_essentials')
+                self.assertEqual(denied.exception.reason,'action_limit')
+            finally:
+                guard.reset_execution(context)
+                guard.finish_execution(execution)
+        with ThreadPoolExecutor(max_workers=2) as pool:list(pool.map(reserve,executions))
+        self.ledger.dispose()
+        status=guard.get_status()
+        self.assertEqual(status['consumption']['day']['calls'],8)
+        self.assertEqual(len([event for event in status['history'] if event['reason']=='pricing_review_due']),2)
+        self.outbound.assert_not_called()
+
+    def test_expired_monitor_date_does_not_override_admin_suspension(self):
+        self.configure(monitor=True)
+        status=self.review_date()
+        data=status['config'];data['enabled']=False
+        guard.update_configuration(7,guard.CostConfiguration.model_validate(data),status['revision'])
+        quote=self.preview(paid=True).json()
+        self.assertTrue(quote['blocked'])
+        self.assertEqual(quote['reason'],'disabled')
+        self.outbound.assert_not_called()
+
     def test_cache_only_rejects_monitor_exception(self):
         with self.assertRaises(ValueError):
             guard.CostConfiguration.model_validate({"operation_mode": "cache_only", "agenda_budget_mode": "monitor", "enabled": True, "limits": {p: {"calls": 0, "estimated_brl": 0} for p in ("action", "day", "month")}})

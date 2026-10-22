@@ -1,6 +1,7 @@
 name: Deploy to Stage (VPS)
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - stage

@@ -187,7 +187,7 @@ export default function GoogleMapsAdminPanel() {
       {status.agenda_cache_first && <>
         <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-sm text-teal-950">
           <h3 className="font-semibold">Agenda: cache primeiro, confirmação somente para consulta nova</h3>
-          <p className="mt-1">Agendamentos com rota válida e operações sem consulta paga seguem pela validação normal, mesmo se o orçamento estiver esgotado ou indisponível. Uma consulta externa exige confirmação limitada no servidor. No modo de alertas, o orçamento da Agenda pode ser ultrapassado; lotes e extras continuam sujeitos ao teto rígido. Se ela for suspensa, o formulário é preservado.</p>
+          <p className="mt-1">Agendamentos com rota válida e operações sem consulta paga seguem pela validação normal, mesmo se o orçamento estiver esgotado ou indisponível. Uma consulta externa exige confirmação limitada no servidor. No modo de alertas, a data de revisão de preços/câmbio também gera aviso sem suspender a Agenda; a última estimativa continua identificada como desatualizada. O orçamento da Agenda pode ser ultrapassado; lotes e extras continuam sujeitos ao teto rígido. Se ela for suspensa, o formulário é preservado.</p>
         </div>
         <GoogleMapsControlDemo />
       </>}
@@ -227,7 +227,7 @@ export default function GoogleMapsAdminPanel() {
             <summary className="cursor-pointer font-medium">Preços, câmbio e validade da estimativa</summary>
             <p className="my-3 text-sm text-gray-600">Use os preços máximos aplicáveis à conta. Inclua uma margem para câmbio e cobranças adicionais. Após a validade, novas chamadas ficam suspensas até revisão.</p>
             <div className="grid gap-4 md:grid-cols-2">{Object.entries(skuLabels).map(([sku, label]) => field(`price_${sku}`, `${label} — USD por unidade`, { min: 0.000001 }))}{field("fx", "Câmbio máximo — R$ por USD", { min: 0.000001 })}{field("multiplier", "Multiplicador conservador de preço", { min: 1 })}
-              <label className="block text-sm font-medium text-gray-700">Validade dos preços (data ISO com fuso)
+              <label className="block text-sm font-medium text-gray-700">Data de revisão dos preços/câmbio (data ISO com fuso)
                 <input required type="text" value={fields.validUntil ?? ""} placeholder="AAAA-MM-DDTHH:mm:ss-03:00" onChange={(event) => setFields({ ...fields, validUntil: event.target.value })} className={inputClass} />
               </label>
             </div>
@@ -243,7 +243,7 @@ export default function GoogleMapsAdminPanel() {
           <div className="rounded-xl border p-4 text-sm">
             <h3 className="font-semibold">Consumo anterior à ativação</h3>
             <p className="my-2">Para não criar saldo fictício, a primeira ativação exige o consumo já realizado no dia e no mês. Use telemetria verificada ou um teto conservador que cubra dados atrasados. Valores sintéticos são exclusivos de testes.</p>
-            {status.config?.opening_usage ? <><MapsConsumption consumption={status.config.opening_usage} /><p className="mt-2">Registrado em {status.config.opening_usage_as_of}. Este saldo inicial é preservado após a ativação.</p></> : enabled ? <div className="grid gap-4 md:grid-cols-2">
+            {status.config?.opening_usage ? <><MapsConsumption consumption={status.config.opening_usage} /><p className="mt-2">Registrado em {status.config.opening_usage_as_of}. Este saldo inicial é preservado após a ativação. A telemetria anterior pode estar incompleta; este valor não comprova o total da conta Google nem saldo de franquia gratuita.</p></> : enabled ? <div className="grid gap-4 md:grid-cols-2">
               {field("opening_day_calls", "Chamadas anteriores — dia", { step: "1" })}{field("opening_day_brl", "Custo anterior estimado em R$ — dia")}
               {field("opening_month_calls", "Chamadas anteriores — mês", { step: "1" })}{field("opening_month_brl", "Custo anterior estimado em R$ — mês")}
               <label className="block font-medium">Data do saldo inicial (Fortaleza)<input required type="date" value={fields.openingDate ?? ""} onChange={(event) => setFields({ ...fields, openingDate: event.target.value })} className={inputClass} /></label>

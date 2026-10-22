@@ -1,5 +1,20 @@
 # Verify - sdd-guardrail-ci
 
+### Prova da recuperacao
+
+A PR #427 integrou o disparo manual e o workflow `39824925973` executou
+`workflow_dispatch` sobre stage `5138dddc`. Quality, SDD, diagnosticos e
+deploy-stage terminaram com sucesso; o checkout instalado correspondeu ao
+SHA esperado. Migration CI `39824930828` passou. O gatilho manteve o pipeline
+original, inclusive preservacao dos seis arquivos runtime, canario e
+`Backup restore drill OK`.
+
+O hotfix de producao da PR #425 nao levou a alteracao do workflow de stage.
+O push de main voltou a disparar normalmente e o workflow `39834453171`
+terminou com sucesso. O disparo manual duplicado de producao foi cancelado
+ainda sem jobs. Nenhum commit vazio, excecao de promocao ou bypass de gate
+foi usado para essa recuperacao.
+
 Data: 2026-04-12  
 Responsavel: Equipe FortCordis  
 Status: done
