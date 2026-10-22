@@ -2,7 +2,7 @@
 
 Data: 2026-10-22
 Responsavel: Codex
-Status: in-progress-p1
+Status: verified-stage
 
 ## Matriz de rastreabilidade
 
@@ -17,9 +17,9 @@ Status: in-progress-p1
 | CA-007 | aceitação | Dias distintos Realizado/60 dias completos antes de volume | aprovado |
 | CA-008 | aceitação | Configuração autenticada, 17 chunks servidos e canário PostgreSQL isolado | aprovado |
 | CA-009 | aceitação | HTTP com âncora atravessando meia-noite retorna vazio sem base ou Google | aprovado |
-| CA-010 | aceitação | Regressões de direção ausente cedo e tarde, preservando slots conhecidos | aprovado localmente |
-| CA-011 | aceitação | Baseline desconhecido, custo direto, direção e contador por clínica | aprovado localmente |
-| CA-012 | aceitação | Replay instalado de matriz incompleta em stage, sem produção | pendente da instalação |
+| CA-010 | aceitação | Regressões de direção ausente cedo e tarde, preservando slots conhecidos | aprovado em stage pelo PR #420 |
+| CA-011 | aceitação | Baseline desconhecido, custo direto, direção e contador por clínica | aprovado em stage pelo PR #420 |
+| CA-012 | aceitação | Replay instalado de matriz incompleta em stage, sem produção | aprovado em stage no workflow 39794689074 |
 | NFR-001 | não funcional | Zero escrita em produção, zero Google no replay e na consulta operacional | aprovado |
 | NFR-002 | não funcional | Schema descartável removido e nenhum paciente/contato copiado | aprovado |
 | NFR-003 | não funcional | Flag ativa só em stage; backup privado; limitações registradas | aprovado |
@@ -152,7 +152,10 @@ Evidências JSON locais, na pasta de artefatos desta tarefa:
 - `agenda-transicao-regional-stage-activation-smoke.json`: configuração, API autenticada e bundles.
 - `agenda-transicao-regional-stage-public-smoke.json`: canônico, alias e proteção anônima.
 
-## Pacote isolado para produção (22/10/2026; ainda não publicado)
+## Pacote isolado da regra original (preparação em 22/10/2026)
+
+Este registro descreve a preparação histórica. A regra original foi publicada
+pelo PR #418; a preparação posterior do P1 tem sua própria evidência abaixo.
 
 A autorização posterior do usuário abrange publicar a regra regional e validar
 a sexta-feira com Zoomare sem alterar agendamentos. A comparação de main
@@ -200,8 +203,9 @@ ou reservas reais.
 - [x] Publicado e validado em stage.
 - [x] Autorizado para produção em 22/10/2026, limitado à feature regional.
 - [x] Regra original publicada e validada em produção pelo PR #418.
-- [ ] Correção do P1 publicada e validada em stage (novo ciclo).
-- [ ] Correção do P1 autorizada ou publicada em produção.
+- [x] Correção do P1 publicada e validada em stage pelo PR #420.
+- [x] Correção do P1 autorizada para produção em 22/10/2026.
+- [ ] Correção do P1 instalada e validada em produção pelo fluxo protegido.
 
 ## Correção do P1 do PR #418 — novo ciclo em 22/10/2026
 
@@ -219,12 +223,12 @@ compartilhado. O contador externo continua por clínica excluída; uma clínica 
 slots conhecidos não entra nele. Desvio/custo direto desconhecido não ganha
 valor estimado. O helper, limites e parâmetros de configuração não são alterados.
 
-A autorização atual permite integração e validação somente em stage. O canário
+A autorização inicial permitiu integração e validação em stage. O canário
 ampliado usa exclusivamente schema descartável e acrescenta direção C→B ausente
 com B→C conhecido, além de baseline desconhecido com trecho final curto/longa
-transição. Agendamentos operacionais, configuração, ENV e produção estão fora
-das mutações deste ciclo. A prova instalada e o SHA serão registrados no PR da
-correção após sucesso terminal do deploy de stage.
+transição. O usuário autorizou depois publicar o P1 em produção e validar
+Completar dia na sexta com Zoomare sem alterar agendamentos. Configuração, ENV,
+mensagens e dados operacionais permanecem fora das mutações autorizadas.
 
 Validação local deste ciclo, com SQLite sintético e providers bloqueados:
 
@@ -242,9 +246,62 @@ Validação local deste ciclo, com SQLite sintético e providers bloqueados:
   e ESLint do componente/contrato passaram, sem mudanças de frontend.
 - Sintaxe dos quatro arquivos Python e `git diff --check`: passaram.
 
-O preflight de stage registrou SHA `4e6af331`, 64 agendamentos e hashes de
-bloqueios/configuração/matriz em transação READ ONLY; guardou também hashes de
-ENV e seis arquivos runtime. Nenhum desses registros ou parâmetros é usado como
-fixture. O canário instalado deverá operar apenas em schema novo descartável;
-comparações posteriores comprovarão a preservação operacional. Produção deve
-permanecer em `4c9a7865`, sem deploy desta correção.
+O preflight daquela homologação de stage registrou SHA `4e6af331`, 64
+agendamentos e hashes de bloqueios/configuração/matriz em transação READ ONLY;
+guardou também hashes de ENV e seis arquivos runtime. Nenhum desses registros
+ou parâmetros foi usado como fixture. A proteção de produção em `4c9a7865`
+referia-se àquele ciclo anterior à autorização posterior descrita abaixo.
+
+## Homologação instalada do P1 — PR #420
+
+O PR #420 publicou o snapshot `f93a455f` em stage. O workflow
+`39794689074` terminou com sucesso, e o replay instalado passou dez de dez
+verificações em schema PostgreSQL sintético descartável. As provas incluem
+direção C→B ausente preservando C às 14h30 e baseline desconhecido permitindo
+trecho normal conhecido sem autorizar nova transição longa. O schema foi
+removido, houve zero Google e os 64 agendamentos operacionais permaneceram
+inalterados, assim como bloqueios, configuração, matriz, ENV e arquivos runtime.
+CA-010, CA-011 e CA-012 estão concluídos por essa prova instalada, não somente
+pelos testes locais. Não há critério de aceitação pendente para a promoção.
+
+## Pacote isolado do P1 sobre main atual — 22/10/2026
+
+O usuário autorizou publicar o P1 e validar Completar dia de 23/10 com Zoomare,
+sem alterar agendamentos. O novo preflight, somente leitura, encontrou produção
+em `4aa1364a96984af11b8e6dabbb7b209024935c43`, com `APP_ENV=production`,
+autenticação Supabase e 1.580 agendamentos. A sexta agora contém duas âncoras:
+Zoomare 09h–09h30 e Pet Sanus Caucaia 10h45–11h45. Esse snapshot é uma leitura
+operacional, não fixture nem confirmação de demanda ou tempo atual de trânsito.
+
+O commit `c351606ea2c40d565c9b82cd44529c08fedaf8af` já consta na ancestralidade de
+main, mas sua correção não está no conteúdo atual. Por isso seu patch foi
+reaplicado com `cherry-pick -x` sobre o main atual, sem copiar arquivos completos
+do snapshot antigo. O pacote modifica somente os oito caminhos do P1. Maps,
+PDFs, autenticação, workflows de SHA aprovado, migrations, ENV/configuração e
+frontend permanecem idênticos a esse main; os incrementos clínicos pendentes em
+stage não fazem parte da publicação autorizada.
+
+As identidades Git do pacote comprovam backend e scripts idênticos aos de stage
+`339c8013` e `d1e81bba`, e frontend idêntico ao main `4aa1364a`:
+
+- backend: `ab5d23651d25477989caccb8d3e6db7bae736cbd`;
+- scripts: `3cec1e9eb4b0f7e325b1615114c1aeb1859fc2bd`;
+- frontend: `cea61c54a03ebdee2723bbb11ff495e444767a6d`.
+
+Validação local repetida no pacote isolado, sem banco operacional ou rede:
+
+- 249 testes Agenda passaram com URL SQLite e chave sintética.
+- 28 testes frontend de oportunidades/regras passaram.
+- Dez de dez verificações do replay SQLite descartável passaram, com zero
+  Google, zero pacientes/contatos copiados e zero registros existentes alterados.
+- TypeScript sem emissão e ESLint do componente/contrato passaram.
+- Sintaxe Python, guardrail SDD e `git diff --check` integram o fechamento local.
+
+O fluxo protegido poderá reconciliar temporariamente o Git de stage para o
+pacote isolado, preservando/restaurando os caminhos pendentes de outras sessões.
+A identidade executável permite usar a homologação instalada sem alternar o
+frontend clínico do runtime de stage. Não se usa dispensa de promoção com
+pendência. Deploy terminal de produção e smoke autenticado/Completar dia são
+evidências posteriores de publicação, não critérios de stage em aberto. Esta
+preparação realizou somente commits locais; nenhum push, PR, deploy, consulta
+SSH ou escrita em banco operacional foi executado nela.

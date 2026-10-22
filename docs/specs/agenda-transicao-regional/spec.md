@@ -133,13 +133,18 @@ estado diagnóstico é gravado no contexto ou cache compartilhado entre clínica
   candidato com evidência segue contabilizada em `sem_estimativa`.
 - CA-012: o canário instalado reproduz a matriz incompleta em schema sintético
   descartável, mantendo 30/50/15/1/60, zero Google e nenhum agendamento
-  operacional modificado. Produção permanece no snapshot anterior à correção.
+  operacional modificado. A homologação de stage não antecipa a instalação em
+  produção, que requer seu próprio deploy terminal e verificação em leitura.
 
 ## Rollout e exclusões
 
-O PR #418 publicou a regra original. A correção do P1 é autorizada somente para
-stage, preservando os parâmetros já habilitados. Reverter retornando o snapshot
-anterior de stage. A promoção desta correção para produção exige autorização
-separada. Fora de escopo: enviar ofertas, criar
+O PR #418 publicou a regra original. A correção do P1 foi homologada pelo
+PR #420 em stage `f93a455f`. O usuário autorizou posteriormente sua publicação
+em produção e a consulta Completar dia da sexta com Zoomare, sem alterar
+agendamentos. A promoção deve conter somente os oito caminhos desse patch
+sobre main `4aa1364a`, preservando Maps, PDFs, autenticação, deploy por SHA
+aprovado e entregas clínicas de outras sessões. Não há migração ou mudança de
+ENV/configuração. Reverter somente o P1 ao snapshot anterior de produção e
+preservar os incrementos paralelos. Fora de escopo: enviar ofertas, criar
 reservas reais, atualizar rotas pagas, inferir demanda, alterar dados clínicos e
 flexibilizar duas transições longas.
