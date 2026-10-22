@@ -6,6 +6,7 @@
 2. Exibir o mesmo painel compacto em Medidas/Diastólica, Qualitativa e prévia salva, usando espécie e texto efetivamente destinados ao PDF; manter invisível quando não há conflito.
 3. Cobrir aliases, fusões independentes, frases negadas/limitadas, conclusão multiparamétrica preservada, valores de estresse isolados e atualização após aplicar/corrigir presets. Preservar medidas, texto, conclusão, catálogo e salvamento.
 4. Validar testes focados, tipos, lint, build e SDD; publicar em stage pelo fluxo protegido, conferir UI autenticada e PDF sintético. Produção exige autorização posterior. Rollback: reverter o incremento de avisos, sem migração ou alteração clínica persistida.
+5. Em 21/10/2026, com a homologação de stage concluída e autorização de produção, promover somente os 13 arquivos clínicos sobre o main atual, pela exceção de PR isolada prevista no runbook. Manter os seis checks, acompanhar o deploy terminal, conferir a preservação de runtime e os arquivos servidos. Reintegrar imediatamente a documentação em stage sem sobrescrever as entregas paralelas de autenticação e Maps; o código clínico já é idêntico em stage.
 
 1. Organizar a prévia por grupos do PDF e mostrar rótulos, unidades e faixas selecionadas por espécie/peso.
 2. Aplicar na prévia a mesma normalização de comprimentos e DIVEd normalizado usada pelo PDF, com aviso quando o valor persistido divergir.
