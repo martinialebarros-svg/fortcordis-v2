@@ -47,6 +47,30 @@ describe("confirmação de custo antes do envio", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+
+  it("confirma Agenda acima da referência e mostra alerta sem bloquear o envio", async () => {
+    quoteResult = { ...quote, budget_policy: "agenda_monitor", financial_limit_enforced: false, alerts: ["Referência diária atingida; Agenda liberada."] };
+    render(<GoogleMapsActionGuard />);
+    const result = api.post("/agenda", {});
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Agenda liberada acima da referência");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Teto desta confirmação");
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar esta ação" }));
+    await result;
+    expect(screen.getByRole("alert")).toHaveTextContent("Alerta de custo — Agenda liberada");
+    expect(screen.getByRole("alert")).toHaveClass("bg-amber-50");
+    expect(requests.filter((item) => item.url === "/agenda")).toHaveLength(1);
+  });
+  it("georreferenciar tutor na Agenda pede consentimento limitado a uma unidade", async () => {
+    quoteResult = { ...quote, budget_policy: "agenda_monitor", action: "Localizar endereço do tutor para agendamento", services: ["geocoding"], max_calls: 1, estimated_cost_max_brl: 0.06 };
+    render(<GoogleMapsActionGuard />);
+    const result = api.post("/agenda/geocode-endereco-tutor", { endereco: "Synthetic address" }).catch((error) => error);
+    expect(await screen.findByRole("dialog")).toHaveTextContent("1 chamadas/unidades cobradas");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Geocoding");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect((await result).code).toBe("ERR_CANCELED");
+    expect(requests.map((item) => item.url)).toEqual(["/google-maps-control/preview"]);
+  });
+
   it("cancelar não envia a ação nem pede um token", async () => {
     render(<GoogleMapsActionGuard />);
     const result = api.post("/agenda/sugestoes-horario", { clinica_id: 1 }).catch((error) => error);
@@ -115,14 +139,14 @@ describe("confirmação de custo antes do envio", () => {
     expect(preview).toEqual({ method: "GET", path: "/api/v1/logistica/deslocamento", query: "clinica_ids=1&clinica_ids=2&perfil=comercial", body: null });
   });
 
-  it("suspende quando a verificação compartilhada está indisponível", async () => {
+  it("suspende lote quando a verificação compartilhada está indisponível", async () => {
     const adapter = api.defaults.adapter as AxiosAdapter;
     api.defaults.adapter = async (config) => {
       if (config.url === "/google-maps-control/preview") throw new Error("Falha de rede");
       return adapter(config);
     };
     render(<GoogleMapsActionGuard />);
-    await api.post("/agenda", {}).catch(() => undefined);
+    await api.post("/logistica/recalcular", {}).catch(() => undefined);
     expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível verificar o limite");
     expect(requests).toHaveLength(0);
   });

@@ -1,8 +1,8 @@
-import { CanceledError, type AxiosInstance, type InternalAxiosRequestConfig } from "axios";
+import { CanceledError, type AxiosInstance, type AxiosResponse, type InternalAxiosRequestConfig } from "axios";
 
 export type MapsBudget = { calls: number | null; estimated_brl: number | null };
 export type MapsPeriods = { action?: MapsBudget; day?: MapsBudget; month?: MapsBudget };
-export type MapsOperationMode = "paid_budget" | "cache_only" | "temporary_open";
+export type MapsOperationMode = "paid_budget" | "cache_only" | "temporary_open" | "cache_first";
 export const MAPS_SKU_LABELS: Record<string, string> = {
   routes_essentials: "Routes Essentials", routes_pro: "Routes Pro",
   distance_matrix_essentials: "Distance Matrix Essentials", distance_matrix_pro: "Distance Matrix Advanced",
@@ -10,6 +10,9 @@ export const MAPS_SKU_LABELS: Record<string, string> = {
 };
 export type MapsQuote = {
   operation_mode?: MapsOperationMode;
+  budget_policy?: "agenda_monitor" | "enforced";
+  financial_limit_enforced?: boolean;
+  alerts?: string[];
   required: boolean;
   blocked: boolean;
   reason?: string;
@@ -29,8 +32,9 @@ export type MapsQuote = {
 };
 
 type Signal = InternalAxiosRequestConfig["signal"];
+type MapsRequestConfig = InternalAxiosRequestConfig & { mapsConsentReplay?: boolean; mapsCacheFirst?: boolean };
 type Confirmation = { id: number; quote: MapsQuote; resolve: (confirmed: boolean) => void };
-type Snapshot = { queue: Confirmation[]; notice: string | null };
+type Snapshot = { queue: Confirmation[]; notice: string | null; noticeKind?: "warning" | "error" };
 let snapshot: Snapshot = { queue: [], notice: null };
 let sequence = 0;
 const subscribers = new Set<() => void>();
@@ -57,7 +61,7 @@ export const mapsConfirmationStore = {
     pending.forEach((item) => item.resolve(false));
   },
   dismissNotice() { publish({ ...snapshot, notice: null }); },
-  notify(message: string) { publish({ ...snapshot, notice: message }); },
+  notify(message: string, noticeKind: "warning" | "error" = "error") { publish({ ...snapshot, notice: message, noticeKind }); },
 };
 
 export function requestMapsConfirmation(quote: MapsQuote, signal?: Signal): Promise<boolean> {
@@ -83,7 +87,7 @@ export function needsMapsPreflight(method: string, path: string): boolean {
   if (verb === "POST") {
     return [
       "/logistica/recalcular", "/clinicas/geocode-endereco", "/tutores/geocode-endereco",
-      "/agenda", "/agenda/sugestao-proximidade",
+      "/agenda", "/agenda/geocode-endereco-tutor", "/agenda/sugestao-proximidade",
       "/agenda/sugestoes-horario", "/agenda/assistente/ofertas", "/agenda/assistente/validar-oferta",
       "/assistente-ia/chat",
     ].includes(relative) || /^\/agenda\/\d+\/reabilitar-reserva$/.test(relative) ||
@@ -109,6 +113,7 @@ export async function prepareMapsAction(
 ): Promise<InternalAxiosRequestConfig> {
   const url = new URL(api.getUri(config), "https://fortcordis.invalid");
   const method = (config.method || "get").toUpperCase();
+  const mapsConfig = config as MapsRequestConfig;
   if (!needsMapsPreflight(method, url.pathname)) return config;
   // A config copied from a prior attempt must never reuse its authorization.
   config.headers.delete("X-Google-Maps-Action");
@@ -121,14 +126,25 @@ export async function prepareMapsAction(
   try {
     const response = await api.post<MapsQuote>("/google-maps-control/preview", {
       method, path: url.pathname, query: url.search.slice(1), body,
-    }, { signal: config.signal });
+      ...(mapsConfig.mapsConsentReplay ? { paid_call_required: true } : {}),
+    }, { signal: config.signal, timeout: !mapsConfig.mapsConsentReplay && /^\/api\/v1\/agenda(?:\/|$)/.test(url.pathname) ? 3_000 : 15_000 });
     quote = response.data;
   } catch (error) {
     if (config.signal?.aborted) throw new CanceledError("Ação cancelada.");
+    // Losing the preview endpoint must not take down the entire Agenda. The
+    // server can perform local validation/cache reads without a paid grant;
+    // its provider boundary still blocks every unauthorized Google attempt.
+    if (!mapsConfig.mapsConsentReplay && /^\/api\/v1\/agenda(?:\/|$)/.test(url.pathname)) {
+      mapsConfig.mapsCacheFirst = true;
+      return config;
+    }
     throw stopMapsRequest("Não foi possível verificar o limite do Google Maps. A ação foi suspensa antes do envio.");
   }
   if (quote.blocked) throw stopMapsRequest(quote.message || "Consulta ao Google Maps bloqueada pelo limite configurado.");
-  if (!quote.required) return config;
+  if (!quote.required) {
+    mapsConfig.mapsCacheFirst = quote.operation_mode === "cache_first";
+    return config;
+  }
   if (!quote.quote_id || !Number.isFinite(quote.max_calls) || !Number.isFinite(quote.estimated_cost_max_brl)) {
     throw stopMapsRequest("Estimativa do Google Maps indisponível. A ação foi suspensa antes do envio.");
   }
@@ -140,15 +156,32 @@ export async function prepareMapsAction(
   try {
     const response = await api.post<{ token: string }>("/google-maps-control/confirm", {
       quote_id: quote.quote_id,
-    }, { signal: config.signal });
+    }, { signal: config.signal, timeout: 15_000 });
     if (config.signal?.aborted) throw new CanceledError("Ação cancelada.");
     if (!response.data.token) throw new Error("Autorização ausente.");
     config.headers.set("X-Google-Maps-Action", response.data.token);
+    if (quote.budget_policy === "agenda_monitor" && quote.alerts?.length) mapsConfirmationStore.notify(quote.alerts.join(" "), "warning");
     return config;
   } catch (error) {
     if (config.signal?.aborted) throw new CanceledError("Ação cancelada.");
     throw stopMapsRequest("Não foi possível confirmar esta ação do Google Maps. O limite pode ter mudado; consulte uma nova estimativa.");
   }
+}
+
+export function retryMapsActionWithConsent(api: AxiosInstance, error: unknown): Promise<AxiosResponse> | undefined {
+  const failure = error as { config?: MapsRequestConfig; response?: { status?: number; data?: { detail?: {
+    code?: string; reason?: string; can_retry_with_confirmation?: boolean;
+  } } } };
+  const config = failure?.config;
+  const detail = failure?.response?.data?.detail;
+  if (!config?.mapsCacheFirst || config.mapsConsentReplay || config.signal?.aborted ||
+      failure.response?.status !== 409 || detail?.code !== "GOOGLE_MAPS_COST_BLOCKED" ||
+      detail.reason !== "confirmation_required" || detail.can_retry_with_confirmation !== true) return;
+  const url = new URL(api.getUri(config), "https://fortcordis.invalid");
+  if (!/^\/api\/v1\/agenda(?:\/|$)/.test(url.pathname) || !needsMapsPreflight(config.method || "get", url.pathname)) return;
+  // No general-purpose retry: the server attests that this unpaid attempt
+  // stopped before Google/business commit. A second denial never loops.
+  return api.request({ ...config, mapsConsentReplay: true } as MapsRequestConfig);
 }
 
 export function isMapsControlError(error: unknown): boolean {

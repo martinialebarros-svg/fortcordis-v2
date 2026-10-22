@@ -1,0 +1,409 @@
+{
+  "verified_at": "2026-10-18T22:15:52.539101+00:00",
+  "stage_sha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+  "production_before": "9137d39fea18c795bb1cb7b1cc9bc204dce05d69",
+  "canary": {
+    "stage_live_direct_request_blocked": true,
+    "stage_live_preview_blocked": true,
+    "isolated_postgresql": true,
+    "cancelled_preview_paid_calls": 0,
+    "concurrent_attempts": 8,
+    "concurrent_successful_reservations": 4,
+    "concurrent_denials": {
+      "ledger_unavailable": 3,
+      "day_limit": 1
+    },
+    "sequential_completion_calls": 0,
+    "synthetic_outbound_calls": 4,
+    "daily_limit": 4,
+    "next_call_blocked_reason": "day_limit",
+    "replay_blocked": true,
+    "automatic_without_policy_blocked": true,
+    "cleanup_denials": [],
+    "cache_only_real_api_hit_without_grant": true,
+    "cache_only_cold_and_heuristic_blocked": true,
+    "cache_only_direct_and_automatic_blocked": true,
+    "cache_only_survives_reconnect": true,
+    "cache_only_previous_usage_preserved": true,
+    "database_diagnostics": [
+      {
+        "exception_class": "OperationalError",
+        "pgcode": null,
+        "operation": "connect",
+        "category": "connection_capacity"
+      },
+      {
+        "exception_class": "OperationalError",
+        "pgcode": null,
+        "operation": "connect",
+        "category": "connection_capacity"
+      },
+      {
+        "exception_class": "OperationalError",
+        "pgcode": null,
+        "operation": "connect",
+        "category": "connection_capacity"
+      }
+    ],
+    "usage_survives_reconnect": true,
+    "actual_google_calls": 0,
+    "existing_operational_records_modified": 0
+  },
+  "http": {
+    "checked_at": "2026-10-18T22:14:55.389978+00:00",
+    "environment": "stage",
+    "expected_sha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+    "http": [
+      {
+        "url": "https://app.stage.fortcordis.com.br/configuracoes",
+        "final_url": "https://app.stage.fortcordis.com.br/configuracoes",
+        "status": 200
+      },
+      {
+        "url": "https://stage.fortcordis.com.br/configuracoes",
+        "final_url": "https://app.stage.fortcordis.com.br/configuracoes",
+        "status": 200
+      },
+      {
+        "url": "https://www.stage.fortcordis.com.br/configuracoes",
+        "final_url": "https://app.stage.fortcordis.com.br/configuracoes",
+        "status": 200
+      },
+      {
+        "url": "https://app.stage.fortcordis.com.br/api/v1/google-maps-control/status",
+        "status": 401
+      }
+    ],
+    "chunks_fetched": 15,
+    "markers": {
+      "google-maps-control/preview": [
+        "https://app.stage.fortcordis.com.br/_next/static/chunks/3968-31b5a46830060f4f.js"
+      ],
+      "google-maps-control/confirm": [
+        "https://app.stage.fortcordis.com.br/_next/static/chunks/3968-31b5a46830060f4f.js"
+      ],
+      "google-maps-control/status": [
+        "https://app.stage.fortcordis.com.br/_next/static/chunks/app/configuracoes/page-5af18273f4dd93a2.js"
+      ],
+      "Confirmar esta": [
+        "https://app.stage.fortcordis.com.br/_next/static/chunks/app/configuracoes/page-5af18273f4dd93a2.js",
+        "https://app.stage.fortcordis.com.br/_next/static/chunks/app/layout-7c451c1826b270e6.js"
+      ],
+      "cache_only": [
+        "https://app.stage.fortcordis.com.br/_next/static/chunks/app/configuracoes/page-5af18273f4dd93a2.js"
+      ],
+      "somente cache": [
+        "https://app.stage.fortcordis.com.br/_next/static/chunks/app/configuracoes/page-5af18273f4dd93a2.js"
+      ]
+    },
+    "paid_api_called": false,
+    "passed": true
+  },
+  "runtime": {
+    "checked_at": "2026-10-18T22:15:10.334175+00:00",
+    "environment": "stage",
+    "installed_sha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+    "services": {
+      "fortcordis-stage-backend": {
+        "ExecMainStartTimestamp": "Sun 2026-10-18 22:07:49 UTC",
+        "ActiveState": "active",
+        "SubState": "running"
+      },
+      "fortcordis-stage-backend-worker": {
+        "ExecMainStartTimestamp": "Sun 2026-10-18 22:08:02 UTC",
+        "ActiveState": "active",
+        "SubState": "running"
+      },
+      "fortcordis-stage-frontend": {
+        "ExecMainStartTimestamp": "Sun 2026-10-18 22:13:35 UTC",
+        "ActiveState": "active",
+        "SubState": "running"
+      }
+    },
+    "runtime_hashes": [
+      {
+        "path": "backend/fortcordis.db",
+        "bytes": 13570048,
+        "sha256": "b7e05e3756e87462cd126d13c6962fbb653f107ae2191a59e9a0997d1c763de9"
+      },
+      {
+        "path": "backend/data/frases.json",
+        "bytes": 157587,
+        "sha256": "803215e7b18b1118472e9af70924a70601a57369fe471f5ccb2f0dc59650fe5b"
+      },
+      {
+        "path": "backend/data/patologias.json",
+        "bytes": 1489,
+        "sha256": "74b1d84896072578767ddffda590b20ecdc5eb33f339d88b4de06df33dcb6e05"
+      },
+      {
+        "path": "backend/data/frases_ecocardiograma_estruturado_teste.json",
+        "bytes": 369472,
+        "sha256": "a1dced843b17d60887ecddf3b322b19142cdcfb45bdfa8dec963f1c2434296af"
+      },
+      {
+        "path": "backend/data/frases_ultrassom_abdominal.json",
+        "bytes": 65808,
+        "sha256": "da0e216d6e67421611d8417ff84e730b6de3f0a122657f4112a065b5b17330e3"
+      },
+      {
+        "path": "backend/data/atendimento_clinical_phrases.json",
+        "bytes": 6895,
+        "sha256": "49529b56c3ba989ac2f6b488345dff25da7a87db8a73b9f0ee001b2b7976f67a"
+      }
+    ],
+    "migration_99": true,
+    "temporary_canary_schemas": 0,
+    "config_summary": [],
+    "clinical_paths_equal_source": 13,
+    "clinical_source": "9137d39fea18c795bb1cb7b1cc9bc204dce05d69",
+    "read_only": true,
+    "google_calls": 0
+  },
+  "workflows": {
+    "head": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+    "checked_at": "2026-10-18T22:14:42.779011+00:00",
+    "all_terminal": true,
+    "all_green": true,
+    "pending": [],
+    "failures": [],
+    "runs": [
+      {
+        "conclusion": "skipped",
+        "createdAt": "2026-10-18T22:14:03Z",
+        "databaseId": 39171324418,
+        "event": "workflow_run",
+        "headSha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+        "status": "completed",
+        "updatedAt": "2026-10-18T22:14:14Z",
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39171324418",
+        "workflowName": "Deploy Discard Guard"
+      },
+      {
+        "conclusion": "success",
+        "createdAt": "2026-10-18T22:01:09Z",
+        "databaseId": 39170372135,
+        "event": "pull_request",
+        "headSha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+        "status": "completed",
+        "updatedAt": "2026-10-18T22:01:14Z",
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170372135",
+        "workflowName": "Branch Flow Guard"
+      },
+      {
+        "conclusion": "success",
+        "createdAt": "2026-10-18T22:01:09Z",
+        "databaseId": 39170372234,
+        "event": "pull_request",
+        "headSha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+        "status": "completed",
+        "updatedAt": "2026-10-18T22:01:22Z",
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170372234",
+        "workflowName": "Promotion Verify Guard"
+      },
+      {
+        "conclusion": "success",
+        "createdAt": "2026-10-18T22:01:09Z",
+        "databaseId": 39170372150,
+        "event": "pull_request",
+        "headSha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+        "status": "completed",
+        "updatedAt": "2026-10-18T22:01:19Z",
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170372150",
+        "workflowName": "SDD Guardrail"
+      },
+      {
+        "conclusion": "success",
+        "createdAt": "2026-10-18T22:01:09Z",
+        "databaseId": 39170372172,
+        "event": "pull_request",
+        "headSha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+        "status": "completed",
+        "updatedAt": "2026-10-18T22:01:41Z",
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170372172",
+        "workflowName": "Migration CI"
+      },
+      {
+        "conclusion": "success",
+        "createdAt": "2026-10-18T22:01:09Z",
+        "databaseId": 39170372244,
+        "event": "pull_request",
+        "headSha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+        "status": "completed",
+        "updatedAt": "2026-10-18T22:02:14Z",
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170372244",
+        "workflowName": "Google Maps Cost Control"
+      },
+      {
+        "conclusion": "success",
+        "createdAt": "2026-10-18T22:01:09Z",
+        "databaseId": 39170372073,
+        "event": "pull_request",
+        "headSha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+        "status": "completed",
+        "updatedAt": "2026-10-18T22:03:31Z",
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170372073",
+        "workflowName": "Frontend CI"
+      },
+      {
+        "conclusion": "success",
+        "createdAt": "2026-10-18T22:00:15Z",
+        "databaseId": 39170295256,
+        "event": "push",
+        "headSha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+        "status": "completed",
+        "updatedAt": "2026-10-18T22:00:51Z",
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170295256",
+        "workflowName": "Migration CI"
+      },
+      {
+        "conclusion": "success",
+        "createdAt": "2026-10-18T22:00:15Z",
+        "databaseId": 39170295266,
+        "event": "push",
+        "headSha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+        "status": "completed",
+        "updatedAt": "2026-10-18T22:01:21Z",
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170295266",
+        "workflowName": "Google Maps Cost Control"
+      },
+      {
+        "conclusion": "success",
+        "createdAt": "2026-10-18T22:00:15Z",
+        "databaseId": 39170295331,
+        "event": "push",
+        "headSha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+        "status": "completed",
+        "updatedAt": "2026-10-18T22:02:35Z",
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170295331",
+        "workflowName": "Frontend CI"
+      },
+      {
+        "conclusion": "success",
+        "createdAt": "2026-10-18T22:00:15Z",
+        "databaseId": 39170295261,
+        "event": "push",
+        "headSha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+        "status": "completed",
+        "updatedAt": "2026-10-18T22:14:01Z",
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170295261",
+        "workflowName": "Deploy to Stage (VPS)"
+      }
+    ],
+    "deploy_jobs": [
+      {
+        "name": "sdd-guardrail",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-18T22:00:17Z",
+        "completedAt": "2026-10-18T22:00:24Z",
+        "databaseId": 117801758159,
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170295261/job/117801758159"
+      },
+      {
+        "name": "whatsapp-persistence-diagnostics",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-18T22:00:17Z",
+        "completedAt": "2026-10-18T22:00:31Z",
+        "databaseId": 117801758367,
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170295261/job/117801758367"
+      },
+      {
+        "name": "quality-gate",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-18T22:00:17Z",
+        "completedAt": "2026-10-18T22:07:21Z",
+        "databaseId": 117801758405,
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170295261/job/117801758405"
+      },
+      {
+        "name": "deploy-stage",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-18T22:07:22Z",
+        "completedAt": "2026-10-18T22:14:01Z",
+        "databaseId": 117803350343,
+        "url": "https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39170295261/job/117803350343"
+      }
+    ],
+    "deploy_evidence": {
+      "workflow_id": 39170295261,
+      "captured_at": "2026-10-18T22:14:56.103168+00:00",
+      "unittest_runs": [
+        {
+          "job": "quality-gate",
+          "step": "Run backend test suite",
+          "count": 1991,
+          "seconds": 176.645,
+          "skipped": 70
+        },
+        {
+          "job": "quality-gate",
+          "step": "Test Google Maps shared limits and operational transactions in PostgreSQL",
+          "count": 74,
+          "seconds": 10.049
+        },
+        {
+          "job": "quality-gate",
+          "step": "Test fiscal monthly package PostgreSQL concurrency",
+          "count": 32,
+          "seconds": 7.421
+        },
+        {
+          "job": "quality-gate",
+          "step": "Test fiscal monthly package PostgreSQL concurrency",
+          "count": 17,
+          "seconds": 6.157
+        },
+        {
+          "job": "deploy-stage",
+          "step": "Verify atomic batch receipts on Stage with disposable data",
+          "count": 21,
+          "seconds": 3.322
+        }
+      ],
+      "runtime_preserved_count": 6,
+      "runtime_restored_count": 6,
+      "runtime_gate_ok": true,
+      "authenticated_canary_ok": true,
+      "backup_restore_drill_ok": true,
+      "drill_sqlite_integrity": "ok",
+      "deployed_heads": [
+        "f0009e40"
+      ],
+      "agenda_latency": [
+        {
+          "release": "f0009e40",
+          "samples": 5,
+          "expected_samples": 5,
+          "p50_ms": 91.6,
+          "p95_ms": 304.24,
+          "limit_ms": 1200.0
+        }
+      ],
+      "deployed_head_prefix_matches_workflow": true,
+      "agenda_latency_synthetic_tests": [
+        {
+          "release": "abc1234",
+          "samples": 5,
+          "expected_samples": 5,
+          "p50_ms": 300.0,
+          "p95_ms": 500.0,
+          "limit_ms": 600.0
+        }
+      ],
+      "maps_frontend_confirm_cancel_tests": [
+        18
+      ]
+    }
+  },
+  "source_sha256": "58f55f0fda0ac8e2cc0d690c7a7857e4d4947993d94c3e9473ea811ef67084c1",
+  "runtime_preflight_comparison": {
+    "files_compared": 6,
+    "all_equal": true,
+    "preflight_collected_at_utc": "2026-10-18T21:37:11.309992+00:00",
+    "source_sha256": "736e8aeea522a0ea8435154d8d83d57083c3ba5f5d8dcd84e46a73c110427d9c"
+  }
+}

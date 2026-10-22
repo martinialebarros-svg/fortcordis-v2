@@ -2,7 +2,7 @@ import axios from 'axios';
 import { extractApiErrorMessage } from './api-error';
 import { invalidateStableCatalogForMutation } from './stable-catalog-cache';
 import { refreshBrowserSession } from './auth-session';
-import { isMapsControlError, mapsConfirmationStore, prepareMapsAction } from './google-maps-control';
+import { isMapsControlError, mapsConfirmationStore, prepareMapsAction, retryMapsActionWithConsent } from './google-maps-control';
 
 const SAFE_METHODS = new Set(['get', 'head', 'options', 'trace']);
 const BINARY_RESPONSE_TYPES = new Set(['arraybuffer', 'blob', 'stream']);
@@ -78,6 +78,8 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
+    const mapsRetry = retryMapsActionWithConsent(api, error);
+    if (mapsRetry) return mapsRetry;
     const normalizedMessage = await extractApiErrorMessage(error, "Erro de comunicacao com o servidor.");
     if (error && typeof error === "object") {
       (error as { userMessage?: string }).userMessage = normalizedMessage;

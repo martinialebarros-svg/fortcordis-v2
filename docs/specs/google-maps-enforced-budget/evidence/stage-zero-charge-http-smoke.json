@@ -1,0 +1,51 @@
+{
+  "checked_at": "2026-10-18T22:14:55.389978+00:00",
+  "environment": "stage",
+  "expected_sha": "f0009e40d922d2113dab9f1da8ae6f39e61b59c5",
+  "http": [
+    {
+      "url": "https://app.stage.fortcordis.com.br/configuracoes",
+      "final_url": "https://app.stage.fortcordis.com.br/configuracoes",
+      "status": 200
+    },
+    {
+      "url": "https://stage.fortcordis.com.br/configuracoes",
+      "final_url": "https://app.stage.fortcordis.com.br/configuracoes",
+      "status": 200
+    },
+    {
+      "url": "https://www.stage.fortcordis.com.br/configuracoes",
+      "final_url": "https://app.stage.fortcordis.com.br/configuracoes",
+      "status": 200
+    },
+    {
+      "url": "https://app.stage.fortcordis.com.br/api/v1/google-maps-control/status",
+      "status": 401
+    }
+  ],
+  "chunks_fetched": 15,
+  "markers": {
+    "google-maps-control/preview": [
+      "https://app.stage.fortcordis.com.br/_next/static/chunks/3968-31b5a46830060f4f.js"
+    ],
+    "google-maps-control/confirm": [
+      "https://app.stage.fortcordis.com.br/_next/static/chunks/3968-31b5a46830060f4f.js"
+    ],
+    "google-maps-control/status": [
+      "https://app.stage.fortcordis.com.br/_next/static/chunks/app/configuracoes/page-5af18273f4dd93a2.js"
+    ],
+    "Confirmar esta": [
+      "https://app.stage.fortcordis.com.br/_next/static/chunks/app/configuracoes/page-5af18273f4dd93a2.js",
+      "https://app.stage.fortcordis.com.br/_next/static/chunks/app/layout-7c451c1826b270e6.js"
+    ],
+    "cache_only": [
+      "https://app.stage.fortcordis.com.br/_next/static/chunks/app/configuracoes/page-5af18273f4dd93a2.js"
+    ],
+    "somente cache": [
+      "https://app.stage.fortcordis.com.br/_next/static/chunks/app/configuracoes/page-5af18273f4dd93a2.js"
+    ]
+  },
+  "paid_api_called": false,
+  "passed": true,
+  "source_sha256": "be5582f028deb750623ba1dd18d1a609557638533e39c58de3d0138108165d7b"
+}

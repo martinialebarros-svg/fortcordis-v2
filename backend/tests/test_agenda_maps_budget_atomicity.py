@@ -38,7 +38,10 @@ from app.services.google_maps_cost_control import GoogleMapsCostBlocked
 class AgendaMapsBudgetAtomicityTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.engine = create_engine("sqlite:///" + str(Path(self.temp.name) / "synthetic.db"), connect_args={"check_same_thread": False})
+        # The stage canary supplies only its newly created isolated schema.
+        self.engine = getattr(self, "_isolated_engine", None)
+        if self.engine is None:
+            self.engine = create_engine("sqlite:///" + str(Path(self.temp.name) / "synthetic.db"), connect_args={"check_same_thread": False})
         for model in (Agendamento, AssistenteIAAcaoPendente, Clinica, ClinicaDeslocamento, Configuracao, GoogleMapsUsageMetrica, Paciente, Servico, Tutor):
             model.__table__.create(self.engine)
         # Atomicity unit cases stub reservations explicitly; policy reads still
@@ -65,7 +68,7 @@ class AgendaMapsBudgetAtomicityTest(unittest.TestCase):
             db.flush()
             rows = []
             for clinic, hour in zip(clinics, (9, 11, 14)):
-                start = datetime(2099, 5, 25, hour)
+                start = datetime(2099, 5, 25, hour, tzinfo=agenda.LOCAL_TZ)
                 rows.append(Agendamento(clinica_id=clinic.id, tutor_id=tutor.id, paciente_id=patient.id,
                     servico_id=service.id, inicio=start, fim=start + timedelta(minutes=30),
                     data="2099-05-25", hora=f"{hour:02}:00", status="Agendado"))
