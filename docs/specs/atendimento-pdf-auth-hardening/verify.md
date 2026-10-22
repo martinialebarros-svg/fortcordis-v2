@@ -48,26 +48,6 @@ Antes da correcao, os novos testes HTTP reproduziram `401` com sessao Supabase v
 
 ---
 
-## Publicacao autorizada em 22/10/2026 — preflight
-
-O usuario autorizou publicar em producao e validar a impressao da receita da
-paciente do relato. A PR #424 integrou o patch a stage em `41b234c1`; a PR #425
-contem somente os quatro arquivos desta correcao, baseada em `1a7cd0aa`.
-O hotfix preserva a correcao regional exclusiva de stage fora de producao e
-sera reintegrado imediatamente em stage. Gates locais SDD e criterios de
-promocao passaram sem excecao. Os gates da PR #424 passaram integralmente.
-
-Antes da publicacao, foram registrados hashes dos seis arquivos runtime e
-dos atendimentos, receitas e itens envolvidos, em transacao READ ONLY.
-A validacao final pode preencher apenas a data normal de primeira emissao do
-PDF; conteudo da receita, medicamentos e estado do atendimento devem permanecer
-iguais. A sessao tecnica de canario sera revogada ao terminar, sem envio de
-email nem alteracao de senha. O merge da PR #424 nao gerou workflow de push;
-esta atualizacao registra o preflight concreto e segue pelo merge normal via
-CLI, sem commit vazio, mudanca de workflow ou bypass dos gates.
-
----
-
 ## Registro historico de 2026-04-03 (anterior a migracao de autenticacao)
 
 Data: 2026-04-03  

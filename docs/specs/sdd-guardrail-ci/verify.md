@@ -1,21 +1,5 @@
 # Verify - sdd-guardrail-ci
 
-## Recuperacao de acionamento em 22/10/2026
-
-As PRs #424 e #426 foram integradas a stage (`41b234c1`, `8a7ebe98`),
-com todos os gates das PRs verdes, mas sem workflow de push ou check-run nos
-SHAs de merge. O checkout instalado continuava em `ec956a0f`. Tanto o merge
-pelo conector quanto pela CLI apresentaram o mesmo resultado; portanto o
-diagnostico inicial exclusivo do conector nao foi confirmado. O GitHub
-registrava incidente de Issues/Pull Requests/search no mesmo periodo, sem
-evidencia suficiente para atribuir toda a causa ao incidente.
-
-Adicionado apenas `workflow_dispatch` a `deploy-stage.yml`. O caminho manual
-executa os mesmos jobs, `needs`, gates, scripts e concorrencia compartilhada;
-nao ha commit vazio, bypass ou alteracao de workflow de producao. Verificacao
-estrutural local confirma que o bloco `on` e a unica diferenca no YAML. A prova
-de execucao manual e o SHA instalado serao registrados apos a conclusao.
-
 Data: 2026-04-12  
 Responsavel: Equipe FortCordis  
 Status: done

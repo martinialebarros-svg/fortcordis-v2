@@ -265,62 +265,6 @@ def run_checks(engine) -> dict:
             assert overnight["items"] == [] and overnight["consultas_google"] == 0
             assert "termina fora desta data" in overnight["motivo"]
             checks["overnight_anchor_returns_no_http_offers_without_base_or_google"] = True
-
-            # Missing one direction must discard only the affected candidates.
-            # A09 -> B13 is already committed in this synthetic schema. C -> B
-            # is absent, while B -> C40 permits C after B with its full margin.
-            row.inicio = datetime(2026, 10, 23, 9, 0, tzinfo=local)
-            row.fim = datetime(2026, 10, 23, 9, 30, tzinfo=local)
-            row.hora = "09:00"
-            later = db.query(Agendamento).filter(
-                Agendamento.data == friday, Agendamento.clinica_id == ids["Celeiro"],
-            ).one()
-            later.inicio = datetime(2026, 10, 23, 13, 0, tzinfo=local)
-            later.fim = datetime(2026, 10, 23, 13, 30, tzinfo=local)
-            later.hora = "13:00"
-            later.status = "Agendado"
-            db.query(ClinicaDeslocamento).filter(
-                ClinicaDeslocamento.origem_clinica_id == ids["Uninassau"],
-                ClinicaDeslocamento.destino_clinica_id == ids["Celeiro"],
-                ClinicaDeslocamento.perfil == "comercial",
-            ).delete()
-            directed = ClinicaDeslocamento(origem_clinica_id=ids["Celeiro"],
-                destino_clinica_id=ids["Uninassau"], perfil="comercial", distancia_km=10,
-                duracao_min=40, fonte="manual", manual_override=True)
-            db.add(directed)
-            db.commit()
-
-            def cached_opportunities():
-                with (patch.object(agenda_day_opportunities, "datetime", FrozenDateTime),
-                      patch.object(agenda, "_avaliar_primeira_saida", side_effect=forbidden)):
-                    response = agenda.listar_oportunidades_dia(agenda.OportunidadesDiaPayload(
-                        data=friday, limite=20), db=db, current_user=actor)
-                assert response["consultas_google"] == 0
-                return {item["clinica_id"]: item for item in response["items"]}
-
-            directed_items = cached_opportunities()
-            assert ids["Uninassau"] in directed_items, "A missing C-to-B route must not discard C's later slots"
-            assert directed_items[ids["Uninassau"]]["inicio"] == f"{friday} 14:30"
-            assert directed_items[ids["Uninassau"]]["tempo_deslocamento_total_min"] == 40
-            checks["missing_directed_route_preserves_clinic_and_later_1430_slot"] = True
-
-            # An unknown fixed A -> B baseline may not authorize an additional
-            # long leg; known normal legs can still complete that existing day.
-            db.query(ClinicaDeslocamento).filter(
-                ClinicaDeslocamento.origem_clinica_id == ids["Zoomare"],
-                ClinicaDeslocamento.destino_clinica_id == ids["Celeiro"],
-                ClinicaDeslocamento.perfil == "comercial",
-            ).delete()
-            directed.duracao_min = 20
-            db.commit()
-            normal_items = cached_opportunities()
-            assert ids["Uninassau"] in normal_items
-            assert normal_items[ids["Uninassau"]]["inicio"] == f"{friday} 14:00"
-            assert normal_items[ids["Uninassau"]]["tempo_deslocamento_total_min"] == 20
-            directed.duracao_min = 40
-            db.commit()
-            assert ids["Uninassau"] not in cached_opportunities()
-            checks["unknown_fixed_baseline_allows_normal_leg_but_not_new_long_leg"] = True
             db.rollback()
 
     return {"checks": checks, "passed": all(checks.values()),

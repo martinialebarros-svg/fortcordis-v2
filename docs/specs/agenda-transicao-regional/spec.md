@@ -41,18 +41,6 @@ Status: in-progress
   pela data do atendimento e status `Realizado`. Mais dias distintos é o critério
   principal de recorrência; volume de atendimentos é desempate. Em 22/10/2026, a
   janela é 23/08/2026 a 21/10/2026. O histórico não garante demanda na sexta-feira.
-- RF-010: em oportunidades, uma direção ausente, vencida ou sem evidência
-  confiável invalida somente candidatos que dependam dela. Continuar a busca
-  cronológica da clínica e preservar candidatos válidos já acumulados. Não
-  inferir o sentido inverso, não usar zero como duração desconhecida e não
-  consultar providers para completar a matriz.
-- RF-011: representar explicitamente estimativas desconhecidas de trechos
-  existentes no avaliador regional. Isso não deve abortar inserções normais
-  conhecidas; uma nova exceção regional continua exigindo evidência nos trechos
-  da rota resultante para provar sua quota. Um encaixe cujo acréscimo dependa de
-  trajeto direto desconhecido não participa do ranking. O contador
-  `sem_estimativa` descreve clínicas sem oportunidade avaliável, não clínicas
-  que preservaram opções válidas parciais.
 
 ## Contratos técnicos
 
@@ -83,11 +71,6 @@ fechar o painel ou desmontar o componente.
 A configuração usa o JSON já existente, sem migração. A tela de regras de rota
 apresenta habilitação, teto, margem, quota e janela histórica. A ausência dos novos
 campos mantém a política desativada.
-
-O resolvedor somente cache retorna `(None, "sem_estimativa")` para direção
-desconhecida. O motor rejeita esse candidato e retorna o diagnóstico local
-`teve_rota_sem_estimativa`, usado para o contador de clínicas excluídas; nenhum
-estado diagnóstico é gravado no contexto ou cache compartilhado entre clínicas.
 
 ## Requisitos não funcionais
 
@@ -124,22 +107,11 @@ estado diagnóstico é gravado no contexto ou cache compartilhado entre clínica
 - CA-009: a consulta HTTP de oportunidades com âncora legada atravessando a
   meia-noite retorna lista vazia e explicação, sem consultar saída da base ou
   Google. A consulta normal também não aciona a avaliação de primeira saída.
-- CA-010: com dois atendimentos ativos, uma direção ausente exigida por um
-  candidato inicial não oculta horários posteriores com todos os trechos
-  necessários conhecidos; uma ausência tardia não apaga horários já aprovados.
-- CA-011: trecho fixo desconhecido não interrompe a avaliação de inserção curta
-  conhecida, mas não autoriza nova transição longa quando permanece na rota.
-  Rotas dos dois sentidos são independentes, e uma clínica sem qualquer
-  candidato com evidência segue contabilizada em `sem_estimativa`.
-- CA-012: o canário instalado reproduz a matriz incompleta em schema sintético
-  descartável, mantendo 30/50/15/1/60, zero Google e nenhum agendamento
-  operacional modificado. Produção permanece no snapshot anterior à correção.
 
 ## Rollout e exclusões
 
-O PR #418 publicou a regra original. A correção do P1 é autorizada somente para
-stage, preservando os parâmetros já habilitados. Reverter retornando o snapshot
-anterior de stage. A promoção desta correção para produção exige autorização
-separada. Fora de escopo: enviar ofertas, criar
+Publicar somente em stage e habilitar ali os parâmetros autorizados. Reverter
+desativando o flag ou retornando o snapshot anterior de stage. A autorização para
+produção é separada e não foi concedida. Fora de escopo: enviar ofertas, criar
 reservas reais, atualizar rotas pagas, inferir demanda, alterar dados clínicos e
 flexibilizar duas transições longas.
