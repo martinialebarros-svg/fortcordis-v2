@@ -225,28 +225,3 @@ O popup explicita “Estimativa desatualizada — revisão pendente” e a data
 no fuso Fortaleza. “Confirmar esta ação” continua habilitado; abrir o aviso
 não despacha a ação, e confirmar produz uma única autorização. O título
 geral “Agenda liberada com alertas” não presume que o orçamento já foi excedido.
-
-## Revisão vencida validada em stage — 22/10/2026
-
-O deploy `39836185306` terminou com sucesso em stage `82f2e781`. Os quatro
-workflows exigidos passaram; 17 cenários instalados de recepção passaram em
-PostgreSQL isolado, com zero Google, zero agendamentos operacionais alterados
-e nenhum schema temporário restante. Os cenários novos cobrem revisão vencida,
-virada da revisão durante confirmação, geocoding de uma unidade, concorrência
-e suspensão administrativa preservada. Os seis arquivos de runtime mantiveram
-os hashes. A página autenticada respondeu 200 nos três hosts de stage, API
-administrativa anônima 401 e os 16 chunks servidos contêm os avisos novos.
-
-Validação local: 115 testes Maps (85 aprovados, 30 skips esperados sem PostgreSQL),
-34 testes dos quatro componentes Maps, lint, TypeScript e SDD. CI PostgreSQL
-compartilhado aprovado. O head `a93c4b04` acrescentou apenas dois registros
-`verify.md` de PDF/gate; aplicação, testes, scripts e workflows foram conferidos
-como idênticos ao stage instalado. Seu redeploy documental foi cancelado e não
-foi contado como instalação. O check inconsistente de orçamento compartilhado
-(workflow concluído com todas as etapas aprovadas, job ainda em andamento na API)
-foi repetido: tentativa 2 de `39837904041` terminou com sucesso, sem bypass.
-
-A PR #432 promoveu o snapshot em main `3553c461`; a publicação efetiva requer
-workflow terminal e smoke instalado. Não reexecutar a ativação inicial: configuração
-e abertura financeira da revisão 1 devem permanecer idênticas. O registro final
-privado e sanitizado está em `/Users/martiniano/Documents/Codex/2026-10-22/maps-price-review-alerts/`.
