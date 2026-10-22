@@ -328,6 +328,17 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Verify approved SHA on VPS before configuration
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          # Stream the gated installer functions; do not write runtime files.
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "APP_DIR='/var/www/fortcordis-stage' BRANCH='stage' DEPLOY_SHA='$DEPLOY_SHA' DEPLOY_REF='refs/heads/stage' bash -c 'set -euo pipefail; source /dev/stdin; cd \"\$APP_DIR\"; resolve_deploy_target'" \
+            < scripts/deploy_prod_vps.sh
+
       - name: Configure OpenAI secret on Stage VPS
         env:
           OPENAI_API_KEY_STAGE: ${{ secrets.OPENAI_API_KEY_STAGE }}

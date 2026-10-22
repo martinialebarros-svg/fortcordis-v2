@@ -9,7 +9,7 @@ Status: validação local aprovada; publicação/teste em stage pendentes
 | --- | --- | --- |
 | CA-001 | `test_deploy_immutable_sha.py`: main/stage avançam para outro SHA antes do reset; reset/HEAD permanecem no SHA solicitado; os dois workflows extraem por SHA. | ok |
 | CA-002 | SHA/ref inválidos, branch inválida, commit alheio, fetch falho e objeto divergente abortam sem checkout/reset nem fallback. | ok |
-| CA-003 | Modo legado fixa uma resolução com aviso; launcher simulado recebe SHA/ref, branch stage e opt-in de produção desligado. | ok |
+| CA-003 | Ausência de SHA/ref é recusada inclusive no modo manual; entrada dos dois scripts não alcança comandos externos, serviços ou rollback; launcher preserva stage. | ok |
 | CA-004 | 9 testes novos, 23 testes de gates relacionados, 8 scripts de regressão, sintaxe bash/YAML/71 blocos run; sync ainda exige `github.sha`; divergência de HEAD continua acionando rollback simulado. | ok |
 | CA-005 | Validação local sem rede/serviços/banco real aprovada; publicação, SHA instalada e smoke de stage aguardam a tarefa principal. | pendente |
 
@@ -48,10 +48,37 @@ acionado pelos testes.
 - O fetch de SHA deve ser permitido pelo remoto. Commit removido da história
   da branch ou fetch malsucedido aborta; não há troca pela ponta atual.
 - Rollback e migrações mantêm seu contrato anterior, inclusive schema
-  forward-only. O modo legado manual não representa uma revisão gateada.
+  forward-only. O modo legado manual foi removido neste complemento.
 
 ## Publicação
 
-Nenhum commit, push, merge, rerun ou deploy é realizado pela implementação.
-Stage e sua revisão instalada devem ser conferidos pela tarefa principal após
-os gates. Produção não está autorizada nesta etapa.
+Autorizados commit, PR, merge e deploy somente em stage para esta validação.
+Produção não está autorizada nesta etapa. Runs antigos conservam código antigo;
+não são corrigidos retroativamente por esta mudança.
+
+## Complemento autorizado nesta tarefa (22/10/2026)
+
+A base stage já continha a primeira implementação de SHA imutável, integrada
+pelo PR #413 junto de uma entrega clínica. Este complemento altera somente os
+dois workflows de deploy, o instalador compartilhado, seus testes e este SDD.
+Não inclui mudanças funcionais de Auth, Maps, Agenda ou laudos.
+
+| ID | Evidência adicional | Status |
+| --- | --- | --- |
+| CA-006 | Blocos reais de preflight SSH dos dois workflows executados com remoto Git descartável: SHA válido aceito e inexistente recusado, sem alterações em HEAD, ambiente ou backups. Ordem anterior à configuração verificada. | ok |
+
+- `python3 scripts/tests/test_deploy_immutable_sha.py`: 13 testes aprovados.
+  Os quatro testes adicionais usam repositórios Git locais descartáveis e
+  launchers isolados. Com main/stage avançando novamente após a resolução,
+  somente a árvore aprovada foi instalada. Commit inexistente ou de outra
+  história foi recusado sem mudar HEAD, ambiente ou criar backups.
+- Sem fallback manual; teste da entrada completa dos dois scripts comprova
+  recusa de identidade ausente/inválida antes de comandos operacionais.
+- 23 testes de isolamento stage, canário, restore drill e observabilidade
+  aprovados com SQLite e chave sintética.
+- Regressões shell de isolamento Meta e ativação controlada de lembretes
+  aprovadas com dublês, sem mensagens ou serviços reais.
+- Sintaxe bash dos dois instaladores e `git diff --check` aprovados.
+
+Publicação em stage e recusas no servidor serão registradas após conclusão dos
+gates. Produção permanece sem autorização nesta etapa.
