@@ -18,9 +18,15 @@ realizados nos últimos 60 dias completos.
 
 ## Autorização e limites
 
-O usuário autorizou implementar a regra e validar em stage, sem alterar produção.
-O pedido não autoriza criar reservas reais, mudar compromissos existentes, enviar
-mensagens nem promover a implementação para `main`.
+A regra original foi publicada pelo PR #418. Em 22/10/2026, o usuário autorizou
+corrigir o P1 de rotas ausentes, incluir testes e validar a correção somente em
+stage. A autorização atual não inclui promover a correção para `main`, criar
+reservas reais, mudar compromissos existentes ou enviar mensagens.
+
+Uma estimativa dirigida ausente pode inviabilizar um horário, mas não deve
+interromper a busca de toda a clínica nem apagar horários já validados. Trechos
+desconhecidos que permanecem na rota não concedem uma nova exceção regional;
+inserções normais com viagens conhecidas seguem as regras habituais.
 
 A base continua com sua validação própria de primeira saída e não consome a
 transição entre atendimentos. A exceção regional não reduz a duração dos exames,
