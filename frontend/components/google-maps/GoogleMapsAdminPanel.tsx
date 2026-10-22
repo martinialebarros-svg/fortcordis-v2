@@ -243,7 +243,7 @@ export default function GoogleMapsAdminPanel() {
           <div className="rounded-xl border p-4 text-sm">
             <h3 className="font-semibold">Consumo anterior à ativação</h3>
             <p className="my-2">Para não criar saldo fictício, a primeira ativação exige o consumo já realizado no dia e no mês. Use telemetria verificada ou um teto conservador que cubra dados atrasados. Valores sintéticos são exclusivos de testes.</p>
-            {status.config?.opening_usage ? <><MapsConsumption consumption={status.config.opening_usage} /><p className="mt-2">Registrado em {status.config.opening_usage_as_of}. Este saldo inicial é preservado após a ativação.</p></> : enabled ? <div className="grid gap-4 md:grid-cols-2">
+            {status.config?.opening_usage ? <><MapsConsumption consumption={status.config.opening_usage} /><p className="mt-2">Registrado em {status.config.opening_usage_as_of}. Este saldo inicial é preservado após a ativação. A telemetria anterior pode estar incompleta; este valor não comprova o total da conta Google nem saldo de franquia gratuita.</p></> : enabled ? <div className="grid gap-4 md:grid-cols-2">
               {field("opening_day_calls", "Chamadas anteriores — dia", { step: "1" })}{field("opening_day_brl", "Custo anterior estimado em R$ — dia")}
               {field("opening_month_calls", "Chamadas anteriores — mês", { step: "1" })}{field("opening_month_brl", "Custo anterior estimado em R$ — mês")}
               <label className="block font-medium">Data do saldo inicial (Fortaleza)<input required type="date" value={fields.openingDate ?? ""} onChange={(event) => setFields({ ...fields, openingDate: event.target.value })} className={inputClass} /></label>

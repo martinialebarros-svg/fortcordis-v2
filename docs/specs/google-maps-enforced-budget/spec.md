@@ -124,3 +124,13 @@ visível e revalidar até 21/11/2026.
 A correção regional de oportunidades do PR #420, autorizada somente em stage,
 fica temporariamente fora do snapshot de promoção e será restaurada em stage
 após a publicação. Preservar o código regional e a autenticação já em produção.
+
+A transição manual usa `maps-production-activation.yml`, exclusivamente a partir
+de main, com SHA instalado exato e ambiente production. O script compartilha o
+lock de deploy, usa a credencial sudo somente em stdin e encerra API/worker antes
+do baseline. A apuração usa o máximo entre fontes sobrepostas como piso observável,
+nunca como total conciliado ou limite superior. O painel explicita a incompletude
+histórica; todos os extras permanecem com teto zero independentemente do saldo.
+A estimativa inicial reserva tarifa cheia, sem créditos, usando o SKU Essentials
+observado. Novas tentativas usam a reserva do SKU efetivamente autorizado.
+Falhas da transição restauram emergência e reiniciam API/worker, preservando ledger.
