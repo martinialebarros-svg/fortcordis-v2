@@ -19,9 +19,13 @@ realizados nos últimos 60 dias completos.
 ## Autorização e limites
 
 A regra original foi publicada pelo PR #418. Em 22/10/2026, o usuário autorizou
-corrigir o P1 de rotas ausentes, incluir testes e validar a correção somente em
-stage. A autorização atual não inclui promover a correção para `main`, criar
-reservas reais, mudar compromissos existentes ou enviar mensagens.
+corrigir o P1 de rotas ausentes, incluir testes e validar a correção em stage.
+Após a homologação do PR #420 em `f93a455f`, autorizou publicar essa correção em
+produção e validar Completar dia na sexta-feira com Zoomare, sem alterar
+agendamentos. O pacote deve partir do main atual `4aa1364a` e conter somente os
+oito caminhos do P1, preservando Maps, PDFs, autenticação, deploy e incrementos
+clínicos de outras sessões. Criar reservas reais ou enviar mensagens continua
+fora do escopo.
 
 Uma estimativa dirigida ausente pode inviabilizar um horário, mas não deve
 interromper a busca de toda a clínica nem apagar horários já validados. Trechos
@@ -47,6 +51,6 @@ sem copiar pacientes, tutores, telefones ou observações.
 ## Definition of Ready
 
 - [x] Problema, objetivo e parâmetros autorizados são explícitos.
-- [x] Produção e alterações operacionais reais estão fora do escopo.
+- [x] Publicação do P1 em produção está autorizada; validação operacional é somente leitura.
 - [x] Riscos de quota, margem, histórico e privacidade estão registrados.
-- [x] Stage é o único destino de publicação autorizado nesta entrega.
+- [x] Stage foi homologado; produção deve seguir o fluxo protegido com pacote isolado.
