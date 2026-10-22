@@ -220,3 +220,8 @@ que ainda não estão em produção. O patch desses caminhos fica preservado par
 restauração imediata em stage após o deploy. Não promover nem reverter funções
 clínicas ou autenticação incidentalmente. A configuração ativa revisão 1 permanece
 inalterada; publicar código sem repetir o operador de ativação inicial.
+
+O popup explicita “Estimativa desatualizada — revisão pendente” e a data
+no fuso Fortaleza. “Confirmar esta ação” continua habilitado; abrir o aviso
+não despacha a ação, e confirmar produz uma única autorização. O título
+geral “Agenda liberada com alertas” não presume que o orçamento já foi excedido.
