@@ -1,7 +1,7 @@
 # Spec — deploy-immutable-sha
 
 Data: 2026-10-22
-Status: implementado e validado localmente; teste servido em stage pendente
+Status: homologado em stage; publicação isolada em produção autorizada em 22/10/2026
 
 ## Contrato
 

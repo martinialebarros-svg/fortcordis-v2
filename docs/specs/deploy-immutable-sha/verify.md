@@ -1,7 +1,7 @@
 # Verify — deploy-immutable-sha
 
 Data: 2026-10-22
-Status: validação local aprovada; publicação/teste em stage pendentes
+Status: homologação em stage aprovada; produção autorizada e em preparação
 
 ## Matriz
 
@@ -11,7 +11,7 @@ Status: validação local aprovada; publicação/teste em stage pendentes
 | CA-002 | SHA/ref inválidos, branch inválida, commit alheio, fetch falho e objeto divergente abortam sem checkout/reset nem fallback. | ok |
 | CA-003 | Ausência de SHA/ref é recusada inclusive no modo manual; entrada dos dois scripts não alcança comandos externos, serviços ou rollback; launcher preserva stage. | ok |
 | CA-004 | 9 testes novos, 23 testes de gates relacionados, 8 scripts de regressão, sintaxe bash/YAML/71 blocos run; sync ainda exige `github.sha`; divergência de HEAD continua acionando rollback simulado. | ok |
-| CA-005 | Validação local sem rede/serviços/banco real aprovada; publicação, SHA instalada e smoke de stage aguardam a tarefa principal. | pendente |
+| CA-005 | Stage `d1e81bba`, workflow `39846709890` completed/success; SHA instalada e arquivos executáveis idênticos ao commit; canário, restore drill e smoke aprovados. | ok |
 
 ## Validação local executada
 
@@ -43,7 +43,7 @@ acionado pelos testes.
 
 ## Limites
 
-- Ainda não há prova de instalação desta correção em stage.
+- Stage comprovado no SHA `d1e81bba`, incluindo 13 regressões e quatro recusas sem mutação operacional.
 - Runs antigos conservam o YAML antigo; reexecutá-los não aplica esta correção.
 - O fetch de SHA deve ser permitido pelo remoto. Commit removido da história
   da branch ou fetch malsucedido aborta; não há troca pela ponta atual.
@@ -52,8 +52,9 @@ acionado pelos testes.
 
 ## Publicação
 
-Autorizados commit, PR, merge e deploy somente em stage para esta validação.
-Produção não está autorizada nesta etapa. Runs antigos conservam código antigo;
+Homologação concluída em stage. Em 22/10/2026 o usuário autorizou publicar
+somente deploy, testes e documentação em produção com backup, rollback e prova
+do SHA. Runs antigos conservam código antigo;
 não são corrigidos retroativamente por esta mudança.
 
 ## Complemento autorizado nesta tarefa (22/10/2026)
@@ -80,5 +81,19 @@ Não inclui mudanças funcionais de Auth, Maps, Agenda ou laudos.
   aprovadas com dublês, sem mensagens ou serviços reais.
 - Sintaxe bash dos dois instaladores e `git diff --check` aprovados.
 
-Publicação em stage e recusas no servidor serão registradas após conclusão dos
-gates. Produção permanece sem autorização nesta etapa.
+Homologação terminal: [stage 39846709890](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39846709890)
+completed/success no SHA `d1e81bba026e6398e58f7ac5d010b6e698a33ea2`.
+Preflight remoto terminou antes da primeira configuração; 13 testes instalados
+aprovados e quatro tentativas reais recusadas (identidade ausente, SHA malformado,
+ref incompatível e commit inexistente) sem alteração de HEAD, configurações,
+backups, runtime ou processos. Seis arquivos preservados/restaurados e
+`Backup restore drill OK`. Canário 5/5, p95 364,47 ms; API/worker/frontend ativos.
+Canônico e alias 200; API autenticada anônima 401. CI completo: 2.108 testes backend.
+
+Produção era `3553c461` e permaneceu com ambiente/processos iguais durante essa
+homologação. A autorização posterior permite agora a publicação isolada por
+hotfix: somente os nove caminhos de deploy/testes/SDD; nenhuma mudança funcional
+de Maps, Agenda, Auth ou laudos. Nenhum critério requer dispensa neste pacote.
+
+A evidência posterior da instalação produtiva será registrada no PR e no pacote
+local de publicação; não se conta preparação ou workflow em execução como sucesso.
