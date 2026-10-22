@@ -142,3 +142,30 @@ O JSON de auditoria agregada foi coletado readonly de produção/stage. Nenhuma 
 Proposta desabilitada validada no contrato `CostConfiguration`; 32 testes dos componentes Maps, TypeScript e lint passaram localmente. A suíte cache-first executou 21 testes, com 16 aprovados e 5 skips esperados sem PostgreSQL local. O novo cenário aplica a proposta em banco sintético acima das referências e prova alteração de Agenda, confirmação finita/replay bloqueado e extras/automação suspensos. A emissão de token do canário usa cleanup compatível com o helper de autenticação atualizado. Após deploy, executar os 12 casos instalados de recepção em PostgreSQL isolado com transportes interceptados; conferir SHA, runtime e processos stage. Produção somente leitura, com dry-run de ambiente válido, sem aplicar configuração. Evidência atual: `/Users/martiniano/Documents/Codex/2026-10-21/maps-activation-preparation/`. Endereços fictícios/incompletos de stage não comprovam trajetos reais nem saldo Billing; nenhuma configuração financeira operacional é habilitada neste ciclo.
 
 Em 22/10, stage `e50192cb` concluiu deploy e os 12 cenários instalados de recepção passaram, sem Google ou alteração de registros operacionais e sem schemas restantes. O rascunho foi salvo para revisão na configuração de stage, revisão 1, `enabled=false`; nenhum orçamento pago foi habilitado. Três domínios responderam 200 à página autenticada, API administrativa anônima 401, marcadores presentes nos chunks servidos após normalizar escapes JS. Os seis arquivos de runtime foram preservados. Produção permaneceu `ac054398`, API `temporary_open`, configuração financeira ausente e checksum do ambiente inalterado. A etapa de privacidade seguinte remove pagamentos reais do componente compilado; validar novamente o componente e sua ausência nos assets publicados. Plano de transição em `activation-cutover.md` evita contabilização incompleta entre baseline e encerramento da emergência.
+
+## Ativação autorizada em 22/10/2026
+
+O usuário autorizou produção com referências de 650 chamadas/R$ 25 por dia e
+13.000 chamadas/R$ 500 por mês, mantendo a Agenda em `monitor`.
+`approved-monitor-config.json` registra o template selecionado, ainda desabilitado
+e sem baseline: não aplicar como configuração ativa sem a coleta de transição.
+Todas as ações não Agenda ficam com teto zero e automações sem política habilitada.
+A Agenda usa cache primeiro; novas chamadas exigem confirmação individual e finita.
+As referências não interrompem a Agenda; estimativa não equivale à fatura Google.
+O consumo histórico não conciliado será identificado como incompleto, sem saldo
+gratuito presumido, e não permitirá reabrir extras. Manter a expiração dos preços
+visível e revalidar até 21/11/2026.
+
+A correção regional de oportunidades do PR #420, autorizada somente em stage,
+fica temporariamente fora do snapshot de promoção e será restaurada em stage
+após a publicação. Preservar o código regional e a autenticação já em produção.
+
+A transição manual usa `maps-production-activation.yml`, exclusivamente a partir
+de main, com SHA instalado exato e ambiente production. O script compartilha o
+lock de deploy, usa a credencial sudo somente em stdin e encerra API/worker antes
+do baseline. A apuração usa o máximo entre fontes sobrepostas como piso observável,
+nunca como total conciliado ou limite superior. O painel explicita a incompletude
+histórica; todos os extras permanecem com teto zero independentemente do saldo.
+A estimativa inicial reserva tarifa cheia, sem créditos, usando o SKU Essentials
+observado. Novas tentativas usam a reserva do SKU efetivamente autorizado.
+Falhas da transição restauram emergência e reiniciam API/worker, preservando ledger.
