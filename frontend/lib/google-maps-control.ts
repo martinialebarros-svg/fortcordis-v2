@@ -13,6 +13,8 @@ export type MapsQuote = {
   budget_policy?: "agenda_monitor" | "enforced";
   financial_limit_enforced?: boolean;
   alerts?: string[];
+  pricing_review_due?: boolean;
+  pricing_reference_valid_until?: string | null;
   required: boolean;
   blocked: boolean;
   reason?: string;

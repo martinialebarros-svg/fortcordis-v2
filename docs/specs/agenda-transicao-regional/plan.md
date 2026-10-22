@@ -18,10 +18,6 @@ Status: in-progress
 6. Publicar o snapshot validado somente em stage e habilitar a política ali.
 7. Reproduzir a sexta com o código instalado em schema descartável, registrar
    prova de SHA, remoção do schema, zero Google e zero mudanças operacionais.
-8. Corrigir o P1 do PR #418: resolver ausência como estimativa desconhecida,
-   rejeitar por candidato e preservar slots conhecidos. Acrescentar regressões
-   de matriz dirigida incompleta e baseline desconhecido; publicar a correção
-   somente em stage e repetir o canário instalado sem alterar a configuração.
 
 ## Plano de testes
 
@@ -40,12 +36,6 @@ replay é fixado em 22/10/2026 para a reprodução continuar auditável depois d
 O replay inclui uma consulta HTTP com âncora legada atravessando a meia-noite e
 exige lista vazia sem primeira saída ou rede. O modo de oportunidades somente com
 cache impede avaliação da base também nos cenários normais.
-
-As regressões do P1 incluem direção ausente no primeiro e no último candidato,
-preservação de slots já aprovados, trecho fixo desconhecido com inserção curta
-conhecida e recusa de nova transição longa sem evidência suficiente. Também
-mantêm o contador de clínicas sem estimativa isolado de clínicas parcialmente
-avaliáveis e recusam atribuir custo incremental a trecho direto desconhecido.
 
 ## Rollback
 
