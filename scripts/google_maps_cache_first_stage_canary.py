@@ -69,6 +69,7 @@ def main():
         'test_monitor_parallel_grants_remain_finite_and_durable',
         'test_cache_only_rejects_monitor_exception',
         'test_agenda_tutor_geocode_uses_one_confirmed_unit_above_references',
+        'test_proposed_monitor_config_keeps_reception_above_references_and_extras_closed',
     ]
     try:
         for name in cases:

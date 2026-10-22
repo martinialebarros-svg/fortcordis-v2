@@ -1,5 +1,7 @@
 # Ativação — produção com custo adicional zero
 
+**Preparação vigente de 21/10/2026:** consultar [proposta e roteiro](preparation-20261021.md). Agenda em monitor com alertas, rascunho desabilitado e nenhuma reativação de produção neste ciclo. As instruções de custo zero abaixo são históricas e permanecem suspensas.
+
 ## Reativação em produção suspensa — incremento atual somente stage
 
 Produção deve manter `GOOGLE_MAPS_COST_EMERGENCY_RELEASE=true`. Não executar as instruções históricas de cache_only/quotas zero deste documento para o pedido atual.
