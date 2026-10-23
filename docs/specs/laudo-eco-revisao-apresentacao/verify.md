@@ -1,5 +1,14 @@
 # Verify - Revisão da apresentação do laudo ecocardiográfico
 
+## CA-079 homologado e restauração autorizada em produção (2026-10-23)
+
+- CA-079 concluído em stage `12129ba68fabc2578af62419be0ff9bfdca4fb0a` pela PR #413. Deploy `39844837696`, quality gate, SDD, Frontend, Migration e Maps terminaram SUCCESS; bootstrap dos scripts, SHA resolvido e HEAD instalado coincidiram. Seis arquivos runtime preservados/restaurados; sync, saúde, observabilidade, canário autenticado e restore drill aprovados.
+- Smoke de três hosts: nove rotas com TLS/redirecionamento esperado ao login, três APIs anônimas com 401, 22 chunks públicos e 16 hashes de arquivos do build instalado idênticos aos servidos. Marcadores presentes nas três rotas de componentes de laudos.
+- QA autenticada exclusivamente sintética #52: afirmação E/A sem ressalva gera aviso; ressalva inicial de fusão não gera aviso indevido; negação alheia e picos E/A individuais geram aviso. Trecho literal, sugestão manual e Salvar disponível conferidos. Texto diastólico e conclusão originais confirmados após recarga, sem clicar em Salvar. Nenhum paciente real alterado. Recheck da árvore integrada: 220/220 testes, TypeScript e 12 hashes clínicos preservados; revisão independente das evidências PASS.
+- Artefatos locais: `output/qa/feline-narrative-p2-2026-10-22/stage-acceptance-12129ba6.json`, `stage-deployment-12129ba6.json`, `stage-smoke-12129ba6.json`, `stage-ui-12129ba6.json`, `recheck-stage-integration-verification.json` e captura `stage-warning-12129ba6.jpg`.
+- Em 23/10 o usuário autorizou expressamente publicar as correções da PR #413 em produção. Inspeção atual: main `6f207418` contém o merge na ancestralidade, porém não o helper/testes corrigidos; stage `ec389aa2` conserva os seis caminhos clínicos idênticos ao snapshot homologado. O hotfix restaura esses caminhos, preserva os workflows/instalador posteriores já presentes em ambos os ambientes e não promove os 21 caminhos alheios de stage. O resultado de produção será registrado após o deploy terminal; autorização não antecipa publicação.
+- A retenção por Auth registrada abaixo pertence às tentativas de 21–22/10 e não é uma pendência da autorização atual. Nenhuma mudança de provedor/configuração Auth é inferida ou executada por este hotfix. CA-005 de `deploy-immutable-sha` já está concluído nos remotos por prova posterior `d1e81bba`/run `39846709890`; suas versões antigas da PR #413 não são restauradas.
+
 ## P2 de qualificador inicial e entrega em stage (2026-10-22)
 
 - Autorização direta do usuário: corrigir o P2 restante da PR #413 e a divergência de SHA do workflow, publicar em stage para teste antes de produção. A PR foi atualizada com stage `f93a455f` por merge, preservando integralmente os incrementos paralelos de Agenda/Maps. Os conflitos foram somente nos três artefatos SDD deste laudo, onde o conteúdo de homologação já reintegrado coexistiu com as regressões da PR #413.
