@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     # Stage-first rollout: resolve Agenda locally; ask for consent only when a
     # provider would actually be called. This does not authorize paid traffic.
     GOOGLE_MAPS_AGENDA_CACHE_FIRST: bool = False
+    # Persisted routes do not expire just because time passed. Location changes
+    # still invalidate them; age-based expiry requires an explicit opt-in.
+    GOOGLE_ROUTES_CACHE_EXPIRE_BY_AGE: bool = False
     GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS: int = 30
     GOOGLE_MAPS_USAGE_METRICS_RETENTION_DAYS: int = 90
     LOGISTICA_FORCE_REFRESH_HEURISTICA_COM_API_KEY: bool = False

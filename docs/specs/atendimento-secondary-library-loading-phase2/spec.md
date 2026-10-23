@@ -28,3 +28,12 @@
 ## Compatibilidade e seguranca
 
 Os endpoints continuam autenticados. Operacoes de escrita nao recebem retry automatico. A paginacao nao expõe dados alem dos ja autorizados e nao altera prescricao, anamnese, prontuario ou regras de finalizacao.
+
+## Conexao da biblioteca de frases (2026-10-22)
+
+- A verificacao da tabela de frases usa `inspect(db.connection())`: reutiliza a conexao da sessao da requisicao, inclusive quando a autenticacao ja ocupou um slot do pool.
+- A leitura nao deve solicitar outra conexao para introspeccao, aumentar o pool, criar cache global de esquema ou alterar o ciclo de vida da sessao.
+- Conteudo, ordenacao, filtros, paginacao e seed idempotente continuam com o contrato existente. Com o banco ja semeado, a consulta nao realiza DML nem confirma ou descarrega trabalho pendente de outra operacao da sessao.
+- A prova de concorrencia ocupa os tres slots antes de liberar os handlers reais. Tres GETs devem concluir com tres checkouts no total e devolver todas as conexoes.
+- O canario instalado de stage usa identidade sintetica, JSON temporario e schemas descartaveis exclusivos, sem fallback para `public`. Ele valida o handler e PostgreSQL reais sem acessar ou alterar registros operacionais; nao substitui uma prova de sessao real no navegador.
+- Producao foi autorizada expressamente em 22/10/2026 depois da apresentacao do resultado de stage, somente para os ajustes de conexao e matriz Maps, preservando dados reais e a politica financeira vigente.

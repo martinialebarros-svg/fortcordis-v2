@@ -185,11 +185,50 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
                     db.query(ClinicaDeslocamento).delete()
                     db.commit()
                 self.seed_cache(age_days=age, source=source)
-                r = self.client.put(self.path, json=self.body)
+                # Legacy expiry remains an explicit opt-in, never the default.
+                with patch.object(routes.settings, 'GOOGLE_ROUTES_CACHE_EXPIRE_BY_AGE', True):
+                    r = self.client.put(self.path, json=self.body)
                 self.assertEqual(r.status_code, 409, r.text)
                 self.assertEqual(r.json()['detail']['reason'], 'confirmation_required')
                 with self.sessions() as db:
                     self.assertEqual(db.get(Agendamento, self.id).inicio, self.original_start)
+        self.outbound.assert_not_called()
+
+    def test_old_cached_routes_complete_agenda_without_finance_or_google(self):
+        self.seed_cache(age_days=3650)
+        with self.sessions() as db:
+            before = {row.id: row.updated_at for row in db.query(ClinicaDeslocamento).all()}
+        broken = Mock()
+        broken.connect.side_effect = RuntimeError('Ledger must not be needed for cached routes')
+        with patch.object(guard.database, 'engine', broken):
+            response = self.client.put(self.path, json=self.body)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.outbound.assert_not_called()
+        with self.sessions() as db:
+            start = db.get(Agendamento, self.id).inicio
+            self.assertEqual((start.astimezone(agenda.LOCAL_TZ) if start.tzinfo else start).hour, 11)
+            self.assertEqual({row.id: row.updated_at for row in db.query(ClinicaDeslocamento).all()}, before)
+
+    def test_old_cache_with_new_geocode_still_requires_consent_and_never_commits(self):
+        from app.models.clinica import Clinica
+        self.seed_cache(age_days=3650)
+        self.configure()
+        with self.sessions() as db:
+            db.get(Clinica, 2).geocode_at = datetime.utcnow()
+            db.commit()
+        response = self.client.put(self.path, json=self.body)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()['detail']['reason'], 'confirmation_required')
+        self.outbound.assert_not_called()
+        with self.sessions() as db:
+            self.assertEqual(db.get(Agendamento, self.id).inicio, self.original_start)
+
+    def test_old_heuristic_does_not_become_valid_by_disabling_age_expiry(self):
+        self.seed_cache(age_days=3650, source='heuristica_haversine')
+        self.configure()
+        response = self.client.put(self.path, json=self.body)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()['detail']['reason'], 'confirmation_required')
         self.outbound.assert_not_called()
 
     def test_missing_key_never_invents_new_route(self):

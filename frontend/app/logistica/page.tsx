@@ -60,6 +60,7 @@ interface ParResponse {
 interface GoogleMapsResumoResponse {
   window_days: number;
   cache_max_age_days: number;
+  cache_expires_by_age?: boolean;
   metrics_retention_days: number;
   total_api_calls: number;
   success_rate_percent: number;
@@ -699,14 +700,16 @@ export default function LogisticaPage() {
               <p className="text-xs uppercase tracking-wide text-blue-600">Cache Google</p>
               <p className="text-2xl font-semibold text-blue-900">{googleMapsResumo?.cache?.google_rows ?? 0}</p>
               <p className="text-xs text-blue-700">
-                Frescas: {googleMapsResumo?.cache?.fresh_rows ?? 0} | Vencidas: {googleMapsResumo?.cache?.stale_rows ?? 0}
+                Atuais: {googleMapsResumo?.cache?.fresh_rows ?? 0} | Requerem revisão: {googleMapsResumo?.cache?.stale_rows ?? 0}
               </p>
             </div>
             <div className="fc-logistics-monitor-metric fc-logistics-monitor-metric-amber">
               <p className="text-xs uppercase tracking-wide text-amber-600">Validade</p>
               <p className="text-2xl font-semibold text-amber-900">{percentualCacheFresco}%</p>
               <p className="text-xs text-amber-700">
-                Expira em {googleMapsResumo?.cache_max_age_days ?? 7} dias
+                {googleMapsResumo?.cache_expires_by_age === false
+                  ? "Sem expiração por idade"
+                  : `Expira em ${googleMapsResumo?.cache_max_age_days ?? 7} dias`}
               </p>
             </div>
           </div>

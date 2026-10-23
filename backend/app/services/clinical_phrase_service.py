@@ -38,7 +38,8 @@ def _load_json(filepath: Path, default: Any = None) -> Any:
 
 
 def _table_exists(db: Session, table_name: str) -> bool:
-    inspector = inspect(db.bind)
+    # Authentication may already hold a pool slot in this request's session.
+    inspector = inspect(db.connection())
     return table_name in inspector.get_table_names()
 
 
