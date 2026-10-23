@@ -19,7 +19,7 @@ import secrets
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_CEILING
 from typing import Any, Literal
@@ -216,6 +216,9 @@ class CostConfiguration(BaseModel):
 REASONS = {
     "day_reference_exceeded": "Referência diária atingida: a Agenda continua liberada mediante confirmação; lotes e tarefas extras seguem bloqueados pelo teto.",
     "month_reference_exceeded": "Referência mensal atingida: a Agenda continua liberada mediante confirmação; lotes e tarefas extras seguem bloqueados pelo teto.",
+    "day_reference_may_exceed": "Esta ação pode ultrapassar a referência diária. O consumo atual ainda está abaixo dela; a Agenda continua liberada mediante confirmação.",
+    "month_reference_may_exceed": "Esta ação pode ultrapassar a referência mensal. O consumo atual ainda está abaixo dela; a Agenda continua liberada mediante confirmação.",
+    "estimate_unavailable": "Não foi possível verificar as rotas necessárias para estimar esta busca. Nenhuma nova chamada paga foi autorizada; rotas válidas em cache continuam disponíveis.",
     "route_unavailable": "Não foi possível obter uma rota confiável. Os dados do formulário foram mantidos; revise a consulta de rota antes de confirmar o horário. Nenhuma distância, duração ou disponibilidade foi presumida.",
     "cache_only": "Modo somente cache: novas chamadas ao Google Maps estão bloqueadas para manter novas cobranças em R$ 0. Esta operação exige uma rota Google ainda válida ou um ajuste manual autorizado; não será criada uma estimativa alternativa.",
     "unconfigured": "Controle Google Maps sem configuração aprovada. Nenhuma chamada paga foi autorizada.",
@@ -258,6 +261,12 @@ class Execution:
     closed: bool = False
     operation_mode: str | None = None
     cache_first: bool = False
+    route_results: dict = field(default_factory=dict)
+
+
+def agenda_execution_route_cache(fallback=None):
+    execution = _execution.get()
+    return execution.route_results if execution and execution.cache_first else fallback
 
 
 def _now() -> int:
@@ -437,11 +446,14 @@ def agenda_monitored(cfg, action):
 
 
 def _reference_alerts(cfg, usage, calls=0, cost=0):
-    return (["pricing_review_due"] if _pricing_review_due(cfg) else []) + [f"{period}_reference_exceeded" for period in ("day", "month")
-        if usage[period]["calls"] + calls > getattr(cfg.limits, period).calls
-        or usage[period]["cost"] + cost > _micros(getattr(cfg.limits, period).estimated_brl)
-        or (calls == 0 and (usage[period]["calls"] >= getattr(cfg.limits, period).calls
-            or usage[period]["cost"] >= _micros(getattr(cfg.limits, period).estimated_brl)))]
+    alerts = ["pricing_review_due"] if _pricing_review_due(cfg) else []
+    for period in ("day", "month"):
+        limit = getattr(cfg.limits, period)
+        if usage[period]["calls"] >= limit.calls or usage[period]["cost"] >= _micros(limit.estimated_brl):
+            alerts.append(f"{period}_reference_exceeded")
+        elif usage[period]["calls"] + calls > limit.calls or usage[period]["cost"] + cost > _micros(limit.estimated_brl):
+            alerts.append(f"{period}_reference_may_exceed")
+    return alerts
 
 
 def request_fingerprint(user_id: int, method: str, path: str, query: Any, body: Any) -> str:
@@ -464,7 +476,7 @@ def _token_digest(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def create_preview(user_id, method, path, query=None, body=None, paid_call_required=False):
+def create_preview(user_id, method, path, query=None, body=None, paid_call_required=False, route_estimate=None):
     spec = identify_action(method, path, query, body)
     if spec is None:
         return {"required": False, "blocked": False}
@@ -480,13 +492,14 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
             "remaining": None, "limits": None,
             "uncertainty": ["Custo e quantidade sem teto durante a liberação temporária; não há garantia de franquia gratuita."],
         }
-    if agenda_cache_first_enabled(spec) and not paid_call_required:
+    if agenda_cache_first_enabled(spec) and (not paid_call_required or (route_estimate is not None and route_estimate['max_calls'] == 0)):
         return {
             "required": False, "blocked": False, "reason": "local_attempt",
             "operation_mode": "cache_first", "paid_calls_allowed": False,
             "quote_id": None, "action": spec.label, "action_key": spec.key,
             "service": "Google Maps Platform", "services": list(spec.skus),
             "max_calls": 0, "estimated_cost_min_brl": 0, "estimated_cost_max_brl": 0,
+            "route_estimate": route_estimate,
             "message": "A Agenda tentará usar uma rota válida já armazenada. Se precisar consultar o Google, pedirá confirmação antes do envio.",
             "uncertainty": ["Zero chamadas nesta tentativa local. Uma consulta externa exige nova estimativa e confirmação limitada."],
         }
@@ -509,8 +522,11 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
             }
         max_calls, max_cost = 0, 0
         if cfg is not None:
-            unit = max(_unit_cost(cfg, sku) for sku in spec.skus)
+            skus = tuple(route_estimate['services']) if route_estimate is not None else spec.skus
+            unit = max(_unit_cost(cfg, sku) for sku in skus)
             cap = min(cfg.limits.action.calls, cfg.action_call_caps.get(spec.key, cfg.limits.action.calls))
+            if route_estimate is not None:
+                cap = min(cap, route_estimate['max_calls'])
             if spec.theoretical_cap is not None:
                 cap = min(cap, spec.theoretical_cap)
             if agenda_monitored(cfg, spec.key):
@@ -536,7 +552,7 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
             conn.execute(insert(ACTIONS).values(
                 id=quote_id, user_id=user_id, fingerprint=fingerprint, action=spec.key,
                 revision=revision, state="quoted", max_calls=max_calls, max_cost_micros=max_cost,
-                used_calls=0, used_cost_micros=0, skus_json=json.dumps(spec.skus),
+                used_calls=0, used_cost_micros=0, skus_json=json.dumps(skus),
                 created_at=now, expires_at=now + QUOTE_TTL_SECONDS,
             ))
         else:
@@ -550,7 +566,8 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
             "alerts": [REASONS[key] for key in _reference_alerts(cfg, usage, max_calls, max_cost)] if agenda_monitored(cfg, spec.key) else [],
             "operation_mode": "paid_budget", "paid_calls_allowed": reason is None,
             "message": REASONS.get(reason), "quote_id": quote_id, "action": spec.label,
-            "action_key": spec.key, "service": "Google Maps Platform", "services": list(spec.skus),
+            "action_key": spec.key, "service": "Google Maps Platform", "services": list(skus) if cfg is not None else list(spec.skus),
+            "route_estimate": route_estimate,
             "max_calls": max_calls, "estimated_cost_min_brl": 0,
             "estimated_cost_max_brl": _brl(max_cost), "expires_at": _iso(now + QUOTE_TTL_SECONDS),
             "uncertainty": [

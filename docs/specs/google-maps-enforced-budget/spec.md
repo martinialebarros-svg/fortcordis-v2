@@ -1,4 +1,20 @@
+# Publicação autorizada da estimativa por busca — 23/10/2026
+
+Após apresentação do stage `d497ffb2`, o usuário autorizou publicar a correção da estimativa de 4.096 e dos alertas. Preservar a política produtiva: Agenda monitorada com referências de 650 chamadas/R$25 por dia e 13.000/R$500 por mês, seis caps de extras em zero, nenhuma política automática habilitada e cache sem expiração por idade. Não reexecutar ativação nem copiar a configuração de stage.
+
+A promoção contém os treze caminhos Maps de #451, a documentação desta autorização e quatro registros SDD históricos da otimização exclusiva de stage. As 27 diferenças paralelas de Agenda, egress/WhatsApp e revisão clínica são isoladas temporariamente no Git e restauradas integralmente em stage após a promoção. Os módulos da aplicação Maps permanecem byte a byte iguais ao stage homologado. Nenhum dado clínico de runtime será substituído por conteúdo do repositório.
+
 # Especificação — autorização e orçamento Google Maps
+
+## Estimativa por busca e alertas precisos — stage, 22/10/2026
+
+Este incremento está autorizado apenas para stage; não publicar em produção antes de apresentar o resultado e obter nova autorização. Agenda permanece em `monitor`; não alterar referências financeiras, caps de extras, automações ou política de preços/câmbio.
+
+A tentativa inicial continua usando exclusivamente rotas válidas em cache, sem exigir ledger nem consentimento pago. Se precisar de Google, o preview autenticado de busca de horários/proximidade/ofertas e validação de oferta calcula no servidor um grafo conservador dos trechos possíveis para destino, período, preferências e políticas da requisição. Reutiliza as mesmas funções de destino, agenda e validade da matriz. Direções válidas em cache contam zero; direções ausentes contam até dois transportes (Routes e uma alternativa Distance Matrix). Horários, perfis e dias não multiplicam trechos repetidos. A primeira saída, que ainda não possui cache durável de rota, é explicitada separadamente: até dois transportes e, somente se faltarem coordenadas da base, uma unidade Geocoding. Não presumir que um cache de clínicas também cobre a primeira saída.
+
+A estimativa usa somente os SKUs possíveis pela configuração de tráfego do servidor e os preços/câmbio cadastrados, conservando incerteza e margem. O limite genérico administrativo (por exemplo, 4.096) continua sendo uma barreira superior, mas não é apresentado como previsão da busca. O máximo confirmado é o menor entre esse limite e o grafo calculado, e continua sendo verificado pelo ledger antes de cada transporte. Mudanças concorrentes que exijam rotas além do confirmado não autorizam chamadas extras. A falha em verificar o plano suspende a parte paga, sem inventar rota, duração ou disponibilidade. O plano não executa Google nem DML operacional e não expõe IDs, endereços ou coordenadas.
+
+O texto “Referência diária/mensal atingida” exige consumo já igual ou superior ao valor/quantidade configurado. Com consumo abaixo e possibilidade de ultrapassar somente ao somar o máximo desta ação, informar “Esta ação pode ultrapassar a referência” e esclarecer que o consumo atual continua abaixo. Sem excesso nem revisão pendente, exibir informação neutra, sem aviso falso de teto atingido. Confirmar segue habilitado na Agenda monitorada; cancelar não envia Google. Cache completo não abre popup. Demonstração administrativa cobre cache, nova rota, possível excesso, referência já atingida e lote bloqueado, exclusivamente com dados fictícios e sem API.
 
 ## Publicação autorizada de 22/10/2026
 

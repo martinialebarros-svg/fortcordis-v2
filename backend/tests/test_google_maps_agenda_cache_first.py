@@ -509,6 +509,183 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
         self.assertEqual(quote['reason'],'disabled')
         self.outbound.assert_not_called()
 
+    def search_preview(self, body=None):
+        return self.client.post('/api/v1/google-maps-control/preview', json={
+            'method': 'POST', 'path': '/api/v1/agenda/assistente/ofertas',
+            'body': body or {'clinica_id': 2, 'data': '2099-05-25', 'data_contato': '2099-05-25'},
+            'paid_call_required': True,
+        })
+
+    def test_search_quote_uses_missing_matrix_directions_instead_of_generic_cap(self):
+        self.configure(monitor=True)
+        self.seed_cache(age_days=3650)
+        with guard._locked() as conn:
+            cfg, _ = guard._configuration(conn)
+            data = cfg.model_dump(mode='json')
+            data['limits']['action']['calls'] = 4096
+            data['limits']['day'] = {'calls': 650, 'estimated_brl': 25}
+            data['limits']['month'] = {'calls': 13000, 'estimated_brl': 500}
+            data['action_call_caps'] = {'agenda_offers': 4096}
+        guard.update_configuration(7, guard.CostConfiguration.model_validate(data), 1)
+        response = self.search_preview()
+        self.assertEqual(response.status_code, 200, response.text)
+        quote = response.json()
+        self.assertEqual(quote['route_estimate']['cached_directions'], 2)
+        self.assertEqual(quote['max_calls'], 6)  # Three missing directions, Routes + fallback.
+        self.assertEqual(quote['estimated_cost_max_brl'], 0.36)
+        self.assertEqual(quote['alerts'], [])
+        self.assertEqual(quote['services'], ['routes_essentials', 'distance_matrix_essentials'])
+        self.outbound.assert_not_called()
+        with self.sessions() as db:
+            self.assertEqual(db.query(Agendamento).count(), 3)
+            self.assertEqual(db.query(ClinicaDeslocamento).count(), 4)
+
+    def test_complete_search_matrix_needs_no_paid_grant_or_refresh(self):
+        self.configure(monitor=True)
+        with self.sessions() as db:
+            for a in (1, 2, 3):
+                for b in (1, 2, 3):
+                    if a != b:
+                        db.add(ClinicaDeslocamento(origem_clinica_id=a, destino_clinica_id=b,
+                            perfil='comercial', distancia_km=1, duracao_min=10,
+                            fonte='google_routes_api', updated_at=datetime.utcnow()-timedelta(days=3650)))
+            db.commit()
+        broken = Mock()
+        broken.connect.side_effect = AssertionError('Cached plan accessed financial ledger')
+        with patch.object(guard.database, 'engine', broken):
+            q = self.search_preview().json()
+        broken.connect.assert_not_called()
+        self.assertEqual(q['max_calls'], 0)
+        self.assertFalse(q['required'])
+        self.assertFalse(q['paid_calls_allowed'])
+        self.assertFalse(q.get('quote_id'))
+        self.assertEqual(q['route_estimate']['missing_directions'], 0)
+        self.outbound.assert_not_called()
+
+    def test_search_geocoding_fallback_and_readonly_plan_are_explicit(self):
+        from app.models.configuracao import Configuracao
+        from sqlalchemy import event
+        self.configure(monitor=True)
+        with self.sessions() as db:
+            db.get(Configuracao, 1).agenda_rota_regras = json.dumps({'base': {'address': 'Synthetic base'}})
+            for a in (1, 2, 3):
+                for b in (1, 2, 3):
+                    if a != b:
+                        db.add(ClinicaDeslocamento(origem_clinica_id=a, destino_clinica_id=b,
+                            perfil='comercial', distancia_km=1, duracao_min=10, fonte='google_routes_api', updated_at=datetime.utcnow()))
+            db.commit()
+        mutations = []
+        def observe(conn, cursor, statement, parameters, context, executemany):
+            sql = statement.lower().strip()
+            if sql.startswith(('insert ', 'update ', 'delete ')) and any(name in sql for name in ('agendamentos', 'clinica_deslocamentos', 'configuracoes')):
+                mutations.append(sql.split()[0])
+        event.listen(self.engine, 'before_cursor_execute', observe)
+        try:
+            q = self.search_preview().json()
+        finally:
+            event.remove(self.engine, 'before_cursor_execute', observe)
+        self.assertEqual(q['max_calls'], 3)  # One base route + fallback + geocoding.
+        self.assertEqual(q['route_estimate']['geocoding_units'], 1)
+        self.assertIn('geocoding', q['services'])
+        self.assertEqual(mutations, [])
+        self.outbound.assert_not_called()
+
+    def test_offer_validation_plan_uses_fortaleza_date_at_utc_boundary(self):
+        from app.services.google_maps_agenda_estimate import estimate_search
+        with self.sessions() as db:
+            plan = estimate_search(db, 'agenda_validate_offer', {'clinica_id': 2, 'inicio': '2099-05-26T01:30:00+00:00'})
+        self.assertEqual(plan['search_start'], '2099-05-25')
+        self.assertEqual(plan['search_end'], '2099-05-25')
+        self.assertGreater(plan['missing_directions'], 0)
+
+    def test_search_confirmation_is_finite_and_extras_stay_closed(self):
+        self.configure(monitor=True)
+        response = self.search_preview()
+        self.assertEqual(response.status_code, 200, response.text)
+        q = response.json()
+        self.outbound.assert_not_called()  # Quoting/cancelling never pays.
+        confirmation = self.client.post('/api/v1/google-maps-control/confirm', json={'quote_id': q['quote_id']}).json()
+        body = {'clinica_id': 2, 'data': '2099-05-25', 'data_contato': '2099-05-25'}
+        execution = guard.claim_execution(7, confirmation['token'], 'POST', '/api/v1/agenda/assistente/ofertas', None, body)
+        context = guard.bind_execution(execution)
+        try:
+            for _ in range(q['max_calls']):
+                guard.authorize_google_call('routes_essentials')
+            with self.assertRaises(guard.GoogleMapsCostBlocked) as denied:
+                guard.authorize_google_call('routes_essentials')
+            self.assertEqual(denied.exception.reason, 'action_limit')
+        finally:
+            guard.reset_execution(context)
+            guard.finish_execution(execution)
+        with self.assertRaises(guard.GoogleMapsCostBlocked):
+            guard.claim_execution(7, confirmation['token'], 'POST', '/api/v1/agenda/assistente/ofertas', None, body)
+        self.assertTrue(guard.create_preview(7, 'POST', '/api/v1/logistica/recalcular')['blocked'])
+        with guard.automatic_execution('not_enabled', 'one-job'):
+            with self.assertRaises(guard.GoogleMapsCostBlocked):
+                guard.authorize_google_call('routes_essentials')
+        self.outbound.assert_not_called()
+
+    def test_search_plan_unavailable_never_uses_generic_quote_or_google(self):
+        self.configure(monitor=True)
+        with patch('app.services.google_maps_agenda_estimate.estimate_search', side_effect=RuntimeError('private detail')):
+            response = self.search_preview()
+        self.assertEqual(response.status_code, 503, response.text)
+        self.assertEqual(response.json()['detail']['reason'], 'estimate_unavailable')
+        self.assertNotIn('private detail', response.text)
+        self.outbound.assert_not_called()
+
+    def test_real_offer_search_respects_calculated_envelope_and_reuses_route_results(self):
+        from app.models.configuracao import Configuracao
+        from app.models.clinica import Clinica
+        self.configure(monitor=True)
+        with guard._locked() as conn:
+            cfg, _ = guard._configuration(conn)
+            data = cfg.model_dump(mode='json')
+        data['limits']['action']['calls'] = 4096
+        guard.update_configuration(7, guard.CostConfiguration.model_validate(data), 1)
+        with self.sessions() as db:
+            db.get(Configuracao, 1).agenda_rota_regras = json.dumps({
+                'base': {'address': 'Synthetic base', 'lat': -3.6, 'lng': -38.4},
+                'route_policy': {'reject_clear_inefficiency': False},
+            })
+            for row in db.query(Clinica):
+                row.latitude = -3.7 - row.id / 100
+            db.commit()
+        body = {'clinica_id': 2, 'data': '2099-05-25', 'data_contato': '2099-05-25'}
+        path = '/api/v1/agenda/assistente/ofertas'
+        unpaid = self.client.post(path, json=body)
+        self.assertEqual(unpaid.status_code, 409, unpaid.text)
+        self.outbound.assert_not_called()
+        q = self.search_preview(body).json()
+        self.assertEqual(q['max_calls'], 12)
+        self.assertEqual(q['route_estimate']['first_departure_routes'], 1)
+        token = self.client.post('/api/v1/google-maps-control/confirm', json={'quote_id': q['quote_id']}).json()['token']
+        result = self.client.post(path, json=body, headers={'X-Google-Maps-Action': token})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertTrue(result.json()['panorama_ofertas']['items'])
+        self.assertGreater(self.outbound.call_count, 0)
+        self.assertLessEqual(self.outbound.call_count, q['max_calls'])
+        payloads = [json.dumps(call.args[1], sort_keys=True) for call in self.outbound.call_args_list]
+        self.assertEqual(len(payloads), len(set(payloads)), 'No duplicate paid route between slots/days/profiles')
+        count = self.outbound.call_count
+        replay = self.client.post(path, json=body, headers={'X-Google-Maps-Action': token})
+        self.assertEqual(replay.status_code, 409)
+        self.assertEqual(self.outbound.call_count, count)
+        with self.sessions() as db:
+            self.assertEqual(db.query(Agendamento).count(), 3)
+
+    def test_reference_alerts_distinguish_actual_from_potential_overage(self):
+        self.configure()
+        with guard._locked() as conn:
+            cfg, _ = guard._configuration(conn)
+        usage = {'day': {'calls': 1, 'cost': 0}, 'month': {'calls': 1, 'cost': 0}}
+        self.assertEqual(guard._reference_alerts(cfg, usage, 1, 1), [])
+        self.assertEqual(guard._reference_alerts(cfg, usage, 20, 1), ['day_reference_may_exceed'])
+        usage['day']['calls'] = 20
+        self.assertEqual(guard._reference_alerts(cfg, usage, 20, 1), ['day_reference_exceeded'])
+        usage['month']['cost'] = guard._micros(20)
+        self.assertEqual(guard._reference_alerts(cfg, usage, 0, 0), ['day_reference_exceeded', 'month_reference_exceeded'])
+
     def test_cache_only_rejects_monitor_exception(self):
         with self.assertRaises(ValueError):
             guard.CostConfiguration.model_validate({"operation_mode": "cache_only", "agenda_budget_mode": "monitor", "enabled": True, "limits": {p: {"calls": 0, "estimated_brl": 0} for p in ("action", "day", "month")}})
