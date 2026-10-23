@@ -1,3 +1,15 @@
+# Matriz sem expiração automática por idade — 22/10/2026
+
+- [x] Regressão antes do ajuste: uma rota sintética de dez anos tentava acessar o ledger e falhava com 503, em vez de reutilizar o cache.
+- [x] Depois do ajuste: 119 testes `test_google_maps*.py`, com 30 cenários PostgreSQL reservados à validação CI/stage, sem falhas locais.
+- [x] Rota antiga atende a escrita sintética de Agenda com ledger indisponível, sem transporte nem renovação de timestamps; localização alterada e fonte heurística continuam exigindo autorização de uma nova rota.
+- [ ] Lint, TypeScript, guardrail SDD e workflows terminais do novo snapshot aprovados.
+- [ ] Canário instalado `google_maps_cache_first_stage_canary.py --expected-sha <SHA>` inclui os três novos cenários, sem Google nem alteração de registros reais.
+- [ ] Painel/API instalados mostram a política sem expiração por idade; arquivos de runtime e produção preservados.
+- [ ] Resultado apresentado ao usuário antes de qualquer produção.
+
+Os ciclos anteriores abaixo são históricos; a política de cache vigente está na seção “Matriz sem expiração automática por idade” do `spec.md`. As regras de consentimento, reserva financeira e bloqueio de extras permanecem preservadas.
+
 # Verificação — Google Maps
 
 ## Endereço do tutor usado no agendamento domiciliar

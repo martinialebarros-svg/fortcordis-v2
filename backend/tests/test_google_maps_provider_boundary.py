@@ -93,6 +93,7 @@ class GoogleMapsProviderBoundaryTest(unittest.TestCase):
                 patch.object(logistica_service.settings, "GOOGLE_MAPS_API_KEY", "synthetic-key"),
                 patch.object(logistica_service.settings, "LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ", True),
                 patch.object(logistica_service.settings, "GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS", 30),
+                patch.object(logistica_service.settings, "GOOGLE_ROUTES_CACHE_EXPIRE_BY_AGE", True),
                 patch.object(logistica_service.settings, "LOGISTICA_GOOGLE_TRAFFIC_AWARE", False),
                 patch.object(logistica_service, "authorize_google_call") as reserve,
                 patch.object(logistica_service, "_http_post_json", return_value={"routes": [{"distanceMeters": 10000, "duration": "1200s"}]}) as network,

@@ -138,6 +138,10 @@ def _cache_max_age_days() -> int:
         return 7
 
 
+def _cache_expires_by_age() -> bool:
+    return bool(getattr(settings, "GOOGLE_ROUTES_CACHE_EXPIRE_BY_AGE", False))
+
+
 def _metrics_retention_days() -> int:
     try:
         return max(1, int(getattr(settings, "GOOGLE_MAPS_USAGE_METRICS_RETENTION_DAYS", 90) or 90))
@@ -556,7 +560,7 @@ def _deslocamento_esta_atual(
         return False
 
     cache_max_age_days = _cache_max_age_days()
-    if fonte.startswith("google_") and cache_max_age_days > 0:
+    if _cache_expires_by_age() and fonte.startswith("google_") and cache_max_age_days > 0:
         limite = _utc_now_naive() - timedelta(days=cache_max_age_days)
         if row_at < limite:
             return False
@@ -572,7 +576,7 @@ def _cache_only_route_available(row, *, origem, destino) -> bool:
     """Only existing route evidence may satisfy the zero-new-charge policy.
 
     Manual overrides retain their existing authorized semantics. Google rows
-    must still satisfy the ordinary TTL/geocode freshness checks; this helper
+    must still satisfy the configured age/location checks; this helper
     never refreshes timestamps or treats historical heuristic rows as routes.
     """
     if row is None or row.duracao_min is None:
@@ -580,7 +584,8 @@ def _cache_only_route_available(row, *, origem, destino) -> bool:
     if bool(getattr(row, "manual_override", False)):
         return True
     source = str(getattr(row, "fonte", "") or "").strip().lower()
-    return _cache_max_age_days() > 0 and source.startswith(("google_routes_api", "google_distance_matrix")) and _deslocamento_esta_atual(row, origem=origem, destino=destino)
+    age_policy_valid = not _cache_expires_by_age() or _cache_max_age_days() > 0
+    return age_policy_valid and source.startswith(("google_routes_api", "google_distance_matrix")) and _deslocamento_esta_atual(row, origem=origem, destino=destino)
 
 
 def _parse_duration_seconds(duration_value) -> Optional[int]:
@@ -1514,6 +1519,7 @@ def resumir_cobertura_matriz_deslocamentos(
             "contexto": {
                 "google_maps_api_key_configurada": bool(str(settings.GOOGLE_MAPS_API_KEY or "").strip()),
                 "cache_max_age_days": _cache_max_age_days(),
+                "cache_expires_by_age": _cache_expires_by_age(),
                 "force_refresh_heuristica_com_api_key": _force_refresh_heuristica_com_api_key(),
                 "allow_live_google_lookups_on_read": _allow_live_google_lookups_on_read(),
                 "google_traffic_aware_enabled": _google_traffic_aware_enabled(),
@@ -1631,6 +1637,7 @@ def resumir_cobertura_matriz_deslocamentos(
         "contexto": {
             "google_maps_api_key_configurada": bool(str(settings.GOOGLE_MAPS_API_KEY or "").strip()),
             "cache_max_age_days": _cache_max_age_days(),
+            "cache_expires_by_age": _cache_expires_by_age(),
             "force_refresh_heuristica_com_api_key": _force_refresh_heuristica_com_api_key(),
             "allow_live_google_lookups_on_read": _allow_live_google_lookups_on_read(),
             "google_traffic_aware_enabled": _google_traffic_aware_enabled(),
@@ -1766,6 +1773,7 @@ def resumir_google_maps_metricas(
     return {
         "window_days": dias_norm,
         "cache_max_age_days": _cache_max_age_days(),
+        "cache_expires_by_age": _cache_expires_by_age(),
         "metrics_retention_days": _metrics_retention_days(),
         "allow_live_google_lookups_on_read": _allow_live_google_lookups_on_read(),
         "google_traffic_aware_enabled": _google_traffic_aware_enabled(),

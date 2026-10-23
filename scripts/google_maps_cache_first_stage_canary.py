@@ -33,6 +33,7 @@ def main():
     from fiscal_rotina_stage_canary import _validar_destino
     _validar_destino(root, settings.APP_ENV, settings.DATABASE_URL)
     assert settings.GOOGLE_MAPS_AGENDA_CACHE_FIRST is True
+    assert settings.GOOGLE_ROUTES_CACHE_EXPIRE_BY_AGE is False
     assert settings.GOOGLE_MAPS_COST_EMERGENCY_RELEASE is False
     from deploy_authenticated_canary import _token_from_internal_backend
     with ExitStack() as cleanup:
@@ -47,6 +48,8 @@ def main():
         code,status = live('/google-maps-control/status')
         assert code == 200 and status['agenda_cache_first'] and status['operation_mode'] != 'temporary_open'
         assert not status['paid_calls_allowed'], 'Operational stage must have no paid budget enabled'
+        code,route_policy = live('/logistica/google-maps/resumo?dias=1')
+        assert code == 200 and route_policy['cache_expires_by_age'] is False
         code,preview = live('/google-maps-control/preview',{'method':'POST','path':'/api/v1/agenda','body':{}})
         assert code == 200 and not preview['required'] and not preview['blocked'] and preview['max_calls'] == 0
         code,_ = live('/agenda',{})
@@ -59,6 +62,9 @@ def main():
     checks = []
     cases = [
         'test_local_preview_and_cached_booking_work_with_unavailable_ledger',
+        'test_old_cached_routes_complete_agenda_without_finance_or_google',
+        'test_old_cache_with_new_geocode_still_requires_consent_and_never_commits',
+        'test_old_heuristic_does_not_become_valid_by_disabling_age_expiry',
         'test_create_booking_with_cache_succeeds_without_financial_policy',
         'test_cache_continues_after_daily_budget_exhaustion',
         'test_unpaid_probe_rolls_back_then_one_confirmed_execution_succeeds',
@@ -104,6 +110,7 @@ def main():
             remaining = conn.scalar(text("SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'maps_canary_%'"))
         proof = {'checked_at':datetime.now(timezone.utc).isoformat(),'expected_sha':installed,
             'live_cache_first_preview_passed':True,'live_empty_form_validation':422,
+            'live_cache_expires_by_age':False,
             'operational_paid_budget_enabled':False,'isolated_postgresql':True,'checks':checks,
             'temporary_schemas_remaining':remaining,'real_google_calls':0,'existing_operational_records_modified':0}
         proof['passed'] = len(checks)==len(cases) and all(c['passed'] for c in checks) and remaining==0
