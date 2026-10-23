@@ -171,6 +171,7 @@ def buscar_oportunidades_dia(payload, db, current_user):
     resultados.sort(key=lambda item: (item["acrescimo_deslocamento_min"] // 10,
         -item["dias_realizados_60d"], -item["atendimentos_realizados_60d"],
         item["acrescimo_deslocamento_min"], item["inicio"], item["clinica_id"]))
+    # An explicit null requests every ranked clinic; omitted limits remain 20.
     resposta["items"] = resultados[:payload.limite]
     resposta["total_encontrados"] = len(resultados)
     if not resultados:
