@@ -159,7 +159,7 @@ export default function AgendaDayOpportunities({ data, identityKey }: Props) {
       const response = await api.post<OportunidadesResponse>("/agenda/oportunidades-dia", {
         data,
         servico_id: servico,
-        limite: null,
+        limite: 20,
       }, { signal: controller.signal, timeout: 45_000 });
       if (controller.signal.aborted || pedido !== pedidoRef.current || contextoPedido !== contextoRef.current) return;
       if (!response.data?.ok || !Array.isArray(response.data.items)) throw new Error("Resposta de consulta inválida");
@@ -208,7 +208,6 @@ export default function AgendaDayOpportunities({ data, identityKey }: Props) {
                 {dados.historico ? `Histórico de ${formatarData(dados.historico.inicio)} a ${formatarData(dados.historico.fim)} (${dados.historico.dias} dias). ` : ""}
                 {dados.total_clinicas_recorrentes} clínicas com atendimentos realizados no período.
               </p>
-              {dados.items.length > 0 && <p className="text-sm font-medium text-teal-800">{dados.items.length} clínicas com horários disponíveis.</p>}
               {!dados.items.length && <p className="text-sm text-gray-700">{dados.motivo || "Nenhuma oportunidade encontrada para este serviço e esta data."}</p>}
               <ol className="space-y-2">
                 {dados.items.map((item) => (
