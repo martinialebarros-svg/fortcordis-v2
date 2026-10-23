@@ -75,7 +75,7 @@ describe("AgendaDayOpportunities", () => {
 
     await screen.findByText("Mais dias de atendimento");
     expect(apiMock.get).toHaveBeenCalledTimes(1);
-    expect(apiMock.post).toHaveBeenCalledWith("/agenda/oportunidades-dia", { data: "2026-10-23", servico_id: 1, limite: 20 }, expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 45_000 }));
+    expect(apiMock.post).toHaveBeenCalledWith("/agenda/oportunidades-dia", { data: "2026-10-23", servico_id: 1, limite: null }, expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 45_000 }));
     const items = screen.getAllByRole("listitem");
     expect(within(items[0]).getByText("Mais dias de atendimento")).toBeInTheDocument();
     expect(within(items[1]).getByText("Maior volume em poucos dias")).toBeInTheDocument();
@@ -84,6 +84,30 @@ describe("AgendaDayOpportunities", () => {
     expect(within(items[0]).getByText(/42 min estimados · estimativa de 21\/10\/2026/)).toBeInTheDocument();
     expect(within(items[0]).getByText(/viagem de até 50 min e margem total de pelo menos 15 min/)).toBeInTheDocument();
     expect(screen.getByText(/2 clínicas ficaram sem avaliação/)).toBeInTheDocument();
+    expect(screen.getByText(/Os horários são sugestões, sem reserva/)).toBeInTheDocument();
+  });
+
+  it.each([31, 61])("exibe todas as %i clínicas com seus horários, na ordem recebida e sem reservar", async (total) => {
+    const oportunidades = Array.from({ length: total }, (_, index) => ({
+      ...oportunidade(`Clínica ${index + 1}`, index + 1),
+      inicio: index === total - 1 ? "2026-10-23 15:00" : "2026-10-23 12:15",
+      fim: index === total - 1 ? "2026-10-23 15:30" : "2026-10-23 12:45",
+    }));
+    apiMock.post.mockResolvedValue(resposta(oportunidades));
+    render(<AgendaDayOpportunities data="2026-10-23" identityKey="usuario-1" />);
+    await abrirESelecionarServico();
+    fireEvent.click(screen.getByRole("button", { name: "Consultar oportunidades" }));
+
+    expect(await screen.findByText(`${total} clínicas com horários disponíveis.`)).toBeInTheDocument();
+    const cards = screen.getAllByRole("listitem");
+    expect(cards).toHaveLength(total);
+    oportunidades.forEach((item, index) => {
+      expect(within(cards[index]).getByText(item.clinica)).toBeInTheDocument();
+      expect(within(cards[index]).getByText(index === total - 1 ? "15:00–15:30" : "12:15–12:45")).toBeInTheDocument();
+    });
+    expect(apiMock.post).toHaveBeenCalledTimes(1);
+    expect(apiMock.post).toHaveBeenCalledWith("/agenda/oportunidades-dia", { data: "2026-10-23", servico_id: 1, limite: null }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(within(screen.getByRole("region", { name: "Oportunidades para completar o dia" })).getAllByRole("button")).toHaveLength(2);
     expect(screen.getByText(/Os horários são sugestões, sem reserva/)).toBeInTheDocument();
   });
 
