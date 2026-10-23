@@ -81,6 +81,14 @@ def main():
         'test_expired_monitor_prices_keep_tutor_geocode_single_use',
         'test_expired_monitor_parallel_confirmations_remain_finite',
         'test_expired_monitor_date_does_not_override_admin_suspension',
+        'test_search_quote_uses_missing_matrix_directions_instead_of_generic_cap',
+        'test_complete_search_matrix_needs_no_paid_grant_or_refresh',
+        'test_search_confirmation_is_finite_and_extras_stay_closed',
+        'test_search_plan_unavailable_never_uses_generic_quote_or_google',
+        'test_real_offer_search_respects_calculated_envelope_and_reuses_route_results',
+        'test_reference_alerts_distinguish_actual_from_potential_overage',
+        'test_search_geocoding_fallback_and_readonly_plan_are_explicit',
+        'test_offer_validation_plan_uses_fortaleza_date_at_utc_boundary',
 
     ]
     try:

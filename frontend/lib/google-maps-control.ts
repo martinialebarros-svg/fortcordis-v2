@@ -13,6 +13,12 @@ export type MapsQuote = {
   budget_policy?: "agenda_monitor" | "enforced";
   financial_limit_enforced?: boolean;
   alerts?: string[];
+  route_estimate?: {
+    estimate_basis: "request_route_graph";
+    cached_directions: number; missing_directions: number;
+    first_departure_routes: number; geocoding_units: number;
+    max_attempts_per_direction: number; search_start: string; search_end: string;
+  } | null;
   pricing_review_due?: boolean;
   pricing_reference_valid_until?: string | null;
   required: boolean;
