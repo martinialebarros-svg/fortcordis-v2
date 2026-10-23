@@ -1,5 +1,10 @@
 # Spec - Revisão da apresentação do laudo ecocardiográfico
 
+## Restauração de produção da PR #413 (2026-10-23)
+
+- Restaurar os contratos RF-096/RF-097 já homologados em stage `12129ba6`, sem acrescentar regras clínicas ou valores de referência. A presença desse commit na ancestralidade não substitui a conferência dos arquivos: promoções isoladas posteriores retiraram o helper e seus dois testes de `main`.
+- O hotfix autorizado parte de `main` `6f207418` e leva somente os seis caminhos clínicos (helper, dois testes e três artefatos SDD) presentes em stage `ec389aa2`. Workflows/instalador atuais e demais incrementos permanecem nas respectivas bases; reintegrar imediatamente a evidência em stage pelo fluxo documentado no repositório.
+
 ## Incremento: conferência da narrativa diastólica felina (2026-10-15)
 
 - RF-092: ampliar o aviso de coerência existente para espécie felina e aliases exatos, somente com fusão transmitral ou tecidual explicitamente confirmada. Detectar afirmações atuais e afirmativas de picos separados, relações individuais ou padrão transmitral avaliado que conflitem com a família fundida; não inferir fusão, classe ou doença de números, idade, frequência ou valores fora da faixa.
