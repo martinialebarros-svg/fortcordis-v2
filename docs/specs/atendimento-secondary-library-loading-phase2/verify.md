@@ -23,7 +23,7 @@ Evidencias: stage `b5f632fb`, [Deploy to Stage](https://github.com/martinialebar
 
 - [x] PR para `stage` aprovado e workflow terminal verde.
 - [x] Smoke autenticado em stage aprovado.
-- [ ] Promocao para producao autorizada separadamente.
+- [x] Promocao dos ajustes de conexao e matriz Maps autorizada expressamente pelo usuario em 22/10/2026, depois da homologacao em stage `0213c8f5`.
 
 ## Regressao de pool da biblioteca de frases — 2026-10-22
 

@@ -36,4 +36,4 @@ Os endpoints continuam autenticados. Operacoes de escrita nao recebem retry auto
 - Conteudo, ordenacao, filtros, paginacao e seed idempotente continuam com o contrato existente. Com o banco ja semeado, a consulta nao realiza DML nem confirma ou descarrega trabalho pendente de outra operacao da sessao.
 - A prova de concorrencia ocupa os tres slots antes de liberar os handlers reais. Tres GETs devem concluir com tres checkouts no total e devolver todas as conexoes.
 - O canario instalado de stage usa identidade sintetica, JSON temporario e schemas descartaveis exclusivos, sem fallback para `public`. Ele valida o handler e PostgreSQL reais sem acessar ou alterar registros operacionais; nao substitui uma prova de sessao real no navegador.
-- Producao exige autorizacao separada depois da apresentacao do resultado de stage.
+- Producao foi autorizada expressamente em 22/10/2026 depois da apresentacao do resultado de stage, somente para os ajustes de conexao e matriz Maps, preservando dados reais e a politica financeira vigente.

@@ -3,10 +3,12 @@
 - [x] Regressão antes do ajuste: uma rota sintética de dez anos tentava acessar o ledger e falhava com 503, em vez de reutilizar o cache.
 - [x] Depois do ajuste: 119 testes `test_google_maps*.py`, com 30 cenários PostgreSQL reservados à validação CI/stage, sem falhas locais.
 - [x] Rota antiga atende a escrita sintética de Agenda com ledger indisponível, sem transporte nem renovação de timestamps; localização alterada e fonte heurística continuam exigindo autorização de uma nova rota.
-- [ ] Lint, TypeScript, guardrail SDD e workflows terminais do novo snapshot aprovados.
-- [ ] Canário instalado `google_maps_cache_first_stage_canary.py --expected-sha <SHA>` inclui os três novos cenários, sem Google nem alteração de registros reais.
-- [ ] Painel/API instalados mostram a política sem expiração por idade; arquivos de runtime e produção preservados.
-- [ ] Resultado apresentado ao usuário antes de qualquer produção.
+- [x] Lint, TypeScript, guardrail SDD e workflows do snapshot `0213c8f5` aprovados. Frontend CI passou na tentativa 2 após falha inicial em asserção Fiscal sem alteração nesse módulo; os 14 testes Fiscais também passaram isoladamente.
+- [x] Canário instalado de Maps: 20/20 cenários PostgreSQL, incluindo os três novos de cache antigo, zero Google, zero alteração operacional e zero schemas restantes. Canário de frases repetido no mesmo SHA: 15/15 GETs 200, três conexões por rodada de três, zero checkouts extras.
+- [x] API real informa `cache_expires_by_age=false`; bundle público `app/logistica/page-f7c484f932890ab3.js` contém “Sem expiração por idade”. Seis arquivos runtime, frases e configuração financeira preservados; produção permaneceu intacta durante a homologação.
+- [x] Resultado apresentado e produção autorizada expressamente pelo usuário em 22/10/2026, mantendo Agenda com alertas e extras/automações bloqueados para novos envios pagos.
+
+Evidência instalada: [workflow de stage](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39878505947), PRs #442/#443. A promoção separa os sete caminhos clínicos/SDD pendentes e preserva sua restauração posterior em stage. A prova final produtiva será registrada no PR de promoção depois do deploy, com leitura de política efetiva, SHA, serviços, runtime, dados e smoke sem chamadas Google ou agendamentos de teste.
 
 Os ciclos anteriores abaixo são históricos; a política de cache vigente está na seção “Matriz sem expiração automática por idade” do `spec.md`. As regras de consentimento, reserva financeira e bloqueio de extras permanecem preservadas.
 

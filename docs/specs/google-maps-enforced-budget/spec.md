@@ -1,5 +1,9 @@
 # Especificação — autorização e orçamento Google Maps
 
+## Publicação autorizada de 22/10/2026
+
+O usuário autorizou publicar a reutilização da conexão na consulta de frases e a retirada da expiração por idade da matriz, mantendo a Agenda em `monitor`, referências de 650 chamadas/R$25 por dia e 13.000/R$500 por mês e bloqueio de lotes/automações para novos envios pagos. A promoção preserva a configuração financeira existente e os dados operacionais; não inclui os sete caminhos clínicos/SDD pendentes de stage. Código autorizado é o homologado em stage `0213c8f55711205ddbae9b5b46966fecb490683e`. As restrições de produção dos ciclos anteriores abaixo são históricas, substituídas somente para este escopo pela autorização atual.
+
 ## Matriz sem expiração automática por idade — decisão de 22/10/2026
 
 O usuário aboliu o vencimento apenas por terem passado 30 dias. `GOOGLE_ROUTES_CACHE_EXPIRE_BY_AGE=false` é o padrão, aplicado igualmente aos consumidores da matriz, sem atualizar timestamps por simples leitura. `GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS` permanece como parâmetro legado, usado somente se a expiração por idade for explicitamente reabilitada. O painel informa “Sem expiração por idade” e a API expõe `cache_expires_by_age=false`.
