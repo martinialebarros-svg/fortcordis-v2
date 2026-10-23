@@ -284,7 +284,7 @@ class SugestaoHorarioPayload(BaseModel):
 class OportunidadesDiaPayload(BaseModel):
     data: str
     servico_id: Optional[int] = Field(default=None, ge=1)
-    limite: int = Field(default=20, ge=1, le=50)
+    limite: Optional[int] = Field(default=20, ge=1, le=50)
 
 
 class ValidarOfertaAssistentePayload(BaseModel):
