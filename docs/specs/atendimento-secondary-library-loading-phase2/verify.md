@@ -24,3 +24,15 @@ Evidencias: stage `b5f632fb`, [Deploy to Stage](https://github.com/martinialebar
 - [x] PR para `stage` aprovado e workflow terminal verde.
 - [x] Smoke autenticado em stage aprovado.
 - [ ] Promocao para producao autorizada separadamente.
+
+## Regressao de pool da biblioteca de frases — 2026-10-22
+
+- [x] Antes da correcao: dois cenarios novos reproduzem `QueuePool TimeoutError` com pool de tres conexoes e overflow zero (pool ocupado e GETs simultaneos).
+- [x] Depois da correcao: seis testes em `test_clinical_phrase*.py` passam, incluindo seed, filtros, paginacao, preservacao de trabalho pendente e tres GETs simultaneos com exatamente tres checkouts; zero DML durante as leituras com fixtures ja semeadas.
+- [x] Regressao ampliada: 14 testes `*pool*.py`, lint e TypeScript do frontend passam.
+- [ ] Canario `scripts/clinical_phrase_pool_stage_canary.py --expected-sha <SHA completo instalado>`: PostgreSQL de stage, duas verificacoes funcionais e cinco rodadas de tres GETs simultaneos, com schemas descartaveis removidos.
+- [ ] Workflow de stage terminal verde, API/worker reiniciados pelo deploy normal e snapshot instalado confirmado.
+- [ ] Seis arquivos de runtime preservados antes/depois; nenhum registro real alterado pelo teste e nenhuma chamada a provedor.
+- [ ] Apresentacao do resultado antes de qualquer publicacao em producao.
+
+Reproducao local: `cd backend && <venv>/bin/python -m unittest discover -s tests -p 'test_clinical_phrase*.py' -v`. A identidade da prova HTTP e sintetica; a autenticacao apenas simula a ocupacao previa da conexao usando a mesma sessao do handler real. Os testes nao acessam o banco operacional.
