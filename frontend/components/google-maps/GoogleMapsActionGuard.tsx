@@ -83,6 +83,7 @@ export default function GoogleMapsActionGuard() {
         </dl>
         {current.quote.route_estimate && <div className="mb-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-800">
           <strong>Estimativa desta busca, após consultar a matriz</strong>
+          <p>Período considerado: {current.quote.route_estimate.search_start.split("-").reverse().join("/")} a {current.quote.route_estimate.search_end.split("-").reverse().join("/")}.</p>
           <p>{current.quote.route_estimate.cached_directions} trecho(s) com rota válida em cache, sem nova cobrança. Até {current.quote.route_estimate.missing_directions} trecho(s) sem rota válida podem precisar de consulta.</p>
           {current.quote.route_estimate.first_departure_routes > 0 && <p>Inclui até {current.quote.route_estimate.first_departure_routes} rota adicional para validar a primeira saída.</p>}
           {current.quote.route_estimate.geocoding_units > 0 && <p>Inclui até {current.quote.route_estimate.geocoding_units} consulta de coordenadas da base operacional.</p>}
