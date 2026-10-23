@@ -33,4 +33,20 @@ describe("demonstração segura do controle Maps", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(button === "Cancelar" ? "0 consultas pagas" : "0 consultas e 0 agendamentos");
     expect(request).not.toHaveBeenCalled(); expect(post).not.toHaveBeenCalled();
   });
+  it("distingue possível excesso do consumo já atingido e explica o cache", async () => {
+    const request = vi.spyOn(api, "request"); const post = vi.spyOn(api, "post");
+    render(<><GoogleMapsControlDemo /><GoogleMapsActionGuard /></>);
+    fireEvent.click(screen.getByRole("button", { name: "Esta ação pode ultrapassar a referência" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("O consumo atual ainda está abaixo dela");
+    expect(dialog).not.toHaveTextContent("Referência diária atingida");
+    expect(dialog).toHaveTextContent("12 trecho(s) com rota válida em cache, sem nova cobrança");
+    expect(dialog).toHaveTextContent("Até 1 trecho(s) sem rota válida");
+    expect(dialog).toHaveTextContent("4 chamadas/unidades cobradas");
+    expect(dialog).not.toHaveTextContent("4096");
+    expect(screen.getByRole("button", { name: "Confirmar esta ação" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("0 consultas pagas");
+    expect(request).not.toHaveBeenCalled(); expect(post).not.toHaveBeenCalled();
+  });
 });

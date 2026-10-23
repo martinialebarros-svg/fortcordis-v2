@@ -1,3 +1,11 @@
+# Estimativa por busca e alertas — validação de stage em andamento
+
+Contrato: substituir o envelope genérico de 4.096 por máximo derivado do grafo de trechos possíveis e rotas válidas, distinguir consumo atingido de excesso projetado e manter Agenda monitorada/extras bloqueados. Não alterar produção neste incremento.
+
+Local: 127 testes Maps executados, 97 aprovados e 30 skips de PostgreSQL reservado a CI/stage; 35 testes frontend Maps aprovados, TypeScript e lint sem erros. Busca real sintética de ofertas com primeira saída respeitou máximo calculado de 12 tentativas, sem duplicar transporte por trecho entre horários/dias. O cenário de matriz parcial reduziu o teto de 4.096 para seis tentativas; matriz completa retornou zero e não acessou o ledger. O canário de stage foi ampliado para 28 casos. Instalação e demonstração ainda pendentes.
+
+Provas exigidas: preview sem Google/DML operacional; matriz antiga válida subtrai direções; cache completo sem grant/popup; primeira saída e alternativa após falha incluídas; execução real de ofertas respeita envelope e não duplica transporte entre dias/perfis; cancelamento sem envio, replay e excesso de confirmação recusados; indisponibilidade do plano sem fallback genérico; preço vencido apenas alerta na Agenda; lotes/automações sem nova autorização. Executar canário instalado em PostgreSQL descartável com schemas removidos, conferir SHA/workflow terminal/bundle de stage e preservar dados/configuração/runtime. Demonstração visual fictícia do componente real, sem Google ou agendamento de teste em dados operacionais.
+
 # Matriz sem expiração automática por idade — 22/10/2026
 
 - [x] Regressão antes do ajuste: uma rota sintética de dez anos tentava acessar o ledger e falhava com 503, em vez de reutilizar o cache.

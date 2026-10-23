@@ -1,3 +1,7 @@
+# Incremento de estimativa de busca — 22/10/2026
+
+Implementar grafo conservador de trechos por destino e janela da ação; descontar matriz válida; incluir fallback e primeira saída explicitamente. Manter tentativas locais gratuitas e autorização finita no servidor. Separar alertas já atingidos de projeção. Validar testes da busca real, transportes interceptados, concorrência/consentimento, componente e canário PostgreSQL instalado. Publicar somente em stage e apresentar demonstração antes da autorização produtiva.
+
 # Plano de implementação e entrega
 
 ## Decisão de 22/10/2026 — remover expiração automática por idade

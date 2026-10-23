@@ -19,7 +19,7 @@ from app.models.clinica import Clinica
 from app.models.clinica_deslocamento import ClinicaDeslocamento
 from app.models.google_maps_usage_metrica import GoogleMapsUsageMetrica
 from app.services.google_maps_cost_control import (
-    GoogleMapsCostBlocked, authorize_google_call, block_cache_only_lookup, cache_only_operation, cache_first_operation,
+    GoogleMapsCostBlocked, authorize_google_call, block_cache_only_lookup, cache_only_operation, cache_first_operation, agenda_execution_route_cache,
 )
 
 PERFIS_VALIDOS = {"comercial", "plantao"}
@@ -907,7 +907,7 @@ def estimar_deslocamento(
     metric_context = _build_google_metric_context(origem, destino, perfil_norm)
     google_result = None
     if permitir_google_lookup and str(settings.GOOGLE_MAPS_API_KEY or "").strip():
-        cache = google_cache if isinstance(google_cache, dict) else None
+        cache = agenda_execution_route_cache(google_cache if isinstance(google_cache, dict) else None)
         origem_cache_ref = (
             json.dumps(origem_waypoint, ensure_ascii=True, sort_keys=True)
             if origem_waypoint is not None
