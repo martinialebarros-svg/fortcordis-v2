@@ -1488,6 +1488,7 @@ def _classificar_politica_oferta(
     perfil_deslocamento: str,
     regras_rota: dict,
     agendamento_id_excluir: Optional[int] = None,
+    preferencia: Optional[AgendaPreferencia] = None,
 ) -> dict[str, Any]:
     thresholds = regras_rota.get("thresholds") if isinstance(regras_rota.get("thresholds"), dict) else {}
     offer_policy = regras_rota.get("offer_policy") if isinstance(regras_rota.get("offer_policy"), dict) else {}
@@ -1540,17 +1541,23 @@ def _classificar_politica_oferta(
     prioridade_d0_aplicada = False
     override_aplicado = None
     override_ancora_obrigatoria = False
+
+    def _ancora_no_periodo(data_iso: str) -> bool:
+        # Only evaluate anchors that can participate in this requested period.
+        # Otherwise a missing D+2/D+3 route could consume a confirmation whose
+        # envelope correctly covers only today's offers.
+        if preferencia and not preferencia.permite_data(data_iso):
+            return False
+        return _existe_ancora_proxima_no_dia(
+            db, clinica_id=clinica_id, data_iso=data_iso,
+            limite_minutos=limite_ancora, perfil_deslocamento=perfil_deslocamento,
+            agendamento_id_excluir=agendamento_id_excluir,
+        )
+
     if distante_base and baixa_frequencia:
         dias_preferenciais = dias_distantes or dias_preferenciais
         if permitir_d2_ancora:
-            ancora_d2 = _existe_ancora_proxima_no_dia(
-                db,
-                clinica_id=clinica_id,
-                data_iso=data_d2,
-                limite_minutos=limite_ancora,
-                perfil_deslocamento=perfil_deslocamento,
-                agendamento_id_excluir=agendamento_id_excluir,
-            )
+            ancora_d2 = _ancora_no_periodo(data_d2)
             if ancora_d2:
                 dias_preferenciais = [2]
 
@@ -1563,31 +1570,10 @@ def _classificar_politica_oferta(
         agendamentos_d0 = _filtrar_agendamentos_por_janela_funcionamento(db, agendamentos_d0)
         sem_agendamentos_d0 = len(agendamentos_d0) == 0
         if not sem_agendamentos_d0:
-            ancora_d0 = _existe_ancora_proxima_no_dia(
-                db,
-                clinica_id=clinica_id,
-                data_iso=data_d0,
-                limite_minutos=limite_ancora,
-                perfil_deslocamento=perfil_deslocamento,
-                agendamento_id_excluir=agendamento_id_excluir,
-            )
+            ancora_d0 = _ancora_no_periodo(data_d0)
         if not ancora_d2:
-            ancora_d2 = _existe_ancora_proxima_no_dia(
-                db,
-                clinica_id=clinica_id,
-                data_iso=data_d2,
-                limite_minutos=limite_ancora,
-                perfil_deslocamento=perfil_deslocamento,
-                agendamento_id_excluir=agendamento_id_excluir,
-            )
-        ancora_d3 = _existe_ancora_proxima_no_dia(
-            db,
-            clinica_id=clinica_id,
-            data_iso=data_d3,
-            limite_minutos=limite_ancora,
-            perfil_deslocamento=perfil_deslocamento,
-            agendamento_id_excluir=agendamento_id_excluir,
-        )
+            ancora_d2 = _ancora_no_periodo(data_d2)
+        ancora_d3 = _ancora_no_periodo(data_d3)
         if (ancora_d0 or sem_agendamentos_d0) and (not ancora_d2 and not ancora_d3):
             dias_preferenciais = [0]
             prioridade_d0_aplicada = True
@@ -1621,14 +1607,7 @@ def _classificar_politica_oferta(
     if override_ancora_obrigatoria and 2 in dias_preferenciais:
         data_d2 = (datetime.strptime(data_contato_iso, "%Y-%m-%d").date() + timedelta(days=2)).isoformat()
         if not ancora_d2:
-            ancora_d2 = _existe_ancora_proxima_no_dia(
-                db,
-                clinica_id=clinica_id,
-                data_iso=data_d2,
-                limite_minutos=limite_ancora,
-                perfil_deslocamento=perfil_deslocamento,
-                agendamento_id_excluir=agendamento_id_excluir,
-            )
+            ancora_d2 = _ancora_no_periodo(data_d2)
         if not ancora_d2:
             dias_preferenciais = [dia for dia in dias_preferenciais if dia != 2]
             if not dias_preferenciais:
@@ -5322,6 +5301,7 @@ def sugerir_agendamento_proximo(
             perfil_deslocamento=payload.perfil_deslocamento,
             regras_rota=regras_rota,
             agendamento_id_excluir=payload.ignorar_agendamento_id,
+            preferencia=payload.preferencia,
         )
     else:
         politica_oferta = {

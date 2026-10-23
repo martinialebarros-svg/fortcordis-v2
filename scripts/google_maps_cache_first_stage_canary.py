@@ -89,6 +89,10 @@ def main():
         'test_reference_alerts_distinguish_actual_from_potential_overage',
         'test_search_geocoding_fallback_and_readonly_plan_are_explicit',
         'test_offer_validation_plan_uses_fortaleza_date_at_utc_boundary',
+        'test_explicit_today_ignores_other_days_and_uses_cache_without_paid_ledger',
+        'test_explicit_interval_overrides_reference_contact_and_policy_dates',
+        'test_requested_period_still_counts_missing_routes_inside_interval',
+        'test_explicit_today_real_offers_never_pay_for_outside_policy_anchors',
 
     ]
     try:

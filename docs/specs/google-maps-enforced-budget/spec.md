@@ -1,3 +1,19 @@
+# Publicação autorizada do período explícito — 23/10/2026
+
+Após apresentação do stage `dde520a2` (PR #456), o usuário autorizou publicar somente esta correção: estimativa limitada à preferência de datas, matriz válida primeiro, avaliação de âncoras dentro do período e período exibido no popup. Manter Agenda monitorada, referências de 650 chamadas/R$25 dia e 13.000/R$500 mês, seis caps de extras em zero e nenhuma política automática habilitada. Preservar cache sem expiração por idade, flags e configuração financeira existentes. Não reativar/resetar orçamento nem copiar configuração de stage.
+
+Promoção protegida stage → main com isolamento temporário no Git das entregas paralelas de Agenda, egress/WhatsApp e revisão clínica. O módulo agenda.py recebe somente os trechos da correção autorizada; a entrega Completar dia e os demais módulos exclusivos de stage ficam preservados para restauração no Git. A aplicação de stage já validada continua instalada enquanto essas operações de organização do Git têm seus deploys redundantes cancelados antes de qualquer etapa VPS. Preservar os seis arquivos de runtime, banco de frases e dados reais; nunca restaurar dados para ocultar atividade concorrente.
+
+# Período explícito da busca — correção somente em stage, 23/10/2026
+
+O pedido deste ciclo autoriza corrigir e validar em stage antes de apresentar o resultado; não autoriza produção. Para `agenda_offers` e `agenda_proximity`, uma preferência com `data_inicio`/`data_fim` substitui integralmente a janela aproximada, as datas de contato/referência e a expansão por política/progressão na estimativa. Quando não há intervalo explícito, mantém-se o envelope conservador da busca sem restrição. Validação de oferta continua usando a data local do horário escolhido.
+
+A estimativa lê somente destinos/agendamentos dentro desse período, deduplica os trechos, prioriza a matriz Google/manual válida sem expiração por idade e conta apenas faltantes. Primeira saída, eventual Geocoding e alternativa após falha continuam explícitos e limitados. O popup mostra o período considerado, com datas civis sem conversão de fuso.
+
+A execução respeita o mesmo alcance: a classificação de políticas não consulta novas rotas para âncoras D+0/D+2/D+3 fora da preferência solicitada. Não há oferta fora do intervalo, mudança das regras de conflito/primeira saída ou invenção de duração/disponibilidade. Rotas faltantes dentro do intervalo continuam exigindo consentimento finito e controle antes do Google; configuração/ledger indisponível suspende a parte paga, sem afetar consultas atendidas pelo cache.
+
+Agenda monitorada com alertas preservada, referências atuais e bloqueios de novas chamadas pagas de lotes/automações inalterados. Sem migração, alteração de preços/câmbio, renovação de geocodificação ou reset de consumo. Rollback pelo snapshot anterior de aplicação; não restaurar banco/configuração para desfazer este código.
+
 # Publicação autorizada da estimativa por busca — 23/10/2026
 
 Após apresentação do stage `d497ffb2`, o usuário autorizou publicar a correção da estimativa de 4.096 e dos alertas. Preservar a política produtiva: Agenda monitorada com referências de 650 chamadas/R$25 por dia e 13.000/R$500 por mês, seis caps de extras em zero, nenhuma política automática habilitada e cache sem expiração por idade. Não reexecutar ativação nem copiar a configuração de stage.

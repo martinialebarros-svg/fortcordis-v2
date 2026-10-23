@@ -41,6 +41,7 @@ describe("demonstração segura do controle Maps", () => {
     expect(dialog).toHaveTextContent("O consumo atual ainda está abaixo dela");
     expect(dialog).not.toHaveTextContent("Referência diária atingida");
     expect(dialog).toHaveTextContent("12 trecho(s) com rota válida em cache, sem nova cobrança");
+    expect(dialog).toHaveTextContent("Período considerado: 25/05/2099 a 25/05/2099.");
     expect(dialog).toHaveTextContent("Até 1 trecho(s) sem rota válida");
     expect(dialog).toHaveTextContent("4 chamadas/unidades cobradas");
     expect(dialog).not.toHaveTextContent("4096");
