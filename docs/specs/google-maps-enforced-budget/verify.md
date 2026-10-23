@@ -1,3 +1,17 @@
+# Matriz sem expiração automática por idade — 22/10/2026
+
+- [x] Regressão antes do ajuste: uma rota sintética de dez anos tentava acessar o ledger e falhava com 503, em vez de reutilizar o cache.
+- [x] Depois do ajuste: 119 testes `test_google_maps*.py`, com 30 cenários PostgreSQL reservados à validação CI/stage, sem falhas locais.
+- [x] Rota antiga atende a escrita sintética de Agenda com ledger indisponível, sem transporte nem renovação de timestamps; localização alterada e fonte heurística continuam exigindo autorização de uma nova rota.
+- [x] Lint, TypeScript, guardrail SDD e workflows do snapshot `0213c8f5` aprovados. Frontend CI passou na tentativa 2 após falha inicial em asserção Fiscal sem alteração nesse módulo; os 14 testes Fiscais também passaram isoladamente.
+- [x] Canário instalado de Maps: 20/20 cenários PostgreSQL, incluindo os três novos de cache antigo, zero Google, zero alteração operacional e zero schemas restantes. Canário de frases repetido no mesmo SHA: 15/15 GETs 200, três conexões por rodada de três, zero checkouts extras.
+- [x] API real informa `cache_expires_by_age=false`; bundle público `app/logistica/page-f7c484f932890ab3.js` contém “Sem expiração por idade”. Seis arquivos runtime, frases e configuração financeira preservados; produção permaneceu intacta durante a homologação.
+- [x] Resultado apresentado e produção autorizada expressamente pelo usuário em 22/10/2026, mantendo Agenda com alertas e extras/automações bloqueados para novos envios pagos.
+
+Evidência instalada: [workflow de stage](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39878505947), PRs #442/#443. A promoção separa os sete caminhos clínicos/SDD pendentes e preserva sua restauração posterior em stage. A prova final produtiva será registrada no PR de promoção depois do deploy, com leitura de política efetiva, SHA, serviços, runtime, dados e smoke sem chamadas Google ou agendamentos de teste.
+
+Os ciclos anteriores abaixo são históricos; a política de cache vigente está na seção “Matriz sem expiração automática por idade” do `spec.md`. As regras de consentimento, reserva financeira e bloqueio de extras permanecem preservadas.
+
 # Verificação — Google Maps
 
 ## Endereço do tutor usado no agendamento domiciliar
@@ -225,3 +239,28 @@ O popup explicita “Estimativa desatualizada — revisão pendente” e a data
 no fuso Fortaleza. “Confirmar esta ação” continua habilitado; abrir o aviso
 não despacha a ação, e confirmar produz uma única autorização. O título
 geral “Agenda liberada com alertas” não presume que o orçamento já foi excedido.
+
+## Revisão vencida validada em stage — 22/10/2026
+
+O deploy `39836185306` terminou com sucesso em stage `82f2e781`. Os quatro
+workflows exigidos passaram; 17 cenários instalados de recepção passaram em
+PostgreSQL isolado, com zero Google, zero agendamentos operacionais alterados
+e nenhum schema temporário restante. Os cenários novos cobrem revisão vencida,
+virada da revisão durante confirmação, geocoding de uma unidade, concorrência
+e suspensão administrativa preservada. Os seis arquivos de runtime mantiveram
+os hashes. A página autenticada respondeu 200 nos três hosts de stage, API
+administrativa anônima 401 e os 16 chunks servidos contêm os avisos novos.
+
+Validação local: 115 testes Maps (85 aprovados, 30 skips esperados sem PostgreSQL),
+34 testes dos quatro componentes Maps, lint, TypeScript e SDD. CI PostgreSQL
+compartilhado aprovado. O head `a93c4b04` acrescentou apenas dois registros
+`verify.md` de PDF/gate; aplicação, testes, scripts e workflows foram conferidos
+como idênticos ao stage instalado. Seu redeploy documental foi cancelado e não
+foi contado como instalação. O check inconsistente de orçamento compartilhado
+(workflow concluído com todas as etapas aprovadas, job ainda em andamento na API)
+foi repetido: tentativa 2 de `39837904041` terminou com sucesso, sem bypass.
+
+A PR #432 promoveu o snapshot em main `3553c461`; a publicação efetiva requer
+workflow terminal e smoke instalado. Não reexecutar a ativação inicial: configuração
+e abertura financeira da revisão 1 devem permanecer idênticas. O registro final
+privado e sanitizado está em `/Users/martiniano/Documents/Codex/2026-10-22/maps-price-review-alerts/`.
