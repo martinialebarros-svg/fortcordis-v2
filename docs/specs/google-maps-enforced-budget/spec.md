@@ -1,3 +1,9 @@
+# Publicação autorizada da estimativa por busca — 23/10/2026
+
+Após apresentação do stage `d497ffb2`, o usuário autorizou publicar a correção da estimativa de 4.096 e dos alertas. Preservar a política produtiva: Agenda monitorada com referências de 650 chamadas/R$25 por dia e 13.000/R$500 por mês, seis caps de extras em zero, nenhuma política automática habilitada e cache sem expiração por idade. Não reexecutar ativação nem copiar a configuração de stage.
+
+A promoção contém os treze caminhos Maps de #451, a documentação desta autorização e quatro registros SDD históricos da otimização exclusiva de stage. As 27 diferenças paralelas de Agenda, egress/WhatsApp e revisão clínica são isoladas temporariamente no Git e restauradas integralmente em stage após a promoção. Os módulos da aplicação Maps permanecem byte a byte iguais ao stage homologado. Nenhum dado clínico de runtime será substituído por conteúdo do repositório.
+
 # Especificação — autorização e orçamento Google Maps
 
 ## Estimativa por busca e alertas precisos — stage, 22/10/2026

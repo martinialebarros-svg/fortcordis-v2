@@ -1,3 +1,11 @@
+# Homologação concluída e publicação autorizada — 23/10/2026
+
+Stage `d497ffb2` (#451), workflow `39891593361` terminal aprovado, junto com Frontend CI, Migration CI e orçamento Maps PostgreSQL. Canário instalado: 28/28, zero Google, zero alterações operacionais, zero schemas restantes. Matriz parcial: seis tentativas em vez do teto administrativo de 4.096; matriz completa: zero sem ledger/grant; busca real sintética com primeira saída: envelope de 12 e nenhum transporte duplicado. Cancelamento, concorrência, replay, limites e extras/automações preservados. 35 testes frontend, TypeScript, lint e SDD aprovados.
+
+Os novos textos foram encontrados nos chunks servidos; a prévia isolada usa os mesmos componentes e dados fictícios, pois o navegador estava sem sessão de stage. Stage preservou dados, política e runtime. Produção #449 não foi alterada nessa homologação; a edição concorrente de um preset clínico foi identificada por PUT autenticado anterior ao deploy de stage e mantida. Evidência sanitizada em `/Users/martiniano/Documents/Codex/2026-10-22/maps-search-estimate-stage/resultado.json` e no corpo de #451.
+
+A publicação produtiva deste incremento foi autorizada explicitamente em 23/10. Aguardar checks e deploy terminais, conferir SHA/API/worker/frontend, política efetiva, ENV, runtime, dados e bundle; nenhuma consulta Google ou agendamento produtivo de teste. Comparar dados sem apagar atividade concorrente. Registrar o resultado final na PR de promoção e restaurar os 27 caminhos paralelos de stage com deploy terminal.
+
 # Estimativa por busca e alertas — validação de stage em andamento
 
 Contrato: substituir o envelope genérico de 4.096 por máximo derivado do grafo de trechos possíveis e rotas válidas, distinguir consumo atingido de excesso projetado e manter Agenda monitorada/extras bloqueados. Não alterar produção neste incremento.
