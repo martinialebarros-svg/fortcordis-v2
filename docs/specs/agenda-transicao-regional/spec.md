@@ -53,6 +53,11 @@ Status: in-progress
   trajeto direto desconhecido não participa do ranking. O contador
   `sem_estimativa` descreve clínicas sem oportunidade avaliável, não clínicas
   que preservaram opções válidas parciais.
+- RF-012: o Completar dia solicita e exibe todas as clínicas com oportunidade
+  avaliada para a data e o serviço, sem corte em 20 ou 50 clínicas. Preservar a
+  ordem retornada, os horários e as datas das estimativas; mostrar a quantidade
+  de clínicas com horários disponíveis. A lista continua sendo uma comparação
+  de alternativas independentes, sem criar reservas ou agendamentos.
 
 ## Contratos técnicos
 
@@ -72,7 +77,11 @@ resolução reutiliza cache da requisição para reduzir consultas repetidas. A
 validação considera direção dos trajetos e falha de forma conservadora quando
 não houver evidência confiável para justificar a flexibilização.
 
-`POST /api/v1/agenda/oportunidades-dia` recebe data, serviço opcional e limite. A
+`POST /api/v1/agenda/oportunidades-dia` recebe data, serviço opcional e limite.
+`limite: null` retorna todas as clínicas encontradas; a UI usa esse modo.
+Para compatibilidade, omitir o campo mantém o padrão 20 e limites explícitos
+entre 1 e 50 continuam recortando a lista após a ordenação. Esse parâmetro não
+altera o limite interno de candidatos de horário avaliados por clínica. A
 resposta contém oportunidades por clínica com horários validados, recorrência e
 evidência operacional sem dados de pacientes ou contatos, incluindo o acréscimo
 de deslocamento. Exige usuário autenticado e papel da equipe da agenda. Não cria
@@ -135,6 +144,13 @@ estado diagnóstico é gravado no contexto ou cache compartilhado entre clínica
   descartável, mantendo 30/50/15/1/60, zero Google e nenhum agendamento
   operacional modificado. A homologação de stage não antecipa a instalação em
   produção, que requer seu próprio deploy terminal e verificação em leitura.
+- CA-013: com 31 e com mais de 50 clínicas elegíveis, `limite: null` retorna a
+  lista completa e a UI exibe cada clínica, seu horário e a contagem correta.
+  Os modos limitados mantêm a mesma ordem e `total_encontrados`. Nenhuma regra
+  de recorrência, margem, quota, rota ausente ou autenticação é flexibilizada.
+- CA-014: homologar a lista completa primeiro em stage, comprovando ausência
+  de alterações em agendamentos, reservas, bloqueios, configuração e matriz
+  operacionais. Esta evolução não autoriza publicação em produção.
 
 ## Rollout e exclusões
 
