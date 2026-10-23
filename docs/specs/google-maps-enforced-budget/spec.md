@@ -1,3 +1,9 @@
+# Publicação autorizada do período explícito — 23/10/2026
+
+Após apresentação do stage `dde520a2` (PR #456), o usuário autorizou publicar somente esta correção: estimativa limitada à preferência de datas, matriz válida primeiro, avaliação de âncoras dentro do período e período exibido no popup. Manter Agenda monitorada, referências de 650 chamadas/R$25 dia e 13.000/R$500 mês, seis caps de extras em zero e nenhuma política automática habilitada. Preservar cache sem expiração por idade, flags e configuração financeira existentes. Não reativar/resetar orçamento nem copiar configuração de stage.
+
+Promoção protegida stage → main com isolamento temporário no Git das entregas paralelas de Agenda, egress/WhatsApp e revisão clínica. O módulo agenda.py recebe somente os trechos da correção autorizada; a entrega Completar dia e os demais módulos exclusivos de stage ficam preservados para restauração no Git. A aplicação de stage já validada continua instalada enquanto essas operações de organização do Git têm seus deploys redundantes cancelados antes de qualquer etapa VPS. Preservar os seis arquivos de runtime, banco de frases e dados reais; nunca restaurar dados para ocultar atividade concorrente.
+
 # Período explícito da busca — correção somente em stage, 23/10/2026
 
 O pedido deste ciclo autoriza corrigir e validar em stage antes de apresentar o resultado; não autoriza produção. Para `agenda_offers` e `agenda_proximity`, uma preferência com `data_inicio`/`data_fim` substitui integralmente a janela aproximada, as datas de contato/referência e a expansão por política/progressão na estimativa. Quando não há intervalo explícito, mantém-se o envelope conservador da busca sem restrição. Validação de oferta continua usando a data local do horário escolhido.
