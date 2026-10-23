@@ -1,3 +1,11 @@
+# Período explícito — validação em andamento, somente stage (23/10/2026)
+
+Provas exigidas: Hoje com rotas fora do período ausentes não aumenta a estimativa; intervalo explícito vence datas de referência/contato, janela de proximidade e políticas; faltantes dentro do intervalo são contados; cache completo dispensa popup/ledger; primeira saída continua limitada e discriminada; busca real sintética retorna ofertas dentro do período sem pagar por âncoras externas; cancelar não envia transporte, confirmar não libera replay; Agenda monitorada e extras/automações continuam protegidos. Popup exibe o período sem deslocamento de data por UTC.
+
+Local concluído: 353 casos Agenda/Maps aprovados, 30 cenários PostgreSQL reservados a CI/stage e 96 subcasos; 35 testes frontend, TypeScript e ESLint aprovados. Quatro novos casos comprovam cache somente no período, intervalo que prevalece sobre referência/contato/políticas, faltantes dentro do intervalo e ofertas reais sintéticas sem novas rotas para âncoras externas. Cache de hoje com outros dias sem matriz retorna zero sem ledger; primeira saída isolada reserva no máximo duas tentativas, executa um transporte simulado e recusa replay.
+
+Executar casos instalados em schemas PostgreSQL temporários, sem Google e sem alterações em registros operacionais. Confirmar o SHA e o deploy terminal de stage, dados/runtime/configuração preservados e produção sem alteração. Exemplos visuais usam apenas dados fictícios, pois os endereços de stage não representam a operação real. Registrar resultado local e instalado nesta seção antes da entrega; publicação em produção depende de nova autorização.
+
 # Homologação concluída e publicação autorizada — 23/10/2026
 
 Stage `d497ffb2` (#451), workflow `39891593361` terminal aprovado, junto com Frontend CI, Migration CI e orçamento Maps PostgreSQL. Canário instalado: 28/28, zero Google, zero alterações operacionais, zero schemas restantes. Matriz parcial: seis tentativas em vez do teto administrativo de 4.096; matriz completa: zero sem ledger/grant; busca real sintética com primeira saída: envelope de 12 e nenhum transporte duplicado. Cancelamento, concorrência, replay, limites e extras/automações preservados. 35 testes frontend, TypeScript, lint e SDD aprovados.

@@ -598,6 +598,110 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
         self.assertEqual(plan['search_end'], '2099-05-25')
         self.assertGreater(plan['missing_directions'], 0)
 
+    def seed_cached_today_with_uncached_other_days(self):
+        from app.models.clinica import Clinica
+        with self.sessions() as db:
+            template = db.get(Agendamento, self.id)
+            for a in (1, 2, 3):
+                for b in (1, 2, 3):
+                    if a != b:
+                        db.add(ClinicaDeslocamento(origem_clinica_id=a, destino_clinica_id=b,
+                            perfil='comercial', distancia_km=1, duracao_min=10,
+                            fonte='google_routes_api', updated_at=datetime.utcnow()-timedelta(days=3650)))
+            for cid, day in ((4, 24), (5, 27)):
+                db.add(Clinica(id=cid, nome=f'Outside-period synthetic {cid}', ativo=True,
+                    latitude=-3.7-cid/1000, longitude=-38.5, place_id=f'synthetic-{cid}'))
+                start = datetime(2099, 5, day, 10, tzinfo=agenda.LOCAL_TZ)
+                db.add(Agendamento(clinica_id=cid, tutor_id=template.tutor_id,
+                    paciente_id=template.paciente_id, servico_id=template.servico_id,
+                    inicio=start, fim=start+timedelta(minutes=30), data=f'2099-05-{day}',
+                    hora='10:00', status='Agendado'))
+            db.commit()
+
+    def test_explicit_today_ignores_other_days_and_uses_cache_without_paid_ledger(self):
+        self.seed_cached_today_with_uncached_other_days()
+        body = {'clinica_id': 2, 'data': '2099-05-25', 'data_contato': '2099-05-25',
+            'preferencia': {'data_inicio': '2099-05-25', 'data_fim': '2099-05-25'}}
+        broken = Mock()
+        broken.connect.side_effect = AssertionError('Cached requested period accessed paid ledger')
+        with patch.object(guard.database, 'engine', broken):
+            response = self.search_preview(body)
+        self.assertEqual(response.status_code, 200, response.text)
+        quote = response.json()
+        self.assertFalse(quote['required'])
+        self.assertEqual(quote['max_calls'], 0)
+        self.assertEqual(quote['route_estimate']['search_start'], '2099-05-25')
+        self.assertEqual(quote['route_estimate']['search_end'], '2099-05-25')
+        self.assertEqual(quote['route_estimate']['missing_directions'], 0)
+        self.assertGreater(quote['route_estimate']['cached_directions'], 0)
+        broken.connect.assert_not_called()
+        self.outbound.assert_not_called()
+
+    def test_explicit_interval_overrides_reference_contact_and_policy_dates(self):
+        from app.services.google_maps_agenda_estimate import estimate_search
+        self.seed_cached_today_with_uncached_other_days()
+        for action in ('agenda_offers', 'agenda_proximity'):
+            with self.subTest(action=action), self.sessions() as db:
+                plan = estimate_search(db, action, {'clinica_id': 2,
+                    'data': '2099-05-01', 'data_contato': '2099-05-01',
+                    'janela_dias_proximidade': 30,
+                    'preferencia': {'data_inicio': '2099-05-25', 'data_fim': '2099-05-26'}})
+            self.assertEqual((plan['search_start'], plan['search_end']), ('2099-05-25', '2099-05-26'))
+            self.assertEqual(plan['missing_directions'], 0)
+            self.assertEqual(plan['max_calls'], 0)
+        self.outbound.assert_not_called()
+
+    def test_requested_period_still_counts_missing_routes_inside_interval(self):
+        from app.services.google_maps_agenda_estimate import estimate_search
+        self.seed_cached_today_with_uncached_other_days()
+        with self.sessions() as db:
+            plan = estimate_search(db, 'agenda_offers', {'clinica_id': 2,
+                'data': '2099-05-25', 'data_contato': '2099-05-25',
+                'preferencia': {'data_inicio': '2099-05-25', 'data_fim': '2099-05-27'}})
+        self.assertEqual(plan['search_start'], '2099-05-25')
+        self.assertEqual(plan['search_end'], '2099-05-27')
+        self.assertEqual(plan['missing_directions'], 2)  # Target <-> new clinic on the 27th.
+        self.assertEqual(plan['max_calls'], 4)
+        self.outbound.assert_not_called()
+
+    def test_explicit_today_real_offers_never_pay_for_outside_policy_anchors(self):
+        from app.models.configuracao import Configuracao
+        from app.models.clinica import Clinica
+        self.configure(monitor=True)
+        self.seed_cached_today_with_uncached_other_days()
+        with self.sessions() as db:
+            db.get(Configuracao, 1).agenda_rota_regras = json.dumps({
+                'base': {'address': 'Synthetic base', 'lat': -3.7, 'lng': -38.5},
+                'route_policy': {'reject_clear_inefficiency': False}})
+            for clinic in db.query(Clinica):
+                clinic.latitude = -3.7-clinic.id/1000
+            db.commit()
+        body = {'clinica_id': 2, 'data': '2099-05-25', 'data_contato': '2099-05-25',
+            'preferencia': {'data_inicio': '2099-05-25', 'data_fim': '2099-05-25'}}
+        path = '/api/v1/agenda/assistente/ofertas'
+        unpaid = self.client.post(path, json=body)
+        self.assertEqual(unpaid.status_code, 409, unpaid.text)
+        self.outbound.assert_not_called()
+        quote = self.search_preview(body).json()
+        self.assertEqual(quote['max_calls'], 2)  # Only first departure + its possible fallback.
+        self.assertEqual(quote['route_estimate']['missing_directions'], 0)
+        self.outbound.assert_not_called()  # Cancelling at this point costs nothing.
+        token = self.client.post('/api/v1/google-maps-control/confirm',
+            json={'quote_id': quote['quote_id']}).json()['token']
+        with patch.object(agenda, '_existe_ancora_proxima_no_dia', wraps=agenda._existe_ancora_proxima_no_dia) as anchors:
+            result = self.client.post(path, json=body, headers={'X-Google-Maps-Action': token})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertTrue(result.json()['panorama_ofertas']['items'])
+        self.assertTrue(all(call.kwargs['data_iso']=='2099-05-25' for call in anchors.call_args_list))
+        self.assertEqual(self.outbound.call_count, 1)
+        for item in result.json()['panorama_ofertas']['items']:
+            self.assertEqual(str(item['inicio'])[:10], '2099-05-25')
+        count = self.outbound.call_count
+        self.assertEqual(self.client.post(path, json=body, headers={'X-Google-Maps-Action': token}).status_code, 409)
+        self.assertEqual(self.outbound.call_count, count)
+        with self.sessions() as db:
+            self.assertEqual(db.query(Agendamento).count(), 5)
+
     def test_search_confirmation_is_finite_and_extras_stay_closed(self):
         self.configure(monitor=True)
         response = self.search_preview()

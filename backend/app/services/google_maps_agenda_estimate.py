@@ -49,7 +49,13 @@ def estimate_search(db, action, body):
     except ValueError:
         raise HTTPException(422, "Data inválida para estimar esta busca da Agenda.") from None
     starts, ends = [reference], [reference]
-    if action in {"agenda_offers", "agenda_proximity"}:
+    preference = getattr(payload, "preferencia", None)
+    if action in {"agenda_offers", "agenda_proximity"} and preference and preference.data_inicio:
+        # An explicit period is authoritative, including when reference/contact
+        # dates lie outside it. Do not union it with proximity/policy windows.
+        starts = [date.fromisoformat(preference.data_inicio)]
+        ends = [date.fromisoformat(preference.data_fim)]
+    elif action in {"agenda_offers", "agenda_proximity"}:
         window = int(payload.janela_dias_proximidade or 7)
         starts += [reference - timedelta(days=window), contact]
         ends += [reference + timedelta(days=window), contact + timedelta(days=3)]
@@ -61,11 +67,7 @@ def estimate_search(db, action, body):
             if isinstance(override, dict):
                 offsets.extend(override.get("force_days_ahead") or [])
         ends.append(contact + timedelta(days=max(int(x) for x in offsets)))
-        preference = payload.preferencia
-        if preference and preference.data_inicio:
-            starts.append(date.fromisoformat(preference.data_inicio))
-            ends.append(date.fromisoformat(preference.data_fim))
-        elif action == "agenda_offers":
+        if action == "agenda_offers":
             ends.append(max(ends) + timedelta(days=agenda.ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS))
     start, end = min(starts), max(ends)
     items = agenda._listar_agendamentos_ativos_periodo(
