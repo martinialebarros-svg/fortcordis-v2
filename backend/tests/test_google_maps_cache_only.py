@@ -167,15 +167,25 @@ class GoogleMapsCacheOnlyTest(unittest.TestCase):
     def test_stale_google_cache_is_not_reused_or_renewed(self):
         timestamp = self.seed_route(age_days=8)
         self.configure()
-        self.assertEqual(self.lookup().status_code, 409)
+        with patch.object(routes.settings, "GOOGLE_ROUTES_CACHE_EXPIRE_BY_AGE", True):
+            self.assertEqual(self.lookup().status_code, 409)
         with self.sessions() as db:
             self.assertEqual(db.query(ClinicaDeslocamento).one().updated_at, timestamp)
 
     def test_unbounded_ttl_does_not_make_old_google_cache_valid(self):
         self.seed_route(age_days=100)
         self.configure()
-        with patch.object(routes.settings, "GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS", 0):
+        with patch.object(routes.settings, "GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS", 0), \
+             patch.object(routes.settings, "GOOGLE_ROUTES_CACHE_EXPIRE_BY_AGE", True):
             self.assertEqual(self.lookup().status_code, 409)
+
+    def test_old_google_cache_remains_free_without_age_expiry(self):
+        timestamp = self.seed_route(age_days=3650)
+        self.configure()
+        self.assertFalse(routes.settings.GOOGLE_ROUTES_CACHE_EXPIRE_BY_AGE)
+        self.assertEqual(self.lookup().status_code, 200)
+        with self.sessions() as db:
+            self.assertEqual(db.query(ClinicaDeslocamento).one().updated_at, timestamp)
 
     def test_changed_geocode_invalidates_google_cache(self):
         self.seed_route(age_days=1)

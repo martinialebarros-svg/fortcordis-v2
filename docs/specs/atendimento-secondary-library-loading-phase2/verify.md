@@ -30,9 +30,9 @@ Evidencias: stage `b5f632fb`, [Deploy to Stage](https://github.com/martinialebar
 - [x] Antes da correcao: dois cenarios novos reproduzem `QueuePool TimeoutError` com pool de tres conexoes e overflow zero (pool ocupado e GETs simultaneos).
 - [x] Depois da correcao: seis testes em `test_clinical_phrase*.py` passam, incluindo seed, filtros, paginacao, preservacao de trabalho pendente e tres GETs simultaneos com exatamente tres checkouts; zero DML durante as leituras com fixtures ja semeadas.
 - [x] Regressao ampliada: 14 testes `*pool*.py`, lint e TypeScript do frontend passam.
-- [ ] Canario `scripts/clinical_phrase_pool_stage_canary.py --expected-sha <SHA completo instalado>`: PostgreSQL de stage, duas verificacoes funcionais e cinco rodadas de tres GETs simultaneos, com schemas descartaveis removidos.
-- [ ] Workflow de stage terminal verde, API/worker reiniciados pelo deploy normal e snapshot instalado confirmado.
-- [ ] Seis arquivos de runtime preservados antes/depois; nenhum registro real alterado pelo teste e nenhuma chamada a provedor.
-- [ ] Apresentacao do resultado antes de qualquer publicacao em producao.
+- [x] Canario instalado em `ab1696852acf2cf0b4d6239dad7f6f519348e25a`: duas verificacoes funcionais e cinco rodadas de tres GETs, 15/15 HTTP 200, exatamente tres checkouts por rodada, zero DML nas leituras e zero schemas restantes.
+- [x] [Deploy de stage](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/39876285706) terminal verde; API/worker/frontend reiniciados e snapshot instalado confirmado.
+- [x] Seis arquivos de runtime e banco de frases preservados (33 frases stage, 35 producao); configuracao Maps preservada; zero chamadas a provedor. Producao permanece no snapshot anterior, sem alteracoes deste ciclo.
+- [x] Resultado apresentado ao usuario em 22/10 antes de qualquer producao. A retirada de expiracao da matriz solicitada depois segue seu proprio ciclo de stage.
 
 Reproducao local: `cd backend && <venv>/bin/python -m unittest discover -s tests -p 'test_clinical_phrase*.py' -v`. A identidade da prova HTTP e sintetica; a autenticacao apenas simula a ocupacao previa da conexao usando a mesma sessao do handler real. Os testes nao acessam o banco operacional.

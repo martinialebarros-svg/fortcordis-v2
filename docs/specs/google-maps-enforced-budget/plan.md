@@ -1,5 +1,12 @@
 # Plano de implementação e entrega
 
+## Decisão de 22/10/2026 — remover expiração automática por idade
+
+1. Desativar por padrão o critério de idade (`GOOGLE_ROUTES_CACHE_EXPIRE_BY_AGE=false`), preservando validação de localização, conteúdo e procedência da rota; não alterar datas de linhas existentes.
+2. Aplicar a mesma política à matriz, Agenda e modo `cache_only`; não usar TTL zero como atalho para aceitar registros sem evidência. Expor a política na API e no painel de Logística.
+3. Provar que rota Google de dez anos é reutilizada sem ledger/rede, que geocode posterior ainda exige confirmação e que heurística antiga não passa a fornecer disponibilidade. Conservar regressões da política antiga somente como opt-in explícito.
+4. Executar o canário de Agenda com PostgreSQL e schemas descartáveis no snapshot instalado de stage, além de repetir o canário de pool das frases. Preservar arquivos/runtime e dados reais; não publicar em produção neste ciclo.
+
 ## Endereço do tutor usado no agendamento domiciliar
 
 O botão de georreferenciar endereço dentro da Agenda utiliza `POST /agenda/geocode-endereco-tutor`, ação registrada `agenda_tutor_geocode`, limitada a uma unidade Geocoding por confirmação e vinculada ao endereço exato. Como parte do agendamento humano, essa consulta pode ultrapassar referências em `monitor`, após consentimento. O endpoint cadastral avulso continua sujeito ao teto rígido. Não usar flag arbitrária de payload para promover lote a ação da Agenda. Testar tentativa sem token/cancelamento sem transporte, confirmação de uma unidade, replay negado e preservação da regra do endpoint avulso.
