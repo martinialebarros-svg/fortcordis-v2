@@ -5,9 +5,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, event, func, select, text
+from sqlalchemy.orm import sessionmaker
 import test_agenda_maps_budget_atomicity as fixtures
 from app.api.v1.endpoints import agenda, google_maps_cost_control as control_api
 from app.core.security import get_current_user
@@ -43,7 +44,8 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
 
         def db_dependency():
             with self.sessions() as db:
-                yield db
+                with guard.agenda_business_session(db):
+                    yield db
         self.app.dependency_overrides[agenda.get_db] = db_dependency
         self.app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=7, nome='Synthetic reception', tem_papel=lambda _: True)
         self.client = TestClient(self.app)
@@ -96,8 +98,7 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
         self.assertEqual(result.status_code, 503, result.text)
         self.outbound.assert_not_called()
         with self.sessions() as db:
-            self.assertEqual(db.get(Agendamento, self.id).inicio.hour, 11)
-            self.assertEqual(db.get(Agendamento, self.id).inicio.minute, 0)
+            self.assertEqual(db.get(Agendamento, self.id).inicio, self.original_start)
 
     def test_internal_monitor_finite_scope_expires_closes_and_cannot_authorize_background(self):
         self.configure(monitor=True)
@@ -240,6 +241,51 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
         self.assertEqual(row['max_calls'], 2)  # First departure and its possible fallback only.
         self.assertEqual(row['used_calls'], 1)
         self.assertEqual(row['state'], 'finished')
+
+    def test_internal_monitor_planner_reuses_business_connection_under_concurrency(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from app.db import database
+        from app.services import google_maps_agenda_estimate as estimator
+        from threading import Lock
+        from time import sleep
+        options = {'connect_args': {'check_same_thread': False}} if self.engine.dialect.name == 'sqlite' else {}
+        bounded = create_engine(self.engine.url, pool_size=1, max_overflow=0, pool_timeout=3, **options)
+        sessions = sessionmaker(bind=bounded, autoflush=False)
+        checkouts, identities = [], set()
+        lock = Lock()
+        @event.listens_for(bounded, 'checkout')
+        def checkout(*_):
+            with lock:
+                checkouts.append(1)
+        def estimate(db, action, body):
+            self.assertEqual(db.scalar(text('SELECT 1')), 1)
+            self.assertEqual(bounded.pool.checkedout(), 1)
+            with lock:
+                identities.add(id(db))
+            sleep(0.01)
+            return {'max_calls': 2}
+        app = FastAPI()
+        @app.post('/api/v1/agenda/assistente/ofertas')
+        def search(db=Depends(database.get_db)):
+            self.assertEqual(db.scalar(text('SELECT 1')), 1)
+            result = middleware._estimate_agenda_action('agenda_offers', {})
+            self.assertIs(guard.current_agenda_business_session(), db)
+            return result
+        app.add_middleware(middleware.GoogleMapsCostMiddleware)
+        try:
+            with patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', False), \
+                    patch.object(database, 'SessionLocal', sessions), \
+                    patch.object(middleware, 'SessionLocal', side_effect=AssertionError('Planner opened another session')), \
+                    patch.object(estimator, 'estimate_search', side_effect=estimate), TestClient(app) as client:
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    results = list(pool.map(lambda _: client.post('/api/v1/agenda/assistente/ofertas', json={}), range(8)))
+            self.assertTrue(all(r.status_code == 200 for r in results), [r.status_code for r in results])
+            self.assertEqual(len(checkouts), 8)  # Exactly one business checkout per request.
+            self.assertEqual(len(identities), 8)
+            self.assertEqual(bounded.pool.checkedout(), 0)
+            self.outbound.assert_not_called()
+        finally:
+            bounded.dispose()
 
     def test_internal_monitor_failed_estimate_never_uses_generic_cap(self):
         self.configure(monitor=True)

@@ -269,6 +269,27 @@ class Execution:
     estimate_loader: Callable | None = None
     internal_estimate: dict | None = None
     internal_fingerprint: str | None = None
+    business_session: Any = field(default=None, repr=False)
+
+
+@contextmanager
+def agenda_business_session(session):
+    """Reuse the endpoint session for lazy planning; never nest a pool checkout."""
+    execution = _execution.get()
+    if not _internal_agenda_requested(execution):
+        yield
+        return
+    previous = execution.business_session
+    execution.business_session = session
+    try:
+        yield
+    finally:
+        execution.business_session = previous
+
+
+def current_agenda_business_session():
+    execution = _execution.get()
+    return execution.business_session if _internal_agenda_requested(execution) else None
 
 
 def _internal_agenda_requested(execution):
