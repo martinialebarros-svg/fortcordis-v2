@@ -1,3 +1,9 @@
+## Resultado da homologação isolada de stage — 24/10/2026
+
+SHA `ce44bb47a5b5551deb5f5e0476ed2a264b783e33`: 44/44 cenários aprovados no PostgreSQL de stage em checkout privado com identidade do projeto verificada. Zero Google, zero alterações em dados operacionais, zero schemas restantes. Oito requisições concorrentes reutilizaram uma conexão de negócio por requisição, sem checkout extra do planejador. Local: 143 testes Maps (30 skips PostgreSQL), 252 Agenda, 39 frontend; tipos/lint/build aprovados. Corrigida comparação do fixture independente do fuso do PostgreSQL; não foi defeito de agendamento.
+
+Aplicação operacional de stage permanece `2c50d8a0`, preservando runtime, banco, ENV, frases e configuração financeira. O workflow completo anterior passou no quality-gate, mas a instalação parou na identidade externa WhatsApp de teste, sem código instalado. Não confundir a prova isolada com deploy da aplicação de stage. Fluxos Git de isolamento/restauração cancelam seus deploys antes da VPS. Produção será validada separadamente pelo workflow terminal e política instalada; nenhuma chamada paga ou agendamento produtivo de teste.
+
 ## Concorrência e homologação isolada — 24/10/2026
 
 Teste de oito requisições HTTP simultâneas, pool de negócio com uma conexão, uma aquisição por requisição e zero conexões extras do planejador aprovado localmente. Sessão vinculada pela dependência real de banco, sem herança fora do escopo. Canário ampliado para 44 cenários.
