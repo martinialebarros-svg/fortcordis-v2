@@ -1,3 +1,7 @@
+## Dependências HTTP — 24/10/2026
+
+O lockfile do backend Node deve usar `body-parser` 2.4.0 e `multer` 2.5.0 (mesma faixa major já permitida), com `qs` 6.16.1 exigido pelo parser. Correção das advisories GHSA-27r3-jxmh-p828 e GHSA-q7qp-rjg7-q26m detectadas pelo gate de publicação. Preservar rotas, autenticação, configurações, mensagens e isolamento dos ambientes. Nenhum envio real é necessário para validar a atualização.
+
 # Spec - agenda-whatsapp-cloud-api
 
 Data: 2026-08-14
