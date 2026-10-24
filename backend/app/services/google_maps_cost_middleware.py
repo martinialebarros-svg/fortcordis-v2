@@ -20,6 +20,17 @@ def _authenticate(request):
         return get_current_user(request=request, token=None, db=session).id
 
 
+def _estimate_agenda_action(action, body):
+    from app.services.google_maps_agenda_estimate import SEARCH_MODELS, estimate_search
+    if action not in SEARCH_MODELS:
+        return None
+    # Lazy: a request satisfied from cache never opens this planning session.
+    # Close it before the ledger's independent reservation transaction opens.
+    with SessionLocal() as session:
+        with session.no_autoflush:
+            return estimate_search(session, action, body)
+
+
 class GoogleMapsCostMiddleware:
     def __init__(self, app):
         self.app = app
@@ -60,6 +71,7 @@ class GoogleMapsCostMiddleware:
                 claim_execution, user_id, request.headers.get("X-Google-Maps-Action"),
                 scope["method"], scope["path"], query, body,
             )
+            execution.estimate_loader = lambda: _estimate_agenda_action(execution.request_action, body)
         except HTTPException as exc:
             await JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)(scope, receive, send)
             return

@@ -22,19 +22,26 @@ describe("Agenda cache-first sem bloquear trabalho local", () => {
   let paidQuote: MapsQuote;
   let previewFailure: boolean;
   let paidDenial: boolean;
+  let serverRecorded: boolean;
   beforeEach(() => {
     prior = api.defaults.adapter; requests = []; cacheHit = false; paidCalls = 0;
     paidQuote = { ...quote }; previewFailure = false; paidDenial = false;
+    serverRecorded = false;
     const adapter: AxiosAdapter = async (config) => {
       requests.push(config);
       const ok = (data: unknown) => ({ config, data, status: 200, statusText: "OK", headers: new AxiosHeaders() });
       if (config.url === "/google-maps-control/preview") {
         if (previewFailure) throw new AxiosError("Synthetic preview offline", "ERR_NETWORK", config);
         const body = JSON.parse(config.data);
-        return ok(body.paid_call_required ? paidQuote : { ...quote, operation_mode: "cache_first", required: false, quote_id: null, max_calls: 0, estimated_cost_max_brl: 0 });
+        return ok(body.paid_call_required ? paidQuote : { ...quote, operation_mode: "cache_first", required: false, quote_id: null, max_calls: 0, estimated_cost_max_brl: 0, confirmation_mode: serverRecorded ? "server_recorded" : "per_action" });
       }
       if (config.url === "/google-maps-control/confirm") return ok({ token: `synthetic-once-${requests.length}` });
       if (config.url === "/agenda") {
+        if (serverRecorded) {
+          if (paidDenial) throw new AxiosError("Synthetic ledger offline", "ERR_BAD_RESPONSE", config, undefined,
+            { config, data: { detail: { code: "GOOGLE_MAPS_COST_BLOCKED", reason: "ledger_unavailable", message: "Não foi possível verificar o limite compartilhado." } }, status: 503, statusText: "Unavailable", headers: new AxiosHeaders() });
+          paidCalls++; return ok({ id: 123 });
+        }
         const authorized = config.headers.has("X-Google-Maps-Action");
         if (authorized) { paidCalls++; if (!paidDenial) return ok({ id: 123 }); }
         else if (cacheHit) return ok({ id: 123 });
@@ -59,6 +66,32 @@ describe("Agenda cache-first sem bloquear trabalho local", () => {
     expect(requests.map((r) => r.url)).toEqual(["/google-maps-control/preview", "/agenda"]);
     expect(requests[0].timeout).toBe(3_000);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("registro interno conclui uma execução sem popup, confirmação ou repetição", async () => {
+    serverRecorded = true; render(<GoogleMapsActionGuard />);
+    const result = await api.post("/agenda", { inicio: "2099-05-25T11:30:00" });
+    expect(result.data.id).toBe(123); expect(paidCalls).toBe(1);
+    expect(requests.map((r) => r.url)).toEqual(["/google-maps-control/preview", "/agenda"]);
+    expect(requests[1].headers.has("X-Google-Maps-Action")).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("registro interno continua no servidor se a prévia estiver indisponível", async () => {
+    serverRecorded = true; previewFailure = true; render(<GoogleMapsActionGuard />);
+    await api.post("/agenda", {});
+    expect(paidCalls).toBe(1);
+    expect(requests.filter((r) => r.url === "/agenda")).toHaveLength(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("falha real do ledger permanece visível sem popup de custo nem tentativas extras", async () => {
+    serverRecorded = true; paidDenial = true; render(<GoogleMapsActionGuard />);
+    await api.post("/agenda", {}).catch(() => undefined);
+    expect(await screen.findByRole("alert")).toHaveTextContent("limite compartilhado");
+    expect(screen.queryByRole("dialog")).toBeNull(); expect(paidCalls).toBe(0);
+    expect(requests.filter((r) => r.url === "/agenda")).toHaveLength(1);
   });
 
   it("cancelar após miss preserva formulário e não consulta Google", async () => {

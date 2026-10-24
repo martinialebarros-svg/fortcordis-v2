@@ -1,3 +1,15 @@
+# Registro interno da Agenda — validação de 24/10/2026
+
+Escopo atual: retirar popups de custo da Agenda humana monitorada sem remover o ledger, os caps por execução, o cache prioritário ou os bloqueios de extras/automações. Referências financeiras existentes preservadas; nenhuma migração ou reset do histórico. Rollout explícito da flag de confirmação, com default seguro `true` e ativação `false` somente após prova instalada.
+
+Validação cobre HTTP direto sem confirmar, cache sem ledger/plano, falha de ledger sem envio/commit, busca real sintética limitada ao período, plano indisponível sem fallback genérico, limite/prazo/reconexão, concorrência compartilhada, background sem herança, revisão de preços apenas como alerta e retorno reversível à confirmação. Os testes não simulam consentimento humano com chamadas automáticas a `/confirm`.
+
+O canário instalado agrega onze cenários novos aos 32 anteriores, em schemas PostgreSQL descartáveis, transportes Google interceptados e sem modificar agendamentos operacionais. Instalação exige verificar SHA e política efetiva, além de runtime/dados preservados. A comprovação produtiva será somente leitura e não fará consultas pagas, prévias, confirmações ou agendamentos de teste.
+
+O monitor deve distinguir o release e a flag de rollout: antes de `false`, `confirmation_required` pode ser o fluxo esperado; depois de `false` na Agenda monitorada, investigar novas ocorrências no fluxo humano. Observar também o painel Google usando sessão existente, sem chaves/credenciais novas ou mudanças de quota. Valores do Google, previsões e ledger permanecem separados e suas janelas explícitas.
+
+Resultados locais e instalados deste ciclo serão registrados abaixo e no relatório privado; os resultados históricos seguintes não comprovam a nova política.
+
 # Homologação do período concluída e promoção autorizada — 23/10/2026
 
 Stage instalado `dde520a26bda6fbd69178130707950dae00d1696`, workflow `39949978355` terminal success e PR #456: 32/32 cenários PostgreSQL descartáveis, zero Google, zero alterações operacionais, zero schemas restantes. Casos de Hoje/intervalo, cache completo sem ledger, faltantes internos e primeira saída sem consultar âncoras externas aprovados. Frontend autenticado de stage conferido com demonstração fictícia e cancelamento sem consulta. Local: 353 testes Agenda/Maps, 35 frontend, tipos/lint/build/SDD aprovados; CI completa aprovada. Evidência privada em `maps-requested-period-stage/resultado-stage.md` e no corpo de #456.

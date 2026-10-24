@@ -70,6 +70,16 @@ describe("administração de custos Google Maps", () => {
     fireEvent.submit(screen.getByRole("button", { name: "Salvar controles" }).closest("form")!);
     await waitFor(() => expect(mocks.put).toHaveBeenCalledWith("/google-maps-control/config", expect.objectContaining({ agenda_budget_mode: "monitor", limits: expect.objectContaining({ month: { calls: 500, estimated_brl: 50 } }) })));
   });
+
+  it("mostra registro interno sem prometer popup quando a política vem do servidor", async () => {
+    mocks.get.mockResolvedValue({ data: { ...existing, agenda_budget_mode: "monitor", agenda_confirmation_required: false,
+      config: { ...existing.config, agenda_budget_mode: "monitor" },
+      history: [{ ...existing.history[0], kind: "internal_authorized", reason: "agenda_internal_record", message: "Execução registrada com limite próprio." }] } });
+    render(<GoogleMapsAdminPanel />);
+    expect(await screen.findByText(/Custos registrados internamente, sem popup na Agenda/)).toBeVisible();
+    expect(screen.getByText(/Registro interno — execução limitada/)).toBeVisible();
+    expect(mocks.put).not.toHaveBeenCalled();
+  });
   it("opt-in automático exige limites próprios e não copia os globais", async () => {
     mocks.get.mockResolvedValue({ data: existing });
     render(<GoogleMapsAdminPanel />);

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, select
 import test_agenda_maps_budget_atomicity as fixtures
 from app.api.v1.endpoints import agenda, google_maps_cost_control as control_api
 from app.core.security import get_current_user
@@ -21,6 +21,9 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
 
     def setUp(self):
         fixtures.AgendaMapsBudgetAtomicityTest.setUp(self)
+        p = patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', True)
+        p.start()
+        self.addCleanup(p.stop)
         self.ledger = getattr(self, '_isolated_engine', None)
         if self.ledger is None:
             self.ledger = create_engine('sqlite:///' + str(Path(self.temp.name) / 'ledger.db'), connect_args={'check_same_thread': False})
@@ -52,6 +55,215 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
 
     def tearDown(self):
         fixtures.AgendaMapsBudgetAtomicityTest.tearDown(self)
+
+    def test_internal_monitor_direct_request_records_without_popup_or_confirmation(self):
+        self.configure(monitor=True)
+        with patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', False):
+            self.assertFalse(self.preview().json()['required'])
+            self.assertFalse(self.preview(paid=True).json()['required'])
+            result = self.client.put(self.path, json=self.body)
+            self.assertEqual(result.status_code, 200, result.text)
+            status = guard.get_status()
+        self.assertEqual(self.outbound.call_count, 2)
+        self.assertFalse(status['agenda_confirmation_required'])
+        self.assertEqual(status['consumption']['day']['calls'], 2)
+        self.assertTrue(status['alerts'])  # References are zero in this fixture.
+        self.assertEqual(sum(e['kind']=='internal_authorized' for e in status['history']), 1)
+        self.assertFalse(any(e['kind']=='confirmed' for e in status['history']))
+        with self.ledger.connect() as conn:
+            rows = conn.execute(select(guard.ACTIONS)).mappings().all()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['state'], 'finished')
+        self.assertEqual(rows[0]['max_calls'], 4)
+        self.assertEqual(rows[0]['used_calls'], 2)
+        self.assertIsNone(rows[0]['token_hash'])
+        self.assertEqual(len(rows[0]['fingerprint']), 64)
+
+    def test_internal_monitor_cached_request_needs_no_ledger_or_estimate(self):
+        self.seed_cache()
+        with patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', False), \
+                patch.object(guard, '_locked', side_effect=AssertionError('Cached request opened ledger')), \
+                patch.object(middleware, '_estimate_agenda_action', side_effect=AssertionError('Cached request planned paid work')):
+            result = self.client.put(self.path, json=self.body)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.outbound.assert_not_called()
+
+    def test_internal_monitor_cold_ledger_failure_never_sends(self):
+        self.configure(monitor=True)
+        with patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', False), \
+                patch.object(guard, '_locked', side_effect=guard.GoogleMapsCostBlocked('ledger_unavailable', status_code=503)):
+            result = self.client.put(self.path, json=self.body)
+        self.assertEqual(result.status_code, 503, result.text)
+        self.outbound.assert_not_called()
+        with self.sessions() as db:
+            self.assertEqual(db.get(Agendamento, self.id).inicio.hour, 11)
+            self.assertEqual(db.get(Agendamento, self.id).inicio.minute, 0)
+
+    def test_internal_monitor_finite_scope_expires_closes_and_cannot_authorize_background(self):
+        self.configure(monitor=True)
+        with patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', False):
+            execution = guard.claim_execution(7, None, 'PUT', self.path, None, self.body)
+            token = guard.bind_execution(execution)
+            try:
+                for _ in range(4):
+                    guard.authorize_google_call('routes_essentials')
+                with self.assertRaises(guard.GoogleMapsCostBlocked) as exc:
+                    guard.authorize_google_call('routes_essentials')
+                self.assertEqual(exc.exception.reason, 'action_limit')
+                guard.finish_execution(execution)
+                with self.assertRaises(guard.GoogleMapsCostBlocked) as exc:
+                    guard.authorize_google_call('routes_essentials')
+                self.assertEqual(exc.exception.reason, 'invalid_grant')
+            finally:
+                guard.reset_execution(token)
+            other = guard.claim_execution(7, None, 'PUT', self.path, None, self.body)
+            self.assertNotEqual(execution.action_id, other.action_id)
+            token = guard.bind_execution(other)
+            try:
+                guard.authorize_google_call('routes_essentials')
+                with patch.object(guard, '_now', return_value=guard._now()+guard.EXECUTION_TTL_SECONDS+1):
+                    with self.assertRaises(guard.GoogleMapsCostBlocked) as exc:
+                        guard.authorize_google_call('routes_essentials')
+                    self.assertEqual(exc.exception.reason, 'invalid_grant')
+            finally:
+                guard.reset_execution(token)
+                guard.finish_execution(other)
+            with guard.automatic_execution('not_enabled', 'synthetic-background'):
+                with self.assertRaises(guard.GoogleMapsCostBlocked) as exc:
+                    guard.authorize_google_call('routes_essentials')
+                self.assertEqual(exc.exception.reason, 'automatic_policy_required')
+            self.assertTrue(guard.create_preview(7, 'POST', '/api/v1/logistica/recalcular')['blocked'])
+        self.assertEqual(guard.get_status()['consumption']['day']['calls'], 5)
+        self.outbound.assert_not_called()  # Reservations only; no provider in this scope test.
+
+    def test_internal_monitor_does_not_bypass_enforce_mode(self):
+        self.configure()
+        with patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', False):
+            result = self.client.put(self.path, json=self.body)
+            self.assertEqual(result.status_code, 409, result.text)
+            self.assertEqual(result.json()['detail']['reason'], 'confirmation_required')
+            self.assertTrue(self.preview(paid=True).json()['required'])
+            self.assertTrue(guard.get_status()['agenda_confirmation_required'])
+        self.outbound.assert_not_called()
+
+    def test_internal_monitor_parallel_scopes_remain_finite_after_reconnect(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        self.configure(monitor=True)
+        barrier = Barrier(2)
+        def reserve(index):
+            execution = guard.claim_execution(7, None, 'PUT', self.path, None, {**self.body, 'synthetic_request': index})
+            token = guard.bind_execution(execution)
+            try:
+                barrier.wait(timeout=10)
+                for _ in range(4):
+                    guard.authorize_google_call('routes_essentials')
+                with self.assertRaises(guard.GoogleMapsCostBlocked) as exc:
+                    guard.authorize_google_call('routes_essentials')
+                self.assertEqual(exc.exception.reason, 'action_limit')
+                guard.finish_execution(execution)
+            finally:
+                guard.reset_execution(token)
+        with patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', False):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                list(pool.map(reserve, range(2)))
+        self.ledger.dispose()
+        with self.ledger.connect() as conn:
+            rows = conn.execute(select(guard.ACTIONS)).mappings().all()
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(row['state']=='finished' and row['used_calls']==row['max_calls']==4 for row in rows))
+        self.assertEqual(guard.get_status()['consumption']['day']['calls'], 8)
+        self.outbound.assert_not_called()
+
+    def test_internal_monitor_background_task_cannot_extend_http_authorization(self):
+        from fastapi import BackgroundTasks
+        self.configure(monitor=True)
+        app = FastAPI()
+        background_denials = []
+        def background():
+            try:
+                guard.authorize_google_call('routes_essentials')
+            except guard.GoogleMapsCostBlocked as exc:
+                background_denials.append(exc.reason)
+        @app.post('/api/v1/agenda')
+        def synthetic_scope(tasks: BackgroundTasks):
+            guard.authorize_google_call('routes_essentials')
+            tasks.add_task(background)
+            return {'synthetic_scope_only': True}
+        app.add_middleware(middleware.GoogleMapsCostMiddleware)
+        with patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', False), TestClient(app) as client:
+            result = client.post('/api/v1/agenda', json={})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(background_denials, ['invalid_grant'])
+        self.assertEqual(guard.get_status()['consumption']['day']['calls'], 1)
+        self.outbound.assert_not_called()
+
+    def test_internal_monitor_rollout_can_restore_interactive_policy(self):
+        self.configure(monitor=True)
+        with patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', False):
+            execution = guard.claim_execution(7, None, 'PUT', self.path, None, self.body)
+        # The default/rollback setting is True again before any paid attempt.
+        token = guard.bind_execution(execution)
+        try:
+            with self.assertRaises(guard.GoogleMapsCostBlocked) as exc:
+                guard.authorize_google_call('routes_essentials')
+            self.assertEqual(exc.exception.reason, 'confirmation_required')
+        finally:
+            guard.reset_execution(token)
+            guard.finish_execution(execution)
+        self.assertEqual(guard.get_status()['consumption']['day']['calls'], 0)
+        self.outbound.assert_not_called()
+
+    def test_internal_monitor_real_search_uses_requested_period_and_cache(self):
+        from app.models.configuracao import Configuracao
+        from app.models.clinica import Clinica
+        self.configure(monitor=True)
+        self.seed_cached_today_with_uncached_other_days()
+        with self.sessions() as db:
+            db.get(Configuracao, 1).agenda_rota_regras = json.dumps({
+                'base': {'address': 'Synthetic base', 'lat': -3.7, 'lng': -38.5},
+                'route_policy': {'reject_clear_inefficiency': False}})
+            for clinic in db.query(Clinica):
+                clinic.latitude = -3.7-clinic.id/1000
+            db.commit()
+        body = {'clinica_id': 2, 'data': '2099-05-25', 'data_contato': '2099-05-25',
+                'preferencia': {'data_inicio': '2099-05-25', 'data_fim': '2099-05-25'}}
+        with patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', False), \
+                patch.object(middleware, 'SessionLocal', self.sessions):
+            result = self.client.post('/api/v1/agenda/assistente/ofertas', json=body)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertTrue(result.json()['panorama_ofertas']['items'])
+        self.assertTrue(all(str(item['inicio'])[:10]=='2099-05-25' for item in result.json()['panorama_ofertas']['items']))
+        self.assertEqual(self.outbound.call_count, 1)
+        with self.ledger.connect() as conn:
+            row = conn.execute(select(guard.ACTIONS)).mappings().one()
+        self.assertEqual(row['max_calls'], 2)  # First departure and its possible fallback only.
+        self.assertEqual(row['used_calls'], 1)
+        self.assertEqual(row['state'], 'finished')
+
+    def test_internal_monitor_failed_estimate_never_uses_generic_cap(self):
+        self.configure(monitor=True)
+        body = {'clinica_id': 2, 'data': '2099-05-25', 'data_contato': '2099-05-25'}
+        with patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', False), \
+                patch.object(middleware, '_estimate_agenda_action', side_effect=RuntimeError('Synthetic unavailable plan')):
+            result = self.client.post('/api/v1/agenda/assistente/ofertas', json=body)
+        self.assertEqual(result.status_code, 503, result.text)
+        self.assertEqual(result.json()['detail']['reason'], 'estimate_unavailable')
+        self.outbound.assert_not_called()
+        with self.ledger.connect() as conn:
+            self.assertEqual(conn.execute(select(func.count()).select_from(guard.ACTIONS)).scalar(), 0)
+
+    def test_internal_monitor_expired_prices_warn_internally_and_extras_remain_closed(self):
+        self.configure(monitor=True)
+        self.review_date()
+        with patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', False):
+            result = self.client.put(self.path, json=self.body)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(self.outbound.call_count, 2)
+        alerts = [v for v in guard.get_status()['history'] if v['reason']=='pricing_review_due']
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]['kind'], 'budget_alert')
+        self.assertTrue(guard.create_preview(7, 'POST', '/api/v1/logistica/recalcular')['blocked'])
 
     def configure(self, day_calls=20, monitor=False):
         cfg = guard.CostConfiguration.model_validate({'enabled': True, 'limits': {'action': {'calls': 4, 'estimated_brl': 1}, 'day': {'calls': day_calls, 'estimated_brl': 5}, 'month': {'calls': 100, 'estimated_brl': 20}}, 'prices_usd': {sku: '0.01' for sku in guard.SKUS}, 'fx_brl_per_usd_upper': 6, 'price_multiplier': 1, 'pricing_valid_until': (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(), 'opening_usage': {'day': {'calls': 0, 'estimated_brl': 0}, 'month': {'calls': 0, 'estimated_brl': 0}}, 'opening_usage_as_of': guard._periods(guard._now())[0], 'opening_usage_basis': 'synthetic_stage'})
@@ -800,6 +1012,9 @@ class GoogleMapsCacheFirstPostgresTest(pg_fixtures.GoogleMapsPostgresIntegration
 
     def setUp(self):
         super().setUp()
+        p = patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION', True)
+        p.start()
+        self.addCleanup(p.stop)
         p = patch.object(guard.settings, 'GOOGLE_MAPS_AGENDA_CACHE_FIRST', True)
         p.start()
         self.addCleanup(p.stop)
