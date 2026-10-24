@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     # Stage-first rollout: resolve Agenda locally; ask for consent only when a
     # provider would actually be called. This does not authorize paid traffic.
     GOOGLE_MAPS_AGENDA_CACHE_FIRST: bool = False
+    # Explicit server rollout. False permits finite, internally recorded human
+    # Agenda executions only when the persisted policy is monitor. Extras and
+    # background jobs never inherit this operational authorization.
+    GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION: bool = True
     # Persisted routes do not expire just because time passed. Location changes
     # still invalidate them; age-based expiry requires an explicit opt-in.
     GOOGLE_ROUTES_CACHE_EXPIRE_BY_AGE: bool = False

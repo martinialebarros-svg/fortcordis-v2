@@ -61,6 +61,17 @@ def main():
     admin = create_engine(settings.DATABASE_URL,poolclass=NullPool)
     checks = []
     cases = [
+        'test_internal_monitor_direct_request_records_without_popup_or_confirmation',
+        'test_internal_monitor_cached_request_needs_no_ledger_or_estimate',
+        'test_internal_monitor_cold_ledger_failure_never_sends',
+        'test_internal_monitor_finite_scope_expires_closes_and_cannot_authorize_background',
+        'test_internal_monitor_does_not_bypass_enforce_mode',
+        'test_internal_monitor_parallel_scopes_remain_finite_after_reconnect',
+        'test_internal_monitor_background_task_cannot_extend_http_authorization',
+        'test_internal_monitor_rollout_can_restore_interactive_policy',
+        'test_internal_monitor_real_search_uses_requested_period_and_cache',
+        'test_internal_monitor_failed_estimate_never_uses_generic_cap',
+        'test_internal_monitor_expired_prices_warn_internally_and_extras_remain_closed',
         'test_local_preview_and_cached_booking_work_with_unavailable_ledger',
         'test_old_cached_routes_complete_agenda_without_finance_or_google',
         'test_old_cache_with_new_geocode_still_requires_consent_and_never_commits',

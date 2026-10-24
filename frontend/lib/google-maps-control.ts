@@ -9,6 +9,7 @@ export const MAPS_SKU_LABELS: Record<string, string> = {
   geocoding: "Geocoding",
 };
 export type MapsQuote = {
+  confirmation_mode?: "per_action" | "server_recorded";
   operation_mode?: MapsOperationMode;
   budget_policy?: "agenda_monitor" | "enforced";
   financial_limit_enforced?: boolean;
