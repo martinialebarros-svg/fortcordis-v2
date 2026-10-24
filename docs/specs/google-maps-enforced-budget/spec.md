@@ -1,3 +1,7 @@
+## Sessão da busca — complemento de 24/10/2026
+
+A estimativa interna lazy usa a sessão ORM já aberta pela dependência da requisição. Não adquirir outra conexão do pool de negócio enquanto a busca mantém uma conexão. O ledger financeiro continua uma transação independente e atômica. A referência à sessão existe somente no escopo HTTP e é removida no encerramento; nenhum custo pode herdar uma sessão de background. Cache completo não executa o planejador. Se não houver sessão confiável para calcular o máximo, recusar o envio pago sem usar teto genérico.
+
 # Agenda com registro interno e monitoramento do Google — 24/10/2026
 
 Pedido operacional atual: suspender os popups de custo a cada consulta da Agenda, registrar internamente e continuar o monitoramento, agora também com observação direta do painel Google Maps. Esta decisão substitui a exigência histórica de consentimento interativo somente para ações humanas registradas da Agenda em `monitor`. Não autoriza liberar extras, automações ou alterar as referências financeiras. Validar em stage com transporte interceptado antes da aplicação controlada em produção.

@@ -1,3 +1,9 @@
+## Concorrência e homologação isolada — 24/10/2026
+
+Teste de oito requisições HTTP simultâneas, pool de negócio com uma conexão, uma aquisição por requisição e zero conexões extras do planejador aprovado localmente. Sessão vinculada pela dependência real de banco, sem herança fora do escopo. Canário ampliado para 44 cenários.
+
+O gate completo do workflow 40105177158 passou; a instalação foi interrompida na identidade WhatsApp de stage por número de teste não registrado na Meta, antes de instalar o código. Não tratar esse workflow como deploy bem-sucedido nem alterar a identidade para liberar Maps. Validar o SHA aprovado em checkout privado isolado na VPS de stage, com a mesma versão Python e banco de stage verificado, schemas descartáveis e zero transporte Google. Manter a aplicação operacional de stage intacta. Produção exige promoção protegida, workflow terminal, política efetiva, serviços e fonte instalada comprovados, sem teste pago.
+
 # Registro interno da Agenda — validação de 24/10/2026
 
 Escopo atual: retirar popups de custo da Agenda humana monitorada sem remover o ledger, os caps por execução, o cache prioritário ou os bloqueios de extras/automações. Referências financeiras existentes preservadas; nenhuma migração ou reset do histórico. Rollout explícito da flag de confirmação, com default seguro `true` e ativação `false` somente após prova instalada.

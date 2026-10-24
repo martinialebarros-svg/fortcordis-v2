@@ -10,7 +10,7 @@ from app.core.security import get_current_user
 from app.db.database import SessionLocal
 from app.services.google_maps_cost_control import (
     GoogleMapsCostBlocked, bind_execution, claim_execution, finish_execution,
-    identify_action, reset_execution,
+    identify_action, reset_execution, current_agenda_business_session,
 )
 
 
@@ -24,11 +24,13 @@ def _estimate_agenda_action(action, body):
     from app.services.google_maps_agenda_estimate import SEARCH_MODELS, estimate_search
     if action not in SEARCH_MODELS:
         return None
-    # Lazy: a request satisfied from cache never opens this planning session.
-    # Close it before the ledger's independent reservation transaction opens.
-    with SessionLocal() as session:
-        with session.no_autoflush:
-            return estimate_search(session, action, body)
+    # The endpoint already owns a session. A second checkout from its pool can
+    # deadlock concurrent searches when each request holds the last free slot.
+    session = current_agenda_business_session()
+    if session is None:
+        raise GoogleMapsCostBlocked('estimate_unavailable', status_code=503)
+    with session.no_autoflush:
+        return estimate_search(session, action, body)
 
 
 class GoogleMapsCostMiddleware:

@@ -70,6 +70,7 @@ def main():
         'test_internal_monitor_background_task_cannot_extend_http_authorization',
         'test_internal_monitor_rollout_can_restore_interactive_policy',
         'test_internal_monitor_real_search_uses_requested_period_and_cache',
+        'test_internal_monitor_planner_reuses_business_connection_under_concurrency',
         'test_internal_monitor_failed_estimate_never_uses_generic_cap',
         'test_internal_monitor_expired_prices_warn_internally_and_extras_remain_closed',
         'test_local_preview_and_cached_booking_work_with_unavailable_ledger',
