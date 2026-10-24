@@ -98,8 +98,7 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
         self.assertEqual(result.status_code, 503, result.text)
         self.outbound.assert_not_called()
         with self.sessions() as db:
-            self.assertEqual(db.get(Agendamento, self.id).inicio.hour, 11)
-            self.assertEqual(db.get(Agendamento, self.id).inicio.minute, 0)
+            self.assertEqual(db.get(Agendamento, self.id).inicio, self.original_start)
 
     def test_internal_monitor_finite_scope_expires_closes_and_cannot_authorize_background(self):
         self.configure(monitor=True)
