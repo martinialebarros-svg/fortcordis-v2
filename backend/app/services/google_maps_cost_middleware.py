@@ -10,7 +10,7 @@ from app.core.security import get_current_user
 from app.db.database import SessionLocal
 from app.services.google_maps_cost_control import (
     GoogleMapsCostBlocked, bind_execution, claim_execution, finish_execution,
-    identify_action, reset_execution,
+    identify_action, reset_execution, current_agenda_business_session,
 )
 
 
@@ -18,6 +18,19 @@ def _authenticate(request):
     with SessionLocal() as session:
         # Full current-user and permissions-matrix checks, not just a valid JWT.
         return get_current_user(request=request, token=None, db=session).id
+
+
+def _estimate_agenda_action(action, body):
+    from app.services.google_maps_agenda_estimate import SEARCH_MODELS, estimate_search
+    if action not in SEARCH_MODELS:
+        return None
+    # The endpoint already owns a session. A second checkout from its pool can
+    # deadlock concurrent searches when each request holds the last free slot.
+    session = current_agenda_business_session()
+    if session is None:
+        raise GoogleMapsCostBlocked('estimate_unavailable', status_code=503)
+    with session.no_autoflush:
+        return estimate_search(session, action, body)
 
 
 class GoogleMapsCostMiddleware:
@@ -60,6 +73,7 @@ class GoogleMapsCostMiddleware:
                 claim_execution, user_id, request.headers.get("X-Google-Maps-Action"),
                 scope["method"], scope["path"], query, body,
             )
+            execution.estimate_loader = lambda: _estimate_agenda_action(execution.request_action, body)
         except HTTPException as exc:
             await JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)(scope, receive, send)
             return

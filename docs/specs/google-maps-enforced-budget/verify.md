@@ -1,3 +1,27 @@
+## Resultado da homologação isolada de stage — 24/10/2026
+
+SHA `ce44bb47a5b5551deb5f5e0476ed2a264b783e33`: 44/44 cenários aprovados no PostgreSQL de stage em checkout privado com identidade do projeto verificada. Zero Google, zero alterações em dados operacionais, zero schemas restantes. Oito requisições concorrentes reutilizaram uma conexão de negócio por requisição, sem checkout extra do planejador. Local: 143 testes Maps (30 skips PostgreSQL), 252 Agenda, 39 frontend; tipos/lint/build aprovados. Corrigida comparação do fixture independente do fuso do PostgreSQL; não foi defeito de agendamento.
+
+Aplicação operacional de stage permanece `2c50d8a0`, preservando runtime, banco, ENV, frases e configuração financeira. O workflow completo anterior passou no quality-gate, mas a instalação parou na identidade externa WhatsApp de teste, sem código instalado. Não confundir a prova isolada com deploy da aplicação de stage. Fluxos Git de isolamento/restauração cancelam seus deploys antes da VPS. Produção será validada separadamente pelo workflow terminal e política instalada; nenhuma chamada paga ou agendamento produtivo de teste.
+
+## Concorrência e homologação isolada — 24/10/2026
+
+Teste de oito requisições HTTP simultâneas, pool de negócio com uma conexão, uma aquisição por requisição e zero conexões extras do planejador aprovado localmente. Sessão vinculada pela dependência real de banco, sem herança fora do escopo. Canário ampliado para 44 cenários.
+
+O gate completo do workflow 40105177158 passou; a instalação foi interrompida na identidade WhatsApp de stage por número de teste não registrado na Meta, antes de instalar o código. Não tratar esse workflow como deploy bem-sucedido nem alterar a identidade para liberar Maps. Validar o SHA aprovado em checkout privado isolado na VPS de stage, com a mesma versão Python e banco de stage verificado, schemas descartáveis e zero transporte Google. Manter a aplicação operacional de stage intacta. Produção exige promoção protegida, workflow terminal, política efetiva, serviços e fonte instalada comprovados, sem teste pago.
+
+# Registro interno da Agenda — validação de 24/10/2026
+
+Escopo atual: retirar popups de custo da Agenda humana monitorada sem remover o ledger, os caps por execução, o cache prioritário ou os bloqueios de extras/automações. Referências financeiras existentes preservadas; nenhuma migração ou reset do histórico. Rollout explícito da flag de confirmação, com default seguro `true` e ativação `false` somente após prova instalada.
+
+Validação cobre HTTP direto sem confirmar, cache sem ledger/plano, falha de ledger sem envio/commit, busca real sintética limitada ao período, plano indisponível sem fallback genérico, limite/prazo/reconexão, concorrência compartilhada, background sem herança, revisão de preços apenas como alerta e retorno reversível à confirmação. Os testes não simulam consentimento humano com chamadas automáticas a `/confirm`.
+
+O canário instalado agrega onze cenários novos aos 32 anteriores, em schemas PostgreSQL descartáveis, transportes Google interceptados e sem modificar agendamentos operacionais. Instalação exige verificar SHA e política efetiva, além de runtime/dados preservados. A comprovação produtiva será somente leitura e não fará consultas pagas, prévias, confirmações ou agendamentos de teste.
+
+O monitor deve distinguir o release e a flag de rollout: antes de `false`, `confirmation_required` pode ser o fluxo esperado; depois de `false` na Agenda monitorada, investigar novas ocorrências no fluxo humano. Observar também o painel Google usando sessão existente, sem chaves/credenciais novas ou mudanças de quota. Valores do Google, previsões e ledger permanecem separados e suas janelas explícitas.
+
+Resultados locais e instalados deste ciclo serão registrados abaixo e no relatório privado; os resultados históricos seguintes não comprovam a nova política.
+
 # Homologação do período concluída e promoção autorizada — 23/10/2026
 
 Stage instalado `dde520a26bda6fbd69178130707950dae00d1696`, workflow `39949978355` terminal success e PR #456: 32/32 cenários PostgreSQL descartáveis, zero Google, zero alterações operacionais, zero schemas restantes. Casos de Hoje/intervalo, cache completo sem ledger, faltantes internos e primeira saída sem consultar âncoras externas aprovados. Frontend autenticado de stage conferido com demonstração fictícia e cancelamento sem consulta. Local: 353 testes Agenda/Maps, 35 frontend, tipos/lint/build/SDD aprovados; CI completa aprovada. Evidência privada em `maps-requested-period-stage/resultado-stage.md` e no corpo de #456.

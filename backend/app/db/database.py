@@ -99,6 +99,9 @@ event.listen(engine, "handle_error", _record_query_failed)
 def get_db():
     db = SessionLocal()
     try:
-        yield db
+        # Lazy import avoids the database/cost boundary initialization cycle.
+        from app.services.google_maps_cost_control import agenda_business_session
+        with agenda_business_session(db):
+            yield db
     finally:
         db.close()

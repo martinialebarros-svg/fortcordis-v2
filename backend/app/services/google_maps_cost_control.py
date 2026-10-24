@@ -22,7 +22,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_CEILING
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
 
@@ -214,6 +214,7 @@ class CostConfiguration(BaseModel):
 
 
 REASONS = {
+    "agenda_internal_record": "Execução da Agenda registrada com limite próprio no servidor, sem popup de custo.",
     "day_reference_exceeded": "Referência diária atingida: a Agenda continua liberada mediante confirmação; lotes e tarefas extras seguem bloqueados pelo teto.",
     "month_reference_exceeded": "Referência mensal atingida: a Agenda continua liberada mediante confirmação; lotes e tarefas extras seguem bloqueados pelo teto.",
     "day_reference_may_exceed": "Esta ação pode ultrapassar a referência diária. O consumo atual ainda está abaixo dela; a Agenda continua liberada mediante confirmação.",
@@ -262,6 +263,86 @@ class Execution:
     operation_mode: str | None = None
     cache_first: bool = False
     route_results: dict = field(default_factory=dict)
+    request_action: str | None = None
+    request_user_id: int | None = None
+    request_inputs: tuple | None = None
+    estimate_loader: Callable | None = None
+    internal_estimate: dict | None = None
+    internal_fingerprint: str | None = None
+    business_session: Any = field(default=None, repr=False)
+
+
+@contextmanager
+def agenda_business_session(session):
+    """Reuse the endpoint session for lazy planning; never nest a pool checkout."""
+    execution = _execution.get()
+    if not _internal_agenda_requested(execution):
+        yield
+        return
+    previous = execution.business_session
+    execution.business_session = session
+    try:
+        yield
+    finally:
+        execution.business_session = previous
+
+
+def current_agenda_business_session():
+    execution = _execution.get()
+    return execution.business_session if _internal_agenda_requested(execution) else None
+
+
+def _internal_agenda_requested(execution):
+    return (settings.GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION is False
+            and execution is not None and execution.cache_first and not execution.closed
+            and not execution.automatic_policy and execution.request_action in ACTION_SPECS
+            and execution.request_action.startswith("agenda_")
+            and execution.request_user_id is not None and execution.request_inputs is not None)
+
+
+def _load_internal_agenda_estimate(execution):
+    if not _internal_agenda_requested(execution) or execution.operation_mode != "cache_first":
+        return
+    from app.services.google_maps_agenda_estimate import SEARCH_MODELS
+    execution.internal_fingerprint = request_fingerprint(execution.request_user_id, *execution.request_inputs)
+    if execution.request_action in SEARCH_MODELS and execution.internal_estimate is None:
+        if execution.estimate_loader is None:
+            raise GoogleMapsCostBlocked("estimate_unavailable", status_code=503)
+        try:
+            execution.internal_estimate = execution.estimate_loader()
+            if execution.internal_estimate is None:
+                raise ValueError("Missing search estimate")
+        except HTTPException:
+            raise
+        except Exception:
+            raise GoogleMapsCostBlocked("estimate_unavailable", status_code=503) from None
+
+
+def _record_internal_agenda(conn, execution, cfg, revision):
+    """One server-owned, finite scope; never fabricate a user's confirmation."""
+    spec = ACTION_SPECS[execution.request_action]
+    estimate = execution.internal_estimate
+    skus = tuple(estimate["services"]) if estimate is not None else spec.skus
+    if not skus or set(skus) - set(spec.skus):
+        _deny(conn, "estimate_unavailable", action=spec.key, user_id=execution.request_user_id)
+    cap = min(cfg.limits.action.calls, cfg.action_call_caps.get(spec.key, cfg.limits.action.calls))
+    if estimate is not None:
+        cap = min(cap, estimate["max_calls"])
+    if spec.theoretical_cap is not None:
+        cap = min(cap, spec.theoretical_cap)
+    if cap <= 0:
+        _deny(conn, "action_limit", action=spec.key, user_id=execution.request_user_id)
+    now = _now()
+    conn.execute(insert(ACTIONS).values(
+        id=execution.action_id, user_id=execution.request_user_id,
+        fingerprint=execution.internal_fingerprint, action=spec.key, revision=revision,
+        state="claimed", max_calls=cap, max_cost_micros=cap * max(_unit_cost(cfg, sku) for sku in skus),
+        used_calls=0, used_cost_micros=0, skus_json=json.dumps(skus), created_at=now,
+        claimed_at=now, expires_at=now + EXECUTION_TTL_SECONDS,
+    ))
+    _event(conn, kind="internal_authorized", action=spec.key, action_id=execution.action_id,
+           user_id=execution.request_user_id, reason="agenda_internal_record")
+    execution.operation_mode = "agenda_internal"
 
 
 def agenda_execution_route_cache(fallback=None):
@@ -445,6 +526,25 @@ def agenda_monitored(cfg, action):
     return cfg is not None and cfg.agenda_budget_mode == "monitor" and action in ACTION_SPECS and action.startswith("agenda_")
 
 
+def agenda_internal_policy(cfg, action):
+    return (settings.GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION is False
+            and agenda_cache_first_enabled(ACTION_SPECS.get(action)) and agenda_monitored(cfg, action))
+
+
+def _reason_message(reason, cfg, action):
+    if agenda_internal_policy(cfg, action):
+        internal = {
+            "day_reference_exceeded": "Referência diária atingida: a Agenda continua liberada com registro interno; lotes e tarefas extras mantêm seus bloqueios.",
+            "month_reference_exceeded": "Referência mensal atingida: a Agenda continua liberada com registro interno; lotes e tarefas extras mantêm seus bloqueios.",
+            "day_reference_may_exceed": "Esta execução pode ultrapassar a referência diária. A Agenda continua liberada com limite próprio e registro interno.",
+            "month_reference_may_exceed": "Esta execução pode ultrapassar a referência mensal. A Agenda continua liberada com limite próprio e registro interno.",
+            "pricing_review_due": "Revisão de preços/câmbio pendente: a Agenda continua liberada com a última estimativa cadastrada e registro interno. O custo real pode variar; cada execução mantém seu limite próprio. Lotes e automações continuam sujeitos às suas restrições.",
+        }
+        if reason in internal:
+            return internal[reason]
+    return REASONS.get(reason)
+
+
 def _reference_alerts(cfg, usage, calls=0, cost=0):
     alerts = ["pricing_review_due"] if _pricing_review_due(cfg) else []
     for period in ("day", "month"):
@@ -500,14 +600,22 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
             "service": "Google Maps Platform", "services": list(spec.skus),
             "max_calls": 0, "estimated_cost_min_brl": 0, "estimated_cost_max_brl": 0,
             "route_estimate": route_estimate,
-            "message": "A Agenda tentará usar uma rota válida já armazenada. Se precisar consultar o Google, pedirá confirmação antes do envio.",
-            "uncertainty": ["Zero chamadas nesta tentativa local. Uma consulta externa exige nova estimativa e confirmação limitada."],
+            "confirmation_mode": "per_action" if settings.GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION else "server_recorded",
+            "message": ("A Agenda tentará usar uma rota válida já armazenada. Se precisar consultar o Google, pedirá confirmação antes do envio." if settings.GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION else "A Agenda prioriza a matriz em cache. Consultas necessárias são avaliadas e registradas internamente pelo servidor, conforme a política vigente."),
+            "uncertainty": ["Esta prévia não envia chamadas. O servidor verifica a política vigente antes de qualquer envio."],
         }
     fingerprint = request_fingerprint(user_id, method, path, query, body)
     with _locked() as conn:
         cfg, revision = _configuration(conn, require_enabled=False)
         usage = _usage(conn)
         reason = _configuration_reason(cfg, action=spec.key)
+        if (settings.GOOGLE_MAPS_AGENDA_REQUIRE_CONFIRMATION is False
+                and agenda_cache_first_enabled(spec) and agenda_monitored(cfg, spec.key)
+                and cfg.operation_mode == "paid_budget" and reason is None):
+            return {"required": False, "blocked": False, "operation_mode": "cache_first",
+                    "confirmation_mode": "server_recorded", "quote_id": None,
+                    "action": spec.label, "action_key": spec.key,
+                    "message": "A Agenda registra e limita cada execução no servidor, sem popup de custo."}
         if cfg is not None and cfg.operation_mode == "cache_only":
             return {
                 "required": False, "blocked": reason is not None, "reason": reason,
@@ -563,7 +671,7 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
             "pricing_reference_valid_until": cfg.pricing_valid_until.isoformat() if cfg else None,
             "budget_policy": "agenda_monitor" if agenda_monitored(cfg, spec.key) else "enforced",
             "financial_limit_enforced": not agenda_monitored(cfg, spec.key),
-            "alerts": [REASONS[key] for key in _reference_alerts(cfg, usage, max_calls, max_cost)] if agenda_monitored(cfg, spec.key) else [],
+            "alerts": [_reason_message(key, cfg, spec.key) for key in _reference_alerts(cfg, usage, max_calls, max_cost)] if agenda_monitored(cfg, spec.key) else [],
             "operation_mode": "paid_budget", "paid_calls_allowed": reason is None,
             "message": REASONS.get(reason), "quote_id": quote_id, "action": spec.label,
             "action_key": spec.key, "service": "Google Maps Platform", "services": list(skus) if cfg is not None else list(spec.skus),
@@ -606,7 +714,9 @@ def claim_execution(user_id, token, method, path, query=None, body=None) -> Exec
         # financial baseline or artificial high limit is needed for release.
         return Execution(secrets.token_urlsafe(32), operation_mode="temporary_open")
     if agenda_cache_first_enabled(spec) and not token:
-        return Execution(secrets.token_urlsafe(32), operation_mode="cache_first", cache_first=True)
+        return Execution(secrets.token_urlsafe(32), operation_mode="cache_first", cache_first=True,
+                         request_action=spec.key, request_user_id=user_id,
+                         request_inputs=(method, path, query, body))
     with _locked() as conn:
         cfg, revision = _configuration(conn, action=action)
         if cfg.operation_mode == "cache_only":
@@ -681,6 +791,7 @@ def authorize_google_call(sku: str) -> None:
             "estimated_cost_brl": None, "financial_limit_enforced": False,
         }, sort_keys=True))
         return
+    _load_internal_agenda_estimate(execution)
     with _locked() as conn:
         if execution is not None and execution.operation_mode == "cache_only":
             _deny(conn, "cache_only", action_id=execution.action_id, policy=execution.automatic_policy)
@@ -688,7 +799,7 @@ def authorize_google_call(sku: str) -> None:
         row = (conn.execute(select(ACTIONS).where(ACTIONS.c.id == execution.action_id)).mappings().first()
                if execution is not None and not execution.automatic_policy else None)
         expiry_action = (row["action"] if row and not row["policy"] else
-                         "agenda_create" if execution is not None and execution.operation_mode == "cache_first" and not execution.automatic_policy else None)
+                         execution.request_action if execution is not None and execution.operation_mode == "cache_first" and not execution.automatic_policy else None)
         cfg, revision = _configuration(conn, action=expiry_action)
         if cfg.operation_mode == "cache_only":
             if execution is not None:
@@ -699,7 +810,11 @@ def authorize_google_call(sku: str) -> None:
         if execution.closed:
             _deny(conn, "invalid_grant")
         if execution.operation_mode == "cache_first":
-            _deny(conn, "confirmation_required")
+            if _internal_agenda_requested(execution) and agenda_monitored(cfg, execution.request_action):
+                _record_internal_agenda(conn, execution, cfg, revision)
+                row = conn.execute(select(ACTIONS).where(ACTIONS.c.id == execution.action_id)).mappings().first()
+            else:
+                _deny(conn, "confirmation_required")
         if execution.automatic_policy and not execution.automatic_claimed:
             policy = cfg.automatic_policies.get(execution.automatic_policy)
             if not policy or not policy.enabled:
@@ -844,9 +959,10 @@ def get_status():
         return {
             "agenda_cache_first": settings.GOOGLE_MAPS_AGENDA_CACHE_FIRST is True,
             "agenda_budget_mode": cfg.agenda_budget_mode if cfg else None,
+            "agenda_confirmation_required": not agenda_internal_policy(cfg, "agenda_create"),
             "pricing_review_due": _pricing_review_due(cfg),
             "pricing_review_policy": "agenda_alert_only" if cfg and cfg.agenda_budget_mode == "monitor" else "enforced",
-            "alerts": [REASONS[key] for key in _reference_alerts(cfg, usage)] if cfg and cfg.agenda_budget_mode == "monitor" else [],
+            "alerts": [_reason_message(key, cfg, "agenda_create") for key in _reference_alerts(cfg, usage)] if cfg and cfg.agenda_budget_mode == "monitor" else [],
             "configured": cfg is not None, "enabled": cfg.enabled if cfg else False,
             "blocked": reason is not None, "reason": reason, "revision": revision,
             "operation_mode": cfg.operation_mode if cfg else None,
@@ -858,7 +974,7 @@ def get_status():
             "consumption": _usage_view(usage), "remaining": _remaining(cfg, usage) if cfg else None,
             "limits": _limits_view(cfg.limits) if cfg else None, "timezone": str(LEDGER_TIMEZONE),
             "automatic_policies": {key: {"enabled": policy.enabled, "consumption": _usage_view(_usage(conn, key)), "limits": _limits_view(policy.limits)} for key, policy in (cfg.automatic_policies.items() if cfg else [])},
-            "history": [{"id": item["id"], "created_at": _iso(item["created_at"]), "action": item["action"], "kind": item["kind"], "reason": item["reason"], "message": REASONS.get(item["reason"]), "sku": item["sku"], "policy": item["policy"], "calls": item["calls"], "estimated_brl": _brl(item["estimated_cost_micros"])} for item in history],
+            "history": [{"id": item["id"], "created_at": _iso(item["created_at"]), "action": item["action"], "kind": item["kind"], "reason": item["reason"], "message": _reason_message(item["reason"], cfg, item["action"]), "sku": item["sku"], "policy": item["policy"], "calls": item["calls"], "estimated_brl": _brl(item["estimated_cost_micros"])} for item in history],
             "actions": [{"key": key, "label": spec.label} for key, spec in ACTION_SPECS.items()],
             "pricing_reference_date": PRICING_REFERENCE_DATE,
             "minimum_unit_prices_usd": {sku: str(price) for sku, price in MIN_UNIT_PRICES_USD.items()},
