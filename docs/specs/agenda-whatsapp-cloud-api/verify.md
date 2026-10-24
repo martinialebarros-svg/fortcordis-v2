@@ -1,3 +1,7 @@
+## Correção das dependências HTTP — 24/10/2026
+
+Reproduzido bloqueio de `npm audit --omit=dev` no workflow de stage 40104243770, antes de qualquer instalação. Atualizar somente o lockfile, sem alteração de API ou destino Meta. Validar build TypeScript, Express HTTP, upload/anexos e redação de logs com transportes simulados; repetir o gate completo e exigir auditoria de dependências de produção sem vulnerabilidades. Não contornar o gate nem executar envios reais. Local: build, Express HTTP, anexos e redação de logs aprovados; `npm audit --omit=dev` retorna zero vulnerabilidades. A dependência de desenvolvimento não entra no runtime de produção.
+
 # Verify - agenda-whatsapp-cloud-api
 
 Data: 2026-08-14
