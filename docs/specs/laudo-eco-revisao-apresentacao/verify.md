@@ -357,3 +357,6 @@ O laudo real aberto no Safari não foi editado, salvo ou recarregado para testar
 - Revisão automática da PR #470 identificou P1 adicional antes de mesclar: o contexto IA filtrava fusão confirmada, mas ainda podia expor relações históricas após invalidar a confirmação. RF-104/CA-086 abrangem a correção e regressões, sem apagar o histórico do exame. O deploy aguardará essa correção e os checks atualizados.
 
 - CA-086: baseline reproduziu 18 falhas em subcasos do contexto IA. Correção exclui somente índices dependentes da separação não reconfirmada, respeitando domínios e aliases; preserva origens/TRIV e controles caninos legados. 51 testes focados passaram; a rodada integrada backend e checks da PR conferem o snapshot atualizado antes do deploy. Evidência local `/tmp/echo-ai-reconfirm-{baseline,fixed}.log`.
+
+- Rodada backend integrada da correção P1: 121 testes em oito módulos aprovados, com SQLite em memória. A tentativa inicial a partir da raiz não importou o pacote de testes; execução repetida do diretório backend concluiu OK.
+- Antes de mesclar, stage recebeu PR #469 (visualizador Vivid IQ); inspecionado delta de seis arquivos sem sobreposição clínica e integrado preservando esse trabalho. Nenhum arquivo de Auth ou infraestrutura foi acrescentado pelo incremento de eco.
