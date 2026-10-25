@@ -129,6 +129,9 @@ class FelineDiastolicEvidenceTest(unittest.TestCase):
         self.assertEqual(refs["e_doppler"]["text"], "Média ± DP: 0,075 ± 0,026 m/s")
         self.assertEqual(refs["a_doppler"]["text"], "Média ± DP: 0,061 ± 0,017 m/s")
         self.assertEqual(refs["E_E_linha"]["text"], "Média ± DP: 8,7 ± 1,7")
+        self.assertEqual(refs["doppler_tecidual_relacao"]["kind"], "unconfirmed")
+        self.assertIn("inconsistência aparente", refs["doppler_tecidual_relacao"]["note"])
+        self.assertNotIn("0,93", refs["doppler_tecidual_relacao"]["text"])
 
     def test_current_fused_transmitral_separate_tdi_case_preserves_inputs(self):
         measurements = synthetic_measurements()
@@ -358,14 +361,16 @@ class FelineDiastolicPdfTest(unittest.TestCase):
                 self.assertNotIn("Média ± DP", text)
                 self.assertEqual(measurements, before)
 
-    def test_fusion_flags_do_not_mask_canine_measurements(self):
+    def test_confirmed_fusion_masks_canine_peaks_without_feline_reference_attribution(self):
         payload = synthetic_report({**synthetic_measurements(), "Diastolica_ondas": "fundidas", "TDI_ondas": "fundidas"})
         payload["paciente"]["especie"] = "Canina"
         text = re.sub(r"\s+", " ", "\n".join(page.extract_text() for page in PdfReader(BytesIO(gerar_pdf_laudo_eco(payload))).pages))
-        self.assertNotIn("Não mensurável", text)
-        self.assertIn("1.08 m/s", text)
-        self.assertIn("1.14", text)
-        self.assertIn("6.75", text)
+        self.assertEqual(text.count("Não mensurável"), 9)
+        self.assertNotIn("1.08 m/s", text)
+        self.assertNotIn("1.14", text)
+        self.assertNotIn("6.75", text)
+        self.assertNotIn("10.1111/jvim.15745", text)
+        self.assertIn("40.00 ms", text)
 
     def test_unknown_methods_do_not_create_bibliography_or_descriptive_data(self):
         measurements = {"Onda_E": "1.08", "e_doppler": "0.16"}
