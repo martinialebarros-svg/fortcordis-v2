@@ -1,13 +1,8 @@
 import { isFelineEchoSpecies } from "./echo-species";
 
 /** Descriptive feline cohorts, never individual reference intervals or grades. */
-export type FelineDiastolicReference = {
-  text: string;
-  source: string;
-  doi: string;
-  statistic: string;
-  note: string;
-  bibliography: string;
+import type { EchoDiastolicReference } from "./echo-diastolic-reference-types";
+export type FelineDiastolicReference = Omit<EchoDiastolicReference, "kind" | "min" | "max"> & {
   kind: "descriptive" | "uninterpretable" | "unconfirmed";
 };
 
@@ -99,7 +94,11 @@ export function felineDiastolicReferences(
       : "7 gatos jovens (1–3 anos), saudáveis, antes da sedação; Doppler tecidual pulsado no anel septal";
     descriptive("e_doppler", lateral ? "0,11 ± 0,03 m/s" : "0,075 ± 0,026 m/s", study, population);
     descriptive("a_doppler", lateral ? "0,08 ± 0,03 m/s" : "0,061 ± 0,017 m/s", study, population);
-    descriptive("doppler_tecidual_relacao", lateral ? "1,33 ± 0,31" : "0,93 ± 0,20", study, population);
+    if (lateral) {
+      descriptive("doppler_tecidual_relacao", "1,33 ± 0,31", study, population);
+    } else if (result.doppler_tecidual_relacao) {
+      result.doppler_tecidual_relacao.note = "Sem comparador septal reconciliado para e'/a' na fonte de Ward et al. (2012). O valor registrado é preservado; não derivar intervalo nem substituir pelo quociente das médias publicadas.";
+    }
     if (confirmed && measurements.Diastolica_ondas === "separadas") {
       descriptive("E_E_linha", lateral ? "7,8 ± 2,92" : "8,7 ± 1,7", study, population);
     }

@@ -20,11 +20,34 @@ Status: verified-stage
 | CA-010 | aceitação | Regressões de direção ausente cedo e tarde, preservando slots conhecidos | aprovado em stage pelo PR #420 |
 | CA-011 | aceitação | Baseline desconhecido, custo direto, direção e contador por clínica | aprovado em stage pelo PR #420 |
 | CA-012 | aceitação | Replay instalado de matriz incompleta em stage, sem produção | aprovado em stage no workflow 39794689074 |
+| CA-013 | aceitação | Lista completa com 31/61 clínicas, compatibilidade de limites e ranking | em validação neste ciclo |
+| CA-014 | aceitação | Stage instalado, lista sem corte e hashes operacionais preservados | em validação neste ciclo |
 | NFR-001 | não funcional | Zero escrita em produção, zero Google no replay e na consulta operacional | aprovado |
 | NFR-002 | não funcional | Schema descartável removido e nenhum paciente/contato copiado | aprovado |
 | NFR-003 | não funcional | Flag ativa só em stage; backup privado; limitações registradas | aprovado |
 
 ## Execução
+
+### Lista completa no Completar dia — 22/10/2026
+
+O usuário autorizou remover o corte de 20 clínicas e validar primeiro em stage,
+sem alterar agendamentos. A UI solicita `limite: null` e mostra a contagem de
+clínicas com horários disponíveis. A API aceita esse modo para retornar todas
+as oportunidades calculadas; mantém o padrão 20 quando omitido e os limites
+numéricos de 1 a 50 para consumidores existentes. Não muda o limite interno de
+candidatos de horário por clínica, o ranking, a recorrência ou as regras de rota.
+
+Cobertura deste ciclo: 31 e 61 clínicas retornadas e renderizadas sem corte,
+ordem/horários/datas preservados, limites antigos compatíveis, chamadas externas
+bloqueadas e ausência de escrita nas consultas. Os testes de identidade,
+cancelamento, troca de data/serviço e retry continuam aplicáveis. A homologação
+instalada e os hashes de preservação serão registrados após conclusão; a
+publicação em produção permanece fora desta autorização.
+
+Validação local da lista completa: 252 testes Agenda passaram com SQLite
+sintético; 30 testes frontend de oportunidades/regras passaram, incluindo
+31 e 61 cartões; TypeScript sem emissão, ESLint focado, build Next.js e
+`git diff --check` passaram. Nenhum banco operacional ou provider foi usado.
 
 O primeiro ciclo validou a implementação em stage. O replay instalado foi
 executado com o merge `dd51af8c6f13709faa6957700169a648a0313c0b` do
