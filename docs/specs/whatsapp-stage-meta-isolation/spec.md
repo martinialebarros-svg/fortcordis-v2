@@ -120,3 +120,17 @@ e `WHATSAPP_BUSINESS_ACCOUNT_ID` no `.env` remoto.
     medido em 2026-08-24, 96 saidas `sent`/`delivered`/`read` contra 1 falha.
   - Default desligado porque a ausencia de configuracao tem que reproduzir o
     comportamento existente, nunca alterar um canal vivo por omissao.
+
+## Stage sem numero Meta — 25/10/2026
+
+Esta secao substitui a exigencia historica de um canal Meta vivo em todo deploy de stage. A confirmacao atual do usuario e que apenas producao possui numero registrado.
+
+- RF-M13: `WHATSAPP_STAGE_LIVE_META_ENABLED` e a unica chave de ativacao do transporte Meta em stage, aceita somente `0` ou `1` e tem default `0`. GitHub Variables e wrapper direto usam o mesmo modo; valor invalido falha antes de operacoes no runtime.
+- RF-M14: em modo `0`, o workflow nao consulta Graph nem exige/transmite/grava os seis segredos/IDs Meta de stage. O installer nao provisiona nem inicia esse backend. O desligamento para e desabilita somente `fortcordis-stage-whatsapp-backend`, confirma inatividade e grava `WHATSAPP_AGENDA_ENABLED=false` e `WHATSAPP_BOT_AUTO_SEND_ENABLED=false` no core de stage. Nao apaga segredos nem dados de conversas.
+- RF-M15: antes de desligar, validar o escopo exato de stage: checkout, branch, servicos/portas/URL e isolamento. A configuracao de roteamento continua apontando somente para localhost:3010, sem fallback ao WhatsApp de producao. Fonte Meta herdada nao pode ser usada no modo desligado.
+- RF-M16: modo `1` reativa o caminho anterior completo: seis valores dedicados, bloqueio de identidade de producao, validacao Graph e registro Cloud API antes de gravar/reiniciar. Smoke externo permanece opt-in separado e nunca e habilitado pelo modo `0`.
+- RF-M17: workflow/identidade/callback/validacao de producao permanecem preservados. O helper compartilhado de desligamento so age no escopo exato de stage e nao afeta chamadas antigas/producao sem a nova chave.
+- CA-M13: modo ausente e `0` com segredos ausentes/legados permitem o pipeline comum sem Graph/ativacao; modo invalido falha fechado antes de comandos operacionais.
+- CA-M14: fixtures provam desligamento idempotente, servico correto inativo, flags core falsas, URL stage preservada e ausencia de copia de credenciais. Mesmo com smoke herdado `1`, modo `0` forca smoke desligado.
+- CA-M15: modo `1` preserva as guardas anteriores e produz ambiente consistente entre workflow/SSH/wrapper; qualquer identidade de producao ainda e recusada. Testes inteiramente stubados nao enviam mensagens.
+- CA-M16: provar que o workflow de producao nao depende da chave stage; o helper nao opera em escopo diferente, valor invalido ou modo antigo/producao. A publicacao autorizada e somente stage.
