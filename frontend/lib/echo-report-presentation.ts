@@ -3,12 +3,12 @@ import { calculateCanine2DNormalizedLVIDd, getCanine2DReference, type Echo2DView
 import { ambiguousEchoLengthKeys, confirmedEchoUnit, confirmedUnitKey, ECHO_LENGTH_KEYS } from "./echo-unit-provenance";
 import { calculateLeftAtrialFractionalShortening } from "./echo-derived-measurements";
 import { ECHO_REFERENCE_METHOD_KEYS, resolveEchoReferenceForMeasurements } from "./echo-reference-policy";
-import { canonicalEchoDiastolicKey, echoDiastolicReferences, type EchoDiastolicReference } from "./echo-diastolic-reference";
-import { isFelineEchoSpecies, normalizeEchoSpecies } from "./echo-species";
+import { canonicalFelineDiastolicKey, felineDiastolicReferences, type FelineDiastolicReference } from "./echo-feline-diastolic-reference";
+import { isFelineEchoSpecies } from "./echo-species";
 import { deriveOutflowGradients, ECHO_OUTFLOW_KEYS, formatOutflowValue, isOutflowMetadataKey, outflowMeasurementLabel } from "./echo-outflow";
 
 type Parameter = { key: string; label: string; unit?: string; reference?: string };
-export type EchoReportReferenceMetadata = Pick<EchoDiastolicReference, "source" | "doi" | "statistic" | "note" | "kind">;
+export type EchoReportReferenceMetadata = Pick<FelineDiastolicReference, "source" | "doi" | "statistic" | "note" | "kind">;
 export type EchoReportRow = {
   key: string;
   label: string;
@@ -183,16 +183,7 @@ export function canineAeAoClinicalReference(measurements: Record<string, string>
 
 export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null, ambiguousKeys: Set<string> = new Set(), weightKg?: number, species = reference?.especie ?? ""): EchoReportGroup[] {
   const safeReference = resolveEchoReferenceForMeasurements(reference, measurements, weightKg);
-  const diastolicReferences = echoDiastolicReferences(measurements, species);
-  const pendingIndices = new Set<string>();
-  if (["Canina", "Felina"].includes(normalizeEchoSpecies(species))) {
-    if (measurements.Diastolica_ondas === "nao_confirmadas") {
-      for (const key of ["E_A", "E_TRIV", "E_E_linha"]) pendingIndices.add(key);
-    }
-    if (measurements.TDI_ondas === "nao_confirmadas") {
-      for (const key of ["doppler_tecidual_relacao", "E_E_linha"]) pendingIndices.add(key);
-    }
-  }
+  const felineReferences = felineDiastolicReferences(measurements, species);
   const selected2D = measurements.VE_tecnica_relatorio === "2d";
   const view = measurements.VE_vista_2D === "eixo_curto" || measurements.VE_vista_2D === "eixo_longo"
     ? measurements.VE_vista_2D as Echo2DView : "";
@@ -215,27 +206,25 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
     title: group.title,
     rows: group.parameters.filter((item) => {
       const value = number(measurements[item.key]);
-      return diastolicReferences[canonicalEchoDiastolicKey(item.key)]?.kind === "uninterpretable"
+      return felineReferences[canonicalFelineDiastolicKey(item.key)]?.kind === "uninterpretable"
         || (ECHO_OUTFLOW_KEYS.has(item.key) && String(measurements[item.key] ?? "").trim() !== "")
         || (value !== null && value !== 0);
     }).map((item) => {
       const outflowValue = ECHO_OUTFLOW_KEYS.has(item.key);
       const numericValue = number(measurements[item.key]);
       const unconfirmed = outflowValue && (numericValue === null || numericValue < 0);
-      const pendingIndex = pendingIndices.has(canonicalEchoDiastolicKey(item.key));
-      const referenceForKey = diastolicReferences[canonicalEchoDiastolicKey(item.key)];
-      const diastolicReference = ambiguousKeys.has(item.key) && referenceForKey?.kind !== "uninterpretable"
-        ? undefined : diastolicReferences[canonicalEchoDiastolicKey(item.key)];
+      const referenceForKey = felineReferences[canonicalFelineDiastolicKey(item.key)];
+      const felineReference = ambiguousKeys.has(item.key) && referenceForKey?.kind !== "uninterpretable"
+        ? undefined : felineReferences[canonicalFelineDiastolicKey(item.key)];
       return {
         key: item.key,
         label: outflowMeasurementLabel(item.key, item.label, measurements),
         value: unconfirmed ? `${measurements[item.key]} (valor a confirmar)`
-          : diastolicReference?.kind === "uninterpretable" ? "Não mensurável"
-          : pendingIndex ? `${numericValue?.toFixed(2)} (valor a confirmar)` : ambiguousKeys.has(item.key)
+          : felineReference?.kind === "uninterpretable" ? "Não mensurável" : ambiguousKeys.has(item.key)
           ? `${number(measurements[item.key])?.toFixed(2)} (unidade a confirmar)`
           : `${outflowValue ? formatOutflowValue(measurements[item.key]) : numericValue?.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`,
-        reference: unconfirmed || pendingIndex || (ambiguousKeys.has(item.key) && diastolicReference?.kind !== "uninterpretable") ? "—" : (() => {
-          if (diastolicReference) return diastolicReference.text;
+        reference: unconfirmed || (ambiguousKeys.has(item.key) && felineReference?.kind !== "uninterpretable") ? "—" : (() => {
+          if (felineReference) return felineReference.text;
           const aeAoLimit = item.key === "AE_Ao" ? canineAeAoClinicalReference(measurements, species, ambiguousKeys) : null;
           if (aeAoLimit) return aeAoLimit;
           const twoD = selected2D && reference && /^canin/i.test(reference.especie)
@@ -244,14 +233,12 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
           return twoD ? `${twoD.min.toFixed(2)}–${twoD.max.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`
             : referenceRange(safeReference, item);
         })(),
-        ...(diastolicReference ? { referenceMetadata: {
-          source: diastolicReference.source,
-          doi: diastolicReference.doi,
-          statistic: diastolicReference.statistic,
-          note: pendingIndex && diastolicReference.kind !== "uninterpretable"
-            ? "Índice histórico: aguarda reconfirmação da separação das ondas antes de interpretar."
-            : diastolicReference.note,
-          kind: diastolicReference.kind,
+        ...(felineReference ? { referenceMetadata: {
+          source: felineReference.source,
+          doi: felineReference.doi,
+          statistic: felineReference.statistic,
+          note: felineReference.note,
+          kind: felineReference.kind,
         } } : {}),
       };
     }),

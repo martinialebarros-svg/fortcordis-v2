@@ -41,8 +41,7 @@ describe("revisão explícita de ondas felinas importadas", () => {
   it.each(["0", "", "1.2"])("correção explícita de E para %s invalida suas relações, sem recriar valores importados", (value) => {
     const result = updateFelineDiastolicMeasurement(recorded, "Onda_E", value, "Cat");
     expect(result.Onda_E).toBe(value);
-    for (const key of ["E_A", "E_TRIV", "E_E_linha", "Diastolica_metodo"]) expect(result).not.toHaveProperty(key);
-    expect(result.Diastolica_ondas).toBe("nao_confirmadas");
+    for (const key of ["E_A", "E_TRIV", "E_E_linha", "Diastolica_ondas", "Diastolica_metodo"]) expect(result).not.toHaveProperty(key);
     expect(result).toMatchObject({ TRIV: "40", e_doppler: "0.16", doppler_tecidual_relacao: "2.67", TDI_ondas: "separadas" });
   });
 

@@ -23,25 +23,6 @@ const METHOD_SOURCES: Record<string, string[]> = {
   TDI_e: TDI_CONFIRMATIONS, TDI_a: TDI_CONFIRMATIONS,
 };
 
-const WAVE_METHODS: Record<string, string> = { Diastolica_ondas: "Diastolica_metodo", TDI_ondas: "TDI_metodo" };
-const WAVE_STATES = new Set(["separadas", "fundidas", "nao_confirmadas"]);
-const METHOD_WAVES: Record<string, string> = { Diastolica_metodo: "Diastolica_ondas", TDI_metodo: "TDI_ondas" };
-
-/** An invalidated review is distinct from a genuinely untouched legacy exam.
- * Keep that distinction across serialization and repeat imports. */
-function invalidateAcquisition(next: Record<string, string>, previous: Record<string, string>, key: string) {
-  const method = WAVE_METHODS[key];
-  if (method && (WAVE_STATES.has(previous[key]) || Boolean(previous[method]))) {
-    next[key] = "nao_confirmadas";
-  } else {
-    delete next[key];
-    // Retracting the method can remove the last sign that this acquisition was
-    // reviewed, even when the operator has not selected a wave state yet.
-    const wave = METHOD_WAVES[key];
-    if (wave && previous[key] && !WAVE_STATES.has(next[wave])) next[wave] = "nao_confirmadas";
-  }
-}
-
 export function confirmedUnitKey(key: string): string {
   return `${UNIT_PREFIX}${key}`;
 }
@@ -90,13 +71,9 @@ export function updateEchoMeasurement(
   measurements: Record<string, string>, key: string, value: string
 ): Record<string, string> {
   const next = { ...measurements, [key]: value };
-  // An explicit method selection/retraction is a review interaction, including
-  // "outro". Preserve an existing wave review; otherwise record unresolved.
-  const wave = METHOD_WAVES[key];
-  if (wave && !WAVE_STATES.has(next[wave])) next[wave] = "nao_confirmadas";
-  if (ECHO_REFERENCE_METHOD_KEYS.includes(key) && value === "") invalidateAcquisition(next, measurements, key);
+  if (ECHO_REFERENCE_METHOD_KEYS.includes(key) && value === "") delete next[key];
   if (value !== measurements[key]) {
-    for (const confirmation of METHOD_SOURCES[key] ?? []) invalidateAcquisition(next, measurements, confirmation);
+    for (const confirmation of METHOD_SOURCES[key] ?? []) delete next[confirmation];
   }
   if (key.startsWith(UNIT_PREFIX) && value === "") delete next[key];
   if (isEchoLengthKey(key) && value !== measurements[key]) {
@@ -111,8 +88,8 @@ export function mergeImportedEchoMeasurements(
   const next = { ...measurements, ...imported };
   for (const key of Object.keys(imported)) {
     if (isEchoLengthKey(key)) delete next[confirmedUnitKey(key)];
-    for (const confirmation of METHOD_SOURCES[key] ?? []) invalidateAcquisition(next, measurements, confirmation);
-    if (ECHO_REFERENCE_METHOD_KEYS.includes(key)) invalidateAcquisition(next, measurements, key);
+    for (const confirmation of METHOD_SOURCES[key] ?? []) delete next[confirmation];
+    if (ECHO_REFERENCE_METHOD_KEYS.includes(key)) delete next[key];
   }
   return next;
 }

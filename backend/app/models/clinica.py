@@ -21,6 +21,8 @@ class Clinica(Base):
     cidade = Column(String)  # Para identificar a regiao
     estado = Column(String)
     cep = Column(String)
+    # Exclusivo da contabilidade; nunca alimentar geocoding ou rotas com este campo.
+    endereco_fiscal = Column(JSON, nullable=True)
     regiao_operacional = Column(String)
     latitude = Column(Float)
     longitude = Column(Float)
