@@ -77,3 +77,14 @@ Evidências sanitizadas locais: `/tmp/fc-fiscal-stage-success-run.log`, `/tmp/fc
 - Consulta READ ONLY após o deploy e a conferência visual confirmou novamente os mesmos totais de OS, zero fixtures de agosto, zero pacotes/vínculos/notas, uma aplicação da migração 97 e as proteções RLS/REVOKE das duas tabelas.
 - Provas locais sanitizadas: `/tmp/fc-fiscal-production-deploy.log`, `/tmp/fc-fiscal-prod-final-smoke.json` e screenshot de produção na pasta local `fiscal-producao`. Nenhum artefato do cenário fictício foi incorporado ao release.
 - Esta evidência confirma publicação, leitura autenticada e separação dos dados. A preparação de pacote real em produção não foi exercitada, para respeitar o escopo solicitado; geração, retry, duplicidade e conteúdo foram validados localmente e em stage.
+
+## Verificação local: endereço fiscal separado (25/10/2026)
+
+- 5 testes de API/migração aprovados (`test_clinica_endereco_fiscal.py`): autenticação, clínica inexistente, rejeição de outro CNPJ, campos extras, endereço parcial, CEP/UF/fonte inválidos; normalização; auditoria; persistência em nova sessão; preservação de todas as demais colunas, inclusive CEP/pin/contatos/preços; ausência de consulta Maps e aprendizado de bairro; migração idempotente.
+- Suíte fiscal: 108 casos, 71 aprovados e 37 ignorados por dependências opcionais/PostgreSQL. Inclui o ZIP real com endereço fiscal no manifesto, PDF e XLSX, ausência do CEP operacional nesses documentos, ausência de emissão de NF, bloqueio de objeto fiscal incompleto/desvinculado e preservação de pacote/snapshot anterior.
+- 4 testes existentes de cadastro/WhatsApps aprovados.
+- Frontend: 13 testes aprovados em quatro arquivos (novo formulário, geocode por ação explícita e rotinas/fechamento fiscal); fonte e endereço fiscais carregados separadamente, gravação dedicada sem coordenadas ou POST a Maps, erro local corrigível.
+- ESLint dos três arquivos de interface alterados sem avisos; TypeScript completo sem erros; build Next.js concluído com sucesso (43 páginas).
+- Não houve publicação nem gravação de endereço fiscal em stage ou produção. Cadastro dos endereços pesquisados depende da publicação e conferência autenticada; dados reais não foram inseridos em código ou migração. Não houve preparo de pacote operacional, emissão de nota ou envio.
+
+- PDF sintético do novo fluxo renderizado e inspecionado visualmente: endereço fiscal, CEP e indicação de origem legíveis, sem sobreposição ou cortes. Guardrail SDD e `git diff --check` aprovados. Os dez payloads pesquisados foram validados contra o schema e os dígitos dos CNPJs, permanecendo em artefato local separado, sem importação.

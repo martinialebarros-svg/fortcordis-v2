@@ -8,6 +8,7 @@ from datetime import datetime
 
 from app.db.database import get_db
 from app.models.clinica import Clinica
+from app.schemas.clinica_fiscal import EnderecoFiscal
 from app.models.cep_bairro_override import CepBairroOverride
 from app.models.servico import Servico
 from app.models.tabela_preco import PrecoServicoClinica
@@ -127,6 +128,7 @@ class ClinicaResponse(BaseModel):
     preco_personalizado_base: float = 0
     observacoes_preco: Optional[str] = None
     ativo: bool = True
+    endereco_fiscal: Optional[dict] = None
 
 
 class PrecoServicoClinicaPayload(BaseModel):
@@ -251,6 +253,7 @@ def _serialize_clinica(clinica: Clinica) -> dict:
         "cidade": clinica.cidade,
         "estado": clinica.estado,
         "cep": clinica.cep,
+        "endereco_fiscal": clinica.endereco_fiscal,
         "regiao_operacional": clinica.regiao_operacional,
         "latitude": float(clinica.latitude) if clinica.latitude is not None else None,
         "longitude": float(clinica.longitude) if clinica.longitude is not None else None,
@@ -625,6 +628,38 @@ def atualizar_whatsapps_clinica(
         ) from exc
 
     return _serialize_clinica(db_clinica)
+
+
+@router.put("/{clinica_id}/endereco-fiscal")
+def atualizar_endereco_fiscal(
+    clinica_id: int,
+    payload: EnderecoFiscal,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Salva somente o endereço contábil, sem consultar CEP/Maps ou alterar preços."""
+    import re
+    from datetime import timezone
+    from app.services.fiscal_fechamento_service import _documento_valido
+
+    clinica = db.query(Clinica).filter(Clinica.id == clinica_id, Clinica.ativo == True).with_for_update().first()
+    if not clinica:
+        raise HTTPException(status_code=404, detail="Clínica não encontrada")
+    cnpj_atual = re.sub(r"[.\s/\-]", "", str(clinica.cnpj or "").upper())
+    if payload.cnpj != cnpj_atual or not _documento_valido(payload.cnpj, "PJ"):
+        raise HTTPException(status_code=422, detail="O endereço fiscal deve corresponder ao CNPJ válido salvo na clínica.")
+    try:
+        clinica.endereco_fiscal = {
+            **payload.model_dump(),
+            "conferido_em": datetime.now(timezone.utc).isoformat(),
+            "conferido_por": current_user.id,
+        }
+        db.commit()
+        db.refresh(clinica)
+        return _serialize_clinica(clinica)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Não foi possível salvar o endereço fiscal.") from exc
 
 
 @router.put("/{clinica_id}")
