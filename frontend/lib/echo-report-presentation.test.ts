@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildEchoReportGroups, prepareEchoReportMeasurements, splitReportObservations } from "./echo-report-presentation";
+import { deriveAutomaticEchoMeasurements, parseStoredEchoMeasurements } from "./echo-derived-measurements";
+import { mergeImportedEchoMeasurements, updateEchoMeasurement } from "./echo-unit-provenance";
 import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
 
 describe("prévia de ecocardiograma", () => {
@@ -318,5 +320,59 @@ describe("prévia de ecocardiograma", () => {
   it("separa apenas linhas reconhecidas como administrativas", () => {
     expect(splitReportObservations("Achado clínico.\n[Assistente agenda] Horário reservado\n[Reserva manual] confirmação"))
       .toEqual({ clinical: "Achado clínico.", operational: "[Assistente agenda] Horário reservado\n[Reserva manual] confirmação" });
+  });
+});
+
+
+describe("canine diastolic report preview", () => {
+  const protocol = { Diastolica_metodo: "canino_2a6_anos_nao_sedado_pw_apical_fim_fluxo", Diastolica_ondas: "separadas", TDI_metodo: "canino_pw_anel_septal_choi", TDI_ondas: "separadas" };
+  const measured = { Onda_E: ".47", Onda_A: ".67", E_A: ".70", TD: "108", TRIV: "85", e_doppler: ".07", a_doppler: ".12", E_E_linha: "6.71", doppler_tecidual_relacao: ".58" };
+  it("carries sources/statistics without catalogue, weight, or rewriting recorded numbers", () => {
+    const raw = Object.freeze({ ...measured, ...protocol });
+    const groups = buildEchoReportGroups(raw, null, new Set(), undefined, "Dog");
+    const rows = groups.flatMap((group) => group.rows);
+    expect(rows.find((row) => row.key === "Onda_E")).toMatchObject({ value: "0.47 m/s", reference: "IR95%: 0,51-1,10 m/s", referenceMetadata: { kind: "reference_interval", statistic: "reference_interval_95", doi: "10.1111/jsap.13472" } });
+    expect(rows.find((row) => row.key === "Onda_A")).toMatchObject({ value: "0.67 m/s", referenceMetadata: { kind: "descriptive", statistic: "mean_sd", source: "Pereira et al. (2009)" } });
+    expect(rows.find((row) => row.key === "e_doppler")?.referenceMetadata).toMatchObject({ kind: "descriptive", doi: "10.4142/jvs.2013.14.1.85" });
+    expect(groups.some((group) => group.title === "Outras medidas registradas")).toBe(false);
+    expect(raw.E_A).toBe(".70");
+  });
+  it.each(["Canina", "Cão", "Dog"])("masks fused peaks independently and preserves original values: %s", (species) => {
+    const raw = Object.freeze({ ...measured, ...protocol, Diastolica_ondas: "fundidas" });
+    const rows = buildEchoReportGroups(raw, null, new Set(), undefined, species).flatMap((group) => group.rows);
+    for (const key of ["Onda_E", "Onda_A", "E_A", "TD", "E_TRIV", "E_E_linha"]) expect(rows.find((row) => row.key === key)?.value).toBe("Não mensurável");
+    expect(rows.find((row) => row.key === "TRIV")?.reference).toBe("80 ± 9 ms");
+    expect(rows.find((row) => row.key === "e_doppler")?.value).toBe("0.07 m/s");
+    const tissueFused = buildEchoReportGroups({ ...raw, Diastolica_ondas: "separadas", TDI_ondas: "fundidas" }, null, new Set(), undefined, species).flatMap((group) => group.rows);
+    expect(tissueFused.find((row) => row.key === "Onda_E")?.value).toBe("0.47 m/s");
+    expect(tissueFused.find((row) => row.key === "e_doppler")?.value).toBe("Não mensurável");
+    expect(raw).toMatchObject(measured);
+  });
+});
+
+
+describe("preview of a canine acquisition invalidated after fusion", () => {
+  const raw = { Onda_E: "1.08", Onda_A: "0.95", E_A: "1.13", E_TRIV: "2.66", TRIV: "40", e_doppler: "0.16", a_doppler: "0.08", E_E_linha: "6.95", doppler_tecidual_relacao: "1.8", Diastolica_metodo: "canino_2a6_anos_nao_sedado_pw_apical_fim_fluxo", Diastolica_ondas: "fundidas", TDI_metodo: "canino_pw_anel_septal_choi", TDI_ondas: "separadas" };
+  it.each(["edit", "import"])("keeps the original ratios and withholds references after transmitral %s", (action) => {
+    const changed = action === "edit" ? updateEchoMeasurement(raw, "Onda_E", "1.10") : mergeImportedEchoMeasurements(raw, { Onda_E: "1.10" });
+    const stored = parseStoredEchoMeasurements(JSON.parse(JSON.stringify(changed)));
+    const payload = { ...stored, ...deriveAutomaticEchoMeasurements(stored, 10, "Canina") };
+    const rows = buildEchoReportGroups(payload, null, new Set(), 10, "Canina").flatMap((group) => group.rows);
+    expect(rows.find((row) => row.key === "E_A")).toMatchObject({ value: "1.13", reference: "—", referenceMetadata: { kind: "unconfirmed", source: "", doi: "" } });
+    expect(rows.find((row) => row.key === "E_E_linha")).toMatchObject({ value: "6.95", referenceMetadata: { kind: "unconfirmed" } });
+    expect(rows.find((row) => row.key === "Onda_E")?.referenceMetadata?.kind).toBe("unconfirmed");
+    expect(rows.find((row) => row.key === "e_doppler")?.referenceMetadata?.kind).toBe("descriptive");
+    expect(payload.Diastolica_ondas).toBe("nao_confirmadas");
+  });
+  it.each(["edit", "import"])("withholds tissue references after tissue %s and retains independent transmitral evidence", (action) => {
+    const prior = { ...raw, Diastolica_ondas: "separadas", TDI_ondas: "fundidas" };
+    const changed = action === "edit" ? updateEchoMeasurement(prior, "e_doppler", "0.15") : mergeImportedEchoMeasurements(prior, { e_doppler: "0.15" });
+    const stored = parseStoredEchoMeasurements(changed);
+    const payload = { ...stored, ...deriveAutomaticEchoMeasurements(stored, 10, "Canina") };
+    const rows = buildEchoReportGroups(payload, null, new Set(), 10, "Dog").flatMap((group) => group.rows);
+    expect(rows.find((row) => row.key === "doppler_tecidual_relacao")).toMatchObject({ value: "1.80", reference: "—", referenceMetadata: { kind: "unconfirmed", source: "", doi: "" } });
+    expect(rows.find((row) => row.key === "E_E_linha")?.value).toBe("6.95");
+    expect(rows.find((row) => row.key === "Onda_E")?.referenceMetadata?.kind).toBe("reference_interval");
+    expect(payload.TDI_ondas).toBe("nao_confirmadas");
   });
 });

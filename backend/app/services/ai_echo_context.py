@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.services.echo_reference_resolver import load_echo_reference
 from app.utils.referencia_eco_defaults import normalizar_especie_referencia
-from app.utils.echo_feline_diastolic import feline_diastolic_references
+from app.utils.echo_diastolic import diastolic_references
 from app.utils.echo_unit_provenance import (
     clinically_safe_echo_measurements,
 )
@@ -273,7 +273,7 @@ def safe_measurement_context(
         reference_context, current_measurements=normalized_measurements,
         species=resolved_species,
     ).get("ranges", {})
-    diastolic_consultation = feline_diastolic_references(normalized_measurements, resolved_species)
+    diastolic_consultation = diastolic_references(normalized_measurements, resolved_species)
     for key, value in normalized_measurements.items():
         # Keep numeric history in the exam, but never offer a fused peak or its
         # ratios as an individual diastolic measurement to the clinical model.

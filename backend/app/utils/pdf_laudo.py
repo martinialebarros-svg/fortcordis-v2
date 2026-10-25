@@ -36,7 +36,7 @@ from app.utils.echo_ae_ao_reference import (
     CANINE_AE_AO_SWEDISH_METHOD_NOTE,
     canine_ae_ao_clinical_limit_applies,
 )
-from app.utils.echo_feline_diastolic import feline_diastolic_references, feline_diastolic_notes
+from app.utils.echo_diastolic import diastolic_references, diastolic_notes
 
 
 # Cores do tema - preto e cinza com fontes brancas (teste)
@@ -1088,7 +1088,7 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
         for valor in (_to_float(medidas.get("Vmax_aorta")), _to_float(medidas.get("Vmax_pulmonar")))
     )
     tem_limiar_ae_ao_canino = canine_ae_ao_clinical_limit_applies(dados_pdf)
-    consultas_diastolicas = feline_diastolic_references(medidas, paciente.get("especie"))
+    consultas_diastolicas = diastolic_references(medidas, paciente.get("especie"))
     bibliografia_diastolica = [ref["bibliography"] for ref in consultas_diastolicas.values() if ref["bibliography"]]
     if not referencia and not tem_fluxo_saida and not tem_limiar_ae_ao_canino and not bibliografia_diastolica:
         return []
@@ -1710,7 +1710,7 @@ def gerar_pdf_laudo_eco(
         referencia_selecionada = dados_pdf.get("referencia_eco")
         if not referencia_selecionada:
             tem_consulta_diastolica = any(
-                ref["kind"] == "descriptive" for ref in feline_diastolic_references(
+                ref["kind"] in {"descriptive", "reference_interval"} for ref in diastolic_references(
                     dados_pdf.get("medidas") or {}, (dados_pdf.get("paciente") or {}).get("especie"),
                 ).values()
             )
@@ -1792,17 +1792,17 @@ def gerar_pdf_laudo_eco(
         
         # Grupo: Diastólica - SEM Interpretação
         params_diastolica = [
-            {'chave': 'Onda_E', 'label': 'Onda E', 'unidade': 'm/s', 'ref_min': 0.50, 'ref_max': 1.09},
-            {'chave': 'Onda_A', 'label': 'Onda A', 'unidade': 'm/s', 'ref_min': 0.30, 'ref_max': 0.80},
-            {'chave': 'E_A', 'label': 'E/A (relação E/A)', 'unidade': '', 'ref_min': 1.00, 'ref_max': 2.00},
-            {'chave': 'TD', 'label': 'TD (tempo desaceleração)', 'unidade': 'ms', 'ref_min': 0.00, 'ref_max': 160.00},
+            {'chave': 'Onda_E', 'label': 'Onda E', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'Onda_A', 'label': 'Onda A', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'E_A', 'label': 'E/A (relação E/A)', 'unidade': '', 'ref_min': None, 'ref_max': None},
+            {'chave': 'TD', 'label': 'TD (tempo desaceleração)', 'unidade': 'ms', 'ref_min': None, 'ref_max': None},
             {'chave': 'TRIV', 'label': 'TRIV (tempo relaxamento isovolumétrico)', 'unidade': 'ms', 'ref_min': None, 'ref_max': None},
-            {'chave': 'E_TRIV', 'label': 'E/TRIV (índice E [cm/s] / TRIV [ms])', 'unidade': '', 'ref_text': '≤2,5; >2,5 sugestivo de aumento das pressões de enchimento do VE'},
+            {'chave': 'E_TRIV', 'label': 'E/TRIV (índice E [cm/s] / TRIV [ms])', 'unidade': '', 'ref_min': None, 'ref_max': None},
             {'chave': 'MR_dp_dt', 'label': 'MR dp/dt', 'unidade': 'mmHg/s', 'ref_min': None, 'ref_max': None},
             {'chave': 'e_doppler', 'label': "e' (Doppler tecidual)", 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
             {'chave': 'a_doppler', 'label': "a' (Doppler tecidual)", 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
             {'chave': 'doppler_tecidual_relacao', 'label': "Doppler tecidual (Relação e'/a')", 'unidade': '', 'ref_min': None, 'ref_max': None},
-            {'chave': 'E_E_linha', 'label': "E/E'", 'unidade': '', 'ref_text': '≤12; >12 sugestivo de aumento das pressões de enchimento do VE'},
+            {'chave': 'E_E_linha', 'label': "E/E'", 'unidade': '', 'ref_min': None, 'ref_max': None},
         ]
         
         # Grupo: Regurgitações - SEM Interpretação
@@ -1839,12 +1839,14 @@ def gerar_pdf_laudo_eco(
         params_ap_aorta = aplicar_referencia_eco(params_ap_aorta, referencia_eco)
         params_doppler_saidas = aplicar_referencia_eco(params_doppler_saidas, referencia_eco)
         params_diastolica = aplicar_referencia_eco(params_diastolica, referencia_eco)
-        consultas_diastolicas = feline_diastolic_references(
+        consultas_diastolicas = diastolic_references(
             dados_pdf.get("medidas") or {}, (dados_pdf.get("paciente") or {}).get("especie"),
         )
-        # Descriptive means/SD and fusion guards never acquire min/max bounds.
+        # Only a published individual reference interval receives min/max bounds.
+        # Means/SD and fusion guards remain neutral; no catalog fallback.
         params_diastolica = [
-            {**param, "ref_min": None, "ref_max": None,
+            {**param, "ref_min": consultas_diastolicas[param["chave"]].get("min"),
+             "ref_max": consultas_diastolicas[param["chave"]].get("max"),
              "ref_text": consultas_diastolicas[param["chave"]]["text"] or None,
              "value_unmeasurable": consultas_diastolicas[param["chave"]]["kind"] == "uninterpretable"}
             if param["chave"] in consultas_diastolicas else param
@@ -1906,7 +1908,7 @@ def gerar_pdf_laudo_eco(
                 for nota in notas_saidas_para_pdf(medidas_pdf):
                     bloco_tabela.extend([Spacer(1, 1 * mm), Paragraph(_esc(nota), create_pdf_styles()["ReferenciaTexto"])])
             if titulo == "Diastólica":
-                for nota in feline_diastolic_notes(medidas_pdf, (dados_pdf.get("paciente") or {}).get("especie")):
+                for nota in diastolic_notes(medidas_pdf, (dados_pdf.get("paciente") or {}).get("especie")):
                     bloco_tabela.extend([Spacer(1, 1 * mm), Paragraph(_esc(nota), create_pdf_styles()["ReferenciaTexto"])])
             if titulo == "Diastólica" and consultas_diastolicas:
                 # The branded header can leave space for the table but not for
