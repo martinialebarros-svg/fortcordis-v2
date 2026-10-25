@@ -88,3 +88,7 @@ Evidências sanitizadas locais: `/tmp/fc-fiscal-stage-success-run.log`, `/tmp/fc
 - Não houve publicação nem gravação de endereço fiscal em stage ou produção. Cadastro dos endereços pesquisados depende da publicação e conferência autenticada; dados reais não foram inseridos em código ou migração. Não houve preparo de pacote operacional, emissão de nota ou envio.
 
 - PDF sintético do novo fluxo renderizado e inspecionado visualmente: endereço fiscal, CEP e indicação de origem legíveis, sem sobreposição ou cortes. Guardrail SDD e `git diff --check` aprovados. Os dez payloads pesquisados foram validados contra o schema e os dígitos dos CNPJs, permanecendo em artefato local separado, sem importação.
+
+## Preparação da publicação restrita ao fiscal (25/10/2026)
+
+O usuário autorizou publicar a separação do endereço fiscal e cadastrar os dez endereços pesquisados sem alterar localização, emitir notas ou enviar mensagens. Para a promoção direta stage → main, o código paralelo de stage é temporariamente preservado no snapshot `cd47f38423b47351729add7efc04ee9160b77917` e retirado do snapshot de publicação fiscal. Após a promoção, os 68 caminhos paralelos serão restaurados em stage a partir desse snapshot, com os arquivos fiscais mantidos. A comparação final de produção deve conter somente os 14 arquivos fiscais em relação a `6d77526db9c5ebf9b7c6457362d153903c7cda7a`. Nenhuma base de dados de stage será copiada. Migração 100 escolhida após consulta ao stage remoto, cuja última migração é 99.

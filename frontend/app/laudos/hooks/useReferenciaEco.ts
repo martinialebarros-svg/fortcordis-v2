@@ -6,8 +6,8 @@ import { getCanine2DReference } from "@/lib/echo-2d-reference";
 import type { Echo2DView } from "@/lib/echo-2d-reference";
 import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 import { resolveEchoReferenceForMeasurements, selectEchoReferenceFromCatalog } from "@/lib/echo-reference-policy";
-import { isFelineEchoSpecies, normalizeEchoSpecies } from "@/lib/echo-species";
-import { canonicalEchoDiastolicKey, echoDiastolicReferences } from "@/lib/echo-diastolic-reference";
+import { isFelineEchoSpecies } from "@/lib/echo-species";
+import { canonicalFelineDiastolicKey, felineDiastolicReferences } from "@/lib/echo-feline-diastolic-reference";
 
 // Mapeamento de parâmetros das medidas para os campos da referência
 // As chaves devem corresponder aos 'key' definidos na nova aba Medidas
@@ -95,47 +95,24 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
 const PAREDES_2D = new Set(["SIVd_2D", "SIVs_2D", "PLVEd_2D", "PLVES_2D"]);
 const TEICHOLZ_2D = new Set(["VDF_2D", "VSF_2D", "FE_Teicholz_2D"]);
 
-/** Shared publication evidence works without a weight catalog. Only a genuine
- * individual reference interval receives a numerical comparison status. */
-export function compararMedidasDiastolicas(
+/** Cohort descriptions remain neutral and work without a weight catalog. */
+export function compararMedidasDiastolicasFelinas(
   medidas: Record<string, string>, especie: string,
 ): Record<string, ComparacaoMedida> {
-  const references = echoDiastolicReferences(medidas, especie);
+  const references = felineDiastolicReferences(medidas, especie);
   const comparisons: Record<string, ComparacaoMedida> = {};
-  const recordedKeys = Object.keys(medidas);
-  const keys = new Set([...recordedKeys, ...Object.keys(references).filter((key) =>
-    references[key].kind === "uninterpretable" && !recordedKeys.some((recorded) => canonicalEchoDiastolicKey(recorded) === key))]);
+  const keys = new Set([...Object.keys(medidas), ...Object.keys(references)]);
   for (const key of keys) {
-    const canonical = canonicalEchoDiastolicKey(key);
-    const reference = references[canonical];
-    const mapping = MAPEAMENTO_PARAMETROS[key] ?? MAPEAMENTO_PARAMETROS[canonical];
+    const reference = references[canonicalFelineDiastolicKey(key)];
+    const mapping = MAPEAMENTO_PARAMETROS[key] ?? MAPEAMENTO_PARAMETROS[canonicalFelineDiastolicKey(key)];
     if (!reference || !mapping) continue;
-    const value = medidas[key] ?? medidas[canonical];
-    const numeric = Number(String(value ?? "").replace(",", "."));
-    let status: ComparacaoMedida["status"] = "nao_avaliado";
-    let interpretation = reference.kind === "descriptive"
-      ? "Dados descritivos; sem classificação automática" : reference.note;
-    const interval = reference.kind === "reference_interval" && typeof reference.min === "number"
-      && typeof reference.max === "number" && Number.isFinite(numeric);
-    if (interval) {
-      status = numeric < reference.min! ? "diminuido" : numeric > reference.max! ? "aumentado" : "normal";
-      interpretation = status === "diminuido" ? "Abaixo do intervalo publicado"
-        : status === "aumentado" ? "Acima do intervalo publicado" : "Dentro do intervalo publicado";
-      interpretation += "; interpretar com os demais achados do exame";
-    }
     comparisons[key] = {
-      nome: mapping.nome, valor_medido: reference.kind === "uninterpretable" ? "Não mensurável" : value,
-      referencia_min: interval ? reference.min! : null, referencia_max: interval ? reference.max! : null,
-      referencia_texto: reference.text, referencia_tipo: reference.kind, estatistica: reference.statistic,
-      fonte: reference.source, doi: reference.doi, nota_referencia: reference.note, status, interpretacao: interpretation, categoria: "doppler",
+      nome: mapping.nome, valor_medido: reference.kind === "uninterpretable" ? "Não mensurável" : medidas[key], referencia_min: null, referencia_max: null,
+      referencia_texto: reference.text, fonte: reference.source,
+      status: "nao_avaliado", interpretacao: reference.note, categoria: "doppler",
     };
   }
   return comparisons;
-}
-
-/** Existing callers keep the feline-only contract. */
-export function compararMedidasDiastolicasFelinas(medidas: Record<string, string>, especie: string) {
-  return isFelineEchoSpecies(especie) ? compararMedidasDiastolicas(medidas, especie) : {};
 }
 
 function motivoSemFaixa2D(
@@ -166,17 +143,17 @@ export function compararMedidasComReferencia(
 ): Record<string, ComparacaoMedida> {
   const comparacoes: Record<string, ComparacaoMedida> = {};
   const referenciaSegura = resolveEchoReferenceForMeasurements(referencia, medidas, pesoPacienteKg)!;
-  const diastolicComparisons = compararMedidasDiastolicas(medidas, referencia.especie);
+  const felineComparisons = compararMedidasDiastolicasFelinas(medidas, referencia.especie);
 
   Object.entries(medidas).forEach(([key, valor]) => {
     if (!valor || valor.trim() === "") return;
 
-    if (diastolicComparisons[key]) {
-      comparacoes[key] = diastolicComparisons[key];
-      return;
-    }
     const mapeamento = MAPEAMENTO_PARAMETROS[key];
     if (!mapeamento) return;
+    if (felineComparisons[key]) {
+      comparacoes[key] = felineComparisons[key];
+      return;
+    }
 
     const valorNumerico = parseFloat(valor.replace(",", "."));
     if (isNaN(valorNumerico)) return;
@@ -261,7 +238,7 @@ export function useReferenciaEco() {
   const [loading, setLoading] = useState(false);
 
   const buscarReferencia = useCallback(async (especie: string, peso: number): Promise<ReferenciaEco | null> => {
-    const especieNormalizada = normalizeEchoSpecies(especie);
+    const especieNormalizada = isFelineEchoSpecies(especie) ? "Felina" : especie.trim();
     const pesoNormalizado = Number(peso);
     if (!especieNormalizada || !Number.isFinite(pesoNormalizado) || pesoNormalizado <= 0) {
       return null;

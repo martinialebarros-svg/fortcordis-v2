@@ -10,15 +10,10 @@ Textos qualitativos com vários itens por grupo podem ser truncados pela leitura
 
 ## Objetivo
 
-Facilitar a conferência do laudo já produzido, reaproveitando confirmações de aquisição uma vez por exame e sem acrescentar etapas obrigatórias de emissão. Preservar os valores registrados e a decisão clínica do veterinário.
+Facilitar a conferência do laudo já produzido, sem exigir novos campos, cliques ou etapas no preenchimento. Preservar os valores registrados e a decisão clínica do veterinário.
 
 ## Limites
 
 - Sem migração, alteração dos bytes das imagens originais, diagnóstico ou etapas obrigatórias de emissão.
 - Sem classificação automática de doença ou bloqueio de salvamento.
-- Preservar o catálogo numérico existente e vincular consultas publicadas à espécie, aquisição e população. TAPSE mantém a regra auxiliar por peso já adotada; MAPSE sem faixa cadastrada permanece indisponível, pois intervalo de confiança da média não é intervalo individual de referência.
-
-
-## Incremento autorizado em 25/10/2026 — referências diastólicas por espécie
-
-Após a pesquisa primária de 23/10/2026, o usuário autorizou implementar o próximo passo. A consulta passa a distinguir os intervalos individuais publicados dos dados descritivos, com confirmação de aquisição registrada uma vez por exame e reutilizada na comparação, prévia e PDF. Preservar o preenchimento existente, valores importados, interpretação clínica, ordem da conclusão e bibliografia compacta após a análise qualitativa. Este incremento não autoriza publicação nem alteração de pacientes, banco de frases ou presets em produção.
+- Referências vêm do cadastro existente; TAPSE pode usar a faixa auxiliar por peso já empregada pelo sistema. MAPSE sem faixa cadastrada permanece indisponível, pois o antigo fallback confundia intervalo de confiança da média com intervalo de referência individual.

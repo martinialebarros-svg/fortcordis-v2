@@ -26,7 +26,6 @@ export default function FelineWaveReview({ especie, medidas, onMedidaChange, onD
               onChange={(event) => onMedidaChange(key, event.target.value)}
               className="w-full min-w-0 rounded border border-blue-200 bg-white p-1.5 text-xs text-gray-900">
               <option value="">Não confirmadas</option>
-              {medidas[key] === "nao_confirmadas" && <option value="nao_confirmadas">Separação a reconfirmar</option>}
               <option value="separadas">Separadas e mensuráveis</option>
               <option value="fundidas">Fundidas</option>
             </select>

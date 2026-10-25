@@ -1,13 +1,13 @@
 import type { EchoRangeMetadata, ReferenciaEco } from "@/app/laudos/types/referencia-eco";
-import { isFelineEchoSpecies, normalizeEchoSpecies } from "./echo-species";
+import { isFelineEchoSpecies } from "./echo-species";
 
 export const ECHO_REFERENCE_METHOD_VALUES = {
   TAPSE_metodo: ["modo_m_apical", "2d"],
   AE_Ao_metodo: ["2d_eixo_curto_diastole_inicial", "2d_eixo_curto_diastole_inicial_sueco", "outro"],
-  Diastolica_metodo: ["canino_nao_sedado_pw_apical", "canino_2a6_anos_nao_sedado_pw_apical_fim_fluxo", "felino_adulto_nao_sedado_pw_apical_clique_aortico", "felino_adulto_nao_sedado_pw_apical_fim_fluxo", "felino_adulto_nao_sedado_pw_clique_aortico", "felino_adulto_nao_sedado_pw_fim_fluxo", "outro"],
-  Diastolica_ondas: ["separadas", "fundidas", "nao_confirmadas"],
-  TDI_metodo: ["canino_pw_anel_septal_choi", "canino_pw_basal_septal_wess", "canino_pw_basal_lateral_wess", "felino_pw_anel_lateral", "felino_pw_anel_septal", "outro"],
-  TDI_ondas: ["separadas", "fundidas", "nao_confirmadas"],
+  Diastolica_metodo: ["felino_adulto_nao_sedado_pw_apical_clique_aortico", "felino_adulto_nao_sedado_pw_apical_fim_fluxo", "felino_adulto_nao_sedado_pw_clique_aortico", "felino_adulto_nao_sedado_pw_fim_fluxo", "outro"],
+  Diastolica_ondas: ["separadas", "fundidas"],
+  TDI_metodo: ["felino_pw_anel_lateral", "felino_pw_anel_septal", "outro"],
+  TDI_ondas: ["separadas", "fundidas"],
 } as const;
 
 export const ECHO_REFERENCE_METHOD_KEYS = Object.keys(ECHO_REFERENCE_METHOD_VALUES);
@@ -15,7 +15,8 @@ const STRUCTURAL_PREFIXES = ["lvid_d", "lvid_s", "ivs_d", "ivs_s", "lvpw_d", "lv
 const WEIGHT_DOMAINS: Record<string, readonly [number, number]> = { Canina: [2.2, 95], Felina: [1.5, 11] };
 
 function normalizedSpecies(species: string): string {
-  return normalizeEchoSpecies(species);
+  const value = species.trim();
+  return /^canin/i.test(value) ? "Canina" : isFelineEchoSpecies(value) ? "Felina" : value;
 }
 
 function finite(value: unknown): number | null {
