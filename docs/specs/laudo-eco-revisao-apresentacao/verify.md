@@ -353,3 +353,7 @@ O laudo real aberto no Safari não foi editado, salvo ou recarregado para testar
 - Preflight: origin/stage avançou três commits desde a base local; delta limitado a Agenda, projeções de configuração, runner/testes, SDD e isolamento do deploy de stage, sem sobreposição com os 36 arquivos clínicos/testes deste incremento. A integração preservará ambos os escopos.
 - Revisão independente final do escopo não encontrou bloqueador concreto. QA remota prevista: métodos/estatística, fusões independentes, edição e importação real, salvar/recarregar e PDF sintético servido. Só registrar como concluída após prova no ambiente.
 - Produção permanece fora desta autorização. Evidência de release e QA será anexada à PR e aos artefatos locais após o deploy terminal.
+
+- Revisão automática da PR #470 identificou P1 adicional antes de mesclar: o contexto IA filtrava fusão confirmada, mas ainda podia expor relações históricas após invalidar a confirmação. RF-104/CA-086 abrangem a correção e regressões, sem apagar o histórico do exame. O deploy aguardará essa correção e os checks atualizados.
+
+- CA-086: baseline reproduziu 18 falhas em subcasos do contexto IA. Correção exclui somente índices dependentes da separação não reconfirmada, respeitando domínios e aliases; preserva origens/TRIV e controles caninos legados. 51 testes focados passaram; a rodada integrada backend e checks da PR conferem o snapshot atualizado antes do deploy. Evidência local `/tmp/echo-ai-reconfirm-{baseline,fixed}.log`.

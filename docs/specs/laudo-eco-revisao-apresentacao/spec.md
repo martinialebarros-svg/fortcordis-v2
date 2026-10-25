@@ -279,3 +279,8 @@ Fontes primárias: [Chompoosan 2022](https://doi.org/10.1111/jsap.13472), [Perei
 
 - RF-103: uma revisão invalidada ou retraída é persistida como `nao_confirmadas` em `Diastolica_ondas`/`TDI_ondas`. Selecionar, trocar ou limpar método registra esse estado quando ainda não existe confirmação de ondas; preserva separadas/fundidas existentes se apenas o método mudou. Editar ou reimportar origem invalida somente o domínio associado e nunca faz um exame revisado voltar ao cálculo legado. Ausência genuína de revisão conserva o comportamento canino anterior. O token não equivale a fusão confirmada nem libera comparadores/cálculos dependentes; a UI mostra “Separação a reconfirmar”.
 - CA-085: reproduzir edição/importação de E/TRIV/e′/a′, retração de ondas e retração somente de método, inclusive quando as ondas nunca foram confirmadas, escolha “outro” e limpezas repetidas. Token e valores sobrevivem a payload/descrição/recarga; só a reconfirmação explícita libera o domínio. Grupo independente e cães nunca revisados preservam seu comportamento.
+
+### Contexto clínico após reconfirmação pendente (2026-10-25)
+
+- RF-104: relações históricas E/A, E/TRIV, E/e′ e e′/a′ cuja separação de ondas relevante esteja explicitamente pendente de reconfirmação não podem entrar no prompt clínico como medidas atuais válidas. A filtragem do contexto deve preservar o registro histórico, as origens mensuradas e o domínio independente; a reconfirmação libera novamente os índices pertinentes.
+- CA-086: reproduzir e testar no contexto IA as transições de edição/reimportação de origem em cães/gatos, para ambos os grupos, fusão e reconfirmação. Verificar ausência de índices históricos pendentes no prompt, preservação do dicionário original e do controle canino genuinamente legado.
