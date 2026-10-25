@@ -36,7 +36,9 @@ from app.utils.echo_ae_ao_reference import (
     CANINE_AE_AO_SWEDISH_METHOD_NOTE,
     canine_ae_ao_clinical_limit_applies,
 )
-from app.utils.echo_diastolic import diastolic_references, diastolic_notes
+from app.utils.echo_diastolic import (
+    diastolic_references, diastolic_notes, diastolic_indices_awaiting_confirmation,
+)
 
 
 # Cores do tema - preto e cinza com fontes brancas (teste)
@@ -1842,12 +1844,16 @@ def gerar_pdf_laudo_eco(
         consultas_diastolicas = diastolic_references(
             dados_pdf.get("medidas") or {}, (dados_pdf.get("paciente") or {}).get("especie"),
         )
+        indices_diastolicos_a_confirmar = diastolic_indices_awaiting_confirmation(
+            dados_pdf.get("medidas") or {}, (dados_pdf.get("paciente") or {}).get("especie"),
+        )
         # Only a published individual reference interval receives min/max bounds.
         # Means/SD and fusion guards remain neutral; no catalog fallback.
         params_diastolica = [
             {**param, "ref_min": consultas_diastolicas[param["chave"]].get("min"),
              "ref_max": consultas_diastolicas[param["chave"]].get("max"),
              "ref_text": consultas_diastolicas[param["chave"]]["text"] or None,
+             "value_unconfirmed": param["chave"] in indices_diastolicos_a_confirmar,
              "value_unmeasurable": consultas_diastolicas[param["chave"]]["kind"] == "uninterpretable"}
             if param["chave"] in consultas_diastolicas else param
             for param in params_diastolica

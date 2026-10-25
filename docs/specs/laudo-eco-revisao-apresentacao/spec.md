@@ -284,3 +284,6 @@ Fontes primárias: [Chompoosan 2022](https://doi.org/10.1111/jsap.13472), [Perei
 
 - RF-104: relações históricas E/A, E/TRIV, E/e′ e e′/a′ cuja separação de ondas relevante esteja explicitamente pendente de reconfirmação não podem entrar no prompt clínico como medidas atuais válidas. A filtragem do contexto deve preservar o registro histórico, as origens mensuradas e o domínio independente; a reconfirmação libera novamente os índices pertinentes.
 - CA-086: reproduzir e testar no contexto IA as transições de edição/reimportação de origem em cães/gatos, para ambos os grupos, fusão e reconfirmação. Verificar ausência de índices históricos pendentes no prompt, preservação do dicionário original e do controle canino genuinamente legado.
+
+- RF-105: na prévia e PDF, índices históricos sob token `nao_confirmadas` recebem “valor a confirmar” e aviso específico de reconfirmação; a fusão confirmada mantém precedência “Não mensurável”. Não marcar picos crus/TRIV ou grupo independente nem números caninos genuinamente legados.
+- CA-087: reproduzir origens novas e relações históricas divergentes, conferir marcador por domínio e aliases das duas espécies, persistência sem reescrita, reconfirmação e precedência da fusão. Renderizar PDF pendente de cada espécie e invalidar somente cache eco.

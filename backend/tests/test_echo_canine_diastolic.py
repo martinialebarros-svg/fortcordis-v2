@@ -240,6 +240,52 @@ class CanineDiastolicPdfTest(unittest.TestCase):
         self.assertIn("80 ± 9", text)  # TRIV remains independent of peak separation.
         self.assertEqual(payload, before)
 
+    def test_pending_reconfirmation_marks_only_dependent_pdf_indices_in_both_species(self):
+        for species in ("Canina", "Cão", "Dog", "Felina", "Gato", "Cat"):
+            for flow, tissue, marked, fused in (
+                ("nao_confirmadas", "separadas", {"E_A", "E_TRIV", "E_E_linha"}, 0),
+                ("separadas", "nao_confirmadas", {"doppler_tecidual_relacao", "E_E_linha"}, 0),
+                ("nao_confirmadas", "nao_confirmadas", {"E_A", "E_TRIV", "E_E_linha", "doppler_tecidual_relacao"}, 0),
+                ("nao_confirmadas", "fundidas", {"E_A", "E_TRIV"}, 4),
+                ("fundidas", "nao_confirmadas", {"doppler_tecidual_relacao"}, 6),
+            ):
+                with self.subTest(species=species, flow=flow, tissue=tissue):
+                    measurements = {**MEASUREMENTS, "Diastolica_ondas": flow, "TDI_ondas": tissue}
+                    payload = report(measurements, species=species)
+                    before = deepcopy(payload)
+                    text = pdf_text(payload)
+                    quantitative = text.split("ANÁLISE QUANTITATIVA", 1)[1].split("ANÁLISE QUALITATIVA", 1)[0]
+                    self.assertEqual(quantitative.count("(valor a confirmar)"), len(marked))
+                    self.assertEqual(quantitative.count("Não mensurável"), fused)
+                    for key in marked:
+                        self.assertIn(f"{MEASUREMENTS[key]} (valor a confirmar)", quantitative)
+                    self.assertIn("85.00 ms", quantitative)  # TRIV is independent.
+                    if flow != "fundidas":
+                        self.assertIn("0.47 m/s", quantitative)
+                        self.assertIn("0.67 m/s", quantitative)
+                        self.assertIn("108.00 ms", quantitative)
+                    if tissue != "fundidas":
+                        self.assertIn("0.07 m/s", quantitative)
+                        self.assertIn("0.12 m/s", quantitative)
+                    notes = diastolic_notes(measurements, species)
+                    self.assertEqual(sum(note.startswith("Ondas E/A: separação pendente") for note in notes), flow == "nao_confirmadas")
+                    self.assertEqual(sum(note.startswith("Ondas e'/a': separação pendente") for note in notes), tissue == "nao_confirmadas")
+                    self.assertIn("não interpretar esses índices até reconfirmar as ondas", quantitative)
+                    self.assertEqual(payload, before)
+
+    def test_explicit_reconfirmation_and_never_reviewed_history_have_no_pending_marker(self):
+        for species in ("Canina", "Felina"):
+            for review in ({}, {"Diastolica_ondas": "separadas", "TDI_ondas": "separadas"}):
+                with self.subTest(species=species, review=review):
+                    payload = report({**MEASUREMENTS, **review}, species=species)
+                    before = deepcopy(payload)
+                    text = pdf_text(payload)
+                    self.assertNotIn("(valor a confirmar)", text)
+                    self.assertNotIn("separação pendente de reconfirmação", text)
+                    for numeric in ("0.70", "0.55", "6.71", "0.58"):
+                        self.assertIn(numeric, text)
+                    self.assertEqual(payload, before)
+
     def test_feline_septal_ratio_is_withheld_with_factual_pdf_source_note_and_other_data_preserved(self):
         measurements = {**MEASUREMENTS, "Diastolica_metodo": "felino_adulto_nao_sedado_pw_apical_fim_fluxo", "Diastolica_ondas": "separadas", "TDI_metodo": "felino_pw_anel_septal", "TDI_ondas": "separadas"}
         text = pdf_text(report(measurements, species="Felina"))

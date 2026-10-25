@@ -4,7 +4,7 @@ import { ambiguousEchoLengthKeys, confirmedEchoUnit, confirmedUnitKey, ECHO_LENG
 import { calculateLeftAtrialFractionalShortening } from "./echo-derived-measurements";
 import { ECHO_REFERENCE_METHOD_KEYS, resolveEchoReferenceForMeasurements } from "./echo-reference-policy";
 import { canonicalEchoDiastolicKey, echoDiastolicReferences, type EchoDiastolicReference } from "./echo-diastolic-reference";
-import { isFelineEchoSpecies } from "./echo-species";
+import { isFelineEchoSpecies, normalizeEchoSpecies } from "./echo-species";
 import { deriveOutflowGradients, ECHO_OUTFLOW_KEYS, formatOutflowValue, isOutflowMetadataKey, outflowMeasurementLabel } from "./echo-outflow";
 
 type Parameter = { key: string; label: string; unit?: string; reference?: string };
@@ -184,6 +184,15 @@ export function canineAeAoClinicalReference(measurements: Record<string, string>
 export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null, ambiguousKeys: Set<string> = new Set(), weightKg?: number, species = reference?.especie ?? ""): EchoReportGroup[] {
   const safeReference = resolveEchoReferenceForMeasurements(reference, measurements, weightKg);
   const diastolicReferences = echoDiastolicReferences(measurements, species);
+  const pendingIndices = new Set<string>();
+  if (["Canina", "Felina"].includes(normalizeEchoSpecies(species))) {
+    if (measurements.Diastolica_ondas === "nao_confirmadas") {
+      for (const key of ["E_A", "E_TRIV", "E_E_linha"]) pendingIndices.add(key);
+    }
+    if (measurements.TDI_ondas === "nao_confirmadas") {
+      for (const key of ["doppler_tecidual_relacao", "E_E_linha"]) pendingIndices.add(key);
+    }
+  }
   const selected2D = measurements.VE_tecnica_relatorio === "2d";
   const view = measurements.VE_vista_2D === "eixo_curto" || measurements.VE_vista_2D === "eixo_longo"
     ? measurements.VE_vista_2D as Echo2DView : "";
@@ -213,6 +222,7 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
       const outflowValue = ECHO_OUTFLOW_KEYS.has(item.key);
       const numericValue = number(measurements[item.key]);
       const unconfirmed = outflowValue && (numericValue === null || numericValue < 0);
+      const pendingIndex = pendingIndices.has(canonicalEchoDiastolicKey(item.key));
       const referenceForKey = diastolicReferences[canonicalEchoDiastolicKey(item.key)];
       const diastolicReference = ambiguousKeys.has(item.key) && referenceForKey?.kind !== "uninterpretable"
         ? undefined : diastolicReferences[canonicalEchoDiastolicKey(item.key)];
@@ -220,10 +230,11 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
         key: item.key,
         label: outflowMeasurementLabel(item.key, item.label, measurements),
         value: unconfirmed ? `${measurements[item.key]} (valor a confirmar)`
-          : diastolicReference?.kind === "uninterpretable" ? "Não mensurável" : ambiguousKeys.has(item.key)
+          : diastolicReference?.kind === "uninterpretable" ? "Não mensurável"
+          : pendingIndex ? `${numericValue?.toFixed(2)} (valor a confirmar)` : ambiguousKeys.has(item.key)
           ? `${number(measurements[item.key])?.toFixed(2)} (unidade a confirmar)`
           : `${outflowValue ? formatOutflowValue(measurements[item.key]) : numericValue?.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`,
-        reference: unconfirmed || (ambiguousKeys.has(item.key) && diastolicReference?.kind !== "uninterpretable") ? "—" : (() => {
+        reference: unconfirmed || pendingIndex || (ambiguousKeys.has(item.key) && diastolicReference?.kind !== "uninterpretable") ? "—" : (() => {
           if (diastolicReference) return diastolicReference.text;
           const aeAoLimit = item.key === "AE_Ao" ? canineAeAoClinicalReference(measurements, species, ambiguousKeys) : null;
           if (aeAoLimit) return aeAoLimit;
@@ -237,7 +248,9 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
           source: diastolicReference.source,
           doi: diastolicReference.doi,
           statistic: diastolicReference.statistic,
-          note: diastolicReference.note,
+          note: pendingIndex && diastolicReference.kind !== "uninterpretable"
+            ? "Índice histórico: aguarda reconfirmação da separação das ondas antes de interpretar."
+            : diastolicReference.note,
           kind: diastolicReference.kind,
         } } : {}),
       };

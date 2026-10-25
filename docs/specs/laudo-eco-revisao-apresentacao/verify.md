@@ -360,3 +360,5 @@ O laudo real aberto no Safari não foi editado, salvo ou recarregado para testar
 
 - Rodada backend integrada da correção P1: 121 testes em oito módulos aprovados, com SQLite em memória. A tentativa inicial a partir da raiz não importou o pacote de testes; execução repetida do diretório backend concluiu OK.
 - Antes de mesclar, stage recebeu PR #469 (visualizador Vivid IQ); inspecionado delta de seis arquivos sem sobreposição clínica e integrado preservando esse trabalho. Nenhum arquivo de Auth ou infraestrutura foi acrescentado pelo incremento de eco.
+
+- CA-087: reprodução local confirmou relações históricas divergentes das origens após reimportação aparecendo como números comuns no PDF. Corrigido marcador “valor a confirmar” por domínio em prévia/PDF, mantendo “Não mensurável” por fusão com precedência e sem reescrever os números. 43 testes da apresentação frontend e 53 backend focados passaram; dois PDFs pendentes (canino/felino, uma página cada) renderizados/inspecionados sem cortes ou sobreposição. Cache exclusivamente eco v25. Evidência `/tmp/echo-pdf-unconfirmed-risk/fixed-proof.json`.

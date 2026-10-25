@@ -358,8 +358,8 @@ describe("preview of a canine acquisition invalidated after fusion", () => {
     const stored = parseStoredEchoMeasurements(JSON.parse(JSON.stringify(changed)));
     const payload = { ...stored, ...deriveAutomaticEchoMeasurements(stored, 10, "Canina") };
     const rows = buildEchoReportGroups(payload, null, new Set(), 10, "Canina").flatMap((group) => group.rows);
-    expect(rows.find((row) => row.key === "E_A")).toMatchObject({ value: "1.13", reference: "—", referenceMetadata: { kind: "unconfirmed", source: "", doi: "" } });
-    expect(rows.find((row) => row.key === "E_E_linha")).toMatchObject({ value: "6.95", referenceMetadata: { kind: "unconfirmed" } });
+    expect(rows.find((row) => row.key === "E_A")).toMatchObject({ value: "1.13 (valor a confirmar)", reference: "—", referenceMetadata: { kind: "unconfirmed", source: "", doi: "" } });
+    expect(rows.find((row) => row.key === "E_E_linha")).toMatchObject({ value: "6.95 (valor a confirmar)", referenceMetadata: { kind: "unconfirmed" } });
     expect(rows.find((row) => row.key === "Onda_E")?.referenceMetadata?.kind).toBe("unconfirmed");
     expect(rows.find((row) => row.key === "e_doppler")?.referenceMetadata?.kind).toBe("descriptive");
     expect(payload.Diastolica_ondas).toBe("nao_confirmadas");
@@ -370,9 +370,33 @@ describe("preview of a canine acquisition invalidated after fusion", () => {
     const stored = parseStoredEchoMeasurements(changed);
     const payload = { ...stored, ...deriveAutomaticEchoMeasurements(stored, 10, "Canina") };
     const rows = buildEchoReportGroups(payload, null, new Set(), 10, "Dog").flatMap((group) => group.rows);
-    expect(rows.find((row) => row.key === "doppler_tecidual_relacao")).toMatchObject({ value: "1.80", reference: "—", referenceMetadata: { kind: "unconfirmed", source: "", doi: "" } });
-    expect(rows.find((row) => row.key === "E_E_linha")?.value).toBe("6.95");
+    expect(rows.find((row) => row.key === "doppler_tecidual_relacao")).toMatchObject({ value: "1.80 (valor a confirmar)", reference: "—", referenceMetadata: { kind: "unconfirmed", source: "", doi: "" } });
+    expect(rows.find((row) => row.key === "E_E_linha")?.value).toBe("6.95 (valor a confirmar)");
     expect(rows.find((row) => row.key === "Onda_E")?.referenceMetadata?.kind).toBe("reference_interval");
     expect(payload.TDI_ondas).toBe("nao_confirmadas");
+  });
+});
+
+
+describe("pending historical diastolic indices in report preview", () => {
+  const raw = { Onda_E: "0.70", Onda_A: "0.50", E_A: "0.70", E_TRIV: "0.55", TRIV: "70", e_doppler: "0.09", a_doppler: "0.11", E_E_linha: "6.71", doppler_tecidual_relacao: "0.58" };
+  it.each(["Canina", "Cão", "Dog", "Felina", "Gato", "Cat"])("marks historical indices and preserves origins until reconfirmation: %s", (species) => {
+    const stored = Object.freeze({ ...raw, Diastolica_ondas: "nao_confirmadas", TDI_ondas: "nao_confirmadas" });
+    const rows = buildEchoReportGroups(stored, null, new Set(), undefined, species).flatMap((group) => group.rows);
+    for (const key of ["E_A", "E_TRIV", "E_E_linha", "doppler_tecidual_relacao"]) {
+      expect(rows.find((row) => row.key === key)).toMatchObject({ value: `${Number(raw[key as keyof typeof raw]).toFixed(2)} (valor a confirmar)`, reference: "—", referenceMetadata: { note: expect.stringContaining("Índice histórico") } });
+    }
+    expect(rows.find((row) => row.key === "Onda_E")?.value).toBe("0.70 m/s");
+    expect(rows.find((row) => row.key === "TRIV")?.value).toBe("70.00 ms");
+    expect(stored).toMatchObject(raw);
+    const confirmed = buildEchoReportGroups({ ...stored, Diastolica_ondas: "separadas", TDI_ondas: "separadas" }, null, new Set(), undefined, species).flatMap((group) => group.rows);
+    expect(confirmed.some((row) => row.value.includes("valor a confirmar"))).toBe(false);
+  });
+  it("preserves genuine legacy canine presentation and lets fusion precedence mask the shared index", () => {
+    const legacy = buildEchoReportGroups(raw, null, new Set(), undefined, "Canina").flatMap((group) => group.rows);
+    expect(legacy.find((row) => row.key === "E_A")?.value).toBe("0.70");
+    const mixed = buildEchoReportGroups({ ...raw, Diastolica_ondas: "nao_confirmadas", TDI_ondas: "fundidas" }, null, new Set(), undefined, "Canina").flatMap((group) => group.rows);
+    expect(mixed.find((row) => row.key === "E_E_linha")?.value).toBe("Não mensurável");
+    expect(mixed.find((row) => row.key === "E_A")?.value).toBe("0.70 (valor a confirmar)");
   });
 });
