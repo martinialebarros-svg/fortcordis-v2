@@ -109,7 +109,8 @@ describe("evidência descritiva diastólica felina", () => {
     expect(lateral.doppler_tecidual_relacao.text).toBe("1,33 ± 0,31");
     const septal = felineDiastolicReferences({ ...skar, ...protocol, TDI_metodo: "felino_pw_anel_septal" }, "Felina");
     expect(septal.e_doppler.text).toBe("0,075 ± 0,026 m/s");
-    expect(septal.doppler_tecidual_relacao.text).toBe("0,93 ± 0,20");
+    expect(septal.doppler_tecidual_relacao).toMatchObject({ text: "—", kind: "unconfirmed", statistic: "", source: "", doi: "" });
+    expect(septal.doppler_tecidual_relacao.note).toContain("Sem comparador septal reconciliado");
     expect(septal.E_E_linha.text).toBe("8,7 ± 1,7");
     expect(septal.e_doppler.note).toContain("1–3 anos");
     expect(septal.e_doppler.source).toBe("Ward et al. (2012)");
