@@ -22,3 +22,7 @@ Facilitar a conferência do laudo já produzido, reaproveitando confirmações d
 ## Incremento autorizado em 25/10/2026 — referências diastólicas por espécie
 
 Após a pesquisa primária de 23/10/2026, o usuário autorizou implementar o próximo passo. A consulta passa a distinguir os intervalos individuais publicados dos dados descritivos, com confirmação de aquisição registrada uma vez por exame e reutilizada na comparação, prévia e PDF. Preservar o preenchimento existente, valores importados, interpretação clínica, ordem da conclusão e bibliografia compacta após a análise qualitativa. Este incremento não autoriza publicação nem alteração de pacientes, banco de frases ou presets em produção.
+
+### Ajuste de coerencia — 26/10/2026
+
+A QA de stage encontrou dicas antigas no editor canino que ainda chamavam E/TRIV<=2,5 e E/e′<=12 de referencia. Retirar essas afirmacoes genericas para manter a mesma disciplina de evidencia da aba Referencias e do PDF, sem acrescentar etapas ao preenchimento nem alterar numeros.

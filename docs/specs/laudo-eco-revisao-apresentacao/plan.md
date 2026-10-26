@@ -51,3 +51,9 @@
 3. Ampliar os enums de aquisição, consulta, controles e prévia; reutilizar confirmações uma vez por exame, sem inferir técnica ou reescrever origens. Suspender somente a relação septal de Ward não reconciliada.
 4. Integrar o mesmo contrato ao PDF/bibliografia e invalidar apenas cache eco. Provar limites, descritores, fonte/sítio, quatro combinações de fusão, ausência de catálogo e paridade entre linguagens.
 5. Rodar regressões clínicas, tipos, lint, build e SDD; gerar e inspecionar PDFs exclusivamente sintéticos. Entregar incremento local verificável. Não commitar, publicar em stage ou promover para produção sem pedido específico. Rollback: reverter somente este incremento de apresentação/helpers/enums/cache, sem migração ou alteração clínica persistida.
+
+### Dicas legadas do editor — 26/10/2026
+
+- [x] Reproduzir no formulario canino em stage a contradicao entre dicas genericas e consulta condicional.
+- [x] Retirar as quatro dicas nos formularios novo/editar; validar testes, tipos, lint e SDD.
+- [ ] Publicar exclusivamente em stage e conferir a ausencia dos textos no editor, preservando os valores e calculos.

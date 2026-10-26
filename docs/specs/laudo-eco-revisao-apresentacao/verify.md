@@ -362,3 +362,12 @@ O laudo real aberto no Safari não foi editado, salvo ou recarregado para testar
 - Antes de mesclar, stage recebeu PR #469 (visualizador Vivid IQ); inspecionado delta de seis arquivos sem sobreposição clínica e integrado preservando esse trabalho. Nenhum arquivo de Auth ou infraestrutura foi acrescentado pelo incremento de eco.
 
 - CA-087: reprodução local confirmou relações históricas divergentes das origens após reimportação aparecendo como números comuns no PDF. Corrigido marcador “valor a confirmar” por domínio em prévia/PDF, mantendo “Não mensurável” por fusão com precedência e sem reescrever os números. 43 testes da apresentação frontend e 53 backend focados passaram; dois PDFs pendentes (canino/felino, uma página cada) renderizados/inspecionados sem cortes ou sobreposição. Cache exclusivamente eco v25. Evidência `/tmp/echo-pdf-unconfirmed-risk/fixed-proof.json`.
+
+## QA de stage e dicas legadas — 26/10/2026
+
+- PR #472 publicada em stage640d6cb4; deploy40311094037 terminalSUCCESS, identidade Meta pulada por modo desligado. Backend/frontend ativos, servico WhatsAppstage inativo/desabilitado, duas flags corefalse. Cinco JSONs stage preservados; SHA/servicos/flags/cinco JSONs de producao identicos ao baseline.
+- Smoke independente: dois dominios/tres rotas/TLS/redirecionamentos corretos, APIs401,22 chunks200,16 assets do manifesto com SHA256VPS/HTTP iguais e marcadores clinicos presentes.
+- QA autenticada parcial: PDF sintetico com10 medidas importado, fontes/estatisticas caninas exibidas; editar E0,47->0,50 exigiu reconfirmacao somente transmitral e manteve TDI confirmado, E/A0,7 e indices registrados sem recalculo silencioso. Salvamento aguardando dialogo nativo; acesso ao aplicativo bloqueado por revisao automatica. Nao houve tentativa duplicada nem teste de PDF servido concluido.
+- P2 preexistente observado no mesmo editor: E/TRIV<=2,5 e E/e′<=12 ainda apareciam como dicas de referencia generica. Remocao simples no novo/editar, sem mudar numeros ou calculos, contemplada em RF-106/CA-088 antes de eventual producao. Evidencias locais em `/tmp/echo-diastolic-stage-20261026/`.
+
+- CA-088 local: duas regressões montadas nas páginas reais falharam com os hints antigos e passaram após retirar somente as quatro props. Rodada focada:71 testes/3arquivos aprovados; TypeScript sem emissao/incremental e ESLint dos3arquivos alterados aprovados. Nenhum valor, derivacao ou seletor mudou. Logs `/tmp/echo-neutral-hints-{baseline,fixed-tests,types,lint}.log`.
