@@ -56,4 +56,4 @@
 
 - [x] Reproduzir no formulario canino em stage a contradicao entre dicas genericas e consulta condicional.
 - [x] Retirar as quatro dicas nos formularios novo/editar; validar testes, tipos, lint e SDD.
-- [ ] Publicar exclusivamente em stage e conferir a ausencia dos textos no editor, preservando os valores e calculos.
+- [x] Publicar exclusivamente em stage e conferir a ausencia dos textos no editor, preservando os valores e calculos. Concluído no SHA `786ad232`, com persistência, reimportação, reconfirmação e PDFs sintéticos conferidos em 26/10/2026.
