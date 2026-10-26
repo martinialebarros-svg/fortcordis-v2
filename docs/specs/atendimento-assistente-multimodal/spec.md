@@ -20,7 +20,8 @@ Status: done (implementação local; homologação e publicação pendentes)
 - NFR-001: autenticação e permissão `atendimento_clinico` também no router novo; segredo somente servidor; feature off por padrão; sem fallback silencioso.
 - NFR-002: limites antes de chamada externa, timeout, erro público sem segredo/conteúdo clínico; `store=false` na análise; liberar transação DB antes de aguardar provedor. `store=false` não deve ser apresentado como garantia de retenção zero do provedor.
 - NFR-003: respostas estruturadas validadas; arquivos e transcrições são fontes não confiáveis, nunca instruções. Não aceitar decisão/normalidade inventada como informação do prontuário.
-- NFR-004: backup local de áudio opcional, com isolamento por usuário/atendimento, expiração (limpeza na próxima abertura) e descarte. Falha de armazenamento deve ser visível; sem prometer recuperar áudio não salvo pelo navegador.
+- NFR-004: backup local de áudio opcional, com isolamento por usuário/atendimento/paciente, expiração (limpeza na próxima abertura) e descarte. Falha de armazenamento deve ser visível; sem prometer recuperar áudio não salvo pelo navegador.
+- NFR-005: antes de ativar chamadas externas, validar upload e tempo de espera em todo o caminho público. O proxy deve permitir o processamento síncrono previsto pelo servidor, ou o fluxo deve passar a trabalho assíncrono; um teste local no backend não comprova esse caminho.
 
 ## API
 
@@ -48,6 +49,16 @@ Envio automático pela Meta Cloud API, transcrição simultânea por Realtime, p
 ## Publicação autorizada
 
 Em 2026-10-26, o usuário autorizou publicar após aguardar a fila existente. A entrega publica gravação local, revisão/anexação e compartilhamento manual de documentos; transcrição e análise externas permanecem desativadas por padrão até homologação. A publicação deve usar o fluxo protegido de stage para produção, preservar alterações paralelas e comprovar o SHA instalado. Não altera a configuração operacional da Meta nem habilita chamadas externas automaticamente.
+
+## Condições antes da ativação da IA
+
+Esta publicação mantém `ATENDIMENTO_IA_ENABLED=false`; não insere novas chaves de ativação no ambiente. Ativar exige homologação física e clínica, acesso efetivo aos modelos e verificação do caminho público completo.
+
+O backend permite 180 segundos de espera pelo provedor e a UI espera 300 segundos. A leitura dos arquivos habilitados do Nginx em 2026-10-26 encontrou limite de corpo de 30 MiB nas rotas API de stage e produção, mas nenhuma diretiva de timeout nos includes. O [padrão documentado de `proxy_read_timeout`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout) é 60 segundos entre leituras do upstream. Antes de habilitar IA, conferir o dump efetivo do processo, ajustar o timeout especificamente para o fluxo ou implementar resposta assíncrona e comprovar resposta pelo domínio público em processamento superior a 60 segundos. Não alterar Nginx nesta publicação desativada.
+
+A verificação futura deve incluir áudio próximo de 24 MiB, lote de exames próximo de 20 MiB, cancelamento/repetição e conservação das fontes quando houver falha. O limite de 30 MiB cobre o corpo multipart previsto, mas não substitui um teste real do caminho público. Não há garantia de acurácia ou acesso ao provedor baseada apenas em configuração presente.
+
+Na ativação posterior, registrar o estado anterior das chaves `ATENDIMENTO_IA_*`. Para retornar a código anterior à feature, restaurar também essas chaves antes de reiniciar: `Settings` rejeita campos extras no `.env`. Nenhuma migração de banco é necessária.
 
 ## Fontes oficiais consultadas em 2026-10-26
 

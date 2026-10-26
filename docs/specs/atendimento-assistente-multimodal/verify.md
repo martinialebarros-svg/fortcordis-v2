@@ -76,3 +76,31 @@ A revisão de prontidão confirmou que desabilitar IA bloqueia transcrever/anali
 ## Ajuste após preferência de dispositivo
 
 O usuário confirmou alternância entre computador e celular. Acrescentada orientação no painel sobre parada da gravação, revisão/incorporação e confirmação do salvamento antes de trocar de aparelho. Áudio e rascunhos seguem locais ao navegador; não foi implementada sincronização de gravação ou de revisão pendente entre dispositivos. A matriz de homologação física inclui celular e computador; esses testes físicos permanecem pendentes. ESLint do componente passou após o ajuste de texto; nenhuma lógica de captura/análise/envio foi alterada.
+
+
+## Prontidão do backend e ingress — 2026-10-26
+
+Revisão somente leitura, seguida de atualização destes documentos. Nenhuma chamada real ao provedor, alteração de configuração ou execução de deploy foi feita nesta verificação.
+
+**Dependências observadas:** Python 3.11.15, OpenAI SDK 2.46.0, Pydantic 2.5.0, FastAPI 0.104.1, HTTPX 0.25.2, Pillow 10.4.0, pypdf 6.14.2 e python-multipart 0.0.6. As versões de bibliotecas coincidem com `backend/requirements.txt`; os quality gates usam Python 3.11 e os instaladores executam `pip install -r requirements.txt`.
+
+**Contrato offline do SDK:** executado com o cliente OpenAI real e `httpx.MockTransport`, chave e fontes sintéticas, sem conexão externa. Confirmados multipart `languages` para `gpt-transcribe`; serialização de `gpt-6.1-sol`, esforço `max`, JSON schema estrito com `additionalProperties=false`, PDF base64 com `detail=high`, `store=false` e parsing da resposta estruturada. Isso verifica compatibilidade local do SDK, não disponibilidade dos modelos, acurácia ou latência real.
+
+**Flags e rollback:** workflows separam `OPENAI_API_KEY_STAGE` e `OPENAI_API_KEY_PROD`; não propagam `ATENDIMENTO_IA_*`. A entrega mantém o default false. Nenhuma chave ou valor de segredo foi lido/exibido. O smoke posterior deverá confirmar `habilitado=false` no processo instalado. `Settings.model_config.extra` foi confirmado como `forbid`: uma futura ativação que acrescente chaves ao `.env` deverá restaurá-las/removê-las se houver rollback a código anterior à feature.
+
+**Ingress observado por SSH, somente leitura:** `/etc/nginx/sites-enabled/fortcordis-stage`, `location /api`, encaminha à API stage e declara `client_max_body_size 30m` na linha 42. `/etc/nginx/sites-enabled/fortcordis-app`, `location /api/`, encaminha à API de produção e declara o mesmo limite na linha 17. Percorridos os 14 arquivos incluídos a partir de `/etc/nginx/nginx.conf`, todos legíveis, sem `proxy_read_timeout`, `proxy_send_timeout` ou `proxy_connect_timeout` explícitos. Saída restrita a caminhos, diretivas de tamanho/timeout e destinos internos; nenhum `.env` foi consultado.
+
+`sudo -n nginx -T` não pôde produzir o dump porque requer senha. Portanto, esta evidência descreve os arquivos habilitados em disco; **o dump efetivo do processo não foi conferido**. Segundo a [documentação oficial do Nginx](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout), o padrão de leitura é 60 segundos sem dados do upstream. Como a análise devolve JSON apenas ao terminar, há risco de HTTP 504 antes dos 180 segundos permitidos pelo backend. Esse ponto bloqueia ativação futura, não a publicação com IA desativada. Não houve alteração/reload do Nginx.
+
+**Smoke autenticado proposto, ainda não executado nesta verificação:** após confirmar o SHA instalado e `AUTH_PROVIDER=legacy`, gerar token interno de curta duração com o helper existente `scripts/deploy_authenticated_canary.py._token_from_internal_backend`; selecionar somente um `atendimento_id` existente mediante SELECT em transação somente leitura; executar apenas GET `/api/v1/atendimentos/{id}/assistente/status`, inicialmente em loopback e depois pelo domínio do ambiente, com assert `habilitado is False` e contrato de modelos/limites presente. Não imprimir token, IDs ou dados clínicos. Se o provedor de autenticação mudar, interromper esse caminho em vez de criar uma sessão externa automaticamente. Não chamar transcrição/análise, criar fixture clínica nem enviar WhatsApp. O sucesso desse GET confirma rota, autenticação e configuração, sem provar processamento ou escrita clínica.
+
+## Revalidação após integrar origin/main
+
+Após a integração de `origin/main` à branch da feature, a execução coordenada confirmou:
+
+- Backend de atendimento: 233 testes passaram.
+- Frontend focado no novo fluxo: 74 testes passaram.
+- ESLint e TypeScript: passaram.
+- Build desta integração: concluído com sucesso, 43 páginas geradas. O build anterior permanece registrado como validação local anterior à integração.
+
+Publicação e ativação continuam sendo estados distintos. A autorização para publicar mantém a IA externa desativada nesta entrega; homologação de microfone/dispositivo e provedor permanece pendente.
