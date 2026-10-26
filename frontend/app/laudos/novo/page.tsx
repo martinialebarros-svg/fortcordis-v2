@@ -1620,6 +1620,7 @@ export default function NovoLaudoPage() {
                           value={medidas["E_TRIV"] || ""}
                           onChange={(v) => handleMedidaChange("E_TRIV", v)}
                           readOnly={!isFelineEchoSpecies(paciente.especie) || isEchoDiastolicRatioCalculated(medidas, paciente.peso, paciente.especie, "E_TRIV")}
+                          reference={paciente.especie === "Canina" ? "Ref.: ≤2,5; valores >2,5 são sugestivos de aumento das pressões de enchimento do VE." : undefined}
                         />
                         <MedidaInput 
                           label="MR dp/dt (mmHg/s)"
@@ -1647,6 +1648,7 @@ export default function NovoLaudoPage() {
                           value={medidas["E_E_linha"] || ""}
                           onChange={(v) => handleMedidaChange("E_E_linha", v)}
                           readOnly={!isFelineEchoSpecies(paciente.especie) || isEchoDiastolicRatioCalculated(medidas, paciente.peso, paciente.especie, "E_E_linha")}
+                          reference={paciente.especie === "Canina" ? "Ref.: ≤12; valores >12 são sugestivos de aumento das pressões de enchimento do VE." : undefined}
                         />
                       </div>
 

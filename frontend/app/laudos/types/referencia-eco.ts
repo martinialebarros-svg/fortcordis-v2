@@ -102,10 +102,6 @@ export interface ComparacaoMedida {
   nome: string;
   valor_medido: string;
   referencia_texto?: string;
-  nota_referencia?: string;
-  referencia_tipo?: "reference_interval" | "descriptive" | "uninterpretable" | "unconfirmed";
-  estatistica?: string;
-  doi?: string;
   fonte?: string;
   metadados?: EchoRangeMetadata;
   referencia_min: number | null;
