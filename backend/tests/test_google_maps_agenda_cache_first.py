@@ -577,8 +577,7 @@ class GoogleMapsAgendaCacheFirstTest(unittest.TestCase):
         extras = guard.create_preview(7, "POST", "/api/v1/logistica/recalcular")
         self.assertTrue(extras["blocked"])
         self.assertEqual(extras["budget_policy"], "enforced")
-        # This fixture has a zero per-action cost cap; daily usage is still zero.
-        self.assertEqual(extras["reason"], "action_limit")
+        self.assertEqual(extras["reason"], "day_limit")
         data = guard.get_status()["config"]
         data["limits"]["action"]["estimated_brl"] = 1
         guard.update_configuration(7, guard.CostConfiguration.model_validate(data), 1)

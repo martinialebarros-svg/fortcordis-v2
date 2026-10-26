@@ -40,7 +40,6 @@ export default function GoogleMapsControlDemo() {
       </table>
     </div>
     <div className="flex flex-wrap gap-2">
-      <button type="button" disabled={waiting} onClick={() => setResult("Simulação de geocodificação manual: sem popup de custo; até 1 chamada, com registro interno exclusivo desta execução e validade de 10 minutos. Limites diário e mensal respeitados; lotes e automações continuam bloqueados. Nenhuma coordenada é inventada ou marcada como confirmada. Nesta demonstração: 0 consultas e 0 cadastros alterados.")} className="rounded-lg border border-teal-300 bg-white px-3 py-2">Geocodificação manual — registro interno</button>
       <button type="button" disabled={waiting} onClick={() => setResult("Rota válida no cache: o agendamento passa pela validação normal, sem popup, token ou nova consulta paga.")} className="rounded-lg border border-teal-300 bg-white px-3 py-2">Rota já armazenada</button>
       <button type="button" disabled={waiting} onClick={() => void simulate()} className="rounded-lg border border-teal-300 bg-white px-3 py-2">Nova consulta de rota</button>
       <button type="button" disabled={waiting} onClick={() => void simulate("potential")} className="rounded-lg border border-teal-300 bg-white px-3 py-2">Esta ação pode ultrapassar a referência</button>

@@ -1,8 +1,8 @@
 # Spec - vivid-iq-cine-viewer
 
-Data: 2026-10-25
+Data: 2026-10-26
 Responsavel: Codex
-Status: fase 9 validada localmente; publicacao autorizada somente em stage em 2026-10-25
+Status: fase 9 validada em stage; promocao isolada para producao autorizada em 2026-10-26
 
 ## 1) Escopo funcional
 
@@ -291,6 +291,15 @@ decodificando apenas o arquivo ativo e preservando a ordem de selecao.
   ativa; trocar/remover o ativo invalida callbacks, inclusive durante cancelamento.
 
 ## 8) Fora de escopo
+
+### Limite da publicacao autorizada em 2026-10-26
+
+Somente a colecao local de cines desta fase e seus quatro artefatos SDD podem
+ser promovidos. Preservar as outras entregas no snapshot stage
+`4cd0e899915e625bcd971f214bc34ce09feabea1` e restaura-las em stage depois da
+promocao protegida. O diff final contra main deve conter exatamente pagina,
+teste da pagina e intent/plan/spec/verify do visualizador, sem backend,
+migrations, configuracao, workflows ou novos comportamentos clinicos.
 
 - Medicoes calibradas ou diagnostico automatizado.
 - Persistencia, compartilhamento, DICOMweb, PACS ou vinculo com paciente/laudo.
