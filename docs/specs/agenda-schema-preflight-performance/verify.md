@@ -10,6 +10,20 @@
 | CA-004 | suítes focadas, de Agenda e completa do backend | ok_local |
 | CA-005 | compilação, integridade do diff e avaliador do guardrail SDD | ok_local |
 | CA-006 | comparação autenticada da release `9e1415a` com 108 amostras | ok_stage |
+| CA-007 | `test_agenda_configuration_projection.py`, regras, atualização confirmada e SQL sem binários | ok_local |
+
+## Correção da leitura de regras — 26/10/2026
+
+- Evidência sanitizada inicial: pasta privada local `stage-agenda-latency`,
+  `before-existing-aggregates.json` (somente SELECT/READ ONLY).
+- Teste de regressão antes da correção: três cenários, dois falharam como
+  esperado, demonstrando seleção de binários e reutilização da entidade antiga.
+- Após a projeção: 24 testes focados aprovados, incluindo contrato do gate,
+  paginação, filtros, schema e os três cenários de configuração; todos os
+  255 testes `test_agenda*.py` também aprovados.
+- A comparação de stage será registrada após execução. Ainda não há evidência
+  de correção dos picos nem autorização de produção nesta etapa. O limite
+  permanece `1.200 ms`.
 
 ## Evidência local
 
