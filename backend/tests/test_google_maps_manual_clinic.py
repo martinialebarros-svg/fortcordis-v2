@@ -130,6 +130,20 @@ class ManualClinicGeocodeTest(unittest.TestCase):
             self.direct()
         self.assertEqual(exc.exception.reason, 'day_limit')
 
+    def test_manual_approved_references_remain_650_25_and_13000_500(self):
+        self.config['limits'] = {'action': {'calls': 4096, 'estimated_brl': 5},
+                                 'day': {'calls': 650, 'estimated_brl': 25},
+                                 'month': {'calls': 13000, 'estimated_brl': 500}}
+        self.config['opening_usage']['day'] = {'calls': 649, 'estimated_brl': 24.94}
+        self.config['opening_usage']['month'] = {'calls': 12999, 'estimated_brl': 499.94}
+        self.configure()
+        self.reserve(self.direct(), 'geocoding')
+        with self.assertRaises(guard.GoogleMapsCostBlocked) as exc:
+            self.direct()
+        self.assertEqual(exc.exception.reason, 'day_limit')
+        self.assertEqual(guard.get_status()['config']['limits'], self.config['limits'])
+        self.assertEqual(guard.get_status()['config']['automatic_policies'], {})
+
     def test_manual_month_cost_and_revision_remain_hard(self):
         self.config['limits']['month']['estimated_brl'] = 0.06
         self.configure()
