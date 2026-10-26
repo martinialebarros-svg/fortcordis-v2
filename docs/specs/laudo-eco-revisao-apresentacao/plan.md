@@ -42,18 +42,3 @@
 2. Permitir continuação por linhas somente do bloco diastólico felino de consulta e repetir os cabeçalhos da tabela; manter outros grupos e conteúdo clínico.
 3. Regressão com logo/assinatura/conclusão longa, renderização local, novo cache eco v20 e publicação autorizada de correção em stage.
 4. Rebaixar os dois estados do teste #52, inspecionar páginas e registrar resultado; produção fora do escopo.
-
-
-## Incremento 2026-10-25 — referências diastólicas publicadas
-
-1. Partir de origin/stage em worktree própria, preservando alterações paralelas no clone principal. Reusar a pesquisa primária auditada; recuperar e renderizar a Tabela 3 de Chompoosan antes de habilitar o RI PW.
-2. Adicionar helper canino e seleção por espécie, mantendo os helpers felinos compatíveis e o catálogo numérico intacto. Separar RI de média ± DP; confirmar método, domínio e fusões explicitamente.
-3. Ampliar os enums de aquisição, consulta, controles e prévia; reutilizar confirmações uma vez por exame, sem inferir técnica ou reescrever origens. Suspender somente a relação septal de Ward não reconciliada.
-4. Integrar o mesmo contrato ao PDF/bibliografia e invalidar apenas cache eco. Provar limites, descritores, fonte/sítio, quatro combinações de fusão, ausência de catálogo e paridade entre linguagens.
-5. Rodar regressões clínicas, tipos, lint, build e SDD; gerar e inspecionar PDFs exclusivamente sintéticos. Entregar incremento local verificável. Não commitar, publicar em stage ou promover para produção sem pedido específico. Rollback: reverter somente este incremento de apresentação/helpers/enums/cache, sem migração ou alteração clínica persistida.
-
-### Dicas legadas do editor — 26/10/2026
-
-- [x] Reproduzir no formulario canino em stage a contradicao entre dicas genericas e consulta condicional.
-- [x] Retirar as quatro dicas nos formularios novo/editar; validar testes, tipos, lint e SDD.
-- [ ] Publicar exclusivamente em stage e conferir a ausencia dos textos no editor, preservando os valores e calculos.

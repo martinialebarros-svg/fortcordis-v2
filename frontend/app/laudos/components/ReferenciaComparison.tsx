@@ -3,13 +3,13 @@
 import { useState, useEffect, useMemo } from "react";
 import { CheckCircle, AlertCircle, AlertTriangle, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { isFelineEchoSpecies } from "@/lib/echo-species";
-import { compararMedidasDiastolicas, useReferenciaEco } from "../hooks/useReferenciaEco";
+import { compararMedidasDiastolicasFelinas, useReferenciaEco } from "../hooks/useReferenciaEco";
 import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
 import { prepareEchoReportMeasurements } from "@/lib/echo-report-presentation";
 import { ambiguousEchoLengthKeys } from "@/lib/echo-unit-provenance";
 import type { Echo2DView } from "@/lib/echo-2d-reference";
-import { EchoDiastolicProtocol } from "./EchoDiastolicProtocol";
+import { FelineDiastolicProtocol } from "./FelineDiastolicProtocol";
 
 interface ReferenciaComparisonProps {
   especie?: "Canina" | "Felina" | string;
@@ -51,8 +51,8 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
     () => ({ ...medidasSeguras, ...medidasDerivadasParaReferencia }),
     [medidasSeguras, medidasDerivadasParaReferencia]
   );
-  const referenciasDiastolicas = useMemo(
-    () => compararMedidasDiastolicas(medidasParaReferencia, especie ?? ""),
+  const referenciasDiastolicasFelinas = useMemo(
+    () => compararMedidasDiastolicasFelinas(medidasParaReferencia, especie ?? ""),
     [medidasParaReferencia, especie],
   );
   // This clinical limit is independent of the weight-based catalog, but its
@@ -105,13 +105,13 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
   useEffect(() => {
     if (referencia) {
       const comps = compararMedidas(medidasParaReferencia, referencia, plano2D, peso);
-      setComparacoes({ ...comps, ...referenciasDiastolicas });
+      setComparacoes({ ...comps, ...referenciasDiastolicasFelinas });
       return;
     }
-    setComparacoes(referenciasDiastolicas);
-  }, [medidasParaReferencia, referencia, compararMedidas, plano2D, peso, referenciasDiastolicas]);
+    setComparacoes(referenciasDiastolicasFelinas);
+  }, [medidasParaReferencia, referencia, compararMedidas, plano2D, peso, referenciasDiastolicasFelinas]);
 
-  if (loading && Object.keys(referenciasDiastolicas).length === 0) {
+  if (loading && Object.keys(referenciasDiastolicasFelinas).length === 0) {
     return (
       <div className="flex justify-center py-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
@@ -130,7 +130,7 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
             : `Não há referência cadastrada para ${especie} com ${peso}kg.`}
         </p>
         {metodoAeAoCanino}
-        <EchoDiastolicProtocol especie={especie} medidas={medidas} onMedidaChange={onMedidaChange} />
+        <FelineDiastolicProtocol especie={especie} medidas={medidas} onMedidaChange={onMedidaChange} />
       </div>
     );
   }
@@ -204,9 +204,9 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
             </p>
           )}
         </div>
-      </div> : <p className="rounded-lg bg-teal-50 p-3 text-sm text-teal-900">Referências diastólicas: estudos publicados independentes do cadastro por peso.</p>}
+      </div> : <p className="rounded-lg bg-teal-50 p-3 text-sm text-teal-900">Referências diastólicas felinas: estudos publicados independentes do cadastro por peso.</p>}
 
-      <EchoDiastolicProtocol especie={especie} medidas={medidas} onMedidaChange={onMedidaChange} />
+      <FelineDiastolicProtocol especie={especie} medidas={medidas} onMedidaChange={onMedidaChange} />
 
       {temMedidas2D && /^canin/i.test(referencia?.especie ?? "") && (
         <div className="p-3 bg-blue-50 rounded-lg space-y-2">
@@ -290,32 +290,26 @@ export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }:
                   return (
                 <div
                   key={item.key}
-                  className={`flex flex-col gap-3 p-3 rounded-lg border sm:flex-row sm:items-start sm:justify-between ${getStatusClass(
+                  className={`flex items-center justify-between p-3 rounded-lg border ${getStatusClass(
                     item.status
                   )}`}
                 >
-                  <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex items-center gap-3">
                     {getStatusIcon(item.status)}
                     <div>
                       <p className="font-medium text-sm">{item.nome}</p>
                       <p className="text-xs text-gray-500">
-                        {item.referencia_texto ? (item.referencia_tipo === "reference_interval" ? "Intervalo de referência publicado" : item.estatistica === "mean_sd" ? "Média ± DP publicada" : "Comparação diastólica") : item.key.endsWith("_2D")
+                        {item.referencia_texto ? (item.fonte ? "Média ± DP publicada" : "Comparação diastólica") : item.key.endsWith("_2D")
                           ? (semReferenciaDefinida ? "Faixa 2D" : "Faixa 2D publicada")
                           : item.metadados?.status === "published" ? "Faixa publicada" : "Faixa cadastrada"}: {faixaRef}
                       </p>
-                      {item.fonte && <p className="text-xs text-gray-500">{item.doi ? <a href={`https://doi.org/${item.doi}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{item.fonte}</a> : item.fonte}</p>}
-                      {item.nota_referencia && ["descriptive", "reference_interval"].includes(item.referencia_tipo ?? "") && (
-                        <details className="mt-1 text-xs text-gray-600">
-                          <summary className="cursor-pointer">Técnica e população do estudo</summary>
-                          <p className="mt-1 max-w-xl leading-relaxed">{item.nota_referencia}</p>
-                        </details>
-                      )}
+                      {item.fonte && <p className="text-xs text-gray-500">{item.fonte}</p>}
                       {item.metadados?.clinical_threshold && ["AE_Ao", "LA_Ao"].includes(item.key) && (
                         <p className="text-xs text-gray-500">Limiar clínico geral: AE/Ao &lt; 1,5, independente do intervalo estatístico por peso. Interpretar com os demais achados.</p>
                       )}
                     </div>
                   </div>
-                  <div className="min-w-0 sm:max-w-sm sm:shrink-0 sm:text-right">
+                  <div className="text-right">
                     <p className="font-bold text-lg">{item.valor_medido || "-"}</p>
                     <p className={`text-xs ${getStatusTextClass(item.status)}`}>
                       {item.interpretacao}

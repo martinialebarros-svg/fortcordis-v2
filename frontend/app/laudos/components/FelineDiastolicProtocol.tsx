@@ -46,7 +46,6 @@ export function FelineDiastolicProtocol({ especie, medidas, onMedidaChange }: Pr
       </>)}
       {select("Diastolica_ondas", "Ondas transmitrais E/A", <>
         <option value="">Separação não confirmada</option>
-        {medidas.Diastolica_ondas === "nao_confirmadas" && <option value="nao_confirmadas">Separação a reconfirmar</option>}
         <option value="separadas">Separadas e mensuráveis</option>
         <option value="fundidas">Fundidas</option>
       </>)}
@@ -65,13 +64,12 @@ export function FelineDiastolicProtocol({ especie, medidas, onMedidaChange }: Pr
       </>)}
       {select("TDI_ondas", "Ondas teciduais e'/a'", <>
         <option value="">Separação não confirmada</option>
-        {medidas.TDI_ondas === "nao_confirmadas" && <option value="nao_confirmadas">Separação a reconfirmar</option>}
         <option value="separadas">Separadas e mensuráveis</option>
         <option value="fundidas">Fundidas</option>
       </>)}
     </div>}
     <p className="text-xs text-blue-800">Transmitral: vista apical esquerda de 4 câmaras, Doppler pulsado nas pontas dos folhetos mitrais. TRIV: vista apical esquerda de 5 câmaras, registro simultâneo de entrada e saída do VE; confirme clique de fechamento ou fim do fluxo aórtico. A fusão E/A e a fusão e&apos;/a&apos; são confirmações independentes.</p>
     <p className="text-xs text-blue-800">a&apos; representa a velocidade anular tardia associada à contração atrial; confirme o mesmo sítio e técnica de e&apos;. Um valor isolado não define disfunção diastólica; limiares de e&apos; não se aplicam automaticamente a a&apos;.</p>
-    <p className="text-xs text-blue-800">Os estudos são apresentados como média ± DP, sem classificação automática. Para o anel lateral, Kiatsilapanan e Surachetpong (2020) descrevem 20 gatos saudáveis, não sedados, com ondas separadas. Para o septal, Ward (2012) descreve apenas 7 gatos saudáveis de 1–3 anos, antes da sedação; confirme a pertinência ao paciente. A relação septal e&apos;/a&apos; de Ward permanece sem comparador até reconciliação da fonte.</p>
+    <p className="text-xs text-blue-800">Os estudos são apresentados como média ± DP, sem classificação automática. Para o anel lateral, Kiatsilapanan e Surachetpong (2020) descrevem 20 gatos saudáveis, não sedados, com ondas separadas. Para o septal, Ward (2012) descreve apenas 7 gatos saudáveis de 1–3 anos, antes da sedação; confirme a pertinência ao paciente.</p>
   </section>;
 }
