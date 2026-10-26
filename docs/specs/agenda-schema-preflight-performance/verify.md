@@ -10,6 +10,30 @@
 | CA-004 | suítes focadas, de Agenda e completa do backend | ok_local |
 | CA-005 | compilação, integridade do diff e avaliador do guardrail SDD | ok_local |
 | CA-006 | comparação autenticada da release `9e1415a` com 108 amostras | ok_stage |
+| CA-007 | `test_agenda_configuration_projection.py`, regras, atualização confirmada e SQL sem binários | ok_local |
+
+## Correção da leitura de regras — 26/10/2026
+
+- Evidência sanitizada inicial: pasta privada local `stage-agenda-latency`,
+  `before-existing-aggregates.json` (somente SELECT/READ ONLY).
+- Teste de regressão antes da correção: três cenários, dois falharam como
+  esperado, demonstrando seleção de binários e reutilização da entidade antiga.
+- Após a projeção: 24 testes focados aprovados, incluindo contrato do gate,
+  paginação, filtros, schema e os três cenários de configuração; todos os
+  255 testes `test_agenda*.py` também aprovados.
+- Comparação SQL em stage `4cd0e899`, numa única transação REPEATABLE READ / READ
+  ONLY: cinco leituras da entidade completa intercaladas com cinco projeções.
+  Regras normalizadas idênticas; mediana de `28,539 ms` para `8,772 ms`
+  (redução de `69,26%` nessa consulta). O primeiro acesso da entidade também
+  paga inicialização do ORM; a comparação usa medianas, não esse pico frio.
+  Não houve operação de Agenda, sessão de autenticação ou chamada externa.
+- Referência HTTP no mesmo stage: cinco GETs autenticados em série, todos 200,
+  p50 `118,137 ms`, p95/máximo `152,557 ms`. O deploy anterior `4cd0e899` também
+  passou seu gate de cinco amostras com p95 `369,61 ms`. Os picos históricos
+  não se reproduziram nessa referência; não confundir a economia da consulta
+  com prova da causa integral deles.
+- A validação HTTP após publicação será registrada após execução. Não há
+  autorização de produção nesta etapa. O limite permanece `1.200 ms`.
 
 ## Evidência local
 
