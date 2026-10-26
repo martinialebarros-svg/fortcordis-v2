@@ -1,3 +1,7 @@
+import { FELINE_DIASTOLIC_KEYS } from "./echo-feline-diastolic-reference";
+
+const DIASTOLIC_KEYS = new Set<string>(FELINE_DIASTOLIC_KEYS);
+
 export interface QualitativaEcoLegada {
   valvas: string;
   camaras: string;
@@ -327,8 +331,9 @@ export function montarDescricaoEcocardiograma(
 ): string {
   let descricao = "## Medidas Ecocardiograficas\n";
   Object.entries(medidas).forEach(([key, value]) => {
-    if (value) {
-      descricao += `- ${key}: ${value}\n`;
+    if (value || DIASTOLIC_KEYS.has(key)) {
+      // An explicit clearing must survive beside an unchanged historical alias.
+      descricao += `- ${key}: ${value ?? ""}\n`;
     }
   });
 
