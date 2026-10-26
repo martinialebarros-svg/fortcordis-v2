@@ -295,5 +295,11 @@ Fontes primárias: [Chompoosan 2022](https://doi.org/10.1111/jsap.13472), [Perei
 
 ### Promoção clínica autorizada — 26/10/2026
 
-- Promover somente o incremento de referências diastólicas, reconfirmação e apresentação já validado em stage no SHA `786ad23236b6852d4714ce0074840a99edfb5003`. Preservar os 40 arquivos clínicos e de testes desse snapshot, sem transportar dados dos laudos sintéticos.
+- Promover o incremento de referências diastólicas, reconfirmação e apresentação validado em stage no SHA `786ad23236b6852d4714ce0074840a99edfb5003`, incluindo a correção de compatibilidade legada RF-107 e sua nova homologação. Preservar os valores e os critérios clínicos, sem transportar dados dos laudos sintéticos.
 - Publicação direta protegida `stage → main`, com verificação dos checks, SHA instalado, preservação dos arquivos de runtime e conferência do PDF em produção. Trabalho paralelo de Agenda, configuração e Vivid permanece preservado para stage; a infraestrutura fiscal e de isolamento dos ambientes já integrada não deve ser revertida.
+
+### Compatibilidade dos nomes legados no PDF — 26/10/2026
+
+- RF-107: os nove aliases diastólicos já reconhecidos pelo frontend (`MV_E`, `MV_A`, `MV_E_A`, `MV_DT`, `IVRT`, `MV_E_TRIV`, `TDI_e`, `TDI_a`, `EEp`) devem alimentar as mesmas linhas, referências, notas e bibliografia do PDF que as chaves canônicas equivalentes, em ambas as espécies. Canonicalizar apenas em cópia de apresentação, sem converter unidades, recalcular relações ou regravar o histórico.
+- Uma chave canônica explicitamente presente prevalece sobre o alias, independentemente da ordem e inclusive quando contém zero, vazio ou nulo. A compatibilidade não confirma métodos ou separação de ondas, não libera fusões ou revisões pendentes e preserva origens/proveniência e os domínios independentes. O contexto IA mantém seu descarte conservador preexistente de aliases.
+- CA-089: reproduzir a omissão de referências e bibliografia em PDF real com aliases; comparar com o controle canônico, testar precedência e imutabilidade, fusões e reconfirmação pendente, para cães e gatos. Inspecionar todas as páginas dos PDFs sintéticos pertinentes; trocar somente o cache eco para v26, preservando o cache de outras modalidades e os jobs antigos.
