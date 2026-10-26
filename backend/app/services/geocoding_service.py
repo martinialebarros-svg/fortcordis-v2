@@ -123,7 +123,7 @@ def geocodificar_endereco_google(endereco_completo: str, api_key: str) -> Geocod
         data = _http_get_json(url)
     except Exception:
         # Provider exception strings may contain the URL, key and full address.
-        raise GeocodingError("Falha ao consultar Google Geocoding. Tente novamente com uma nova confirmacao.") from None
+        raise GeocodingError("Falha ao consultar Google Geocoding. Inicie uma nova consulta para tentar novamente.") from None
 
     status = str(data.get("status") or "").strip().upper()
     if status != "OK":

@@ -318,3 +318,11 @@ A PR #432 promoveu o snapshot em main `3553c461`; a publicação efetiva requer
 workflow terminal e smoke instalado. Não reexecutar a ativação inicial: configuração
 e abertura financeira da revisão 1 devem permanecer idênticas. O registro final
 privado e sanitizado está em `/Users/martiniano/Documents/Codex/2026-10-22/maps-price-review-alerts/`.
+
+## Validação da geocodificação manual — 26/10/2026
+
+- Contrato em `backend/tests/test_google_maps_manual_clinic.py`: prévia sem popup/escopo, HTTP autenticado com registro interno e fechamento, teto de uma tentativa, SKU, expiração/background, concorrência e persistência do teto diário, custo mensal, revisão, flag/cap e falha de ledger. Extras e automações não são inscritos automaticamente.
+- Regressões completas `test_google_maps*.py`: Agenda em monitor/cache-first, escopos finitos, consumo atômico e expiração de preços continuam cobertos.
+- Frontend: `clinic-coordinates.test.ts`, `geocode-explicit-action.test.tsx`, GoogleMapsActionGuard/AdminPanel/ControlDemo. Cobrem ausência de confirmação financeira no modo manual autorizado e ausência de 0/0 confirmado; filtros/cadastros reais não são modificados.
+- `scripts/google_maps_manual_clinic_stage_canary.py --expected-sha <SHA>` aceita somente checkout/backend/DB de stage, cria schemas descartáveis por teste e bloqueia transporte de rede. Verifica as mesmas propriedades em PostgreSQL real e regressões da Agenda, sem autenticação operacional, agendamentos ou chamadas Google de teste. A política sintética fica restrita aos schemas temporários e todos são removidos.
+- Antes de promover: registrar SHA, checks terminais, prova instalada, smoke e configuração operacional preservada. Produção segue sem ativar a nova flag até autorização separada; os resultados locais/Stage não devem ser chamados de homologação real da recepção.

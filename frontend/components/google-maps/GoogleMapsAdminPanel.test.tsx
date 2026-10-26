@@ -45,6 +45,18 @@ describe("administração de custos Google Maps", () => {
     expect(mocks.put).not.toHaveBeenCalled();
   });
 
+  it("preserva a exceção manual sem modificar os limites ou liberar automações", async () => {
+    mocks.get.mockResolvedValue({ data: { ...existing, config: { ...existing.config, clinic_geocode_manual_enabled: true } } });
+    mocks.put.mockResolvedValue({ data: {} });
+    render(<GoogleMapsAdminPanel />);
+    expect(await screen.findByText(/Geocodificação manual de clínicas: uma chamada/)).toBeVisible();
+    fireEvent.submit(screen.getByRole("button", { name: "Salvar controles" }).closest("form")!);
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledWith("/google-maps-control/config", expect.objectContaining({
+      clinic_geocode_manual_enabled: true, action_call_caps: { clinic_geocode: 1 }, automatic_policies: {},
+      limits: expect.objectContaining({ day: { calls: 100, estimated_brl: 10 }, month: { calls: 500, estimated_brl: 50 } }),
+    })));
+  });
+
   it("preserva a revisão e o consumo inicial e salva apenas valores explícitos", async () => {
     mocks.get.mockResolvedValue({ data: existing });
     mocks.put.mockResolvedValue({ data: existing });
