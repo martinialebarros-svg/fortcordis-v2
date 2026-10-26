@@ -53,7 +53,9 @@ def main():
             created.append(schema)
             with admin.begin() as conn:
                 conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-            engine = create_engine(settings.DATABASE_URL, pool_size=10, max_overflow=0,
+            # Keep eight concurrent callers, but share two test connections.
+            # Match the existing Stage Agenda canary; do not exhaust its pooler.
+            engine = create_engine(settings.DATABASE_URL, pool_size=2, max_overflow=0,
                                    execution_options={'schema_translate_map': {None: schema}})
             @event.listens_for(engine, 'begin')
             def isolate(conn):
@@ -87,7 +89,7 @@ def main():
                  'stage_identity_verified': True, 'isolated_postgresql': True, 'checks': checks,
                  'temporary_schemas_remaining': remaining, 'real_google_calls': 0,
                  'operational_auth_sessions_created': 0, 'existing_operational_records_modified': 0,
-                 'operational_policy_modified': False}
+                 'operational_policy_modified': False, 'test_connection_pool_size': 2}
         proof['passed'] = len(checks) == len(cases) and all(c['passed'] for c in checks) and remaining == 0
         print(json.dumps(proof))
         if not proof['passed']:
