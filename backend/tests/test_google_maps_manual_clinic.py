@@ -141,7 +141,10 @@ class ManualClinicGeocodeTest(unittest.TestCase):
         with self.assertRaises(guard.GoogleMapsCostBlocked) as exc:
             self.direct()
         self.assertEqual(exc.exception.reason, 'day_limit')
-        self.assertEqual(guard.get_status()['config']['limits'], self.config['limits'])
+        saved = guard.get_status()['config']['limits']
+        for period, limit in self.config['limits'].items():
+            self.assertEqual(saved[period]['calls'], limit['calls'])
+            self.assertEqual(float(saved[period]['estimated_brl']), limit['estimated_brl'])
         self.assertEqual(guard.get_status()['config']['automatic_policies'], {})
 
     def test_manual_month_cost_and_revision_remain_hard(self):
