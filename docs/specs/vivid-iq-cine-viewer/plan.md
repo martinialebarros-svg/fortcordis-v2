@@ -1,8 +1,8 @@
 # Plan - vivid-iq-cine-viewer
 
-Data: 2026-10-25
+Data: 2026-10-26
 Responsavel: Codex
-Status: fase 9 validada localmente; publicacao autorizada somente em stage em 2026-10-25
+Status: fase 9 validada em stage; promocao isolada para producao autorizada em 2026-10-26
 
 ## 1) Sequencia de fases
 
@@ -146,7 +146,13 @@ Status: fase 9 validada localmente; publicacao autorizada somente em stage em 20
 - Em 25/10, apos validacao com quatro arquivos reais, o usuario autorizou
   explicitamente o deploy da fase 9 somente em `origin/stage`. Executar PR da
   feature para stage, aguardar CI/deploy terminais e conferir rota/chunks/API;
-  preservar o trabalho paralelo existente no stage. Nao promover para main.
+  preservar o trabalho paralelo existente no stage. Naquela rodada, nao promover
+  para main; essa restricao historica foi supersedida pela autorizacao abaixo.
+- Em 26/10, apos QA autenticada e deploy de restauracao concluido, o usuario
+  autorizou publicar a fase 9 em producao. Isolar o diff em seis caminhos do
+  viewer/SDD, preservar o snapshot stage `4cd0e899` com os outros 58 caminhos e
+  restaura-los em stage apos a promocao protegida. Aguardar os checks e deploys
+  terminais e conferir dados runtime, assets e UI com arquivos sinteticos.
 
 ## 3) Plano de testes
 

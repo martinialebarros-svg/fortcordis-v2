@@ -1,8 +1,8 @@
 # Spec - vivid-iq-cine-viewer
 
-Data: 2026-10-25
+Data: 2026-10-26
 Responsavel: Codex
-Status: fase 9 validada localmente; publicacao autorizada somente em stage em 2026-10-25
+Status: fase 9 validada em stage; promocao isolada para producao autorizada em 2026-10-26
 
 ## 1) Escopo funcional
 
