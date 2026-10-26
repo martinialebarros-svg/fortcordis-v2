@@ -57,3 +57,9 @@
 - [x] Reproduzir no formulario canino em stage a contradicao entre dicas genericas e consulta condicional.
 - [x] Retirar as quatro dicas nos formularios novo/editar; validar testes, tipos, lint e SDD.
 - [x] Publicar exclusivamente em stage e conferir a ausencia dos textos no editor, preservando os valores e calculos. Concluído no SHA `786ad232`, com persistência, reimportação, reconfirmação e PDFs sintéticos conferidos em 26/10/2026.
+
+## Compatibilidade legada antes da promoção — 26/10/2026
+
+1. Reproduzir o P2 da revisão da PR #481 com aliases e controle canônico, incluindo o PDF completo.
+2. Canonicalizar em cópia os nomes diastólicos reconhecidos na tela, preservando valores, precedência canônica, origens e confirmações. Conferir linhas e bibliografia, sem ampliar o contexto IA.
+3. Cobrir aliases das duas espécies, fusões/reconfirmação pendente e cache eco v26 em regressões; publicar e conferir a correção em stage antes da promoção protegida. Preservar produção e a restauração paralela #479 até a conclusão.

@@ -10,6 +10,7 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
+from app.utils.echo_diastolic_aliases import normalize_echo_diastolic_aliases
 from app.utils.referencia_eco_defaults import normalizar_especie_referencia
 
 CANINE_DIASTOLIC_KEYS = (
@@ -75,6 +76,7 @@ def canine_diastolic_references(measurements: Mapping[str, Any], species: Any) -
     """
     if normalizar_especie_referencia(species) != "Canina":
         return {}
+    measurements = normalize_echo_diastolic_aliases(measurements)
     references = {
         key: _unconfirmed("Confirme a técnica, a população aplicável e a separação das ondas para consultar os dados publicados")
         for key in CANINE_DIASTOLIC_KEYS if _positive(measurements.get(key))

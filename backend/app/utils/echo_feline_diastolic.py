@@ -10,6 +10,7 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
+from app.utils.echo_diastolic_aliases import normalize_echo_diastolic_aliases
 from app.utils.referencia_eco_defaults import normalizar_especie_referencia
 
 FELINE_DIASTOLIC_KEYS = (
@@ -75,6 +76,7 @@ def feline_diastolic_references(
     """
     if normalizar_especie_referencia(species) != "Felina":
         return {}
+    measurements = normalize_echo_diastolic_aliases(measurements)
     present = [key for key in FELINE_DIASTOLIC_KEYS if _positive(measurements.get(key))]
     references = {
         key: {"text": "", "kind": "unconfirmed", "source": "", "doi": "",

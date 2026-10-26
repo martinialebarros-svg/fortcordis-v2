@@ -39,6 +39,7 @@ from app.utils.echo_ae_ao_reference import (
 from app.utils.echo_diastolic import (
     diastolic_references, diastolic_notes, diastolic_indices_awaiting_confirmation,
 )
+from app.utils.echo_diastolic_aliases import normalize_echo_diastolic_aliases
 
 
 # Cores do tema - preto e cinza com fontes brancas (teste)
@@ -104,7 +105,7 @@ def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
     """
     Preserva os valores gravados. Magnitude não comprova unidade em laudos legados.
     """
-    return normalize_confirmed_echo_lengths(medidas or {})
+    return normalize_confirmed_echo_lengths(normalize_echo_diastolic_aliases(medidas or {}))
 
 
 def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:

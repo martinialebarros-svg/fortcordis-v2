@@ -29,6 +29,15 @@ PARITY = json.loads((Path(__file__).parent / "fixtures/echo_canine_diastolic_par
 MEASUREMENTS = PARITY["measurements"]
 PROTOCOL = {"Diastolica_metodo": PEREIRA_METHOD, "Diastolica_ondas": "separadas",
             "TDI_metodo": CHOI_METHOD, "TDI_ondas": "separadas"}
+LEGACY_KEYS = {
+    "Onda_E": "MV_E", "Onda_A": "MV_A", "E_A": "MV_E_A", "TD": "MV_DT",
+    "TRIV": "IVRT", "E_TRIV": "MV_E_TRIV", "e_doppler": "TDI_e",
+    "a_doppler": "TDI_a", "E_E_linha": "EEp",
+}
+
+
+def legacy_measurements(measurements):
+    return {LEGACY_KEYS.get(key, key): value for key, value in measurements.items()}
 
 
 def report(measurements, species="Canina", catalog=None):
@@ -54,6 +63,62 @@ def contract(reference):
 
 
 class CanineDiastolicEvidenceTest(unittest.TestCase):
+    def test_legacy_measurement_aliases_match_canonical_evidence_and_notes(self):
+        canonical = {**MEASUREMENTS, **PROTOCOL}
+        legacy = legacy_measurements(canonical)
+        before = deepcopy(legacy)
+        self.assertEqual(canine_diastolic_references(legacy, "Dog"),
+                         canine_diastolic_references(canonical, "Dog"))
+        self.assertEqual(diastolic_notes(legacy, "Dog"), diastolic_notes(canonical, "Dog"))
+        self.assertEqual(legacy, before)
+
+    def test_legacy_aliases_never_reconfirm_methods_or_independent_wave_groups(self):
+        for override in (
+            {"Diastolica_metodo": "outro", "TDI_metodo": "outro"},
+            {"Diastolica_ondas": "nao_confirmadas"},
+            {"TDI_ondas": "nao_confirmadas"},
+            {"Diastolica_ondas": "fundidas"},
+            {"TDI_ondas": "fundidas"},
+            {"Diastolica_ondas": "fundidas", "TDI_ondas": "fundidas"},
+        ):
+            with self.subTest(override=override):
+                canonical = {**MEASUREMENTS, **PROTOCOL, **override}
+                legacy = legacy_measurements(canonical)
+                before = deepcopy(legacy)
+                self.assertEqual(canine_diastolic_references(legacy, "Canina"),
+                                 canine_diastolic_references(canonical, "Canina"))
+                self.assertEqual(diastolic_notes(legacy, "Canina"), diastolic_notes(canonical, "Canina"))
+                self.assertEqual(legacy, before)
+
+    def test_explicit_canonical_values_win_legacy_aliases_in_both_resolvers(self):
+        for species, protocol in (
+            ("Canina", PROTOCOL),
+            ("Felina", {"Diastolica_metodo": "felino_adulto_nao_sedado_pw_apical_clique_aortico",
+                        "Diastolica_ondas": "separadas", "TDI_metodo": "felino_pw_anel_lateral",
+                        "TDI_ondas": "separadas"}),
+        ):
+            for canonical, alias in LEGACY_KEYS.items():
+                for value in ("0.87", "0", 0, "", None):
+                    for canonical_first in (True, False):
+                        with self.subTest(species=species, key=canonical, value=value, canonical_first=canonical_first):
+                            pairs = [(canonical, value), (alias, "0.61")]
+                            measurements = {**dict(pairs if canonical_first else reversed(pairs)), **protocol}
+                            before = deepcopy(measurements)
+                            self.assertEqual(diastolic_references(measurements, species),
+                                             diastolic_references({canonical: value, **protocol}, species))
+                            self.assertEqual(measurements, before)
+
+    def test_legacy_aliases_do_not_derive_missing_ratios_or_methods(self):
+        measurements = {"MV_E": ".70", "MV_A": ".50", "IVRT": "70",
+                        "TDI_e": ".09", "TDI_a": ".11"}
+        for species in ("Canina", "Felina"):
+            with self.subTest(species=species):
+                references = diastolic_references(measurements, species)
+                self.assertEqual(set(references), {"Onda_E", "Onda_A", "TRIV", "e_doppler", "a_doppler"})
+                self.assertTrue(all(ref["kind"] == "unconfirmed" for ref in references.values()))
+                self.assertNotIn("Diastolica_metodo", measurements)
+                self.assertNotIn("TDI_metodo", measurements)
+
     def test_shared_ui_pdf_contract_has_only_one_published_individual_interval(self):
         for case in PARITY["cases"]:
             with self.subTest(case=case["id"]):
@@ -184,6 +249,29 @@ class CanineDiastolicEvidenceTest(unittest.TestCase):
 
 
 class CanineDiastolicPdfTest(unittest.TestCase):
+    def test_legacy_alias_pdf_matches_canonical_values_notes_and_bibliography(self):
+        canonical = {**MEASUREMENTS, **PROTOCOL}
+        payload = report(legacy_measurements(canonical))
+        before = deepcopy(payload)
+        text = pdf_text(payload)
+        self.assertEqual(text, pdf_text(report(canonical)))
+        for expected in ("0.47 m/s", "0.67 m/s", "108.00 ms", "85.00 ms",
+                         "0.07 m/s", "0.12 m/s", "6.71", "0.55",
+                         "10.1111/jsap.13472", "10.1590/S0100-736X2009000400003",
+                         "10.4142/jvs.2013.14.1.85"):
+            self.assertIn(expected, text)
+        self.assertEqual(payload, before)
+
+    def test_legacy_alias_pdf_preserves_fusion_and_reconfirmation_guards(self):
+        for override in ({"Diastolica_ondas": "fundidas"}, {"TDI_ondas": "fundidas"},
+                         {"Diastolica_ondas": "nao_confirmadas", "TDI_ondas": "nao_confirmadas"}):
+            with self.subTest(override=override):
+                canonical = {**MEASUREMENTS, **PROTOCOL, **override}
+                payload = report(legacy_measurements(canonical))
+                before = deepcopy(payload)
+                self.assertEqual(pdf_text(payload), pdf_text(report(canonical)))
+                self.assertEqual(payload, before)
+
     def test_confirmed_evidence_prints_without_catalog_weight_and_after_qualitative(self):
         payload = report({**MEASUREMENTS, **PROTOCOL})
         before = deepcopy(payload)
