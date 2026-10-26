@@ -1,8 +1,8 @@
 # Intent - vivid-iq-cine-viewer
 
-Data: 2026-10-13
+Data: 2026-10-25
 Responsavel: Codex
-Status: done
+Status: fase 9 validada localmente; publicacao autorizada somente em stage em 2026-10-25
 
 ## 1) Problema atual
 
@@ -11,6 +11,10 @@ imagem estatica esta no `Pixel Data` padrao, mas o cine 2D fica em elementos
 privados `GEMS_Ultrasound_MovieGroup_001`, que nao sao reproduzidos pelos
 visualizadores DICOM web genericos usados como referencia pelo produto.
 
+Na fase 9, a revisao de varios arquivos exige repetir o seletor a cada cine.
+O usuario solicitou abrir uma colecao local e navegar entre seus arquivos,
+mantendo a reproducao e a identificacao isoladas no arquivo ativo.
+
 ## 2) Objetivo
 
 Disponibilizar no FortCordis um visualizador local e autenticado capaz de abrir
@@ -18,6 +22,8 @@ o cine 2D desses arquivos, reproduzir a sequencia temporal e navegar quadro a
 quadro sem enviar o DICOM ou seus metadados identificaveis ao servidor.
 Priorizar a imagem durante a revisao e permitir foco, ampliacao visual e
 navegacao precisa, inclusive em telas menores, sem alterar o exame fonte.
+Permitir selecionar ou arrastar varios arquivos, revisar uma lista na ordem
+recebida e alternar o cine ativo sem carregar todos os exames em memoria.
 
 ## 3) Nao objetivos
 
@@ -26,6 +32,9 @@ navegacao precisa, inclusive em telas menores, sem alterar o exame fonte.
 - Realizar medidas de distancia, area, velocidade ou tempo clinico.
 - Reconstruir tracados, anotacoes ou volumes 3D privados da GE.
 - Alterar ou preencher automaticamente um laudo.
+- Inferir que arquivos selecionados juntos pertencem ao mesmo paciente ou
+  exame, ou reorganiza-los como uma cronologia clinica.
+- Publicar a fase 9 em stage/producao sem um ciclo de release separado.
 
 ## 4) Contexto e restricoes
 
@@ -33,6 +42,14 @@ navegacao precisa, inclusive em telas menores, sem alterar o exame fonte.
 - A primeira entrega suporta DICOM Part 10 em Explicit VR Little Endian com o
   criador privado `GEMS_Ultrasound_MovieGroup_001` e cine 2D em blocos GE.
 - O navegador precisa manter o exame apenas em memoria local durante a sessao.
+- A colecao conserva no maximo 100 referencias `File`, com nomes visiveis
+  somente na sessao; apenas o arquivo ativo e lido como `ArrayBuffer`.
+- O limite de 512 MB e aplicado individualmente quando o arquivo e aberto.
+  Lotes que excedem 100 referencias sao recusados integralmente, preservando
+  a colecao e o cine atuais.
+- Adicionar arquivos nao interrompe o cine ativo; trocar o arquivo interrompe
+  a reproducao, encerra foco/tela cheia e reinicia trecho, ajustes, zoom e
+  identificacao opcional, evidenciando a mudanca de contexto.
 - Nome e datas podem ser revelados em um painel opcional, somente por acao do
   usuario; devem refletir campos explicitos do DICOM, sem inferir fuso, sem
   upload e sem inclusao na captura PNG.
