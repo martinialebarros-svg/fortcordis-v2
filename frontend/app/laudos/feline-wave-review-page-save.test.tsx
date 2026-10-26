@@ -9,18 +9,23 @@ import { parseStoredEchoMeasurements } from "@/lib/echo-derived-measurements";
 const mocks = vi.hoisted(() => ({
   get: vi.fn(), post: vi.fn(), put: vi.fn(), router: { push: vi.fn(), replace: vi.fn() },
   imported: {} as Record<string, string>,
+  legacySeed: {} as Record<string, string>,
 }));
 vi.mock("next/navigation", () => ({ useParams: () => ({ id: "905" }), useRouter: () => mocks.router }));
 vi.mock("@/app/layout-dashboard", () => ({ default: ({ children }: PropsWithChildren) => <div>{children}</div> }));
 vi.mock("@/lib/axios", () => ({ default: { get: mocks.get, post: mocks.post, put: mocks.put } }));
 vi.mock("@/lib/clinicas", () => ({ listarTodasClinicas: vi.fn(async () => []) }));
-vi.mock("@/app/laudos/components/EchoVoiceAssistant", () => ({ default: ({ currentMeasurements }: { currentMeasurements: Record<string, string> }) =>
-  <output data-testid="wave-page-measurements">{JSON.stringify(currentMeasurements)}</output> }));
+vi.mock("@/app/laudos/components/EchoVoiceAssistant", () => ({ default: ({ currentMeasurements, onApply }: {
+  currentMeasurements: Record<string, string>;
+  onApply: (patch: { fields: Record<string, string>; measurements: Record<string, string>; skipped: string[] }) => void;
+}) => <><output data-testid="wave-page-measurements">{JSON.stringify(currentMeasurements)}</output>
+  <button onClick={() => onApply({ fields: {}, measurements: mocks.legacySeed, skipped: [] })}>Carregar legado sintético para salvar</button></> }));
 vi.mock("@/app/laudos/components/EcoStudyImportUploader", () => ({ default: ({ onDadosImportados }: { onDadosImportados: (data: unknown) => void }) =>
   <button onClick={() => onDadosImportados({ paciente: {}, medidas: mocks.imported })}>Importar estudo sintético de ondas</button> }));
 vi.mock("@/app/laudos/components/ReferenciaComparison", () => ({ ReferenciaComparison: ({ onMedidaChange }: { onMedidaChange: (key: string, value: string) => void }) =>
   <><button onClick={() => onMedidaChange("Diastolica_metodo", "felino_adulto_nao_sedado_pw_apical_clique_aortico")}>Confirmar protocolo PW sintético</button>
-    <button onClick={() => onMedidaChange("TDI_metodo", "felino_pw_anel_lateral")}>Confirmar sítio TDI sintético</button></> }));
+    <button onClick={() => onMedidaChange("TDI_metodo", "felino_pw_anel_lateral")}>Confirmar sítio TDI sintético</button>
+    <button onClick={() => onMedidaChange("Diastolica_ondas", "nao_confirmadas")}>Exigir reconfirmação transmitral sintética</button></> }));
 vi.mock("@/app/laudos/components/XmlUploader", () => ({ default: () => null }));
 vi.mock("@/app/laudos/components/ImageHeaderUploader", () => ({ default: () => null }));
 vi.mock("@/app/laudos/components/ImageUploader", () => ({ default: () => null }));
@@ -47,9 +52,9 @@ function input(label: string) {
   expect(element).not.toBeNull();
   return element as HTMLInputElement;
 }
-async function openPage(mode: Mode, flow: string, tissue: string, species = "Gato") {
+async function openPage(mode: Mode, flow: string, tissue: string, species = "Gato", overrides: Record<string, string> = {}) {
   patient = { id: 901, nome: "QA DESCARTE DE ONDAS", especie: species, tutor: "QA TUTOR", tutor_id: 902, peso_kg: 5.6, sexo: "Macho", raca: "SRD", idade: "4 anos" };
-  stored = { ...ORIGINS, ...HISTORIC, ...METHODS, Diastolica_ondas: flow, TDI_ondas: tissue };
+  stored = { ...ORIGINS, ...HISTORIC, ...METHODS, Diastolica_ondas: flow, TDI_ondas: tissue, ...overrides };
   description = montarDescricaoEcocardiograma(stored, QUALITATIVE);
   mocks.get.mockImplementation(async (url: string) => {
     if (url === "/pacientes/901") return { data: patient };
@@ -94,12 +99,44 @@ describe("páginas reais: revisão e descarte explícito de ondas", () => {
     vi.clearAllMocks();
     localStorage.setItem("token", "synthetic-local-test-token");
     mocks.imported = { ...ORIGINS, ...HISTORIC };
+    mocks.legacySeed = {};
     mocks.post.mockResolvedValue({ data: { id: 905 } });
     mocks.put.mockResolvedValue({ data: { id: 905 } });
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.spyOn(window, "alert").mockImplementation(() => {});
   });
   afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); window.history.replaceState(null, "", "/"); });
+
+  const legacyClearCases = (["novo", "editar"] as Mode[]).flatMap((mode) =>
+    ["Canina", "Felina"].flatMap((species) => ["", null, "0"].map((value) => ({ mode, species, value }))));
+  it.each(legacyClearCases)("$mode/$species preserva a canônica '$value' contra alias positivo ao salvar e reabrir", async ({ mode, species, value }) => {
+    const patch = { MV_E: "1.80", Onda_E: value } as unknown as Record<string, string>;
+    const before = { ...patch };
+    const view = await openPage(mode, species === "Canina" ? "" : "fundidas",
+      species === "Canina" ? "" : "separadas", species, mode === "editar" ? patch : {});
+    if (mode === "novo") {
+      mocks.legacySeed = patch;
+      fireEvent.click(screen.getByRole("button", { name: "Carregar legado sintético para salvar" }));
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Referências" }));
+    fireEvent.click(screen.getByRole("button", { name: "Exigir reconfirmação transmitral sintética" }));
+    await waitFor(() => expect(live().Diastolica_ondas).toBe("nao_confirmadas"));
+    const historicalRatios = Object.fromEntries(["E_A", "E_TRIV", "E_E_linha"].map((key) => [key, live()[key]]));
+    const saved = await savePage(mode);
+    expect(saved.description).toContain(`- Onda_E: ${String(value ?? "")}\n`);
+    expect(saved.description).toContain("- MV_E: 1.80\n");
+    expect(saved.measurements).toMatchObject({ Onda_E: String(value ?? ""), MV_E: "1.80", Diastolica_ondas: "nao_confirmadas" });
+    expect(saved.measurements).toMatchObject(historicalRatios);
+    if (mode === "novo") expect(saved.payload.medidas).toMatchObject({ Onda_E: value, MV_E: "1.80" });
+    view.unmount();
+    stored = saved.measurements;
+    description = saved.description;
+    render(<EditarLaudoPage />);
+    await screen.findByDisplayValue(String(patient.nome));
+    await waitFor(() => expect(live()).toMatchObject({ Onda_E: String(value ?? ""), MV_E: "1.80", Diastolica_ondas: "nao_confirmadas" }));
+    expect(live()).toMatchObject(historicalRatios);
+    expect(patch).toEqual(before);
+  });
 
   const discardCases = ["Gato", "Cat"].flatMap((species) => (["novo", "editar"] as Mode[]).flatMap((mode) =>
     (["transmitral", "tissue"] as Group[]).map((group) => ({ species, mode, group }))));
@@ -140,7 +177,7 @@ describe("páginas reais: revisão e descarte explícito de ondas", () => {
       expect(live()[key] || "").toBe("");
     }
     const saved = await savePage(mode);
-    Object.keys(LABELS).forEach((key) => expect(saved.measurements).not.toHaveProperty(key));
+    Object.keys(LABELS).forEach((key) => expect(saved.measurements).toHaveProperty(key, ""));
     expect(saved.measurements).toMatchObject({ Diastolica_ondas: "fundidas", TDI_ondas: "fundidas", TRIV: "40" });
   });
 
@@ -153,6 +190,8 @@ describe("páginas reais: revisão e descarte explícito de ondas", () => {
 
   it.each(["novo", "editar"] as Mode[])("%s mantém a política original dos campos caninos mesmo sem numerador", async (mode) => {
     await openPage(mode, "", "", "Canina");
+    expect(screen.queryByText(/Ref\.: ≤2,5/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ref\.: ≤12/)).not.toBeInTheDocument();
     fireEvent.change(input("Onda E (m/s)"), { target: { value: "0" } });
     for (const key of ["E_A", "E_TRIV", "E_E_linha"] as const) expect(input(LABELS[key])).toHaveAttribute("readonly");
     expect(input(LABELS.doppler_tecidual_relacao)).not.toHaveAttribute("readonly");

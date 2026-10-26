@@ -3,6 +3,45 @@ import { deriveAutomaticEchoMeasurements, parseStoredEchoMeasurements } from "./
 import { mergeImportedEchoMeasurements, updateEchoMeasurement } from "./echo-unit-provenance";
 
 describe("deriveAutomaticEchoMeasurements", () => {
+  it("preserva a presença canônica diastólica vazia ou inválida sem recuperar a descrição histórica", () => {
+    const keys = ["Onda_E", "Onda_A", "E_A", "TD", "TRIV", "E_TRIV", "e_doppler", "a_doppler", "doppler_tecidual_relacao", "E_E_linha"];
+    for (const key of keys) {
+      for (const value of ["", null, undefined, NaN, "NaN", 0, "0"]) {
+        const raw = { [key]: value };
+        const before = { ...raw };
+        const description = `## Medidas Ecocardiograficas\n- ${key}: 1.80\n- MV_E: 1.90\n\n## Avaliacao Qualitativa`;
+        const parsed = parseStoredEchoMeasurements(raw, description);
+        expect(parsed).toEqual({ [key]: String(value ?? "") });
+        expect(raw).toEqual(before);
+      }
+    }
+    expect(parseStoredEchoMeasurements({ DIVEd: "", unrelated: "NaN", Diastolica_metodo: "inferido" })).toEqual({});
+  });
+
+  it("lê a canônica diastólica vazia na mesma linha sem consumir o alias da linha seguinte", () => {
+    for (const canonicalFirst of [true, false]) {
+      const lines = ["- Onda_E: ", "- MV_E: 1.80"];
+      const description = "## Medidas Ecocardiograficas\n" +
+        (canonicalFirst ? lines : lines.toReversed()).join("\n") + "\n\n## Avaliacao Qualitativa";
+      expect(parseStoredEchoMeasurements(null, description)).toEqual({ Onda_E: "", MV_E: "1.80" });
+    }
+  });
+
+  it.each(["Canina", "Felina"])("não usa alias para recalcular índices após hidratar uma origem limpa em %s", (species) => {
+    for (const value of ["", null, NaN, 0]) {
+      const raw = { MV_E: "1.80", Onda_E: value, Onda_A: "0.50", TRIV: "70", e_doppler: "0.09",
+        E_A: "0.70", E_TRIV: "0.55", E_E_linha: "6.71", Diastolica_ondas: "nao_confirmadas", TDI_ondas: "separadas" };
+      const before = { ...raw };
+      const parsed = parseStoredEchoMeasurements(raw);
+      const derived = deriveAutomaticEchoMeasurements(parsed, 10, species);
+      expect(parsed).toHaveProperty("Onda_E", String(value ?? ""));
+      expect(parsed.MV_E).toBe("1.80");
+      for (const key of ["E_A", "E_TRIV", "E_E_linha"]) expect(derived).not.toHaveProperty(key);
+      expect({ ...parsed, ...derived }).toMatchObject({ E_A: "0.70", E_TRIV: "0.55", E_E_linha: "6.71" });
+      expect(raw).toEqual(before);
+    }
+  });
+
   it.each(["Felina", "felino", "FELINOS", "Feline", " Gato ", "gatos", "Cat", "CATS"])
     ("preserva relações históricas e fusões independentes para %s", (species) => {
       const historical = {
@@ -50,7 +89,7 @@ describe("deriveAutomaticEchoMeasurements", () => {
   it("mantém os cálculos caninos existentes sem ampliar a aplicabilidade pelo novo classificador", () => {
     const measurements = {
       Onda_E: "1.08", Onda_A: "0.95", TRIV: "40", e_doppler: "0.16", a_doppler: "0.08",
-      Diastolica_ondas: "fundidas", TDI_ondas: "fundidas", DIVEd: "30", DIVEd_2D: "32", VE_vista_2D: "eixo_curto",
+      DIVEd: "30", DIVEd_2D: "32", VE_vista_2D: "eixo_curto",
     };
     expect(deriveAutomaticEchoMeasurements(measurements, 10, "Canina")).toMatchObject({
       E_A: "1.14", E_TRIV: "2.7", E_E_linha: "6.75", doppler_tecidual_relacao: "2",
@@ -101,7 +140,8 @@ describe("deriveAutomaticEchoMeasurements", () => {
     expect(raw.E_E_linha).toBe("6.95");
     expect(deriveAutomaticEchoMeasurements({ ...raw, TDI_ondas: "fundidas" }, 5.6, "Felina")).not.toHaveProperty("doppler_tecidual_relacao");
     expect(deriveAutomaticEchoMeasurements({ ...raw, TDI_ondas: "" }, 5.6, "Felina")).not.toHaveProperty("doppler_tecidual_relacao");
-    expect(deriveAutomaticEchoMeasurements(raw, 5.6, "Canina")).toMatchObject({ E_A: "1.14", E_E_linha: "6.75" });
+    expect(deriveAutomaticEchoMeasurements(raw, 5.6, "Canina")).not.toHaveProperty("E_A");
+    expect(deriveAutomaticEchoMeasurements(raw, 5.6, "Canina")).not.toHaveProperty("E_E_linha");
   });
   it("calcula E/A, E/TRIV e E/e' automaticamente a partir das medidas de origem", () => {
     expect(
@@ -172,5 +212,71 @@ describe("deriveAutomaticEchoMeasurements", () => {
     expect(derived.Grad_VSVE).toBe("25");
     expect(deriveAutomaticEchoMeasurements({ ...raw, AE_diametro_min: "19" }, 4, "Felina"))
       .not.toHaveProperty("Fracao_encurtamento_AE");
+  });
+});
+
+
+describe("explicit canine wave review protects historical diastolic ratios", () => {
+  const recorded = { Onda_E: "1.08", Onda_A: "0.95", TRIV: "40", e_doppler: "0.16", a_doppler: "0.08", E_A: "1.13", E_TRIV: "2.66", E_E_linha: "6.95", doppler_tecidual_relacao: "1.8" };
+  it.each(["Canina", "Cão", "Dog"])("separates fusion domains for %s without rewriting imported history", (species) => {
+    const raw = Object.freeze({ ...recorded, Diastolica_ondas: "fundidas", TDI_ondas: "separadas" });
+    const calculated = deriveAutomaticEchoMeasurements(raw, 10, species);
+    for (const key of ["E_A", "E_TRIV", "E_E_linha"]) expect(calculated).not.toHaveProperty(key);
+    expect(calculated.doppler_tecidual_relacao).toBe("2");
+    expect({ ...raw, ...calculated }).toMatchObject({ E_A: "1.13", E_TRIV: "2.66", E_E_linha: "6.95" });
+    const tissueFused = deriveAutomaticEchoMeasurements({ ...raw, Diastolica_ondas: "separadas", TDI_ondas: "fundidas" }, 10, species);
+    expect(tissueFused).toMatchObject({ E_A: "1.14", E_TRIV: "2.7" });
+    expect(tissueFused).not.toHaveProperty("E_E_linha");
+    expect(tissueFused).not.toHaveProperty("doppler_tecidual_relacao");
+    expect(deriveAutomaticEchoMeasurements(recorded, 10, species)).toMatchObject({ E_A: "1.14", E_E_linha: "6.75", E_TRIV: "2.7", doppler_tecidual_relacao: "2" });
+    expect(raw.E_A).toBe("1.13");
+  });
+});
+
+
+describe("invalidated acquisition review survives edits, imports and serialization", () => {
+  const raw = { Onda_E: "1.08", Onda_A: "0.95", TRIV: "40", e_doppler: "0.16", a_doppler: "0.08", E_A: "1.13", E_TRIV: "2.66", E_E_linha: "6.95", doppler_tecidual_relacao: "1.8", Diastolica_metodo: "canino_2a6_anos_nao_sedado_pw_apical_fim_fluxo", Diastolica_ondas: "fundidas", TDI_metodo: "canino_pw_anel_septal_choi", TDI_ondas: "separadas" };
+  const actions = [
+    { name: "edit transmitral", domain: "flow", run: (values: Record<string, string>) => updateEchoMeasurement(values, "Onda_E", "1.10") },
+    { name: "reimport transmitral", domain: "flow", run: (values: Record<string, string>) => mergeImportedEchoMeasurements(values, { Onda_E: "1.10" }) },
+    { name: "edit tissue", domain: "tissue", run: (values: Record<string, string>) => updateEchoMeasurement(values, "e_doppler", "0.15") },
+    { name: "reimport tissue", domain: "tissue", run: (values: Record<string, string>) => mergeImportedEchoMeasurements(values, { e_doppler: "0.15" }) },
+  ];
+  it.each(actions)("$name blocks only dependent calculations after reload and preserves the save payload", ({ run, domain }) => {
+    const original = domain === "flow" ? raw : { ...raw, Diastolica_ondas: "separadas", TDI_ondas: "fundidas" };
+    const edited = run(original);
+    const waveKey = domain === "flow" ? "Diastolica_ondas" : "TDI_ondas";
+    expect(edited[waveKey]).toBe("nao_confirmadas");
+    const reloaded = parseStoredEchoMeasurements(JSON.parse(JSON.stringify(edited)));
+    expect(reloaded[waveKey]).toBe("nao_confirmadas");
+    const calculated = deriveAutomaticEchoMeasurements(reloaded, 10, "Cão");
+    const blocked = domain === "flow" ? ["E_A", "E_TRIV", "E_E_linha"] : ["E_E_linha", "doppler_tecidual_relacao"];
+    for (const key of blocked) expect(calculated).not.toHaveProperty(key);
+    if (domain === "flow") expect(calculated.doppler_tecidual_relacao).toBe("2");
+    else expect(calculated).toMatchObject({ E_A: "1.14", E_TRIV: "2.7" });
+    const payload = { ...reloaded, ...calculated };
+    for (const key of blocked) expect(payload[key]).toBe(raw[key as keyof typeof raw]);
+    expect(payload[waveKey]).toBe("nao_confirmadas");
+    const repeated = run(reloaded);
+    expect(repeated[waveKey]).toBe("nao_confirmadas");
+    const reconfirmed = { ...reloaded, [waveKey]: "separadas" };
+    const afterConfirmation = deriveAutomaticEchoMeasurements(reconfirmed, 10, "Dog");
+    for (const key of blocked) expect(afterConfirmation).toHaveProperty(key);
+    expect(raw.Onda_E).toBe("1.08");
+  });
+  it("clearing a reviewed wave selection remains unknown across reload rather than reverting to legacy", () => {
+    const cleared = updateEchoMeasurement(raw, "Diastolica_ondas", "");
+    expect(cleared.Diastolica_ondas).toBe("nao_confirmadas");
+    const reloaded = parseStoredEchoMeasurements(cleared);
+    expect(deriveAutomaticEchoMeasurements(reloaded, 10, "Canina")).not.toHaveProperty("E_A");
+    expect(updateEchoMeasurement({}, "Diastolica_ondas", "")).toEqual({});
+  });
+  it("a confirmed new acquisition with unknown separation never activates legacy calculations", () => {
+    const values = { Onda_E: "1.08", Onda_A: "0.95", e_doppler: "0.16", a_doppler: "0.08", TRIV: "40", Diastolica_metodo: raw.Diastolica_metodo, TDI_metodo: raw.TDI_metodo };
+    const calculated = deriveAutomaticEchoMeasurements(values, 10, "Canina");
+    for (const key of ["E_A", "E_TRIV", "E_E_linha", "doppler_tecidual_relacao"]) expect(calculated).not.toHaveProperty(key);
+    const legacy = { Onda_E: "1.08", Onda_A: "0.95", e_doppler: "0.16", a_doppler: "0.08", TRIV: "40" };
+    expect(deriveAutomaticEchoMeasurements(legacy, 10, "Canina")).toMatchObject({ E_A: "1.14", E_TRIV: "2.7", E_E_linha: "6.75", doppler_tecidual_relacao: "2" });
+    expect(mergeImportedEchoMeasurements(legacy, { Onda_E: "1.10" })).not.toHaveProperty("Diastolica_ondas");
   });
 });
