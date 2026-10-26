@@ -183,7 +183,7 @@ disable_stage_live_meta_runtime
 
 # An exported disabled upstream still reaches the build as 3010, never 3009.
 configure_stage
-API_BACKEND_URL=http://127.0.0.1:8001
+export API_BACKEND_URL=http://127.0.0.1:8001
 export WHATSAPP_STAGE_BACKEND_URL
 : > "$STAGE_TEST_COMMAND_LOG"
 (cd "$FIXTURE_ROOT/frontend" && run_frontend_build)
