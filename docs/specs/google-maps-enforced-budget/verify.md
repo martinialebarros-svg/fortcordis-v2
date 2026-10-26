@@ -332,3 +332,8 @@ privado e sanitizado está em `/Users/martiniano/Documents/Codex/2026-10-22/maps
 O release `19c1a3aa` concluiu todos os jobs de publicação. O primeiro canário isolado abriu pool de teste de dez conexões e observou recusas `ledger_unavailable` na abertura de conexões (OperationalError/categoria pool), além dos bloqueios financeiros esperados. Todos os casos mantiveram zero Google e limpeza dos schemas; a execução foi registrada como falha, sem presumir aprovação.
 
 Com o pool do executor limitado em memória a duas conexões, preservando as mesmas oito tentativas concorrentes e todas as asserções, os 17 cenários passaram no SHA instalado: teto de uma tentativa, dia/mês, revisão, TTL/fechamento, SKU, extras/automação e Agenda. A configuração operacional permaneceu na revisão 1/digest `07341ebb381af0512b5e07d0d44222106cf327eefc705c9c45f8b2dbb2cfde96`; zero consultas Google e zero cadastros alterados. Esta revisão persiste somente o ajuste do executor, para repetir a prova instalada sem override. Não ampliar pool/quotas nem relaxar recusas de segurança.
+
+
+### Publicação autorizada em 26/10/2026
+
+O usuário autorizou a promoção isolada da geocodificação manual de clínicas e da projeção escalar da Agenda. A ativação deve permitir somente `clinic_geocode` com até uma unidade por execução e registro interno; preservar a Agenda em monitor sem popup, referências diárias/mensais, preços/câmbio e manter lotes, outras ações extras e automações bloqueados. A validação de publicação não faz chamadas pagas de teste. A prova operacional e a configuração efetiva ficam em `maps-manual-clinic-production/resultado.json`, na pasta privada de evidências; somente a verificação final permite declarar a ativação concluída.

@@ -248,3 +248,8 @@ Teto individual zero deve retornar `action_limit`, antes de avaliar saldo diári
 Demonstração administrativa sem rede nem gravações mostra a permissão manual proposta, uma tentativa, registro interno e preservação dos bloqueios. Demonstração visual não substitui a prova do guard e não é evidência de geolocalização correta de uma clínica real.
 
 O canário manual de stage compartilha no máximo duas conexões PostgreSQL entre as oito tentativas concorrentes, como o canário Agenda já existente. Isso limita somente os recursos do teste; não modifica pools/limites operacionais, quantidade de tentativas ou asserções de reserva. A concorrência de oito conexões independentes continua coberta no PostgreSQL descartável do CI.
+
+
+### Publicação autorizada em 26/10/2026
+
+O usuário autorizou a promoção isolada da geocodificação manual de clínicas e da projeção escalar da Agenda. A ativação deve permitir somente `clinic_geocode` com até uma unidade por execução e registro interno; preservar a Agenda em monitor sem popup, referências diárias/mensais, preços/câmbio e manter lotes, outras ações extras e automações bloqueados. A validação de publicação não faz chamadas pagas de teste. A prova operacional e a configuração efetiva ficam em `maps-manual-clinic-production/resultado.json`, na pasta privada de evidências; somente a verificação final permite declarar a ativação concluída.

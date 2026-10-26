@@ -95,3 +95,8 @@ DNS, tratado como pendência independente do comportamento da aplicação.
   e zero 5xx. O valor permanece abaixo da meta de 1.200 ms, embora a amostra
   atual seja menor e a carga de produção não seja comparável diretamente à
   coleta controlada de stage.
+
+
+### Publicação autorizada em 26/10/2026
+
+O usuário autorizou a promoção isolada da geocodificação manual de clínicas e da projeção escalar da Agenda. A ativação deve permitir somente `clinic_geocode` com até uma unidade por execução e registro interno; preservar a Agenda em monitor sem popup, referências diárias/mensais, preços/câmbio e manter lotes, outras ações extras e automações bloqueados. A validação de publicação não faz chamadas pagas de teste. A prova operacional e a configuração efetiva ficam em `maps-manual-clinic-production/resultado.json`, na pasta privada de evidências; somente a verificação final permite declarar a ativação concluída.
