@@ -23,3 +23,12 @@ Data: 2026-08-23
   inscrito na WABA em 2026-08-23. A mensagem de saida foi entregue e a mensagem
   real posterior a assinatura apareceu como `Recebida` na inbox de stage, sem
   resposta automatica. Producao foi revalidada e permaneceu intacta.
+
+## Ajuste operacional — 25/10/2026
+
+- [x] Confirmacao atual do usuario: numero registrado somente em producao.
+- [x] Introduzir modo stage Meta opt-in unico, default desligado, e condicionar a configuracao Graph no workflow.
+- [x] Desligar com guardas exatas somente o servico/core stage, sem tocar producao ou credenciais.
+- [x] Testar modo0/1/invalido, heranca hostil, idempotencia, guardas de isolamento e transporte do modo via SSH.
+- [ ] Atualizar SDD e publicar em stage pelo fluxo protegido; conferir SHA, servicos/flags stage e arquivos de runtime.
+- [ ] Retomar QA sintetica de referencias diastolicas/reimportacao/PDF da PR #470.

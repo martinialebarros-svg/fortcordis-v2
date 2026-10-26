@@ -48,7 +48,9 @@ jobs:
         run: python3 scripts/tests/test_deploy_immutable_sha.py
 
       - name: Test WhatsApp stage Meta isolation
-        run: bash scripts/tests/test_whatsapp_stage_meta_isolation.sh
+        run: |
+          bash scripts/tests/test_whatsapp_stage_meta_isolation.sh
+          python3 scripts/tests/test_stage_meta_optional_workflow.py
 
       - name: Test controlled WhatsApp reminder activation
         run: bash scripts/tests/test_whatsapp_reminder_activation.sh
@@ -293,6 +295,8 @@ jobs:
 
 
   deploy-stage:
+    env:
+      WHATSAPP_STAGE_LIVE_META_ENABLED: ${{ vars.WHATSAPP_STAGE_LIVE_META_ENABLED || '0' }}
     needs:
       - quality-gate
       - sdd-guardrail
@@ -313,6 +317,15 @@ jobs:
           source scripts/deploy_prod_vps.sh
           validate_deploy_target
           test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
+
+      - name: Validate optional stage Meta mode
+        run: |
+          set -euo pipefail
+          case "$WHATSAPP_STAGE_LIVE_META_ENABLED" in
+            0) echo "Stage Meta transport disabled; no stage number is required." ;;
+            1) echo "Stage Meta transport explicitly enabled; isolated identity checks are required." ;;
+            *) echo "WHATSAPP_STAGE_LIVE_META_ENABLED must be 0 or 1."; exit 1 ;;
+          esac
 
       - name: Setup SSH key
         env:
@@ -486,6 +499,7 @@ jobs:
           EOF
 
       - name: Configure isolated WhatsApp Cloud API identity on Stage VPS
+        if: env.WHATSAPP_STAGE_LIVE_META_ENABLED == '1'
         env:
           WHATSAPP_ACCESS_TOKEN_STAGE: ${{ secrets.WHATSAPP_ACCESS_TOKEN_STAGE }}
           WHATSAPP_APP_SECRET_STAGE: ${{ secrets.WHATSAPP_APP_SECRET_STAGE }}
@@ -628,7 +642,9 @@ jobs:
 
       - name: Deploy to Stage (VPS)
         run: |
-          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+          set -euo pipefail
+          [[ "$WHATSAPP_STAGE_LIVE_META_ENABLED" == "0" || "$WHATSAPP_STAGE_LIVE_META_ENABLED" == "1" ]]
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "WHATSAPP_STAGE_LIVE_META_ENABLED='$WHATSAPP_STAGE_LIVE_META_ENABLED' bash -s" << 'EOF'
             set -euo pipefail
             APP_DIR="/var/www/fortcordis-stage"
             BRANCH="stage"
@@ -663,6 +679,7 @@ jobs:
               DEPLOY_SHA="$DEPLOY_SHA" \
               DEPLOY_REF="$DEPLOY_REF" \
               DEPLOY_ACTIVATE_WHATSAPP_REMINDER_SERVICE=0 \
+              WHATSAPP_STAGE_LIVE_META_ENABLED="$WHATSAPP_STAGE_LIVE_META_ENABLED" \
               WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED=true \
               bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"
           EOF

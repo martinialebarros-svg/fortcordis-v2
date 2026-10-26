@@ -48,6 +48,7 @@ _PACOTE_TOMADOR_FIELDS = (
     "tipo_cliente", "cliente_nome", "cliente_documento", "cliente_endereco",
     "cliente_bairro", "cliente_cidade", "cliente_estado", "cliente_cep",
     "cliente_telefone", "cliente_email",
+    "cliente_endereco_origem", "cliente_endereco_fonte", "cliente_endereco_conferido_em",
 )
 _PACOTE_CENTAVO = Decimal("0.01")
 
@@ -331,6 +332,7 @@ def _pacote_pdf(servicos: list[dict], resumo: list[dict], pendencias: list[dict]
         elements.append(Paragraph("Tomador - " + escape(group["cliente_nome"]), heading))
         info = [("CPF/CNPJ", group["cliente_documento"]), ("Endereço", _format_endereco_completo(group)),
                 ("Cidade / UF / CEP", _join_non_empty(" / ", [group["cliente_cidade"], group["cliente_estado"], group["cliente_cep"]])),
+                ("Origem do endereço", "Cadastro CNPJ conferido" if group.get("cliente_endereco_origem") == "cadastro_cnpj" else "Cadastro do tomador"),
                 ("Contato", _join_non_empty(" / ", [group["cliente_telefone"], group["cliente_email"]]))]
         elements.append(table([[p(label, small), p(value, small)] for label, value in info], [3.5 * cm, doc.width - 3.5 * cm]))
         elements.append(Spacer(1, .2 * cm))
