@@ -37,6 +37,15 @@ describe("confirmação de custo antes do envio", () => {
     api.defaults.adapter = previousAdapter;
   });
 
+  it("geocodificação manual registrada no servidor despacha sem popup nem confirmação", async () => {
+    quoteResult = { ...quote, required: false, blocked: false, confirmation_mode: "server_recorded", max_calls: 1 };
+    render(<GoogleMapsActionGuard />);
+    await api.post("/clinicas/geocode-endereco", { endereco: "Sintético" });
+    expect(requests.map((item) => item.url)).toEqual(["/google-maps-control/preview", "/clinicas/geocode-endereco"]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(requests[1].headers.has("X-Google-Maps-Action")).toBe(false);
+  });
+
   it("liberação temporária despacha a Agenda sem popup nem custo zero fictício", async () => {
     quoteResult = { ...quote, operation_mode: "temporary_open", required: false, blocked: false,
       max_calls: null, estimated_cost_min_brl: null, estimated_cost_max_brl: null };
