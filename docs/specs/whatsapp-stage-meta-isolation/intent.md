@@ -36,11 +36,15 @@ promocao futura copiar a identidade de homologacao para producao.
 
 ## Restricoes e riscos
 
-- o pipeline de stage deve falhar fechado enquanto a identidade isolada nao
-  estiver cadastrada;
+- o canal Meta de stage deve permanecer desligado enquanto a identidade isolada nao
+  estiver cadastrada; o deploy dos outros modulos nao depende desse canal;
 - producao nao pode depender de arquivo, variavel ou segredo de stage;
 - IDs publicos podem ser GitHub Variables; access token, App Secret e verify
   token continuam GitHub Secrets;
 - a configuracao externa exige confirmacao imediatamente antes de criar acesso,
   gravar segredo ou salvar callback;
 - rollback nunca deve apontar o callback de producao para stage.
+
+## Estado operacional esclarecido — 25/10/2026
+
+O usuario confirmou que somente producao possui numero registrado na Meta. Stage deve permitir homologar laudos e outros modulos sem ativar transporte Meta. A presenca de segredos antigos nao equivale a autorizacao para ativar esse canal. Uma flag explicita de opt-in liga os controles de identidade completos; ausencia da flag mantem o canal desligado e preserva producao.

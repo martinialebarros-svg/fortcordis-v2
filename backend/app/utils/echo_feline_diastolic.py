@@ -10,6 +10,7 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
+from app.utils.echo_diastolic_aliases import normalize_echo_diastolic_aliases
 from app.utils.referencia_eco_defaults import normalizar_especie_referencia
 
 FELINE_DIASTOLIC_KEYS = (
@@ -75,6 +76,7 @@ def feline_diastolic_references(
     """
     if normalizar_especie_referencia(species) != "Felina":
         return {}
+    measurements = normalize_echo_diastolic_aliases(measurements)
     present = [key for key in FELINE_DIASTOLIC_KEYS if _positive(measurements.get(key))]
     references = {
         key: {"text": "", "kind": "unconfirmed", "source": "", "doi": "",
@@ -120,10 +122,11 @@ def feline_diastolic_references(
         "felino_pw_anel_septal": {
             "e_doppler": "Média ± DP: 0,075 ± 0,026 m/s",
             "a_doppler": "Média ± DP: 0,061 ± 0,017 m/s",
-            "doppler_tecidual_relacao": "Média ± DP: 0,93 ± 0,20",
             "E_E_linha": "Média ± DP: 8,7 ± 1,7",
         },
     }
+    if tdi_method == "felino_pw_anel_septal" and "doppler_tecidual_relacao" in references:
+        references["doppler_tecidual_relacao"]["note"] = "Comparador septal e'/a' de Ward et al. (2012) não adotado: resumo publicado com inconsistência aparente entre as médias dos picos e da relação; sem substituir pela razão das médias"
     if tdi_separated and tdi_method in tdi_data:
         site = "lateral" if tdi_method == "felino_pw_anel_lateral" else "septal"
         for key, text in tdi_data[tdi_method].items():
@@ -161,7 +164,7 @@ def feline_diastolic_notes(measurements: Mapping[str, Any], species: Any) -> lis
     if measurements.get("TDI_ondas") == "fundidas":
         notes.append("Ondas e'/a' teciduais fundidas: picos e índices dependentes de e'/a' não são interpretados como ondas separadas.")
     if any(ref.get("doi") == WARD["doi"] for ref in references.values()):
-        notes.append("TDI anular: Ward et al. (2012), valores basais antes da sedação em 7 gatos jovens (1-3 anos); fonte descritiva por sítio, sem classificação automática.")
+        notes.append("TDI anular: Ward et al. (2012), valores basais antes da sedação em 7 gatos jovens (1-3 anos); média ± DP por sítio.")
     if any(ref.get("doi") == KIATSILAPANAN["doi"] for ref in references.values()):
         notes.append("TDI lateral: Kiatsilapanan & Surachetpong (2020), dados descritivos do grupo controle de 20 gatos não sedados, com exclusão das ondas fundidas.")
     return notes

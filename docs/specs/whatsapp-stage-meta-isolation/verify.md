@@ -4,7 +4,7 @@ Data: 2026-08-23
 Responsaveis: Martiniano + Codex
 Status: identidade isolada, callback e transporte E2E validados em stage
 
-## Diagnostico atual
+## Diagnostico historico (2026-08-23)
 
 - health publico de stage: HTTP `200`;
 - tela `/whatsapp-stage`: HTTP `200`;
@@ -449,3 +449,21 @@ Validacao: `npm run build` limpo, `test:phone-number` e
 Com isto, promover `stage -> main` deixa de alterar o caminho de envio de
 producao. O bot continua subindo dormente, e o formato de destinatario que
 entrega 96 mensagens permanece.
+
+## Ajuste stage sem numero Meta — 25/10/2026
+
+- Fato atual fornecido pelo usuario: nao ha numero registrado na Meta em stage, somente em producao; isso supersede a disponibilidade historica documentada acima.
+- PR #470 integrada em stage `cd47f384`; deploy40199341936 falhou no gate Meta antes do installer. Qualidade, SDD e frontend passaram. SSH somente leitura confirmou runtime anterior2c50d8a, servicos ativos e cinco JSONs preservados.
+- Novo escopo autorizado como continuacao da publicacao stage: modo de transporte Meta desligado por default, com opt-in explicito e guardas preservadas. Sem registro de numero, callback, envio ou uso de credenciais de producao.
+- Testes locais do contrato do workflow: quatro aprovados, incluindo validacao executavel0/1/invalido e modo transportado ate o wrapper. GitHub Variable nova ausente: default0 aplicado, nenhum segredo alterado.
+- Publicacao e QA autenticada remota ainda pendentes; nao atribuir resultados locais a ambiente instalado.
+
+- Regressao local: testes de isolamento Meta, wrapper opt-in e runtime desligado aprovados, com comandos operacionais totalmente stubados. Cobre servico ausente/ativo/desligamento falho, prova de inatividade, heranca hostil, flags false, URL3010 e ausencia de toque em producao.
+- Testes de SHA imutavel:13 aprovados; ativacao controlada de lembretes aprovada. Shell syntax, YAML parse e diff check aprovados. Nenhum teste local acionou Graph, webhook, envio, servico real ou credencial.
+- Revisao independente identificou caminhos Node/.env herdaveis no modo1; wrapper passa a fixa-los no checkout stage e o guard compartilhado exige esses caminhos, mantendo modo0/off seguro e isolamento da opcao viva.
+
+## Retomada da publicacao — 26/10/2026
+
+- PR #473 restaurou integralmente o snapshot clinico cd47f384 e preservou os14 arquivos fiscais. PR #472 integrada localmente a origin/stage424248d8 sem conflitos; escopo permanece11 arquivos de transporte/deploy/SDD.
+- Regressao de revisao: a fixture do build agora exporta explicitamente API_BACKEND_URL ao stub npm, removendo dependencia de heranca de ambiente/versao Bash. Suite novamente executada em ambiente limpo; o wrapper real ja exporta esse valor.
+- Suites locais de isolamento, modo desligado, contrato do workflow,13 testes de SHA imutavel e ativacao controlada de lembretes aprovadas apos a integracao. A publicacao aguardara checks e revisao do head atualizado, seguida de QA sintetica autenticada.

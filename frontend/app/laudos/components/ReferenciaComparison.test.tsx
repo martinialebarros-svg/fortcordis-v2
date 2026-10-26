@@ -2,9 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ReferenciaComparison } from "./ReferenciaComparison";
+import { compararMedidasComReferencia } from "../hooks/useReferenciaEco";
 
 const buscarReferencia = vi.hoisted(() => vi.fn(async () => ({ id: 1, especie: "Canina", peso_kg: 11 })));
-const compararMedidas = vi.hoisted(() => vi.fn(() => ({})));
+const compararMedidas = vi.hoisted(() => vi.fn<typeof import("../hooks/useReferenciaEco").compararMedidasComReferencia>(() => ({})));
 
 vi.mock("../hooks/useReferenciaEco", async () => ({
   ...await vi.importActual<typeof import("../hooks/useReferenciaEco")>("../hooks/useReferenciaEco"),
@@ -12,6 +13,35 @@ vi.mock("../hooks/useReferenciaEco", async () => ({
 }));
 
 describe("identificação da referência ecocardiográfica", () => {
+  it.each(["Canina", "Felina"])("mostra um cartão por medida e o valor canônico após mesclar o catálogo de %s", async (species) => {
+    buscarReferencia.mockResolvedValueOnce({ id: 1, especie: species, peso_kg: 11 });
+    compararMedidas.mockImplementationOnce(compararMedidasComReferencia);
+    const measurements = { MV_E: "1.80", Onda_E: "0.70", MV_A: "1.90", Onda_A: "0.50", TDI_e: "0.80", e_doppler: "0.09",
+      Diastolica_metodo: species === "Canina" ? "canino_2a6_anos_nao_sedado_pw_apical_fim_fluxo" : "felino_adulto_nao_sedado_pw_apical_clique_aortico",
+      Diastolica_ondas: "separadas", TDI_metodo: species === "Canina" ? "canino_pw_anel_septal_choi" : "felino_pw_anel_lateral", TDI_ondas: "separadas" };
+    const before = { ...measurements };
+    render(<ReferenciaComparison especie={species} peso={11} medidas={measurements} onMedidaChange={vi.fn()} />);
+    await screen.findByText(`Referência selecionada: ${species}, cadastro de 11 kg`);
+    expect(screen.getAllByText("Onda E")).toHaveLength(1);
+    expect(screen.getAllByText("Onda A")).toHaveLength(1);
+    expect(screen.getAllByText("e' (Doppler tecidual, m/s)")).toHaveLength(1);
+    expect(screen.getByText("0.70")).toBeInTheDocument();
+    expect(screen.queryByText("1.80")).not.toBeInTheDocument();
+    expect(screen.queryByText("1.90")).not.toBeInTheDocument();
+    expect(screen.queryByText("0.80")).not.toBeInTheDocument();
+    expect(measurements).toEqual(before);
+  });
+
+  it.each(["Canina", "Felina"])("não ressuscita o alias no catálogo após limpar a canônica em %s", async (species) => {
+    buscarReferencia.mockResolvedValueOnce({ id: 1, especie: species, peso_kg: 11 });
+    compararMedidas.mockImplementationOnce(compararMedidasComReferencia);
+    render(<ReferenciaComparison especie={species} peso={11} medidas={{ MV_E: "1.80", Onda_E: "",
+      Diastolica_ondas: "nao_confirmadas" }} onMedidaChange={vi.fn()} />);
+    await screen.findByText(`Referência selecionada: ${species}, cadastro de 11 kg`);
+    expect(screen.queryByText("Onda E")).not.toBeInTheDocument();
+    expect(screen.queryByText("1.80")).not.toBeInTheDocument();
+  });
+
   it.each(["Gato", "Cat", "Felino", " Feline "])("oferece protocolo e mantém fusões independentes para %s", async (species) => {
     render(<ReferenciaComparison especie={species} medidas={{ Onda_E: "1.08", E_A: "1.13", e_doppler: "0.16",
       Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "fundidas",

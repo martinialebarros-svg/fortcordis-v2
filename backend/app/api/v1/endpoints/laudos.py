@@ -76,6 +76,7 @@ from app.utils.ecocardiograma_medidas import (
     extrair_medidas_ecocardiograma_da_descricao,
 )
 from app.utils.ecocardiograma_qualitativa import extrair_qualitativa_ecocardiograma_da_descricao
+from app.utils.echo_diastolic_aliases import ECHO_DIASTOLIC_CANONICAL_KEYS
 from app.utils.paciente_helpers import (
     atualizar_observacoes_com_idade,
     extrair_idade_paciente,
@@ -1183,8 +1184,10 @@ def _montar_descricao_ecocardiograma(
 
     descricao_parts = ["## Medidas Ecocardiograficas\n"]
     for key, value in medidas.items():
-        if value:
-            descricao_parts.append(f"- {key}: {value}")
+        if value or key in ECHO_DIASTOLIC_CANONICAL_KEYS:
+            # Keep explicit clears alongside historical aliases when creating a
+            # report; None denotes a blank, never a fabricated numeric value.
+            descricao_parts.append(f"- {key}: {'' if value is None else value}")
 
     descricao_parts.append("\n## Avaliacao Qualitativa\n")
     for key, value in qualitativa.items():

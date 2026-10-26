@@ -21,6 +21,7 @@ from app.models.paciente import Paciente
 from app.models.servico import Servico
 from app.models.tutor import Tutor
 from app.services import fiscal_export_service
+from app.services.fiscal_endereco_service import resolver_endereco
 
 FISCAL_TIMEZONE = ZoneInfo("America/Fortaleza")
 CENTAVO = Decimal("0.01")
@@ -120,7 +121,8 @@ def _serializar_os(row, competencia: str, claims: dict[int, int], exportacoes: d
     nome_base = (getattr(clinica, "razao_social", None) or getattr(clinica, "nome", None)) if tipo == "PJ" else getattr(tutor, "nome", None)
     nome = str(nome_base or "").strip()
     doc = re.sub(r"[.\s/\-]", "", str(getattr(tomador, "cnpj" if tipo == "PJ" else "cpf", None) or "").upper())
-    endereco = ", ".join(str(getattr(tomador, field, None) or "").strip() for field in ("endereco", "numero", "complemento") if str(getattr(tomador, field, None) or "").strip())
+    endereco_base, endereco_fonte, pendencias_endereco = resolver_endereco(tomador, tipo, doc)
+    endereco = ", ".join(endereco_base[field] for field in ("endereco", "numero", "complemento") if endereco_base[field])
     item = {
         "os_id": os_row.id,
         "numero_os": os_row.numero_os,
@@ -135,7 +137,9 @@ def _serializar_os(row, competencia: str, claims: dict[int, int], exportacoes: d
         "cliente_nome": nome,
         "cliente_documento": doc,
         "cliente_endereco": endereco,
-        **{f"cliente_{field}": str(getattr(tomador, field, None) or "").strip() for field in ("bairro", "cidade", "estado", "cep", "telefone", "email")},
+        **{f"cliente_{field}": endereco_base[field] for field in ("bairro", "cidade", "estado", "cep")},
+        **{f"cliente_{field}": str(getattr(tomador, field, None) or "").strip() for field in ("telefone", "email")},
+        **endereco_fonte,
         "clinica_id": os_row.clinica_id,
         "clinica_nome": getattr(clinica, "nome", None) or ("Atendimento domiciliar" if tipo == "PF" else ""),
         "servico_nome": getattr(servico, "nome", None) or "",
@@ -143,7 +147,7 @@ def _serializar_os(row, competencia: str, claims: dict[int, int], exportacoes: d
         "fechamento_id": claims.get(os_row.id),
         "exportacoes_anteriores": exportacoes.get(os_row.id, 0),
     }
-    motivos = []
+    motivos = list(pendencias_endereco)
     if str(os_row.status or "").strip().casefold() == "cancelado":
         motivos.append("OS cancelada.")
     if not data:

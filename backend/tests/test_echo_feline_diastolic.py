@@ -15,7 +15,7 @@ os.environ.setdefault("SECRET_KEY", "echo-feline-diastolic-test-secret-123456789
 from pypdf import PdfReader
 from PIL import Image
 
-from app.utils.echo_feline_diastolic import feline_diastolic_references
+from app.utils.echo_feline_diastolic import feline_diastolic_notes, feline_diastolic_references
 from app.utils.echo_reference_methods import ECHO_REFERENCE_METHOD_VALUES
 from app.utils.ecocardiograma_medidas import extrair_medidas_ecocardiograma_da_descricao
 from app.utils.pdf_laudo import gerar_pdf_laudo_eco
@@ -61,7 +61,41 @@ def synthetic_report(measurements):
             "qualitativa": {"funcao": "Texto sintetico preservado."}, "clinica": "Clinica teste"}
 
 
+def legacy_measurements(measurements):
+    keys = {"Onda_E": "MV_E", "Onda_A": "MV_A", "E_A": "MV_E_A", "TD": "MV_DT",
+            "TRIV": "IVRT", "E_TRIV": "MV_E_TRIV", "e_doppler": "TDI_e",
+            "a_doppler": "TDI_a", "E_E_linha": "EEp"}
+    return {keys.get(key, key): value for key, value in measurements.items()}
+
+
 class FelineDiastolicEvidenceTest(unittest.TestCase):
+    def test_legacy_measurement_aliases_match_canonical_evidence_and_notes(self):
+        canonical = synthetic_measurements()
+        legacy = legacy_measurements(canonical)
+        before = deepcopy(legacy)
+        self.assertEqual(feline_diastolic_references(legacy, "Cat"),
+                         feline_diastolic_references(canonical, "Cat"))
+        self.assertEqual(feline_diastolic_notes(legacy, "Cat"),
+                         feline_diastolic_notes(canonical, "Cat"))
+        self.assertEqual(legacy, before)
+
+    def test_legacy_aliases_never_infer_methods_or_reconfirm_wave_groups(self):
+        for override in (
+            {"Diastolica_metodo": "outro", "TDI_metodo": "outro"},
+            {"Diastolica_ondas": "nao_confirmadas"}, {"TDI_ondas": "nao_confirmadas"},
+            {"Diastolica_ondas": "fundidas"}, {"TDI_ondas": "fundidas"},
+            {"Diastolica_ondas": "fundidas", "TDI_ondas": "fundidas"},
+        ):
+            with self.subTest(override=override):
+                canonical = {**synthetic_measurements(), **override}
+                legacy = legacy_measurements(canonical)
+                before = deepcopy(legacy)
+                self.assertEqual(feline_diastolic_references(legacy, "Felina"),
+                                 feline_diastolic_references(canonical, "Felina"))
+                self.assertEqual(feline_diastolic_notes(legacy, "Felina"),
+                                 feline_diastolic_notes(canonical, "Felina"))
+                self.assertEqual(legacy, before)
+
     def test_legacy_timing_confirmation_does_not_imply_apical_transmitral_view(self):
         for method in ("felino_adulto_nao_sedado_pw_clique_aortico", "felino_adulto_nao_sedado_pw_fim_fluxo"):
             with self.subTest(method=method):
@@ -129,6 +163,9 @@ class FelineDiastolicEvidenceTest(unittest.TestCase):
         self.assertEqual(refs["e_doppler"]["text"], "Média ± DP: 0,075 ± 0,026 m/s")
         self.assertEqual(refs["a_doppler"]["text"], "Média ± DP: 0,061 ± 0,017 m/s")
         self.assertEqual(refs["E_E_linha"]["text"], "Média ± DP: 8,7 ± 1,7")
+        self.assertEqual(refs["doppler_tecidual_relacao"]["kind"], "unconfirmed")
+        self.assertIn("inconsistência aparente", refs["doppler_tecidual_relacao"]["note"])
+        self.assertNotIn("0,93", refs["doppler_tecidual_relacao"]["text"])
 
     def test_current_fused_transmitral_separate_tdi_case_preserves_inputs(self):
         measurements = synthetic_measurements()
@@ -198,6 +235,19 @@ class FelineDiastolicEvidenceTest(unittest.TestCase):
 
 
 class FelineDiastolicPdfTest(unittest.TestCase):
+    def test_legacy_alias_pdf_matches_canonical_values_sources_and_wave_guards(self):
+        for override in ({}, {"Diastolica_ondas": "fundidas"}, {"TDI_ondas": "fundidas"},
+                         {"Diastolica_ondas": "nao_confirmadas", "TDI_ondas": "nao_confirmadas"}):
+            with self.subTest(override=override):
+                canonical = {**synthetic_measurements(), **override}
+                payload = synthetic_report(legacy_measurements(canonical))
+                before = deepcopy(payload)
+                def text(report):
+                    return re.sub(r"\s+", " ", "\n".join(
+                        page.extract_text() for page in PdfReader(BytesIO(gerar_pdf_laudo_eco(report))).pages))
+                self.assertEqual(text(payload), text(synthetic_report(canonical)))
+                self.assertEqual(payload, before)
+
     def test_legacy_pdf_preserves_values_and_requires_apical_reconfirmation(self):
         measurements = {**synthetic_measurements(), "Diastolica_metodo": "felino_adulto_nao_sedado_pw_clique_aortico"}
         before = deepcopy(measurements)
@@ -358,14 +408,16 @@ class FelineDiastolicPdfTest(unittest.TestCase):
                 self.assertNotIn("Média ± DP", text)
                 self.assertEqual(measurements, before)
 
-    def test_fusion_flags_do_not_mask_canine_measurements(self):
+    def test_confirmed_fusion_masks_canine_peaks_without_feline_reference_attribution(self):
         payload = synthetic_report({**synthetic_measurements(), "Diastolica_ondas": "fundidas", "TDI_ondas": "fundidas"})
         payload["paciente"]["especie"] = "Canina"
         text = re.sub(r"\s+", " ", "\n".join(page.extract_text() for page in PdfReader(BytesIO(gerar_pdf_laudo_eco(payload))).pages))
-        self.assertNotIn("Não mensurável", text)
-        self.assertIn("1.08 m/s", text)
-        self.assertIn("1.14", text)
-        self.assertIn("6.75", text)
+        self.assertEqual(text.count("Não mensurável"), 9)
+        self.assertNotIn("1.08 m/s", text)
+        self.assertNotIn("1.14", text)
+        self.assertNotIn("6.75", text)
+        self.assertNotIn("10.1111/jvim.15745", text)
+        self.assertIn("40.00 ms", text)
 
     def test_unknown_methods_do_not_create_bibliography_or_descriptive_data(self):
         measurements = {"Onda_E": "1.08", "e_doppler": "0.16"}
