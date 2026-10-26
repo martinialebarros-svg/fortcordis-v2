@@ -292,6 +292,15 @@ decodificando apenas o arquivo ativo e preservando a ordem de selecao.
 
 ## 8) Fora de escopo
 
+### Limite da publicacao autorizada em 2026-10-26
+
+Somente a colecao local de cines desta fase e seus quatro artefatos SDD podem
+ser promovidos. Preservar as outras entregas no snapshot stage
+`4cd0e899915e625bcd971f214bc34ce09feabea1` e restaura-las em stage depois da
+promocao protegida. O diff final contra main deve conter exatamente pagina,
+teste da pagina e intent/plan/spec/verify do visualizador, sem backend,
+migrations, configuracao, workflows ou novos comportamentos clinicos.
+
 - Medicoes calibradas ou diagnostico automatizado.
 - Persistencia, compartilhamento, DICOMweb, PACS ou vinculo com paciente/laudo.
 - Suporte a MovieGroup 3D/4D ou reconstrucao de traces da GE.

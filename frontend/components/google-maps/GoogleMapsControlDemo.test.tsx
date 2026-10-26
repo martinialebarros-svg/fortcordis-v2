@@ -7,15 +7,6 @@ import GoogleMapsControlDemo from "./GoogleMapsControlDemo";
 vi.mock("next/navigation", () => ({ usePathname: () => "/configuracoes" }));
 afterEach(() => { act(() => mapsConfirmationStore.cancelAll()); vi.restoreAllMocks(); });
 describe("demonstração segura do controle Maps", () => {
-  it("demonstra a exceção manual com uma chamada e registro interno, sem rede", () => {
-    const request = vi.spyOn(api, "request"); const post = vi.spyOn(api, "post");
-    render(<><GoogleMapsControlDemo /><GoogleMapsActionGuard /></>);
-    fireEvent.click(screen.getByRole("button", { name: "Geocodificação manual — registro interno" }));
-    expect(screen.getByRole("status")).toHaveTextContent("até 1 chamada");
-    expect(screen.getByRole("status")).toHaveTextContent("lotes e automações continuam bloqueados");
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(request).not.toHaveBeenCalled(); expect(post).not.toHaveBeenCalled();
-  });
   it("mostra cache e permite Agenda acima da referência sem chamar API", async () => {
     const request = vi.spyOn(api, "request"); const post = vi.spyOn(api, "post");
     render(<><GoogleMapsControlDemo /><GoogleMapsActionGuard /></>);

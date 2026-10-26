@@ -1,8 +1,64 @@
 # Verify - vivid-iq-cine-viewer
 
-Data: 2026-10-25
+Data: 2026-10-26
 Responsavel: Codex
-Status: fase 9 validada localmente; publicacao autorizada somente em stage em 2026-10-25
+Status: fase 9 validada em stage; promocao isolada para producao autorizada em 2026-10-26
+
+## Release da fase 9 — 2026-10-26
+
+O usuario autorizou publicar as melhorias do visualizador em producao. Essa
+autorizacao nao inclui os demais recursos atualmente em stage. A entrega usa
+PR direto stage -> main, sem bypass dos checks ou excecao de criterios.
+
+### Evidencia de stage concluida
+
+- A restauracao PR #479 instalou `a93390d326f6ff0133eed41e7cab45ecda6d687c`.
+  Workflow `40383527861` terminou com quality-gate, SDD e deploy aprovados;
+  logs confirmaram SHA instalado, seis arquivos runtime preservados/restaurados,
+  canario autenticado, integridade SQLite e drill de restore aprovados.
+- Os 12 caminhos do visualizador (fonte, testes e SDD) dessa restauracao sao
+  identicos aos aprovados em `6ca18d7741f2a2978baa3df9ce6d4ac7f0a83712`.
+  Parser, geometria, viewport e helper de reproducao nao mudaram nesta fase.
+- Em sessao stage ja autorizada, dois DICOM sinteticos sem extensao abriram
+  com input multiple, 30 quadros e 2,90 s. O primeiro reproduziu ate 30/30.
+  Navegacao anterior/proximo e abertura direta trocaram o arquivo pausado no
+  primeiro quadro; adicionar preservou o ativo e substituir descartou a lista.
+- Arquivo sintetico invalido mostrou erro controlado e retentativa; navegar
+  ao anterior recuperou o cine valido. Remover arquivo inativo preservou o
+  ativo; remover o ativo abriu o arquivo anterior. Limpar exame deixou zero
+  colecao e zero player; a aba temporaria foi encerrada.
+- Os dois dominios de stage responderam corretamente: raiz 200, redirecionamento
+  do viewer ao login sem sessao, API anonima `/api/v1/auth/me` 401. Todos os
+  15 assets observados no DOM autenticado retornaram 200. O chunk do viewer
+  continha `Arquivos selecionados`, `Adicionar arquivos`, `Arquivo anterior`
+  e `Substituir arquivos` (SHA256 `d5ad0972db19e8566b3ebc0d5571ebf68298f86f88ffdd66d62fe13175dc7547`).
+- Evidencia visual sintetica local: `/tmp/fortcordis-vivid-stage-validado-20261026.png`.
+  Nenhum exame real foi usado nessa verificacao remota. A evidencia nao e
+  homologacao clinica de geometria, orientacao, escala ou medidas.
+
+### Composicao isolada da promocao
+
+- Na composicao isolada, a suite completa passou: 123 arquivos Vitest / 1.428
+  testes, mais 23 testes Node, total 1.451. Vitest usou dois workers, sem
+  alterar timeout ou codigo. Lint, TypeScript, build (43 paginas; viewer
+  20 kB / first load 159 kB), 10 checks do auth-proxy-smoke e os guardrails
+  SDD/promocao passaram. So avisos nao bloqueantes de Browserslist/jsdom.
+
+- Baseline de producao: `7124680b8312f0bef0c9cc799f7a4ce8a0024602`.
+- Snapshot stage preservado: `4cd0e899915e625bcd971f214bc34ce09feabea1`.
+  O diff tinha 64 caminhos; apenas seis pertencem a esta autorizacao:
+  pagina, teste da pagina e os quatro documentos SDD do visualizador.
+- Os outros 58 caminhos ficam temporariamente no baseline de producao durante
+  a promocao e devem ser restaurados byte a byte a partir do snapshot preservado
+  por PR separado para stage. Incluem Gestao/migracao 101, Agenda, Maps e
+  configuracao; nao sao promovidos como parte do visualizador.
+- A arvore candidata deve diferir de producao somente nesses seis caminhos.
+  Nao alterar o publicador padrao, parser, autenticacao, backend, migrations,
+  dados, presets ou frases em producao. O rascunho frontend-only antigo nao e
+  usado nesta entrega; o pipeline padrao mantem seus checks e preservacao runtime.
+- A evidencia de producao e da restauracao final de stage sera registrada nos
+  PRs/workflows apos os resultados terminais; este preflight nao afirma que a
+  promocao ja ocorreu. Revalidar refs/escopo imediatamente antes de cada merge.
 
 ## 0) Validacao da fase 9 - 2026-10-25
 

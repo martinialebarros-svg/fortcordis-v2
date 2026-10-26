@@ -167,7 +167,6 @@ class CostConfiguration(BaseModel):
     operation_mode: Literal["paid_budget", "cache_only"] = "paid_budget"
     enabled: StrictBool
     agenda_budget_mode: Literal["enforce", "monitor"] = "enforce"
-    clinic_geocode_manual_enabled: StrictBool = False
     limits: Limits
     prices_usd: dict[str, Decimal] | None = None
     fx_brl_per_usd_upper: Decimal | None = Field(default=None, gt=0, le=1000)
@@ -181,8 +180,6 @@ class CostConfiguration(BaseModel):
 
     @model_validator(mode="after")
     def validate_financial_envelope(self):
-        if self.clinic_geocode_manual_enabled and (self.operation_mode != "paid_budget" or self.action_call_caps.get("clinic_geocode") != 1):
-            raise ValueError("Geocodificação manual de clínicas exige orçamento pago e teto explícito de uma chamada por execução.")
         if self.operation_mode == "cache_only":
             if self.agenda_budget_mode != "enforce":
                 raise ValueError("Somente cache não permite liberação de consultas da Agenda.")
@@ -217,7 +214,6 @@ class CostConfiguration(BaseModel):
 
 
 REASONS = {
-    "clinic_manual_record": "Geocodificação manual registrada no servidor, limitada a uma chamada e aos limites diário e mensal.",
     "agenda_internal_record": "Execução da Agenda registrada com limite próprio no servidor, sem popup de custo.",
     "day_reference_exceeded": "Referência diária atingida: a Agenda continua liberada mediante confirmação; lotes e tarefas extras seguem bloqueados pelo teto.",
     "month_reference_exceeded": "Referência mensal atingida: a Agenda continua liberada mediante confirmação; lotes e tarefas extras seguem bloqueados pelo teto.",
@@ -234,7 +230,7 @@ REASONS = {
     "confirmation_required": "Confirme esta ação no aviso de custo antes de consultar o Google Maps.",
     "invalid_grant": "A confirmação não corresponde a esta ação, expirou ou já foi usada. Revise e confirme novamente.",
     "configuration_changed": "Os limites ou preços mudaram. Revise a estimativa e confirme novamente.",
-    "action_limit": "Esta ação está bloqueada pelo seu limite de chamadas ou custo. Isso não significa que o limite diário foi atingido. Nenhuma chamada extra foi enviada.",
+    "action_limit": "O limite de chamadas ou custo desta ação foi atingido. Nenhuma chamada extra foi enviada.",
     "day_limit": "O limite diário de chamadas ou custo estimado foi atingido.",
     "month_limit": "O limite mensal de chamadas ou custo estimado foi atingido.",
     "automatic_policy_required": "A tarefa automática não tem uma política explícita habilitada com limites próprios.",
@@ -641,16 +637,12 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
                 cap = min(cap, route_estimate['max_calls'])
             if spec.theoretical_cap is not None:
                 cap = min(cap, spec.theoretical_cap)
-            if cap <= 0 and reason is None:
-                reason = "action_limit"
             if agenda_monitored(cfg, spec.key):
                 # Daily/monthly budgets are references for the human Agenda.
                 # Consent still has a finite call AND monetary envelope.
                 max_calls = max(0, cap)
             else:
                 budget = _micros(cfg.limits.action.estimated_brl)
-                if budget < unit and reason is None:
-                    reason = "action_limit"
                 for period in ("day", "month"):
                     limit = getattr(cfg.limits, period)
                     cap = min(cap, limit.calls - usage[period]["calls"])
@@ -661,13 +653,6 @@ def create_preview(user_id, method, path, query=None, body=None, paid_call_requi
             max_cost = max_calls * unit
             if max_calls == 0 and reason is None:
                 reason = "action_limit"
-        if reason is None and cfg.clinic_geocode_manual_enabled and spec.key == "clinic_geocode":
-            # A read-only quote creates no financial authorization or provider I/O.
-            return {"required": False, "blocked": False, "operation_mode": "paid_budget",
-                    "confirmation_mode": "server_recorded", "quote_id": None,
-                    "action": spec.label, "action_key": spec.key, "max_calls": 1,
-                    "estimated_cost_max_brl": _brl(max_cost),
-                    "message": REASONS["clinic_manual_record"]}
         now = _now()
         quote_id = None
         if reason is None:
@@ -747,26 +732,6 @@ def claim_execution(user_id, token, method, path, query=None, body=None) -> Exec
             ))
             _event(conn, kind="cache_only", action=action, action_id=action_id, user_id=user_id)
             return Execution(action_id, operation_mode="cache_only")
-        if cfg.clinic_geocode_manual_enabled and action == "clinic_geocode" and not token:
-            # Only the authenticated explicit HTTP endpoint can claim this scope.
-            # Each provider attempt still passes the shared atomic budget check.
-            cost = _unit_cost(cfg, "geocoding")
-            if cfg.limits.action.calls < 1 or _micros(cfg.limits.action.estimated_brl) < cost:
-                _deny(conn, "action_limit", action=action, user_id=user_id)
-            _check_periods(conn, cfg.limits, _usage(conn), cost,
-                           action=action, action_id=None, user_id=user_id)
-            action_id, now = secrets.token_urlsafe(32), _now()
-            conn.execute(insert(ACTIONS).values(
-                id=action_id, user_id=user_id,
-                fingerprint=request_fingerprint(user_id, method, path, query, body),
-                action=action, revision=revision, state="claimed", max_calls=1,
-                max_cost_micros=cost, used_calls=0, used_cost_micros=0,
-                skus_json=json.dumps(["geocoding"]), created_at=now,
-                claimed_at=now, expires_at=now + EXECUTION_TTL_SECONDS,
-            ))
-            _event(conn, kind="internal_authorized", action=action, action_id=action_id,
-                   user_id=user_id, reason="clinic_manual_record")
-            return Execution(action_id, operation_mode="paid_budget")
         if not token:
             _deny(conn, "confirmation_required", action=action, user_id=user_id)
         row = conn.execute(select(ACTIONS).where(ACTIONS.c.token_hash == _token_digest(token))).mappings().first()
