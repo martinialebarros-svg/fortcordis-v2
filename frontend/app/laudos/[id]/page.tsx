@@ -802,7 +802,7 @@ export default function VisualizarLaudoPage() {
                   ? "Consultando faixas de referência por espécie e peso..."
                   : referenciaEco
                   ? `Referência selecionada por espécie e peso: cadastro de ${referenciaEco.especie}, ${referenciaEco.peso_kg} kg.`
-                  : gruposMedidas.some((grupo) => grupo.rows.some((row) => row.referenceMetadata?.kind === "descriptive"))
+                  : gruposMedidas.some((grupo) => grupo.rows.some((row) => ["descriptive", "reference_interval"].includes(row.referenceMetadata?.kind ?? "")))
                   ? "Referências específicas da técnica estão indicadas nas medidas abaixo."
                   : "Faixas de referência indisponíveis nesta prévia."}
               </p>

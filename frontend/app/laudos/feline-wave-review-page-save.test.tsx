@@ -153,6 +153,8 @@ describe("páginas reais: revisão e descarte explícito de ondas", () => {
 
   it.each(["novo", "editar"] as Mode[])("%s mantém a política original dos campos caninos mesmo sem numerador", async (mode) => {
     await openPage(mode, "", "", "Canina");
+    expect(screen.queryByText(/Ref\.: ≤2,5/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ref\.: ≤12/)).not.toBeInTheDocument();
     fireEvent.change(input("Onda E (m/s)"), { target: { value: "0" } });
     for (const key of ["E_A", "E_TRIV", "E_E_linha"] as const) expect(input(LABELS[key])).toHaveAttribute("readonly");
     expect(input(LABELS.doppler_tecidual_relacao)).not.toHaveAttribute("readonly");
