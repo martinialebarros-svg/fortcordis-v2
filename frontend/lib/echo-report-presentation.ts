@@ -4,6 +4,7 @@ import { ambiguousEchoLengthKeys, confirmedEchoUnit, confirmedUnitKey, ECHO_LENG
 import { calculateLeftAtrialFractionalShortening } from "./echo-derived-measurements";
 import { ECHO_REFERENCE_METHOD_KEYS, resolveEchoReferenceForMeasurements } from "./echo-reference-policy";
 import { canonicalEchoDiastolicKey, echoDiastolicReferences, type EchoDiastolicReference } from "./echo-diastolic-reference";
+import { FELINE_DIASTOLIC_KEYS } from "./echo-feline-diastolic-reference";
 import { isFelineEchoSpecies, normalizeEchoSpecies } from "./echo-species";
 import { deriveOutflowGradients, ECHO_OUTFLOW_KEYS, formatOutflowValue, isOutflowMetadataKey, outflowMeasurementLabel } from "./echo-outflow";
 
@@ -101,6 +102,7 @@ const otherGroups: { title: string; parameters: Parameter[] }[] = [
 
 // TAPSE e MAPSE não permitem inferir cm a partir de outros diâmetros do exame.
 const lengthKeys = new Set<string>(ECHO_LENGTH_KEYS);
+const diastolicKeys = new Set<string>(FELINE_DIASTOLIC_KEYS);
 
 function number(value: unknown): number | null {
   if (value === null || value === undefined || String(value).trim() === "") return null;
@@ -122,8 +124,17 @@ function referenceRange(reference: ReferenciaEco | null, item: Parameter): strin
   return `${min.toFixed(2)}–${max.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`;
 }
 
-export function prepareEchoReportMeasurements(raw: Record<string, string>, weightKg: unknown, species = "") {
+function normalizeDiastolicAliases(raw: Record<string, string>): Record<string, string> {
   const measurements = { ...raw };
+  for (const [key, value] of Object.entries(raw)) {
+    const canonical = canonicalEchoDiastolicKey(key);
+    if (!Object.hasOwn(measurements, canonical)) measurements[canonical] = value;
+  }
+  return measurements;
+}
+
+export function prepareEchoReportMeasurements(raw: Record<string, string>, weightKg: unknown, species = "") {
+  const measurements = normalizeDiastolicAliases(raw);
   const canine = /^canin/i.test(species.trim());
   const ambiguousKeys = ambiguousEchoLengthKeys(raw);
   for (const key of lengthKeys) {
@@ -182,6 +193,7 @@ export function canineAeAoClinicalReference(measurements: Record<string, string>
 }
 
 export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null, ambiguousKeys: Set<string> = new Set(), weightKg?: number, species = reference?.especie ?? ""): EchoReportGroup[] {
+  measurements = normalizeDiastolicAliases(measurements);
   const safeReference = resolveEchoReferenceForMeasurements(reference, measurements, weightKg);
   const diastolicReferences = echoDiastolicReferences(measurements, species);
   const pendingIndices = new Set<string>();
@@ -209,7 +221,7 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
   const known = new Set(["VE_tecnica_relatorio", "VE_vista_2D", "Remodelamento_AD", ...ECHO_REFERENCE_METHOD_KEYS, ...mMode.map((item) => item.key), ...mode2D.map((item) => item.key)]);
   for (const key of ECHO_LENGTH_KEYS) known.add(confirmedUnitKey(key));
   for (const group of otherGroups) for (const item of group.parameters) known.add(item.key);
-  const unknown: Parameter[] = Object.keys(measurements).filter((key) => !known.has(key) && !isOutflowMetadataKey(key)).map((key) => parameter(key, key));
+  const unknown: Parameter[] = Object.keys(measurements).filter((key) => !known.has(canonicalEchoDiastolicKey(key)) && !isOutflowMetadataKey(key)).map((key) => parameter(key, key));
   if (unknown.length) groups.push({ title: "Outras medidas registradas", parameters: unknown });
   return groups.map((group) => ({
     title: group.title,
@@ -217,7 +229,7 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
       const value = number(measurements[item.key]);
       return diastolicReferences[canonicalEchoDiastolicKey(item.key)]?.kind === "uninterpretable"
         || (ECHO_OUTFLOW_KEYS.has(item.key) && String(measurements[item.key] ?? "").trim() !== "")
-        || (value !== null && value !== 0);
+        || (value !== null && (diastolicKeys.has(item.key) ? value > 0 : value !== 0));
     }).map((item) => {
       const outflowValue = ECHO_OUTFLOW_KEYS.has(item.key);
       const numericValue = number(measurements[item.key]);
