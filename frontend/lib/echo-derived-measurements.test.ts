@@ -3,6 +3,45 @@ import { deriveAutomaticEchoMeasurements, parseStoredEchoMeasurements } from "./
 import { mergeImportedEchoMeasurements, updateEchoMeasurement } from "./echo-unit-provenance";
 
 describe("deriveAutomaticEchoMeasurements", () => {
+  it("preserva a presença canônica diastólica vazia ou inválida sem recuperar a descrição histórica", () => {
+    const keys = ["Onda_E", "Onda_A", "E_A", "TD", "TRIV", "E_TRIV", "e_doppler", "a_doppler", "doppler_tecidual_relacao", "E_E_linha"];
+    for (const key of keys) {
+      for (const value of ["", null, undefined, NaN, "NaN", 0, "0"]) {
+        const raw = { [key]: value };
+        const before = { ...raw };
+        const description = `## Medidas Ecocardiograficas\n- ${key}: 1.80\n- MV_E: 1.90\n\n## Avaliacao Qualitativa`;
+        const parsed = parseStoredEchoMeasurements(raw, description);
+        expect(parsed).toEqual({ [key]: String(value ?? "") });
+        expect(raw).toEqual(before);
+      }
+    }
+    expect(parseStoredEchoMeasurements({ DIVEd: "", unrelated: "NaN", Diastolica_metodo: "inferido" })).toEqual({});
+  });
+
+  it("lê a canônica diastólica vazia na mesma linha sem consumir o alias da linha seguinte", () => {
+    for (const canonicalFirst of [true, false]) {
+      const lines = ["- Onda_E: ", "- MV_E: 1.80"];
+      const description = "## Medidas Ecocardiograficas\n" +
+        (canonicalFirst ? lines : lines.toReversed()).join("\n") + "\n\n## Avaliacao Qualitativa";
+      expect(parseStoredEchoMeasurements(null, description)).toEqual({ Onda_E: "", MV_E: "1.80" });
+    }
+  });
+
+  it.each(["Canina", "Felina"])("não usa alias para recalcular índices após hidratar uma origem limpa em %s", (species) => {
+    for (const value of ["", null, NaN, 0]) {
+      const raw = { MV_E: "1.80", Onda_E: value, Onda_A: "0.50", TRIV: "70", e_doppler: "0.09",
+        E_A: "0.70", E_TRIV: "0.55", E_E_linha: "6.71", Diastolica_ondas: "nao_confirmadas", TDI_ondas: "separadas" };
+      const before = { ...raw };
+      const parsed = parseStoredEchoMeasurements(raw);
+      const derived = deriveAutomaticEchoMeasurements(parsed, 10, species);
+      expect(parsed).toHaveProperty("Onda_E", String(value ?? ""));
+      expect(parsed.MV_E).toBe("1.80");
+      for (const key of ["E_A", "E_TRIV", "E_E_linha"]) expect(derived).not.toHaveProperty(key);
+      expect({ ...parsed, ...derived }).toMatchObject({ E_A: "0.70", E_TRIV: "0.55", E_E_linha: "6.71" });
+      expect(raw).toEqual(before);
+    }
+  });
+
   it.each(["Felina", "felino", "FELINOS", "Feline", " Gato ", "gatos", "Cat", "CATS"])
     ("preserva relações históricas e fusões independentes para %s", (species) => {
       const historical = {

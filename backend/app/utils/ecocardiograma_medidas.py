@@ -4,6 +4,7 @@ import re
 from typing import Any
 from app.utils.echo_unit_provenance import ECHO_LENGTH_KEYS, CONFIRMED_UNIT_PREFIX
 from app.utils.echo_reference_methods import ECHO_REFERENCE_METHOD_VALUES
+from app.utils.echo_diastolic_aliases import ECHO_DIASTOLIC_CANONICAL_KEYS
 
 
 LV_M_MODE_KEYS = {
@@ -92,12 +93,18 @@ def extrair_medidas_ecocardiograma_da_descricao(
 
     measurements: dict[str, str] = {}
     for match in re.finditer(
-        r"^\s*-\s*([A-Za-z0-9_]+):\s*(.*?)\s*$",
+        r"^[ \t]*-[ \t]*([A-Za-z0-9_]+):[ \t]*(.*?)[ \t]*$",
         section_match.group(1),
         re.MULTILINE,
     ):
         key = match.group(1)
         raw_value = match.group(2).strip()
+        if key in ECHO_DIASTOLIC_CANONICAL_KEYS:
+            # An explicit blank or invalid canonical value blocks older aliases.
+            # Preserve it in the read projection without accepting it as a peak.
+            measurements[key] = (raw_value.replace(",", ".")
+                                 if _NUMERIC_VALUE_PATTERN.fullmatch(raw_value) else raw_value)
+            continue
         if not raw_value:
             continue
 

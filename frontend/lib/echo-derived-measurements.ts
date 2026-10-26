@@ -3,6 +3,9 @@ import { calculateCanine2DNormalizedLVIDd, type Echo2DView } from "./echo-2d-ref
 import { ECHO_REFERENCE_METHOD_VALUES } from "./echo-reference-policy";
 import { isFelineEchoSpecies, normalizeEchoSpecies } from "./echo-species";
 import { deriveOutflowGradients, ECHO_OUTFLOW_KEYS, isOutflowMetadataKey } from "./echo-outflow";
+import { FELINE_DIASTOLIC_KEYS } from "./echo-feline-diastolic-reference";
+
+const DIASTOLIC_KEYS = new Set<string>(FELINE_DIASTOLIC_KEYS);
 
 export type RightAtrialRemodeling =
   | ""
@@ -96,6 +99,9 @@ function normalizeStoredMeasurement(
   value: unknown
 ): string | null {
   const text = String(value ?? "").trim();
+  // Retain an explicit clearing/unresolved canonical entry in the read model.
+  // Dropping it would let a historical alias become current on presentation.
+  if (DIASTOLIC_KEYS.has(key)) return text.replace(",", ".");
   if (!text) return null;
 
   if (isOutflowMetadataKey(key)) {
@@ -165,7 +171,7 @@ export function parseStoredEchoMeasurements(
       description.match(
         /##\s*Medidas\s+Ecocardiogr(?:a|á)ficas\s*([\s\S]*?)(?=\n##\s*|$)/i
       )?.[1] || "";
-    const linePattern = /^\s*-\s*([A-Za-z0-9_]+):\s*(.*?)\s*$/gm;
+    const linePattern = /^[ \t]*-[ \t]*([A-Za-z0-9_]+):[ \t]*(.*?)[ \t]*$/gm;
     let match: RegExpExecArray | null;
     while ((match = linePattern.exec(section)) !== null) {
       const normalized = normalizeStoredMeasurement(match[1], match[2]);

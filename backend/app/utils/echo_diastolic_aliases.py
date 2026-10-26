@@ -12,6 +12,12 @@ _DIASTOLIC_ALIASES = {
     "TDI_a": "a_doppler", "EEp": "E_E_linha",
 }
 
+# Presence in this set carries an explicit clearing/unresolved signal through
+# description storage. It must not be replaced by a retained historical alias.
+ECHO_DIASTOLIC_CANONICAL_KEYS = frozenset({
+    *_DIASTOLIC_ALIASES.values(), "doppler_tecidual_relacao",
+})
+
 
 def normalize_echo_diastolic_aliases(measurements: Mapping[str, Any]) -> dict[str, Any]:
     """Add canonical names to a copy; explicit canonical entries always win.
