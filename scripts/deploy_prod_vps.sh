@@ -79,6 +79,8 @@ FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 API_BACKEND_URL="${API_BACKEND_URL:-http://127.0.0.1:${BACKEND_PORT}}"
 PUBLIC_URL="${PUBLIC_URL:-https://app.fortcordis.com.br}"
 ENABLE_WHATSAPP_STAGE_BACKEND="${ENABLE_WHATSAPP_STAGE_BACKEND:-0}"
+# Only the stage wrapper supplies this mode. Empty preserves production behavior.
+WHATSAPP_STAGE_LIVE_META_ENABLED="${WHATSAPP_STAGE_LIVE_META_ENABLED:-}"
 WHATSAPP_STAGE_BACKEND_SERVICE="${WHATSAPP_STAGE_BACKEND_SERVICE:-fortcordis-stage-whatsapp-backend}"
 WHATSAPP_STAGE_BACKEND_PORT="${WHATSAPP_STAGE_BACKEND_PORT:-3010}"
 WHATSAPP_STAGE_BACKEND_URL="${WHATSAPP_STAGE_BACKEND_URL:-http://127.0.0.1:${WHATSAPP_STAGE_BACKEND_PORT}}"
@@ -763,9 +765,75 @@ validate_whatsapp_stage_meta_config() {
   log "WhatsApp ${WHATSAPP_RUNTIME_LABEL} Meta configuration validated without exposing secrets."
 }
 
-ensure_whatsapp_core_integration_env() {
-  if [[ "${ENABLE_WHATSAPP_STAGE_BACKEND}" != "1" ]]; then
+validate_stage_live_meta_mode() {
+  if [[ -z "${WHATSAPP_STAGE_LIVE_META_ENABLED}" ]]; then
     return 0
+  fi
+  if [[ "${WHATSAPP_STAGE_LIVE_META_ENABLED}" != "0" && "${WHATSAPP_STAGE_LIVE_META_ENABLED}" != "1" ]]; then
+    echo "[ERROR] WHATSAPP_STAGE_LIVE_META_ENABLED deve ser 0 ou 1." >&2
+    return 1
+  fi
+  if [[ "${APP_DIR}" != "/var/www/fortcordis-stage" || "${BRANCH}" != "stage" \
+        || "${BACKEND_SERVICE}" != "fortcordis-stage-backend" \
+        || "${WHATSAPP_STAGE_BACKEND_SERVICE}" != "fortcordis-stage-whatsapp-backend" \
+        || "${WHATSAPP_STAGE_BACKEND_PORT}" != "3010" \
+        || "${WHATSAPP_STAGE_BACKEND_URL}" != "http://127.0.0.1:3010" \
+        || "${WHATSAPP_STAGE_BACKEND_DIR}" != "/var/www/fortcordis-stage/whatsapp-stage-backend" \
+        || "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" != "/var/www/fortcordis-stage/whatsapp-stage-backend/.env" \
+        || "${WHATSAPP_REQUIRE_DISTINCT_FROM_PRODUCTION}" != "1" \
+        || -n "${WHATSAPP_META_SOURCE_ENV_FILE}" \
+        || "${ENABLE_WHATSAPP_STAGE_BACKEND}" != "${WHATSAPP_STAGE_LIVE_META_ENABLED}" ]]; then
+    echo "[ERROR] Stage live Meta mode requires the exact isolated stage target." >&2
+    return 1
+  fi
+  if [[ "${WHATSAPP_STAGE_LIVE_META_ENABLED}" == "0" && "${ENABLE_WHATSAPP_STAGE_SMOKE}" != "0" ]]; then
+    echo "[ERROR] Stage without live Meta cannot enable WhatsApp smoke." >&2
+    return 1
+  fi
+}
+
+disable_stage_live_meta_runtime() {
+  validate_stage_live_meta_mode || return 1
+  if [[ "${WHATSAPP_STAGE_LIVE_META_ENABLED}" != "0" ]]; then
+    return 0
+  fi
+  local load_state active_state backend_env_file
+  backend_env_file="${BACKEND_DIR}/.env"
+  if [[ ! -f "${backend_env_file}" ]]; then
+    echo "[ERROR] Stage backend env is required to disable its WhatsApp integration." >&2
+    return 1
+  fi
+  if ! load_state="$("${SYSTEMCTL_BIN}" show "${WHATSAPP_STAGE_BACKEND_SERVICE}" --property=LoadState --value 2>/dev/null)"; then
+    if [[ "${load_state}" != "not-found" ]]; then
+      echo "[ERROR] Could not verify the isolated stage WhatsApp service state." >&2
+      return 1
+    fi
+  fi
+  case "${load_state}" in
+    loaded|masked)
+      run_systemctl_command disable --now "${WHATSAPP_STAGE_BACKEND_SERVICE}" || return 1
+      if ! active_state="$("${SYSTEMCTL_BIN}" show "${WHATSAPP_STAGE_BACKEND_SERVICE}" --property=ActiveState --value 2>/dev/null)"; then
+        echo "[ERROR] Could not confirm the isolated stage WhatsApp service stopped." >&2
+        return 1
+      fi
+      if [[ "${active_state}" != "inactive" && "${active_state}" != "failed" ]]; then
+        echo "[ERROR] Stage WhatsApp service remains active or unresolved without live Meta opt-in." >&2
+        return 1
+      fi
+      ;;
+    not-found) ;;
+    *) echo "[ERROR] Unexpected isolated stage WhatsApp service load state." >&2; return 1 ;;
+  esac
+  upsert_env_key "${backend_env_file}" "WHATSAPP_AGENDA_ENABLED" "false"
+  upsert_env_key "${backend_env_file}" "WHATSAPP_BOT_AUTO_SEND_ENABLED" "false"
+  log "Stage live Meta disabled: isolated service stopped; core WhatsApp integration and automatic sending disabled."
+}
+
+ensure_whatsapp_core_integration_env() {
+  validate_stage_live_meta_mode || return 1
+  if [[ "${ENABLE_WHATSAPP_STAGE_BACKEND}" != "1" ]]; then
+    disable_stage_live_meta_runtime
+    return $?
   fi
 
   ensure_whatsapp_stage_env_file
@@ -1242,6 +1310,7 @@ fi
 
 # Invalid identity must not enter cleanup/rollback handlers or inspect services.
 validate_deploy_target
+validate_stage_live_meta_mode
 
 require_cmd git
 require_cmd curl

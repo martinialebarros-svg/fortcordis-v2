@@ -1,8 +1,11 @@
 import { echoLengthInMm, isEchoLengthKey } from "./echo-unit-provenance";
 import { calculateCanine2DNormalizedLVIDd, type Echo2DView } from "./echo-2d-reference";
 import { ECHO_REFERENCE_METHOD_VALUES } from "./echo-reference-policy";
-import { isFelineEchoSpecies } from "./echo-species";
+import { isFelineEchoSpecies, normalizeEchoSpecies } from "./echo-species";
 import { deriveOutflowGradients, ECHO_OUTFLOW_KEYS, isOutflowMetadataKey } from "./echo-outflow";
+import { FELINE_DIASTOLIC_KEYS } from "./echo-feline-diastolic-reference";
+
+const DIASTOLIC_KEYS = new Set<string>(FELINE_DIASTOLIC_KEYS);
 
 export type RightAtrialRemodeling =
   | ""
@@ -96,6 +99,9 @@ function normalizeStoredMeasurement(
   value: unknown
 ): string | null {
   const text = String(value ?? "").trim();
+  // Retain an explicit clearing/unresolved canonical entry in the read model.
+  // Dropping it would let a historical alias become current on presentation.
+  if (DIASTOLIC_KEYS.has(key)) return text.replace(",", ".");
   if (!text) return null;
 
   if (isOutflowMetadataKey(key)) {
@@ -165,7 +171,7 @@ export function parseStoredEchoMeasurements(
       description.match(
         /##\s*Medidas\s+Ecocardiogr(?:a|á)ficas\s*([\s\S]*?)(?=\n##\s*|$)/i
       )?.[1] || "";
-    const linePattern = /^\s*-\s*([A-Za-z0-9_]+):\s*(.*?)\s*$/gm;
+    const linePattern = /^[ \t]*-[ \t]*([A-Za-z0-9_]+):[ \t]*(.*?)[ \t]*$/gm;
     let match: RegExpExecArray | null;
     while ((match = linePattern.exec(section)) !== null) {
       const normalized = normalizeStoredMeasurement(match[1], match[2]);
@@ -198,8 +204,15 @@ export function deriveAutomaticEchoMeasurements(
   const feline = isFelineEchoSpecies(species);
   // Reimporting or editing origins removes acquisition confirmations. Unknown
   // separation must therefore remain as restrictive as explicit fusion in cats.
-  const mitralMeasurable = !feline || measurements.Diastolica_ondas === "separadas";
-  const tissueMeasurable = !feline || measurements.TDI_ondas === "separadas";
+  const canine = normalizeEchoSpecies(species) === "Canina";
+  // Existing canine records without acquisition metadata retain their prior
+  // calculation behavior. An explicit wave review guards each domain separately.
+  const canineFlowReviewed = canine && (["separadas", "fundidas", "nao_confirmadas"].includes(measurements.Diastolica_ondas)
+    || ["canino_nao_sedado_pw_apical", "canino_2a6_anos_nao_sedado_pw_apical_fim_fluxo"].includes(measurements.Diastolica_metodo));
+  const canineTissueReviewed = canine && (["separadas", "fundidas", "nao_confirmadas"].includes(measurements.TDI_ondas)
+    || ["canino_pw_anel_septal_choi", "canino_pw_basal_septal_wess", "canino_pw_basal_lateral_wess"].includes(measurements.TDI_metodo));
+  const mitralMeasurable = !(feline || canineFlowReviewed) || measurements.Diastolica_ondas === "separadas";
+  const tissueMeasurable = !(feline || canineTissueReviewed) || measurements.TDI_ondas === "separadas";
   if (mitralMeasurable && eWave !== null && aWave !== null) {
     derived.E_A = formatDerivedValue(eWave / aWave);
   }

@@ -67,6 +67,31 @@ def _pdf_text(payload: dict) -> str:
 
 
 class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
+    def test_diastolic_alias_normalization_preserves_explicit_canonical_values_and_input(self) -> None:
+        aliases = {"MV_E": "Onda_E", "MV_A": "Onda_A", "MV_E_A": "E_A", "MV_DT": "TD",
+                   "IVRT": "TRIV", "MV_E_TRIV": "E_TRIV", "TDI_e": "e_doppler",
+                   "TDI_a": "a_doppler", "EEp": "E_E_linha"}
+        for alias, canonical in aliases.items():
+            for value in ("0.87", "0", 0, "", None):
+                for canonical_first in (True, False):
+                    with self.subTest(alias=alias, value=value, canonical_first=canonical_first):
+                        pairs = [(canonical, value), (alias, "0.61")]
+                        payload = dict(pairs if canonical_first else reversed(pairs))
+                        payload.update({"Diastolica_ondas": "nao_confirmadas", "TDI_metodo": "outro"})
+                        before = deepcopy(payload)
+                        normalized = normalizar_medidas_para_pdf(payload)
+                        self.assertEqual(normalized[canonical], value)
+                        self.assertEqual(normalized[alias], "0.61")
+                        self.assertEqual(normalized["Diastolica_ondas"], "nao_confirmadas")
+                        self.assertEqual(normalized["TDI_metodo"], "outro")
+                        self.assertEqual(payload, before)
+            legacy_only = {alias: "0.61", "MV_e": "unknown alias remains untouched"}
+            normalized = normalizar_medidas_para_pdf(legacy_only)
+            self.assertEqual(normalized[canonical], "0.61")
+            self.assertEqual(normalized[alias], "0.61")
+            self.assertEqual(normalized["MV_e"], legacy_only["MV_e"])
+            self.assertEqual(legacy_only, {alias: "0.61", "MV_e": "unknown alias remains untouched"})
+
     def test_primary_bibliography_follows_qualitative_analysis_in_smaller_type(self) -> None:
         payload = _base_report("modo_m")
         payload["paciente"]["peso"] = "15"

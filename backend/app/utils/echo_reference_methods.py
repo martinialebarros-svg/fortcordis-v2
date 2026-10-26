@@ -8,13 +8,19 @@ ECHO_REFERENCE_METHOD_VALUES: dict[str, frozenset[str]] = {
         "outro",
     }),
     "Diastolica_metodo": frozenset({
+        "canino_nao_sedado_pw_apical",
+        "canino_2a6_anos_nao_sedado_pw_apical_fim_fluxo",
         "felino_adulto_nao_sedado_pw_apical_clique_aortico",
         "felino_adulto_nao_sedado_pw_apical_fim_fluxo",
         "felino_adulto_nao_sedado_pw_clique_aortico",
         "felino_adulto_nao_sedado_pw_fim_fluxo",
         "outro",
     }),
-    "Diastolica_ondas": frozenset({"separadas", "fundidas"}),
-    "TDI_metodo": frozenset({"felino_pw_anel_lateral", "felino_pw_anel_septal", "outro"}),
-    "TDI_ondas": frozenset({"separadas", "fundidas"}),
+    "Diastolica_ondas": frozenset({"separadas", "fundidas", "nao_confirmadas"}),
+    "TDI_metodo": frozenset({
+        "felino_pw_anel_lateral", "felino_pw_anel_septal", "outro",
+        "canino_pw_anel_septal_choi", "canino_pw_basal_septal_wess",
+        "canino_pw_basal_lateral_wess",
+    }),
+    "TDI_ondas": frozenset({"separadas", "fundidas", "nao_confirmadas"}),
 }

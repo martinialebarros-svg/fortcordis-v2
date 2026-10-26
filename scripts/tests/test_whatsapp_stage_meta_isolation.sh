@@ -274,4 +274,7 @@ fi
 grep -Fq "Token nao resolve o PHONE_NUMBER_ID esperado" <<<"${graph_mismatch_output}"
 assert_not_exposed "${graph_mismatch_output}"
 
+bash "${REPO_ROOT}/scripts/tests/test_stage_smoke_opt_in.sh"
+bash "${REPO_ROOT}/scripts/tests/test_stage_meta_disabled_runtime.sh"
+
 echo "WhatsApp stage Meta isolation tests passed."

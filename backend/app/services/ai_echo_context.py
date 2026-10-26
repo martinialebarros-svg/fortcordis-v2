@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.services.echo_reference_resolver import load_echo_reference
 from app.utils.referencia_eco_defaults import normalizar_especie_referencia
-from app.utils.echo_feline_diastolic import feline_diastolic_references
+from app.utils.echo_diastolic import diastolic_references
 from app.utils.echo_unit_provenance import (
     clinically_safe_echo_measurements,
 )
@@ -273,8 +273,25 @@ def safe_measurement_context(
         reference_context, current_measurements=normalized_measurements,
         species=resolved_species,
     ).get("ranges", {})
-    diastolic_consultation = feline_diastolic_references(normalized_measurements, resolved_species)
+    diastolic_consultation = diastolic_references(normalized_measurements, resolved_species)
+    # Historical indices remain stored after edit/reimport, but are not evidence
+    # for the clinical prompt until their acquisition domain is reconfirmed.
+    # An absent protocol alone must not suppress genuinely legacy canine data.
+    excluded_diastolic_indices: set[str] = set()
+    for method_key, wave_key, dependent_indices in (
+        ("Diastolica_metodo", "Diastolica_ondas", {"E_A", "E_TRIV", "E_E_linha"}),
+        ("TDI_metodo", "TDI_ondas", {"doppler_tecidual_relacao", "E_E_linha"}),
+    ):
+        wave_state = normalized_measurements.get(wave_key)
+        reviewed = resolved_species == "Felina" or (
+            resolved_species == "Canina"
+            and bool(wave_state or normalized_measurements.get(method_key))
+        )
+        if reviewed and wave_state != "separadas":
+            excluded_diastolic_indices.update(dependent_indices)
     for key, value in normalized_measurements.items():
+        if key in excluded_diastolic_indices:
+            continue
         # Keep numeric history in the exam, but never offer a fused peak or its
         # ratios as an individual diastolic measurement to the clinical model.
         if diastolic_consultation.get(key, {}).get("kind") == "uninterpretable":
