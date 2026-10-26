@@ -100,7 +100,9 @@ describe("compararMedidasComReferencia", () => {
     expect(comparisons.Onda_E).toMatchObject({ status: "nao_avaliado", referencia_min: null, referencia_texto: "0,70 ± 0,14 m/s" });
     expect(comparisons.e_doppler).toMatchObject({ status: "nao_avaliado", valor_medido: "0.16", referencia_texto: "0,11 ± 0,03 m/s" });
     expect(compararMedidasComReferencia({ Onda_E: "1.08" }, legacy, "", 5.6).Onda_E.status).toBe("nao_avaliado");
-    expect(compararMedidasDiastolicasFelinas({ MV_E: "0.8", ...measurements }, "Felina").MV_E.referencia_texto).toBe("0,70 ± 0,14 m/s");
+    const legacyComparison = compararMedidasDiastolicasFelinas({ MV_E: "0.8", ...measurements }, "Felina");
+    expect(legacyComparison.Onda_E).toMatchObject({ valor_medido: "1.08", referencia_texto: "0,70 ± 0,14 m/s" });
+    expect(legacyComparison).not.toHaveProperty("MV_E");
   });
   it("compara AE/Ao felino com intervalo por peso apenas após confirmar aquisição", () => {
     const feline: ReferenciaEco = {
@@ -276,5 +278,70 @@ describe("canine diastolic statistical comparison", () => {
     expect(compararMedidasDiastolicas({ ...measurements, ...protocol, Diastolica_ondas: "fundidas" }, "Cão").Onda_E)
       .toMatchObject({ valor_medido: "Não mensurável", referencia_tipo: "uninterpretable", status: "nao_avaliado" });
     expect(compararMedidasDiastolicasFelinas(measurements, "Canina")).toEqual({});
+  });
+});
+
+describe("compatibilidade dos aliases nos cartões diastólicos", () => {
+  const aliases = { MV_E: "Onda_E", MV_A: "Onda_A", MV_E_A: "E_A", MV_DT: "TD", IVRT: "TRIV",
+    MV_E_TRIV: "E_TRIV", TDI_e: "e_doppler", TDI_a: "a_doppler", EEp: "E_E_linha" };
+  const values = { Onda_E: "0.70", Onda_A: "0.50", E_A: "1.40", TD: "90", TRIV: "70",
+    E_TRIV: "1.00", e_doppler: "0.09", a_doppler: "0.11", E_E_linha: "7.78", doppler_tecidual_relacao: "0.82" };
+  function protocol(species: string) {
+    return { Diastolica_metodo: species === "Canina" ? "canino_2a6_anos_nao_sedado_pw_apical_fim_fluxo"
+      : "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "separadas",
+      TDI_metodo: species === "Canina" ? "canino_pw_anel_septal_choi" : "felino_pw_anel_lateral", TDI_ondas: "separadas" };
+  }
+  function catalog(species: string): ReferenciaEco {
+    return { ...referenciaCanina, especie: species as ReferenciaEco["especie"], mv_e_min: .1, mv_e_max: 3,
+      mv_a_min: .1, mv_a_max: 3, mv_ea_min: .1, mv_ea_max: 3, mv_dt_min: 1, mv_dt_max: 200,
+      ivrt_min: 1, ivrt_max: 200, tdi_e_min: 1, tdi_e_max: 30, tdi_a_min: 1, tdi_a_max: 30 };
+  }
+
+  it.each(["Canina", "Felina"])("retorna uma chave canônica e o mesmo valor para cada alias de %s", (species) => {
+    const legacy = Object.fromEntries(Object.entries(values).map(([canonical, value]) =>
+      [Object.entries(aliases).find(([, target]) => target === canonical)?.[0] ?? canonical, value]));
+    const measurements = { ...legacy, ...protocol(species) };
+    const before = { ...measurements };
+    const expected = compararMedidasDiastolicas({ ...values, ...protocol(species) }, species);
+    expect(compararMedidasDiastolicas(measurements, species)).toEqual(expected);
+    expect(compararMedidasComReferencia(measurements, catalog(species))).toEqual(expected);
+    expect(Object.keys(expected).sort()).toEqual(Object.keys(values).sort());
+    expect(measurements).toEqual(before);
+  });
+
+  it.each(["Canina", "Felina"])("prioriza a canônica explícita, inclusive inválida, nas duas ordens em %s", (species) => {
+    for (const [alias, canonical] of Object.entries(aliases)) {
+      for (const value of ["0.70", 0, "0", "", "NaN", NaN, null, undefined]) {
+        for (const canonicalFirst of [true, false]) {
+          const pairs: Array<[string, unknown]> = [[canonical, value], [alias, "1.80"]];
+          const measurements = { ...Object.fromEntries(canonicalFirst ? pairs : pairs.toReversed()),
+            ...protocol(species) } as Record<string, string>;
+          const before = { ...measurements };
+          const expected = compararMedidasDiastolicas({ [canonical]: value, ...protocol(species) } as Record<string, string>, species);
+          expect(compararMedidasDiastolicas(measurements, species)).toEqual(expected);
+          expect(compararMedidasComReferencia(measurements, catalog(species))).toEqual(expected);
+          expect(measurements).toEqual(before);
+        }
+      }
+    }
+  });
+
+  it.each(["Canina", "Felina"])("não reintroduz alias pelo catálogo com fusão ou revisão pendente em %s", (species) => {
+    for (const flow of ["separadas", "fundidas", "nao_confirmadas"]) {
+      for (const tissue of ["separadas", "fundidas", "nao_confirmadas"]) {
+        const canonical = { ...values, ...protocol(species), Diastolica_ondas: flow, TDI_ondas: tissue };
+        const measurements = { MV_E: "1.80", MV_A: "1.90", TDI_e: "0.80", ...canonical };
+        const before = { ...measurements };
+        const expected = compararMedidasDiastolicas(canonical, species);
+        const actual = compararMedidasComReferencia(measurements, catalog(species));
+        expect(actual).toEqual(expected);
+        if (flow !== "separadas") expect(actual.Onda_E.status).toBe("nao_avaliado");
+        if (tissue !== "separadas") expect(actual.e_doppler.status).toBe("nao_avaliado");
+        expect(measurements).toEqual(before);
+      }
+    }
+    const fusionOnly = { Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" };
+    expect(compararMedidasComReferencia(fusionOnly, catalog(species)))
+      .toEqual(compararMedidasDiastolicas(fusionOnly, species));
   });
 });

@@ -172,7 +172,7 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
         )
 
     def test_cache_do_pdf_inclui_versao_do_renderizador(self) -> None:
-        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-10-25-eco-diastolic-reconfirmation-v25")
+        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-10-26-eco-diastolic-clearing-v27")
         database = MagicMock()
         database.query.return_value.filter.return_value.first.return_value = (
             SimpleNamespace(id=7, tipo="ecocardiograma")
@@ -197,6 +197,16 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
             ).encode("utf-8")
         ).hexdigest()
         self.assertEqual(cache_key, expected)
+
+        for previous_version in (
+            "2026-10-25-eco-diastolic-reconfirmation-v25",
+            "2026-10-26-eco-diastolic-aliases-v26",
+        ):
+            previous_payload = {"pdf_renderer_version": previous_version, **stamp}
+            previous_key = hashlib.sha256(
+                json.dumps(previous_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
+            ).hexdigest()
+            self.assertNotEqual(cache_key, previous_key)
 
     def test_cache_de_outra_modalidade_preserva_versao_anterior(self) -> None:
         database = MagicMock()

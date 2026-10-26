@@ -8,6 +8,7 @@ import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 import { resolveEchoReferenceForMeasurements, selectEchoReferenceFromCatalog } from "@/lib/echo-reference-policy";
 import { isFelineEchoSpecies, normalizeEchoSpecies } from "@/lib/echo-species";
 import { canonicalEchoDiastolicKey, echoDiastolicReferences } from "@/lib/echo-diastolic-reference";
+import { FELINE_DIASTOLIC_KEYS } from "@/lib/echo-feline-diastolic-reference";
 
 // Mapeamento de parâmetros das medidas para os campos da referência
 // As chaves devem corresponder aos 'key' definidos na nova aba Medidas
@@ -94,23 +95,25 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
 
 const PAREDES_2D = new Set(["SIVd_2D", "SIVs_2D", "PLVEd_2D", "PLVES_2D"]);
 const TEICHOLZ_2D = new Set(["VDF_2D", "VSF_2D", "FE_Teicholz_2D"]);
+const DIASTOLIC_KEYS = new Set<string>(FELINE_DIASTOLIC_KEYS);
 
 /** Shared publication evidence works without a weight catalog. Only a genuine
  * individual reference interval receives a numerical comparison status. */
 export function compararMedidasDiastolicas(
   medidas: Record<string, string>, especie: string,
 ): Record<string, ComparacaoMedida> {
-  const references = echoDiastolicReferences(medidas, especie);
-  const comparisons: Record<string, ComparacaoMedida> = {};
-  const recordedKeys = Object.keys(medidas);
-  const keys = new Set([...recordedKeys, ...Object.keys(references).filter((key) =>
-    references[key].kind === "uninterpretable" && !recordedKeys.some((recorded) => canonicalEchoDiastolicKey(recorded) === key))]);
-  for (const key of keys) {
+  // Explicit canonical entries also win when cleared or invalid; retain history.
+  const values = { ...medidas };
+  for (const [key, value] of Object.entries(medidas)) {
     const canonical = canonicalEchoDiastolicKey(key);
-    const reference = references[canonical];
-    const mapping = MAPEAMENTO_PARAMETROS[key] ?? MAPEAMENTO_PARAMETROS[canonical];
-    if (!reference || !mapping) continue;
-    const value = medidas[key] ?? medidas[canonical];
+    if (!Object.hasOwn(values, canonical)) values[canonical] = value;
+  }
+  const references = echoDiastolicReferences(values, especie);
+  const comparisons: Record<string, ComparacaoMedida> = {};
+  for (const [key, reference] of Object.entries(references)) {
+    const mapping = MAPEAMENTO_PARAMETROS[key];
+    if (!mapping) continue;
+    const value = values[key];
     const numeric = Number(String(value ?? "").replace(",", "."));
     let status: ComparacaoMedida["status"] = "nao_avaliado";
     let interpretation = reference.kind === "descriptive"
@@ -169,12 +172,13 @@ export function compararMedidasComReferencia(
   const diastolicComparisons = compararMedidasDiastolicas(medidas, referencia.especie);
 
   Object.entries(medidas).forEach(([key, valor]) => {
-    if (!valor || valor.trim() === "") return;
-
-    if (diastolicComparisons[key]) {
-      comparacoes[key] = diastolicComparisons[key];
+    const canonical = canonicalEchoDiastolicKey(key);
+    if (DIASTOLIC_KEYS.has(canonical)) {
+      // Never resurrect a cleared alias through generic catalogue comparison.
+      if (diastolicComparisons[canonical]) comparacoes[canonical] = diastolicComparisons[canonical];
       return;
     }
+    if (!valor || valor.trim() === "") return;
     const mapeamento = MAPEAMENTO_PARAMETROS[key];
     if (!mapeamento) return;
 
@@ -254,7 +258,7 @@ export function compararMedidasComReferencia(
     };
   });
 
-  return comparacoes;
+  return { ...comparacoes, ...diastolicComparisons };
 }
 
 export function useReferenciaEco() {

@@ -5,6 +5,96 @@ import { mergeImportedEchoMeasurements, updateEchoMeasurement } from "./echo-uni
 import type { ReferenciaEco } from "@/app/laudos/types/referencia-eco";
 
 describe("prévia de ecocardiograma", () => {
+  const diastolicKeys = ["Onda_E", "Onda_A", "E_A", "TD", "TRIV", "E_TRIV",
+    "e_doppler", "a_doppler", "doppler_tecidual_relacao", "E_E_linha"];
+
+  it.each(["Canina", "Felina"])("omite os dez diastólicos não positivos ou não finitos sem recuperar aliases em %s", (species) => {
+    for (const value of ["-1", "-0", "0", 0, "NaN", NaN, "Infinity", Infinity, null, "", "1e-400"]) {
+      const raw = { ...Object.fromEntries(diastolicKeys.map((key) => [key, value])), MV_E: "1.80",
+        Diastolica_ondas: "nao_confirmadas", TDI_ondas: "nao_confirmadas", Outro_valor_registrado: "-2" } as Record<string, string>;
+      const before = { ...raw };
+      const rows = buildEchoReportGroups(raw, null, new Set(), 10, species).flatMap((group) => group.rows);
+      expect(rows).toEqual([{ key: "Outro_valor_registrado", label: "Outro_valor_registrado", value: "-2.00", reference: "—" }]);
+      expect(raw).toEqual(before);
+    }
+  });
+
+  it.each(["Canina", "Felina"])("mantém os nove placeholders fundidos mesmo com valores inválidos em %s", (species) => {
+    for (const value of ["-1", "0", "NaN", null]) {
+      const raw = { ...Object.fromEntries(diastolicKeys.map((key) => [key, value])), MV_E: "1.80",
+        Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" } as Record<string, string>;
+      const rows = buildEchoReportGroups(raw, null, new Set(), 10, species).flatMap((group) => group.rows);
+      expect(rows).toHaveLength(9);
+      expect(rows.every((row) => row.value === "Não mensurável")).toBe(true);
+      expect(rows.some((row) => row.key === "TRIV" || row.key === "MV_E")).toBe(false);
+    }
+  });
+
+  it.each(["Canina", "Felina"])("marca a reconfirmação somente dos índices numéricos positivos em %s", (species) => {
+    const raw = { ...Object.fromEntries(diastolicKeys.map((key) => [key, "0.70"])),
+      E_TRIV: "-1", E_E_linha: "NaN", Diastolica_ondas: "nao_confirmadas", TDI_ondas: "nao_confirmadas" };
+    const rows = buildEchoReportGroups(raw, null, new Set(), 10, species).flatMap((group) => group.rows);
+    expect(rows.filter((row) => row.value.includes("valor a confirmar")).map((row) => row.key).sort())
+      .toEqual(["E_A", "doppler_tecidual_relacao"]);
+    expect(rows.some((row) => ["E_TRIV", "E_E_linha"].includes(row.key))).toBe(false);
+    expect(rows.find((row) => row.key === "TRIV")?.value).toBe("0.70 ms");
+  });
+
+  it.each(["Canina", "Felina"])("exibe aliases somente na linha canônica, com unidade e fonte coerentes em %s", (species) => {
+    const aliases = { MV_E: "Onda_E", MV_A: "Onda_A", MV_E_A: "E_A", MV_DT: "TD", IVRT: "TRIV",
+      MV_E_TRIV: "E_TRIV", TDI_e: "e_doppler", TDI_a: "a_doppler", EEp: "E_E_linha" };
+    const values = { Onda_E: "0.70", Onda_A: "0.50", E_A: "1.40", TD: "90", TRIV: "70",
+      E_TRIV: "1.00", e_doppler: "0.09", a_doppler: "0.11", E_E_linha: "7.78", doppler_tecidual_relacao: "0.82" };
+    const protocol = { Diastolica_metodo: species === "Canina" ? "canino_2a6_anos_nao_sedado_pw_apical_fim_fluxo"
+      : "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "separadas",
+      TDI_metodo: species === "Canina" ? "canino_pw_anel_septal_choi" : "felino_pw_anel_lateral", TDI_ondas: "separadas" };
+    const legacy = Object.fromEntries(Object.entries(values).map(([key, value]) =>
+      [Object.entries(aliases).find(([, target]) => target === key)?.[0] ?? key, value]));
+    for (const raw of [{ ...legacy, ...protocol }, { ...legacy, ...values, ...protocol }]) {
+      const before = { ...raw };
+      const expected = buildEchoReportGroups({ ...values, ...protocol }, null, new Set(), 10, species);
+      expect(buildEchoReportGroups(raw, null, new Set(), 10, species)).toEqual(expected);
+      const prepared = prepareEchoReportMeasurements(raw, 10, species);
+      expect(buildEchoReportGroups(prepared.measurements, null, prepared.ambiguousKeys, 10, species)).toEqual(expected);
+      expect(raw).toEqual(before);
+    }
+  });
+
+  it.each(["Canina", "Felina"])("não recupera o alias em Outras medidas após zerar ou limpar a canônica em %s", (species) => {
+    for (const value of ["0.47", "0", 0, "", null, NaN, "NaN"]) {
+      for (const canonicalFirst of [true, false]) {
+        const entries: Array<[string, unknown]> = [["Onda_E", value], ["MV_E", "1.80"]];
+        const raw = { ...Object.fromEntries(canonicalFirst ? entries : entries.toReversed()),
+          Diastolica_ondas: "nao_confirmadas" } as Record<string, string>;
+        const before = { ...raw };
+        for (const input of [raw, parseStoredEchoMeasurements(raw)]) {
+          const rows = buildEchoReportGroups(input, null, new Set(), 10, species).flatMap((group) => group.rows);
+          expect(rows.some((row) => row.key === "MV_E")).toBe(false);
+          expect(rows.filter((row) => row.key === "Onda_E")).toHaveLength(value === "0.47" ? 1 : 0);
+          if (value === "0.47") expect(rows[0].value).toBe("0.47 m/s");
+          expect(rows.some((row) => /NaN|1\.80/.test(row.value))).toBe(false);
+        }
+        expect(raw).toEqual(before);
+      }
+    }
+  });
+
+  it.each(["Canina", "Felina"])("mantém fusão e reconfirmação dos aliases em uma única linha diastólica em %s", (species) => {
+    for (const wave of ["fundidas", "nao_confirmadas"]) {
+      const raw = { MV_E: "1.80", Onda_E: "0.70", MV_E_A: "2.20", E_A: "1.40",
+        IVRT: "70", TDI_e: "0.90", e_doppler: "0.09", Diastolica_ondas: wave,
+        TDI_ondas: "separadas", TDI_metodo: species === "Canina" ? "canino_pw_anel_septal_choi" : "felino_pw_anel_lateral" };
+      const rows = buildEchoReportGroups(raw, null, new Set(), 10, species).flatMap((group) => group.rows);
+      expect(rows.filter((row) => row.key === "Onda_E")).toHaveLength(1);
+      expect(rows.filter((row) => row.key === "E_A")).toHaveLength(1);
+      expect(rows.find((row) => row.key === "E_A")).toMatchObject({
+        value: wave === "fundidas" ? "Não mensurável" : "1.40 (valor a confirmar)",
+      });
+      expect(rows.find((row) => row.key === "e_doppler")).toMatchObject({ value: "0.09 m/s", referenceMetadata: { kind: "descriptive" } });
+      expect(rows.some((row) => ["MV_E", "MV_E_A", "IVRT", "TDI_e"].includes(row.key))).toBe(false);
+    }
+  });
+
   it("preserva fonte, estatística e condições junto à referência descritiva sem alterar o valor", () => {
     const raw = { Onda_E: "1.08", TD: "51", TRIV: "40", e_doppler: "0.16", E_E_linha: "6.95",
       Diastolica_metodo: "felino_adulto_nao_sedado_pw_apical_clique_aortico", Diastolica_ondas: "separadas",

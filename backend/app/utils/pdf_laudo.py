@@ -39,6 +39,9 @@ from app.utils.echo_ae_ao_reference import (
 from app.utils.echo_diastolic import (
     diastolic_references, diastolic_notes, diastolic_indices_awaiting_confirmation,
 )
+from app.utils.echo_diastolic_aliases import (
+    ECHO_DIASTOLIC_CANONICAL_KEYS, normalize_echo_diastolic_aliases,
+)
 
 
 # Cores do tema - preto e cinza com fontes brancas (teste)
@@ -104,7 +107,7 @@ def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
     """
     Preserva os valores gravados. Magnitude não comprova unidade em laudos legados.
     """
-    return normalize_confirmed_echo_lengths(medidas or {})
+    return normalize_confirmed_echo_lengths(normalize_echo_diastolic_aliases(medidas or {}))
 
 
 def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:
@@ -387,11 +390,18 @@ def aplicar_referencias_2d_publicadas(parametros: List[Dict], dados_pdf: Dict[st
 
 def filtrar_parametros_preenchidos(parametros: List[Dict], medidas: Dict[str, Any]) -> List[Dict]:
     """Keep recorded outflow values and limitations; omit generic zero defaults."""
-    return [
-        param for param in parametros
-        if param.get("value_unmeasurable") is True or param.get("value_recorded") is True
-        or (_to_float(medidas.get(param["chave"])) or 0) != 0
-    ]
+    filled = []
+    for param in parametros:
+        if param.get("value_unmeasurable") is True:
+            filled.append(param)
+            continue
+        value = _to_float(medidas.get(param["chave"]))
+        if param["chave"] in ECHO_DIASTOLIC_CANONICAL_KEYS:
+            if value is not None and math.isfinite(value) and value > 0:
+                filled.append(param)
+        elif param.get("value_recorded") is True or (value or 0) != 0:
+            filled.append(param)
+    return filled
 
 
 def create_pdf_styles():
