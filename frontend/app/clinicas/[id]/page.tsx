@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { clinicCoordinates } from "@/lib/clinic-coordinates";
 import {
   formatarCepVisual,
   formatarCnpjVisual,
@@ -138,7 +139,7 @@ export default function EditarClinicaPage() {
   };
 
   const abrirMapaConfirmacao = () => {
-    if (clinica.latitude === null || clinica.longitude === null) {
+    if (clinicCoordinates(clinica.latitude, clinica.longitude).latitude === null) {
       alert("Nao ha latitude/longitude para confirmar.");
       return;
     }
@@ -155,6 +156,7 @@ export default function EditarClinicaPage() {
   };
 
   const aplicarPinManual = ({ lat, lng }: { lat: number; lng: number }) => {
+    if (clinicCoordinates(lat, lng).latitude === null) return;
     setClinica((prev) => ({
       ...prev,
       latitude: lat,
@@ -235,6 +237,8 @@ export default function EditarClinicaPage() {
         cep: clinica.cep,
       });
       const item = response?.data?.item || {};
+      const coordinates = clinicCoordinates(item.latitude, item.longitude);
+      if (coordinates.latitude === null) throw new Error("O serviço não retornou coordenadas válidas. Revise o endereço ou ajuste o pin manualmente.");
       setClinica((prev) => ({
         ...prev,
         bairro: item.bairro || prev.bairro,
@@ -242,8 +246,7 @@ export default function EditarClinicaPage() {
         estado: item.estado || prev.estado,
         cep: item.cep ? formatarCepVisual(item.cep) : prev.cep,
         regiao_operacional: item.regiao_operacional || prev.regiao_operacional,
-        latitude: Number.isFinite(Number(item.latitude)) ? Number(item.latitude) : prev.latitude,
-        longitude: Number.isFinite(Number(item.longitude)) ? Number(item.longitude) : prev.longitude,
+        ...coordinates,
         place_id: item.place_id || prev.place_id,
         endereco_normalizado: item.endereco_normalizado || prev.endereco_normalizado,
       }));
@@ -267,7 +270,7 @@ export default function EditarClinicaPage() {
       setStatusEndereco("Informe o numero para concluir o geocoding.");
       return;
     }
-    setStatusEndereco("Endereco pronto. Use Geocodificar endereco para consultar o Google Maps e revisar o custo antes de confirmar.");
+    setStatusEndereco("Endereco pronto. Use Geocodificar endereco para consultar o Google Maps. A política e os limites são verificados pelo servidor.");
   };
 
   const carregarClinica = async () => {
@@ -289,8 +292,7 @@ export default function EditarClinicaPage() {
         estado: data.estado || "CE",
         cep: formatarCepVisual(data.cep || ""),
         regiao_operacional: data.regiao_operacional || "",
-        latitude: Number.isFinite(Number(data.latitude)) ? Number(data.latitude) : null,
-        longitude: Number.isFinite(Number(data.longitude)) ? Number(data.longitude) : null,
+        ...clinicCoordinates(data.latitude, data.longitude),
         place_id: data.place_id || "",
         endereco_normalizado: data.endereco_normalizado || "",
         observacoes: data.observacoes || "",
@@ -303,9 +305,7 @@ export default function EditarClinicaPage() {
       setClinica(clinicaCarregada);
       setLastGeocodeSignature(assinaturaGeocode(clinicaCarregada));
 
-      if (data.latitude !== null && data.longitude !== null) {
-        setLocalizacaoConfirmada(true);
-      }
+      setLocalizacaoConfirmada(clinicaCarregada.latitude !== null && clinicaCarregada.longitude !== null);
       
       setTabelaSugerida(data.tabela_preco_id || null);
     } catch (error) {
