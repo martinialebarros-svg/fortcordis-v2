@@ -18,6 +18,7 @@ from app.api.v1.endpoints import (
     alertas_internos,
     assistente_ia,
     atendimento,
+    atendimento_assistente,
     auth,
     clinicas,
     configuracoes,
@@ -481,6 +482,7 @@ app.include_router(portal_clinic_auth.router, prefix="/api/v1/portal", tags=["po
 app.include_router(portal_partner_auth.router, prefix="/api/v1/portal", tags=["portal"])
 app.include_router(portal_partners.router, prefix="/api/v1/portal", tags=["portal"])
 app.include_router(referencias_eco.router, prefix="/api/v1/referencias-eco", tags=["referencias_eco"])
+app.include_router(atendimento_assistente.router, prefix="/api/v1/atendimentos", tags=["atendimento_assistente"])
 app.include_router(atendimento.router, prefix="/api/v1/atendimentos", tags=["atendimento"])
 app.include_router(logistica.router, prefix="/api/v1/logistica", tags=["logistica"])
 app.include_router(relatorios.router, prefix="/api/v1/relatorios", tags=["relatorios"])
