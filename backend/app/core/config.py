@@ -166,6 +166,12 @@ class Settings(BaseSettings):
     ASSISTENTE_IA_VOICE_MAX_SECONDS: int = 60
     ASSISTENTE_IA_EMBEDDING_MODEL: str = "text-embedding-3-small"
     ASSISTENTE_IA_SEMANTIC_SEARCH_ENABLED: bool = True
+    # Assistência do atendimento: ativação e validação clínica independentes do laudo.
+    ATENDIMENTO_IA_ENABLED: bool = False
+    ATENDIMENTO_IA_MODEL: str = "gpt-6.1-sol"
+    ATENDIMENTO_IA_REASONING_EFFORT: str = "max"
+    ATENDIMENTO_IA_TRANSCRIPTION_MODEL: str = "gpt-transcribe"
+    ATENDIMENTO_IA_TIMEOUT_SECONDS: int = 180
     AI_ECHO_ASSISTANT_ENABLED: bool = False
     AI_PROVIDER: str = "openai"
     AI_TRANSCRIPTION_MODEL: str = "gpt-4o-transcribe"

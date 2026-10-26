@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import { useRoutePerformanceReady } from "@/lib/use-route-performance-ready";
 import api from "@/lib/axios";
+import { buildAtendimentoDocumentRevision } from "@/lib/atendimento-whatsapp";
 import { validarPdfDocumento, iniciarDownloadDocumento, reconciliarDocumentoSalvo, documentoPersistido as exigirDocumentoPersistido } from "@/lib/atendimento-documentos";
 import { assessAtendimentoBackup, atendimentoBackupDifferences, writePendingAtendimentoBackup, type AtendimentoBackup } from "@/lib/atendimento-draft-recovery";
 import { loadStableCatalog } from "@/lib/stable-catalog-cache";
@@ -122,6 +123,8 @@ const AtendimentoBibliotecasSection = dynamic(() => import("./components/Atendim
 const AtendimentoCadastroComplementarSection = dynamic(() => import("./components/AtendimentoCadastroComplementarSection"));
 const AtendimentoConsultaOverviewSection = dynamic(() => import("./components/AtendimentoConsultaOverviewSection"));
 const AtendimentoConsultaEditorSection = dynamic(() => import("./components/AtendimentoConsultaEditorSection"));
+const AtendimentoAssistenteIA = dynamic(() => import("./components/AtendimentoAssistenteIA"), { ssr: false });
+const AtendimentoWhatsApp = dynamic(() => import("./components/AtendimentoWhatsApp"), { ssr: false });
 const AtendimentoClinicalRadarAside = dynamic(() => import("./components/AtendimentoClinicalRadarAside"));
 const AtendimentoBackupRecovery = dynamic(() => import("./components/AtendimentoBackupRecovery"));
 const AtendimentoHistoricoEdicoes = dynamic(() => import("./components/AtendimentoHistoricoEdicoes"));
@@ -1686,6 +1689,10 @@ export default function AtendimentoPage() {
   // podem deixar a resposta do clique mais antigo sobrescrever o prontuario
   // do clique mais recente.
   const abrirAtendimentoRequestIdRef = useRef(0);
+  const assistentePendenteRef = useRef(false);
+  const assistenteOcupadoRef = useRef(false);
+  const atualizarPendenciasAssistente = useCallback((pending: boolean) => { assistentePendenteRef.current = pending; }, []);
+  const atualizarOcupacaoAssistente = useCallback((busy: boolean) => { assistenteOcupadoRef.current = busy; }, []);
   // Id do atendimento sendo aberto no momento (ou null) - feedback visual
   // (Loader2 no card clicado + demais itens desabilitados) enquanto
   // abrirAtendimento esta em voo. So a chamada cujo requestId ainda for o
@@ -2165,6 +2172,21 @@ export default function AtendimentoPage() {
     clinicalTextareaRefs.current[field] = node;
   };
 
+  const adicionarCampoRevisadoIA = (field: ClinicalFieldKey, texto: string) => {
+    const trecho = texto.trim();
+    if (!trecho) return;
+    setForm((prev) => {
+      const anexar = (atual: string) => [atual.trim(), trecho].filter(Boolean).join("\n\n");
+      if (field === "diagnostico_principal" || field === "diagnostico_secundario" || field === "diagnostico_diferencial") {
+        return { ...prev, diagnostico: { ...prev.diagnostico, [field]: anexar(prev.diagnostico[field]) } };
+      }
+      if (field === "queixa_principal" || field === "anamnese" || field === "exame_fisico" || field === "dados_clinicos" || field === "plano_terapeutico" || field === "retorno_recomendado" || field === "motivo_retorno" || field === "observacoes") {
+        return { ...prev, [field]: anexar(prev[field]) };
+      }
+      return prev;
+    });
+  };
+
   const injectClinicalSnippet = (field: ClinicalFieldKey, snippet: string) => {
     const textarea = clinicalTextareaRefs.current[field];
     const currentValue = getClinicalFieldValue(field);
@@ -2557,8 +2579,10 @@ export default function AtendimentoPage() {
     return null;
   }, [form.especie, pacienteSelecionado?.especie]);
 
-  const pacienteNomeExibicao = cadastroComplementar.paciente.nome || pacienteSelecionado?.nome || "";
-  const tutorNomeExibicao = cadastroComplementar.tutor.nome || pacienteSelecionado?.tutor || "";
+  const cadastroDoPacienteAtual = Number(cadastroComplementar.paciente.id) > 0
+    && Number(cadastroComplementar.paciente.id) === Number(form.paciente_id);
+  const pacienteNomeExibicao = (cadastroDoPacienteAtual ? cadastroComplementar.paciente.nome : "") || pacienteSelecionado?.nome || "";
+  const tutorNomeExibicao = (cadastroDoPacienteAtual ? cadastroComplementar.tutor.nome : "") || pacienteSelecionado?.tutor || "";
   const sexoPacienteExibicao = normalizarSexoPaciente(cadastroComplementar.paciente.sexo || "");
   const especieRacaExibicao = [
     cadastroComplementar.paciente.especie || especieExibicao || "",
@@ -3060,7 +3084,40 @@ export default function AtendimentoPage() {
     });
   }, []);
 
+  const confirmarSaidaAssistente = useCallback(async () => {
+    if (assistenteOcupadoRef.current) {
+      setErro("Pare a gravação, cancele a espera da IA ou aguarde o envio de arquivos antes de sair deste paciente.");
+      return false;
+    }
+    if (!assistentePendenteRef.current) return true;
+    return confirmarAcao({
+      titulo: "Sair da revisão do assistente?",
+      descricao: "O material ainda não incorporado continuará como rascunho temporário ao retornar nesta aba. Para guardar o áudio além desta sessão, baixe o arquivo ou habilite a cópia local. A revisão pendente não faz parte do prontuário.",
+      confirmLabel: "Sair da revisão",
+      cancelLabel: "Continuar neste paciente",
+    });
+  }, [confirmarAcao]);
+
+  useEffect(() => {
+    const protegerNavegacao = (event: MouseEvent) => {
+      if (!assistentePendenteRef.current && !assistenteOcupadoRef.current) return;
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+      const destination = new URL(anchor.href, window.location.href);
+      if (destination.origin !== window.location.origin || (destination.pathname === window.location.pathname && destination.search === window.location.search)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void confirmarSaidaAssistente().then((confirmed) => {
+        if (confirmed) router.push(`${destination.pathname}${destination.search}${destination.hash}`);
+      });
+    };
+    document.addEventListener("click", protegerNavegacao, true);
+    return () => document.removeEventListener("click", protegerNavegacao, true);
+  }, [confirmarSaidaAssistente, router]);
+
   const abrirAtendimento = async (id: number) => {
+    if (id !== selecionadoRef.current && !(await confirmarSaidaAssistente())) return;
     if (
       !selecionado &&
       hasEncounterContent(formRef.current) &&
@@ -3179,7 +3236,8 @@ export default function AtendimentoPage() {
     }
   };
 
-  const novoAtendimento = () => {
+  const novoAtendimento = async (saidaJaConfirmada = false) => {
+    if (!saidaJaConfirmada && !(await confirmarSaidaAssistente())) return;
     const atendimentoAnteriorId = selecionadoRef.current;
     const next = emptyForm();
     setSelecionado(null);
@@ -3238,9 +3296,10 @@ export default function AtendimentoPage() {
       dados_clinicos?: string;
     } | null
   ) => {
+    if (!(await confirmarSaidaAssistente())) return;
     const atual = formRef.current;
     if (!atual.paciente_id) {
-      novoAtendimento();
+      await novoAtendimento(true);
       setErro("Selecione um paciente antes de iniciar o atendimento.");
       return;
     }
@@ -3407,7 +3466,8 @@ export default function AtendimentoPage() {
 
   const setField = (name: keyof AtendimentoForm, value: any) => setForm((prev) => ({ ...prev, [name]: value }));
 
-  const selecionarPaciente = (paciente: PacienteResumo) => {
+  const selecionarPaciente = async (paciente: PacienteResumo) => {
+    if (String(paciente.id) !== formRef.current.paciente_id && !(await confirmarSaidaAssistente())) return;
     setField("paciente_id", String(paciente.id));
     setField("especie", paciente.especie || "");
     setPacienteBusca(paciente.nome);
@@ -4934,6 +4994,7 @@ export default function AtendimentoPage() {
   }, [clinicalFieldValues, contextoAplicado, form, loading, selecionado]);
 
   const deleteAtendimento = async (id: number) => {
+    if (id === selecionadoRef.current && !(await confirmarSaidaAssistente())) return;
     if (
       !(await confirmarAcao({
         titulo: "Excluir atendimento?",
@@ -4946,7 +5007,7 @@ export default function AtendimentoPage() {
     }
     try {
       await api.delete(`/atendimentos/${id}`);
-      if (selecionado === id) novoAtendimento();
+      if (selecionadoRef.current === id) await novoAtendimento(true);
       await carregarLista(paginaLista);
       setSucesso("Atendimento excluido com sucesso.");
     } catch (e: any) {
@@ -4954,7 +5015,8 @@ export default function AtendimentoPage() {
     }
   };
 
-  const goLaudo = (item: { id?: number | null; atendimento_id?: number | null; agendamento_id?: number | null; paciente_id?: number | null; clinica_id?: number | null }) => {
+  const goLaudo = async (item: { id?: number | null; atendimento_id?: number | null; agendamento_id?: number | null; paciente_id?: number | null; clinica_id?: number | null }) => {
+    if (!(await confirmarSaidaAssistente())) return;
     const params = new URLSearchParams();
     const atendimentoId = item.atendimento_id || item.id;
     if (atendimentoId) params.set("atendimento_id", String(atendimentoId));
@@ -5440,6 +5502,7 @@ export default function AtendimentoPage() {
           });
         },
       });
+      if (selecionadoRef.current !== selecionado || formRef.current.paciente_id !== form.paciente_id) return false;
       mergeUploadedAnexo(response.data);
       const deduplicado = response?.data?.deduplicado === true;
       if (deduplicado) {
@@ -6353,10 +6416,10 @@ export default function AtendimentoPage() {
     );
   };
 
-  const baixarPdfAtendimento = async (tipo: "prescricao" | "exames") => {
+  const baixarPdfAtendimento = async (tipo: "prescricao" | "exames", modo: "baixar" | "preparar" = "baixar"): Promise<File | null> => {
     if (tipo === "prescricao" && !hasPrescriptionItems) {
       setErro("Adicione pelo menos um item na prescricao antes de gerar o PDF.");
-      return;
+      return null;
     }
     if (tipo === "prescricao") {
       const validacaoPrescricao = validarItensPrescricao(form.prescricao_itens);
@@ -6364,18 +6427,19 @@ export default function AtendimentoPage() {
       if (validacaoPrescricao.total > 0) {
         setWorkspacePainel("prescricao");
         setErro("Prescricao incompleta: corrija os campos obrigatorios antes de gerar o PDF.");
-        return;
+        return null;
       }
     }
     if (tipo === "exames" && !hasExamRequest) {
       setErro("Adicione pelo menos um exame antes de gerar o PDF.");
-      return;
+      return null;
     }
 
     if (pdfDownloadInFlightRef.current) {
-      return;
+      return null;
     }
 
+    const pacientePdfId = form.paciente_id;
     pdfDownloadInFlightRef.current = tipo;
     setGerandoPdfTipo(tipo);
 
@@ -6398,7 +6462,7 @@ export default function AtendimentoPage() {
               ? `${atual} O documento nao foi gerado: ele exige salvar o atendimento antes.`
               : "Nao foi possivel salvar o atendimento, entao o documento nao foi gerado."
           );
-          return;
+          return null;
         }
       }
 
@@ -6411,6 +6475,11 @@ export default function AtendimentoPage() {
         responseType: "blob",
         params: { impressao: Date.now() },
       });
+      if (selecionadoRef.current !== atendimentoId || formRef.current.paciente_id !== pacientePdfId) {
+        return null;
+      }
+      const blob = response.data instanceof Blob ? response.data : new Blob([response.data], { type: "application/pdf" });
+      await validarPdfDocumento(blob);
 
       if (tipo === "prescricao") {
         // A primeira geracao marca a receita como emitida no servidor; espelha
@@ -6432,7 +6501,11 @@ export default function AtendimentoPage() {
           ? `receita_atendimento_${atendimentoId}.pdf`
           : `solicitacao_exames_atendimento_${atendimentoId}.pdf`;
       const filename = parseDownloadFilename(response.headers?.["content-disposition"], fallbackFilename);
-      const blob = new Blob([response.data], { type: "application/pdf" });
+      const arquivo = new File([blob], filename, { type: "application/pdf" });
+      if (modo === "preparar") {
+        setErro("");
+        return arquivo;
+      }
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
@@ -6444,8 +6517,10 @@ export default function AtendimentoPage() {
 
       setSucesso(tipo === "prescricao" ? "PDF da receita gerado com sucesso." : "PDF da solicitacao de exames gerado com sucesso.");
       setErro("");
+      return arquivo;
     } catch (e: any) {
       setErro(await extractApiErrorMessage(e, "Falha ao gerar o PDF."));
+      return null;
     } finally {
       window.setTimeout(() => {
         if (pdfDownloadInFlightRef.current === tipo) {
@@ -8090,6 +8165,59 @@ export default function AtendimentoPage() {
           ) : null}
 
           <div className={`fc-care-workspace order-1 xl:order-none ${showCaseSidebar ? "xl:col-span-9" : ""}`}>
+            <div className="mb-6 space-y-4">
+              <AtendimentoAssistenteIA
+                key={`ia-${selecionado || "novo"}-${form.paciente_id}`}
+                atendimentoId={selecionado}
+                pacienteId={Number(form.paciente_id)}
+                patientLabel={pacienteNomeExibicao || "Paciente não selecionado"}
+                onPendingChange={atualizarPendenciasAssistente}
+                onBusyChange={atualizarOcupacaoAssistente}
+                onApplyField={(campo, texto) => {
+                  if (selecionadoRef.current === selecionado && formRef.current.paciente_id === form.paciente_id) adicionarCampoRevisadoIA(campo, texto);
+                }}
+                onEnsureSaved={async () => {
+                  const pacienteId = form.paciente_id;
+                  if (!selecionado || selecionadoRef.current !== selecionado) return false;
+                  const snapshot = serializeAtendimentoSnapshot(formRef.current);
+                  if (snapshot !== lastPersistedSnapshotRef.current || autosaveState === "error") {
+                    const salvo = await saveAtendimento("manual");
+                    if (salvo !== selecionado) return false;
+                  }
+                  return selecionadoRef.current === selecionado
+                    && formRef.current.paciente_id === pacienteId
+                    && serializeAtendimentoSnapshot(formRef.current) === lastPersistedSnapshotRef.current;
+                }}
+                onAttachFiles={async (files) => {
+                  if (!selecionado) throw new Error("Salve o atendimento antes de guardar os arquivos.");
+                  for (const file of files) {
+                    if (selecionadoRef.current !== selecionado || formRef.current.paciente_id !== form.paciente_id) throw new Error("O atendimento mudou. Retome o paciente de origem.");
+                    const salvo = await uploadAnexoArquivo(file, {
+                      tipo: "documento",
+                      descricao: "Exame original selecionado para revisão com assistência de IA.",
+                      skipReset: true,
+                      uploadKey: `assistente-${selecionado}`,
+                    });
+                    if (!salvo) throw new Error("Não foi possível guardar todos os arquivos. Os já enviados foram preservados; você pode tentar novamente.");
+                  }
+                }}
+              />
+              <AtendimentoWhatsApp
+                key={`whatsapp-${selecionado || "novo"}-${form.paciente_id}`}
+                atendimentoId={selecionado}
+                phone={!carregandoCadastroComplementar && cadastroDoPacienteAtual ? cadastroComplementar.tutor.whatsapp || "" : ""}
+                tutorName={cadastroDoPacienteAtual ? tutorNomeExibicao : ""}
+                patientName={pacienteNomeExibicao}
+                hasPrescription={hasPrescriptionItems}
+                hasExamRequest={hasExamRequest}
+                documentRevision={buildAtendimentoDocumentRevision(form, cadastroComplementar)}
+                onPrepareDocument={(tipo) => baixarPdfAtendimento(tipo, "preparar")}
+                onEditPhone={() => {
+                  setWorkspacePainel("consulta");
+                  abrirCadastroComplementar();
+                }}
+              />
+            </div>
             <div className={workspaceGridClass}>
               <div className="space-y-6">
                 {isConsultaWorkspace ? (
