@@ -32,3 +32,5 @@ NFR-001: leitura sem chamadas externas de rota/Maps, mensagens, fiscal ou altera
 - A tabela de premissas mantém um único cenário-base compartilhado, substituído apenas por ação explícita. O contexto salvo é preservado e mostrado; não há salvamento automático.
 - Cada cálculo financeiro faz sete leituras com colunas mínimas e reconcilia a carteira atual em memória (14 leituras ao comparar). Sem N+1. Não houve ensaio de carga com a base real. Detalhes financeiros exibem até 250 registros, com aviso e contagem total; o administrador deve reduzir o recorte para inspecionar os demais. Totais não são truncados. A UI pagina as tabelas em blocos menores.
 - Capacidade histórica usa configuração vigente, sem prometer reconstrução histórica ou vaga logisticamente viável. Motivos de cancelamento e mudanças exclusivamente em campos legados de data/hora não são inferidos. Não há coleta de tempos reais de execução neste escopo.
+
+RF-011: o quality-gate de stage executa explicitamente os testes de Gestão backend (incluindo funções pytest de API) e interface/navegação antes da instalação. O workflow de produção não é alterado.
