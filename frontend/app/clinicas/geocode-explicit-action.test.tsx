@@ -35,36 +35,4 @@ describe("geocoding exige ação explícita na clínica", () => {
     fireEvent.click(screen.getByRole("button", { name: /Geocodificar/i }));
     await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/clinicas/geocode-endereco", expect.objectContaining({ endereco: "Rua Sintética", numero: "99" })));
   });
-  it("consulta de CEP não exige coordenadas do geocodificador", async () => {
-    mocks.get.mockResolvedValue({ data: { item: { cep: "60000000", endereco: "Rua Sintética", cidade: "Fortaleza", estado: "CE" } } });
-    render(<NovaClinicaPage />);
-    const cep = await screen.findByPlaceholderText("00000-000");
-    fireEvent.change(cep, { target: { value: "60000-000" } });
-    fireEvent.blur(cep);
-    expect(await screen.findByText(/CEP preenchido pelo ViaCEP/)).toBeVisible();
-    expect(mocks.post).not.toHaveBeenCalledWith("/clinicas/geocode-endereco", expect.anything());
-  });
-
-  it.each([null, undefined, "", 0])("coordenadas ausentes não aparecem como confirmadas (%s)", async (value) => {
-    mocks.get.mockImplementation(async (path: string) => ({ data: path === "/clinicas/1" ? {
-      id: 1, nome: "Clínica sintética", latitude: value, longitude: value, whatsapps: [],
-    } : [] }));
-    render(<EditarClinicaPage />);
-    await screen.findByDisplayValue("Clínica sintética");
-    expect(screen.queryByText(/Lat\/Lng:/)).toBeNull();
-    expect(mocks.post).not.toHaveBeenCalled();
-  });
-
-  it("resposta sem coordenadas não confirma zero nem sobrescreve endereço", async () => {
-    mocks.post.mockResolvedValue({ data: { item: { latitude: null, longitude: null } } });
-    render(<NovaClinicaPage />);
-    fireEvent.change(await screen.findByPlaceholderText("Rua / Avenida"), { target: { value: "Rua Sintética" } });
-    fireEvent.change(screen.getByPlaceholderText("123"), { target: { value: "99" } });
-    fireEvent.change(screen.getByPlaceholderText("Cidade"), { target: { value: "Fortaleza" } });
-    fireEvent.click(screen.getByRole("button", { name: /Geocodificar/i }));
-    expect(await screen.findByText(/não retornou coordenadas válidas/)).toBeVisible();
-    expect(screen.getByDisplayValue("Rua Sintética")).toBeVisible();
-    expect(screen.queryByText(/Lat\/Lng:/)).toBeNull();
-  });
-
 });

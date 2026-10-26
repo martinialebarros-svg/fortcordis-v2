@@ -18,12 +18,12 @@ from app.api.v1.endpoints import (
     alertas_internos,
     assistente_ia,
     atendimento,
+    atendimento_assistente,
     auth,
     clinicas,
     configuracoes,
     eco_study_import,
     financeiro,
-    gestao,
     fiscal,
     google_maps_cost_control,
     frases_ecocardiograma_estruturado_teste,
@@ -456,7 +456,6 @@ app.include_router(clinicas.router, prefix="/api/v1/clinicas", tags=["clinicas"]
 app.include_router(servicos.router, prefix="/api/v1/servicos", tags=["servicos"])
 app.include_router(laudos.router, prefix="/api/v1", tags=["laudos"])
 app.include_router(financeiro.router, prefix="/api/v1/financeiro", tags=["financeiro"])
-app.include_router(gestao.router, prefix="/api/v1/gestao", tags=["gestao"])
 app.include_router(xml_import.router, prefix="/api/v1/xml", tags=["xml_import"])
 app.include_router(
     eco_study_import.router,
@@ -483,6 +482,7 @@ app.include_router(portal_clinic_auth.router, prefix="/api/v1/portal", tags=["po
 app.include_router(portal_partner_auth.router, prefix="/api/v1/portal", tags=["portal"])
 app.include_router(portal_partners.router, prefix="/api/v1/portal", tags=["portal"])
 app.include_router(referencias_eco.router, prefix="/api/v1/referencias-eco", tags=["referencias_eco"])
+app.include_router(atendimento_assistente.router, prefix="/api/v1/atendimentos", tags=["atendimento_assistente"])
 app.include_router(atendimento.router, prefix="/api/v1/atendimentos", tags=["atendimento"])
 app.include_router(logistica.router, prefix="/api/v1/logistica", tags=["logistica"])
 app.include_router(relatorios.router, prefix="/api/v1/relatorios", tags=["relatorios"])

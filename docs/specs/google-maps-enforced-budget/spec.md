@@ -234,17 +234,3 @@ O popup explicita “Estimativa desatualizada — revisão pendente” e a data
 no fuso Fortaleza. “Confirmar esta ação” continua habilitado; abrir o aviso
 não despacha a ação, e confirmar produz uma única autorização. O título
 geral “Agenda liberada com alertas” não presume que o orçamento já foi excedido.
-
-## Geocodificação manual de clínicas — 26/10/2026
-
-Preparação e validação em stage autorizadas; ativação em produção depende de aprovação separada. A configuração `clinic_geocode_manual_enabled` inicia desabilitada e só pode ser habilitada em `paid_budget` com `action_call_caps.clinic_geocode=1`. O campo é preservado ao salvar o painel administrativo. Nenhuma migração ou alteração dos cadastros existentes é necessária.
-
-Somente o POST autenticado e explícito `/clinicas/geocode-endereco` recebe escopo interno por execução, vinculado ao usuário e à impressão digital da requisição. A prévia não cria escopo nem consulta o Google; retorna `required=false` no modo manual autorizado. O middleware registra `internal_authorized/clinic_manual_record`, sem fabricar consentimento humano ou reutilizar escopo entre ações. O escopo autoriza apenas Geocoding, uma tentativa, custo de uma unidade e prazo de 600 segundos; é fechado ao terminar a requisição. Cada tentativa/falha/retry precisa passar pela reserva atômica no ledger; a segunda tentativa é bloqueada. Falha de ledger, configuração alterada, validade expirada, SKU incorreto e limite de ação/dia/mês impedem o transporte.
-
-Os limites de 650 chamadas/R$25 ao dia e 13.000/R$500 ao mês permanecem referências para a Agenda em `monitor` e tetos rígidos para essa geocodificação manual. O consumo da Agenda reduz o saldo compartilhado. Lotes, IA cadastral, geocodificação de tutor e automações conservam suas restrições; não herdam a exceção manual. Ativação de stage para a prova ocorre somente em schema PostgreSQL descartável, com preço/baseline sintéticos e transporte externo bloqueado; a configuração operacional de stage é preservada.
-
-Teto individual zero deve retornar `action_limit`, antes de avaliar saldo diário/mensal: não dizer “limite diário atingido” quando a ação foi desabilitada. O aviso identifica consulta ao Google Maps, inclusive geocodificação, sem chamar toda consulta de rota. Coordenadas nulas, ausentes, vazias, não finitas, fora de faixa, par incompleto ou placeholder 0/0 nunca são convertidas em localização confirmada; as telas de nova clínica e edição normalizam o par. Resposta inválida preserva os campos e solicita revisão/pin manual, sem criar coordenadas ou alterar automaticamente registros existentes.
-
-Demonstração administrativa sem rede nem gravações mostra a permissão manual proposta, uma tentativa, registro interno e preservação dos bloqueios. Demonstração visual não substitui a prova do guard e não é evidência de geolocalização correta de uma clínica real.
-
-O canário manual de stage compartilha no máximo duas conexões PostgreSQL entre as oito tentativas concorrentes, como o canário Agenda já existente. Isso limita somente os recursos do teste; não modifica pools/limites operacionais, quantidade de tentativas ou asserções de reserva. A concorrência de oito conexões independentes continua coberta no PostgreSQL descartável do CI.
