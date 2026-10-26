@@ -1,8 +1,8 @@
 # Spec - vivid-iq-cine-viewer
 
-Data: 2026-10-13
+Data: 2026-10-26
 Responsavel: Codex
-Status: done
+Status: fase 9 validada em stage; promocao isolada para producao autorizada em 2026-10-26
 
 ## 1) Escopo funcional
 
@@ -10,6 +10,8 @@ Criar uma pagina autenticada que leia localmente um DICOM do GE Vivid iq,
 identifique o cine `GEMS_Ultrasound_MovieGroup_001`, extraia dimensoes,
 timestamps e quadros em tons de cinza, e ofereca reproducao e navegacao sem
 upload para o backend.
+Na fase 9, aceitar uma colecao local de arquivos e navegar entre seus cines,
+decodificando apenas o arquivo ativo e preservando a ordem de selecao.
 
 ## 2) Requisitos funcionais (RF)
 
@@ -81,6 +83,33 @@ upload para o backend.
   retomada explicita; permitir repetir a selecao do mesmo arquivo apos erro.
 - RF-027: manter setas/F funcionais apos clicar em botoes, preservando
   Espaco/Enter nativos dos botoes e atalhos proprios dos campos/selects.
+- RF-028: aceitar selecao multipla e arraste de varios arquivos com ou sem
+  extensao. A nova colecao mantem a ordem recebida e abre o primeiro arquivo
+  sem iniciar reproducao automaticamente; essa ordem nao indica cronologia.
+- RF-029: oferecer uma lista com nome e posicao do arquivo ativo, selecao
+  direta e controles anterior/proximo arquivo distintos dos controles de
+  quadro. Nao assumir que a lista pertence ao mesmo paciente ou estudo.
+- RF-030: o seletor principal substitui a colecao; a acao Adicionar arquivos
+  acrescenta entradas ao fim, preservando o arquivo ativo, sua reproducao e
+  seus ajustes. Nao ler os arquivos adicionados enquanto nao forem abertos.
+- RF-031: limitar a colecao a 100 referencias `File`. Se o lote recebido
+  ultrapassar esse teto, recusar o lote inteiro com mensagem acessivel,
+  preservando a colecao e o ativo anteriores; nao truncar silenciosamente.
+- RF-032: validar o limite de 512 MB apenas ao abrir cada arquivo ativo.
+  Erro ou cancelamento mantem a colecao acessivel, com retentativa e navegacao
+  para outro arquivo; nenhum erro pode iniciar o proximo cine automaticamente.
+- RF-033: permitir remover arquivos e limpar toda a colecao. Remover o ativo
+  abre pausado o proximo da lista, ou o anterior se o removido era o ultimo;
+  remover a ultima entrada devolve o estado vazio. Remover entrada inativa
+  preserva a leitura/reproducao e os ajustes do ativo.
+- RF-034: toda troca de ativo interrompe reproducao/leitura, invalida respostas
+  anteriores e reinicia quadro, trecho A-B, brilho/contraste, inversao, zoom e
+  identificacao. Encerra foco/tela cheia ao desmontar o alvo anterior, tornando
+  explicita a mudanca de contexto. Nao conservar cache de cines decodificados.
+- RF-035: exibir nomes de arquivo somente na interface local da sessao. O parser
+  continua recebendo um nome generico; nomes nao entram no PNG, nome de download,
+  logs, armazenamento ou requisicoes. Identificacao DICOM permanece opt-in
+  exclusivamente para o arquivo ativo, sem extracao automatica da colecao.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -90,8 +119,9 @@ upload para o backend.
   persistidos/logados e nao entram em PNG, nome de download ou requisicoes.
 - NFR-002 (prudencia clinica): a interface deve informar permanentemente que a
   funcao e experimental e nao pode ser usada para medicoes.
-- NFR-003 (memoria): limitar o arquivo a 512 MB e manter apenas o `ArrayBuffer`
-  fonte e o quadro RGBA corrente, sem duplicar todo o cine.
+- NFR-003 (memoria): limitar cada arquivo aberto a 512 MB e manter apenas o
+  `ArrayBuffer` fonte do ativo e o quadro RGBA corrente, sem duplicar o cine
+  nem reter buffers dos demais arquivos da colecao.
 - NFR-004 (seguranca): limitar profundidade e quantidade de elementos durante o
   parsing e quantidade total de quadros para evitar travamento por arquivo
   malformado. Retornar erro controlado ao exceder limites.
@@ -102,6 +132,9 @@ upload para o backend.
   versionados usam apenas um DICOM sintetico sem identificadores.
 - NFR-007 (desempenho): reutilizar o `ImageData` e um mapa de conversao espacial
   por dimensao de bloco, sem reconstruir a geometria a cada quadro.
+- NFR-008 (colecao local): manter no maximo 100 referencias `File` em memoria
+  da sessao, sem leitura antecipada ou cache de cines; limpar/sair descarta a
+  colecao e cancela a leitura. Nenhum nome ou conteudo e persistido/transmitido.
 
 ## 4) Contratos tecnicos
 
@@ -124,6 +157,11 @@ upload para o backend.
 - Tela: `/visualizador-vivid-iq`.
 - Biblioteca: `frontend/lib/vivid-iq-dicom.mjs`.
 - Estados: vazio, lendo, pronto, reproduzindo e erro.
+- A colecao e o arquivo selecionado sao estados locais separados do estudo
+  decodificado. Entradas inativas conservam somente referencia `File`; leitura
+  usa `FileReader.abort()` e identificador de requisicao para rejeitar retornos
+  obsoletos. Erro/cancelamento nao removem a lista nem autorizam autoplay.
+- A fase 9 nao altera o contrato do parser nem cria API, backend ou migracao.
 - O canvas usa os timestamps do equipamento para escolher o quadro
   correspondente ao relogio de reproducao, respeita as dimensoes declaradas de
   cada bloco e aplica uma conversao setorial somente na camada de apresentacao.
@@ -133,6 +171,8 @@ upload para o backend.
 - Backward compatibility: adicao isolada, sem alterar contratos existentes.
 - Feature flag: nao; a pagina exige a autenticacao ja aplicada pelo dashboard.
 - Estrategia de rollback: remover a rota, item de menu e biblioteca do parser.
+- Fase 9: implementacao/validacao locais; publicacao exige ciclo separado.
+  Seu rollback e restrito a camada de colecao e recupera a abertura individual.
 
 ## 6) Criterios de aceitacao (CA)
 
@@ -195,6 +235,30 @@ upload para o backend.
   suprimir Espaco nativo nem capturar teclas de campos e selects.
 - CA-030: modo normal e foco preservam proporcao e controles acessiveis em
   tela estreita e janela baixa, sem overflow horizontal da pagina.
+- CA-031: selecao multipla e drop sem extensao criam lista na ordem recebida,
+  abrem somente o primeiro arquivo e deixam o cine pausado.
+- CA-032: Adicionar arquivos preserva ativo, quadro, reproducao, A-B e ajustes;
+  seletor principal substitui a colecao e abre o primeiro da nova lista pausado.
+- CA-033: selecao direta e anterior/proximo arquivo atualizam nome e posicao
+  ativa; extremos sao limitados e controles de quadro continuam independentes.
+- CA-034: ate 100 entradas sao aceitas; lote que excede 100 na substituicao
+  ou adicao e recusado inteiro, com aviso e colecao/ativo anteriores preservados.
+- CA-035: arquivo >512 MB e recusado somente ao abri-lo, antes da leitura;
+  erro/cancelamento permite tentar novamente ou escolher outro sem perder lista.
+- CA-036: troca rapida durante leitura ou reproducao aborta/invalida a anterior;
+  retornos tardios de leitura, previa ou PNG nao substituem nem exportam o ativo
+  anterior. Novo ativo reinicia A-B, ajustes, zoom e identificacao e fica pausado.
+  A troca encerra foco/tela cheia, libera o fundo inerte e restaura a rolagem.
+- CA-037: remover ativo seleciona proximo, ou anterior no final; remover
+  inativo preserva o ativo. Remover ultimo ou limpar colecao libera lista,
+  estudo e identificacao, sem resultado atrasado reabrir o arquivo.
+- CA-038: apenas o arquivo ativo chama `readAsArrayBuffer`/parser; navegar
+  novamente exige nova leitura, sem cache de `ArrayBuffer` de outros cines.
+- CA-039: nome do arquivo aparece somente na UI local, e nao no parser, PNG,
+  nome de download, rede ou armazenamento; carregar a colecao nao le identidade
+  DICOM nem afirma que os arquivos pertencem ao mesmo paciente/exame.
+- CA-040: fluxo individual, controles de quadro, A-B/loop, foco/fullscreen,
+  geometria, contraste em cinza e PNG integral continuam funcionando.
 
 ## 7) Casos de borda
 
@@ -219,10 +283,27 @@ upload para o backend.
   de altura proporcional a janela e area de imagem reduzivel, sem sobreposicao.
 - CB-010: resposta tardia de fullscreen recusado depois de trocar/limpar o
   exame nao pode reabrir modo foco.
+- CB-011: cancelar o seletor ou receber lote vazio nao modifica a colecao.
+  Rejeicao pelo limite de 100 ocorre antes de cancelar/trocar o arquivo atual.
+- CB-012: arquivo ilegivel/invalido permanece selecionavel para retentativa ou
+  remocao; falha isolada nao remove os demais arquivos nem os le em antecipacao.
+- CB-013: adicionar/remover entrada inativa nao reinicia a identidade da leitura
+  ativa; trocar/remover o ativo invalida callbacks, inclusive durante cancelamento.
 
 ## 8) Fora de escopo
+
+### Limite da publicacao autorizada em 2026-10-26
+
+Somente a colecao local de cines desta fase e seus quatro artefatos SDD podem
+ser promovidos. Preservar as outras entregas no snapshot stage
+`4cd0e899915e625bcd971f214bc34ce09feabea1` e restaura-las em stage depois da
+promocao protegida. O diff final contra main deve conter exatamente pagina,
+teste da pagina e intent/plan/spec/verify do visualizador, sem backend,
+migrations, configuracao, workflows ou novos comportamentos clinicos.
 
 - Medicoes calibradas ou diagnostico automatizado.
 - Persistencia, compartilhamento, DICOMweb, PACS ou vinculo com paciente/laudo.
 - Suporte a MovieGroup 3D/4D ou reconstrucao de traces da GE.
 - Medicao ou homologacao geometrica da conversao setorial experimental.
+- Agrupamento automatico por paciente/estudo, ordenacao clinica por datas,
+  comparacao simultanea de varios cines e carregamento antecipado da colecao.

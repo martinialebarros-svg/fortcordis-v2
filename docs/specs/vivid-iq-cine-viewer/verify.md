@@ -1,8 +1,189 @@
 # Verify - vivid-iq-cine-viewer
 
-Data: 2026-10-14
+Data: 2026-10-26
 Responsavel: Codex
-Status: implementado e validado localmente; publicacao stage -> producao autorizada em 2026-10-14
+Status: fase 9 validada em stage; promocao isolada para producao autorizada em 2026-10-26
+
+## Release da fase 9 — 2026-10-26
+
+O usuario autorizou publicar as melhorias do visualizador em producao. Essa
+autorizacao nao inclui os demais recursos atualmente em stage. A entrega usa
+PR direto stage -> main, sem bypass dos checks ou excecao de criterios.
+
+### Evidencia de stage concluida
+
+- A restauracao PR #479 instalou `a93390d326f6ff0133eed41e7cab45ecda6d687c`.
+  Workflow `40383527861` terminou com quality-gate, SDD e deploy aprovados;
+  logs confirmaram SHA instalado, seis arquivos runtime preservados/restaurados,
+  canario autenticado, integridade SQLite e drill de restore aprovados.
+- Os 12 caminhos do visualizador (fonte, testes e SDD) dessa restauracao sao
+  identicos aos aprovados em `6ca18d7741f2a2978baa3df9ce6d4ac7f0a83712`.
+  Parser, geometria, viewport e helper de reproducao nao mudaram nesta fase.
+- Em sessao stage ja autorizada, dois DICOM sinteticos sem extensao abriram
+  com input multiple, 30 quadros e 2,90 s. O primeiro reproduziu ate 30/30.
+  Navegacao anterior/proximo e abertura direta trocaram o arquivo pausado no
+  primeiro quadro; adicionar preservou o ativo e substituir descartou a lista.
+- Arquivo sintetico invalido mostrou erro controlado e retentativa; navegar
+  ao anterior recuperou o cine valido. Remover arquivo inativo preservou o
+  ativo; remover o ativo abriu o arquivo anterior. Limpar exame deixou zero
+  colecao e zero player; a aba temporaria foi encerrada.
+- Os dois dominios de stage responderam corretamente: raiz 200, redirecionamento
+  do viewer ao login sem sessao, API anonima `/api/v1/auth/me` 401. Todos os
+  15 assets observados no DOM autenticado retornaram 200. O chunk do viewer
+  continha `Arquivos selecionados`, `Adicionar arquivos`, `Arquivo anterior`
+  e `Substituir arquivos` (SHA256 `d5ad0972db19e8566b3ebc0d5571ebf68298f86f88ffdd66d62fe13175dc7547`).
+- Evidencia visual sintetica local: `/tmp/fortcordis-vivid-stage-validado-20261026.png`.
+  Nenhum exame real foi usado nessa verificacao remota. A evidencia nao e
+  homologacao clinica de geometria, orientacao, escala ou medidas.
+
+### Composicao isolada da promocao
+
+- Na composicao isolada, a suite completa passou: 123 arquivos Vitest / 1.428
+  testes, mais 23 testes Node, total 1.451. Vitest usou dois workers, sem
+  alterar timeout ou codigo. Lint, TypeScript, build (43 paginas; viewer
+  20 kB / first load 159 kB), 10 checks do auth-proxy-smoke e os guardrails
+  SDD/promocao passaram. So avisos nao bloqueantes de Browserslist/jsdom.
+
+- Baseline de producao: `7124680b8312f0bef0c9cc799f7a4ce8a0024602`.
+- Snapshot stage preservado: `4cd0e899915e625bcd971f214bc34ce09feabea1`.
+  O diff tinha 64 caminhos; apenas seis pertencem a esta autorizacao:
+  pagina, teste da pagina e os quatro documentos SDD do visualizador.
+- Os outros 58 caminhos ficam temporariamente no baseline de producao durante
+  a promocao e devem ser restaurados byte a byte a partir do snapshot preservado
+  por PR separado para stage. Incluem Gestao/migracao 101, Agenda, Maps e
+  configuracao; nao sao promovidos como parte do visualizador.
+- A arvore candidata deve diferir de producao somente nesses seis caminhos.
+  Nao alterar o publicador padrao, parser, autenticacao, backend, migrations,
+  dados, presets ou frases em producao. O rascunho frontend-only antigo nao e
+  usado nesta entrega; o pipeline padrao mantem seus checks e preservacao runtime.
+- A evidencia de producao e da restauracao final de stage sera registrada nos
+  PRs/workflows apos os resultados terminais; este preflight nao afirma que a
+  promocao ja ocorreu. Revalidar refs/escopo imediatamente antes de cada merge.
+
+## 0) Validacao da fase 9 - 2026-10-25
+
+Escopo: abrir e navegar uma colecao local de varios arquivos, mantendo somente
+o cine ativo decodificado. As matrizes e autorizacoes de release anteriores
+abaixo sao historicas; nao comprovam nem autorizam publicacao desta fase.
+
+| ID | Tipo | Evidencia nesta rodada | Status |
+| --- | --- | --- | --- |
+| CA-031 | aceitacao | testes de input multiple/drop e ordem recebida; navegador abriu primeiro DICOM sem extensao pausado | ok local |
+| CA-032 | aceitacao | testes de adicao preservando ativo/ajustes/reproducao e leitura pendente; seletor principal substitui colecao | ok local |
+| CA-033 | aceitacao | testes de selecao e limites; navegador avancou para B e voltou a B apos arquivo invalido | ok local |
+| CA-034 | aceitacao | testes aceitam 100 e recusam lote inicial/adicao/substituicao excedentes sem alterar colecao/ativo | ok local |
+| CA-035 | aceitacao | testes do limite 512 MB por ativo, erro/cancelamento/retentativa; navegador manteve lista apos erro | ok local |
+| CA-036 | aceitacao | testes de abort/requestId, callbacks/PNG tardios e reset; troca em foco no navegador fechou dialogo e liberou rolagem/inert | ok local |
+| CA-037 | aceitacao | testes de remocao ativa/inativa/ultima, renumeracao e limpeza durante leitura pendente | ok local |
+| CA-038 | aceitacao | testes confirmam leitura apenas do ativo e nova leitura ao retornar, sem cache de cines | ok local |
+| CA-039 | privacidade | testes mantem parser/PNG genericos e identidade opt-in; nomes somente na interface local da sessao | ok local |
+| CA-040 | regressao | 23 testes anteriores da pagina, 12 do helper e 23 do parser verdes; navegador confirmou foco/geometria/mobile | ok local |
+| NFR-003 | memoria | estado de um buffer ativo, descartado na troca/limpeza; testes sem leitura antecipada dos inativos | ok local |
+| NFR-008 | colecao local | testes do teto de 100 referencias File e cancelamento/invalidez de callbacks ao limpar | ok local |
+
+### Testes automatizados e qualidade
+
+- [x] 75/75 testes focados: 23 Node do parser, 12 Vitest do helper e 40 Vitest
+  da pagina (23 anteriores e 17 novos). Fixtures versionadas sao sinteticas.
+  Incluem arquivo inativo >512 MB recusado antes de novo FileReader,
+  remocao durante leitura pendente com callback tardio e drop na colecao
+  preservando reproducao do ativo.
+- [x] ESLint completo e TypeScript sem emissao passaram.
+- [x] Build de producao passou: 43 paginas, rota do visualizador de 20 kB e
+  first load de 159 kB. Build e testes repetidos apos o ajuste responsivo final.
+- [x] `git diff --check` e guardrail SDD do diff de trabalho passaram.
+- [x] Smoke local de navegacao, recuperacao e responsividade com fixtures
+  sinteticas, sem dados identificaveis reais nos logs.
+
+### Navegador local e limites da evidencia
+
+- Previa isolada em `http://127.0.0.1:4317`, com o componente real e um layout
+  stub, sem conexao ao backend. Nao e prova do dashboard autenticado publicado.
+- Colecao com tres arquivos sinteticos: dois DICOM sem extensao, com 30 quadros
+  cada, e um arquivo invalido. O input possui `multiple`; o primeiro abriu
+  pausado. Proximo arquivo abriu B; o invalido exibiu erro isolado; Anterior
+  arquivo recuperou B, sem autoplay nem perda da lista.
+- Mobile 390x844 sem overflow horizontal: largura de conteudo/viewport util
+  de 375/375 px, descontada a barra de rolagem de 15 px. Canvas intrinseco
+  200x100, proporcao 2:1 preservada.
+- Modo foco em 390x844 manteve largura 390/390 px. Anterior arquivo em foco
+  abriu A e encerrou esse modo: dialogo ausente, `body.style.overflow` vazio
+  e nenhum elemento residual com `inert`. A troca desmonta o alvo anterior
+  tambem para encerrar tela cheia; esta rodada nao repete o smoke nativo de
+  fullscreen registrado em 13/10.
+- Landscape 844x390 sem overflow horizontal: largura util 829/829 px. O
+  cabecalho responsivo preserva nome e navegacao sem colapsar no mobile.
+  Override de viewport restaurado ao finalizar; evidencia visual sintetica
+  local em `/tmp/fortcordis-vivid-multifile.d2peE5/preview.png`.
+- Na primeira rodada o SanDisk estava desconectado; foram usadas somente
+  fixtures sinteticas. A rodada real apos reconexao esta documentada abaixo.
+- Fonte do parser inalterada. Sem backend, migracao, persistencia de arquivos,
+  commit ou publicacao nesta etapa; as autorizacoes anteriores nao se estendem
+  automaticamente a esta entrega.
+
+### Complemento: SanDisk reconectado - 2026-10-25
+
+- Parser normal, chamado com nome generico `arquivo local`, abriu os quatro
+  arquivos abaixo sem avisos. Nao foi chamado o helper de identificacao nem
+  copiado DICOM para repositorio, backend ou diretorio temporario.
+
+| Arquivo tecnico | Quadros | Duracao | Dimensoes brutas por bloco | Canvas no navegador |
+| --- | ---: | ---: | --- | --- |
+| PAME5GG2 | 2.962 | 20,04357 s | 493x126 -> 493x138 | 465x493 |
+| PAME5KO4 | 2.651 | 15,45978 s | 493x138 -> 490x138 -> 506x138 | 625x506 |
+| PAME8PH0 | 2.861 | 20,01996 s | 326x144 | 408x659 |
+| Q1TBHPGK | 1.279 | 10,02053 s | 536x195 | 761x589 |
+
+- Na previa isolada com o componente real, a selecao multipla dos tres
+  primeiros arquivos, da mesma pasta, abriu somente o primeiro. Os demais
+  permaneceram `Nao aberto` ate serem selecionados. A pasta nao foi usada
+  como prova de identidade do paciente ou StudyInstanceUID comum.
+- Os quatro cines reproduziram com contador/tempo avancando. A troca durante
+  reproducao abriu o seguinte pausado, no primeiro quadro, com zoom 1x e
+  trecho integral. Voltar ao anterior releu esse arquivo e reiniciou o cine.
+- Ampliacao 2x de PAME5GG2 manteve canvas intrinseco 465x493. PAME5KO4
+  permitiu salto ao quadro 2.300, tempo 13,45 s, sem alerta. Modo foco exibiu
+  imagem, navegacao, controles e aviso experimental. Ao avancar para PAME8PH0,
+  encerrou foco, sem dialogo/inert residual e com overflow da pagina restaurado.
+- Remover PAME5GG2, inativo e anterior ao ativo, apenas renumerou a colecao;
+  PAME8PH0 continuou reproduzindo (quadro 765 / 5,35 s), com canvas 408x659.
+- Q1TBHPGK foi aberto separadamente pelo seletor de substituicao, sem manter
+  os arquivos anteriores na colecao. Iniciou pausado em 1/1.279 e reproduziu.
+- Identificacao permaneceu fechada em toda a rodada. Nenhum nome de paciente
+  ou data clinica foi extraido/exposto no registro. Os originais nao foram
+  alterados. Ao finalizar, `Limpar exame` deixou zero canvas, nenhuma colecao
+  ou painel de identificacao, nenhum alerta e nenhum elemento `inert`.
+- Evidencia visual local sem identificacao em
+  `/tmp/fortcordis-vivid-multifile.d2peE5/real-cine.png` (imagem de PAME5KO4).
+  Nao ha DICOM real versionado. Fonte e testes nao foram alterados nesta
+  rodada; os 75 testes/qualidade da implementacao permanecem a evidencia
+  automatizada acima. `git diff --check` e guardrail SDD repetidos apos registro.
+- Resultado observado: sem falha nova nos fluxos exercitados. E validacao
+  funcional local, nao homologacao clinica de orientacao, escala ou medidas,
+  nem prova do dashboard autenticado ou de stage/producao. Fullscreen nativo
+  nao repetido; sem commit, push ou publicacao.
+
+### Publicacao autorizada em origin/stage - 2026-10-25
+
+- Autorizacao do usuario: `Deploy origin stage`. Limitada a stage; nenhuma
+  promocao para main/producao esta autorizada nesta rodada.
+- Base stage observada no preflight: `30388824e0f5fe1777c545188087a297d5fa0894`.
+  Main observado: `6d77526db9c5ebf9b7c6457362d153903c7cda7a`.
+- Escopo: pagina e testes do visualizador, mais os quatro documentos SDD;
+  sem alteracao de parser, backend, migrations, autenticacao ou workflows.
+  Preservar integralmente as mudancas paralelas ja presentes em stage.
+- Revalidar o snapshot integrado antes do PR; aguardar Frontend CI, Migration
+  CI, SDD Guardrail e Deploy to Stage (VPS) terminais. Conferir SHA instalado,
+  preservacao/restauracao de runtime, canary e drill de restore.
+- Smoke esperado: `/visualizador-vivid-iq` em ambos os dominios de stage,
+  marcadores `Arquivos selecionados` e `Adicionar arquivos DICOM` nos chunks
+  servidos, e API protegida com `401` sem credenciais. UI autenticada somente
+  com sessao stage ja autorizada; registrar eventual lacuna sem usar dados reais
+  em requisicoes ou contornar autenticacao.
+- Esta secao e preflight, nao declaracao de deploy concluido. PR, SHAs finais,
+  workflows e evidencia terminal serao registrados no PR e no resultado da
+  publicacao. As observacoes de ausencia de commit/push acima sao historicas
+  das rodadas locais, anteriores a esta autorizacao.
 
 ## 1) Matriz de rastreabilidade
 
@@ -236,7 +417,7 @@ Resultados:
 
 - Nenhum.
 
-## 7) Decisao atual - melhorias de 2026-10-10 e 2026-10-13
+## 7) Decisao historica - melhorias de 2026-10-10 e 2026-10-13
 
 - [x] Implementacao e validacao local concluidas, com limitacoes acima.
 - [ ] Publicado em stage.
