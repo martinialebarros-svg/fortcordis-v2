@@ -56,6 +56,13 @@ import {
 } from "@/lib/vivid-iq-player";
 
 const PLAYBACK_SPEEDS = [0.25, 0.5, 1, 2] as const;
+const MAX_LOCAL_FILES = 100;
+
+type LocalCineFile = {
+  id: number;
+  file: File;
+  status: "pending" | "loading" | "ready" | "error";
+};
 
 function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024) {
@@ -99,6 +106,9 @@ function readableError(error: unknown) {
 }
 
 export default function VisualizadorVividIqPage() {
+  const [localFiles, setLocalFiles] = useState<LocalCineFile[]>([]);
+  const [activeFileId, setActiveFileId] = useState<number | null>(null);
+  const [collectionError, setCollectionError] = useState("");
   const [study, setStudy] = useState<VividIqStudy | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -123,6 +133,8 @@ export default function VisualizadorVividIqPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playerRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const addFilesInputRef = useRef<HTMLInputElement | null>(null);
+  const nextFileIdRef = useRef(0);
   const activeReaderRef = useRef<FileReader | null>(null);
   const frameIndexRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
@@ -136,6 +148,8 @@ export default function VisualizadorVividIqPage() {
   const grayscaleLut = useMemo(() => buildVividIqGrayscaleLut(brightness, contrast), [brightness, contrast]);
   const rangeEnd = segmentEnd ?? Math.max(0, (study?.frameCount ?? 1) - 1);
   const isExpanded = isFullscreen || isFocusMode;
+  const activeFileIndex = localFiles.findIndex(({ id }) => id === activeFileId);
+  const activeFile = localFiles[activeFileIndex];
 
   const displayGeometry = useMemo(() => {
     if (!study) {
@@ -179,7 +193,7 @@ export default function VisualizadorVividIqPage() {
     }
   }, []);
 
-  const clearStudy = useCallback(() => {
+  const resetCurrentStudy = useCallback(() => {
     loadRequestRef.current += 1;
     activeReaderRef.current?.abort();
     activeReaderRef.current = null;
@@ -207,6 +221,9 @@ export default function VisualizadorVividIqPage() {
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+    if (addFilesInputRef.current) {
+      addFilesInputRef.current.value = "";
+    }
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
     if (canvas && context) {
@@ -214,38 +231,32 @@ export default function VisualizadorVividIqPage() {
     }
   }, [stopPlayback]);
 
-  const loadFile = useCallback(async (file: File) => {
-    const requestId = loadRequestRef.current + 1;
-    loadRequestRef.current = requestId;
-    activeReaderRef.current?.abort();
-    activeReaderRef.current = null;
-    stopPlayback();
-    setIsLoading(false);
-    setStudy(null);
-    setFrameIndex(0);
-    frameIndexRef.current = 0;
-    setBrightness(0);
-    setContrast(1);
-    setLateralFlip(true);
-    setPreviewAspectRatio(null);
-    setIdentification(null);
-    setPlaybackSpeed(1);
-    setLoopPlayback(false);
-    setSegmentStart(0);
-    setSegmentEnd(null);
-    setIsFocusMode(false);
-    setViewNotice("");
-    setFrameTarget("");
-    setFrameTargetError("");
-    setErrorMessage("");
-    imageDataRef.current = null;
-    displayMapRef.current.clear();
+  const clearStudy = useCallback(() => {
+    resetCurrentStudy();
+    setLocalFiles([]);
+    setActiveFileId(null);
+    setCollectionError("");
+  }, [resetCurrentStudy]);
+
+  const loadFile = useCallback(async (entry: LocalCineFile) => {
+    resetCurrentStudy();
+    const requestId = loadRequestRef.current;
+    const { file } = entry;
+    setActiveFileId(entry.id);
+    setCollectionError("");
+    const setFileStatus = (status: LocalCineFile["status"]) => {
+      setLocalFiles((current) => current.map((item) => item.id === entry.id
+        ? { ...item, status }
+        : item.status === "loading" ? { ...item, status: "pending" } : item));
+    };
 
     if (file.size > VIVID_IQ_MAX_FILE_BYTES) {
+      setFileStatus("error");
       setErrorMessage("O arquivo excede o limite local de 512 MB.");
       return;
     }
 
+    setFileStatus("loading");
     setIsLoading(true);
     try {
       const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
@@ -266,10 +277,12 @@ export default function VisualizadorVividIqPage() {
         return;
       }
       setStudy(parsed);
+      setFileStatus("ready");
       setFrameIndex(0);
       frameIndexRef.current = 0;
     } catch (error) {
       if (requestId === loadRequestRef.current) {
+        setFileStatus("error");
         setErrorMessage(readableError(error));
       }
     } finally {
@@ -278,23 +291,58 @@ export default function VisualizadorVividIqPage() {
         setIsLoading(false);
       }
     }
-  }, [stopPlayback]);
+  }, [resetCurrentStudy]);
+
+  const selectFiles = (files: File[], append = false) => {
+    if (!files.length) return;
+    if (files.length + (append ? localFiles.length : 0) > MAX_LOCAL_FILES) {
+      setCollectionError(`Selecione no máximo ${MAX_LOCAL_FILES} arquivos por vez. Nenhum arquivo desta seleção foi adicionado; a lista anterior foi mantida.`);
+      return;
+    }
+    // Keep only File handles in the collection; decode just the active cine.
+    // Names are local labels, never patient identity, sort keys or deduplication keys.
+    const entries = files.map((file): LocalCineFile => ({ id: ++nextFileIdRef.current, file, status: "pending" }));
+    setCollectionError("");
+    setLocalFiles(append ? [...localFiles, ...entries] : entries);
+    if (!append || activeFileId === null) void loadFile(entries[0]);
+  };
+
+  const cancelRead = () => {
+    resetCurrentStudy();
+    setLocalFiles((current) => current.map((item) => item.id === activeFileId ? { ...item, status: "pending" } : item));
+  };
+
+  const removeFile = (entry: LocalCineFile) => {
+    const remaining = localFiles.filter(({ id }) => id !== entry.id);
+    if (!remaining.length) {
+      clearStudy();
+      return;
+    }
+    setLocalFiles(remaining);
+    setCollectionError("");
+    if (entry.id === activeFileId) {
+      void loadFile(remaining[Math.min(activeFileIndex, remaining.length - 1)]);
+    }
+  };
+
+  const fileNavigation = localFiles.length > 1 && (
+    <div className="flex min-w-0 flex-wrap items-center gap-2" role="group" aria-label="Navegação entre arquivos">
+      <button type="button" disabled={activeFileIndex <= 0} onClick={() => void loadFile(localFiles[activeFileIndex - 1])} aria-label="Arquivo anterior" className="rounded-lg border border-ink-200 p-2 text-ink-700 hover:bg-ink-50 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+      <span className="whitespace-nowrap text-xs font-semibold text-ink-600">Arquivo {activeFileIndex + 1} de {localFiles.length}</span>
+      <button type="button" disabled={activeFileIndex >= localFiles.length - 1} onClick={() => void loadFile(localFiles[activeFileIndex + 1])} aria-label="Próximo arquivo" className="rounded-lg border border-ink-200 p-2 text-ink-700 hover:bg-ink-50 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+    </div>
+  );
 
   const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    if (file) {
-      void loadFile(file);
-    }
+    selectFiles(files);
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
-    const file = event.dataTransfer.files?.[0];
-    if (file) {
-      void loadFile(file);
-    }
+    selectFiles(Array.from(event.dataTransfer.files ?? []));
   };
 
   useEffect(() => {
@@ -680,7 +728,7 @@ export default function VisualizadorVividIqPage() {
               </div>}
               <h1 className={`font-bold ${study ? "text-xl" : "text-2xl sm:text-3xl"}`}>Visualizador Vivid IQ</h1>
               {!study && <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75">
-                Abra o arquivo DICOM original, mesmo sem extensao, e revise o cine salvo pelo equipamento GE.
+                Abra um ou vários arquivos DICOM originais, mesmo sem extensão, e navegue pelos cines salvos pelo equipamento GE.
               </p>}
             </div>
             <div className="flex items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-white/90">
@@ -711,6 +759,38 @@ export default function VisualizadorVividIqPage() {
           </div>
         </div>}
 
+        {localFiles.length > 0 && (
+          <section aria-label="Arquivos selecionados" className="min-w-0 rounded-2xl border border-ink-100 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-ink-900">Arquivos selecionados · {localFiles.length}</h2>
+                <p className="mt-1 text-xs text-ink-500">Só o arquivo ativo é carregado. A ordem é a da seleção, não a data do exame.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => addFilesInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-50"><Upload className="h-4 w-4" /> Adicionar arquivos</button>
+                <button type="button" onClick={clearStudy} className="inline-flex items-center gap-2 rounded-lg border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-50"><X className="h-4 w-4" /> Limpar exame</button>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-amber-900">Lista local: não confirma que os arquivos pertencem ao mesmo paciente ou exame. A identificação é consultada separadamente em cada arquivo.</p>
+            <div onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); selectFiles(Array.from(event.dataTransfer.files ?? []), true); }}>
+              <ol aria-label="Lista de arquivos locais" className="mt-3 grid max-h-40 gap-2 overflow-y-auto rounded-xl sm:grid-cols-2 xl:grid-cols-3">
+                {localFiles.map((entry, index) => (
+                  <li key={entry.id} className={`flex min-w-0 items-center rounded-xl border ${entry.id === activeFileId ? "border-vital-500 bg-vital-50" : "border-ink-100 bg-ink-50"}`}>
+                    <button type="button" onClick={() => void loadFile(entry)} aria-label={`Abrir arquivo ${index + 1}: ${entry.file.name}`} aria-current={entry.id === activeFileId ? "true" : undefined} className="min-w-0 flex-1 rounded-xl p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-vital-500">
+                      <span className="block truncate text-xs font-semibold text-ink-900" title={entry.file.name}>{index + 1}. {entry.file.name}</span>
+                      <span className="mt-1 block text-xs text-ink-500">{formatBytes(entry.file.size)} · {entry.status === "error" ? "Não foi possível abrir" : entry.status === "loading" ? "Lendo…" : entry.status === "ready" ? entry.id === activeFileId ? "Aberto" : "Já aberto" : "Não aberto"}</span>
+                    </button>
+                    <button type="button" onClick={() => removeFile(entry)} aria-label={`Remover arquivo ${index + 1}: ${entry.file.name}`} className="mr-1 rounded-lg p-2 text-ink-500 hover:bg-ink-100"><X className="h-4 w-4" /></button>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            {!study && <div className="mt-3">{fileNavigation}</div>}
+            <input ref={addFilesInputRef} type="file" multiple aria-label="Adicionar arquivos DICOM" className="sr-only" onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; selectFiles(files, true); }} />
+          </section>
+        )}
+        {collectionError && <p role="alert" className="rounded-2xl border border-cordis-200 bg-cordis-50 p-4 text-sm text-cordis-900">{collectionError}</p>}
+
         {!study && (
           <section className="rounded-3xl border border-ink-100 bg-white p-5 shadow-fort-card sm:p-7">
             <div
@@ -739,7 +819,7 @@ export default function VisualizadorVividIqPage() {
                   <p className="mt-2 max-w-lg text-sm leading-6 text-ink-500">
                     Arquivos grandes podem levar alguns segundos. Nenhum dado esta sendo enviado.
                   </p>
-                  <button type="button" onClick={clearStudy} className="mt-5 rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-semibold text-ink-700">
+                  <button type="button" onClick={cancelRead} className="mt-5 rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-semibold text-ink-700">
                     Cancelar leitura
                   </button>
                 </div>
@@ -748,10 +828,11 @@ export default function VisualizadorVividIqPage() {
                   <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-vital-600 shadow-sm">
                     <Upload className="h-7 w-7" />
                   </div>
-                  <h2 className="mt-5 text-lg font-semibold text-ink-900">Selecione ou arraste o arquivo do Vivid iq</h2>
+                  <h2 className="mt-5 text-lg font-semibold text-ink-900">Selecione ou arraste os arquivos do Vivid iq</h2>
                   <p id="vivid-iq-file-help" className="mt-2 max-w-lg text-sm leading-6 text-ink-500">
-                    O arquivo pode nao ter extensao. Limite local: 512 MB.
+                    Com ou sem extensão. Até 100 arquivos, 512 MB por arquivo. Uma nova seleção substitui a lista atual.
                   </p>
+                  {activeFile && <button type="button" onClick={() => void loadFile(activeFile)} className="mt-4 rounded-xl border border-vital-200 bg-vital-50 px-4 py-2 text-sm font-semibold text-vital-900">Tentar abrir novamente</button>}
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
@@ -764,6 +845,7 @@ export default function VisualizadorVividIqPage() {
               <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 onChange={handleFileInput}
                 aria-label="Selecionar arquivo DICOM"
                 aria-describedby={isLoading ? undefined : "vivid-iq-file-help"}
@@ -805,7 +887,11 @@ export default function VisualizadorVividIqPage() {
                 <AlertTriangle className="h-4 w-4 shrink-0" /> Uso experimental — imagem não calibrada. Não realize medições.
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-3 py-2 sm:px-4">
-                <p className="text-xs font-semibold text-ink-600">{isPlaying ? "Em reprodução" : "Pausado"} · {study.cineType}</p>
+                <div className="min-w-0 basis-full space-y-1 sm:basis-64 sm:flex-1">
+                  <p className="truncate text-xs font-semibold text-ink-900" title={activeFile?.file.name}>{activeFile?.file.name}</p>
+                  <p className="text-xs font-semibold text-ink-600">{isPlaying ? "Em reprodução" : "Pausado"} · {study.cineType}</p>
+                  {fileNavigation}
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" aria-pressed={isFocusMode} onClick={() => { setIdentification(null); setViewNotice(""); setIsFocusMode((current) => !current); }} className="inline-flex items-center gap-2 rounded-lg border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-50">
                     <Focus className="h-4 w-4" /> {isFocusMode ? "Sair do modo foco" : "Modo foco"}
@@ -998,15 +1084,8 @@ export default function VisualizadorVividIqPage() {
 
                 {!isExpanded && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 pt-5">
                   <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={clearStudy}
-                    className="inline-flex items-center gap-2 rounded-xl border border-ink-200 px-4 py-2.5 text-sm font-semibold text-ink-700 hover:bg-ink-50"
-                  >
-                    <X className="h-4 w-4" /> Limpar exame
-                  </button>
                   <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl border border-ink-200 px-4 py-2.5 text-sm font-semibold text-ink-700 hover:bg-ink-50">
-                    <FileVideo className="h-4 w-4" /> Abrir outro arquivo
+                    <FileVideo className="h-4 w-4" /> Substituir arquivos
                   </button>
                   </div>
                   <p className="text-xs text-ink-500">Espaço: reproduzir · ←/→: quadros · F: tela cheia{isFocusMode ? " · Esc: sair do foco" : ""}</p>
@@ -1082,6 +1161,7 @@ export default function VisualizadorVividIqPage() {
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               onChange={handleFileInput}
               className="sr-only"
               aria-label="Selecionar outro arquivo DICOM"
