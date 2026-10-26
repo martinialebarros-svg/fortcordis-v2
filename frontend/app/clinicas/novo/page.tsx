@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { clinicCoordinates } from "@/lib/clinic-coordinates";
 import { loadStableCatalog } from "@/lib/stable-catalog-cache";
 import {
   formatarCepVisual,
@@ -115,7 +116,7 @@ export default function NovaClinicaPage() {
   };
 
   const abrirMapaConfirmacao = () => {
-    if (clinica.latitude === null || clinica.longitude === null) {
+    if (clinicCoordinates(clinica.latitude, clinica.longitude).latitude === null) {
       alert("Nao ha latitude/longitude para confirmar.");
       return;
     }
@@ -132,6 +133,7 @@ export default function NovaClinicaPage() {
   };
 
   const aplicarPinManual = ({ lat, lng }: { lat: number; lng: number }) => {
+    if (clinicCoordinates(lat, lng).latitude === null) return;
     setClinica((prev) => ({
       ...prev,
       latitude: lat,
@@ -212,6 +214,8 @@ export default function NovaClinicaPage() {
         cep: clinica.cep,
       });
       const item = response?.data?.item || {};
+      const coordinates = clinicCoordinates(item.latitude, item.longitude);
+      if (coordinates.latitude === null) throw new Error("O serviço não retornou coordenadas válidas. Revise o endereço ou ajuste o pin manualmente.");
       setClinica((prev) => ({
         ...prev,
         bairro: item.bairro || prev.bairro,
@@ -219,8 +223,7 @@ export default function NovaClinicaPage() {
         estado: item.estado || prev.estado,
         cep: item.cep ? formatarCepVisual(item.cep) : prev.cep,
         regiao_operacional: item.regiao_operacional || prev.regiao_operacional,
-        latitude: Number.isFinite(Number(item.latitude)) ? Number(item.latitude) : prev.latitude,
-        longitude: Number.isFinite(Number(item.longitude)) ? Number(item.longitude) : prev.longitude,
+        ...coordinates,
         place_id: item.place_id || prev.place_id,
         endereco_normalizado: item.endereco_normalizado || prev.endereco_normalizado,
       }));
@@ -244,7 +247,7 @@ export default function NovaClinicaPage() {
       setStatusEndereco("Informe o numero para concluir o geocoding.");
       return;
     }
-    setStatusEndereco("Endereco pronto. Use Geocodificar endereco para consultar o Google Maps e revisar o custo antes de confirmar.");
+    setStatusEndereco("Endereco pronto. Use Geocodificar endereco para consultar o Google Maps. A política e os limites são verificados pelo servidor.");
   };
 
   // Sugerir tabela de preço quando a cidade mudar

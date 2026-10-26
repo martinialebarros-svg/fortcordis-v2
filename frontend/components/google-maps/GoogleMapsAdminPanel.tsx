@@ -10,6 +10,7 @@ import GoogleMapsControlDemo from "./GoogleMapsControlDemo";
 type Config = {
   operation_mode?: MapsOperationMode;
   agenda_budget_mode?: "enforce" | "monitor";
+  clinic_geocode_manual_enabled?: boolean;
   enabled: boolean;
   limits: MapsPeriods;
   prices_usd?: Record<string, number> | null;
@@ -140,6 +141,7 @@ export default function GoogleMapsAdminPanel() {
       await api.put("/google-maps-control/config", {
         operation_mode: "paid_budget", agenda_budget_mode: agendaBudgetMode, enabled, limits, prices_usd: prices, fx_brl_per_usd_upper: Number(fields.fx),
         price_multiplier: Number(fields.multiplier), pricing_valid_until: new Date(fields.validUntil).toISOString(),
+        clinic_geocode_manual_enabled: status.config?.clinic_geocode_manual_enabled ?? false,
         action_call_caps: status.config?.action_call_caps ?? {},
         automatic_policies: automaticPolicies,
         ...(status.config?.opening_usage ? {
@@ -196,6 +198,7 @@ export default function GoogleMapsAdminPanel() {
         {status.config?.operation_mode === "cache_only" ? "Modo R$ 0 — somente cache. Novas chamadas ao Google estão bloqueadas, inclusive em tarefas automáticas." : status.config?.enabled && !status.blocked ? "Chamadas habilitadas sob limites e confirmação por ação." : status.reason === "pricing_expired" ? "Chamadas pagas suspensas: a validade dos preços/câmbio expirou. Revise a configuração." : "Chamadas pagas suspensas. Defina os limites e a política de preços antes de habilitar."}
       </p>
       {status.agenda_budget_mode === "monitor" && <div role="status" className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><strong>Agenda liberada com alertas; lotes e extras sob teto rígido</strong><p>Não há teto financeiro diário ou mensal para a Agenda neste modo. {status.agenda_confirmation_required === false ? "Custos registrados internamente, sem popup na Agenda. Cada execução tem quantidade e custo máximos finitos no servidor; os alertas de custo ficam nesta área administrativa." : "Cada consulta nova exige confirmação com quantidade e custo máximos finitos."} O consumo da Agenda também reduz o saldo dos extras.</p>{status.alerts?.map((alert, index) => <p key={index}>{alert}</p>)}</div>}
+      {status.config?.clinic_geocode_manual_enabled && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">Geocodificação manual de clínicas: uma chamada por execução, com registro interno, sem popup e respeitando os limites diário e mensal. Esta permissão não libera lotes nem automações.</p>}
       <MapsConsumption reference={status.agenda_budget_mode === "monitor"} consumption={status.consumption} remaining={status.remaining} limits={status.limits ?? status.config?.limits} />
       <p className="text-sm text-gray-600">O consumo inclui o saldo inicial informado e os envios registrados{status.consumed_since ? ` desde ${dateLabel(status.consumed_since)}` : " após a ativação"}. Não representa uma reconstrução da fatura ou do histórico completo da conta Google.</p>
       {status.billing_note && <p className="text-sm text-gray-600">{status.billing_note}</p>}
