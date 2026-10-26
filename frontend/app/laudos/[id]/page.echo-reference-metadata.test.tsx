@@ -144,6 +144,9 @@ describe("referências diastólicas no visualizador do laudo salvo", () => {
       expect(reference("e' · Doppler tecidual")).toHaveTextContent(/7 gatos jovens \(1–3 anos\)/);
       expect(reference("e' · Doppler tecidual")).toHaveTextContent(/antes da sedação.*anel septal/);
       expect(reference("Relação E/e'")).toHaveTextContent("8,7 ± 1,7");
+      expect(reference("Relação e'/a'")).toHaveTextContent("Sem comparador septal reconciliado");
+      expect(reference("Relação e'/a'")).not.toHaveTextContent("0,93 ± 0,20");
+      expect(within(reference("Relação e'/a'")).queryByRole("link")).not.toBeInTheDocument();
     } else {
       for (const label of ["e' · Doppler tecidual", "a' · Doppler tecidual", "Relação e'/a'", "Relação E/e'"]) {
         expect(reference(label)).toHaveTextContent("Ondas e'/a' fundidas");

@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { compararMedidasComReferencia, compararMedidasDiastolicasFelinas, useReferenciaEco, useReferenciaEcoLegacy } from "./useReferenciaEco";
+import { compararMedidasComReferencia, compararMedidasDiastolicas, compararMedidasDiastolicasFelinas, useReferenciaEco, useReferenciaEcoLegacy } from "./useReferenciaEco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
 import type { ReferenciaEco } from "../types/referencia-eco";
 
@@ -247,5 +247,34 @@ describe("compararMedidasComReferencia", () => {
         DeltaD_FS_2D: "22",
       })
     ).toEqual({});
+  });
+});
+
+
+describe("canine diastolic statistical comparison", () => {
+  const protocol = { Diastolica_metodo: "canino_2a6_anos_nao_sedado_pw_apical_fim_fluxo", Diastolica_ondas: "separadas", TDI_metodo: "canino_pw_anel_septal_choi", TDI_ondas: "separadas" };
+  it.each([["0.50", "diminuido"], ["0.51", "normal"], ["1.10", "normal"], ["1.11", "aumentado"]])
+    ("compares only the actual E interval with inclusive boundaries: %s", (E, status) => {
+      const comparisons = compararMedidasDiastolicas({ Onda_E: E, ...protocol }, "Dog");
+      expect(comparisons.Onda_E).toMatchObject({ status, referencia_min: .51, referencia_max: 1.1, referencia_tipo: "reference_interval", estatistica: "reference_interval_95" });
+      expect(comparisons.Onda_E.interpretacao).not.toMatch(/disfunção|anormal|normalidade clínica/);
+    });
+  it("keeps descriptive populations neutral even for values far from the mean", () => {
+    const raw = { Onda_E: ".8", Onda_A: "5", E_A: "15", TD: "300", TRIV: "5", e_doppler: "1", a_doppler: "2", E_E_linha: "50", doppler_tecidual_relacao: "8", ...protocol };
+    const comparisons = compararMedidasDiastolicas(raw, "Cão");
+    for (const [key, comparison] of Object.entries(comparisons)) {
+      if (key === "Onda_E") continue;
+      expect(comparison).toMatchObject({ status: "nao_avaliado", referencia_min: null, referencia_max: null, referencia_tipo: "descriptive", estatistica: "mean_sd" });
+    }
+    expect(raw.Onda_A).toBe("5");
+  });
+  it("requires explicit confirmations and overrides generic catalogue values", () => {
+    const reference = { id: 1, especie: "Canina", peso_kg: 10, mv_e_min: .2, mv_e_max: 2, mv_a_min: .1, mv_a_max: 1 } as ReferenciaEco;
+    const measurements = { Onda_E: ".8", Onda_A: ".5" };
+    expect(compararMedidasComReferencia(measurements, reference).Onda_E).toMatchObject({ status: "nao_avaliado", referencia_tipo: "unconfirmed", referencia_min: null });
+    expect(compararMedidasComReferencia({ ...measurements, ...protocol }, reference).Onda_E.referencia_min).toBe(.51);
+    expect(compararMedidasDiastolicas({ ...measurements, ...protocol, Diastolica_ondas: "fundidas" }, "Cão").Onda_E)
+      .toMatchObject({ valor_medido: "Não mensurável", referencia_tipo: "uninterpretable", status: "nao_avaliado" });
+    expect(compararMedidasDiastolicasFelinas(measurements, "Canina")).toEqual({});
   });
 });
