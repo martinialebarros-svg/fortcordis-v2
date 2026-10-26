@@ -287,3 +287,8 @@ Fontes primárias: [Chompoosan 2022](https://doi.org/10.1111/jsap.13472), [Perei
 
 - RF-105: na prévia e PDF, índices históricos sob token `nao_confirmadas` recebem “valor a confirmar” e aviso específico de reconfirmação; a fusão confirmada mantém precedência “Não mensurável”. Não marcar picos crus/TRIV ou grupo independente nem números caninos genuinamente legados.
 - CA-087: reproduzir origens novas e relações históricas divergentes, conferir marcador por domínio e aliases das duas espécies, persistência sem reescrita, reconfirmação e precedência da fusão. Renderizar PDF pendente de cada espécie e invalidar somente cache eco.
+
+### Coerencia das dicas do editor com a consulta publicada — 26/10/2026
+
+- RF-106: os formularios novo/editar nao apresentam os antigos limites genericos E/TRIV<=2,5 e E/e′<=12 como referencias de normalidade ou pressao de enchimento para a especie Canina. A consulta depende da tecnica, sitio, populacao, ondas e contexto clinico descritos na aba Referencias; preservar valores, calculos, importacao e metadados.
+- CA-088: conferir ambos os formularios reais e a ausencia das quatro props de referencia generica. As medidas e suas derivacoes continuam identicas; texto da aba Referencias/PDF permanece por metodo e fonte. Verificar tipos/lint e testes pertinentes; teste visual autenticado em stage antes de producao.
