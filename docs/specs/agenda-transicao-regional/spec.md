@@ -150,7 +150,26 @@ estado diagnóstico é gravado no contexto ou cache compartilhado entre clínica
   de recorrência, margem, quota, rota ausente ou autenticação é flexibilizada.
 - CA-014: homologar a lista completa primeiro em stage, comprovando ausência
   de alterações em agendamentos, reservas, bloqueios, configuração e matriz
-  operacionais. Esta evolução não autoriza publicação em produção.
+  operacionais. A publicação em produção depende de autorização separada.
+
+## Publicação isolada da lista completa — 26/10/2026
+
+O usuário autorizou publicar somente a retirada do limite de 20 clínicas do
+Completar dia. O pacote contém o contrato `limite: null`, a solicitação e
+contagem na UI e seus testes/documentação. Preserva limites numéricos e padrão
+dos consumidores existentes, ranking, recorrência e todas as regras de viagem.
+
+A promoção parte do main atual e reaplica o patch do PR #445; não copia o
+arquivo Agenda inteiro de stage nem inclui mudanças paralelas de desempenho,
+Maps, Gestão, autenticação ou documentos que ainda não estejam em produção.
+O fluxo protegido usa PR direto `stage → main` com árvore temporária isolada,
+preservando o runtime público de stage e restaurando depois seus incrementos.
+Não há migração nem alteração de configuração operacional.
+
+A validação produtiva usa a agenda atual e estimativas já salvas, sem Google,
+reservas ou alteração de agendamentos. Registra total encontrado, itens
+retornados e compatibilidade com o prefixo de 20, sem exigir que a quantidade
+seja a mesma de 23/10. Publicação depende de workflow terminal e smoke próprio.
 
 ## Rollout e exclusões
 
