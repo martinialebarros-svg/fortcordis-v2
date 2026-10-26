@@ -292,3 +292,8 @@ Fontes primárias: [Chompoosan 2022](https://doi.org/10.1111/jsap.13472), [Perei
 
 - RF-106: os formularios novo/editar nao apresentam os antigos limites genericos E/TRIV<=2,5 e E/e′<=12 como referencias de normalidade ou pressao de enchimento para a especie Canina. A consulta depende da tecnica, sitio, populacao, ondas e contexto clinico descritos na aba Referencias; preservar valores, calculos, importacao e metadados.
 - CA-088: conferir ambos os formularios reais e a ausencia das quatro props de referencia generica. As medidas e suas derivacoes continuam identicas; texto da aba Referencias/PDF permanece por metodo e fonte. Verificar tipos/lint e testes pertinentes; teste visual autenticado em stage antes de producao.
+
+### Promoção clínica autorizada — 26/10/2026
+
+- Promover somente o incremento de referências diastólicas, reconfirmação e apresentação já validado em stage no SHA `786ad23236b6852d4714ce0074840a99edfb5003`. Preservar os 40 arquivos clínicos e de testes desse snapshot, sem transportar dados dos laudos sintéticos.
+- Publicação direta protegida `stage → main`, com verificação dos checks, SHA instalado, preservação dos arquivos de runtime e conferência do PDF em produção. Trabalho paralelo de Agenda, configuração e Vivid permanece preservado para stage; a infraestrutura fiscal e de isolamento dos ambientes já integrada não deve ser revertida.
