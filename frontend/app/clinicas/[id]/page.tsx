@@ -16,6 +16,7 @@ import { Save, ArrowLeft, Building2, Trash2, AlertTriangle, MapPin, DollarSign, 
 import ManualPinModal from "../components/ManualPinModal";
 import ClinicaPortalAccessCard from "../components/ClinicaPortalAccessCard";
 import WhatsappNumbersField from "../components/WhatsappNumbersField";
+import EnderecoFiscalCard from "../components/EnderecoFiscalCard";
 import {
   normalizarWhatsappsParaApi,
   prepararWhatsappsFormulario,
@@ -995,6 +996,8 @@ export default function EditarClinicaPage() {
               </div>
             )}
           </section>
+
+          <EnderecoFiscalCard clinicaId={Number.parseInt(clinicaId, 10)} />
 
           <ClinicaPortalAccessCard
             clinicaId={Number.parseInt(clinicaId, 10)}

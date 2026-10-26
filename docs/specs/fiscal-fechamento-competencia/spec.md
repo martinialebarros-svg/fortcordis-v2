@@ -35,3 +35,17 @@
 ## Rollback
 
 Migração aditiva com tabelas novas de pacotes e vínculo exclusivo por OS. Reversão da aplicação mantém tabelas e histórico inertes; não apagar pacotes durante rollback. Dados existentes não são reclassificados.
+
+## Endereço fiscal separado da localização (25/10/2026)
+
+- RF-12: endereço operacional, CEP, bairro, coordenadas, place_id, cache de geocoding, região e preços permanecem exclusivos do cadastro de localização. A gravação fiscal nunca consulta Maps/ViaCEP, aprende bairro ou recalcula rota/preço.
+- RF-13: `Clinica.endereco_fiscal` é um JSON opcional com o endereço completo do estabelecimento consultado: CNPJ, logradouro, número, complemento (admite vazio), bairro, cidade, UF, CEP e fonte HTTPS. Não inserir dados operacionais automaticamente neste objeto. A fonte é a página efetivamente consultada; não identificá-la como cartão oficial da Receita quando for uma base pública secundária.
+- RF-14: `PUT /clinicas/{id}/endereco-fiscal` autenticado segue o acesso existente ao cadastro de clínicas, recusa campos extras e exige CNPJ com DV válido e igual ao CNPJ persistido. Grava exclusivamente o JSON fiscal e auditoria (data UTC e usuário). Não aceita sobrescrever campos operacionais. O formulário separado em Editar clínica usa esta rota, exibindo erros na própria seção e sucesso somente após a confirmação do servidor.
+- RF-15: prévia mensal, semanal (domingo 17h Fortaleza) e por serviço usam o endereço fiscal completo quando cadastrado. Não misturar CEP/bairro/complemento operacional com o fiscal. Se o objeto fiscal estiver incompleto ou ligado a outro CNPJ, a OS fica pendente; não retornar silenciosamente ao endereço operacional. Sem objeto fiscal, manter o comportamento legado. PF não usa endereço fiscal de clínica e a exclusão manual de PF da seleção continua independente deste cadastro.
+- RF-16: XLSX e PDF recebem os mesmos campos fiscais; manifesto e snapshot registram origem, fonte e data de conferência do endereço. PDF identifica a origem. Pacotes anteriores e suas segundas vias permanecem imutáveis, inclusive após atualização do endereço fiscal.
+
+### Migração e operação
+
+Migração aditiva `20261025_100` cria a coluna JSON anulável sem backfill, sem alterar endereço operacional e sem inserir os dados pesquisados. Pode ser repetida sem apagar dados. Rollback da aplicação conserva a coluna e os pacotes históricos; não executar remoção de dados. A publicação deve aplicar a migração antes de iniciar o backend com o novo modelo.
+
+Os dez endereços pesquisados são dados operacionais privados do cliente e devem ser cadastrados separadamente por API autenticada após publicação autorizada e nova conferência de CNPJ/estabelecimento. Não embutir esses dados em migrações, fixtures ou no código. O pacote só usará a nova fonte após esta gravação; o código local validado não altera os endereços em produção.

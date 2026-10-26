@@ -119,6 +119,76 @@ class FiscalFechamentoTest(unittest.TestCase):
         self.assertEqual(previa["resumo"]["valor_apto"], Decimal("200.00"))
         self.assertEqual(previa["resumo"]["valor_total"], Decimal("600.00"))
 
+    def _endereco_fiscal(self, **changes):
+        payload = dict(cnpj="11222333000181", endereco="Rua Fiscal Sintética", numero="500", complemento="",
+                       bairro="Bairro Fiscal", cidade="Fortaleza", estado="CE", cep="60763730",
+                       fonte_url="https://example.test/cartao-cnpj", conferido_em="2026-10-25T10:00:00-03:00", conferido_por=7)
+        payload.update(changes)
+        self.db.get(Clinica, 1).endereco_fiscal = payload
+        self.db.commit()
+
+    def test_endereco_fiscal_no_zip_preserva_endereco_e_pin_operacionais(self):
+        from openpyxl import load_workbook
+        from pypdf import PdfReader
+        clinic = self.db.get(Clinica, 1)
+        clinic.latitude, clinic.longitude, clinic.place_id = -3.75, -38.5, "pin-operacional"
+        self.db.commit()
+        before = {c.name: getattr(clinic, c.name) for c in Clinica.__table__.columns if c.name not in {"endereco_fiscal", "updated_at"}}
+        self._endereco_fiscal()
+        self._os(1)
+        previa = fiscal.previa_fechamento(self.db, "2026-08")["items"][0]
+        self.assertTrue(previa["elegivel"])
+        self.assertEqual(previa["cliente_endereco"], "Rua Fiscal Sintética, 500")
+        self.assertEqual(previa["cliente_bairro"], "Bairro Fiscal")
+        self.assertEqual(previa["cliente_cep"], "60763730")
+        self.assertEqual(previa["cliente_endereco_origem"], "cadastro_cnpj")
+        with patch.object(fiscal_export_service, "_get_configuracao", return_value={}):
+            pacote = fiscal.preparar_fechamento(self.db, competencia="2026-08", os_ids=[1], chave_idempotencia=uuid4(), confirmar_datas_prestacao=True, usuario_id=7, usuario_nome="Fiscal")
+        with zipfile.ZipFile(io.BytesIO(pacote.pacote_bytes)) as archive:
+            manifest = json.loads(archive.read("manifesto.json"))
+            tomador = manifest["tomadores"][0]
+            self.assertEqual(tomador["cliente_cep"], "60763730")
+            self.assertEqual(tomador["cliente_endereco_fonte"], "https://example.test/cartao-cnpj")
+            workbook = load_workbook(io.BytesIO(archive.read("servicos_contador.xlsx")))
+            cells = [str(c.value) for sheet in workbook for row in sheet for c in row]
+            self.assertIn("60763730", cells)
+            self.assertNotIn("60000-000", cells)
+            pdf = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(archive.read("conferencia_contador.pdf"))).pages)
+            self.assertIn("Rua Fiscal Sintética", pdf)
+            self.assertIn("60763730", pdf)
+            self.assertNotIn("60000-000", pdf)
+        self.db.refresh(clinic)
+        self.assertEqual(before, {c.name: getattr(clinic, c.name) for c in Clinica.__table__.columns if c.name in before})
+        self.assertEqual(self.db.query(NotaFiscal).count(), 0)
+        # Uma mudança fiscal futura não reescreve a segunda via persistida.
+        old_bytes = pacote.pacote_bytes
+        self._endereco_fiscal(cep="60100100")
+        self.db.refresh(pacote)
+        self.assertEqual(pacote.pacote_bytes, old_bytes)
+        self.assertIn("60763730", pacote.snapshot_json)
+
+    def test_fiscal_incompleto_ou_cnpj_trocado_fica_pendente_sem_misturar_enderecos(self):
+        self._os(1)
+        for changes in ({"cep": ""}, {"cnpj": "12345678000195"}, {"complemento": "", "bairro": ""}):
+            self._endereco_fiscal(**changes)
+            row = fiscal.previa_fechamento(self.db, "2026-08")["items"][0]
+            self.assertFalse(row["elegivel"])
+            self.assertEqual(row["cliente_cep"], "")
+            self.assertEqual(row["cliente_endereco"], "")
+            self.assertIn("Endereço fiscal incompleto", row["motivos_pendencia"][0])
+            with self.assertRaises(fiscal.FiscalFechamentoError):
+                self._prepare([1])
+        self.assertEqual(self.db.query(FiscalFechamento).count(), 0)
+
+    def test_sem_endereco_fiscal_e_pf_preservam_contrato_anterior(self):
+        self._endereco_fiscal()
+        self._os(1, clinica_id=None)
+        self._os(2, clinica_id=2)
+        items = {r["os_id"]: r for r in fiscal.previa_fechamento(self.db, "2026-08")["items"]}
+        self.assertEqual(items[1]["cliente_endereco"], "Rua A, 20, Apto 1")
+        self.assertEqual(items[1]["cliente_endereco_origem"], "cadastro_operacional")
+        self.assertEqual(items[2]["cliente_endereco_origem"], "cadastro_operacional")
+
     def test_timezone_competencia_no_limite_e_naive_local(self):
         self.assertEqual(fiscal._data_local(datetime(2026, 9, 1, 2, 59, tzinfo=timezone.utc)).strftime("%Y-%m"), "2026-08")
         self.assertEqual(fiscal._data_local(datetime(2026, 9, 1, 3, 0, tzinfo=timezone.utc)).strftime("%Y-%m"), "2026-09")
