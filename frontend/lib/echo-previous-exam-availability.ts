@@ -19,7 +19,12 @@ const COPULA = String.raw`(?:e|esta|estao|foi|foram|era|eram|estava|estavam|sera
 const PARTICIPLE = String.raw`(?:realizad|apresentad|disponibilizad|localizad|fornecid|obtid|encontrad|acessad)[oa]s?`;
 const ACCESSIBLE = String.raw`(?:disponive(?:l|is)|acessive(?:l|is))`;
 const BEFORE = new RegExp(String.raw`\b(?:sem(?:\s+${OBJECT})?|nao\s+(?:(?:${POSSESSION}|${EXISTENCE})${OBJECT_SUFFIX}|${ABILITY}\s+(?:${ACTION}|${RESOURCE})|${COPULA}\s+possivel\s+(?:${ACTION}|${RESOURCE})|(?:${COPULA}\s+)?(?:${PARTICIPLE}|${ACCESSIBLE})${OBJECT_SUFFIX}))\s*$`);
-const AFTER = new RegExp(String.raw`^\s*(?:(?::|[-–—])\s*)?(?:indisponive(?:l|is)|ausentes?|nao(?:\s+${COPULA})?\s+(?:${ACCESSIBLE}|${PARTICIPLE}))\b`);
+const AFTER_PURPOSE = String.raw`para\s+(?:comparacao|consulta|revisao)`;
+const AFTER_TIME = String.raw`(?:ate\s+(?:o\s+)?momento|no\s+momento|atualmente)`;
+const AFTER_COMPLEMENT = String.raw`(?:\s+(?:${AFTER_PURPOSE}(?:\s+${AFTER_TIME})?|${AFTER_TIME}(?:\s+${AFTER_PURPOSE})?))?`;
+// A participle prefix may introduce a negated measurement, not an absent exam.
+// Accept only a complete availability predicate at a clause/sentence boundary.
+const AFTER = new RegExp(String.raw`^\s*(?:(?::|[-–—])\s*)?(?:indisponive(?:l|is)|ausentes?|nao(?:\s+${COPULA})?\s+(?:${ACCESSIBLE}|${PARTICIPLE}))\b${AFTER_COMPLEMENT}\s*(?=$|[.,;!?\r\n])`);
 
 function normalized(text: string): string {
   return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
