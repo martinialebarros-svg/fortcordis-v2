@@ -1,3 +1,4 @@
+import { isEchoNarrativeHypothetical, isPreviousExamUnavailable, withoutPreviousExamAvailabilityModal } from "./echo-previous-exam-availability";
 import { ambiguousEchoLengthKeys, echoLengthInMm } from "./echo-unit-provenance";
 
 export type EchoNumericNarrativeKey =
@@ -95,17 +96,13 @@ function historicalPassage(text: string): boolean {
   if (!previous) return false;
   const before = text.slice(0, previous.index);
   const after = text.slice(previous.index + previous[0].length);
-  // Match de + article in both contracted and expanded forms.
-  const unavailableBefore = /\b(?:sem(?:\s+(?:historico|historia)\s+d(?:e|[oa]s?))?|nao\s+(?:ha|houve|existe|consta|temos|dispomos\s+d(?:e|[oa]s?))(?:\s+(?:historico|historia)\s+d(?:e|[oa]s?))?)\s*(?:(?:os|as|o|a|um|uma)\s*)?$/.test(before)
-    || /\b(?:sem\s+acesso\s+(?:a|ao|aos|as)|nao\s+(?:foi|foram)\s+realizad[oa]s?|nao\s+(?:ha|houve|existe|consta)\s+registro\s+d(?:e|[oa]s?))\s*(?:(?:os|as|o|a|um|uma)\s*)?$/.test(before);
-  const unavailableAfter = /^\s*(?:indisponivel|ausente|nao\s+(?:disponivel|realizad[oa]|apresentad[oa]|localizad[oa]))\b/.test(after);
-  return !unavailableBefore && !unavailableAfter;
+  return !isPreviousExamUnavailable(before, after);
 }
 function reference(text: string): boolean {
   return /\b(?:referencias?|limites?|faixas?|intervalos?)\b/.test(text);
 }
 function hypothetical(text: string): boolean {
-  return /\b(?:hipotese|suspeita|possivel|possivelmente|poderia|poderiam|caso|quando|when)\b|(?:^|[\s(:,])se\s+/.test(text);
+  return isEchoNarrativeHypothetical(text);
 }
 function limitation(text: string): boolean {
   return /\b(?:desconsiderad|descartad|invalid|incorret|indeterminad|inconclusiv|limitad)[oa]s?\b|\bartefato\b|\ba\s+confirmar\b/.test(text)
@@ -146,6 +143,14 @@ function unqualifiedMatches(fragment: string, metric: Metric, headerMode: Writte
     const declaredMode = describedMode(part);
     if (declaredMode) narrativeMode = declaredMode;
     if (currentExam(part)) inheritedContext = false;
+    // A failed acquisition of the prior exam qualifies only this clause;
+    // "possível" here must not become an inherited hypothetical header.
+    const previous = PREVIOUS_EXAM.exec(part);
+    if (previous && isPreviousExamUnavailable(part.slice(0, previous.index), part.slice(previous.index + previous[0].length))) {
+      const hypothesis = withoutPreviousExamAvailabilityModal(part.slice(0, previous.index)) + part.slice(previous.index);
+      if (hypothetical(hypothesis)) inheritedContext = true;
+      continue;
+    }
     if (historicalPassage(part) || reference(part) || hypothetical(part)) inheritedContext = true;
     if (inheritedContext || historical(part) || relevantLimitation(part, metric)) continue;
     // The selected M/2D family still stores Teicholz EF. An explicitly named
