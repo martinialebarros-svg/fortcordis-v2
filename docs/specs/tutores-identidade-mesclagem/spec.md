@@ -92,3 +92,13 @@ colunas, defaults, PK, dados e indices nao relacionados. Migracao idempotente.
 Mesclagem automatica ou em massa, fusao de animais, transferencia real de
 titularidade, desfazer mesclagem automaticamente, verificacao externa de CPF,
 alteracao de regras ou destinatarios de WhatsApp, aplicacao em dados reais e release.
+
+## Publicacao autorizada em 2026-10-27
+
+O usuario solicitou publicar e confirmou o escopo **somente tutores**. A versao
+de release parte de main d65b60e2 e recebe apenas a implementacao de tutores.
+Painel de Gestao, novas referencias/coerencia eco e otimizacoes de sondas de
+configuracao permanecem exclusivos de stage. O snapshot f48220c6 e a branch
+codex/tutores-identidade-mesclagem preservam essas entregas para restauracao
+apos o PR direto stage -> main. Documentos historicos de baixo peso sao
+mantidos somente para integridade documental do guardrail, sem codigo ativo.
