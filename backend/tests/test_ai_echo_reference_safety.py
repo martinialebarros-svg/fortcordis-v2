@@ -3,6 +3,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -17,9 +18,12 @@ from app.models.referencia_eco import ReferenciaEco
 from app.services.ai_echo_context import (
     load_echo_reference_context, safe_measurement_context, safe_reference_context,
 )
+from app.services.echo_reference_resolver import load_echo_reference
 
 
 class AIEchoReferenceSafetyTest(unittest.TestCase):
+    LOW_WEIGHT_M_KEYS = {"DIVEd", "DIVES", "SIVd", "SIVs", "PLVEd", "PLVES"}
+
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:")
         ReferenciaEco.__table__.create(self.engine)
@@ -54,6 +58,79 @@ class AIEchoReferenceSafetyTest(unittest.TestCase):
         self.assertNotIn("catalog_ranges", serialized)
         self.assertNotIn("candidate_min", serialized)
         self.assertNotIn("required_measurement_value", serialized)
+
+    def test_adult_age_reaches_low_weight_loader_without_expanding_prompt_whitelist(self) -> None:
+        measurements = {key: "5" for key in self.LOW_WEIGHT_M_KEYS}
+        for species in ("Canina", "Felina", "Cão", "Dog", "Gato", "Cat"):
+            for weight in (1.5, 2.25, 2.99):
+                with self.subTest(species=species, weight=weight), patch(
+                    "app.services.ai_echo_context.load_echo_reference", wraps=load_echo_reference,
+                ) as resolver:
+                    before = dict(measurements)
+                    context = load_echo_reference_context(
+                        self.db, species=species, weight_kg=weight, age="2a",
+                        current_measurements=measurements,
+                    )
+                    self.assertEqual(resolver.call_args.kwargs["idade"], "2a")
+                    self.assertTrue(self.LOW_WEIGHT_M_KEYS.issubset(context["ranges"]))
+                    source_doi = ("10.3389/fvets.2022.918457" if context["species"] == "Canina"
+                                  else "10.1111/jvim.14569")
+                    for key in self.LOW_WEIGHT_M_KEYS:
+                        self.assertEqual(context["ranges"][key]["doi"], source_doi)
+                        self.assertIn("adult", context["ranges"][key]["population"])
+                    # Resolved display intervals are not an authorization to
+                    # expand the four-source clinical prompt contract.
+                    safe = safe_reference_context(
+                        context, current_measurements=measurements, species=species,
+                    )
+                    self.assertTrue(self.LOW_WEIGHT_M_KEYS.isdisjoint(safe["ranges"]))
+                    safe_values = safe_measurement_context(
+                        measurements, species=species, reference_context=context,
+                    )
+                    for key in self.LOW_WEIGHT_M_KEYS:
+                        self.assertNotIn("reference", safe_values[key])
+                    self.assertEqual(measurements, before)
+
+    def test_low_weight_unknown_juvenile_extrapolated_and_2d_ranges_stay_out_of_prompt(self) -> None:
+        for species in ("Canina", "Felina", "Dog", "Cat"):
+            for age, weight, technique in (
+                (None, 2.25, "modo_m"), ("idade incerta", 2.25, "modo_m"),
+                ("7m", 2.25, "modo_m"), ("2a", 1.0, "modo_m"),
+                ("2a", 2.25, "2d"),
+            ):
+                with self.subTest(species=species, age=age, weight=weight, technique=technique):
+                    measurements = {key: "5" for key in self.LOW_WEIGHT_M_KEYS}
+                    measurements["VE_tecnica_relatorio"] = technique
+                    before = dict(measurements)
+                    context = load_echo_reference_context(
+                        self.db, species=species, weight_kg=weight, age=age,
+                        current_measurements=measurements,
+                    )
+                    self.assertTrue(self.LOW_WEIGHT_M_KEYS.isdisjoint(context["ranges"]))
+                    safe = safe_reference_context(
+                        context, current_measurements=measurements, species=species,
+                    )
+                    self.assertTrue(self.LOW_WEIGHT_M_KEYS.isdisjoint(safe["ranges"]))
+                    self.assertEqual(measurements, before)
+
+    def test_age_aware_loader_preserves_the_four_published_prompt_sources(self) -> None:
+        cases = (
+            ("Canina", 10, {"DeltaD_FS": "40", "TAPSE": "12", "TAPSE_metodo": "modo_m_apical"},
+             {"DeltaD_FS": "10.1111/jvim.15562", "TAPSE": "10.1016/j.jvc.2014.10.003"}),
+            ("Felina", 4, {"DeltaD_FS": "40", "AE_Ao": "1.2",
+                            "AE_Ao_metodo": "2d_eixo_curto_diastole_inicial"},
+             {"DeltaD_FS": "10.1111/jvim.14569", "AE_Ao": "10.1111/jvim.14569"}),
+        )
+        for species, weight, measurements, expected in cases:
+            with self.subTest(species=species):
+                context = load_echo_reference_context(
+                    self.db, species=species, weight_kg=weight, age="2a",
+                    current_measurements=measurements,
+                )
+                safe = safe_reference_context(
+                    context, current_measurements=measurements, species=species,
+                )
+                self.assertEqual({key: value["doi"] for key, value in safe["ranges"].items()}, expected)
 
     def test_tapse_reference_requires_explicit_m_mode_apical_confirmation(self) -> None:
         for method in ("", "2d"):
