@@ -1,3 +1,5 @@
+import { lowWeightAgeContext } from "./echo-low-weight-reference";
+
 /** Visser et al. 2019, JVIM 33:1909-1920, Tables 1 and 2 (DOI 10.1111/jvim.15562). */
 export type Echo2DView = "eixo_curto" | "eixo_longo";
 
@@ -28,7 +30,10 @@ export function getCanine2DReference(
   key: string,
   weightKg: number | undefined,
   view: Echo2DView | "",
+  age?: unknown,
 ): Range | null {
+  // The confirmed adult acquisition must not override a known growth phase.
+  if (lowWeightAgeContext(age) === "juvenile") return null;
   if (!view || !Number.isFinite(weightKg) || weightKg === undefined || weightKg < 2.6 || weightKg > 67.8) {
     return null;
   }
@@ -48,8 +53,9 @@ export function calculateCanine2DNormalizedLVIDd(
   weightKg: number | null,
   view: Echo2DView | "",
   species: string,
+  age?: unknown,
 ): number | null {
   if (diameterMm === null || diameterMm <= 0 || !/^canin/i.test(species) ||
-      getCanine2DReference("DIVEd_normalizado_2D", weightKg ?? undefined, view) === null) return null;
+      getCanine2DReference("DIVEd_normalizado_2D", weightKg ?? undefined, view, age) === null) return null;
   return Number((diameterMm / 10 / (weightKg as number) ** 0.316).toFixed(2));
 }

@@ -4522,10 +4522,12 @@ def gerar_pdf_laudo(
 
             referencia_eco = None
             if paciente and paciente.especie and paciente.peso_kg and paciente.peso_kg > 0:
+                dados_paciente["peso"] = str(paciente.peso_kg)
                 try:
                     referencia_eco = load_echo_reference(
                         db, species=paciente.especie, weight_kg=paciente.peso_kg,
                         medidas=medidas,
+                        idade=dados_paciente.get("idade"),
                     )
                 except Exception as e:
                     db.rollback()
