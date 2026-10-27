@@ -316,6 +316,72 @@ class PdfLaudoLowWeightTest(unittest.TestCase):
         self.assertNotIn("Isayama", text)
         self.assertEqual(custom, original)
 
+    def test_model_sources_do_not_attribute_unmeasured_models_to_the_only_custom_dimension(self):
+        for species, weight, source, doi in (("Canina", 2.5, "Isayama", "10.3389/fvets.2022.918457"),
+                                             ("Felina", 2.25, "Häggström", "10.1111/jvim.14569")):
+            for key, prefix in KEYS.items():
+                for age in ("2 anos", None):
+                    with self.subTest(species=species, key=key, age=age):
+                        custom = {"especie": species, "peso_kg": weight,
+                                  f"{prefix}_min": 1, f"{prefix}_max": 99}
+                        original = deepcopy(custom)
+                        payload = report(species, weight, age, custom)
+                        payload["medidas"] = {"VE_tecnica_relatorio": "modo_m", key: MEASUREMENTS[key]}
+                        if species == "Felina":
+                            # Keep another bibliography source present so an
+                            # unused model cannot leak back through footnotes.
+                            payload["medidas"]["TAPSE"] = "9"
+                        _, text = pdf(payload)
+                        self.assertIn("1.00 - 99.00 mm", text)
+                        self.assertNotIn(source, text)
+                        self.assertNotIn(doi, text)
+                        self.assertNotIn("Adultos:", text)
+                        if species == "Felina":
+                            self.assertIn("Spalla et al. (2017)", text)
+                        self.assertEqual(custom, original)
+
+    def test_model_source_remains_when_another_measured_dimension_uses_its_model(self):
+        keys = list(KEYS)
+        for species, weight, doi in (("Canina", 2.5, "10.3389/fvets.2022.918457"),
+                                     ("Felina", 2.25, "10.1111/jvim.14569")):
+            for index, (key, prefix) in enumerate(KEYS.items()):
+                with self.subTest(species=species, key=key):
+                    model_key = keys[(index + 1) % len(keys)]
+                    custom = {"especie": species, "peso_kg": weight,
+                              f"{prefix}_min": 1, f"{prefix}_max": 99}
+                    payload = report(species, weight, reference=custom)
+                    payload["medidas"] = {"VE_tecnica_relatorio": "modo_m", key: MEASUREMENTS[key],
+                                            model_key: MEASUREMENTS[model_key]}
+                    _, text = pdf(payload)
+                    expected = reference(species, weight)
+                    self.assertIn("1.00 - 99.00 mm", text)
+                    self.assertIn(formatar_referencia(expected[KEYS[model_key] + "_min"],
+                                                     expected[KEYS[model_key] + "_max"], "mm"), text)
+                    self.assertIn(doi, text)
+                    self.assertIn("Tabela 2 de Isayama" if species == "Canina" else "interpolação entre os pesos", text)
+
+    def test_canine_source_requires_a_finite_unambiguous_applicable_measured_model(self):
+        for value in ("", "0", "nan"):
+            with self.subTest(value=value):
+                payload = report()
+                payload["medidas"] = {"VE_tecnica_relatorio": "modo_m", "DIVEd": value}
+                self.assertNotIn("Isayama", pdf(payload)[1])
+        ambiguous = report()
+        ambiguous["medidas"] = {"VE_tecnica_relatorio": "modo_m", "DIVEd": "1.2",
+                                  "DIVES": "0.7", "SIVd": "0.4"}
+        _, text = pdf(ambiguous)
+        self.assertIn("unidade a confirmar", text.lower())
+        self.assertNotIn("Isayama", text)
+        for weight, age, marker in ((2.5, None, "Adultos:"), (1, "2 anos", "Est.:")):
+            with self.subTest(weight=weight, age=age):
+                _, text = pdf(report(weight=weight, age=age))
+                self.assertIn(marker, text)
+                self.assertIn("10.3389/fvets.2022.918457", text)
+        self.assertNotIn("Isayama", pdf(report(age="7m"))[1])
+        two_d = report()
+        two_d["medidas"].update({"VE_tecnica_relatorio": "2d", "DIVEd_2D": "22"})
+        self.assertNotIn("Isayama", pdf(two_d)[1])
+
     def test_2d_does_not_receive_the_m_fallback_or_extend_visser_below_its_domain(self):
         for weight in (2.7, 2.5):
             payload = report(weight=weight)

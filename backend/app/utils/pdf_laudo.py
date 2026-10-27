@@ -1124,6 +1124,26 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
     ))
     tapse = _to_float(medidas.get("TAPSE")) is not None
     mapse = _to_float(medidas.get("MAPSE")) is not None
+    medidas_m = [(chave, prefixo) for chave, prefixo in MAPEAMENTO_REFERENCIA_ECO.items()
+                 if prefixo in LOW_WEIGHT_PREFIXES]
+    metadados_m = referencia.get("range_metadata", {})
+
+    def _medida_m_exibida(chave: str) -> bool:
+        valor = _to_float(medidas.get(chave))
+        return (modo_m and chave not in (dados_pdf.get("unidades_ambiguas") or set())
+                and valor is not None and math.isfinite(valor) and valor > 0)
+
+    def _modelo_m_exibido(chave: str, prefixo: str, doi: str) -> bool:
+        metadata = metadados_m.get(prefixo, {})
+        status = metadata.get("status")
+        if (metadata.get("doi") != doi or status not in {"published", "estimated"}
+                or not _medida_m_exibida(chave)):
+            return False
+        limites = (metadata.get("estimate_min"), metadata.get("estimate_max")) if status == "estimated" else (
+            referencia.get(f"{prefixo}_min"), referencia.get(f"{prefixo}_max"))
+        inferior, superior = (_to_float(limite) for limite in limites)
+        return (inferior is not None and superior is not None
+                and math.isfinite(inferior) and math.isfinite(superior) and 0 < inferior < superior)
 
     estudos: List[str] = []
     if referencia and especie == "Canina":
@@ -1133,9 +1153,8 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
                 "and function in 122 healthy dogs. DOI: 10.1111/jvim.15562."
             )
         if tem_modo_m:
-            if any(referencia.get("range_metadata", {}).get(prefix, {}).get("doi") == "10.3389/fvets.2022.918457"
-                   and referencia.get("range_metadata", {}).get(prefix, {}).get("status") in {"published", "estimated"}
-                   for prefix in LOW_WEIGHT_PREFIXES):
+            if any(_modelo_m_exibido(chave, prefixo, "10.3389/fvets.2022.918457")
+                   for chave, prefixo in medidas_m):
                 estudos.append(
                     "Isayama et al. (2022). Reference Values of M-mode Echocardiographic Parameter in Adult Toy Breed Dogs. "
                     "Limites alométricos aproximados da Tabela 2, calculados pelo peso. DOI: 10.3389/fvets.2022.918457."
@@ -1165,31 +1184,12 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
                 "and dogs with cardiac disease. DOI: 10.1111/j.1740-8261.2001.tb00904.x."
             )
     elif referencia and especie == "Felina":
-        medidas_m = [(chave, prefixo) for chave, prefixo in MAPEAMENTO_REFERENCIA_ECO.items()
-                     if prefixo in LOW_WEIGHT_PREFIXES]
-        metadados_m = referencia.get("range_metadata", {})
-
-        def _modelo_m_felino_exibido(chave: str, prefixo: str) -> bool:
-            metadata = metadados_m.get(prefixo, {})
-            status = metadata.get("status")
-            valor = _to_float(medidas.get(chave))
-            if (metadata.get("doi") != "10.1111/jvim.14569"
-                    or status not in {"published", "estimated"}
-                    or chave in (dados_pdf.get("unidades_ambiguas") or set())
-                    or valor is None or not math.isfinite(valor) or valor <= 0):
-                return False
-            limites = (metadata.get("estimate_min"), metadata.get("estimate_max")) if status == "estimated" else (
-                referencia.get(f"{prefixo}_min"), referencia.get(f"{prefixo}_max"))
-            inferior, superior = (_to_float(limite) for limite in limites)
-            return (inferior is not None and superior is not None
-                    and math.isfinite(inferior) and math.isfinite(superior) and 0 < inferior < superior)
-
         tem_modelo_m = any(metadados_m.get(prefixo, {}).get("model_weight_kg") is not None
                            for _, prefixo in medidas_m)
         # The new carrier alone does not make an adult source applicable.
         # Preserve the pre-existing bibliography contract for legacy catalogs.
         tem_fonte_m = tem_modo_m and (not tem_modelo_m or any(
-            _modelo_m_felino_exibido(chave, prefixo) for chave, prefixo in medidas_m))
+            _modelo_m_exibido(chave, prefixo, "10.1111/jvim.14569") for chave, prefixo in medidas_m))
         la_ao_metadata = referencia.get("range_metadata", {}).get("la_ao", {})
         if (tem_fonte_m or (modo_m and referencia.get("fs_source") and _to_float(medidas.get("DeltaD_FS")) is not None)
                 or (la_ao_metadata.get("status") == "published" and _to_float(medidas.get("AE_Ao")) is not None)):
@@ -1269,7 +1269,11 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
     elementos.append(Paragraph("REFERÊNCIAS BIBLIOGRÁFICAS", styles["ReferenciaTitulo"]))
     elementos.extend(Paragraph(_esc(estudo.replace("&amp;", "&")), styles["ReferenciaTexto"]) for estudo in estudos)
     if referencia.get("reference_origin") == "computed" and tem_modo_m:
-        model_metadata = [referencia.get("range_metadata", {}).get(prefix, {}) for prefix in LOW_WEIGHT_PREFIXES]
+        model_metadata = [metadados_m.get(prefixo, {}) for chave, prefixo in medidas_m
+                          if any(_modelo_m_exibido(chave, prefixo, doi)
+                                 for doi in ("10.3389/fvets.2022.918457", "10.1111/jvim.14569"))]
+        measured_metadata = [metadados_m.get(prefixo, {}) for chave, prefixo in medidas_m
+                             if _medida_m_exibida(chave)]
         notes = []
         if any(meta.get("calculation") == "allometric" and meta.get("status") in {"published", "estimated"} for meta in model_metadata):
             notes.append("Dimensões em modo M: limites alométricos aproximados calculados para o peso real, a partir da Tabela 2 de Isayama et al. (2022).")
@@ -1279,7 +1283,7 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
             notes.append("* Est.: estimativa por extrapolação abaixo de 1,5 kg; não constitui intervalo individual validado e não permite classificação automática.")
         if any(meta.get("estimate_context") == "age_unconfirmed" for meta in model_metadata):
             notes.append("* Adultos: limites publicados para adultos, apenas para consulta; confirmar idade/maturidade antes de aplicar ao paciente.")
-        if any(meta.get("status") == "unavailable" and meta.get("model_weight_kg") for meta in model_metadata):
+        if any(meta.get("status") == "unavailable" and meta.get("model_weight_kg") for meta in measured_metadata):
             notes.append("Referência de adultos não aplicada a paciente em crescimento; sem referência pediátrica reconciliada.")
         notes.append("Interpretar dimensões e espessuras em conjunto com morfologia, técnica e demais achados; os limites não são cortes diagnósticos isolados.")
         elementos.extend(Paragraph(_esc(note), styles["ReferenciaTexto"]) for note in notes)

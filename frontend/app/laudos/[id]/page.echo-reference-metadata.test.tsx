@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import VisualizarLaudoPage from "./page";
@@ -189,6 +189,7 @@ describe("referências diastólicas no visualizador do laudo salvo", () => {
     mocks.get.mockResolvedValue({ data });
     render(<VisualizarLaudoPage />);
     await screen.findByRole("heading", { name: "Medidas Ecocardiográficas" });
+    await waitFor(() => expect(mocks.buscarReferencia).toHaveBeenCalledWith(species, weight, age));
     const cell = reference("DIVEd · diâmetro interno do VE em diástole");
     expect(cell).toHaveTextContent(expected);
     expect(cells("DIVEd · diâmetro interno do VE em diástole")[1]).toHaveTextContent("20.00 mm");
