@@ -82,3 +82,35 @@ pendente e continuam podendo ser agendados conforme as regras existentes.
   1280 OS, 1270 transacoes e 5 movimentos de credito.
 - Preservacao de runtime revisada em deploy_prod_vps.sh: backup antes do reset,
   restauracao dos JSONs runtime e SQLite, migracao antes do restart e drill.
+
+## Stage publicado — 2026-10-27
+
+- PR #504, SHA 86663a16be13ceba3e5e1c8733228fd485c139e2: workflow
+  40528528274 concluiu success (quality-gate, SDD, deploy e todos os canarios).
+- Logs confirmaram preservacao/restauracao dos seis arquivos runtime, aplicacao
+  da migracao 20261027_102, MIGRATIONS_OK e backup restore drill OK. O sync de
+  presets informou nenhuma alteracao necessaria. Meta de stage permaneceu off.
+- Metadados reais de stage: quatro colunas novas presentes, historico criado,
+  RLS ativo e zero mesclagens operacionais.
+- 12 testes do contrato instalado passaram em schemas descartaveis exclusivos
+  de QA. A primeira tentativa encontrou a opcao search_path ignorada pelo
+  pooler e parou em CREATE TABLE sem inserir dados; 12 schemas vazios removidos.
+  A versao corrigida conferiu current_schema antes de operar em cada conexao,
+  usou NullPool e limpou todos os schemas ao final. Nenhum dado real modificado.
+- Smoke publico: stage.fortcordis.com.br e www.stage.fortcordis.com.br 200;
+  /tutores redireciona ao login (307); /api/v1/tutores sem credenciais 401.
+  Health interno 8001/health 200. Os nove chunks servidos pelo dominio app
+  retornaram 200 e incluem Confirmar mesclagem, /tutores/mesclagens/previa,
+  token_previa e identificacao_pendente. Rotulo Unicode escapado foi conferido
+  pelo contrato ASCII, sem concluir ausencia a partir da codificacao do bundle.
+- Snapshot isolado final: 2299 testes backend sem falhas (104 pulos opcionais),
+  1462 Vitest e 23 Node; lint, tipos e build aprovados. A rodada completa da
+  restauracao de stage passou 1753 Vitest e 23 Node apos corrigir apenas a espera
+  do teste de comparacao, sem codigo clinico alterado.
+- Backup privado PostgreSQL de producao concluido e catalogo validado antes da
+  promocao, mantido na VPS com permissao 0600; 1611075421 bytes, 1767 entradas.
+- PR direto #505 stage -> main, sem excecoes aos gates, merge commit
+  375611de58b30d9ecec9fb60273d009bbb7436e9. Deploy de producao em acompanhamento.
+- PR #506 prepara a restauracao exclusiva de stage do snapshot f48220c6, com
+  tutores preservados e main como ancestral. A outra tarefa de laudos foi
+  avisada com autorizacao humana conferida; aguarda liberacao do SHA restaurado.
