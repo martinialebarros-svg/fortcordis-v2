@@ -1591,6 +1591,9 @@ def _resolver_tutor_paciente(db: Session, paciente_id: int) -> Optional[int]:
     paciente = db.query(Paciente).filter(Paciente.id == paciente_id).first()
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente nao encontrado.")
+    if paciente.tutor_id:
+        from app.services.tutor_identidade_service import exigir_tutor_utilizavel
+        exigir_tutor_utilizavel(db, paciente.tutor_id)
     return paciente.tutor_id
 
 

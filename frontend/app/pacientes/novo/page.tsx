@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import TutorIdentificacaoFields from "@/components/TutorIdentificacaoFields";
 import {
   formatarCepVisual,
   formatarCpfVisual,
@@ -25,6 +26,9 @@ export default function NovoPacientePage() {
   const [loading, setLoading] = useState(false);
   const [paciente, setPaciente] = useState({
     tutor_id: "",
+    tutor_identificacao_pendente: true,
+    tutor_origem_cadastro: "",
+    tutor_identificacao_observacoes: "",
     nome: "",
     tutor: "",
     tutor_email: "",
@@ -172,6 +176,16 @@ export default function NovoPacientePage() {
           </div>
 
           <div className="fc-patient-form-grid">
+            <TutorIdentificacaoFields value={{
+              identificacao_pendente: paciente.tutor_identificacao_pendente,
+              origem_cadastro: paciente.tutor_origem_cadastro,
+              identificacao_observacoes: paciente.tutor_identificacao_observacoes,
+            }} onChange={(value) => setPaciente((prev) => ({ ...prev,
+              tutor_identificacao_pendente: value.identificacao_pendente,
+              tutor_origem_cadastro: value.origem_cadastro,
+              tutor_identificacao_observacoes: value.identificacao_observacoes,
+            }))} />
+
             {paciente.tutor_id && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">

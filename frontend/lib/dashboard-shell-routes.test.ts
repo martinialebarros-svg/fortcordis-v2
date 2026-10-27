@@ -8,6 +8,7 @@ describe("dashboard shell routes", () => {
     expect(usesDashboardShell("/atendimento")).toBe(true);
     expect(usesDashboardShell("/laudos/42/editar")).toBe(true);
     expect(usesDashboardShell("/financeiro/frota")).toBe(true);
+    expect(usesDashboardShell("/tutores")).toBe(true);
   });
 
   it("does not mount the authenticated shell for public or similarly named routes", () => {

@@ -907,6 +907,9 @@ def _validar_regras_origem_agendamento(
     agendamento.origem_atendimento = origem
 
     tutor = _resolver_tutor_agendamento(db, agendamento)
+    if getattr(agendamento, "tutor_id", None):
+        from app.services.tutor_identidade_service import exigir_tutor_utilizavel
+        tutor = exigir_tutor_utilizavel(db, agendamento.tutor_id)
     if tutor and not getattr(agendamento, "tutor_id", None):
         agendamento.tutor_id = tutor.id
 

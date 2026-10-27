@@ -1,20 +1,24 @@
-from datetime import datetime
+from datetime import datetime, timezone
+import json
 import math
 import re
 import unicodedata
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import String, cast, func, inspect, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_papel
 from app.db.database import get_db
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.user import User
+from app.models.tutor_mesclagem import TutorMesclagem
+from app.services.tutor_identidade_service import exigir_tutor_utilizavel
+from app.services.tutor_mesclagem_service import obter_previa, mesclar
 from app.services.geocoding_service import GeocodingError, geocodificar_endereco_google, montar_endereco_completo
 from app.core.config import settings
 
@@ -23,7 +27,7 @@ router = APIRouter()
 
 def _filtro_tutor_ativo():
     """Compatibilidade com registros legados onde `ativo` ficou NULL/texto."""
-    return func.lower(func.coalesce(cast(Tutor.ativo, String), "1")).in_(["1", "true", "t"])
+    return (func.lower(func.coalesce(cast(Tutor.ativo, String), "1")).in_(["1", "true", "t"]) & Tutor.mesclado_em_id.is_(None))
 
 
 def _gerar_nome_key(nome: Optional[str]) -> str:
@@ -111,6 +115,10 @@ def _serialize_tutor(tutor: Tutor) -> dict:
     return {
         "id": tutor.id,
         "nome": tutor.nome,
+        "identificacao_pendente": tutor.identificacao_pendente,
+        "origem_cadastro": tutor.origem_cadastro,
+        "identificacao_observacoes": tutor.identificacao_observacoes,
+        "mesclado_em_id": tutor.mesclado_em_id,
         "telefone": tutor.telefone,
         "whatsapp": tutor.whatsapp,
         "email": tutor.email,
@@ -135,7 +143,12 @@ def _serialize_tutor_lista_item(tutor: Tutor) -> dict:
     return {
         "id": tutor.id,
         "nome": tutor.nome,
+        "identificacao_pendente": tutor.identificacao_pendente,
+        "origem_cadastro": tutor.origem_cadastro,
+        "identificacao_observacoes": tutor.identificacao_observacoes,
+        "mesclado_em_id": tutor.mesclado_em_id,
         "telefone": tutor.telefone,
+        "whatsapp": tutor.whatsapp,
         "email": tutor.email,
         "endereco": tutor.endereco,
         "numero": tutor.numero,
@@ -154,7 +167,10 @@ def _serialize_tutor_lista_item(tutor: Tutor) -> dict:
 
 
 class TutorCreate(BaseModel):
-    nome: str
+    nome: str = Field(min_length=1)
+    identificacao_pendente: bool = True
+    origem_cadastro: Optional[str] = None
+    identificacao_observacoes: Optional[str] = None
     confirmar_reativacao: bool = False
     telefone: Optional[str] = None
     whatsapp: Optional[str] = None
@@ -175,6 +191,9 @@ class TutorCreate(BaseModel):
 
 class TutorUpdate(BaseModel):
     nome: Optional[str] = None
+    identificacao_pendente: Optional[bool] = None
+    origem_cadastro: Optional[str] = None
+    identificacao_observacoes: Optional[str] = None
     telefone: Optional[str] = None
     whatsapp: Optional[str] = None
     email: Optional[str] = None
@@ -228,6 +247,7 @@ def listar_tutores(
                 Tutor.nome.ilike(f"%{termo_escapado}%", escape="\\"),
                 Tutor.telefone.ilike(f"%{termo_escapado}%", escape="\\"),
                 Tutor.whatsapp.ilike(f"%{termo_escapado}%", escape="\\"),
+                Tutor.origem_cadastro.ilike(f"%{termo_escapado}%", escape="\\"),
                 Tutor.email.ilike(f"%{termo_escapado}%", escape="\\"),
                 Tutor.cidade.ilike(f"%{termo_escapado}%", escape="\\"),
             ]
@@ -269,7 +289,7 @@ def listar_tutores(
     )
 
     items_serializados = [_serialize_tutor_lista_item(tutor) for tutor in items]
-    if busca and items_serializados:
+    if items_serializados:
         tutor_ids = [item["id"] for item in items_serializados]
         pets_por_tutor: dict[int, list[dict[str, object]]] = {
             tutor_id: [] for tutor_id in tutor_ids
@@ -306,63 +326,17 @@ def criar_tutor(
     nome = tutor.nome.strip()
     nome_key = _gerar_nome_key(nome)
 
-    # Evita colisão no índice único de nome_key.
-    existente = db.query(Tutor).filter(Tutor.nome_key == nome_key).first()
-    if not existente:
-        existente = db.query(Tutor).filter(Tutor.nome.ilike(nome)).first()
-
-    if existente:
-        if existente.ativo != 1:
-            if not tutor.confirmar_reativacao:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail={
-                        "codigo": "TUTOR_INATIVO_EXISTENTE",
-                        "mensagem": "Ja existe um tutor inativo com este nome. Confirme a reativacao para reutilizar o cadastro.",
-                        "tutor": {"id": existente.id, "nome": existente.nome},
-                    },
-                )
-
-            # Um novo cadastro com o mesmo nome deve ser uma decisao explicita de
-            # reativacao; nao reutilize silenciosamente um registro arquivado.
-            existente.ativo = 1
-            for campo in (
-                "telefone",
-                "whatsapp",
-                "email",
-                "cpf",
-                "cep",
-                "endereco",
-                "numero",
-                "complemento",
-                "bairro",
-                "cidade",
-                "estado",
-                "latitude",
-                "longitude",
-                "place_id",
-                "endereco_normalizado",
-            ):
-                valor = getattr(tutor, campo)
-                if valor is not None and valor != "":
-                    setattr(existente, campo, valor)
-
-            db.commit()
-            db.refresh(existente)
-            return {
-                **_serialize_tutor(existente),
-                "message": "Tutor reativado com sucesso",
-            }
-
-        return {
-            "id": existente.id,
-            "nome": existente.nome,
-            "message": "Tutor já existe"
-        }
+    if not nome:
+        raise HTTPException(422, "Informe o nome do tutor.")
+    if tutor.confirmar_reativacao:
+        raise HTTPException(422, "Reative explicitamente pelo ID; o nome nao identifica uma pessoa.")
 
     novo_tutor = Tutor(
         nome=nome,
         nome_key=nome_key,
+        identificacao_pendente=tutor.identificacao_pendente,
+        origem_cadastro=tutor.origem_cadastro,
+        identificacao_observacoes=tutor.identificacao_observacoes,
         telefone=tutor.telefone,
         whatsapp=tutor.whatsapp or tutor.telefone,
         email=tutor.email,
@@ -388,21 +362,73 @@ def criar_tutor(
         db.refresh(novo_tutor)
     except IntegrityError:
         db.rollback()
-        existente = db.query(Tutor).filter(Tutor.nome_key == nome_key).first()
-        if not existente:
-            existente = db.query(Tutor).filter(Tutor.nome.ilike(nome)).first()
-        if existente:
-            return {
-                "id": existente.id,
-                "nome": existente.nome,
-                "message": "Tutor já existe"
-            }
-        raise HTTPException(status_code=500, detail="Erro ao criar tutor")
+        raise HTTPException(409, "Nao foi possivel criar um cadastro separado. Verifique se a migracao de homonimos foi aplicada.")
 
     return {
         **_serialize_tutor(novo_tutor),
         "message": "Tutor criado com sucesso"
     }
+
+
+class MesclagemPreviaPayload(BaseModel):
+    principal_id: int = Field(gt=0)
+    secundario_id: int = Field(gt=0)
+
+
+class MesclagemPayload(MesclagemPreviaPayload):
+    token_previa: str = Field(min_length=64, max_length=64)
+    escolhas: dict[str, str] = Field(default_factory=dict)
+    motivo: str = Field(min_length=5, max_length=2000)
+    confirmar: bool = False
+
+
+@router.post("/mesclagens/previa")
+def previa_mesclagem(payload: MesclagemPreviaPayload, db: Session = Depends(get_db),
+                    current_user: User = Depends(require_papel("admin"))):
+    return obter_previa(db, payload.principal_id, payload.secundario_id)
+
+
+@router.post("/mesclagens")
+def confirmar_mesclagem(payload: MesclagemPayload, db: Session = Depends(get_db),
+                       current_user: User = Depends(require_papel("admin"))):
+    return mesclar(db, payload, current_user)
+
+
+@router.get("/{tutor_id}/mesclagens")
+def historico_mesclagens(tutor_id: int, db: Session = Depends(get_db),
+                        current_user: User = Depends(require_papel("admin"))):
+    # A -> B -> C deve manter visivel tambem a mesclagem original de A.
+    ids = {tutor_id}
+    while True:
+        rows = db.query(TutorMesclagem).filter(or_(TutorMesclagem.principal_id.in_(ids),
+                                                 TutorMesclagem.secundario_id.in_(ids))).order_by(TutorMesclagem.id.desc()).all()
+        relacionados = ids | {r.principal_id for r in rows} | {r.secundario_id for r in rows}
+        if relacionados == ids:
+            break
+        ids = relacionados
+    return {"items": [{"id": r.id, "principal_id": r.principal_id, "secundario_id": r.secundario_id,
+                       "usuario_id": r.usuario_id, "usuario_nome": r.usuario_nome, "motivo": r.motivo,
+                       "created_at": r.created_at.replace(tzinfo=r.created_at.tzinfo or timezone.utc).isoformat(),
+                       "detalhes": json.loads(r.detalhes_json)} for r in rows]}
+
+
+class ReativacaoPayload(BaseModel):
+    confirmar: bool = False
+
+
+@router.post("/{tutor_id}/reativar")
+def reativar_tutor(tutor_id: int, payload: ReativacaoPayload, db: Session = Depends(get_db),
+                   current_user: User = Depends(get_current_user)):
+    tutor = db.query(Tutor).filter(Tutor.id == tutor_id).populate_existing().with_for_update().first()
+    if not tutor:
+        raise HTTPException(404, "Tutor nao encontrado.")
+    if tutor.mesclado_em_id:
+        raise HTTPException(409, "Cadastro mesclado nao pode ser reativado.")
+    if not payload.confirmar:
+        raise HTTPException(422, "Confirme a reativacao deste ID.")
+    tutor.ativo = 1
+    db.commit()
+    return {**_serialize_tutor(tutor), "message": "Tutor reativado com sucesso"}
 
 
 @router.get("/{tutor_id}")
@@ -516,10 +542,12 @@ def atualizar_tutor(
 ):
     """Atualiza um tutor existente."""
     _ensure_tutores_georef_columns(db)
-    db_tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first()
-
-    if not db_tutor:
-        raise HTTPException(status_code=404, detail="Tutor não encontrado")
+    db_tutor = exigir_tutor_utilizavel(db, tutor_id)
+    for campo in ("identificacao_pendente", "origem_cadastro", "identificacao_observacoes"):
+        if getattr(tutor, campo) is not None:
+            setattr(db_tutor, campo, getattr(tutor, campo))
+    if tutor.nome is not None and not tutor.nome.strip():
+        raise HTTPException(422, "Informe o nome do tutor.")
 
     if tutor.nome is not None:
         db_tutor.nome = tutor.nome

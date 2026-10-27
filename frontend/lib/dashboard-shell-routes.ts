@@ -10,6 +10,7 @@ const dashboardShellRoutePrefixes = [
   "/laudos",
   "/logistica",
   "/pacientes",
+  "/tutores",
   "/referencias-eco",
   "/relatorios",
   "/servicos",
