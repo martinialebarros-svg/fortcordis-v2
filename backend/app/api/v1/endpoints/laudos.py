@@ -2982,6 +2982,8 @@ def obter_laudo(
     idade = extrair_idade_paciente(
         paciente.nascimento if paciente else None,
         paciente.observacoes if paciente else None,
+        **({"data_referencia": laudo.data_exame or laudo.data_laudo}
+           if (laudo.tipo or "").lower() == "ecocardiograma" else {}),
     )
     
     # Buscar nome da clínica
@@ -4411,6 +4413,8 @@ def gerar_pdf_laudo(
         idade = extrair_idade_paciente(
             paciente.nascimento if paciente else None,
             paciente.observacoes if paciente else None,
+            **({"data_referencia": laudo.data_exame or laudo.data_laudo}
+               if (laudo.tipo or "").lower() == "ecocardiograma" else {}),
         )
 
         dados_paciente = {

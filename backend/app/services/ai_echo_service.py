@@ -647,7 +647,11 @@ def _process_structure(
             else None
         )
         patient_age = (
-            extrair_idade_paciente(patient.nascimento, patient.observacoes)
+            extrair_idade_paciente(
+                patient.nascimento, patient.observacoes,
+                **({"data_referencia": report.data_exame or report.data_laudo}
+                   if report and (report.tipo or "").lower() == "ecocardiograma" else {}),
+            )
             if patient else None
         ) or None
         reference_context = load_echo_reference_context(

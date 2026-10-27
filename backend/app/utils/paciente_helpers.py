@@ -20,7 +20,23 @@ def normalizar_sexo_paciente(sexo: Any) -> str:
     return str(sexo or "").strip()
 
 
-def extrair_idade_paciente(nascimento: Any, observacoes: Any) -> str:
+def extrair_idade_paciente(
+    nascimento: Any, observacoes: Any, *, data_referencia: Any = None,
+) -> str:
+    referencia = date.today()
+    if data_referencia is not None:
+        try:
+            if isinstance(data_referencia, datetime):
+                referencia = data_referencia.date()
+            elif isinstance(data_referencia, date):
+                referencia = data_referencia
+            else:
+                referencia = datetime.fromisoformat(str(data_referencia).strip().replace("Z", "+00:00")).date()
+        except (TypeError, ValueError, OverflowError):
+            return ""
+        if referencia > date.today():
+            return ""
+
     if nascimento:
         try:
             if isinstance(nascimento, datetime):
@@ -30,8 +46,13 @@ def extrair_idade_paciente(nascimento: Any, observacoes: Any) -> str:
             else:
                 data_nascimento = datetime.strptime(str(nascimento), "%Y-%m-%d").date()
 
-            hoje = date.today()
-            meses = (hoje.year - data_nascimento.year) * 12 + hoje.month - data_nascimento.month
+            if data_referencia is not None and referencia < data_nascimento:
+                return ""
+            meses = (referencia.year - data_nascimento.year) * 12 + referencia.month - data_nascimento.month
+            # Historical studies require completed months; never turn the day
+            # before the first birthday into an adult reference automatically.
+            if data_referencia is not None and referencia.day < data_nascimento.day:
+                meses -= 1
             if meses < 12:
                 return f"{meses}m"
 
