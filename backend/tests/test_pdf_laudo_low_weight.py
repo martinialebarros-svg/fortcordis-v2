@@ -214,6 +214,72 @@ class PdfLaudoLowWeightTest(unittest.TestCase):
         for prefix in KEYS.values():
             self.assertNotIn(formatar_referencia(carrier[f"{prefix}_min"], carrier[f"{prefix}_max"], "mm"), juvenile)
 
+    def test_feline_juvenile_computed_carrier_does_not_cite_unused_adult_m_source(self):
+        for species in ("Felina", "Cat"):
+            for weight in (1, 2.25, 2.99):
+                for stale_carrier in (False, True):
+                    with self.subTest(species=species, weight=weight, stale_carrier=stale_carrier):
+                        carrier = reference(species, weight) if stale_carrier else None
+                        _, text = pdf(report(species, weight, "7m", carrier))
+                        self.assertNotIn("Häggström", text)
+                        self.assertNotIn("10.1111/jvim.14569", text)
+                        self.assertNotIn("interpolação entre os pesos", text)
+                        self.assertNotIn("Est.:", text)
+                        self.assertNotIn("Adultos:", text)
+                        self.assertIn("20.00 mm", text)
+                        self.assertIn("Texto oficial sintetico preservado.", text)
+
+    def test_feline_computed_source_remains_for_applied_bounds_and_neutral_estimates(self):
+        for weight, age, marker in ((2.25, "2 anos", "interpolação"),
+                                    (2.25, None, "Adultos:"),
+                                    (1, "2 anos", "Est.:"), (1, None, "Est.:")):
+            with self.subTest(weight=weight, age=age):
+                _, text = pdf(report("Felina", weight, age))
+                self.assertIn("Häggström et al. (2016)", text)
+                self.assertIn("10.1111/jvim.14569", text)
+                self.assertIn(marker, text)
+
+    def test_feline_computed_m_source_requires_an_actually_displayed_reference(self):
+        for value in ("", "0", "nan"):
+            with self.subTest(value=value):
+                payload = report("Felina", 2.25)
+                payload["medidas"] = {"VE_tecnica_relatorio": "modo_m", "DIVEd": value}
+                _, text = pdf(payload)
+                self.assertNotIn("Häggström", text)
+                self.assertNotIn("10.1111/jvim.14569", text)
+        ambiguous = report("Felina", 2.25)
+        ambiguous["medidas"] = {"VE_tecnica_relatorio": "modo_m", "DIVEd": "1.2",
+                                  "DIVES": "0.7", "SIVd": "0.4"}
+        _, text = pdf(ambiguous)
+        self.assertIn("unidade a confirmar", text.lower())
+        self.assertNotIn("Häggström", text)
+
+    def test_feline_juvenile_m_source_does_not_remove_other_marker_bibliography(self):
+        payload = report("Felina", 2.25, "7m")
+        payload["medidas"].update({"TAPSE": "9", "MAPSE": "6", "AE_diametro_max": "14",
+                                    "AE_diametro_min": "10", "Fluxo_auricular": "0.2",
+                                    "Vmax_aorta": "0.9", "Vmax_pulmonar": "0.8"})
+        _, text = pdf(payload)
+        self.assertNotIn("Häggström", text)
+        for source in ("Spalla et al. (2017)", "Fuentes et al. (2020)", "Schober et al. (2006)",
+                       "Kochie et al. (2021)", "Domanjko Petric et al. (2012)"):
+            self.assertIn(source, text)
+
+    def test_feline_legacy_catalog_and_published_fs_ae_ao_sources_remain_independent(self):
+        legacy = report("Felina", 4)
+        legacy["referencia_eco"] = {"especie": "Felina", "peso_kg": 4}
+        self.assertIn("Häggström", pdf(legacy)[1])
+        for key, value, fields in (
+            ("DeltaD_FS", "45", {"fs_min": 28, "fs_max": 62}),
+            ("AE_Ao", "1.2", {"la_ao_min": .88, "la_ao_max": 1.43}),
+        ):
+            with self.subTest(key=key):
+                payload = report("Felina", 4)
+                payload["medidas"] = {key: value, "VE_tecnica_relatorio": "modo_m",
+                                        "AE_Ao_metodo": "2d_eixo_curto_diastole_inicial"}
+                payload["referencia_eco"] = {"especie": "Felina", "peso_kg": 4, **fields}
+                self.assertIn("Häggström", pdf(payload)[1])
+
     def test_known_centimeter_provenance_matches_mm_pdf_and_ambiguous_lengths_have_no_range(self):
         mm = report()
         cm = deepcopy(mm)
