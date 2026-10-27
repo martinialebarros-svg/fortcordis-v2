@@ -83,8 +83,22 @@ function literalPattern(metric: Metric): RegExp {
     : String.raw`(?!\d|[.,]\d|\s*(?:%|(?:mm|cm|m\s*\/\s*s)\b))`;
   return new RegExp(`${metric.pattern}${metric.kind === "length" ? METHOD : ""}${LINK}${NUMBER}${unit}`, "g");
 }
+const PREVIOUS_EXAM = /\b(?:exame|estudo|laudo|avaliacao)\s+(?:anterior|previo|previa|passado|(?:de|em)\s+\d)/;
 function historical(text: string): boolean {
-  return /\b(?:historico|historica|historia|previamente|anteriormente)\b|\b(?:exame|estudo|laudo|avaliacao)\s+(?:anterior|previo|previa|passado|(?:de|em)\s+\d)/.test(text);
+  return /\b(?:historico|historica|historia|previamente|anteriormente)\b/.test(text) || PREVIOUS_EXAM.test(text);
+}
+function historicalPassage(text: string): boolean {
+  // Clinical history qualifies its own clause; only an explicit history header
+  // or a previous examination can carry old measurements into later clauses.
+  if (/^(?:historico|historia)\s*:/.test(text)) return true;
+  const previous = PREVIOUS_EXAM.exec(text);
+  if (!previous) return false;
+  const before = text.slice(0, previous.index);
+  const after = text.slice(previous.index + previous[0].length);
+  const unavailableBefore = /\b(?:sem(?:\s+(?:historico|historia)\s+de)?|nao\s+(?:ha|houve|existe|consta|temos|dispomos\s+de)(?:\s+(?:historico|historia)\s+de)?)\s*(?:(?:o|a|um|uma)\s*)?$/.test(before)
+    || /\b(?:sem\s+acesso\s+(?:a|ao|aos|as)|nao\s+(?:foi|foram)\s+realizad[oa]s?|nao\s+(?:ha|houve|existe|consta)\s+registro\s+de)\s*(?:(?:o|a|um|uma)\s*)?$/.test(before);
+  const unavailableAfter = /^\s*(?:indisponivel|ausente|nao\s+(?:disponivel|realizad[oa]|apresentad[oa]|localizad[oa]))\b/.test(after);
+  return !unavailableBefore && !unavailableAfter;
 }
 function reference(text: string): boolean {
   return /\b(?:referencias?|limites?|faixas?|intervalos?)\b/.test(text);
@@ -106,7 +120,7 @@ function clauses(text: string): string[] {
     .map((clause) => clause.trim()).filter(Boolean);
 }
 function currentExam(text: string): boolean {
-  return /\b(?:atualmente|agora|neste\s+exame|no\s+exame\s+atual|valor\s+atual)\b/.test(text);
+  return /\b(?:atualmente|agora|nest[ea]\s+(?:exame|estudo|laudo|avaliacao)|(?:(?:no|na)\s+)?(?:exame|estudo|laudo|avaliacao)\s+atual|valor\s+atual)\b/.test(text);
 }
 function relevantLimitation(text: string, metric: Metric): boolean {
   if (!limitation(text)) return false;
@@ -131,8 +145,8 @@ function unqualifiedMatches(fragment: string, metric: Metric, headerMode: Writte
     const declaredMode = describedMode(part);
     if (declaredMode) narrativeMode = declaredMode;
     if (currentExam(part)) inheritedContext = false;
-    if (historical(part) || reference(part) || hypothetical(part)) inheritedContext = true;
-    if (inheritedContext || relevantLimitation(part, metric)) continue;
+    if (historicalPassage(part) || reference(part) || hypothetical(part)) inheritedContext = true;
+    if (inheritedContext || historical(part) || relevantLimitation(part, metric)) continue;
     // The selected M/2D family still stores Teicholz EF. An explicitly named
     // Simpson EF is a different calculation, including uni/biplanar variants.
     if (metric.key === "FE" && /\bsimpson\b/.test(part)) continue;
@@ -191,7 +205,7 @@ export function findEchoNumericNarrativeDiscrepancies(
         const text = normalized(excerpt);
         if (currentExam(text)) { contextualHeader = false; headerMode = null; }
         if (/^(?:em\s+)?(?:modo\s*)?(?:2d|m)\s*[:.]?$/.test(text)) headerMode = describedMode(text);
-        if ((historical(text) && !currentExam(text)) || /^(?:historico|historia|referencias?|hipotese)\s*:\s*$/.test(text)) contextualHeader = true;
+        if ((historicalPassage(text) && !currentExam(text)) || /^(?:historico|historia|referencias?|hipotese)\s*:\s*$/.test(text)) contextualHeader = true;
         if (!text || contextualHeader || isolatedImage(text) || /\?\s*$/.test(text)) continue;
         for (const match of unqualifiedMatches(text, metric, headerMode)) {
           if (!match?.groups) continue;
@@ -227,7 +241,7 @@ export function findEchoNumericNarrativeDiscrepancies(
       for (const original of source.text.split(/[\r\n]+|(?<=[.!?])\s+/)) {
         const excerpt = original.trim(); const text = normalized(excerpt);
         if (currentExam(text)) historicalHeader = false;
-        if ((historical(text) && !currentExam(text)) || /^(?:historico|historia|referencias?|hipotese)\s*:\s*$/.test(text)) historicalHeader = true;
+        if ((historicalPassage(text) && !currentExam(text)) || /^(?:historico|historia|referencias?|hipotese)\s*:\s*$/.test(text)) historicalHeader = true;
         if (historicalHeader || isolatedImage(text) || /\?\s*$/.test(text)) continue;
         for (const claim of unqualifiedMatches(text, upper)) {
           const threshold = positive(claim.groups?.written);
