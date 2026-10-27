@@ -61,6 +61,24 @@ aprovado para as quatro features alinhadas. git diff --check passou.
 
 ## Release
 
-Entrega local; instalacao em stage e producao nao solicitada. Migracao 102 deve
-preceder o codigo novo. Cadastros antigos passam a identificacao pendente e
-continuam podendo ser agendados conforme as regras operacionais existentes.
+Publicacao autorizada pelo usuario em 2026-10-27, exclusivamente para tutores.
+Migracao 102 deve preceder o codigo novo. Cadastros antigos passam a identificacao
+pendente e continuam podendo ser agendados conforme as regras existentes.
+
+- Base instalada conferida por SSH somente leitura: stage f48220c6; prod d65b60e2.
+- Maior migracao de origin/stage conferida apos fetch: 20261025_101; 102 sem colisao.
+- PR #503 preserva a integracao completa; substituido por #504 para publicar a
+  arvore isolada main + tutores. Producao nao recebe Gestao nem referencias novas.
+- Fixture de test_agenda_maps_budget_atomicity atualizada para fornecer ID de
+  tutor escolhido explicitamente, sem alterar o bloqueio de custo Maps.
+- Frontend completo da versao isolada: 1462 testes Vitest e 23 Node passaram;
+  tipos e lint global passaram. Build de release em validacao.
+- A primeira rodada backend isolada encontrou apenas restricoes de escrita do
+  sandbox em uploads e runtime_backups da worktree; nova rodada autorizada
+  executa as mesmas fixtures locais, sem servicos externos.
+- Preflight de producao so com metadados: PostgreSQL, sem indices unicos de
+  nome/nome_key em tutores, sem constraints de nome em pacientes. Contagens
+  agregadas antes: 1455 tutores, 1601 pacientes, 1601 agendamentos, 1383 laudos,
+  1280 OS, 1270 transacoes e 5 movimentos de credito.
+- Preservacao de runtime revisada em deploy_prod_vps.sh: backup antes do reset,
+  restauracao dos JSONs runtime e SQLite, migracao antes do restart e drill.
