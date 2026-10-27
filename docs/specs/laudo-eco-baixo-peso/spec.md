@@ -1,8 +1,13 @@
-Registro preservado para integridade documental. Nesta publicacao de tutores
-em 2026-10-27, o codigo desta feature permanece exclusivo de stage. As evidencias
-abaixo nao significam instalacao em producao. Restauracao de stage pelo snapshot f48220c6.
-
 # Especificação
+
+## Escopo da publicação autorizada — 27/10/2026
+
+Promover somente referências de baixo peso e conferência canina homologadas em stage `698dbf40` e no laudo sintético #59. Cálculos, condições de idade/técnica e apresentação clínica permanecem iguais ao snapshot testado. Gestão/migração 101 e ajustes de configuração paralelos ficam preservados para restauração exclusiva de stage após a promoção. Não há migração, escrita no catálogo, atualização de frases ou alteração de paciente real nesta entrega.
+
+Na restauracao de stage apos o release de tutores em 2026-10-27, os testes de
+comparacao aguardam tambem a primeira linha renderizada antes de inspecionar
+os cards: o cabecalho de referencia aparece antes do efeito das comparacoes.
+Esse ajuste apenas sincroniza a fixture; nao altera calculos ou apresentacao.
 
 ## Causa observada
 

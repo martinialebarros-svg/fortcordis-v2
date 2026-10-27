@@ -507,7 +507,7 @@ export default function EditarLaudoPage() {
     if (divedNormalizadoCalculado !== null && medidas["DIVEd_normalizado"] !== divedNormalizadoCalculado) {
       atualizacoes.DIVEd_normalizado = divedNormalizadoCalculado;
     }
-    const automaticas = deriveAutomaticEchoMeasurements(medidas, pacienteForm.peso, pacienteForm.especie);
+    const automaticas = deriveAutomaticEchoMeasurements(medidas, pacienteForm.peso, pacienteForm.especie, pacienteForm.idade);
     Object.entries(automaticas).forEach(([key, value]) => {
       if (medidas[key] !== value) atualizacoes[key] = value;
     });
@@ -518,7 +518,7 @@ export default function EditarLaudoPage() {
         ...atualizacoes,
       }));
     }
-  }, [medidas, pacienteForm.peso, pacienteForm.especie]);
+  }, [medidas, pacienteForm.peso, pacienteForm.especie, pacienteForm.idade]);
 
   const laudoEhPressao = (laudo?.tipo || "").toLowerCase() === TIPO_LAUDO_PRESSAO_ARTERIAL;
 
@@ -812,7 +812,7 @@ export default function EditarLaudoPage() {
     try {
       const medidasPayload = {
         ...medidas,
-        ...deriveAutomaticEchoMeasurements(medidas, pacienteForm.peso, pacienteForm.especie),
+        ...deriveAutomaticEchoMeasurements(medidas, pacienteForm.peso, pacienteForm.especie, pacienteForm.idade),
       };
       if (
         hasAnyMeasurement(medidasPayload, LV_M_MODE_KEYS) &&
@@ -1064,10 +1064,10 @@ export default function EditarLaudoPage() {
     ? medidas.VE_vista_2D as Echo2DView : "";
   const pesoIndice2D = parsePesoKg(pacienteForm.peso);
   const indice2D = calculateCanine2DNormalizedLVIDd(
-    echoLengthInMm(medidas, "DIVEd_2D"), pesoIndice2D, vistaIndice2D, pacienteForm.especie,
+    echoLengthInMm(medidas, "DIVEd_2D"), pesoIndice2D, vistaIndice2D, pacienteForm.especie, pacienteForm.idade,
   );
   const faixaIndice2D = indice2D === null ? null : getCanine2DReference(
-    "DIVEd_normalizado_2D", pesoIndice2D ?? undefined, vistaIndice2D,
+    "DIVEd_normalizado_2D", pesoIndice2D ?? undefined, vistaIndice2D, pacienteForm.idade,
   );
 
   return (
@@ -2353,6 +2353,7 @@ export default function EditarLaudoPage() {
                     <ReferenciaComparison
                       especie={pacienteForm.especie}
                       peso={parsePesoKg(pacienteForm.peso) ?? undefined}
+                      idade={pacienteForm.idade}
                       medidas={medidas}
                       onMedidaChange={handleMedidaChange}
                     />

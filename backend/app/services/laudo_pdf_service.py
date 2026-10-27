@@ -22,7 +22,7 @@ from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_p
 
 
 LAUDO_PDF_RENDERER_VERSION = "2026-09-24-eco-presentation-v2"
-LAUDO_PDF_ECO_RENDERER_VERSION = "2026-10-26-eco-diastolic-clearing-v27"
+LAUDO_PDF_ECO_RENDERER_VERSION = "2026-10-27-eco-low-weight-v28"
 
 
 @dataclass(frozen=True)
@@ -337,10 +337,12 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
 
             referencia_eco = None
             if paciente and paciente.especie and paciente.peso_kg and paciente.peso_kg > 0:
+                dados_paciente["peso"] = str(paciente.peso_kg)
                 try:
                     referencia_eco = load_echo_reference(
                         db, species=paciente.especie, weight_kg=paciente.peso_kg,
                         medidas=medidas,
+                        idade=dados_paciente.get("idade"),
                     )
                 except Exception as exc:
                     db.rollback()

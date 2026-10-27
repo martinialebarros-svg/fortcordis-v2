@@ -1,8 +1,19 @@
-Registro preservado para integridade documental. Nesta publicacao de tutores
-em 2026-10-27, o codigo desta feature permanece exclusivo de stage. As evidencias
-abaixo nao significam instalacao em producao. Restauracao de stage pelo snapshot f48220c6.
-
 # Verificação local
+
+## Homologação concluída e promoção autorizada — 27/10/2026
+
+- Stage instalado `698dbf409d2fc14203c5e91fedea03ad2c51df47`, workflow `40534203511` concluído com sucesso. Frontend CI, migrações, SDD e gate completo aprovados; 2.374 testes backend no gate (105 pulos opcionais). Os 41 arquivos do pacote clínico foram conferidos com o snapshot instalado.
+- Canário instalado aprovado, com catálogo em transação somente leitura e rollback/close: cães/gatos adultos de 2,25 kg, seis dimensões M, sementes sem catálogo, aliases exatos, extrapolação neutra abaixo de 1,5 kg, idade desconhecida/juvenil e proteção 2D em ambas as vistas. PDF sintético gerado, valores/bibliografia revisados visualmente.
+- UI autenticada aprovada: limites caninos de 2,25 kg, recálculo ao editar peso para 1 kg, retirada de limites adultos aos 7m e preservação do catálogo felino existente. Um único registro inteiramente sintético #59 foi salvo. PDF baixado pela tela: duas páginas revisadas, seis intervalos corretos para 2,25 kg e fonte Isayama presente; ondas E/A fundidas não mensuráveis. Hash PDF `8f825d1ae69993c5ed9f344f3e6830bdd85394a26f2a5e5d90b0fcb234262539`.
+- Smoke: nove rotas em três hosts, três APIs protegidas com 401, 17 hashes JS instalados/servidos iguais e oito marcadores por conjunto de rotas. SHA/manifesto estáveis. Cinco arquivos de frases por ambiente preservados. Provas em `output/qa/stage-echo-release-20261027/final-release-proof.json`, canário instalado, runtime final e renders; HTTP complementar na pasta homônima do clone principal.
+- Esta seção atualiza o estado operacional anterior de homologação não executada, preservando o histórico das baselines. O usuário autorizou agora produção destas melhorias. Candidato sobre `main=375611de` com os 41 caminhos clínicos de `stage=698dbf40`, mantendo os 34 caminhos paralelos preservados para restaurar stage após a promoção. Código clínico com os mesmos blobs homologados; somente documentação atualizada. Exigir checks do candidato, PR protegido stage → main, workflow terminal, preservação de runtime e smoke instalado de produção. A prova de produção será registrada após execução; não usar exceção de gate nem antecipar resultado.
+
+## Restauracao de stage — 2026-10-27
+
+Uma corrida no teste de componente leu os cards apos encontrar apenas o
+cabecalho: a referencia e as comparacoes sao renderizadas em efeitos distintos.
+O caso falhou na suite completa e passou 10/10 isolado. A fixture agora aguarda
+a primeira linha antes das mesmas assercoes. Nao foi alterado codigo clinico.
 
 ## Baseline em 27/10/2026
 

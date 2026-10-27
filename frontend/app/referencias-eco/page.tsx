@@ -62,7 +62,7 @@ const CAMPOS_MEDIDAS = [
 ];
 
 const EDITABLE_PREFIXES = CAMPOS_MEDIDAS.filter((field) => field.key !== "fs" && field.key !== "ef").map((field) => field.key);
-const POLICY_LABELS = { published: "Faixa publicada", catalog: "Faixa cadastrada; fonte não confirmada", requires_method: "Exige confirmação do método", blocked: "Comparação suspensa", unavailable: "Faixa indisponível" };
+const POLICY_LABELS = { published: "Faixa publicada", catalog: "Faixa cadastrada; fonte não confirmada", requires_method: "Exige confirmação do método", blocked: "Comparação suspensa", unavailable: "Faixa indisponível", estimated: "Estimativa; sem comparação automática" };
 
 export default function ReferenciasEcoPage() {
   const router = useRouter();
