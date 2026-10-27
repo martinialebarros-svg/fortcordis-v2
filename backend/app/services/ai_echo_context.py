@@ -206,6 +206,7 @@ def load_echo_reference_context(
     species: str | None,
     weight_kg: Any,
     current_measurements: dict[str, Any] | None = None,
+    age: Any = None,
 ) -> dict[str, Any] | None:
     normalized_species = normalizar_especie_referencia(species)
     resolved_weight = _positive_float(weight_kg)
@@ -214,7 +215,7 @@ def load_echo_reference_context(
 
     resolved_reference = load_echo_reference(
         db, species=normalized_species, weight_kg=resolved_weight,
-        medidas=current_measurements,
+        medidas=current_measurements, idade=age,
     )
     if resolved_reference is None:
         return None

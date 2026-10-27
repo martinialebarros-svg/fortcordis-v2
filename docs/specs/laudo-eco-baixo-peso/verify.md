@@ -1,5 +1,12 @@
 # Verificação local
 
+## Revisão #508 — mesma idade na consulta e no assistente
+
+- CA-BP-11: quatro regressões novas foram executadas antes de alterar os serviços. O loader não aceitava o keyword de idade (40 falhas de subcasos) e o fluxo real com provedor falso calculava a idade apenas para `exam_context`, omitindo-a na carga da referência (cinco falhas de subcasos; o controle sem idade já passava). Log `/tmp/echo-pr508-ai-age-baseline.log`. As fixtures usam somente SQLite sintético isolado e provedor falso; nenhuma API, paciente real ou catálogo operacional foi acessado.
+- O loader agora encaminha idade opcional ao resolver. A estruturação extrai a idade uma única vez antes de criar ambos os contextos. Não foram alterados os filtros `safe_reference_context`/`_reference_matches_measurement`, a whitelist, os números/fontes científicos, o prompt ou o cache PDF v30.
+- Foco novo aprovado: quatro testes e 46 subcasos, com adultos Canina/Felina e aliases exatos em 1,5/2,25/2,99 kg; idade desconhecida/juvenil, extrapolação abaixo de 1,5 kg, técnica 2D, preservação das entradas e dos quatro pares fonte/parâmetro autorizados. O fluxo de estruturação confirma extração etária única e igualdade entre carga de referência e contexto do exame. As seis dimensões M resolvidas continuam fora do envelope sanitizado do prompt, conforme a política clínica existente; não se alegou sua liberação para a IA. Log `/tmp/echo-pr508-ai-age-fixed-focus.log`.
+- Regressão dos dois módulos AI pertinentes: 81 testes e 120 subcasos aprovados em `/tmp/echo-pr508-ai-age-fixed-modules.log`. As verificações usam exclusivamente provedores falsos e fixtures sintéticas; nenhum teste global, publicação, chamada SSH ou PDF persistente foi executado nesta correção. Os avisos de depreciação já existentes de Pydantic/SQLAlchemy não são falhas.
+
 ## Revisão #508 — proveniência da dimensão efetivamente medida
 
 - CA-BP-10: a reprodução inicial canina teve oito falhas: cada uma das seis dimensões M medida isoladamente com faixa customizada recebia Isayama por haver modelos nas outras dimensões não medidas; NaN e unidade ambígua também citavam a fonte. A matriz final ampliou esses controles para cães/gatos e adulto/idade desconhecida, incluindo uma fonte independente de TAPSE no felino para conferir as notas. Com o renderer anterior carregado apenas em memória, três testes parametrizados reproduziram 26 falhas; os 12 controles com uma segunda dimensão realmente atendida pelo modelo passaram. Log `/tmp/echo-pr508-isayama-provenance-baseline.log`.

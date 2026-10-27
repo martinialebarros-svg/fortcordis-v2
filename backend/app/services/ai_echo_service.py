@@ -646,21 +646,21 @@ def _process_structure(
             if report
             else None
         )
+        patient_age = (
+            extrair_idade_paciente(patient.nascimento, patient.observacoes)
+            if patient else None
+        ) or None
         reference_context = load_echo_reference_context(
             db,
             species=patient.especie if patient else None,
             weight_kg=patient.peso_kg if patient else None,
             current_measurements=current_measurements,
+            age=patient_age,
         )
         exam_context = {
             "species": patient.especie if patient else None,
             "breed": patient.raca if patient else None,
-            "age": (
-                extrair_idade_paciente(patient.nascimento, patient.observacoes)
-                if patient
-                else None
-            )
-            or None,
+            "age": patient_age,
             "weight_kg": patient.peso_kg if patient else None,
         }
         processing_step = "structuring_provider"
