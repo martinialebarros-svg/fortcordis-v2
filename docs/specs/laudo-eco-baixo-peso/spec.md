@@ -2,6 +2,8 @@
 
 ## Escopo da publicação autorizada — 27/10/2026
 
+Após validar a instalação isolada do laudo em produção, restaurar exclusivamente em stage os 34 caminhos paralelos do snapshot `698dbf40`. Recolocar os blobs explicitamente, manter o código clínico promovido e a ancestralidade de main; não usar essa restauração para levar Gestão ou ajustes de configuração à produção. A preparação pode ficar em rascunho, sem merge antes da validação de produção.
+
 Promover somente referências de baixo peso e conferência canina homologadas em stage `698dbf40` e no laudo sintético #59. Cálculos, condições de idade/técnica e apresentação clínica permanecem iguais ao snapshot testado. Gestão/migração 101 e ajustes de configuração paralelos ficam preservados para restauração exclusiva de stage após a promoção. Não há migração, escrita no catálogo, atualização de frases ou alteração de paciente real nesta entrega.
 
 Na restauracao de stage apos o release de tutores em 2026-10-27, os testes de
