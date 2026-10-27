@@ -22,7 +22,7 @@ from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_p
 
 
 LAUDO_PDF_RENDERER_VERSION = "2026-09-24-eco-presentation-v2"
-LAUDO_PDF_ECO_RENDERER_VERSION = "2026-10-27-eco-bibliography-provenance-v30"
+LAUDO_PDF_ECO_RENDERER_VERSION = "2026-10-27-eco-exam-age-v31"
 
 
 @dataclass(frozen=True)
@@ -227,6 +227,8 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
         idade = extrair_idade_paciente(
             paciente.nascimento if paciente else None,
             paciente.observacoes if paciente else None,
+            **({"data_referencia": laudo.data_exame or laudo.data_laudo}
+               if (laudo.tipo or "").lower() == "ecocardiograma" else {}),
         )
 
         dados_paciente = {

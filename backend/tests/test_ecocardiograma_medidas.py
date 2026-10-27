@@ -172,7 +172,7 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
         )
 
     def test_cache_do_pdf_inclui_versao_do_renderizador(self) -> None:
-        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-10-27-eco-bibliography-provenance-v30")
+        self.assertEqual(LAUDO_PDF_ECO_RENDERER_VERSION, "2026-10-27-eco-exam-age-v31")
         database = MagicMock()
         database.query.return_value.filter.return_value.first.return_value = (
             SimpleNamespace(id=7, tipo="ecocardiograma")
@@ -203,6 +203,7 @@ class EcocardiogramaMedidasTest(unittest.TestCase):
             "2026-10-26-eco-diastolic-aliases-v26",
             "2026-10-27-eco-low-weight-v28",
             "2026-10-27-eco-bibliography-age-v29",
+            "2026-10-27-eco-bibliography-provenance-v30",
         ):
             previous_payload = {"pdf_renderer_version": previous_version, **stamp}
             previous_key = hashlib.sha256(
