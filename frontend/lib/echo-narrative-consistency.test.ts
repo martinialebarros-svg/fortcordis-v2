@@ -250,3 +250,81 @@ describe("comparação literal da narrativa com a tabela selecionada", () => {
     expect(keys({ VE_tecnica_relatorio: "modo_m", FE_Teicholz: "82", DeltaD_FS: "48" }, text)).toEqual([]);
   });
 });
+
+
+describe.each(["Canina", "Felina"])("contexto histórico numérico da PR #508 — %s", (species) => {
+  const measurements = Object.freeze({ AE_Ao: "1.40", DIVEd: "19.97", Vmax_aorta: "0.80" });
+
+  describe.each(["qualitativa", "conclusao"])("fonte %s", (source) => {
+    const review = (text: string) => {
+      const qualitative = Object.freeze(source === "qualitativa" ? { camaras: text } : {});
+      const conclusion = source === "conclusao" ? text : "";
+      const before = JSON.stringify({ measurements, qualitative, conclusion });
+      const results = findEchoNarrativeDiscrepancies(measurements, qualitative, conclusion, species);
+      expect(JSON.stringify({ measurements, qualitative, conclusion })).toBe(before);
+      return results;
+    };
+
+    it.each([
+      "Sem histórico de síncope", "Histórico de síncope",
+      "Sem histórico de cardiopatia", "História clínica de cardiopatia",
+    ].flatMap((clinicalHistory) => [". ", "\n", "; "].map((separator) => [clinicalHistory + separator])))
+    ("não propaga história clínica para a medida independente: %s", (prefix) => {
+      const text = `${prefix}AE/Ao de 1,80.`;
+      const results = review(text);
+      expect(results.map((issue) => issue.key)).toEqual(["AE_Ao"]);
+      expect(results[0]).toMatchObject({ section: source === "qualitativa" ? "Câmaras" : "Conclusão", suggestion: expect.any(String) });
+      expect(text).toContain(results[0].excerpt);
+      expect(results[0].excerpt).toContain("AE/Ao de 1,80.");
+    });
+
+    it.each([
+      "Não há história de síncope. AE/Ao de 1,80.",
+      "Não há histórico de cardiopatia, AE/Ao de 1,80.",
+      "Histórico de síncope e AE/Ao de 1,80.",
+      "Sem exame anterior disponível. AE/Ao de 1,80.",
+      "Não há estudo prévio para comparação. AE/Ao de 1,80.",
+      "Exame anterior indisponível. AE/Ao de 1,80.",
+      "Sem acesso ao exame anterior. AE/Ao de 1,80.",
+      "Não foi realizado exame anterior. AE/Ao de 1,80.",
+      "Não temos o exame anterior. AE/Ao de 1,80.",
+      "Não há registro de exame anterior. AE/Ao de 1,80.",
+    ])("mantém negação e contexto clínico locais: %s", (text) => {
+      expect(review(text).map((issue) => issue.key)).toEqual(["AE_Ao"]);
+    });
+
+    it.each([
+      "Histórico:\nAE/Ao de 1,80. DIVEd de 25 mm.",
+      "Histórico: AE/Ao de 1,80. DIVEd de 25 mm.",
+      "No exame anterior, AE/Ao de 1,80. DIVEd de 25 mm.",
+      "No estudo prévio, AE/Ao de 1,80. DIVEd de 25 mm.",
+      "Na avaliação anterior, AE/Ao de 1,80. DIVEd de 25 mm.",
+      "No exame de 2025, AE/Ao de 1,80. DIVEd de 25 mm.",
+      "AE/Ao de 1,80, medida no exame anterior.",
+    ])("preserva atribuição explícita a passagem histórica: %s", (text) => {
+      expect(review(text)).toEqual([]);
+    });
+
+    it.each([
+      "Neste exame", "No exame atual", "Exame atual:", "Neste estudo",
+      "Na avaliação atual", "No laudo atual", "Atualmente", "Agora",
+    ])("retoma uma medição explicitamente atual com %s", (current) => {
+      expect(review(`No exame anterior, AE/Ao de 1,80. ${current}, DIVEd de 25 mm.`)
+        .map((issue) => issue.key)).toEqual(["DIVEd"]);
+    });
+
+    it("preserva o limite aórtico legado após história clínica independente", () => {
+      expect(review("Sem histórico de síncope. Velocidade aórtica superior a 3 m/s.")
+        .map((issue) => issue.key)).toEqual(["Vmax_aorta"]);
+      expect(review("No exame anterior, velocidade aórtica superior a 3 m/s.")).toEqual([]);
+    });
+
+    it("não relaxa a negação da própria medida nem suprime outro campo oficial", () => {
+      expect(review("AE/Ao de 1,80 não foi confirmado.")).toEqual([]);
+      expect(review("Sem mensuração de AE/Ao de 1,80.")).toEqual([]);
+      expect(findEchoNarrativeDiscrepancies(measurements,
+        Object.freeze({ camaras: "Histórico: AE/Ao de 1,80." }), "AE/Ao de 1,80.", species)
+        .map((issue) => issue.section)).toEqual(["Conclusão"]);
+    });
+  });
+});

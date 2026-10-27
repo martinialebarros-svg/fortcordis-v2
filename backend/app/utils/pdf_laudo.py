@@ -1165,8 +1165,33 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
                 "and dogs with cardiac disease. DOI: 10.1111/j.1740-8261.2001.tb00904.x."
             )
     elif referencia and especie == "Felina":
+        medidas_m = [(chave, prefixo) for chave, prefixo in MAPEAMENTO_REFERENCIA_ECO.items()
+                     if prefixo in LOW_WEIGHT_PREFIXES]
+        metadados_m = referencia.get("range_metadata", {})
+
+        def _modelo_m_felino_exibido(chave: str, prefixo: str) -> bool:
+            metadata = metadados_m.get(prefixo, {})
+            status = metadata.get("status")
+            valor = _to_float(medidas.get(chave))
+            if (metadata.get("doi") != "10.1111/jvim.14569"
+                    or status not in {"published", "estimated"}
+                    or chave in (dados_pdf.get("unidades_ambiguas") or set())
+                    or valor is None or not math.isfinite(valor) or valor <= 0):
+                return False
+            limites = (metadata.get("estimate_min"), metadata.get("estimate_max")) if status == "estimated" else (
+                referencia.get(f"{prefixo}_min"), referencia.get(f"{prefixo}_max"))
+            inferior, superior = (_to_float(limite) for limite in limites)
+            return (inferior is not None and superior is not None
+                    and math.isfinite(inferior) and math.isfinite(superior) and 0 < inferior < superior)
+
+        tem_modelo_m = any(metadados_m.get(prefixo, {}).get("model_weight_kg") is not None
+                           for _, prefixo in medidas_m)
+        # The new carrier alone does not make an adult source applicable.
+        # Preserve the pre-existing bibliography contract for legacy catalogs.
+        tem_fonte_m = tem_modo_m and (not tem_modelo_m or any(
+            _modelo_m_felino_exibido(chave, prefixo) for chave, prefixo in medidas_m))
         la_ao_metadata = referencia.get("range_metadata", {}).get("la_ao", {})
-        if (tem_modo_m or (modo_m and referencia.get("fs_source") and _to_float(medidas.get("DeltaD_FS")) is not None)
+        if (tem_fonte_m or (modo_m and referencia.get("fs_source") and _to_float(medidas.get("DeltaD_FS")) is not None)
                 or (la_ao_metadata.get("status") == "published" and _to_float(medidas.get("AE_Ao")) is not None)):
             estudos.append(
                 "Häggström et al. (2016). Effect of body weight on echocardiographic "
