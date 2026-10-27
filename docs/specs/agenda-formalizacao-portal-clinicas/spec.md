@@ -19,9 +19,9 @@
   nome da clínica, serviço, data/hora e `expires_at`; retorna `404`
   para token desconhecido e `410` para convite usado/expirado/revogado.
 - RF-004: o POST aceita `nome_paciente`, `nome_tutor`, `telefone_tutor`;
-  localiza ou cria o Tutor por nome normalizado (`nome_key`, mesmo
-  algoritmo de `pacientes.py`), só sobrescrevendo telefone/whatsapp do
-  tutor existente se ele ainda não tiver nenhum contato cadastrado;
+  cria um Tutor separado com identificacao pendente e origem da formalizacao.
+  Nome e nome_key nao identificam outra pessoa; nenhum homonimo e reutilizado
+  e nenhum contato existente e sobrescrito;
   cria o Paciente vinculado a esse tutor (espécie default "Canina");
   atualiza `Agendamento.paciente_id`/`tutor_id`/campos denormalizados e
   transiciona `status` de `Reservado` para `Agendado` (mantém
@@ -75,8 +75,9 @@
 - CA-004: submissão válida cria/vincula paciente e tutor, muda o status
   para `Agendado`, marca o convite `used`; submissão num convite já
   `used` falha com `410`.
-- CA-005: tutor já existente (por nome normalizado) é reaproveitado sem
-  duplicar e sem sobrescrever telefone/whatsapp já cadastrados.
+- CA-005: nome igual ao de tutor existente gera outro ID com identificacao
+  pendente e preserva todos os dados da pessoa anterior. Regra atualizada em
+  2026-10-27 por tutores-identidade-mesclagem.
 - CA-006: falha ao enviar `appointmentFormalized` (ex.: modelo ainda
   não aprovado) não impede a submissão de retornar sucesso.
 - CA-007: `build_agenda_utility_template("appointmentFormalized")`

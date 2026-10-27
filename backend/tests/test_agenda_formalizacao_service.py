@@ -227,7 +227,7 @@ class AgendaFormalizacaoServiceTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
-    def test_processar_submissao_reutiliza_tutor_existente_por_nome(self):
+    def test_processar_submissao_nao_reutiliza_tutor_existente_por_nome(self):
         tmpdir, db, engine = self._build_session()
         try:
             tutor_existente = Tutor(nome="Joao Silva", nome_key="joao silva", ativo=1)
@@ -245,8 +245,10 @@ class AgendaFormalizacaoServiceTest(unittest.TestCase):
                     telefone_tutor="85988887777",
                 )
 
-            self.assertEqual(resultado.tutor_id, tutor_existente.id)
-            self.assertEqual(db.query(Tutor).count(), 1)
+            self.assertNotEqual(resultado.tutor_id, tutor_existente.id)
+            self.assertEqual(db.query(Tutor).count(), 2)
+            db.refresh(tutor_existente)
+            self.assertIsNone(tutor_existente.telefone)
         finally:
             db.close()
             engine.dispose()

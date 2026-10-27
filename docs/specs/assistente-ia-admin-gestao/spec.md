@@ -260,3 +260,12 @@ Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criac
 - score preditivo opaco, recomendacao automatica a cliente ou alteracao operacional a partir do mapa Clinicas 360.
 - criacao silenciosa de missao, contato externo automatico ou aplicacao direta de ajuste sugerido pelo plano.
 - gravacao continua em segundo plano, envio automatico de transcricao ou aprovacao operacional por voz.
+
+## Identidade de tutores — 2026-10-27
+
+As ferramentas de escrita solicitar_criacao_agendamento e
+solicitar_vinculo_paciente_reserva exigem tutor selecionado pelo ID (ex.: #184)
+quando esse argumento e informado. Nome sozinho retorna orientacao de revisao,
+mesmo com apenas um homonimo no resultado. O tutor ja vinculado a um paciente
+selecionado pode ser conservado pelo ID. As regras existentes de aprovacao,
+TTL, autorizacao administrativa e revalidacao permanecem aplicadas.

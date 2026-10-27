@@ -2744,6 +2744,9 @@ def _preparar_recebimento_ordem(
         .filter(Paciente.id == os_data.paciente_id)
         .scalar()
     )
+    if tutor_id:
+        from app.services.tutor_identidade_service import exigir_tutor_utilizavel
+        exigir_tutor_utilizavel(db, tutor_id)
 
     saldo_credito_disponivel = _calcular_saldo_credito_cliente(
         db,

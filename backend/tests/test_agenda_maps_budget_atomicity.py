@@ -238,7 +238,7 @@ class AgendaMapsBudgetAtomicityTest(unittest.TestCase):
             with self.assertRaises(GoogleMapsCostBlocked):
                 assistente_ia_tools.solicitar_criacao_agendamento(
                     ctx, tipo="agendamento", origem_atendimento="clinica_parceira",
-                    clinica="Clínica sintética 0", tutor="Tutor sintético", paciente="Paciente sintético",
+                    clinica="Clínica sintética 0", tutor=f"#{db.query(Tutor.id).scalar()}", paciente="Paciente sintético",
                     servico="Serviço sintético", data="2099-05-25", horario="12:00",
                     destinatario_mensagem="clinica", prazo_confirmacao_horas=None, observacoes=None,
                 )
