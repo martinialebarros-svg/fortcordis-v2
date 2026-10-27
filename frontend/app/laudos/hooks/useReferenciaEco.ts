@@ -9,7 +9,7 @@ import { resolveEchoReferenceForMeasurements, selectEchoReferenceFromCatalog } f
 import { isFelineEchoSpecies, normalizeEchoSpecies } from "@/lib/echo-species";
 import { canonicalEchoDiastolicKey, echoDiastolicReferences } from "@/lib/echo-diastolic-reference";
 import { FELINE_DIASTOLIC_KEYS } from "@/lib/echo-feline-diastolic-reference";
-import { lowWeightEstimateText, makeLowWeightReference } from "@/lib/echo-low-weight-reference";
+import { lowWeightAgeContext, lowWeightEstimateText, makeLowWeightReference } from "@/lib/echo-low-weight-reference";
 
 // Mapeamento de parâmetros das medidas para os campos da referência
 // As chaves devem corresponder aos 'key' definidos na nova aba Medidas
@@ -148,10 +148,12 @@ function motivoSemFaixa2D(
   pesoPacienteKg: number | undefined,
   plano2D: Echo2DView | "",
   fsCompativelComPar: boolean,
+  age?: unknown,
 ): string {
   if (PAREDES_2D.has(key)) return "Sem intervalo 2D por peso para esta espessura nas fontes adotadas";
   if (TEICHOLZ_2D.has(key)) return "Teichholz: intervalos 2D de Simpson não são aplicáveis";
   if (!/^canin/i.test(especie)) return "Sem faixa 2D desta população nas fontes adotadas";
+  if (lowWeightAgeContext(age) === "juvenile") return "Faixa 2D de cães adultos não aplicável à idade em crescimento";
   if (!plano2D) return "Confirme cão adulto e vista 2D para comparar";
   if (!Number.isFinite(pesoPacienteKg) || pesoPacienteKg === undefined || pesoPacienteKg < 2.6 || pesoPacienteKg > 67.8) {
     return "Peso fora da população estudada (2,6 a 67,8 kg)";
@@ -197,7 +199,7 @@ export function compararMedidasComReferencia(
     const fsCompativelComPar = key !== "DeltaD_FS_2D" ||
       (fsDoPar !== null && Math.abs(valorNumerico - fsDoPar) <= 1);
     const faixa2D = /^canin/i.test(referencia.especie) && fsCompativelComPar
-      ? getCanine2DReference(key, pesoPacienteKg, plano2D)
+      ? getCanine2DReference(key, pesoPacienteKg, plano2D, referenciaSegura.patient_age)
       : null;
     const metadados = referenciaSegura.range_metadata?.[mapeamento.campo];
     const podeComparar = mapeamento.campo !== "fs" || Boolean(referenciaSegura.fs_source);
@@ -230,7 +232,7 @@ export function compararMedidasComReferencia(
         referencia_max: refMax,
         status: "nao_avaliado",
         interpretacao: key.endsWith("_2D")
-          ? motivoSemFaixa2D(key, referencia.especie, pesoPacienteKg, plano2D, fsCompativelComPar)
+          ? motivoSemFaixa2D(key, referencia.especie, pesoPacienteKg, plano2D, fsCompativelComPar, referenciaSegura.patient_age)
           : metadados?.reason || "Faixa não cadastrada",
         categoria: mapeamento.categoria,
         fonte: metadados?.source,

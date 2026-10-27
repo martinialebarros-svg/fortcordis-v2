@@ -178,7 +178,7 @@ export default function VisualizarLaudoPage() {
   const laudoEhEletrocardiograma = laudo?.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA;
   const laudoEhPressao = laudo?.tipo === TIPO_LAUDO_PRESSAO_ARTERIAL;
   const laudoEhEco = laudo?.tipo === TIPO_LAUDO_ECOCARDIOGRAMA;
-  const { measurements: medidasExibidas, alerts: alertasCalculo, ambiguousKeys } = prepareEchoReportMeasurements(medidas, paciente?.peso_kg, paciente?.especie);
+  const { measurements: medidasExibidas, alerts: alertasCalculo, ambiguousKeys } = prepareEchoReportMeasurements(medidas, paciente?.peso_kg, paciente?.especie, paciente?.idade);
   const referenciaParaPrevia = referenciaEco || makeLowWeightReference(paciente?.especie, paciente?.peso_kg, 0, {}, paciente?.idade);
   const gruposMedidas = buildEchoReportGroups(medidasExibidas, referenciaParaPrevia, ambiguousKeys, paciente?.peso_kg, paciente?.especie, paciente?.idade);
   const observacoes = splitReportObservations(laudo?.observacoes || "");

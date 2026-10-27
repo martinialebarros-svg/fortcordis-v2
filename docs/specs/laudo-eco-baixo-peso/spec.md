@@ -16,6 +16,7 @@ A seleção escolhia a linha elegível mais próxima e anulava os intervalos est
 - RF-BP-08: API, fallback da listagem/catálogo vazio, comparação, prévia de laudo salvo e PDF direto recebem o mesmo comportamento. O carrier `id=0` é efêmero. Metadados não se tornam campos editáveis do catálogo. Referências calculadas não são rotuladas como linha cadastrada; estimativas não ganham cor de normalidade. Falta de fonte para outro parâmetro continua explícita.
 - RF-BP-09: o PDF referencia Isayama quando utilizado e descreve interpolação/extrapolação/idade conforme o caso, em fonte compacta depois da análise qualitativa. Cornell pode permanecer pertinente ao índice DIVEd normalizado já existente, sem atribuir a ele os novos limites toy. Invalidar somente cache eco (`2026-10-27-eco-low-weight-v28`). Não mudar posição da conclusão ou outras modalidades.
 - RF-BP-10: os dois loaders de PDF eco preservam o peso registrado, sem arredondá-lo a uma casa decimal antes de resolver as faixas. O cabeçalho e o resolver recebem o mesmo peso real (por exemplo, 2,25 kg). Restringir o ajuste ao ramo eco; não alterar formatação/cache de outras modalidades.
+- RF-BP-11: uma idade reconhecidamente juvenil prevalece sobre a seleção do protocolo/vista 2D rotulado para adultos, mesmo com carrier calculado de baixo peso. Suspender faixa Visser e derivação/exibição do índice normalizado 2D na comparação, editor, prévia e PDF, sem apagar o histórico importado. Idade ausente conserva o contrato anterior de confirmação explícita de cão adulto/vista; carrier ou peso, isoladamente, não confirmam a população. Preservar Cornell M e todas as medidas originais.
 
 ## Critérios de aceitação
 
@@ -26,6 +27,7 @@ A seleção escolhia a linha elegível mais próxima e anulava os intervalos est
 - CA-BP-05: gerar cinco PDFs sintéticos, extrair valores/notas/bibliografia e revisar visualmente todas as páginas; fonte menor após qualitativa, nenhuma sobreposição ou dado pessoal real.
 - CA-BP-06: regressões backend/frontend pertinentes, tipos, lint, build, diff check e SDD aprovados. Entrega local; teste autenticado e publicação em stage exigem pedido posterior.
 - CA-BP-07: reproduzir no serviço real a divergência 2,25 -> 2,2 kg entre carga da referência e payload entregue ao renderer; conferir os dois caminhos de emissão eco e a preservação do peso real, com entrada e banco intactos.
+- CA-BP-08: reproduzir o P2 da revisão #502 em cão de 7m e 2,6-<3 kg sem catálogo, com ambas as vistas 2D. Testar helpers, editor, comparação, prévia, derivação e PDF, incluindo 2,59/2,6/2,7/2,99/3 kg, adultos, idade desconhecida com/sem protocolo e índice histórico. Juvenil não recebe faixa/índice/bibliografia adulta; adulto mantém os mesmos números anteriores.
 
 ## Fontes primárias
 

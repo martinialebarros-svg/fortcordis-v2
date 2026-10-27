@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import NovoLaudoPage from "./novo/page";
@@ -58,6 +58,7 @@ vi.mock("@/app/laudos/components/EcocardiogramaEstruturadoEditor", () => ({ defa
   </button></> }));
 
 type Mode = "novo" | "editar";
+type Section = "Paciente" | "Medidas" | "Qualitativa" | "Referências";
 const MODES: Mode[] = ["novo", "editar"];
 const CONFLICT = "Função diastólica preservada, com padrão de enchimento adequado ao Doppler transmitral.";
 const REVIEWED = "Ondas E/A fundidas; a avaliação diastólica considera os demais parâmetros disponíveis.";
@@ -69,22 +70,39 @@ let patient: Record<string, unknown>;
 let stored: Record<string, string>;
 let description: string;
 let savedStructured: EcocardiogramaEstruturadoPersistido | undefined;
+const sectionButtons = new Map<Section, HTMLElement>();
+let saveButton: HTMLElement | null;
 
 const qualitative = (text: string) => ({ valvas: "", camaras: "", funcao: text, pericardio: "", vasos: "", ad_vd: "" });
 const live = (): Record<string, string> => JSON.parse(screen.getByTestId("narrative-page-measurements").textContent || "{}");
 const panel = () => screen.queryByRole("status", { name: PANEL });
 
+function selectSection(section: Section) {
+  const button = sectionButtons.get(section);
+  if (!button) throw new Error(`Report section not mounted: ${section}`);
+  fireEvent.click(button);
+}
+
 async function editNarrative(text: string) {
-  fireEvent.click(screen.getByRole("button", { name: "Qualitativa" }));
+  selectSection("Qualitativa");
   fireEvent.change(screen.getByRole("textbox", { name: "Texto diastólico sintético" }), { target: { value: text } });
 }
 
-async function changeWave(label: string, value: string) {
+async function changeWaves(updates: ReadonlyArray<readonly [string, string]>, destination: Section = "Medidas") {
   // Canine acquisition controls already live in References; feline controls
   // are also directly available in Measurements. Exercise their existing UI.
-  if (!screen.queryByLabelText(label)) fireEvent.click(screen.getByRole("button", { name: "Referências" }));
-  fireEvent.change(screen.getByLabelText(label), { target: { value } });
-  fireEvent.click(screen.getByRole("button", { name: "Medidas" }));
+  if (updates.some(([label]) => !screen.queryByLabelText(label))) selectSection("Referências");
+  const controls = updates.map(([label, value]) => [screen.getByLabelText(label), value] as const);
+  // Initial acquisition values are independent controls. Apply both events in
+  // one React batch instead of remounting the large measurement form twice.
+  act(() => {
+    for (const [control, value] of controls) fireEvent.change(control, { target: { value } });
+  });
+  selectSection(destination);
+}
+
+async function changeWave(label: string, value: string, destination: Section = "Medidas") {
+  await changeWaves([[label, value]], destination);
 }
 
 async function openPage(mode: Mode, options: { species?: string; flow?: string; tissue?: string; official?: string; draft?: string; measurements?: Record<string, string> } = {}) {
@@ -108,21 +126,28 @@ async function openPage(mode: Mode, options: { species?: string; flow?: string; 
   window.history.replaceState(null, "", mode === "novo" ? "/laudos/novo?paciente_id=901" : "/laudos/905/editar");
   render(mode === "novo" ? <NovoLaudoPage /> : <EditarLaudoPage />);
   await screen.findByDisplayValue(String(patient.nome));
+  // Use the real navigation landmark and persistent header control. Looking up
+  // every button in the whole Measurements form scans hundreds of +/- controls.
+  const navigation = within(screen.getByRole("tablist", { name: "Seções do laudo" }));
+  for (const section of ["Paciente", "Medidas", "Qualitativa", "Referências"] as const) {
+    sectionButtons.set(section, navigation.getByRole("button", { name: section }));
+  }
+  saveButton = screen.getByRole("button", { name: "Salvar Laudo" });
   if (mode === "novo") {
     fireEvent.click(screen.getByRole("button", { name: "Importar estudo sintético" }));
     await waitFor(() => expect(live().Onda_E).toBe("1.08"));
     await editNarrative(official);
   }
-  fireEvent.click(screen.getByRole("button", { name: "Medidas" }));
+  selectSection("Medidas");
   if (mode === "novo") {
-    await changeWave("Ondas transmitrais E/A", flow);
-    await changeWave("Ondas teciduais e'/a'", tissue);
+    await changeWaves([["Ondas transmitrais E/A", flow], ["Ondas teciduais e'/a'", tissue]]);
   }
-  await waitFor(() => expect(live().Diastolica_ondas).toBe(flow));
+  await waitFor(() => expect(live()).toMatchObject({ Diastolica_ondas: flow, TDI_ondas: tissue }));
 }
 
 async function save(mode: Mode) {
-  fireEvent.click(screen.getByRole("button", { name: "Salvar Laudo" }));
+  expect(saveButton).not.toBeNull();
+  fireEvent.click(saveButton!);
   const transport = mode === "novo" ? mocks.post : mocks.put;
   const url = mode === "novo" ? "/laudos" : "/laudos/905";
   await waitFor(() => expect(transport.mock.calls.some(([target]) => target === url)).toBe(true));
@@ -132,6 +157,7 @@ async function save(mode: Mode) {
 describe("páginas reais: conferência da narrativa canina e felina", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sectionButtons.clear(); saveButton = null;
     localStorage.setItem("token", "synthetic-local-token");
     mocks.imported = { ...MEASURES };
     mocks.post.mockResolvedValue({ data: { id: 905 } });
@@ -156,12 +182,11 @@ describe("páginas reais: conferência da narrativa canina e felina", () => {
     expect(live()).toMatchObject({ Onda_E: "1.08", Onda_A: "0.95", TD: "51", TRIV: "40", e_doppler: "0.16" });
     await changeWave("Ondas transmitrais E/A", "separadas");
     await waitFor(() => expect(panel()).not.toBeInTheDocument());
-    await changeWave("Ondas transmitrais E/A", "fundidas");
-    fireEvent.click(screen.getByRole("button", { name: "Qualitativa" }));
+    await changeWave("Ondas transmitrais E/A", "fundidas", "Qualitativa");
     expect(panel()).toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox", { name: "Texto diastólico sintético" }), { target: { value: REVIEWED } });
     await waitFor(() => expect(panel()).not.toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Medidas" }));
+    selectSection("Medidas");
     expect(panel()).not.toBeInTheDocument();
     expect(live().Diastolica_ondas).toBe("fundidas");
   });
@@ -210,7 +235,7 @@ describe("páginas reais: conferência da narrativa canina e felina", () => {
     { official: CONFLICT, draft: "compatível", expected: true },
   ])("novo considera o legado selecionado quando o rascunho $draft está desabilitado", async ({ official, draft, expected }) => {
     await openPage("novo", { flow: "fundidas", official });
-    fireEvent.click(screen.getByRole("button", { name: "Qualitativa" }));
+    selectSection("Qualitativa");
     fireEvent.click(screen.getByRole("button", { name: `Preparar rascunho ${draft} sem aplicar` }));
     const expectedDraft = expected ? REVIEWED : CONFLICT;
     expect(screen.getByRole("textbox", { name: "Texto diastólico sintético" })).toHaveValue(expectedDraft);
@@ -220,7 +245,7 @@ describe("páginas reais: conferência da narrativa canina e felina", () => {
     } else {
       await waitFor(() => expect(panel()).not.toBeInTheDocument());
     }
-    fireEvent.click(screen.getByRole("button", { name: "Medidas" }));
+    selectSection("Medidas");
     if (expected) expect(panel()).toBeInTheDocument();
     else expect(panel()).not.toBeInTheDocument();
     expect(live().Diastolica_ondas).toBe("fundidas");
@@ -233,7 +258,7 @@ describe("páginas reais: conferência da narrativa canina e felina", () => {
   it.each(MODES)("%s confere também a narrativa canina nas duas abas", async (mode) => {
     await openPage(mode, { species: "Canina", flow: "fundidas" });
     await waitFor(() => expect(panel()).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Qualitativa" }));
+    selectSection("Qualitativa");
     expect(panel()).toBeInTheDocument();
   });
 
@@ -241,11 +266,11 @@ describe("páginas reais: conferência da narrativa canina e felina", () => {
     await openPage(mode, { flow: "fundidas" });
     await waitFor(() => expect(panel()).toBeInTheDocument());
     for (const [species, expected] of [["Canina", true], ["Felina", true]] as const) {
-      fireEvent.click(screen.getByRole("button", { name: "Paciente" }));
+      selectSection("Paciente");
       const selector = screen.getByText("Espécie", { selector: "label" }).parentElement?.querySelector("select");
       expect(selector).not.toBeNull();
       fireEvent.change(selector!, { target: { value: species } });
-      fireEvent.click(screen.getByRole("button", { name: "Medidas" }));
+      selectSection("Medidas");
       await waitFor(() => expected ? expect(panel()).toBeInTheDocument() : expect(panel()).not.toBeInTheDocument());
     }
     expect(live().Diastolica_ondas).toBe("fundidas");
@@ -264,12 +289,12 @@ describe("páginas reais: conferência da narrativa canina e felina", () => {
     await openPage(mode, { species: "Canina", official: "Relação AE/Ao de 1,40.",
       measurements: { Aorta: "10", Atrio_esquerdo: "14", AE_Ao: "1.40" } });
     expect(panel()).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Qualitativa" }));
+    selectSection("Qualitativa");
     fireEvent.click(screen.getByRole("button", { name: "Definir conclusão oficial sintética" }));
     fireEvent.click(screen.getByRole("button", { name: "Aplicar preset numérico sintético" }));
     await waitFor(() => expect(panel()).toBeInTheDocument());
     expect(panel()!.querySelector("blockquote")).toHaveTextContent("Relação AE/Ao de 1,80.");
-    fireEvent.click(screen.getByRole("button", { name: "Medidas" }));
+    selectSection("Medidas");
     const aorta = screen.getByText("Aorta (mm)", { selector: "label" }).parentElement?.querySelector("input");
     expect(aorta).not.toBeNull();
     fireEvent.change(aorta!, { target: { value: "7.78" } });

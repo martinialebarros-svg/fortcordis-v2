@@ -31,3 +31,10 @@ Implementado e verificado localmente, junto do incremento anterior de coerência
 ## Publicação posterior autorizada — 27/10/2026
 
 Usuário autorizou stage para baixo peso e coerência canina. Preflight remoto: stage `d32f73036544e29a8dd1a74144fb9b486be71dd5`, main `d65b60e2b83276806301bc8ebf37747e43103b85`. Pacote exato de 38 caminhos, 30 hashes de código/testes intactos, nenhuma sobreposição com os 61 caminhos remotos desde a base local. Integrar stage normalmente e preservar Gestão/migração, Agenda, Maps e demais trabalhos. O deploy e a homologação do SHA instalado serão registrados como evidência operacional, sem transportar os dados sintéticos para produção.
+
+### Revisão da PR #502 — bloqueio etário 2D
+
+- CA-BP-08: reproduzidas seis falhas frontend e 16 subcasos backend antes da correção. O carrier abaixo de 3 kg permitia faixas/índice Visser 2D apesar de idade juvenil conhecida. A idade agora acompanha a derivação, comparação, prévia e PDF; histórico de entrada preservado. Idade desconhecida mantém a confirmação explícita de adulto/vista, sem criar campo obrigatório.
+- Sete regressões frontend cobrem ambas as vistas, 2,6/2,7/2,99/3/10 kg, controles adultos, peso/vista inelegíveis e histórico imutável. Backend cobre 30 PDFs em memória (cinco pesos, duas vistas e três contextos etários). Juvenis não recebem faixa, índice nem bibliografia Visser adulta inaplicável.
+- Após integrar stage e corrigir a revisão: 1.746 testes Vitest em 130 arquivos, 23 testes Node, 124 testes backend e 339 subtestes aprovados localmente. Logs `/tmp/echo-stage-release-{frontend,node,backend}-final-20261027.log`; o comando inicial acrescentou indevidamente uma opção Vitest ao runner Node, corrigido executando o runner Node separadamente, com 23/23 aprovados.
+- O canário instalado ficará em `output/qa/stage-echo-release-20261027/`: exige cwd/SHA stage exatos, transação somente leitura e gera somente PDF sintético temporário. Sua preparação não equivale a execução; deploy e prova instalada ainda serão conferidos após os checks da PR.

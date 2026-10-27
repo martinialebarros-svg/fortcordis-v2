@@ -19,6 +19,7 @@ from pypdf import PdfReader
 from app.services.echo_reference_resolver import load_echo_reference, resolve_echo_reference
 from app.utils.pdf_laudo import (
     aplicar_referencia_eco, criar_secao_referencias_eco, formatar_referencia, gerar_pdf_laudo_eco,
+    recalcular_dived_normalizado_para_pdf, referencias_2d_caninas_publicadas,
 )
 
 KEYS = {"DIVEd": "lvid_d", "DIVES": "lvid_s", "SIVd": "ivs_d", "SIVs": "ivs_s",
@@ -259,6 +260,56 @@ class PdfLaudoLowWeightTest(unittest.TestCase):
                 self.assertIn("Visser et al. (2019)", text)
             else:
                 self.assertNotIn("Visser et al. (2019)", text)
+
+    def test_2d_adult_reference_never_applies_to_a_known_juvenile_even_with_confirmed_view(self):
+        for weight in (2.59, 2.6, 2.7, 2.99, 3):
+            for view in ("eixo_curto", "eixo_longo"):
+                for age in ("7m", "2 anos", None):
+                    with self.subTest(weight=weight, view=view, age=age):
+                        payload = report(weight=weight, age=age, reference=reference(weight=weight))
+                        payload["medidas"] = {
+                            "VE_tecnica_relatorio": "2d", "VE_vista_2D": view,
+                            "DIVEd_2D": "22", "DIVES_2D": "12", "DeltaD_FS_2D": "45.45",
+                            "DIVEd_normalizado_2D": "9.99",
+                        }
+                        original = deepcopy(payload)
+                        ranges = referencias_2d_caninas_publicadas(payload)
+                        eligible = weight >= 2.6 and age != "7m"
+                        self.assertEqual(bool(ranges), eligible)
+                        self.assertEqual(payload, original)
+                        recalculated = deepcopy(payload)
+                        recalcular_dived_normalizado_para_pdf(recalculated)
+                        self.assertEqual("DIVEd_normalizado_2D" in recalculated["medidas"], eligible)
+                        if not eligible:
+                            self.assertEqual(ranges, {})
+
+        unconfirmed = report(weight=2.7, age="2 anos", reference=reference(weight=2.7))
+        unconfirmed["medidas"] = {"VE_tecnica_relatorio": "2d", "DIVEd_2D": "22"}
+        self.assertEqual(referencias_2d_caninas_publicadas(unconfirmed), {})
+
+    def test_actual_2d_pdf_rejects_juvenile_adult_intervals_and_index_without_changing_raw_values(self):
+        for weight in (2.59, 2.6, 2.7, 2.99, 3):
+            for view in ("eixo_curto", "eixo_longo"):
+                for age in ("7m", "2 anos", None):
+                    with self.subTest(weight=weight, view=view, age=age):
+                        # Below 3 kg, exercise the new no-catalog renderer
+                        # carrier. At 3 kg retain the existing catalog contract.
+                        carrier = reference(weight=weight) if weight == 3 else None
+                        payload = report(weight=weight, age=age, reference=carrier)
+                        payload["medidas"] = {
+                            "VE_tecnica_relatorio": "2d", "VE_vista_2D": view,
+                            "DIVEd_2D": "22", "DIVES_2D": "12", "DeltaD_FS_2D": "45.45",
+                            "DIVEd_normalizado_2D": "9.99",
+                        }
+                        _, text = pdf(payload)
+                        eligible = weight >= 2.6 and age != "7m"
+                        self.assertEqual("Visser et al. (2019)" in text, eligible)
+                        self.assertEqual("DIVEd normalizado 2D" in text, eligible)
+                        self.assertIn("22.00 mm", text)
+                        self.assertIn("12.00 mm", text)
+                        self.assertIn("45.45 %", text)
+                        self.assertIn("Texto oficial sintetico preservado.", text)
+                        self.assertNotIn("Isayama", text)
 
     def test_unknown_species_cannot_receive_feline_or_toy_dog_limits(self):
         _, text = pdf(report("Equina", 2))

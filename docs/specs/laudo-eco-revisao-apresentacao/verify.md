@@ -431,4 +431,6 @@ O laudo real aberto no Safari não foi editado, salvo ou recarregado para testar
 
 ### Publicação em stage — autorização de 27/10/2026
 
+Na PR #502, dois casos Novo/Gato e Novo/Canina excederam 5 s no CI. O harness agora busca as abas no landmark de navegação, reutiliza o botão Salvar e agrupa apenas a preparação inicial das ondas. Todas as verificações clínicas e de payload foram preservadas, sem aumentar o timeout. O arquivo passou 22/22 localmente em 4,57 s (antes: 10,45 s); a suíte integrada passou 1.746 casos em 130 arquivos, com execução real do CI ainda obrigatória antes do merge. Evidência `/tmp/echo-coherence-harness-before-20261027.json` e logs da rodada final.
+
 O usuário autorizou stage para este incremento e o de baixo peso, após a validação local combinada (1.702 testes frontend, 23 Node e 122 backend). Preflight: `origin/stage=d32f73036544e29a8dd1a74144fb9b486be71dd5`; `origin/main=d65b60e2b83276806301bc8ebf37747e43103b85`, ancestral de stage. Os 38 caminhos do pacote não se sobrepõem aos 61 caminhos alterados remotamente desde a base; os 30 hashes de código/testes conferem com o congelamento. Integração normal e publicação exclusivamente em stage, com verificação terminal e QA do SHA instalado; evidência operacional registrada após a execução.

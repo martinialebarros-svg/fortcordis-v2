@@ -36,7 +36,9 @@ from app.utils.echo_ae_ao_reference import (
     CANINE_AE_AO_SWEDISH_METHOD_NOTE,
     canine_ae_ao_clinical_limit_applies,
 )
-from app.utils.echo_low_weight_reference import LOW_WEIGHT_PREFIXES, low_weight_reference_seed
+from app.utils.echo_low_weight_reference import (
+    LOW_WEIGHT_PREFIXES, low_weight_age_context, low_weight_reference_seed,
+)
 from app.utils.echo_diastolic import (
     diastolic_references, diastolic_notes, diastolic_indices_awaiting_confirmation,
 )
@@ -352,6 +354,10 @@ def referencias_2d_caninas_publicadas(dados_pdf: Dict[str, Any]) -> Dict[str, Tu
     paciente = dados_pdf.get("paciente") or {}
     medidas = dados_pdf.get("medidas") or {}
     if not dados_pdf.get("referencia_eco") or normalizar_especie_referencia(paciente.get("especie") or "") != "Canina":
+        return {}
+    # A confirmed adult acquisition protocol cannot override a patient known
+    # to be growing. Unknown age retains the existing explicit-view contract.
+    if low_weight_age_context(paciente.get("idade")) == "juvenile":
         return {}
     if medidas.get("VE_tecnica_relatorio") != "2d":
         return {}
