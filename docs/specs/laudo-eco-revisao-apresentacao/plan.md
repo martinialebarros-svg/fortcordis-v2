@@ -67,12 +67,3 @@
 4. Corrigir a duplicação alias/canônica da comparação RF-108/CA-090 identificada na revisão da promoção. Auditar o hook completo e o componente real para impedir recuperação do alias por outro fluxo; manter frontend e PDF alinhados sem alterar valores salvos. Publicar o ajuste em stage antes da promoção.
 
 5. Fechar RF-109/CA-091 nas três fronteiras que descartavam a limpeza: escritor frontend de editar, escritor backend de novo e parser backend. Preservar a presença canônica explícita, os aliases no histórico e a separação de linhas. Conferir recarga e PDF, inclusive valores inválidos; invalidar somente cache eco v27 e homologar o conjunto antes da promoção.
-
-
-## Incremento 2026-10-26 — conferência canina e numérica
-
-1. Reutilizar a worktree anexada e partir de `origin/stage` congelado em `ab216935`, preservando o clone principal e seus trabalhos paralelos. Conferir contratos/código/testes e criar regressões antes da implementação.
-2. Generalizar o motor contextual já testado para ambas espécies, preservando a API legada felina e as regras de contexto/famílias.
-3. Acrescentar comparador numérico literal conservador com proveniência de unidade, seleção de técnica e arredondamento; integrar ao painel existente. Não alterar limites clínicos, importação, armazenamento, presets, PDF ou cache.
-4. Validar componentes reais/payloads, regressões de segurança e narrativas de PDFs reais em leitura; revisar independentemente falsos avisos e casos não cobertos.
-5. Executar testes focados e suite pertinente, tipos/lint/build/diff/SDD e entregar o snapshot local verificável. Não commitar, publicar ou regravar laudos reais nesta etapa. Rollback local: reverter somente helpers/avisos/testes deste incremento, sem migração ou modificação de dados.

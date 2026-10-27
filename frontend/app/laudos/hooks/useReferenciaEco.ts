@@ -9,7 +9,6 @@ import { resolveEchoReferenceForMeasurements, selectEchoReferenceFromCatalog } f
 import { isFelineEchoSpecies, normalizeEchoSpecies } from "@/lib/echo-species";
 import { canonicalEchoDiastolicKey, echoDiastolicReferences } from "@/lib/echo-diastolic-reference";
 import { FELINE_DIASTOLIC_KEYS } from "@/lib/echo-feline-diastolic-reference";
-import { lowWeightAgeContext, lowWeightEstimateText, makeLowWeightReference } from "@/lib/echo-low-weight-reference";
 
 // Mapeamento de parâmetros das medidas para os campos da referência
 // As chaves devem corresponder aos 'key' definidos na nova aba Medidas
@@ -148,12 +147,10 @@ function motivoSemFaixa2D(
   pesoPacienteKg: number | undefined,
   plano2D: Echo2DView | "",
   fsCompativelComPar: boolean,
-  age?: unknown,
 ): string {
   if (PAREDES_2D.has(key)) return "Sem intervalo 2D por peso para esta espessura nas fontes adotadas";
   if (TEICHOLZ_2D.has(key)) return "Teichholz: intervalos 2D de Simpson não são aplicáveis";
   if (!/^canin/i.test(especie)) return "Sem faixa 2D desta população nas fontes adotadas";
-  if (lowWeightAgeContext(age) === "juvenile") return "Faixa 2D de cães adultos não aplicável à idade em crescimento";
   if (!plano2D) return "Confirme cão adulto e vista 2D para comparar";
   if (!Number.isFinite(pesoPacienteKg) || pesoPacienteKg === undefined || pesoPacienteKg < 2.6 || pesoPacienteKg > 67.8) {
     return "Peso fora da população estudada (2,6 a 67,8 kg)";
@@ -199,7 +196,7 @@ export function compararMedidasComReferencia(
     const fsCompativelComPar = key !== "DeltaD_FS_2D" ||
       (fsDoPar !== null && Math.abs(valorNumerico - fsDoPar) <= 1);
     const faixa2D = /^canin/i.test(referencia.especie) && fsCompativelComPar
-      ? getCanine2DReference(key, pesoPacienteKg, plano2D, referenciaSegura.patient_age)
+      ? getCanine2DReference(key, pesoPacienteKg, plano2D)
       : null;
     const metadados = referenciaSegura.range_metadata?.[mapeamento.campo];
     const podeComparar = mapeamento.campo !== "fs" || Boolean(referenciaSegura.fs_source);
@@ -210,14 +207,6 @@ export function compararMedidasComReferencia(
     if (key === "e_doppler" || key === "a_doppler") {
       refMin = refMin === null ? null : refMin / 100;
       refMax = refMax === null ? null : refMax / 100;
-    }
-    const estimate = lowWeightEstimateText(metadados);
-    if (estimate) {
-      comparacoes[key] = { nome: mapeamento.nome, valor_medido: valor,
-        referencia_min: null, referencia_max: null, referencia_texto: estimate,
-        status: "nao_avaliado", interpretacao: metadados?.reason || "Estimativa; sem comparação automática",
-        categoria: mapeamento.categoria, fonte: metadados?.source, doi: metadados?.doi, metadados };
-      return;
     }
 
     if (
@@ -232,11 +221,10 @@ export function compararMedidasComReferencia(
         referencia_max: refMax,
         status: "nao_avaliado",
         interpretacao: key.endsWith("_2D")
-          ? motivoSemFaixa2D(key, referencia.especie, pesoPacienteKg, plano2D, fsCompativelComPar, referenciaSegura.patient_age)
+          ? motivoSemFaixa2D(key, referencia.especie, pesoPacienteKg, plano2D, fsCompativelComPar)
           : metadados?.reason || "Faixa não cadastrada",
         categoria: mapeamento.categoria,
         fonte: metadados?.source,
-        doi: metadados?.doi,
         metadados,
       };
       return;
@@ -245,18 +233,16 @@ export function compararMedidasComReferencia(
     let status: ComparacaoMedida["status"];
     let interpretacao: string;
 
-    const calculated = !faixa2D && metadados?.model_weight_kg != null
-      && ["allometric", "interpolated"].includes(metadados.calculation || "");
     const tipoFaixa = faixa2D ? "2D publicada" : metadados?.status === "published" ? "publicada" : "cadastrada";
     if (valorNumerico < refMin) {
       status = "diminuido";
-      interpretacao = calculated ? `Abaixo dos limites calculados (< ${refMin})` : `Abaixo da faixa ${tipoFaixa} (< ${refMin})`;
+      interpretacao = `Abaixo da faixa ${tipoFaixa} (< ${refMin})`;
     } else if (valorNumerico > refMax) {
       status = "aumentado";
-      interpretacao = calculated ? `Acima dos limites calculados (> ${refMax})` : `Acima da faixa ${tipoFaixa} (> ${refMax})`;
+      interpretacao = `Acima da faixa ${tipoFaixa} (> ${refMax})`;
     } else {
       status = "normal";
-      interpretacao = calculated ? "Dentro dos limites calculados" : `Dentro da faixa ${tipoFaixa}`;
+      interpretacao = `Dentro da faixa ${tipoFaixa}`;
     }
 
     comparacoes[key] = {
@@ -268,7 +254,6 @@ export function compararMedidasComReferencia(
       interpretacao,
       categoria: mapeamento.categoria,
       fonte: faixa2D?.source ?? metadados?.source,
-      doi: metadados?.doi,
       metadados,
     };
   });
@@ -279,7 +264,7 @@ export function compararMedidasComReferencia(
 export function useReferenciaEco() {
   const [loading, setLoading] = useState(false);
 
-  const buscarReferencia = useCallback(async (especie: string, peso: number, idade?: string | null): Promise<ReferenciaEco | null> => {
+  const buscarReferencia = useCallback(async (especie: string, peso: number): Promise<ReferenciaEco | null> => {
     const especieNormalizada = normalizeEchoSpecies(especie);
     const pesoNormalizado = Number(peso);
     if (!especieNormalizada || !Number.isFinite(pesoNormalizado) || pesoNormalizado <= 0) {
@@ -288,10 +273,10 @@ export function useReferenciaEco() {
 
     try {
       setLoading(true);
-      const url = `/referencias-eco/buscar/${encodeURIComponent(especieNormalizada)}/${pesoNormalizado}`;
-      const response = idade === undefined ? await api.get(url) : await api.get(url, { params: { idade } });
-      const reference = response.data || makeLowWeightReference(especieNormalizada, pesoNormalizado, 0, {}, idade);
-      return resolveEchoReferenceForMeasurements(reference, {}, pesoNormalizado, idade);
+      const response = await api.get(
+        `/referencias-eco/buscar/${encodeURIComponent(especieNormalizada)}/${pesoNormalizado}`
+      );
+      return response.data;
     } catch (error) {
       console.warn("Falha na busca direta de referencia; tentando fallback por listagem.", error);
       try {
@@ -299,10 +284,14 @@ export function useReferenciaEco() {
           `/referencias-eco?especie=${encodeURIComponent(especieNormalizada)}`
         );
         const items = Array.isArray(response.data?.items) ? (response.data.items as ReferenciaEco[]) : [];
-        return selectEchoReferenceFromCatalog(items, pesoNormalizado, especieNormalizada, idade);
+        if (items.length === 0) {
+          return null;
+        }
+
+        return selectEchoReferenceFromCatalog(items, pesoNormalizado, especieNormalizada);
       } catch (fallbackError) {
         console.error("Erro ao buscar referencia:", fallbackError);
-        return resolveEchoReferenceForMeasurements(makeLowWeightReference(especieNormalizada, pesoNormalizado, 0, {}, idade), {}, pesoNormalizado, idade);
+        return null;
       }
     } finally {
       setLoading(false);

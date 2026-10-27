@@ -1457,33 +1457,42 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
     from app.models.paciente import Paciente
     from app.models.tutor import Tutor
 
-    tutor_id = None
-    tutor_nome = (paciente.get("tutor") or "").strip()
-    if tutor_nome:
-        tutor_nome_key = _gerar_nome_key(tutor_nome)
-        tutor = db.query(Tutor).filter(Tutor.nome_key == tutor_nome_key).first()
-        if not tutor:
-            tutor = db.query(Tutor).filter(Tutor.nome.ilike(tutor_nome)).first()
+    from app.services.tutor_identidade_service import exigir_tutor_utilizavel
 
-        if not tutor:
-            tutor = Tutor(
-                nome=tutor_nome,
-                nome_key=tutor_nome_key,
-                telefone=paciente.get("telefone", ""),
-                ativo=1,
-                created_at=_legacy_now_dt(),
-            )
-            db.add(tutor)
-            try:
-                db.commit()
-                db.refresh(tutor)
-            except IntegrityError:
-                db.rollback()
-                tutor = db.query(Tutor).filter(Tutor.nome_key == tutor_nome_key).first()
-                if not tutor:
-                    tutor = db.query(Tutor).filter(Tutor.nome.ilike(tutor_nome)).first()
-                if not tutor:
-                    raise
+    try:
+        raw_tutor_id = paciente.get("tutor_id")
+        tutor_id = int(raw_tutor_id) if raw_tutor_id not in (None, "") else None
+    except (TypeError, ValueError):
+        raise HTTPException(422, "ID do tutor invalido.")
+    if tutor_id is not None and tutor_id <= 0:
+        raise HTTPException(422, "ID do tutor invalido.")
+    paciente_existente_por_id = None
+    if paciente.get("id") not in (None, ""):
+        try:
+            paciente_existente_por_id = db.get(Paciente, int(paciente["id"]))
+        except (TypeError, ValueError):
+            raise HTTPException(422, "ID do paciente invalido.")
+        if not paciente_existente_por_id:
+            raise HTTPException(404, "Paciente informado nao encontrado.")
+        if tutor_id and tutor_id != paciente_existente_por_id.tutor_id:
+            raise HTTPException(409, "Tutor diferente do paciente selecionado. Corrija o vinculo no cadastro do paciente.")
+        tutor_id = paciente_existente_por_id.tutor_id
+
+    if tutor_id:
+        tutor_id = exigir_tutor_utilizavel(db, tutor_id).id
+    elif (paciente.get("tutor") or "").strip():
+        # Um nome digitado nao e uma selecao de identidade, mesmo se unico.
+        tutor = Tutor(
+            nome=paciente["tutor"].strip(),
+            nome_key=_gerar_nome_key(paciente["tutor"]),
+            telefone=paciente.get("telefone", ""),
+            identificacao_pendente=True,
+            origem_cadastro="Cadastro pelo laudo",
+            ativo=1,
+            created_at=_legacy_now_dt(),
+        )
+        db.add(tutor)
+        db.flush()
         tutor_id = tutor.id
 
     def _atualizar_paciente_existente_sem_limpar_campos(db_paciente: Any) -> None:
@@ -4513,12 +4522,10 @@ def gerar_pdf_laudo(
 
             referencia_eco = None
             if paciente and paciente.especie and paciente.peso_kg and paciente.peso_kg > 0:
-                dados_paciente["peso"] = str(paciente.peso_kg)
                 try:
                     referencia_eco = load_echo_reference(
                         db, species=paciente.especie, weight_kg=paciente.peso_kg,
                         medidas=medidas,
-                        idade=dados_paciente.get("idade"),
                     )
                 except Exception as e:
                     db.rollback()

@@ -18,7 +18,6 @@ import { parseStoredEchoMeasurements } from "@/lib/echo-derived-measurements";
 import { extrairQualitativaEcoDaDescricao, type QualitativaEcoLegada } from "@/lib/ecocardiograma-estruturado";
 import { buildEchoReportGroups, prepareEchoReportMeasurements, splitReportObservations } from "@/lib/echo-report-presentation";
 import { useReferenciaEco } from "../hooks/useReferenciaEco";
-import { makeLowWeightReference } from "@/lib/echo-low-weight-reference";
 import type { ReferenciaEco } from "../types/referencia-eco";
 import {
   getTituloBotaoAvisoWhatsApp,
@@ -178,9 +177,8 @@ export default function VisualizarLaudoPage() {
   const laudoEhEletrocardiograma = laudo?.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA;
   const laudoEhPressao = laudo?.tipo === TIPO_LAUDO_PRESSAO_ARTERIAL;
   const laudoEhEco = laudo?.tipo === TIPO_LAUDO_ECOCARDIOGRAMA;
-  const { measurements: medidasExibidas, alerts: alertasCalculo, ambiguousKeys } = prepareEchoReportMeasurements(medidas, paciente?.peso_kg, paciente?.especie, paciente?.idade);
-  const referenciaParaPrevia = referenciaEco || makeLowWeightReference(paciente?.especie, paciente?.peso_kg, 0, {}, paciente?.idade);
-  const gruposMedidas = buildEchoReportGroups(medidasExibidas, referenciaParaPrevia, ambiguousKeys, paciente?.peso_kg, paciente?.especie, paciente?.idade);
+  const { measurements: medidasExibidas, alerts: alertasCalculo, ambiguousKeys } = prepareEchoReportMeasurements(medidas, paciente?.peso_kg, paciente?.especie);
+  const gruposMedidas = buildEchoReportGroups(medidasExibidas, referenciaEco, ambiguousKeys, paciente?.peso_kg, paciente?.especie);
   const observacoes = splitReportObservations(laudo?.observacoes || "");
 
   useEffect(() => {
@@ -197,12 +195,12 @@ export default function VisualizarLaudoPage() {
     let active = true;
     setReferenciaEco(null);
     if (laudoEhEco && paciente?.especie && paciente.peso_kg > 0) {
-      buscarReferencia(paciente.especie, paciente.peso_kg, paciente.idade).then((reference) => {
+      buscarReferencia(paciente.especie, paciente.peso_kg).then((reference) => {
         if (active) setReferenciaEco(reference);
       });
     }
     return () => { active = false; };
-  }, [laudoEhEco, paciente?.especie, paciente?.peso_kg, paciente?.idade, buscarReferencia]);
+  }, [laudoEhEco, paciente?.especie, paciente?.peso_kg, buscarReferencia]);
 
   const carregarLaudo = async () => {
     if (!laudoId) return;
@@ -802,8 +800,6 @@ export default function VisualizarLaudoPage() {
               <p className="mb-3 text-xs text-gray-600">
                 {carregandoReferencia
                   ? "Consultando faixas de referência por espécie e peso..."
-                  : referenciaParaPrevia?.reference_origin === "computed"
-                  ? `Referência calculada para ${referenciaParaPrevia.especie}, ${paciente?.peso_kg} kg; confirme a população adulta e o contexto de cada medida.`
                   : referenciaEco
                   ? `Referência selecionada por espécie e peso: cadastro de ${referenciaEco.especie}, ${referenciaEco.peso_kg} kg.`
                   : gruposMedidas.some((grupo) => grupo.rows.some((row) => ["descriptive", "reference_interval"].includes(row.referenceMetadata?.kind ?? "")))

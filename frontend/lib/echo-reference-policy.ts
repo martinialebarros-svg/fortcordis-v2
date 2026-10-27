@@ -1,6 +1,5 @@
 import type { EchoRangeMetadata, ReferenciaEco } from "@/app/laudos/types/referencia-eco";
 import { isFelineEchoSpecies, normalizeEchoSpecies } from "./echo-species";
-import { applyLowWeightReference, makeLowWeightReference } from "./echo-low-weight-reference";
 
 export const ECHO_REFERENCE_METHOD_VALUES = {
   TAPSE_metodo: ["modo_m_apical", "2d"],
@@ -35,16 +34,12 @@ export function resolveEchoReferenceForMeasurements(
   reference: ReferenciaEco | null,
   measurements: Record<string, string>,
   weightKg?: number,
-  age?: string | null,
 ): ReferenciaEco | null {
   if (!reference) return null;
   const resolved = { ...reference } as ReferenciaEco & Record<string, unknown>;
   const metadata = { ...reference.range_metadata };
   resolved.range_metadata = metadata;
-  const weight = finite(weightKg === undefined ? reference.patient_weight_kg : weightKg);
-  resolved.patient_weight_kg = weight ?? undefined;
-  const currentAge = age === undefined ? reference.patient_age : age;
-  if (currentAge !== undefined) resolved.patient_age = currentAge;
+  const weight = finite(weightKg);
 
   const domain = WEIGHT_DOMAINS[normalizedSpecies(reference.especie)];
   const outsideStudy = domain && weight !== null && (weight < domain[0] || weight > domain[1]
@@ -119,16 +114,15 @@ export function resolveEchoReferenceForMeasurements(
       }
     }
   }
-  return applyLowWeightReference(resolved, measurements, weight, currentAge);
+  return resolved;
 }
 
 /** List fallback follows the same species, study and coverage guards as /buscar. */
-export function selectEchoReferenceFromCatalog(items: ReferenciaEco[], weightKg: number, species: string, age?: string | null): ReferenciaEco | null {
+export function selectEchoReferenceFromCatalog(items: ReferenciaEco[], weightKg: number, species: string): ReferenciaEco | null {
   const normalized = normalizedSpecies(species);
   const rows = items.filter((row) => normalizedSpecies(row.especie) === normalized
     && Number.isFinite(row.peso_kg) && row.peso_kg > 0);
-  if (!Number.isFinite(weightKg) || weightKg <= 0) return null;
-  if (!rows.length) return resolveEchoReferenceForMeasurements(makeLowWeightReference(normalized, weightKg, 0, {}, age), {}, weightKg, age);
+  if (!rows.length || !Number.isFinite(weightKg) || weightKg <= 0) return null;
   const domain = WEIGHT_DOMAINS[normalized];
   const eligible = rows.filter((row) => !domain || (row.peso_kg >= domain[0] && row.peso_kg <= domain[1]));
   const candidates = eligible.length ? eligible : rows;
@@ -146,8 +140,7 @@ export function selectEchoReferenceFromCatalog(items: ReferenciaEco[], weightKg:
     catalog_weight_min: eligible.length ? Math.min(...eligible.map((row) => row.peso_kg)) : null,
     catalog_weight_max: eligible.length ? Math.max(...eligible.map((row) => row.peso_kg)) : null,
     patient_weight_kg: weightKg,
-    ...(age !== undefined ? { patient_age: age } : {}),
-  }, {}, weightKg, age);
+  }, {}, weightKg);
 }
 
 export function echoCatalogRange(reference: ReferenciaEco, prefix: string) {

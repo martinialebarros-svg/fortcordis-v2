@@ -10,13 +10,10 @@ import { prepareEchoReportMeasurements } from "@/lib/echo-report-presentation";
 import { ambiguousEchoLengthKeys } from "@/lib/echo-unit-provenance";
 import type { Echo2DView } from "@/lib/echo-2d-reference";
 import { EchoDiastolicProtocol } from "./EchoDiastolicProtocol";
-import { resolveEchoReferenceForMeasurements } from "@/lib/echo-reference-policy";
-import { makeLowWeightReference } from "@/lib/echo-low-weight-reference";
 
 interface ReferenciaComparisonProps {
   especie?: "Canina" | "Felina" | string;
   peso?: number;
-  idade?: string | null;
   medidas: Record<string, string>;
   onMedidaChange: (key: string, value: string) => void;
 }
@@ -31,7 +28,7 @@ const CATEGORIAS = {
 const formatarPeso = (valor: number) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(valor);
 const positive = (value: unknown) => Number(String(value ?? "").replace(",", ".")) > 0;
 
-export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaChange }: ReferenciaComparisonProps) {
+export function ReferenciaComparison({ especie, peso, medidas, onMedidaChange }: ReferenciaComparisonProps) {
   const { buscarReferencia, compararMedidas, loading } = useReferenciaEco();
   const [referencia, setReferencia] = useState<ReferenciaEco | null>(null);
   const [comparacoes, setComparacoes] = useState<Record<string, ComparacaoMedida>>({});
@@ -40,11 +37,11 @@ export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaCh
     : "";
   const medidasSeguras = useMemo(
     () => {
-      const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(medidas, peso, especie, idade);
+      const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(medidas, peso, especie);
       for (const key of ambiguousKeys) delete measurements[key];
       return measurements;
     },
-    [medidas, peso, especie, idade]
+    [medidas, peso, especie]
   );
   const medidasDerivadasParaReferencia = useMemo(
     () => deriveLeftVentricularFunctionForReference(medidasSeguras),
@@ -91,10 +88,8 @@ export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaCh
     async function carregarReferencia() {
       if (especie && pesoValido) {
         setReferencia(null);
-        const ref = await buscarReferencia(especie, peso, idade);
-        if (ativo) setReferencia(resolveEchoReferenceForMeasurements(
-          ref || makeLowWeightReference(especie, peso, 0, {}, idade), {}, peso, idade,
-        ));
+        const ref = await buscarReferencia(especie, peso);
+        if (ativo) setReferencia(ref);
         return;
       }
 
@@ -105,7 +100,7 @@ export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaCh
     return () => {
       ativo = false;
     };
-  }, [especie, peso, idade, buscarReferencia]);
+  }, [especie, peso, buscarReferencia]);
 
   useEffect(() => {
     if (referencia) {
@@ -143,7 +138,6 @@ export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaCh
   // Agrupar comparações por categoria
   const porCategoria: Record<string, Array<{key: string} & ComparacaoMedida>> = {};
   const temMedidas2D = Object.keys(medidasParaReferencia).some((key) => key.endsWith("_2D"));
-  const calculatedMetadata = Object.values(referencia?.range_metadata || {}).find((meta) => meta.model_weight_kg != null);
   Object.entries(comparacoes).forEach(([key, comp]) => {
     const categoria = comp.categoria || "outros";
     if (!porCategoria[categoria]) {
@@ -199,11 +193,8 @@ export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaCh
         <span className="text-lg">📊</span>
         <div>
           <p className="font-medium text-teal-900">
-            {referencia.reference_origin === "computed"
-              ? `Referência calculada: ${referencia.especie || especie}, peso de ${formatarPeso(referencia.patient_weight_kg ?? referencia.peso_kg)} kg`
-              : `Referência selecionada: ${referencia.especie || especie}, cadastro de ${formatarPeso(referencia.peso_kg)} kg`}
+            Referência selecionada: {referencia.especie || especie}, cadastro de {formatarPeso(referencia.peso_kg)} kg
           </p>
-          {calculatedMetadata && <p className="mt-1 text-xs text-teal-800">{calculatedMetadata.reason}</p>}
           <p className="text-sm text-teal-700">
             Peso do paciente: {typeof peso === "number" ? formatarPeso(peso) : "—"} kg. Faixas aplicáveis dependem do método, peso e fonte identificada.
           </p>
@@ -308,19 +299,11 @@ export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaCh
                     <div>
                       <p className="font-medium text-sm">{item.nome}</p>
                       <p className="text-xs text-gray-500">
-                        {item.metadados?.status === "estimated" ? "Estimativa calculada"
-                          : item.metadados?.status === "published" && ["allometric", "interpolated"].includes(item.metadados.calculation || "") ? "Limites calculados"
-                          : item.referencia_texto ? (item.referencia_tipo === "reference_interval" ? "Intervalo de referência publicado" : item.estatistica === "mean_sd" ? "Média ± DP publicada" : "Comparação diastólica") : item.key.endsWith("_2D")
+                        {item.referencia_texto ? (item.referencia_tipo === "reference_interval" ? "Intervalo de referência publicado" : item.estatistica === "mean_sd" ? "Média ± DP publicada" : "Comparação diastólica") : item.key.endsWith("_2D")
                           ? (semReferenciaDefinida ? "Faixa 2D" : "Faixa 2D publicada")
                           : item.metadados?.status === "published" ? "Faixa publicada" : "Faixa cadastrada"}: {faixaRef}
                       </p>
                       {item.fonte && <p className="text-xs text-gray-500">{item.doi ? <a href={`https://doi.org/${item.doi}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{item.fonte}</a> : item.fonte}</p>}
-                      {item.metadados?.model_weight_kg != null && <details className="mt-1 text-xs text-gray-600">
-                        <summary className="cursor-pointer">População adulta e cálculo</summary>
-                        <p>{item.metadados.population}</p>
-                        <p>{item.metadados.formula}</p>
-                        <p>{item.metadados.reason}</p>
-                      </details>}
                       {item.nota_referencia && ["descriptive", "reference_interval"].includes(item.referencia_tipo ?? "") && (
                         <details className="mt-1 text-xs text-gray-600">
                           <summary className="cursor-pointer">Técnica e população do estudo</summary>

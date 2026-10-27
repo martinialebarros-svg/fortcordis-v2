@@ -59,27 +59,6 @@ describe("useReferenciaEco", () => {
     });
   });
 
-  it("gera carrier de baixo peso mesmo após falha de API e catálogo vazio", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockGet.mockRejectedValueOnce(new Error("synthetic direct failure")).mockResolvedValueOnce({ data: { items: [] } });
-    const { result } = renderHook(() => useReferenciaEco());
-    await act(async () => {
-      expect(await result.current.buscarReferencia("Dog", 2, "2 anos"))
-        .toMatchObject({ id: 0, especie: "Canina", reference_origin: "computed", patient_age: "2 anos" });
-    });
-  });
-
-  it("gera carrier neutro se as duas consultas falham sem exigir confirmação adicional", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    mockGet.mockRejectedValue(new Error("synthetic unavailable API"));
-    const { result } = renderHook(() => useReferenciaEco());
-    await act(async () => {
-      expect(await result.current.buscarReferencia("Canina", 1))
-        .toMatchObject({ id: 0, especie: "Canina", reference_origin: "computed" });
-    });
-  });
-
   it("hook legado também bloqueia fluxos antigos e não trata null como limite zero", async () => {
     mockGet.mockResolvedValue({ data: { id: 1, especie: "Canina", peso_kg: 10, vmax_ao_min: 0, vmax_ao_max: 2.2, lvid_d_min: 20, lvid_d_max: 40 } });
     const { result } = renderHook(() => useReferenciaEcoLegacy("Canina", 10));

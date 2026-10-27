@@ -170,40 +170,13 @@ describe("referências diastólicas no visualizador do laudo salvo", () => {
     expect(reference("DIVEd · diâmetro interno do VE em diástole")).toHaveClass("whitespace-nowrap");
     expect(within(reference("DIVEd · diâmetro interno do VE em diástole")).queryByRole("link")).not.toBeInTheDocument();
     expect(cells("DIVEd · diâmetro interno do VE em diástole")[1]).toHaveTextContent("30.00 mm");
-    expect(mocks.buscarReferencia).toHaveBeenCalledWith("Canina", 10, undefined);
-  });
-
-  it.each([
-    { species: "Canina", weight: 2.5, age: "2 anos", expected: "13.83–21.28 mm", kind: "adult" },
-    { species: "Felina", weight: 2.25, age: "2 anos", expected: "10.55–16.50 mm", kind: "adult" },
-    { species: "Canina", weight: 1, age: "2 anos", expected: "estimativa", kind: "estimated" },
-    { species: "Canina", weight: 2.5, age: undefined, expected: "estimativa", kind: "unknown" },
-    { species: "Canina", weight: 2.5, age: "7m", expected: "paciente em crescimento", kind: "juvenile" },
-  ])("encaminha idade e mantém a referência aplicável na prévia $species/$kind", async ({ species, weight, age, expected, kind }) => {
-    const data = {
-      id: 91, tipo: "ecocardiograma", titulo: "QA baixo peso salvo", descricao: "Medidas Ecocardiográficas",
-      medidas: { DIVEd: "20", VE_tecnica_relatorio: "modo_m" }, status: "Rascunho", data_laudo: "2026-10-27T12:00:00",
-      paciente: { id: 8, nome: "QA BAIXO PESO", especie: species, peso_kg: weight, idade: age },
-    };
-    const before = structuredClone(data);
-    mocks.get.mockResolvedValue({ data });
-    render(<VisualizarLaudoPage />);
-    await screen.findByRole("heading", { name: "Medidas Ecocardiográficas" });
-    const cell = reference("DIVEd · diâmetro interno do VE em diástole");
-    expect(cell).toHaveTextContent(expected);
-    expect(cells("DIVEd · diâmetro interno do VE em diástole")[1]).toHaveTextContent("20.00 mm");
-    expect(mocks.buscarReferencia).toHaveBeenCalledWith(species, weight, age);
-    if (kind === "juvenile") expect(cell).not.toHaveTextContent("13.83–21.28 mm");
-    if (kind === "unknown") expect(cell).toHaveTextContent(/idade\/maturidade a confirmar/);
-    expect(data).toEqual(before);
-    expect(mocks.post).not.toHaveBeenCalled();
-    expect(mocks.put).not.toHaveBeenCalled();
+    expect(mocks.buscarReferencia).toHaveBeenCalledWith("Canina", 10);
   });
 
   it.each([
     { species: "Cat", waves: "fundidas", expected: true },
     { species: "Felina", waves: "separadas", expected: false },
-    { species: "Canina", waves: "fundidas", expected: true },
+    { species: "Canina", waves: "fundidas", expected: false },
   ])("confere a narrativa oficial na prévia $species/$waves sem escrever no laudo", async ({ species, waves, expected }) => {
     const text = "Função diastólica preservada, com padrão de enchimento adequado ao Doppler transmitral.";
     const measurements = { ...stored, Diastolica_ondas: waves, TDI_ondas: "separadas" };
@@ -231,39 +204,6 @@ describe("referências diastólicas no visualizador do laudo salvo", () => {
       expect(notice).not.toBeInTheDocument();
     }
     expect(screen.getByText("Conclusão clínica integrada preservada.")).toBeInTheDocument();
-    expect(data).toEqual(before);
-    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("/laudos/91");
-    expect(mocks.post).not.toHaveBeenCalled();
-    expect(mocks.put).not.toHaveBeenCalled();
-  });
-
-  const numericNarrativeCases: Array<{ species: string; measurements: Record<string, string>; official: string; draft: string; expected: boolean }> = [
-    { species: "Canina", measurements: { AE_Ao: "1.40" }, official: "Relação AE/Ao de 1,80.", draft: "Relação AE/Ao de 1,40.", expected: true },
-    { species: "Felina", measurements: { AE_Ao: "1.40" }, official: "Relação AE/Ao de 1,40.", draft: "Relação AE/Ao de 1,80.", expected: false },
-    { species: "Canina", measurements: { VE_tecnica_relatorio: "2d", DIVEd: "30", DIVEd_2D: "40" }, official: "DIVEd 2D de 45 mm.", draft: "DIVEd 2D de 40 mm.", expected: true },
-    { species: "Canina", measurements: { Vmax_pulmonar: "0.80" }, official: "Velocidade máxima pulmonar de 120 cm/s.", draft: "Velocidade máxima pulmonar de 80 cm/s.", expected: true },
-    { species: "Canina", measurements: { VE_tecnica_relatorio: "modo_m", LVIDd: "20" }, official: "DIVEd de 30 mm.", draft: "", expected: false },
-  ];
-  it.each(numericNarrativeCases)("visualizador confere somente o texto oficial de $species: $official", async ({ species, measurements, official, draft, expected }) => {
-    const data = {
-      id: 91, tipo: "ecocardiograma", titulo: "QA CONFERÊNCIA NUMÉRICA",
-      medidas: measurements, descricao: montarDescricaoEcocardiograma(measurements,
-        { valvas: "", camaras: "", funcao: official, pericardio: "", vasos: "", ad_vd: "" }),
-      diagnostico: "Conclusão clínica oficial intacta.", status: "Rascunho", data_laudo: "2026-10-26T12:00:00",
-      paciente: { id: 8, nome: "QA NARRATIVA NUMÉRICA", especie: species, peso_kg: 0 },
-      ecocardiograma_estruturado: { usar_no_laudo: true, textos: { funcao_diastolica: draft } },
-    };
-    const before = structuredClone(data);
-    mocks.get.mockResolvedValue({ data });
-    render(<VisualizarLaudoPage />);
-    await screen.findByRole("heading", { name: "Medidas Ecocardiográficas" });
-    const notice = screen.queryByRole("status", { name: "Conferência de coerência do laudo" });
-    if (expected) {
-      expect(notice).toBeInTheDocument();
-      expect(notice!.querySelector("blockquote")).toHaveTextContent(official);
-      expect(within(notice!).queryByRole("button")).not.toBeInTheDocument();
-    } else expect(notice).not.toBeInTheDocument();
-    expect(screen.getByText("Conclusão clínica oficial intacta.")).toBeInTheDocument();
     expect(data).toEqual(before);
     expect(mocks.get).toHaveBeenCalledExactlyOnceWith("/laudos/91");
     expect(mocks.post).not.toHaveBeenCalled();

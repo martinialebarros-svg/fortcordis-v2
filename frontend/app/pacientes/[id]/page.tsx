@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import TutorIdentificacaoFields from "@/components/TutorIdentificacaoFields";
 import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import {
   formatarCepVisual,
@@ -90,6 +91,9 @@ export default function EditarPacientePage() {
   const [resumoClinicoError, setResumoClinicoError] = useState("");
   const [paciente, setPaciente] = useState({
     tutor_id: "",
+    tutor_identificacao_pendente: true,
+    tutor_origem_cadastro: "",
+    tutor_identificacao_observacoes: "",
     nome: "",
     tutor: "",
     tutor_email: "",
@@ -158,6 +162,9 @@ export default function EditarPacientePage() {
       const data = response.data;
       setPaciente({
         tutor_id: data.tutor_id ? String(data.tutor_id) : "",
+        tutor_identificacao_pendente: data.tutor_identificacao_pendente ?? true,
+        tutor_origem_cadastro: data.tutor_origem_cadastro ?? "",
+        tutor_identificacao_observacoes: data.tutor_identificacao_observacoes ?? "",
         nome: data.nome || "",
         tutor: data.tutor || "",
         tutor_email: data.tutor_email || "",
@@ -481,6 +488,16 @@ export default function EditarPacientePage() {
           </div>
 
           <div className="fc-patient-form-grid">
+            <TutorIdentificacaoFields value={{
+              identificacao_pendente: paciente.tutor_identificacao_pendente,
+              origem_cadastro: paciente.tutor_origem_cadastro,
+              identificacao_observacoes: paciente.tutor_identificacao_observacoes,
+            }} onChange={(value) => setPaciente((prev) => ({ ...prev,
+              tutor_identificacao_pendente: value.identificacao_pendente,
+              tutor_origem_cadastro: value.origem_cadastro,
+              tutor_identificacao_observacoes: value.identificacao_observacoes,
+            }))} />
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 ID do tutor

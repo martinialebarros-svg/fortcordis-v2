@@ -495,7 +495,7 @@ export default function NovoLaudoPage() {
     if (divedNormalizadoCalculado !== null && medidas["DIVEd_normalizado"] !== divedNormalizadoCalculado) {
       atualizacoes.DIVEd_normalizado = divedNormalizadoCalculado;
     }
-    const automaticas = deriveAutomaticEchoMeasurements(medidas, paciente.peso, paciente.especie, paciente.idade);
+    const automaticas = deriveAutomaticEchoMeasurements(medidas, paciente.peso, paciente.especie);
     Object.entries(automaticas).forEach(([key, value]) => {
       if (medidas[key] !== value) atualizacoes[key] = value;
     });
@@ -506,7 +506,7 @@ export default function NovoLaudoPage() {
         ...atualizacoes,
       }));
     }
-  }, [medidas, paciente.peso, paciente.especie, paciente.idade]);
+  }, [medidas, paciente.peso, paciente.especie]);
 
   const carregarClinicas = async () => {
     try {
@@ -737,7 +737,7 @@ export default function NovoLaudoPage() {
   const montarPayloadEcocardiograma = (status = "Finalizado") => {
     const medidasPayload = {
       ...medidas,
-      ...deriveAutomaticEchoMeasurements(medidas, paciente.peso, paciente.especie, paciente.idade),
+      ...deriveAutomaticEchoMeasurements(medidas, paciente.peso, paciente.especie),
     };
     const clinicaPayload = clinicaId
       ? { id: parseInt(clinicaId), nome: clinicaNome }
@@ -946,10 +946,10 @@ export default function NovoLaudoPage() {
     ? medidas.VE_vista_2D as Echo2DView : "";
   const pesoIndice2D = parsePesoKg(paciente.peso);
   const indice2D = calculateCanine2DNormalizedLVIDd(
-    echoLengthInMm(medidas, "DIVEd_2D"), pesoIndice2D, vistaIndice2D, paciente.especie, paciente.idade,
+    echoLengthInMm(medidas, "DIVEd_2D"), pesoIndice2D, vistaIndice2D, paciente.especie,
   );
   const faixaIndice2D = indice2D === null ? null : getCanine2DReference(
-    "DIVEd_normalizado_2D", pesoIndice2D ?? undefined, vistaIndice2D, paciente.idade,
+    "DIVEd_normalizado_2D", pesoIndice2D ?? undefined, vistaIndice2D,
   );
 
   return (
@@ -2097,7 +2097,6 @@ export default function NovoLaudoPage() {
                     <ReferenciaComparison 
                       especie={paciente.especie}
                       peso={parsePesoKg(paciente.peso) ?? undefined}
-                      idade={paciente.idade}
                       medidas={medidas}
                       onMedidaChange={handleMedidaChange}
                     />

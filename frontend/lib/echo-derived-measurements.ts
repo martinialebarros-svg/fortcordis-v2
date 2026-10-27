@@ -193,7 +193,6 @@ export function deriveAutomaticEchoMeasurements(
   measurements: Record<string, string>,
   weightKg: unknown,
   species = "",
-  age?: unknown,
 ): Record<string, string> {
   const derived: Record<string, string> = {};
 
@@ -277,7 +276,7 @@ export function deriveAutomaticEchoMeasurements(
   const view = measurements.VE_vista_2D === "eixo_curto" || measurements.VE_vista_2D === "eixo_longo"
     ? measurements.VE_vista_2D as Echo2DView : "";
   const normalized2D = calculateCanine2DNormalizedLVIDd(
-    echoLengthInMm(measurements, "DIVEd_2D"), weight, view, species, age,
+    echoLengthInMm(measurements, "DIVEd_2D"), weight, view, species,
   );
   // Sem aplicabilidade comprovada, preservar o valor histórico no registro;
   // a prévia e o PDF omitem esse índice para evitar atribuir-lhe Visser.

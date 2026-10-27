@@ -44,35 +44,25 @@ class TutorInativoReativacaoTest(unittest.TestCase):
             db.commit()
             db.refresh(tutor)
 
-            with self.assertRaises(HTTPException) as ctx:
-                tutores.criar_tutor(
-                    tutores.TutorCreate(nome="Genival Filho", telefone="85998887777"),
-                    db=db,
-                    current_user=SimpleNamespace(id=1),
-                )
-
-            self.assertEqual(ctx.exception.status_code, 409)
-            self.assertEqual(ctx.exception.detail["codigo"], "TUTOR_INATIVO_EXISTENTE")
-            self.assertEqual(ctx.exception.detail["tutor"]["id"], tutor.id)
+            # Criar homonimo nao reativa nem modifica a pessoa arquivada.
+            novo = tutores.criar_tutor(
+                tutores.TutorCreate(nome="Genival Filho", telefone="85998887777"),
+                db=db, current_user=SimpleNamespace(id=1),
+            )
+            self.assertNotEqual(novo["id"], tutor.id)
             db.refresh(tutor)
             self.assertEqual(tutor.ativo, 0)
             self.assertEqual(tutor.telefone, "85990000000")
 
-            response = tutores.criar_tutor(
-                tutores.TutorCreate(
-                    nome="Genival Filho",
-                    telefone="85998887777",
-                    confirmar_reativacao=True,
-                ),
-                db=db,
-                current_user=SimpleNamespace(id=1),
+            with self.assertRaises(HTTPException):
+                tutores.reativar_tutor(tutor.id, tutores.ReativacaoPayload(confirmar=False), db, SimpleNamespace(id=1))
+            response = tutores.reativar_tutor(
+                tutor.id, tutores.ReativacaoPayload(confirmar=True), db, SimpleNamespace(id=1),
             )
-
             self.assertEqual(response["id"], tutor.id)
-            self.assertEqual(response["message"], "Tutor reativado com sucesso")
             db.refresh(tutor)
             self.assertEqual(tutor.ativo, 1)
-            self.assertEqual(tutor.telefone, "85998887777")
+            self.assertEqual(tutor.telefone, "85990000000")
 
             encontrados = tutores.listar_tutores(
                 busca="genival",
@@ -80,14 +70,14 @@ class TutorInativoReativacaoTest(unittest.TestCase):
                 db=db,
                 current_user=SimpleNamespace(id=1),
             )
-            self.assertEqual(encontrados["total"], 1)
+            self.assertEqual(encontrados["total"], 2)
             self.assertEqual(encontrados["items"][0]["id"], tutor.id)
         finally:
             db.close()
             engine.dispose()
             tmpdir.cleanup()
 
-    def test_tutor_ativo_com_mesmo_nome_continua_idempotente(self) -> None:
+    def test_tutor_ativo_com_mesmo_nome_permite_outra_pessoa(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
             tutor = Tutor(nome="Genival Filho", nome_key="genival filho", ativo=1)
@@ -101,8 +91,8 @@ class TutorInativoReativacaoTest(unittest.TestCase):
                 current_user=SimpleNamespace(id=1),
             )
 
-            self.assertEqual(response["id"], tutor.id)
-            self.assertEqual(response["message"], "Tutor já existe")
+            self.assertNotEqual(response["id"], tutor.id)
+            self.assertEqual(response["message"], "Tutor criado com sucesso")
         finally:
             db.close()
             engine.dispose()

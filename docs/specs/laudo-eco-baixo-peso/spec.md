@@ -1,3 +1,7 @@
+Registro preservado para integridade documental. Nesta publicacao de tutores
+em 2026-10-27, o codigo desta feature permanece exclusivo de stage. As evidencias
+abaixo nao significam instalacao em producao. Restauracao de stage pelo snapshot f48220c6.
+
 # Especificação
 
 ## Causa observada

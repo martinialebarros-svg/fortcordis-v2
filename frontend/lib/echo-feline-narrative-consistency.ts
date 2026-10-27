@@ -1,4 +1,4 @@
-import { isFelineEchoSpecies, normalizeEchoSpecies } from "./echo-species";
+import { isFelineEchoSpecies } from "./echo-species";
 
 export type FelineNarrativeDiscrepancy = {
   key: "feline_transmitral_fusion" | "feline_tissue_fusion";
@@ -6,10 +6,6 @@ export type FelineNarrativeDiscrepancy = {
   section: string;
   excerpt: string;
   suggestion: string;
-};
-
-export type EchoWaveNarrativeDiscrepancy = Omit<FelineNarrativeDiscrepancy, "key"> & {
-  key: FelineNarrativeDiscrepancy["key"] | "canine_transmitral_fusion" | "canine_tissue_fusion";
 };
 
 function normalized(text: string): string {
@@ -172,26 +168,24 @@ function hasUnqualifiedClaim(text: string, claim: (text: string) => boolean): bo
   return false;
 }
 
-export function findEchoWaveNarrativeDiscrepancies(
+export function findFelineNarrativeDiscrepancies(
   measurements: Record<string, string>, qualitative: object, conclusion: string, species?: string,
-): EchoWaveNarrativeDiscrepancy[] {
-  const normalizedSpecies = normalizeEchoSpecies(species);
-  if (normalizedSpecies !== "Canina" && normalizedSpecies !== "Felina") return [];
-  const prefix = normalizedSpecies === "Canina" ? "canine" : "feline";
+): FelineNarrativeDiscrepancy[] {
+  if (!isFelineEchoSpecies(species)) return [];
   const sources = [
     ...Object.entries(qualitative).filter((entry): entry is [string, string] => typeof entry[1] === "string")
       .map(([key, text]) => ({ section: SECTION_LABELS[key] || key, text })),
     { section: "Conclusão", text: conclusion },
   ];
   const families = [
-    { key: `${prefix}_transmitral_fusion` as const, active: measurements.Diastolica_ondas === "fundidas", claim: transmitralClaim,
+    { key: "feline_transmitral_fusion" as const, active: measurements.Diastolica_ondas === "fundidas", claim: transmitralClaim,
       message: "Ondas E/A registradas como fundidas: revise a afirmação de picos, relações ou padrão transmitral neste trecho.",
       suggestion: "Ondas E e A fundidas, sem mensuração independente dos picos transmitrais e das relações dependentes. A interpretação diastólica deve considerar os demais parâmetros disponíveis." },
-    { key: `${prefix}_tissue_fusion` as const, active: measurements.TDI_ondas === "fundidas", claim: tissueClaim,
+    { key: "feline_tissue_fusion" as const, active: measurements.TDI_ondas === "fundidas", claim: tissueClaim,
       message: "Ondas e′/a′ registradas como fundidas: revise a afirmação de picos ou relações teciduais individuais neste trecho.",
       suggestion: "Ondas e′ e a′ fundidas; picos e relações teciduais dependentes não mensuráveis individualmente. A interpretação diastólica deve considerar os demais parâmetros disponíveis." },
   ];
-  const results: EchoWaveNarrativeDiscrepancy[] = [];
+  const results: FelineNarrativeDiscrepancy[] = [];
   for (const family of families) {
     if (!family.active) continue;
     let found = false;
@@ -211,14 +205,4 @@ export function findEchoWaveNarrativeDiscrepancies(
     }
   }
   return results;
-}
-
-/** Preserve the existing feline-only API and its discrepancy keys. */
-export function findFelineNarrativeDiscrepancies(
-  measurements: Record<string, string>, qualitative: object, conclusion: string, species?: string,
-): FelineNarrativeDiscrepancy[] {
-  if (!isFelineEchoSpecies(species)) return [];
-  return findEchoWaveNarrativeDiscrepancies(measurements, qualitative, conclusion, species)
-    .filter((issue): issue is FelineNarrativeDiscrepancy =>
-      issue.key === "feline_transmitral_fusion" || issue.key === "feline_tissue_fusion");
 }

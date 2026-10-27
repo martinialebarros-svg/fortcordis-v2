@@ -4,7 +4,7 @@ import unicodedata
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import String, cast, func, inspect, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from app.models.laudo import Laudo
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.user import User
+from app.services.tutor_identidade_service import exigir_tutor_utilizavel
 from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
 
 router = APIRouter()
@@ -128,6 +129,9 @@ def _paciente_tem_payload_tutor(paciente: BaseModel) -> bool:
         "tutor_bairro",
         "tutor_cidade",
         "tutor_estado",
+        "tutor_identificacao_pendente",
+        "tutor_origem_cadastro",
+        "tutor_identificacao_observacoes",
     )
     campos_enviados = getattr(paciente, "model_fields_set", set())
     return any(campo in campos_enviados for campo in campos) or any(
@@ -168,6 +172,10 @@ def _aplicar_dados_tutor(tutor: Tutor, paciente: BaseModel) -> None:
     if not _clean_optional_text(tutor.whatsapp) and _clean_optional_text(tutor.telefone):
         tutor.whatsapp = _clean_optional_text(tutor.telefone)
 
+    for campo in ("identificacao_pendente", "origem_cadastro", "identificacao_observacoes"):
+        valor = getattr(paciente, "tutor_" + campo, None)
+        if valor is not None:
+            setattr(tutor, campo, valor)
     tutor.ativo = 1
     tutor.updated_at = _legacy_now_dt()
 
@@ -175,6 +183,9 @@ def _aplicar_dados_tutor(tutor: Tutor, paciente: BaseModel) -> None:
 def _serialize_tutor_fields(tutor: Tutor | None) -> dict[str, Optional[str] | Optional[int]]:
     return {
         "tutor_id": tutor.id if tutor else None,
+        "tutor_identificacao_pendente": tutor.identificacao_pendente if tutor else None,
+        "tutor_origem_cadastro": tutor.origem_cadastro if tutor else None,
+        "tutor_identificacao_observacoes": tutor.identificacao_observacoes if tutor else None,
         "tutor": tutor.nome if tutor and tutor.nome else "",
         "tutor_email": tutor.email if tutor else None,
         "tutor_telefone": tutor.telefone if tutor else None,
@@ -205,14 +216,13 @@ def _obter_ou_criar_tutor(
 
     tutor_id = int(getattr(paciente, "tutor_id", None) or tutor_id_padrao or 0)
     if tutor_id > 0:
-        tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first()
-        if tutor:
-            _aplicar_dados_tutor(tutor, paciente)
-            if commit_changes:
-                db.commit()
-            else:
-                db.flush()
-            return tutor.id
+        tutor = exigir_tutor_utilizavel(db, tutor_id)
+        _aplicar_dados_tutor(tutor, paciente)
+        if commit_changes:
+            db.commit()
+        else:
+            db.flush()
+        return tutor.id
 
     tutor_nome_raw = paciente.tutor
     if not tutor_nome_raw:
@@ -223,21 +233,12 @@ def _obter_ou_criar_tutor(
         return None
 
     tutor_nome_key = _gerar_nome_key(tutor_nome)
-    tutor = db.query(Tutor).filter(Tutor.nome_key == tutor_nome_key).first()
-    if not tutor:
-        tutor = db.query(Tutor).filter(Tutor.nome.ilike(tutor_nome)).first()
-
-    if tutor:
-        _aplicar_dados_tutor(tutor, paciente)
-        if commit_changes:
-            db.commit()
-        else:
-            db.flush()
-        return tutor.id
-
     tutor = Tutor(
         nome=tutor_nome,
         nome_key=tutor_nome_key,
+        identificacao_pendente=getattr(paciente, "tutor_identificacao_pendente", None) is not False,
+        origem_cadastro=getattr(paciente, "tutor_origem_cadastro", None),
+        identificacao_observacoes=getattr(paciente, "tutor_identificacao_observacoes", None),
         email=_clean_optional_text(paciente.tutor_email) or "",
         telefone=_clean_optional_text(paciente.tutor_telefone) or "",
         whatsapp=(
@@ -267,17 +268,7 @@ def _obter_ou_criar_tutor(
         return tutor.id
     except IntegrityError:
         db.rollback()
-        tutor = db.query(Tutor).filter(Tutor.nome_key == tutor_nome_key).first()
-        if not tutor:
-            tutor = db.query(Tutor).filter(Tutor.nome.ilike(tutor_nome)).first()
-        if not tutor:
-            raise
-        _aplicar_dados_tutor(tutor, paciente)
-        if commit_changes:
-            db.commit()
-        else:
-            db.flush()
-        return tutor.id
+        raise HTTPException(409, "Nao foi possivel criar um tutor separado. Verifique a migracao de homonimos.")
 
 
 def _buscar_paciente_por_chave(
@@ -327,7 +318,10 @@ def _contar_referencias_paciente(db: Session, paciente_id: int) -> dict[str, int
 # Schemas
 class PacienteCreate(BaseModel):
     nome: str
-    tutor_id: Optional[int] = None
+    tutor_id: Optional[int] = Field(default=None, gt=0)
+    tutor_identificacao_pendente: Optional[bool] = None
+    tutor_origem_cadastro: Optional[str] = None
+    tutor_identificacao_observacoes: Optional[str] = None
     tutor: Optional[str] = None
     tutor_email: Optional[str] = None
     tutor_telefone: Optional[str] = None
@@ -351,7 +345,10 @@ class PacienteCreate(BaseModel):
 
 class PacienteUpdate(BaseModel):
     nome: Optional[str] = None
-    tutor_id: Optional[int] = None
+    tutor_id: Optional[int] = Field(default=None, gt=0)
+    tutor_identificacao_pendente: Optional[bool] = None
+    tutor_origem_cadastro: Optional[str] = None
+    tutor_identificacao_observacoes: Optional[str] = None
     tutor: Optional[str] = None
     tutor_email: Optional[str] = None
     tutor_telefone: Optional[str] = None
@@ -377,6 +374,9 @@ class PacienteResponse(BaseModel):
     id: int
     nome: str
     tutor_id: Optional[int] = None
+    tutor_identificacao_pendente: Optional[bool] = None
+    tutor_origem_cadastro: Optional[str] = None
+    tutor_identificacao_observacoes: Optional[str] = None
     tutor: str
     tutor_email: Optional[str] = None
     tutor_telefone: Optional[str] = None
@@ -474,7 +474,12 @@ def criar_paciente(
     especie = (paciente.especie or "Canina").strip() or "Canina"
 
     try:
-        tutor_id = _obter_ou_criar_tutor(db, paciente)
+        # Tutor e paciente pertencem a uma unica transacao. O lock de identidade
+        # precisa durar ate o vinculo ser gravado, inclusive contra mesclagens.
+        tutor_id = _obter_ou_criar_tutor(db, paciente, commit_changes=False)
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao resolver tutor: {str(e)}")
@@ -488,6 +493,7 @@ def criar_paciente(
     )
     if paciente_existente:
         if _is_ativo(paciente_existente.ativo):
+            db.commit()
             return {
                 "id": paciente_existente.id,
                 "nome": paciente_existente.nome,
@@ -555,6 +561,9 @@ def criar_paciente(
             "sexo": normalizar_sexo_paciente(db_paciente.sexo),
             "peso_kg": db_paciente.peso_kg,
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao criar paciente: {str(e)}")
@@ -717,6 +726,9 @@ def atualizar_paciente(
                 tutor_id_padrao=db_paciente.tutor_id,
                 commit_changes=False,
             )
+        except HTTPException:
+            db.rollback()
+            raise
         except Exception as e:
             db.rollback()
             raise HTTPException(status_code=500, detail=f"Erro ao resolver tutor: {str(e)}")

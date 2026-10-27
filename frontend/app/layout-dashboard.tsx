@@ -79,6 +79,7 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
     label: "Clínica",
     items: [
       { href: "/pacientes", label: "Pacientes", icon: Users },
+      { href: "/tutores", label: "Tutores", icon: Users },
       { href: "/clinicas", label: "Clínicas", icon: Building2 },
       { href: "/clinicas/portal", label: "Portal Clinicas", icon: ShieldCheck },
       { href: "/servicos", label: "Serviços", icon: Stethoscope },
@@ -90,7 +91,6 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
   {
     label: "Gestão",
     items: [
-      { href: "/gestao", label: "Gestão", icon: BarChart3, adminOnly: true },
       { href: "/logistica", label: "Logística", icon: MapPin },
       { href: "/financeiro", label: "Financeiro", icon: DollarSign },
       { href: "/financeiro/frota", label: "Custos Frota", icon: Car },

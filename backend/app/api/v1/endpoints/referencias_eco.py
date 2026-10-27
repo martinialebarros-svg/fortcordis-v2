@@ -335,13 +335,12 @@ def buscar_referencia_por_peso(
     current_user: User = Depends(get_current_user),
     TAPSE_metodo: Optional[str] = None,
     AE_Ao_metodo: Optional[str] = None,
-    idade: Optional[str] = None,
 ):
-    """Resolve catálogo e fallback documentado de baixo peso, sem gravar linhas."""
+    """Resolve a linha elegível mais próxima sem extrapolar a cobertura."""
     if not math.isfinite(peso_kg) or peso_kg <= 0:
         raise HTTPException(status_code=422, detail="Peso deve ser positivo e finito")
     ref = load_echo_reference(db, species=especie, weight_kg=peso_kg,
-                              medidas={"TAPSE_metodo": TAPSE_metodo, "AE_Ao_metodo": AE_Ao_metodo}, idade=idade)
+                              medidas={"TAPSE_metodo": TAPSE_metodo, "AE_Ao_metodo": AE_Ao_metodo})
     
     if not ref:
         raise HTTPException(status_code=404, detail="Referência não encontrada")

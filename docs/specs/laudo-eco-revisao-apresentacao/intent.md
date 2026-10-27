@@ -26,12 +26,3 @@ Após a pesquisa primária de 23/10/2026, o usuário autorizou implementar o pr�
 ### Ajuste de coerencia — 26/10/2026
 
 A QA de stage encontrou dicas antigas no editor canino que ainda chamavam E/TRIV<=2,5 e E/e′<=12 de referencia. Retirar essas afirmacoes genericas para manter a mesma disciplina de evidencia da aba Referencias e do PDF, sem acrescentar etapas ao preenchimento nem alterar numeros.
-
-
-## Incremento autorizado em 26/10/2026 — coerência canina e números citados
-
-O usuário autorizou estender a conferência aos cães, ampliar a comparação entre texto e medidas e executar os testes necessários. Reaproveitar o painel não bloqueante e apresentar somente conflitos objetivos para revisão, sem aumentar etapas de preenchimento, alterar a conclusão, inferir doença por valores isolados ou comparar uma imagem representativa à média do aparelho. Implementação e validação local; publicação não integra este pedido.
-
-## Publicação em stage autorizada em 27/10/2026
-
-Após concluir e testar o incremento, o usuário autorizou publicá-lo em stage junto das referências abaixo de 3 kg. Preservar o stage atual e os trabalhos paralelos, conferir checks/SHA instalado e testar o comportamento no ambiente. Produção não integra essa autorização.

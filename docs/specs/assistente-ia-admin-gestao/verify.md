@@ -267,3 +267,10 @@ As verificações abaixo fecham esses registros com evidência, sem label de exc
   controles dentro da conversa. O viewport foi restaurado depois da leitura.
 - Nenhuma conversa foi enviada, missão criada ou ação administrativa aprovada
   nesta conferência. A reconciliação não modifica código nem amplia a entrega.
+
+## Verificacao de identidade — 2026-10-27
+
+42 testes de test_assistente_ia_admin.py passaram localmente. Os cenarios de
+criacao aprovada e vinculo a reserva agora usam ID explicito do tutor. O contrato
+de identidade adicional testa recusa de nome e aceitacao de #ID, sem chamar
+provedor de IA ou enviar mensagens. Ver ../tutores-identidade-mesclagem/verify.md.

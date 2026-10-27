@@ -63,6 +63,8 @@ import {
   type AgendaWhatsAppTemplateKey,
 } from "@/lib/agenda-whatsapp-templates";
 
+import TutorIdentificacaoFields from "@/components/TutorIdentificacaoFields";
+
 const LIMITE_MINUTOS_PROXIMIDADE = 25;
 const LIMITE_ESTENDIDO_EXTRA_MIN = 15;
 const COOLDOWN_POPUP_PROXIMIDADE_MS = 60_000;
@@ -262,6 +264,8 @@ interface AssistenteOfertaResponse {
 }
 
 interface TutorOption {
+  identificacao_pendente?: boolean;
+  origem_cadastro?: string | null;
   id: number;
   nome: string;
   telefone?: string | null;
@@ -391,6 +395,9 @@ function salvarUltimoWhatsappSelecionado(tipo: ReservaManualDestinatario, id: st
 }
 
 interface NovoTutorForm {
+  identificacao_pendente: boolean;
+  origem_cadastro: string;
+  identificacao_observacoes: string;
   id?: string;
   nome: string;
   telefone: string;
@@ -433,6 +440,9 @@ interface TutorPanoramaPet {
 
 interface TutorPanoramaData {
   tutor: {
+    identificacao_pendente?: boolean;
+    origem_cadastro?: string | null;
+    identificacao_observacoes?: string | null;
     id: number;
     nome: string;
     telefone?: string | null;
@@ -480,6 +490,9 @@ const buildInitialFormData = (defaultDate?: string, defaultTime?: string): FormD
 });
 
 const buildInitialTutorForm = (): NovoTutorForm => ({
+  identificacao_pendente: true,
+  origem_cadastro: "",
+  identificacao_observacoes: "",
   id: "",
   nome: "",
   telefone: "",
@@ -1632,6 +1645,9 @@ export default function NovoAgendamentoModal({
 
     setNovoTutor({
       id: String(tutor.id || ""),
+      identificacao_pendente: tutor.identificacao_pendente ?? true,
+      origem_cadastro: tutor.origem_cadastro || "",
+      identificacao_observacoes: tutor.identificacao_observacoes || "",
       nome: String(tutor.nome || ""),
       telefone: formatarTelefoneVisual(String(tutor.telefone || "")),
       whatsapp: formatarTelefoneVisual(String(tutor.whatsapp || "")),
@@ -2274,6 +2290,8 @@ export default function NovoAgendamentoModal({
     label: tutor.nome,
     description: [
       `Tutor #${tutor.id}`,
+      tutor.identificacao_pendente ? "Identificacao pendente" : "Identificacao confirmada",
+      tutor.origem_cadastro ? `Origem: ${tutor.origem_cadastro}` : "",
       tutor.whatsapp || tutor.telefone ? `WhatsApp: ${tutor.whatsapp || tutor.telefone}` : "",
       tutor.endereco_resumo ||
         (tutor.georreferenciado ? "Endereco georreferenciado" : "Endereco pendente"),
@@ -2802,7 +2820,7 @@ export default function NovoAgendamentoModal({
     if (tutorPanorama?.tutor) {
       preencherModalTutor(tutorPanorama.tutor);
     } else {
-      setNovoTutor(buildInitialTutorForm());
+      setNovoTutor({ ...buildInitialTutorForm(), origem_cadastro: clinicas.find((c) => String(c.id) === formData.clinica_id)?.nome || "" });
       setStatusEnderecoTutor("");
       setConsultandoCepTutor(false);
       ultimoCepConsultadoTutorRef.current = "";
@@ -2911,7 +2929,7 @@ export default function NovoAgendamentoModal({
     setNomeRacaEmEdicao("");
   };
 
-  const salvarNovoTutor = async (confirmarReativacao = false) => {
+  const salvarNovoTutor = async () => {
     const nome = novoTutor.nome.trim();
     if (!nome) {
       fortinho.notify({
@@ -2928,7 +2946,9 @@ export default function NovoAgendamentoModal({
       setSalvandoTutor(true);
       const payload = {
         nome,
-        confirmar_reativacao: confirmarReativacao,
+        identificacao_pendente: novoTutor.identificacao_pendente,
+        origem_cadastro: novoTutor.origem_cadastro,
+        identificacao_observacoes: novoTutor.identificacao_observacoes,
         telefone: novoTutor.telefone || null,
         whatsapp: novoTutor.whatsapp || novoTutor.telefone || null,
         email: novoTutor.email || null,
@@ -2959,6 +2979,8 @@ export default function NovoAgendamentoModal({
         const tutorNormalizado: TutorOption = {
           id: Number(tutorId),
           nome: tutorNome,
+          identificacao_pendente: response.data.identificacao_pendente,
+          origem_cadastro: response.data.origem_cadastro,
           telefone: novoTutor.telefone || null,
           email: novoTutor.email || null,
           cidade: novoTutor.cidade || null,
@@ -2985,29 +3007,6 @@ export default function NovoAgendamentoModal({
       await carregarPanoramaTutor(String(tutorId));
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
-      if (
-        !confirmarReativacao &&
-        detail &&
-        typeof detail === "object" &&
-        detail.codigo === "TUTOR_INATIVO_EXISTENTE"
-      ) {
-        const tutorExistente = detail.tutor || {};
-        const nomeExistente = String(tutorExistente.nome || nome).trim() || "este tutor";
-        const confirmou = await fortinho.confirm({
-          title: "Cadastro anterior encontrado",
-          message:
-            `${nomeExistente} possui um cadastro inativo com este mesmo nome. ` +
-            "Deseja reativa-lo e usar este cadastro no agendamento?",
-          mood: "alert",
-          gesture: "idle",
-          confirmLabel: "Reativar tutor",
-          cancelLabel: "Manter como esta",
-        });
-        if (confirmou) {
-          await salvarNovoTutor(true);
-        }
-        return;
-      }
       fortinho.notify({
         title: "Erro ao salvar tutor",
         message: extrairMensagemErro(detail),
@@ -5076,6 +5075,15 @@ export default function NovoAgendamentoModal({
                     placeholder="Nome do tutor"
                   />
                 </div>
+                <TutorIdentificacaoFields value={novoTutor} onChange={(value) => setNovoTutor((prev) => ({ ...prev, ...value }))} />
+                {!novoTutor.id && <p className="col-span-full text-sm text-slate-600">Este é um cadastro separado. Um nome igual nunca reutiliza outro tutor automaticamente.</p>}
+                {novoTutor.id && <button type="button" disabled={salvandoTutor}
+                  className="col-span-full rounded-lg border px-3 py-2 text-sm text-blue-700"
+                  onClick={() => setNovoTutor({ ...buildInitialTutorForm(), nome: novoTutor.nome,
+                    origem_cadastro: clinicas.find((c) => String(c.id) === formData.clinica_id)?.nome || "" })}>
+                  Criar outra pessoa com este nome
+                </button>}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
                   <input
