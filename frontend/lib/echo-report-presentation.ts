@@ -7,6 +7,7 @@ import { canonicalEchoDiastolicKey, echoDiastolicReferences, type EchoDiastolicR
 import { FELINE_DIASTOLIC_KEYS } from "./echo-feline-diastolic-reference";
 import { isFelineEchoSpecies, normalizeEchoSpecies } from "./echo-species";
 import { deriveOutflowGradients, ECHO_OUTFLOW_KEYS, formatOutflowValue, isOutflowMetadataKey, outflowMeasurementLabel } from "./echo-outflow";
+import { lowWeightEstimateText, makeLowWeightReference } from "./echo-low-weight-reference";
 
 type Parameter = { key: string; label: string; unit?: string; reference?: string };
 export type EchoReportReferenceMetadata = Pick<EchoDiastolicReference, "source" | "doi" | "statistic" | "note" | "kind">;
@@ -112,6 +113,8 @@ function number(value: unknown): number | null {
 
 function referenceRange(reference: ReferenciaEco | null, item: Parameter): string {
   if (!reference || !item.reference) return "—";
+  const estimate = lowWeightEstimateText(reference.range_metadata?.[item.reference]);
+  if (estimate) return estimate;
   if (item.reference === "fs" && !reference.fs_source) return "—";
   const fields = reference as unknown as Record<string, unknown>;
   let min = number(fields[`${item.reference}_min`]);
@@ -192,9 +195,10 @@ export function canineAeAoClinicalReference(measurements: Record<string, string>
   return "<1,60 (2D, eixo curto)";
 }
 
-export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null, ambiguousKeys: Set<string> = new Set(), weightKg?: number, species = reference?.especie ?? ""): EchoReportGroup[] {
+export function buildEchoReportGroups(measurements: Record<string, string>, reference: ReferenciaEco | null, ambiguousKeys: Set<string> = new Set(), weightKg?: number, species = reference?.especie ?? "", age?: string | null): EchoReportGroup[] {
   measurements = normalizeDiastolicAliases(measurements);
-  const safeReference = resolveEchoReferenceForMeasurements(reference, measurements, weightKg);
+  const referenceCarrier = reference || makeLowWeightReference(species, weightKg, 0, {}, age);
+  const safeReference = resolveEchoReferenceForMeasurements(referenceCarrier, measurements, weightKg, age);
   const diastolicReferences = echoDiastolicReferences(measurements, species);
   const pendingIndices = new Set<string>();
   if (["Canina", "Felina"].includes(normalizeEchoSpecies(species))) {
@@ -238,6 +242,7 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
       const referenceForKey = diastolicReferences[canonicalEchoDiastolicKey(item.key)];
       const diastolicReference = ambiguousKeys.has(item.key) && referenceForKey?.kind !== "uninterpretable"
         ? undefined : diastolicReferences[canonicalEchoDiastolicKey(item.key)];
+      const model = item.reference ? safeReference?.range_metadata?.[item.reference] : undefined;
       return {
         key: item.key,
         label: outflowMeasurementLabel(item.key, item.label, measurements),
@@ -250,7 +255,7 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
           if (diastolicReference) return diastolicReference.text;
           const aeAoLimit = item.key === "AE_Ao" ? canineAeAoClinicalReference(measurements, species, ambiguousKeys) : null;
           if (aeAoLimit) return aeAoLimit;
-          const twoD = selected2D && reference && /^canin/i.test(reference.especie)
+          const twoD = selected2D && referenceCarrier && /^canin/i.test(referenceCarrier.especie)
             && (item.key !== "DeltaD_FS_2D" || fsMatchesPair)
             ? getCanine2DReference(item.key, weightKg, view) : null;
           return twoD ? `${twoD.min.toFixed(2)}–${twoD.max.toFixed(2)}${item.unit ? ` ${item.unit}` : ""}`
@@ -264,6 +269,11 @@ export function buildEchoReportGroups(measurements: Record<string, string>, refe
             ? "Índice histórico: aguarda reconfirmação da separação das ondas antes de interpretar."
             : diastolicReference.note,
           kind: diastolicReference.kind,
+        } } : model?.model_weight_kg != null ? { referenceMetadata: {
+          source: model.source || "", doi: model.doi || "", statistic: model.statistic || "",
+          note: [model.reason, model.formula].filter(Boolean).join(" "),
+          kind: model.status === "published" ? "reference_interval" as const
+            : model.status === "estimated" ? "descriptive" as const : "unconfirmed" as const,
         } } : {}),
       };
     }),

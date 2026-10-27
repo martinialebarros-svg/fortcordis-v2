@@ -2097,6 +2097,7 @@ export default function NovoLaudoPage() {
                     <ReferenciaComparison 
                       especie={paciente.especie}
                       peso={parsePesoKg(paciente.peso) ?? undefined}
+                      idade={paciente.idade}
                       medidas={medidas}
                       onMedidaChange={handleMedidaChange}
                     />

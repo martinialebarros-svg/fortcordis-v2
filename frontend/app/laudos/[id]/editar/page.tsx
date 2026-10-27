@@ -2353,6 +2353,7 @@ export default function EditarLaudoPage() {
                     <ReferenciaComparison
                       especie={pacienteForm.especie}
                       peso={parsePesoKg(pacienteForm.peso) ?? undefined}
+                      idade={pacienteForm.idade}
                       medidas={medidas}
                       onMedidaChange={handleMedidaChange}
                     />
