@@ -4,6 +4,14 @@ import { middleware } from "../middleware";
 import { isAppRoutePath } from "./host-routing";
 
 describe("roteamento da Gestão para o domínio do aplicativo", () => {
+  it("protege a tela de tutores e redireciona o domínio institucional", async () => {
+    expect(isAppRoutePath("/tutores")).toBe(true);
+    expect(isAppRoutePath("/tutores-outros")).toBe(false);
+    const response = await middleware(new NextRequest("https://fortcordis.com.br/tutores", { headers: { host: "fortcordis.com.br" } }));
+    expect(response.headers.get("location")).toBe("https://app.fortcordis.com.br/tutores");
+    const login = await middleware(new NextRequest("https://app.fortcordis.com.br/tutores", { headers: { host: "app.fortcordis.com.br" } }));
+    expect(login.headers.get("location")).toBe("https://app.fortcordis.com.br/?next=%2Ftutores");
+  });
   it("reconhece a tela e suas rotas descendentes sem capturar nomes semelhantes", () => {
     expect(isAppRoutePath("/gestao")).toBe(true);
     expect(isAppRoutePath("/gestao/")).toBe(true);

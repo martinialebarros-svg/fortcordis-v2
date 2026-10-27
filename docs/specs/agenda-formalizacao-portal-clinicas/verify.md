@@ -1,5 +1,12 @@
 # Verify - agenda-formalizacao-portal-clinicas
 
+## Atualizacao de identidade — 2026-10-27
+
+CA-005 agora exige cadastros separados para homonimos. O teste atualizado
+passou localmente, com WhatsApp simulado. Os relatos de reutilizacao abaixo
+sao evidencia historica da versao anterior e nao descrevem o contrato atual.
+Ver ../tutores-identidade-mesclagem/verify.md.
+
 ## Matriz de aceitação
 
 | Critério | Evidência | Resultado |
@@ -8,7 +15,7 @@
 | CA-002 | `test_novo_convite_revoga_pendente_anterior` | passou |
 | CA-003 | `test_obter_convite_valido_rejeita_token_desconhecido`, `test_obter_convite_valido_expira_convite_vencido` | passou |
 | CA-004 | `test_processar_submissao_cria_tutor_e_paciente_e_formaliza_agendamento`, `test_processar_submissao_rejeita_convite_ja_usado` | passou |
-| CA-005 | `test_processar_submissao_reutiliza_tutor_existente_por_nome` | passou |
+| CA-005 | `test_processar_submissao_nao_reutiliza_tutor_existente_por_nome` | passou |
 | CA-006 | `test_processar_submissao_falha_de_notificacao_nao_bloqueia_salvamento` | passou |
 | CA-007 | `test_build_agenda_utility_template_formalized_monta_sete_parametros` | passou |
 | CA-008 | `scripts/test-approved-template-button-events.ts` (cenário `enviar_dados` + reentrega do mesmo `provider_message_id`) | passou |

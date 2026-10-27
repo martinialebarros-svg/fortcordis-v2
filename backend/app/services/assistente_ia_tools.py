@@ -145,7 +145,17 @@ def _resolve_named_record(
     *,
     entity_label: str,
     filters: Optional[list[Any]] = None,
+    exigir_id: bool = False,
 ) -> tuple[Any | None, dict[str, Any] | None]:
+    if exigir_id:
+        raw_id = str(requested_name or "").strip().lstrip("#")
+        if raw_id.isdigit():
+            from app.services.tutor_identidade_service import exigir_tutor_utilizavel
+            try:
+                return exigir_tutor_utilizavel(db, int(raw_id)), None
+            except HTTPException as exc:
+                return None, {"ok": False, "error": str(exc.detail)}
+        return None, {"ok": False, "error": "Selecione o tutor pelo ID (ex.: #184). O nome nao confirma a identidade; consulte os cadastros e revise os animais e contatos antes de selecionar."}
     normalized_request = _normalize_text(requested_name)
     if not normalized_request:
         return None, {
@@ -1606,6 +1616,7 @@ def solicitar_criacao_agendamento(
             Tutor,
             str(tutor),
             entity_label="tutor",
+            exigir_id=True,
         )
         if error:
             return error
@@ -1975,6 +1986,7 @@ def solicitar_vinculo_paciente_reserva(
         Tutor,
         tutor,
         entity_label="tutor",
+        exigir_id=True,
     )
     if error:
         return error
@@ -3411,7 +3423,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "type": ["string", "null"],
                     "description": "Nome da clinica para atendimento em clinica parceira; null para domiciliar.",
                 },
-                "tutor": {"type": ["string", "null"], "description": "Nome do tutor ou null."},
+                "tutor": {"type": ["string", "null"], "description": "ID do tutor escolhido explicitamente, ex.: #184, ou null. Nunca reutilize uma pessoa somente pelo nome."},
                 "paciente": {"type": ["string", "null"], "description": "Nome do paciente ou null apenas para reserva."},
                 "servico": {"type": "string"},
                 "data": {"type": "string", "description": "Data futura YYYY-MM-DD."},
@@ -3465,7 +3477,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "agendamento_id": {"type": "integer", "minimum": 1},
-                "tutor": {"type": "string", "minLength": 2},
+                "tutor": {"type": "string", "minLength": 1, "description": "ID do tutor escolhido explicitamente, ex.: #184. Nome sozinho nao identifica uma pessoa."},
                 "paciente": {"type": "string", "minLength": 1},
             },
             "required": ["agendamento_id", "tutor", "paciente"],

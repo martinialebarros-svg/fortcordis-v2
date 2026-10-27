@@ -424,7 +424,7 @@ class AssistenteIAAdminTest(unittest.TestCase):
                     tipo="agendamento",
                     origem_atendimento="clinica_parceira",
                     clinica=clinic.nome,
-                    tutor="Ana Oliveira",
+                    tutor=f"#{patient.tutor_id}",
                     paciente=patient.nome,
                     servico=service.nome,
                     data=future.date().isoformat(),
@@ -1556,7 +1556,7 @@ class AssistenteIAAdminTest(unittest.TestCase):
                 prepared = assistente_ia_tools.solicitar_vinculo_paciente_reserva(
                     self._context(db, conversation),
                     agendamento_id=reservation.id,
-                    tutor=tutor.nome,
+                    tutor=f"#{tutor.id}",
                     paciente=patient.nome,
                 )["pending_action"]
                 self.assertEqual(prepared["type"], "attach_patient_to_reservation")

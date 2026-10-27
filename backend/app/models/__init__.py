@@ -4,6 +4,7 @@ from app.models.agendamento import Agendamento
 from app.models.whatsapp_agenda_resposta import WhatsappAgendaResposta
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
+from app.models.tutor_mesclagem import TutorMesclagem
 from app.models.clinica import Clinica
 from app.models.servico import Servico
 from app.models.laudo import Laudo, Exame

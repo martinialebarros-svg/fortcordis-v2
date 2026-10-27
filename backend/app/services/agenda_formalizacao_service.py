@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -157,30 +156,17 @@ def obter_contexto_publico(db: Session, invite: AgendaFormalizacaoInvite) -> dic
 
 def _match_or_create_tutor(db: Session, *, nome: str, telefone: str) -> Tutor:
     nome_key = _gerar_nome_key(nome)
-    tutor = db.query(Tutor).filter(Tutor.nome_key == nome_key).first()
-    if tutor is None:
-        tutor = db.query(Tutor).filter(Tutor.nome.ilike(nome)).first()
-    if tutor is not None:
-        if telefone and not (tutor.whatsapp or tutor.telefone):
-            tutor.whatsapp = telefone
-            tutor.telefone = telefone
-        return tutor
-
     tutor = Tutor(
         nome=nome,
         nome_key=nome_key,
+        identificacao_pendente=True,
+        origem_cadastro="Formalizacao de reserva",
         telefone=telefone,
         whatsapp=telefone,
         ativo=1,
     )
     db.add(tutor)
-    try:
-        db.flush()
-    except IntegrityError:
-        db.rollback()
-        tutor = db.query(Tutor).filter(Tutor.nome_key == nome_key).first()
-        if tutor is None:
-            raise
+    db.flush()
     return tutor
 
 

@@ -29,6 +29,7 @@ const APP_ROUTE_PREFIXES = [
   "/laudos",
   "/logistica",
   "/pacientes",
+  "/tutores",
   "/referencias-eco",
   "/relatorios",
   "/servicos",

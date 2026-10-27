@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Float, Integer, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, Text
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -9,6 +9,11 @@ class Tutor(Base):
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(Text)
     nome_key = Column(Text)
+    # Nome e chave normalizada sao campos de busca, nunca identidade unica.
+    identificacao_pendente = Column(Boolean, nullable=False, default=True, server_default="true")
+    origem_cadastro = Column(Text)
+    identificacao_observacoes = Column(Text)
+    mesclado_em_id = Column(Integer, index=True)
     telefone = Column(Text)
     whatsapp = Column(Text)
     email = Column(Text)
