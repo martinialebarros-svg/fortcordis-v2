@@ -102,9 +102,24 @@ function isContextHeader(text: string): boolean {
     || /^(?:[-•]\s*)?(?:se|avaliar|verificar|confirmar|revisar)\b/.test(text);
 }
 
+const PREVIOUS_EXAM = /\b(?:exame|estudo|avaliacao|laudo)\s+(?:anterior|previo|previa|passado|(?:de|em)\s+(?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}))\b/;
+
 function isHistoricalContext(text: string): boolean {
-  return /\b(?:historia|historico|historica|historicos|historicas|previamente|anteriormente)\b/.test(text)
-    || /\b(?:exame|estudo|avaliacao|laudo)\s+(?:anterior|previo|previa|passado|(?:de|em)\s+(?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}))\b/.test(text);
+  // Antecedents qualify their own clause. Persist only an explicit historical
+  // heading or previous examination, never the absence of that examination.
+  if (/^(?:[-•]\s*)?(?:(?:historia|historico|historicos|historicas)\s*:|(?:previamente|anteriormente)\s*:?\s*$)/.test(text)) return true;
+  const previous = PREVIOUS_EXAM.exec(text);
+  if (!previous) return false;
+  const before = text.slice(0, previous.index);
+  const after = text.slice(previous.index + previous[0].length);
+  const unavailableBefore = /\b(?:sem(?:\s+(?:historico|historia)\s+de)?|nao\s+(?:ha|houve|existe|consta|temos|dispomos\s+de)(?:\s+(?:historico|historia)\s+de)?)\s*(?:(?:o|a|um|uma)\s*)?$/.test(before)
+    || /\b(?:sem\s+acesso\s+(?:a|ao|aos|as)|nao\s+(?:foi|foram)\s+realizad[oa]s?|nao\s+(?:ha|houve|existe|consta)\s+registro\s+de)\s*(?:(?:o|a|um|uma)\s*)?$/.test(before);
+  const unavailableAfter = /^\s*(?:indisponivel|ausente|nao\s+(?:disponivel|realizad[oa]|apresentad[oa]|localizad[oa]))\b/.test(after);
+  return !unavailableBefore && !unavailableAfter;
+}
+
+function isCurrentExamContext(text: string): boolean {
+  return /\b(?:atualmente|agora|nest[ea]\s+(?:exame|estudo|laudo|avaliacao)|(?:(?:no|na)\s+)?(?:exame|estudo|laudo|avaliacao)\s+atual|valor\s+atual)\b/.test(text);
 }
 
 function isQualificationContinuation(text: string): boolean {
@@ -140,7 +155,7 @@ function hasUnqualifiedClaim(text: string, claim: (text: string) => boolean): bo
     // Punctuation alone does not end a historical exam. Conditional headers
     // apply to their clause group; returning to the current exam is explicit.
     if (clause.boundary.includes(";") || /\b(?:mas|porem|contudo|entretanto|todavia)\b/.test(clause.boundary)) inheritedContext = false;
-    const currentExam = /\b(?:atualmente|agora|neste\s+exame|exame\s+atual)\b/.test(clause.text);
+    const currentExam = isCurrentExamContext(clause.text);
     if (currentExam) {
       inheritedContext = false;
       historicalContext = false;
@@ -196,12 +211,16 @@ export function findEchoWaveNarrativeDiscrepancies(
     if (!family.active) continue;
     let found = false;
     for (const source of sources) {
+      let historicalPassage = false;
       // Decimal points inside values do not split a sentence. Retain the
       // original text for review rather than printing a normalized paraphrase.
       for (const fragment of source.text.split(/[\r\n]+|(?<=[.!?])\s+/)) {
         const excerpt = fragment.trim();
         const text = normalized(excerpt);
-        if (!text || !hasUnqualifiedClaim(text, family.claim)) continue;
+        const currentExam = isCurrentExamContext(text);
+        if (currentExam) historicalPassage = false;
+        if (isHistoricalContext(text) && !currentExam) historicalPassage = true;
+        if (!text || historicalPassage || !hasUnqualifiedClaim(text, family.claim)) continue;
         results.push({ key: family.key, section: source.section, excerpt,
           message: `${source.section}: ${family.message}`, suggestion: family.suggestion });
         found = true;
