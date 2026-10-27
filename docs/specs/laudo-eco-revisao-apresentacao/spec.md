@@ -1,5 +1,7 @@
 # Spec - Revisão da apresentação do laudo ecocardiográfico
 
+Publicação autorizada em 27/10/2026: promover a conferência canina e numérica homologada em stage `698dbf40`, junto das referências de baixo peso. Preservar o motor clínico e os dados de entrada; esta etapa atualiza somente o estado da entrega e mantém outras features de stage fora do candidato de produção.
+
 ## Restauração de produção da PR #413 (2026-10-23)
 
 - Restaurar os contratos RF-096/RF-097 já homologados em stage `12129ba6`, sem acrescentar regras clínicas ou valores de referência. A presença desse commit na ancestralidade não substitui a conferência dos arquivos: promoções isoladas posteriores retiraram o helper e seus dois testes de `main`.

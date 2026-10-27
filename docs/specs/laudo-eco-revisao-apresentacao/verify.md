@@ -1,5 +1,11 @@
 # Verify - Revisão da apresentação do laudo ecocardiográfico
 
+## Conferência em stage concluída e promoção autorizada — 27/10/2026
+
+Stage `698dbf40`, workflow `40534203511` e demais checks concluídos com sucesso. Na UI autenticada, o teste canino exibiu o aviso de AE/Ao textual 1,80 versus medida 1,40 e o aviso de picos E/A separados diante da confirmação de fusão; ambos permaneceram nas abas Medidas e Qualitativa. Corrigir a redação retirou os avisos e manteve o salvamento disponível. Um único registro sintético #59 foi persistido, com PDF de duas páginas baixado e revisado: redação corrigida, medidas preservadas e índices dependentes de ondas fundidas não mensuráveis. Nenhum paciente real ou banco de frases foi alterado.
+
+Prova em `output/qa/stage-echo-release-20261027/final-release-proof.json`, UI/PDF/runtime e smoke com 17 hashes dos assets instalados/servidos iguais. Frontend CI aprovado. O usuário autorizou promover este incremento e baixo peso. Transportar somente os 41 caminhos clínicos sobre main e preservar/restaurar os 34 paralelos de stage; aguardar gates e prova instalada de produção. Esta seção não antecipa conclusão da publicação em produção.
+
 ## CA-079 homologado e restauração autorizada em produção (2026-10-23)
 
 - CA-079 concluído em stage `12129ba68fabc2578af62419be0ff9bfdca4fb0a` pela PR #413. Deploy `39844837696`, quality gate, SDD, Frontend, Migration e Maps terminaram SUCCESS; bootstrap dos scripts, SHA resolvido e HEAD instalado coincidiram. Seis arquivos runtime preservados/restaurados; sync, saúde, observabilidade, canário autenticado e restore drill aprovados.

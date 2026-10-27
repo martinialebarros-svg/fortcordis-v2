@@ -1,3 +1,7 @@
+# Registro de entrega restrita a stage
+
+Este documento descreve a otimização de egress de #448, que permanece somente em stage. A promoção Maps de 23/10 mantém estes artefatos SDD para preservar a estrutura documental, mas não inclui o código dessa otimização em produção. A restauração de stage recuperará o registro original.
+
 # Plano
 
 1. Partir do Stage atual em worktree isolado, preservando trabalhos paralelos.
