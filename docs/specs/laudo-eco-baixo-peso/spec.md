@@ -1,8 +1,9 @@
-Registro preservado para integridade documental. Nesta publicacao de tutores
-em 2026-10-27, o codigo desta feature permanece exclusivo de stage. As evidencias
-abaixo nao significam instalacao em producao. Restauracao de stage pelo snapshot f48220c6.
-
 # Especificação
+
+Na restauracao de stage apos o release de tutores em 2026-10-27, os testes de
+comparacao aguardam tambem a primeira linha renderizada antes de inspecionar
+os cards: o cabecalho de referencia aparece antes do efeito das comparacoes.
+Esse ajuste apenas sincroniza a fixture; nao altera calculos ou apresentacao.
 
 ## Causa observada
 

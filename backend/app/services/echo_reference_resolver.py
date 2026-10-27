@@ -13,8 +13,9 @@ from typing import Any
 from app.utils.referencia_eco_defaults import (
     normalizar_especie_referencia, obter_tapse_canino_por_peso,
 )
+from app.utils.echo_low_weight_reference import low_weight_m_mode_ranges, low_weight_reference_seed
 
-POLICY_VERSION = "echo-reference-safety-v1"
+POLICY_VERSION = "echo-reference-safety-v2-low-weight"
 RANGE_PREFIXES = (
     "lvid_d", "lvid_s", "ivs_d", "ivs_s", "lvpw_d", "lvpw_s", "fs", "ef",
     "tapse", "mapse", "ao", "la", "la_ao", "ap", "ap_ao", "vmax_ao",
@@ -68,6 +69,7 @@ def resolve_echo_reference(
     referencia: Mapping[str, Any], *, peso_kg: Any = None,
     medidas: Mapping[str, Any] | None = None,
     catalog_weight_min: Any = None, catalog_weight_max: Any = None,
+    idade: Any = None,
 ) -> dict[str, Any]:
     """Return comparison-safe bounds and their auditable original values.
 
@@ -77,6 +79,9 @@ def resolve_echo_reference(
     methods, requested weight and catalog coverage.
     """
     result = dict(referencia)
+    age = referencia.get("patient_age") if idade is None else idade
+    if age is not None:
+        result["patient_age"] = age
     old_raw = referencia.get("catalog_ranges")
     raw = {
         prefix: dict(old_raw[prefix])
@@ -101,7 +106,8 @@ def resolve_echo_reference(
     row_weight = _number(referencia.get("peso_kg"), positive=True)
     if medidas is None:
         medidas = referencia.get("reference_methods", {})
-    methods = {key: medidas.get(key) for key in _METHODS if isinstance(medidas, Mapping) and medidas.get(key)}
+    methods = {key: medidas.get(key) for key in (*_METHODS, "VE_tecnica_relatorio")
+               if isinstance(medidas, Mapping) and medidas.get(key)}
     cover_min = _number(catalog_weight_min if catalog_weight_min is not None
                         else referencia.get("catalog_weight_min"), positive=True)
     cover_max = _number(catalog_weight_max if catalog_weight_max is not None
@@ -216,6 +222,25 @@ def resolve_echo_reference(
         for prefix in _STRUCTURAL_PREFIXES:
             metadata[prefix].update(min_weight_kg=domain[0], max_weight_kg=domain[1])
 
+    # Missing coverage is a catalog limitation, not absence of all published
+    # low-weight evidence. Never extrapolate the nearest editable catalog row.
+    used_model = False
+    for prefix, model in low_weight_m_mode_ranges(species, weight, age).items():
+        if result.get(f"{prefix}_min") is not None and result.get(f"{prefix}_max") is not None:
+            continue
+        if isinstance(medidas, Mapping) and medidas.get("VE_tecnica_relatorio") == "2d":
+            model.update(status="unavailable", candidate_min=None, candidate_max=None,
+                         reason="Modo M: não aplicar à técnica 2D selecionada.")
+            for field in ("estimate_min", "estimate_max", "estimate_context"):
+                model.pop(field, None)
+        metadata[prefix] = model
+        result[f"{prefix}_min"] = model.get("candidate_min")
+        result[f"{prefix}_max"] = model.get("candidate_max")
+        used_model = True
+    result.pop("reference_origin", None)
+    if used_model:
+        result["reference_origin"] = "computed"
+
     if metadata["fs"]["status"] == "published":
         result["fs_source"] = metadata["fs"]["source"]
     if metadata["tapse"]["status"] == "published":
@@ -231,12 +256,17 @@ def resolve_echo_reference(
 def select_echo_reference(
     referencias: Iterable[Mapping[str, Any]], *, peso_kg: Any,
     medidas: Mapping[str, Any] | None = None,
+    species: Any = None,
+    idade: Any = None,
 ) -> dict[str, Any] | None:
     """Select nearest eligible row; do not reuse catalog extrema out of coverage."""
     weight = _number(peso_kg, positive=True)
     rows = [dict(row) for row in referencias if _number(row.get("peso_kg"), positive=True) is not None]
-    if not rows or weight is None:
+    if weight is None:
         return None
+    if not rows:
+        seed = low_weight_reference_seed(species, weight, idade)
+        return resolve_echo_reference(seed, peso_kg=weight, medidas=medidas, idade=idade) if seed else None
     species = normalizar_especie_referencia(rows[0].get("especie"))
     rows = [row for row in rows if normalizar_especie_referencia(row.get("especie")) == species]
     domain = _WEIGHT_DOMAINS.get(species)
@@ -246,11 +276,11 @@ def select_echo_reference(
     minimum = min(float(row["peso_kg"]) for row in eligible) if eligible else None
     maximum = max(float(row["peso_kg"]) for row in eligible) if eligible else None
     return resolve_echo_reference(chosen, peso_kg=weight, medidas=medidas,
-                                  catalog_weight_min=minimum, catalog_weight_max=maximum)
+                                  catalog_weight_min=minimum, catalog_weight_max=maximum, idade=idade)
 
 
 def load_echo_reference(db: Any, *, species: Any, weight_kg: Any,
-                        medidas: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+                        medidas: Mapping[str, Any] | None = None, idade: Any = None) -> dict[str, Any] | None:
     """Use the same selector for API, PDF and assistant database consumers."""
     from sqlalchemy import func
     from app.models.referencia_eco import ReferenciaEco
@@ -267,4 +297,4 @@ def load_echo_reference(db: Any, *, species: Any, weight_kg: Any,
         query = query.filter(func.lower(ReferenciaEco.especie) == normalized.lower())
     rows = [{column.name: getattr(row, column.name) for column in ReferenciaEco.__table__.columns}
             for row in query.all()]
-    return select_echo_reference(rows, peso_kg=weight_kg, medidas=medidas)
+    return select_echo_reference(rows, peso_kg=weight_kg, medidas=medidas, species=normalized, idade=idade)

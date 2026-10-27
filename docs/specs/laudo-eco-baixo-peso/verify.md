@@ -1,8 +1,11 @@
-Registro preservado para integridade documental. Nesta publicacao de tutores
-em 2026-10-27, o codigo desta feature permanece exclusivo de stage. As evidencias
-abaixo nao significam instalacao em producao. Restauracao de stage pelo snapshot f48220c6.
-
 # Verificação local
+
+## Restauracao de stage — 2026-10-27
+
+Uma corrida no teste de componente leu os cards apos encontrar apenas o
+cabecalho: a referencia e as comparacoes sao renderizadas em efeitos distintos.
+O caso falhou na suite completa e passou 10/10 isolado. A fixture agora aguarda
+a primeira linha antes das mesmas assercoes. Nao foi alterado codigo clinico.
 
 ## Baseline em 27/10/2026
 
