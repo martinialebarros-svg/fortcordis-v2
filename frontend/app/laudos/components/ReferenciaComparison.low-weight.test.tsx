@@ -29,6 +29,8 @@ describe("comparação de baixo peso sem linha cadastrada", () => {
     ("mostra fonte calculada para as seis dimensões M de adulto $species", async ({ species, source }) => {
       render(<ReferenciaComparison especie={species} peso={2} medidas={measurements} onMedidaChange={vi.fn()} {...adult} />);
       await screen.findByText(/Referência calculada/);
+      // O cabecalho precede o efeito que materializa as linhas comparadas.
+      await screen.findByText(labels[0]);
       expect(screen.queryByText(/cadastro de/i)).not.toBeInTheDocument();
       for (const label of labels) {
         expect(card(label)).toHaveTextContent(source);
@@ -41,6 +43,7 @@ describe("comparação de baixo peso sem linha cadastrada", () => {
   it.each(["Canina", "Felina"])("mantém estimativa neutra de adulto %s abaixo de 1,5 kg", async (species) => {
     render(<ReferenciaComparison especie={species} peso={1} medidas={measurements} onMedidaChange={vi.fn()} {...adult} />);
     await screen.findByText(/Referência calculada/);
+    await screen.findByText(labels[0]);
     for (const label of labels) {
       const row = card(label);
       expect(row).toHaveTextContent(/estimativ|extrapola/i);
@@ -81,6 +84,7 @@ describe("comparação de baixo peso sem linha cadastrada", () => {
       lvpw_d_min: 3, lvpw_d_max: 6, lvpw_s_min: 5, lvpw_s_max: 9 });
     render(<ReferenciaComparison especie="Canina" peso={2.5} medidas={measurements} onMedidaChange={vi.fn()} {...adult} />);
     await screen.findByText(/Referência selecionada/);
+    await screen.findByText(labels[0]);
     expect(card(labels[0])).toHaveTextContent(/16\s*-\s*24/);
     expect(screen.queryByText(/Referência calculada/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Isayama/i)).not.toBeInTheDocument();

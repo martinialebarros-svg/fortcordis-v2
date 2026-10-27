@@ -1,5 +1,12 @@
 # Verificação local
 
+## Restauracao de stage — 2026-10-27
+
+Uma corrida no teste de componente leu os cards apos encontrar apenas o
+cabecalho: a referencia e as comparacoes sao renderizadas em efeitos distintos.
+O caso falhou na suite completa e passou 10/10 isolado. A fixture agora aguarda
+a primeira linha antes das mesmas assercoes. Nao foi alterado codigo clinico.
+
 ## Baseline em 27/10/2026
 
 - Backend: seis regressões iniciais, quatro falhas novas e dois controles aprovados antes da implementação. Reprodução da ausência de limites em 2,5 kg abaixo da primeira linha 3 kg, extrapolação ausente, seleção felina e peso editado.

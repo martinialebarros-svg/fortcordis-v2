@@ -1,5 +1,10 @@
 # Especificação
 
+Na restauracao de stage apos o release de tutores em 2026-10-27, os testes de
+comparacao aguardam tambem a primeira linha renderizada antes de inspecionar
+os cards: o cabecalho de referencia aparece antes do efeito das comparacoes.
+Esse ajuste apenas sincroniza a fixture; nao altera calculos ou apresentacao.
+
 ## Causa observada
 
 A seleção escolhia a linha elegível mais próxima e anulava os intervalos estruturais/FEC fora da cobertura das linhas existentes. Assim, um catálogo cuja primeira linha é 3 kg bloqueia também um paciente de 2,5 kg, embora certas publicações contemplem esse peso. Os limites não são universais: TAPSE canino começa em 3 kg; o 2D de Visser começa em 2,6 kg; o domínio reconciliado canino anterior começa em 2,2 kg e o felino tabulado em 1,5 kg.
