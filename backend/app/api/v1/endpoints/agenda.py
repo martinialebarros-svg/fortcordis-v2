@@ -284,7 +284,7 @@ class SugestaoHorarioPayload(BaseModel):
 class OportunidadesDiaPayload(BaseModel):
     data: str
     servico_id: Optional[int] = Field(default=None, ge=1)
-    limite: int = Field(default=20, ge=1, le=50)
+    limite: Optional[int] = Field(default=20, ge=1, le=50)
 
 
 class ValidarOfertaAssistentePayload(BaseModel):
@@ -2790,7 +2790,13 @@ def _resolver_duracao_servico(
 
 
 def _obter_regras_agenda(db: Session) -> tuple[dict, list, list]:
-    config = db.query(Configuracao).first()
+    # A Agenda não usa os binários de documentos contidos na mesma linha.
+    # Projeção escalar também evita reutilizar uma entidade ORM desatualizada.
+    config = db.query(
+        Configuracao.agenda_semanal,
+        Configuracao.agenda_feriados,
+        Configuracao.agenda_excecoes,
+    ).first()
     if not config:
         return carregar_agenda_semanal(None), carregar_agenda_feriados(None), carregar_agenda_excecoes(None)
 

@@ -20,11 +20,54 @@ Status: verified-stage
 | CA-010 | aceitação | Regressões de direção ausente cedo e tarde, preservando slots conhecidos | aprovado em stage pelo PR #420 |
 | CA-011 | aceitação | Baseline desconhecido, custo direto, direção e contador por clínica | aprovado em stage pelo PR #420 |
 | CA-012 | aceitação | Replay instalado de matriz incompleta em stage, sem produção | aprovado em stage no workflow 39794689074 |
+| CA-013 | aceitação | Lista completa com 31/61 clínicas, compatibilidade de limites e ranking | aprovado em stage pelo PR #445 |
+| CA-014 | aceitação | Stage instalado, lista sem corte e hashes operacionais preservados | aprovado no workflow 39881544048 |
 | NFR-001 | não funcional | Zero escrita em produção, zero Google no replay e na consulta operacional | aprovado |
 | NFR-002 | não funcional | Schema descartável removido e nenhum paciente/contato copiado | aprovado |
 | NFR-003 | não funcional | Flag ativa só em stage; backup privado; limitações registradas | aprovado |
 
 ## Execução
+
+### Lista completa no Completar dia — 22/10/2026
+
+O usuário autorizou remover o corte de 20 clínicas e validar primeiro em stage,
+sem alterar agendamentos. A UI solicita `limite: null` e mostra a contagem de
+clínicas com horários disponíveis. A API aceita esse modo para retornar todas
+as oportunidades calculadas; mantém o padrão 20 quando omitido e os limites
+numéricos de 1 a 50 para consumidores existentes. Não muda o limite interno de
+candidatos de horário por clínica, o ranking, a recorrência ou as regras de rota.
+
+Cobertura deste ciclo: 31 e 61 clínicas retornadas e renderizadas sem corte,
+ordem/horários/datas preservados, limites antigos compatíveis, chamadas externas
+bloqueadas e ausência de escrita nas consultas. Os testes de identidade,
+cancelamento, troca de data/serviço e retry continuam aplicáveis. A homologação
+instalada foi concluída pelo PR #445 em `af36c3ed`, no workflow terminal
+`39881544048`: oito verificações do canário PostgreSQL descartável, 17/17 chunks
+servidos com o contador e `limite:null`, e 28/28 checks de preservação passaram.
+O schema foi removido, houve zero Google e nenhum agendamento operacional foi
+alterado. A prova positiva de 31/61 usou dados sintéticos isolados; stage não
+possuía âncoras da sexta nem clínicas recorrentes nesse recorte. A autorização
+daquele ciclo era restrita a stage.
+
+Validação local da lista completa: 252 testes Agenda passaram com SQLite
+sintético; 30 testes frontend de oportunidades/regras passaram, incluindo
+31 e 61 cartões; TypeScript sem emissão, ESLint focado, build Next.js e
+`git diff --check` passaram. Nenhum banco operacional ou provider foi usado.
+
+### Preparação produtiva restrita — 26/10/2026
+
+O usuário autorizou somente a retirada do limite de 20 clínicas do Completar
+dia, com validação na agenda atual e sem Google, reservas ou alterações de
+agendamentos. O pacote reaplica `06145b93` sobre main e mantém exatamente seus
+sete caminhos: contrato, serviço, componente, testes e estes dois documentos.
+Não transporta o arquivo Agenda inteiro de stage ou seus incrementos paralelos.
+
+Os critérios de stage CA-013/CA-014 estão concluídos pela homologação descrita
+acima. A validação do pacote isolado no banco de stage usa checkout temporário
+pinado por SHA e schema sintético descartável, mantendo seu runtime público.
+A promoção só será declarada instalada com workflow produtivo terminal,
+versão efetiva confirmada, API autenticada sem corte e comparação de dados.
+A restauração de stage faz parte do fechamento do pacote protegido.
 
 O primeiro ciclo validou a implementação em stage. O replay instalado foi
 executado com o merge `dd51af8c6f13709faa6957700169a648a0313c0b` do
@@ -205,7 +248,8 @@ ou reservas reais.
 - [x] Regra original publicada e validada em produção pelo PR #418.
 - [x] Correção do P1 publicada e validada em stage pelo PR #420.
 - [x] Correção do P1 autorizada para produção em 22/10/2026.
-- [ ] Correção do P1 instalada e validada em produção pelo fluxo protegido.
+- [x] Correção do P1 instalada e validada em produção pelo PR #440,
+  workflow terminal `39861323917` e smoke autenticado em `e7101e52`.
 
 ## Correção do P1 do PR #418 — novo ciclo em 22/10/2026
 
