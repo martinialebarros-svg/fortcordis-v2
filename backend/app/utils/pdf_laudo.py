@@ -36,6 +36,9 @@ from app.utils.echo_ae_ao_reference import (
     CANINE_AE_AO_SWEDISH_METHOD_NOTE,
     canine_ae_ao_clinical_limit_applies,
 )
+from app.utils.echo_low_weight_reference import (
+    LOW_WEIGHT_PREFIXES, low_weight_age_context, low_weight_reference_seed,
+)
 from app.utils.echo_diastolic import (
     diastolic_references, diastolic_notes, diastolic_indices_awaiting_confirmation,
 )
@@ -326,6 +329,12 @@ def aplicar_referencia_eco(parametros: List[Dict], referencia_eco: Optional[Dict
 
         prefixo = MAPEAMENTO_REFERENCIA_ECO.get(str(param.get("chave", "")))
         if prefixo and referencia_eco and (prefixo != "fs" or referencia_eco.get("fs_source")):
+            metadata = referencia_eco.get("range_metadata", {}).get(prefixo, {})
+            if prefixo in LOW_WEIGHT_PREFIXES and metadata.get("status") == "estimated":
+                lower, upper = metadata.get("estimate_min"), metadata.get("estimate_max")
+                if lower is not None and upper is not None:
+                    label = "Adultos" if metadata.get("estimate_context") == "age_unconfirmed" else "Est."
+                    atualizado["ref_text"] = f"{label}: {lower:.2f}-{upper:.2f} mm*"
             ref_min = referencia_eco.get(f"{prefixo}_min")
             ref_max = referencia_eco.get(f"{prefixo}_max")
             if ref_min is not None and ref_max is not None:
@@ -345,6 +354,10 @@ def referencias_2d_caninas_publicadas(dados_pdf: Dict[str, Any]) -> Dict[str, Tu
     paciente = dados_pdf.get("paciente") or {}
     medidas = dados_pdf.get("medidas") or {}
     if not dados_pdf.get("referencia_eco") or normalizar_especie_referencia(paciente.get("especie") or "") != "Canina":
+        return {}
+    # A confirmed adult acquisition protocol cannot override a patient known
+    # to be growing. Unknown age retains the existing explicit-view contract.
+    if low_weight_age_context(paciente.get("idade")) == "juvenile":
         return {}
     if medidas.get("VE_tecnica_relatorio") != "2d":
         return {}
@@ -1120,6 +1133,13 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
                 "and function in 122 healthy dogs. DOI: 10.1111/jvim.15562."
             )
         if tem_modo_m:
+            if any(referencia.get("range_metadata", {}).get(prefix, {}).get("doi") == "10.3389/fvets.2022.918457"
+                   and referencia.get("range_metadata", {}).get(prefix, {}).get("status") in {"published", "estimated"}
+                   for prefix in LOW_WEIGHT_PREFIXES):
+                estudos.append(
+                    "Isayama et al. (2022). Reference Values of M-mode Echocardiographic Parameter in Adult Toy Breed Dogs. "
+                    "Limites alométricos aproximados da Tabela 2, calculados pelo peso. DOI: 10.3389/fvets.2022.918457."
+                )
             estudos.append(
                 "Cornell et al. (2004). Allometric scaling of M-mode cardiac measurements "
                 "in normal adult dogs. DOI: 10.1111/j.1939-1676.2004.tb02551.x."
@@ -1223,6 +1243,21 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
     elementos = [Spacer(1, 3 * mm)]
     elementos.append(Paragraph("REFERÊNCIAS BIBLIOGRÁFICAS", styles["ReferenciaTitulo"]))
     elementos.extend(Paragraph(_esc(estudo.replace("&amp;", "&")), styles["ReferenciaTexto"]) for estudo in estudos)
+    if referencia.get("reference_origin") == "computed" and tem_modo_m:
+        model_metadata = [referencia.get("range_metadata", {}).get(prefix, {}) for prefix in LOW_WEIGHT_PREFIXES]
+        notes = []
+        if any(meta.get("calculation") == "allometric" and meta.get("status") in {"published", "estimated"} for meta in model_metadata):
+            notes.append("Dimensões em modo M: limites alométricos aproximados calculados para o peso real, a partir da Tabela 2 de Isayama et al. (2022).")
+        if any(meta.get("calculation") == "interpolated" and meta.get("status") in {"published", "estimated"} for meta in model_metadata):
+            notes.append("Dimensões em modo M: limites aproximados por interpolação entre os pesos da Tabela 3 de Häggström et al. (2016).")
+        if any(meta.get("estimate_context") == "weight_extrapolation" for meta in model_metadata):
+            notes.append("* Est.: estimativa por extrapolação abaixo de 1,5 kg; não constitui intervalo individual validado e não permite classificação automática.")
+        if any(meta.get("estimate_context") == "age_unconfirmed" for meta in model_metadata):
+            notes.append("* Adultos: limites publicados para adultos, apenas para consulta; confirmar idade/maturidade antes de aplicar ao paciente.")
+        if any(meta.get("status") == "unavailable" and meta.get("model_weight_kg") for meta in model_metadata):
+            notes.append("Referência de adultos não aplicada a paciente em crescimento; sem referência pediátrica reconciliada.")
+        notes.append("Interpretar dimensões e espessuras em conjunto com morfologia, técnica e demais achados; os limites não são cortes diagnósticos isolados.")
+        elementos.extend(Paragraph(_esc(note), styles["ReferenciaTexto"]) for note in notes)
     return elementos
 
 
@@ -1682,7 +1717,10 @@ def gerar_pdf_laudo_eco(
         dados_pdf["medidas"] = normalizar_medidas_para_pdf(dados.get("medidas", {}))
         # A direct renderer caller can bypass both DB-backed PDF loaders. Apply
         # the same safety policy here before any row or bibliography is built.
-        referencia = dados.get("referencia_eco")
+        paciente = dados_pdf.get("paciente") or {}
+        referencia = dados.get("referencia_eco") or low_weight_reference_seed(
+            paciente.get("especie"), _to_float_peso(paciente.get("peso")), paciente.get("idade"),
+        )
         if referencia:
             paciente = dados_pdf.get("paciente") or {}
             especie = normalizar_especie_referencia(paciente.get("especie"))
@@ -1695,7 +1733,8 @@ def gerar_pdf_laudo_eco(
                     dados_pdf["referencia_eco"] = None
                 else:
                     dados_pdf["referencia_eco"] = aplicar_defaults_publicados_caninos(
-                        {**referencia, "especie": especie or especie_referencia},
+                        {**referencia, "especie": especie or especie_referencia,
+                         "patient_age": paciente.get("idade")},
                         peso_kg=peso, medidas=dados_pdf["medidas"],
                     )
         recalcular_dived_normalizado_para_pdf(dados_pdf)
