@@ -1,4 +1,4 @@
-import { isPreviousExamUnavailable } from "./echo-previous-exam-availability";
+import { isEchoNarrativeHypothetical, isPreviousExamUnavailable, withoutPreviousExamAvailabilityModal } from "./echo-previous-exam-availability";
 import { ambiguousEchoLengthKeys, echoLengthInMm } from "./echo-unit-provenance";
 
 export type EchoNumericNarrativeKey =
@@ -102,7 +102,7 @@ function reference(text: string): boolean {
   return /\b(?:referencias?|limites?|faixas?|intervalos?)\b/.test(text);
 }
 function hypothetical(text: string): boolean {
-  return /\b(?:hipotese|suspeita|possivel|possivelmente|poderia|poderiam|caso|quando|when)\b|(?:^|[\s(:,])se\s+/.test(text);
+  return isEchoNarrativeHypothetical(text);
 }
 function limitation(text: string): boolean {
   return /\b(?:desconsiderad|descartad|invalid|incorret|indeterminad|inconclusiv|limitad)[oa]s?\b|\bartefato\b|\ba\s+confirmar\b/.test(text)
@@ -146,7 +146,11 @@ function unqualifiedMatches(fragment: string, metric: Metric, headerMode: Writte
     // A failed acquisition of the prior exam qualifies only this clause;
     // "possível" here must not become an inherited hypothetical header.
     const previous = PREVIOUS_EXAM.exec(part);
-    if (previous && isPreviousExamUnavailable(part.slice(0, previous.index), part.slice(previous.index + previous[0].length))) continue;
+    if (previous && isPreviousExamUnavailable(part.slice(0, previous.index), part.slice(previous.index + previous[0].length))) {
+      const hypothesis = withoutPreviousExamAvailabilityModal(part.slice(0, previous.index)) + part.slice(previous.index);
+      if (hypothetical(hypothesis)) inheritedContext = true;
+      continue;
+    }
     if (historicalPassage(part) || reference(part) || hypothetical(part)) inheritedContext = true;
     if (inheritedContext || historical(part) || relevantLimitation(part, metric)) continue;
     // The selected M/2D family still stores Teicholz EF. An explicitly named
