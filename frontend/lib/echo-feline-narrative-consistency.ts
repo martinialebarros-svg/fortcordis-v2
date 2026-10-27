@@ -1,4 +1,4 @@
-import { isPreviousExamUnavailable } from "./echo-previous-exam-availability";
+import { isEchoNarrativeHypothetical, isPreviousExamUnavailable, withoutPreviousExamAvailabilityModal } from "./echo-previous-exam-availability";
 import { isFelineEchoSpecies, normalizeEchoSpecies } from "./echo-species";
 
 export type FelineNarrativeDiscrepancy = {
@@ -157,6 +157,12 @@ function hasUnqualifiedClaim(text: string, claim: (text: string) => boolean): bo
     if (currentExam) {
       inheritedContext = false;
       historicalContext = false;
+    }
+    const previousExam = PREVIOUS_EXAM.exec(clause.text);
+    if (previousExam && isPreviousExamUnavailable(clause.text.slice(0, previousExam.index), clause.text.slice(previousExam.index + previousExam[0].length))) {
+      const hypothesis = withoutPreviousExamAvailabilityModal(clause.text.slice(0, previousExam.index)) + clause.text.slice(previousExam.index);
+      if (isEchoNarrativeHypothetical(hypothesis)) inheritedContext = true;
+      continue;
     }
     if (isHistoricalContext(clause.text)) historicalContext = true;
     if (!anyClaim(clause.text) && isContextHeader(clause.text)) inheritedContext = true;

@@ -34,3 +34,19 @@ function normalized(text: string): string {
 export function isPreviousExamUnavailable(before: string, after: string): boolean {
   return BEFORE.test(normalized(before)) || AFTER.test(normalized(after));
 }
+
+
+/** Analysis-only copy: keep hypotheses outside the parsed availability phrase. */
+export function withoutPreviousExamAvailabilityModal(before: string): string {
+  const text = normalized(before);
+  const match = BEFORE.exec(text);
+  if (!match) return text;
+  return text.slice(0, match.index) + match[0].replace(/\bpossivel\b/g, "")
+    + text.slice(match.index + match[0].length);
+}
+
+
+/** Exact original numeric detector; callers supply normalized analysis text. */
+export function isEchoNarrativeHypothetical(text: string): boolean {
+  return /\b(?:hipotese|suspeita|possivel|possivelmente|poderia|poderiam|caso|quando|when)\b|(?:^|[\s(:,])se\s+/.test(text);
+}
