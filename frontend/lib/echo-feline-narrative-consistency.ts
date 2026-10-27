@@ -1,3 +1,4 @@
+import { isPreviousExamUnavailable } from "./echo-previous-exam-availability";
 import { isFelineEchoSpecies, normalizeEchoSpecies } from "./echo-species";
 
 export type FelineNarrativeDiscrepancy = {
@@ -112,11 +113,7 @@ function isHistoricalContext(text: string): boolean {
   if (!previous) return false;
   const before = text.slice(0, previous.index);
   const after = text.slice(previous.index + previous[0].length);
-  // Match de + article in both contracted and expanded forms.
-  const unavailableBefore = /\b(?:sem(?:\s+(?:historico|historia)\s+d(?:e|[oa]s?))?|nao\s+(?:ha|houve|existe|consta|temos|dispomos\s+d(?:e|[oa]s?))(?:\s+(?:historico|historia)\s+d(?:e|[oa]s?))?)\s*(?:(?:os|as|o|a|um|uma)\s*)?$/.test(before)
-    || /\b(?:sem\s+acesso\s+(?:a|ao|aos|as)|nao\s+(?:foi|foram)\s+realizad[oa]s?|nao\s+(?:ha|houve|existe|consta)\s+registro\s+d(?:e|[oa]s?))\s*(?:(?:os|as|o|a|um|uma)\s*)?$/.test(before);
-  const unavailableAfter = /^\s*(?:indisponivel|ausente|nao\s+(?:disponivel|realizad[oa]|apresentad[oa]|localizad[oa]))\b/.test(after);
-  return !unavailableBefore && !unavailableAfter;
+  return !isPreviousExamUnavailable(before, after);
 }
 
 function isCurrentExamContext(text: string): boolean {
