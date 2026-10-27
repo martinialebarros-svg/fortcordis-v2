@@ -516,3 +516,54 @@ describe.each([
     });
   });
 });
+
+
+describe.each([
+  { species: "Canina", prefix: "canine" }, { species: "Felina", prefix: "feline" },
+])("predicado completo depois do exame anterior — $species", ({ species, prefix }) => {
+  const channels: { label: string; measurements: Record<string, string>; claim: string; keys: string[] }[] = [
+    { label: "numérico", measurements: { AE_Ao: "1.40" }, claim: "AE/Ao de 1,80.", keys: ["AE_Ao"] },
+    { label: "transmitral", measurements: { Diastolica_ondas: "fundidas", TDI_ondas: "separadas" },
+      claim: "Relação E/A de 1,14.", keys: [`${prefix}_transmitral_fusion`] },
+    { label: "tecidual", measurements: { Diastolica_ondas: "separadas", TDI_ondas: "fundidas" },
+      claim: "e′ lateral de 0,16 m/s.", keys: [`${prefix}_tissue_fusion`] },
+    { label: "E/e′ ambas", measurements: { Diastolica_ondas: "fundidas", TDI_ondas: "fundidas" },
+      claim: "Relação E/e′ de 6,75.", keys: [`${prefix}_transmitral_fusion`, `${prefix}_tissue_fusion`] },
+  ];
+  const measureStatements = ["Exame anterior", "Avaliação anterior"].flatMap((exam) => [
+    ["obtida", "fração de ejeção"], ["apresentada", "função diastólica"], ["realizada", "medida do átrio esquerdo"],
+  ].flatMap(([participle, object]) => ["a ", ""].flatMap((article) => ["", "para comparação ", "até o momento "]
+    .map((modifier) => `${exam}: não foi ${participle} ${modifier}${article}${object}.`))));
+  const completeStatements = [
+    { exam: "Exame anterior", predicate: "não foi obtido" },
+    { exam: "Avaliação anterior", predicate: "não foi obtida" },
+  ].flatMap(({ exam, predicate }) => ["", " para comparação", " até o momento", " para comparação até o momento",
+    " para consulta", " para revisão", " no momento", " atualmente", " até o momento para comparação"]
+    .flatMap((modifier) => ["; ", ". ", "\n", ", "].map((boundary) => `${exam}: ${predicate}${modifier}${boundary}`)));
+
+  describe.each(["qualitativa", "conclusao"])("fonte %s", (source) => {
+    const review = (text: string, values: Record<string, string>) => {
+      const measurements = Object.freeze({ ...values });
+      const qualitative = Object.freeze(source === "qualitativa" ? { funcao: text } : {});
+      const conclusion = source === "conclusao" ? text : "";
+      const before = JSON.stringify({ measurements, qualitative, conclusion });
+      const results = findEchoNarrativeDiscrepancies(measurements, qualitative, conclusion, species);
+      expect(JSON.stringify({ measurements, qualitative, conclusion })).toBe(before);
+      for (const issue of results) {
+        expect(text).toContain(issue.excerpt);
+        expect(issue.section).toBe(source === "qualitativa" ? "Função" : "Conclusão");
+      }
+      return results.map((issue) => issue.key);
+    };
+
+    it.each(channels)("não transforma objeto clínico negado em ausência do exame no canal $label", ({ measurements, claim }) => {
+      const actual = measureStatements.map((statement) => ({ statement, keys: review(`${statement} ${claim}`, measurements) }));
+      expect(actual).toEqual(measureStatements.map((statement) => ({ statement, keys: [] })));
+    });
+
+    it.each(channels)("aceita indisponibilidade completa com finalidade/tempo e fronteira no canal $label", ({ measurements, claim, keys }) => {
+      const actual = completeStatements.map((statement) => ({ statement, keys: review(statement + claim, measurements) }));
+      expect(actual).toEqual(completeStatements.map((statement) => ({ statement, keys })));
+    });
+  });
+});
