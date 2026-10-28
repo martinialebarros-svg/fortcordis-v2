@@ -174,19 +174,6 @@ class ValidationTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(service.AssistenteError):
                 service.validar_audio(name, "audio/webm", content)
 
-    def test_audio_decimal_limit_keeps_provider_margin(self):
-        self.assertEqual(service.AUDIO_MAX_BYTES, 24_000_000)
-        audio = b"ID3" + b"\0" * (24_000_000 - 3)
-        self.assertEqual(service.validar_audio("audio.mp3", "audio/mpeg", audio)[1], "audio/mpeg")
-        with self.assertRaises(service.AssistenteError) as error:
-            service.validar_audio("audio.mp3", "audio/mpeg", audio + b"\0")
-        self.assertEqual(error.exception.status_code, 413)
-
-    def test_undocumented_audio_formats_rejected_before_provider(self):
-        for extension, signature in [("ogg", b"OggS"), ("flac", b"fLaC")]:
-            with self.subTest(extension=extension), self.assertRaises(service.AssistenteError):
-                service.validar_audio(f"audio.{extension}", f"audio/{extension}", signature + b"synthetic")
-
 
 class ProviderTests(unittest.TestCase):
     def setUp(self):

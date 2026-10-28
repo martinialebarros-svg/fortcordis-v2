@@ -17,6 +17,7 @@ from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.user import User
 from app.services.tutor_identidade_service import exigir_tutor_utilizavel
+from app.services import tutor_rotina_service as rotina_tutor
 from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
 
 router = APIRouter()
@@ -74,8 +75,7 @@ def _ensure_tutores_timestamp_columns(db: Session) -> None:
     Compatibilidade com bases legadas (ex.: SQLite local) onde a tabela tutores
     não possui created_at/updated_at.
     """
-    bind = db.get_bind()
-    insp = inspect(bind)
+    insp = inspect(db.connection())
     if "tutores" not in insp.get_table_names():
         return
 
@@ -139,7 +139,8 @@ def _paciente_tem_payload_tutor(paciente: BaseModel) -> bool:
     )
 
 
-def _aplicar_dados_tutor(tutor: Tutor, paciente: BaseModel) -> None:
+def _aplicar_dados_tutor(tutor: Tutor, paciente: BaseModel, *, db=None, current_user=None) -> None:
+    identidade_antes = rotina_tutor.dados_identidade(tutor)
     campos_enviados = getattr(paciente, "model_fields_set", set())
     nome = _clean_optional_text(paciente.tutor)
     if "tutor" in campos_enviados and not nome:
@@ -172,10 +173,16 @@ def _aplicar_dados_tutor(tutor: Tutor, paciente: BaseModel) -> None:
     if not _clean_optional_text(tutor.whatsapp) and _clean_optional_text(tutor.telefone):
         tutor.whatsapp = _clean_optional_text(tutor.telefone)
 
-    for campo in ("identificacao_pendente", "origem_cadastro", "identificacao_observacoes"):
+    for campo in ("origem_cadastro", "identificacao_observacoes"):
         valor = getattr(paciente, "tutor_" + campo, None)
         if valor is not None:
             setattr(tutor, campo, valor)
+    if db is not None:
+        rotina_tutor.registrar_edicao_identidade(db, tutor, identidade_antes, current_user)
+        if getattr(paciente, "tutor_identificacao_pendente", None) is True and tutor.identificacao_pendente is False:
+            rotina_tutor.reabrir_identificacao(db, tutor, current_user, "Revisao solicitada ao complementar o paciente.")
+    elif identidade_antes != rotina_tutor.dados_identidade(tutor):
+        tutor.identificacao_pendente = True
     tutor.ativo = 1
     tutor.updated_at = _legacy_now_dt()
 
@@ -211,13 +218,14 @@ def _obter_ou_criar_tutor(
     *,
     tutor_id_padrao: Optional[int] = None,
     commit_changes: bool = True,
+    current_user=None,
 ) -> Optional[int]:
     _ensure_tutores_timestamp_columns(db)
 
     tutor_id = int(getattr(paciente, "tutor_id", None) or tutor_id_padrao or 0)
     if tutor_id > 0:
         tutor = exigir_tutor_utilizavel(db, tutor_id)
-        _aplicar_dados_tutor(tutor, paciente)
+        _aplicar_dados_tutor(tutor, paciente, db=db, current_user=current_user)
         if commit_changes:
             db.commit()
         else:
@@ -236,7 +244,7 @@ def _obter_ou_criar_tutor(
     tutor = Tutor(
         nome=tutor_nome,
         nome_key=tutor_nome_key,
-        identificacao_pendente=getattr(paciente, "tutor_identificacao_pendente", None) is not False,
+        identificacao_pendente=True,
         origem_cadastro=getattr(paciente, "tutor_origem_cadastro", None),
         identificacao_observacoes=getattr(paciente, "tutor_identificacao_observacoes", None),
         email=_clean_optional_text(paciente.tutor_email) or "",
@@ -318,6 +326,7 @@ def _contar_referencias_paciente(db: Session, paciente_id: int) -> dict[str, int
 # Schemas
 class PacienteCreate(BaseModel):
     nome: str
+    chave_operacao: Optional[str] = Field(default=None, min_length=8, max_length=128)
     tutor_id: Optional[int] = Field(default=None, gt=0)
     tutor_identificacao_pendente: Optional[bool] = None
     tutor_origem_cadastro: Optional[str] = None
@@ -334,9 +343,9 @@ class PacienteCreate(BaseModel):
     tutor_bairro: Optional[str] = None
     tutor_cidade: Optional[str] = None
     tutor_estado: Optional[str] = None
-    especie: Optional[str] = "Canina"
+    especie: Optional[str] = None
     raca: Optional[str] = ""
-    sexo: Optional[str] = "Macho"
+    sexo: Optional[str] = None
     peso_kg: Optional[float] = None
     data_nascimento: Optional[str] = None
     microchip: Optional[str] = ""
@@ -465,108 +474,66 @@ def criar_paciente(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Cria um novo paciente ou reativa um paciente desativado equivalente."""
+    """Cria ou reativa um paciente; repeticao segura inclui o tutor criado inline."""
     nome = (paciente.nome or "").strip()
     if not nome:
         raise HTTPException(status_code=400, detail="Nome do paciente e obrigatorio")
 
     nome_key = _gerar_nome_key(nome)
-    especie = (paciente.especie or "Canina").strip() or "Canina"
-
+    especie = (paciente.especie or "").strip()
+    # Compatibilidade de schema e anterior a reserva idempotente: nunca efetuar
+    # DDL/commit intermediario apos reservar uma operacao.
+    _ensure_tutores_timestamp_columns(db)
     try:
-        # Tutor e paciente pertencem a uma unica transacao. O lock de identidade
-        # precisa durar ate o vinculo ser gravado, inclusive contra mesclagens.
-        tutor_id = _obter_ou_criar_tutor(db, paciente, commit_changes=False)
-    except HTTPException:
-        db.rollback()
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Erro ao resolver tutor: {str(e)}")
-    tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first() if tutor_id else None
-
-    paciente_existente = _buscar_paciente_por_chave(
-        db,
-        nome_key=nome_key,
-        tutor_id=tutor_id,
-        especie=especie,
-    )
-    if paciente_existente:
-        if _is_ativo(paciente_existente.ativo):
-            db.commit()
-            return {
-                "id": paciente_existente.id,
-                "nome": paciente_existente.nome,
-                **_serialize_tutor_fields(tutor),
-                "especie": paciente_existente.especie,
-                "raca": paciente_existente.raca,
-                "sexo": normalizar_sexo_paciente(paciente_existente.sexo),
-                "peso_kg": paciente_existente.peso_kg,
-                "message": "Paciente ja existe",
-            }
-
-        paciente_existente.ativo = 1
-        paciente_existente.nome = nome
-        paciente_existente.nome_key = nome_key
-        paciente_existente.tutor_id = tutor_id
-        paciente_existente.especie = especie
-        paciente_existente.raca = paciente.raca
-        paciente_existente.sexo = normalizar_sexo_paciente(paciente.sexo)
-        paciente_existente.peso_kg = paciente.peso_kg
-        paciente_existente.nascimento = paciente.data_nascimento
-        paciente_existente.microchip = paciente.microchip
-        paciente_existente.observacoes = paciente.observacoes
-        paciente_existente.updated_at = _legacy_now_dt()
-
-        db.commit()
-        db.refresh(paciente_existente)
-
-        return {
-            "id": paciente_existente.id,
-            "nome": paciente_existente.nome,
-            **_serialize_tutor_fields(tutor),
-            "especie": paciente_existente.especie,
-            "raca": paciente_existente.raca,
-            "sexo": normalizar_sexo_paciente(paciente_existente.sexo),
-            "peso_kg": paciente_existente.peso_kg,
-            "message": "Paciente reativado com sucesso",
-        }
-
-    try:
-        db_paciente = Paciente(
-            nome=nome,
-            nome_key=nome_key,
-            tutor_id=tutor_id,
-            especie=especie,
-            raca=paciente.raca,
-            sexo=normalizar_sexo_paciente(paciente.sexo),
-            peso_kg=paciente.peso_kg,
-            nascimento=paciente.data_nascimento,
-            microchip=paciente.microchip,
-            observacoes=paciente.observacoes,
-            ativo=1,
-            created_at=_legacy_now_dt(),
+        operacao, resposta_salva = rotina_tutor.preparar_operacao(
+            db, usuario_id=current_user.id, tipo="criar_paciente", chave=paciente.chave_operacao,
+            payload=paciente.model_dump(exclude={"chave_operacao"}),
         )
-
-        db.add(db_paciente)
-        db.commit()
-        db.refresh(db_paciente)
-
-        return {
-            "id": db_paciente.id,
-            "nome": db_paciente.nome,
-            **_serialize_tutor_fields(tutor),
-            "especie": db_paciente.especie,
-            "raca": db_paciente.raca,
-            "sexo": normalizar_sexo_paciente(db_paciente.sexo),
+        if resposta_salva is not None:
+            db.rollback()
+            return resposta_salva
+        tutor_id = _obter_ou_criar_tutor(db, paciente, commit_changes=False, current_user=current_user)
+        tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first() if tutor_id else None
+        db_paciente = _buscar_paciente_por_chave(db, nome_key=nome_key, tutor_id=tutor_id, especie=especie)
+        message = None
+        if db_paciente and _is_ativo(db_paciente.ativo):
+            message = "Paciente ja existe"
+        else:
+            if db_paciente:
+                message = "Paciente reativado com sucesso"
+            else:
+                db_paciente = Paciente(created_at=_legacy_now_dt())
+                db.add(db_paciente)
+            db_paciente.nome = nome
+            db_paciente.nome_key = nome_key
+            db_paciente.tutor_id = tutor_id
+            db_paciente.especie = especie
+            db_paciente.raca = paciente.raca
+            db_paciente.sexo = normalizar_sexo_paciente(paciente.sexo)
+            db_paciente.peso_kg = paciente.peso_kg
+            db_paciente.nascimento = paciente.data_nascimento
+            db_paciente.microchip = paciente.microchip
+            db_paciente.observacoes = paciente.observacoes
+            db_paciente.ativo = 1
+            db_paciente.updated_at = _legacy_now_dt()
+        db.flush()
+        resposta = {
+            "id": db_paciente.id, "nome": db_paciente.nome,
+            **_serialize_tutor_fields(tutor), "especie": db_paciente.especie,
+            "raca": db_paciente.raca, "sexo": normalizar_sexo_paciente(db_paciente.sexo),
             "peso_kg": db_paciente.peso_kg,
         }
+        if message:
+            resposta["message"] = message
+        rotina_tutor.concluir_operacao(operacao, resposta)
+        db.commit()
+        return resposta
     except HTTPException:
         db.rollback()
         raise
-    except Exception as e:
+    except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Erro ao criar paciente: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao criar paciente: {str(exc)}") from exc
 
 
 @router.get("/{paciente_id}")
@@ -725,6 +692,7 @@ def atualizar_paciente(
                 paciente,
                 tutor_id_padrao=db_paciente.tutor_id,
                 commit_changes=False,
+                current_user=current_user,
             )
         except HTTPException:
             db.rollback()

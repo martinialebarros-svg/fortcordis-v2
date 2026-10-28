@@ -18,14 +18,17 @@
   (sem autenticação) protegidos apenas pelo token opaco. O GET devolve
   nome da clínica, serviço, data/hora e `expires_at`; retorna `404`
   para token desconhecido e `410` para convite usado/expirado/revogado.
-- RF-004: o POST aceita `nome_paciente`, `nome_tutor`, `telefone_tutor`;
+- RF-004: o POST exige somente `nome_paciente` e `nome_tutor` (primeiro nome
+  suficiente); `telefone_tutor` e opcional e pode ser omitido ou vazio.
   cria um Tutor separado com identificacao pendente e origem da formalizacao.
   Nome e nome_key nao identificam outra pessoa; nenhum homonimo e reutilizado
   e nenhum contato existente e sobrescrito;
-  cria o Paciente vinculado a esse tutor (espécie default "Canina");
+  cria o Paciente vinculado a esse tutor, sem presumir especie/sexo;
   atualiza `Agendamento.paciente_id`/`tutor_id`/campos denormalizados e
   transiciona `status` de `Reservado` para `Agendado` (mantém
-  `Agendado` se já estava); marca o convite como `used`.
+  `Agendado` se já estava); marca o convite como `used`. Rele a validade do
+  convite sob trava do agendamento antes de criar registros, recusando novo
+  consumo ou expiracao ocorrida enquanto aguardava a trava.
 - RF-005: após salvar os dados com sucesso, tenta enviar
   `appointmentFormalized` para a clínica (via `_resolve_destination`,
   mesmo helper do lembrete automático) dentro de um `try/except` que

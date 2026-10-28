@@ -102,3 +102,10 @@ configuracao permanecem exclusivos de stage. O snapshot f48220c6 e a branch
 codex/tutores-identidade-mesclagem preservam essas entregas para restauracao
 apos o PR direto stage -> main. Documentos historicos de baixo peso sao
 mantidos somente para integridade documental do guardrail, sem codigo ativo.
+
+## Evolucao de rotina agil — 2026-10-27
+
+A feature `tutores-rotina-agil` substitui a confirmacao por booleano por acao com
+metodo/evidencia e mantem cadastros minimos para agendar. Adiciona idempotencia,
+contatos/origens alternativos e correcao assistida conservadora; a antiga exclusao
+de reversao de escopo nao se aplica a esse novo fluxo explicitamente autorizado.

@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import TutorIdentificacaoFields from "@/components/TutorIdentificacaoFields";
+import TutorExistenteSelector, { type TutorExistenteDetail } from "@/components/TutorExistenteSelector";
+import { chaveOperacaoTutor, concluirOperacaoTutor } from "@/lib/tutor-mesclagem";
 import {
   formatarCepVisual,
   formatarCpfVisual,
@@ -21,39 +23,49 @@ import {
 } from "@/lib/racas";
 import { Save, ArrowLeft, Plus, UserRound, PawPrint } from "lucide-react";
 
+const tutorInicial = () => ({
+  tutor_id: "", tutor: "", tutor_identificacao_pendente: true,
+  tutor_origem_cadastro: "", tutor_identificacao_observacoes: "", tutor_email: "",
+  tutor_telefone: "", tutor_whatsapp: "", tutor_cpf: "", tutor_cep: "", tutor_endereco: "",
+  tutor_numero: "", tutor_complemento: "", tutor_bairro: "", tutor_cidade: "", tutor_estado: "CE",
+});
+
 export default function NovoPacientePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const salvandoRef = useRef(false);
   const [paciente, setPaciente] = useState({
-    tutor_id: "",
-    tutor_identificacao_pendente: true,
-    tutor_origem_cadastro: "",
-    tutor_identificacao_observacoes: "",
+    ...tutorInicial(),
     nome: "",
-    tutor: "",
-    tutor_email: "",
-    tutor_telefone: "",
-    tutor_whatsapp: "",
-    tutor_cpf: "",
-    tutor_cep: "",
-    tutor_endereco: "",
-    tutor_numero: "",
-    tutor_complemento: "",
-    tutor_bairro: "",
-    tutor_cidade: "",
-    tutor_estado: "CE",
-    especie: "Canina",
+    especie: "",
     raca: "",
-    sexo: "Macho",
+    sexo: "",
     peso_kg: "",
     data_nascimento: "",
     microchip: "",
     observacoes: "",
   });
   const [feedback, setFeedback] = useState("");
+  const [buscarTutor, setBuscarTutor] = useState(false);
   const [novaRaca, setNovaRaca] = useState("");
   const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<Record<string, string[]>>({});
   const [racasLoaded, setRacasLoaded] = useState(false);
+
+  const selecionarTutor = (tutor: TutorExistenteDetail) => {
+    setPaciente((prev) => ({ ...prev,
+      tutor_id: String(tutor.id), tutor: tutor.nome ?? "",
+      tutor_identificacao_pendente: tutor.identificacao_pendente ?? true,
+      tutor_origem_cadastro: tutor.origem_cadastro ?? "",
+      tutor_identificacao_observacoes: tutor.identificacao_observacoes ?? "",
+      tutor_email: tutor.email ?? "", tutor_telefone: formatarTelefoneVisual(tutor.telefone ?? ""),
+      tutor_whatsapp: formatarTelefoneVisual(tutor.whatsapp ?? ""), tutor_cpf: formatarCpfVisual(tutor.cpf ?? ""),
+      tutor_cep: formatarCepVisual(tutor.cep ?? ""), tutor_endereco: tutor.endereco ?? "",
+      tutor_numero: tutor.numero ?? "", tutor_complemento: tutor.complemento ?? "",
+      tutor_bairro: tutor.bairro ?? "", tutor_cidade: tutor.cidade ?? "", tutor_estado: tutor.estado ?? "",
+    }));
+    setBuscarTutor(false);
+    setFeedback("");
+  };
   const opcoesRaca = getRacaOptions(
     paciente.especie,
     paciente.raca,
@@ -90,29 +102,42 @@ export default function NovoPacientePage() {
   }, [router]);
 
   const handleSalvar = async (cadastrarOutroPet = false) => {
+    if (salvandoRef.current) return;
+    salvandoRef.current = true;
     setLoading(true);
+    setBuscarTutor(false);
     setFeedback("");
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         ...paciente,
         tutor_id: paciente.tutor_id ? Number(paciente.tutor_id) : null,
         tutor_telefone: normalizarTelefone(paciente.tutor_telefone),
         tutor_whatsapp: normalizarTelefone(paciente.tutor_whatsapp),
         tutor_cpf: normalizarCpf(paciente.tutor_cpf),
         tutor_cep: normalizarCep(paciente.tutor_cep),
+        especie: paciente.especie || null,
+        sexo: paciente.sexo || null,
         peso_kg: paciente.peso_kg ? parseFloat(paciente.peso_kg) : null,
       };
+      if (paciente.tutor_id) {
+        // Cadastrar outro animal não deve regravar os dados da pessoa selecionada.
+        for (const campo of Object.keys(payload)) {
+          if (campo === "tutor" || (campo.startsWith("tutor_") && campo !== "tutor_id")) delete payload[campo];
+        }
+      }
       
-      const response = await api.post("/pacientes", payload);
+      const chave_operacao = await chaveOperacaoTutor("novo-paciente", payload);
+      const response = await api.post("/pacientes", { ...payload, chave_operacao });
+      concluirOperacaoTutor("novo-paciente");
       if (cadastrarOutroPet) {
         const tutorId = response.data?.tutor_id || paciente.tutor_id;
         setPaciente((prev) => ({
           ...prev,
           tutor_id: tutorId ? String(tutorId) : prev.tutor_id,
           nome: "",
-          especie: "Canina",
+          especie: "",
           raca: "",
-          sexo: "Macho",
+          sexo: "",
           peso_kg: "",
           data_nascimento: "",
           microchip: "",
@@ -122,12 +147,12 @@ export default function NovoPacientePage() {
         setFeedback("Paciente salvo. Cadastre o proximo pet do mesmo tutor.");
         return;
       }
-      alert("Paciente cadastrado com sucesso!");
       router.push("/pacientes");
     } catch (error) {
       console.error("Erro ao salvar paciente:", error);
-      alert("Erro ao cadastrar paciente");
+      setFeedback("Não foi possível cadastrar o paciente. Seus dados continuam preenchidos; tente salvar novamente.");
     } finally {
+      salvandoRef.current = false;
       setLoading(false);
     }
   };
@@ -162,7 +187,7 @@ export default function NovoPacientePage() {
 
         <main className="fc-patient-form-panel">
           {feedback && (
-            <div className="fc-patient-form-feedback">
+            <div role="status" className="fc-patient-form-feedback">
               {feedback}
             </div>
           )}
@@ -175,17 +200,24 @@ export default function NovoPacientePage() {
             </div>
           </div>
 
-          <div className="fc-patient-form-grid">
-            <TutorIdentificacaoFields value={{
-              identificacao_pendente: paciente.tutor_identificacao_pendente,
-              origem_cadastro: paciente.tutor_origem_cadastro,
-              identificacao_observacoes: paciente.tutor_identificacao_observacoes,
-            }} onChange={(value) => setPaciente((prev) => ({ ...prev,
-              tutor_identificacao_pendente: value.identificacao_pendente,
-              tutor_origem_cadastro: value.origem_cadastro,
-              tutor_identificacao_observacoes: value.identificacao_observacoes,
-            }))} />
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <button type="button" disabled={loading} className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700"
+              onClick={() => setBuscarTutor(true)}>Selecionar tutor existente</button>
+            {paciente.tutor_id && <button type="button" disabled={loading} className="rounded-lg border px-3 py-2 text-sm"
+              onClick={() => {
+                concluirOperacaoTutor("novo-paciente");
+                setPaciente((prev) => ({ ...prev, ...tutorInicial() }));
+                setBuscarTutor(false);
+                setFeedback("");
+              }}>Criar outra pessoa</button>}
+            <p className="text-sm text-slate-600">Nome do tutor e do pet são suficientes para começar. Complemente os dados no atendimento.</p>
+          </div>
+          {buscarTutor && <TutorExistenteSelector onSelect={selecionarTutor} onCancel={() => setBuscarTutor(false)} />}
+          {paciente.tutor_id && <p role="status" className="mb-4 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">
+            Tutor selecionado: {paciente.tutor} #{paciente.tutor_id}. Os dados deste cadastro serão preservados; você pode complementá-los no atendimento.
+          </p>}
 
+          <fieldset disabled={Boolean(paciente.tutor_id) || loading} className="fc-patient-form-grid">
             {paciente.tutor_id && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -201,18 +233,31 @@ export default function NovoPacientePage() {
             )}
 
             <div className={paciente.tutor_id ? "" : "md:col-span-2"}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="novo-paciente-tutor-nome" className="block text-sm font-medium text-gray-700 mb-1">
                 Nome do tutor *
               </label>
               <input
+                id="novo-paciente-tutor-nome"
                 type="text"
                 value={paciente.tutor}
                 onChange={(e) => setPaciente({...paciente, tutor: e.target.value})}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="Ex: João Silva"
+                placeholder="Primeiro nome já é suficiente"
               />
             </div>
 
+            <details className="md:col-span-2">
+              <summary className="cursor-pointer text-sm font-medium text-blue-700">Dados adicionais do tutor (opcionais)</summary>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <TutorIdentificacaoFields value={{
+                  identificacao_pendente: paciente.tutor_identificacao_pendente,
+                  origem_cadastro: paciente.tutor_origem_cadastro,
+                  identificacao_observacoes: paciente.tutor_identificacao_observacoes,
+                }} onChange={(value) => setPaciente((prev) => ({ ...prev,
+                  tutor_identificacao_pendente: value.identificacao_pendente,
+                  tutor_origem_cadastro: value.origem_cadastro,
+                  tutor_identificacao_observacoes: value.identificacao_observacoes,
+                }))} />
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 E-mail do tutor
@@ -367,7 +412,9 @@ export default function NovoPacientePage() {
                 />
               </div>
             </div>
-          </div>
+              </div>
+            </details>
+          </fieldset>
 
           <div className="fc-patient-form-section-header fc-patient-form-section-pet">
             <PawPrint className="h-5 w-5" />
@@ -396,6 +443,7 @@ export default function NovoPacientePage() {
                 Espécie
               </label>
               <select
+                aria-label="Espécie do paciente"
                 value={paciente.especie}
                 onChange={(e) => {
                   setPaciente({ ...paciente, especie: e.target.value, raca: "" });
@@ -403,6 +451,7 @@ export default function NovoPacientePage() {
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
+                <option value="">Não informado</option>
                 <option value="Canina">Canina</option>
                 <option value="Felina">Felina</option>
                 <option value="Equina">Equina</option>
@@ -456,10 +505,12 @@ export default function NovoPacientePage() {
                 Sexo
               </label>
               <select
+                aria-label="Sexo do paciente"
                 value={paciente.sexo}
                 onChange={(e) => setPaciente({...paciente, sexo: e.target.value})}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
+                <option value="">Não informado</option>
                 <option value="Macho">Macho</option>
                 <option value="Fêmea">Fêmea</option>
               </select>
@@ -528,7 +579,7 @@ export default function NovoPacientePage() {
             <button
               type="button"
               onClick={() => handleSalvar(true)}
-              disabled={loading || !paciente.nome || !paciente.tutor}
+              disabled={loading || !paciente.nome.trim() || !paciente.tutor.trim()}
               className="fc-patient-form-secondary"
             >
               <Plus className="w-4 h-4" />
@@ -537,7 +588,7 @@ export default function NovoPacientePage() {
             <button
               type="button"
               onClick={() => handleSalvar(false)}
-              disabled={loading || !paciente.nome || !paciente.tutor}
+              disabled={loading || !paciente.nome.trim() || !paciente.tutor.trim()}
               className="fc-patient-form-primary"
             >
               <Save className="w-4 h-4" />

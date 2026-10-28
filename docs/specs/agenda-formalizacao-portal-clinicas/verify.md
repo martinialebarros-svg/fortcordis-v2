@@ -1,5 +1,22 @@
 # Verify - agenda-formalizacao-portal-clinicas
 
+## Evolucao local em 2026-10-28 — rotina agil
+
+- Telefone deixou de ser obrigatorio. Primeiro nome do tutor e nome do pet
+  bastam; identificacao pendente e especie/sexo desconhecidos, sem valor presumido.
+- 15 testes de servico SQLite aprovados, incluindo schema sem telefone,
+  dois consumos concorrentes (uma resposta 200 e outra 410, um tutor/pet)
+  e nova validacao do convite sob trava antes da criacao.
+- Concorrencia e nomes minimos repetidos em PostgreSQL local descartavel:
+  2 testes aprovados, zero schemas residuais.
+- Testes de componente verificam formulario sem telefone e dois submits antes
+  da resposta (uma unica requisicao). Conferencia visual no Chrome celular
+  390 px com API simulada: nomes minimos enviados, sem overflow ou erros JS.
+- Fluxo Meta/template/credenciais e envio real nao exercitados nem alterados.
+  Notificacoes sao simuladas nos testes; permanece o envio existente a clinica.
+- Mudanca local, sem nova publicacao. Evidencia complementar em
+  `docs/specs/tutores-rotina-agil/verify.md`; historico abaixo descreve versoes anteriores.
+
 ## Atualizacao de identidade — 2026-10-27
 
 CA-005 agora exige cadastros separados para homonimos. O teste atualizado

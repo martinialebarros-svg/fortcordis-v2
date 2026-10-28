@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apagarAudioBackup, lerAudioBackup, salvarAudioBackup, type AtendimentoAudioBackup } from "./atendimento-audio-backup";
-import { ASSISTENTE_AUDIO_MAX_BYTES, ASSISTENTE_AUDIO_MAX_SECONDS, escolherMimeGravacao, extensaoAudio, limiteAudioAssistente, validarAudioParaTranscricao } from "./atendimento-assistente-ia";
+import { ASSISTENTE_AUDIO_MAX_BYTES, ASSISTENTE_AUDIO_MAX_SECONDS, escolherMimeGravacao, extensaoAudio } from "./atendimento-assistente-ia";
 import { apagarAudioAssistenteMemoria, guardarAudioAssistenteMemoria, lerRascunhoAssistenteMemoria, observarAudioAssistenteMemoria } from "./atendimento-assistente-memory";
 
 export function useAtendimentoAudio(atendimentoId: number, usuarioId: number | null, pacienteId: number) {
@@ -133,7 +133,7 @@ export function useAtendimentoAudio(atendimentoId: number, usuarioId: number | n
       return;
     }
     setIniciando(true);
-    maxBytesRef.current = limiteAudioAssistente(maxBytes);
+    maxBytesRef.current = Math.min(maxBytes, ASSISTENTE_AUDIO_MAX_BYTES);
     try {
       const captured = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
       if (!alive.current) { captured.getTracks().forEach((track) => track.stop()); return; }
@@ -143,11 +143,9 @@ export function useAtendimentoAudio(atendimentoId: number, usuarioId: number | n
       recorder.current = current;
       const chunks: Blob[] = [];
       let total = 0;
-      const recordingMime = () => current.mimeType || chunks.find((chunk) => chunk.type)?.type || mime || "application/octet-stream";
-      const filename = () => `atendimento-${atendimentoId}-${recordingStartedAt}.${extensaoAudio(recordingMime())}`;
-      const recordingStartedAt = Date.now();
+      const filename = `atendimento-${atendimentoId}-${Date.now()}.${extensaoAudio(current.mimeType || mime || "audio/webm")}`;
       const buildBackup = (finalizado: boolean): AtendimentoAudioBackup => ({
-        atendimentoId, usuarioId: usuarioId || 0, pacienteId, blob: new Blob(chunks, { type: recordingMime() }), filename: filename(),
+        atendimentoId, usuarioId: usuarioId || 0, pacienteId, blob: new Blob(chunks, { type: current.mimeType || mime || "audio/webm" }), filename,
         seconds: secondsRef.current, finalizado, atualizadoEm: Date.now(),
       });
       current.ondataavailable = (event) => {
@@ -156,19 +154,16 @@ export function useAtendimentoAudio(atendimentoId: number, usuarioId: number | n
         total += event.data.size;
         guardar(buildBackup(false));
         if (total >= maxBytesRef.current - 256 * 1024 && current.state !== "inactive") {
-          if (alive.current) setAviso("A gravação foi encerrada ao se aproximar do limite. O arquivo final será conferido antes de permitir a transcrição.");
+          if (alive.current) setAviso("O áudio atingiu o limite de tamanho e foi encerrado. Transcreva este trecho antes de iniciar outro.");
           parar();
         }
       };
       current.onstop = () => {
         const backup = buildBackup(true);
         if (backup.blob.size) {
-          const file = new File([backup.blob], backup.filename, { type: backup.blob.type });
+          const file = new File([backup.blob], filename, { type: backup.blob.type });
           guardar({ ...backup, blob: file });
-          if (alive.current) {
-            setAudio(file);
-            setErro(validarAudioParaTranscricao(file, maxBytesRef.current) || "");
-          }
+          if (alive.current) setAudio(file);
         } else if (alive.current) setErro("Nenhum áudio foi capturado. Verifique o microfone e tente novamente.");
         // Release recorder closures so discarding the resulting File also releases
         // the raw chunks instead of leaving them reachable through recorder.current.
@@ -226,11 +221,11 @@ export function useAtendimentoAudio(atendimentoId: number, usuarioId: number | n
 
   const importar = (file: File, maxBytes = ASSISTENTE_AUDIO_MAX_BYTES) => {
     if (gravando || iniciando) return;
-    if (!/\.(webm|mp3|m4a|mp4|wav|mpeg|mpga)$/i.test(file.name) || !file.size) {
-      setErro("Selecione um áudio não vazio em MP3, MP4/M4A, MPEG/MPGA, WAV ou WebM.");
+    if (!/\.(webm|mp3|m4a|mp4|wav|ogg|flac|mpeg|mpga)$/i.test(file.name) || !file.size || file.size > maxBytes) {
+      setErro("Selecione um arquivo de áudio válido com até 24 MB.");
       return;
     }
-    setErro(validarAudioParaTranscricao(file, maxBytes) || ""); setAviso(""); setAudio(file); setSeconds(0); secondsRef.current = 0;
+    setErro(""); setAviso(""); setAudio(file); setSeconds(0); secondsRef.current = 0;
     guardar({ atendimentoId, usuarioId: usuarioId || 0, pacienteId, blob: file, filename: file.name, seconds: 0, finalizado: true, atualizadoEm: Date.now() });
   };
 

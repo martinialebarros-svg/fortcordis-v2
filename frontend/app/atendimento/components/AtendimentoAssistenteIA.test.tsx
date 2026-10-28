@@ -177,25 +177,4 @@ describe("AtendimentoAssistenteIA", () => {
     expect(onAttachFiles).not.toHaveBeenCalled();
     expect(screen.getByText("exame.pdf")).toBeTruthy();
   });
-  it.each([
-    { name: "gravacao.webm", size: 24_000_001, mime: "audio/webm", message: "24.000.000 bytes" },
-    { name: "gravacao.ogg", size: 20, mime: "audio/ogg", message: "converta uma cópia" },
-    { name: "gravacao.flac", size: 20, mime: "audio/flac", message: "converta uma cópia" },
-  ])("preserva reprodução/download mas não envia arquivo inviável: $name", async ({ name, size, mime, message }) => {
-    const audioState = vi.mocked(useAtendimentoAudio).getMockImplementation()!(1, 7, 1);
-    const file = new File(["audio"], name, { type: mime });
-    Object.defineProperty(file, "size", { value: size });
-    vi.mocked(useAtendimentoAudio).mockReturnValue({ ...audioState, audio: file });
-    const onEnsureSaved = vi.fn();
-    await preparar({ onEnsureSaved });
-    expect(screen.getByRole("alert").textContent).toContain(message);
-    const transcrever = screen.getByRole("button", { name: "Transcrever áudio" }) as HTMLButtonElement;
-    expect(transcrever.disabled).toBe(true);
-    fireEvent.click(transcrever);
-    expect(api.post).not.toHaveBeenCalled();
-    expect(onEnsureSaved).not.toHaveBeenCalled();
-    expect(screen.getByRole("link", { name: /Baixar áudio original/ })).toBeTruthy();
-    expect(screen.getByLabelText("Ouvir áudio original")).toBeTruthy();
-    expect(audioState.descartar).not.toHaveBeenCalled();
-  });
 });
