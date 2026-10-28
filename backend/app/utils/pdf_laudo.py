@@ -1281,7 +1281,9 @@ def criar_secao_referencias_eco(dados_pdf: Dict[str, Any]) -> List:
             notes.append("Dimensões em modo M: limites aproximados por interpolação entre os pesos da Tabela 3 de Häggström et al. (2016).")
         if any(meta.get("estimate_context") == "weight_extrapolation" for meta in model_metadata):
             notes.append("* Est.: estimativa por extrapolação abaixo de 1,5 kg; não constitui intervalo individual validado e não permite classificação automática.")
-        if any(meta.get("estimate_context") == "age_unconfirmed" for meta in model_metadata):
+        if low_weight_age_context(paciente.get("idade")) == "unknown" and any(
+            meta.get("status") == "estimated" for meta in model_metadata
+        ):
             notes.append("* Adultos: limites publicados para adultos, apenas para consulta; confirmar idade/maturidade antes de aplicar ao paciente.")
         if any(meta.get("status") == "unavailable" and meta.get("model_weight_kg") for meta in measured_metadata):
             notes.append("Referência de adultos não aplicada a paciente em crescimento; sem referência pediátrica reconciliada.")
