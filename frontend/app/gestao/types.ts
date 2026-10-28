@@ -65,7 +65,7 @@ export type MetricasGestao = {
   caixa: {
     saldo_inicial: number | null; saldo_final: number | null; entradas_confirmadas: number; entradas_previstas: number;
     saidas_confirmadas: number; saidas_previstas: number; entradas_premissas?: number; saidas_premissas?: number; pendencias_sem_data?: number; total_registros?: number; detalhes_limitados?: boolean; parcial: boolean; semanas: LinhaCaixa[]; meses: LinhaCaixa[];
-    detalhes: Array<{ fonte: string; id: number | string; os_id?: number; clinica_id: number | null; data: string; tipo: string; valor: number; natureza: "confirmado" | "previsto" | "premissa" }>;
+    detalhes: Array<{ fonte: string; id: number | string; descricao?: string | null; os_id?: number; clinica_id: number | null; data: string; tipo: string; valor: number; natureza: "confirmado" | "previsto" | "premissa" }>;
     lacunas: string[]; formula: string;
   };
   ocupacao: {

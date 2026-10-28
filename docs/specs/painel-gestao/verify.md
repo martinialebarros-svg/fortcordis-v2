@@ -31,3 +31,27 @@ Após instalação autorizada, acesso por **Gestão → Gestão do negócio** (`
 Publicação autorizada exclusivamente em stage. Base remota conferida: `9f9afe2e9d0be0e53552b9e1f23b9622098e2caa`; main observado: `1fb920c2711b5776f095bfb8e6d06d7f7ece76b5`. A maior migração remota é `20261025_100`; `20261025_101` permanece livre. Revisão de compatibilidade das fontes Agenda/Financeiro não encontrou mudanças conflitantes. A alteração de transporte Meta da PR #472 já está integrada e o deploy anterior de stage terminou com sucesso; nenhuma modificação desse transporte faz parte deste painel. A instalação e os testes remotos ainda serão confirmados. Artefatos de demonstração, servidores sintéticos e screenshots locais não integram o pacote publicado.
 
 Revalidação após integração da base stage: 60 testes backend, 17 frontend, lint completo e TypeScript passaram. Pipeline stage passa a executar explicitamente os testes do painel. Pré-verificação remota somente leitura: stage instalado no SHA `9f9afe2e`, produção instalada no SHA `0561a168c449aeb5b763b0fc3b7699c594200654`; o sync felino já existente informou “Nenhuma alteração necessária”. Transporte Meta stage permanece desligado. Nenhum conteúdo ou segredo de produção foi copiado para stage.
+
+## Publicação e comprovação em stage — 26/10/2026
+
+PR [#485](https://github.com/martinialebarros-svg/fortcordis-v2/pull/485) integrada exclusivamente em stage no SHA `0cf39a58a800b025361189fc0e99693595898146`. [Deploy 40381395318](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/40381395318) terminou `success`: quality-gate, SDD, diagnósticos e instalação concluídos. Migration CI, Frontend CI e Google Maps Cost Control também passaram no snapshot. Testes específicos de gestão foram executados pelo quality-gate.
+
+- Checkout remoto confirmou o SHA aprovado; API, frontend e worker stage ativos; `/health` e `/ready` retornaram 200.
+- PostgreSQL confirmou migração `20261025_101`, RLS e ausência de privilégios PUBLIC/anon/authenticated na tabela de premissas.
+- Canário administrativo somente leitura: GET premissas 200 e POST painel 200, com as seis estruturas atuais e anteriores. A consulta do painel levou aproximadamente 444 ms em uma amostra; não constitui benchmark de carga. Usuário não administrador recebeu 403 nas duas rotas; acesso anônimo recebeu 401.
+- Antes/depois: zero premissas, revisão zero e zero eventos de auditoria de gestão, com fingerprints internos idênticos. Não houve PUT, cadastro de fixture, alteração financeira ou de agenda neste canário.
+- Chrome real em `https://app.stage.fortcordis.com.br/gestao`: documento 200, seis cartões, atualização de filtro, desktop 1440 px e móvel 390 px. Sem erros de JavaScript, respostas HTTP de erro ou overflow horizontal. Revisão das premissas preservada. Doze scripts presentes no documento renderizado responderam 200; hashes registrados no artefato local.
+- Domínios `app.stage`, `stage` e `www.stage` encaminharam corretamente ao login com retorno para `/gestao`.
+- Produção comparada antes/depois desta instalação: SHA `1fb920c2711b5776f095bfb8e6d06d7f7ece76b5`, PIDs/início dos três serviços, BUILD_ID, configuração e arquivos runtime idênticos; código de gestão ausente. Um deploy de produção anterior, independente deste painel, já havia terminado antes dessa baseline. Não houve promoção deste painel a main.
+
+Evidências locais sanitizadas em `output/gestao/stage-api-evidence.json`, `stage-browser-evidence.json`, `stage-public-evidence.json` e snapshots runtime. Screenshots locais `stage-desktop.png` e `stage-mobile.png` foram inspecionados. Dados financeiros, tokens e identidades não foram incluídos nos relatórios JSON.
+
+A restauração paralela `a93390d3` foi conferida: os 26 caminhos da entrega permanecem literalmente iguais ao snapshot validado. Essa restauração e posteriores publicações têm sua própria verificação; não foram confundidas com o SHA instalado nesta evidência. Salvamento de cenário foi validado localmente; não se gravaram premissas reais de stage para testar persistência.
+
+## Correção de rastreabilidade dos movimentos do caixa
+
+Apontamento P2 da PR #509, `discussion_r4395903511`: a descrição era salva na premissa, mas descartada ao criar as ocorrências da projeção. Correção preparada sobre stage `ccc3a6f7`: transportar descrição em cada detalhe manual/recorrente e exibi-la na interface, preservando origem/ID e compatibilidade com linhas sem o campo. Sem migração ou alteração de cálculos.
+
+Regressões cobrem duas premissas do mesmo valor com descrições diferentes, recorrência no fim do mês, filtro de região, totais semanais/mensais e contrato HTTP com normalização da descrição sem gravações ou extrapolação ao período anterior. Interface cobre descrições distintas, ocorrências mensais, legado sem campo e HTML renderizado como texto.
+
+Validação local: 59 testes backend de Gestão, 20 testes frontend de Gestão/navegação/host, lint completo, TypeScript e `git diff --check` passaram. Revisão independente do backend não identificou regressão. A sessão administrativa existente em stage foi localizada para o smoke após deploy. Baseline remota somente leitura: stage `ccc3a6f7`, produção `9569b111`, serviços ativos e painel ausente da produção. Publicação desta correção ainda em andamento; evidência local não equivale a deploy.
