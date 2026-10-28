@@ -1,5 +1,11 @@
 # Verificação local
 
+## Revisão #508 — extrapolação e idade desconhecida simultâneas
+
+- CA-BP-13: baseline em `/tmp/echo-age-extrapolation-note-baseline.log`: quatro omissões da nota de confirmação etária em PDFs Canina/Felina de 1 e 1,49 kg, além de uma falha de cache v32 ainda ausente. O controle desconhecido em 1,5 kg, adulto/juvenil, técnica 2D, cada dimensão customizada isolada e o cache de outra modalidade passavam. A prioridade de `weight_extrapolation` no metadado fazia a nota `age_unconfirmed` desaparecer, embora as duas limitações se aplicassem.
+- A alteração de conteúdo é uma única condição: idade atual desconhecida e algum metadado M estimado realmente exibido. O filtro existente de dimensão/fonte utilizada permanece intacto; não foram modificados modelos, números, UI, helper etário ou whitelist AI. Os PDFs passam a conservar ambas as notas, sem chamar a estimativa de intervalo validado ou classificá-la automaticamente.
+- Regressão pertinente aprovada: 39 testes e 255 subcasos dos módulos PDF baixo peso e medidas/cache, log `/tmp/echo-age-extrapolation-note-fixed-modules.log`. PDFs somente em memória e entradas imutáveis. Cache eco `2026-10-27-eco-extrapolated-age-note-v32` invalida v31 e anteriores, preservando jobs/arquivos antigos e a chave de outras modalidades. A execução instalada e publicação continuam condicionadas ao workflow terminal do novo SHA.
+
 ## Revisão #516 — persistência UTC e dia operacional
 
 - A revisão anterior preservava a data civil do offset recebido, mas não considerava que `timestamptz` retorna o mesmo instante em UTC. A baseline ampliada reproduziu 28 falhas em `/tmp/echo-exam-age-timezone-baseline.log`: exame local às 23h30 na véspera do aniversário retornava como dia seguinte UTC, antecipando idade/faixa adulta e cabeçalho; o fallback da data do laudo tinha o mesmo risco. Os testes usam `_parse_data_exame` real seguido de conversão UTC, não um horário presumido.
