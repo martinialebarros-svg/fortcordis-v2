@@ -2,8 +2,10 @@ import os
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Barrier
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -291,7 +293,7 @@ class AgendaFormalizacaoServiceTest(unittest.TestCase):
                     db,
                     invite=invite,
                     nome_paciente="Rex",
-                    nome_tutor="João Silva",
+                    nome_tutor="",
                     telefone_tutor="",
                 )
             self.assertEqual(ctx.exception.status_code, 422)
@@ -299,6 +301,27 @@ class AgendaFormalizacaoServiceTest(unittest.TestCase):
             db.close()
             engine.dispose()
             tmpdir.cleanup()
+
+    def test_somente_primeiro_nome_e_pet_sem_telefone_e_sem_especie_presumida(self):
+        tmpdir, db, engine = self._build_session()
+        try:
+            _clinica, agendamento = self._seed_reserva(db)
+            invite, _raw_token = criar_ou_reutilizar_convite(db, agendamento)
+            with patch("app.services.agenda_formalizacao_service.send_agenda_utility_template"):
+                resultado = processar_submissao(db, invite=invite, nome_paciente="Pingo", nome_tutor="Cristiane", telefone_tutor="")
+            tutor = db.get(Tutor, resultado.tutor_id)
+            pet = db.get(Paciente, resultado.paciente_id)
+            self.assertEqual(resultado.status, "Agendado")
+            self.assertTrue(tutor.identificacao_pendente)
+            self.assertFalse(tutor.telefone)
+            self.assertIsNone(pet.especie)
+            with self.assertRaises(HTTPException) as ctx:
+                processar_submissao(db, invite=invite, nome_paciente="Pingo", nome_tutor="Cristiane", telefone_tutor="")
+            self.assertEqual(ctx.exception.status_code, 410)
+            self.assertEqual(db.query(Tutor).count(), 1)
+            self.assertEqual(db.query(Paciente).count(), 1)
+        finally:
+            db.close(); engine.dispose(); tmpdir.cleanup()
 
     def test_processar_submissao_rejeita_convite_ja_usado(self):
         tmpdir, db, engine = self._build_session()
@@ -322,6 +345,70 @@ class AgendaFormalizacaoServiceTest(unittest.TestCase):
             db.close()
             engine.dispose()
             tmpdir.cleanup()
+
+    def test_submissoes_concorrentes_do_mesmo_convite_criam_apenas_um_tutor_e_pet(self):
+        tmpdir, db, engine = self._build_session()
+        try:
+            _clinica, agendamento = self._seed_reserva(db)
+            invite, raw_token = criar_ou_reutilizar_convite(db, agendamento)
+            agendamento_id, invite_id = agendamento.id, invite.id
+            db.close()
+            session_factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+            convites_carregados = Barrier(2)
+
+            def submeter():
+                with session_factory() as session:
+                    # Ambas as requisicoes validaram o token antes que qualquer
+                    # uma delas consumisse o convite. O objeto da segunda fica
+                    # desatualizado enquanto a primeira salva os dados.
+                    convite_carregado = obter_convite_valido(session, raw_token)
+                    self.assertEqual(convite_carregado.status, "pending")
+                    convites_carregados.wait(timeout=10)
+                    try:
+                        resultado = processar_submissao(
+                            session,
+                            invite=convite_carregado,
+                            nome_paciente="Pingo Concorrencia",
+                            nome_tutor="Cristiane Teste",
+                            telefone_tutor="",
+                        )
+                        return 200, resultado.tutor_id, resultado.paciente_id
+                    except HTTPException as exc:
+                        session.rollback()
+                        return exc.status_code, None, None
+
+            with patch(
+                "app.services.agenda_formalizacao_service.send_agenda_utility_template"
+            ) as mocked_send:
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    futures = [executor.submit(submeter) for _ in range(2)]
+                    resultados = [future.result(timeout=20) for future in futures]
+
+            self.assertEqual(sorted(status for status, _, _ in resultados), [200, 410])
+            mocked_send.assert_called_once()
+            with session_factory() as verification:
+                tutor = verification.query(Tutor).one()
+                pet = verification.query(Paciente).one()
+                reserva = verification.get(Agendamento, agendamento_id)
+                convite = verification.get(AgendaFormalizacaoInvite, invite_id)
+                self.assertEqual(reserva.status, "Agendado")
+                self.assertEqual((reserva.tutor_id, reserva.paciente_id), (tutor.id, pet.id))
+                self.assertEqual(pet.tutor_id, tutor.id)
+                self.assertTrue(tutor.identificacao_pendente)
+                self.assertFalse(tutor.telefone)
+                self.assertIsNone(pet.especie)
+                self.assertEqual(convite.status, "used")
+                self.assertIsNotNone(convite.used_at)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_schema_formalizacao_aceita_telefone_omitido(self):
+        from app.api.v1.endpoints.whatsapp_agenda import AgendaFormalizacaoSubmitRequest
+
+        payload = AgendaFormalizacaoSubmitRequest(nome_paciente="Pingo", nome_tutor="Cristiane")
+        self.assertEqual(payload.telefone_tutor, "")
 
 
 if __name__ == "__main__":

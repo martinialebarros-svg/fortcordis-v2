@@ -12,6 +12,53 @@ export interface PreviaMesclagem {
   pets: { id: number; nome: string; tutor_id: number }[];
 }
 
+export interface PreviaReversaoMesclagem {
+  principal_id: number;
+  secundario_id: number;
+  bloqueios: string[];
+  avisos: string[];
+  vinculos: Record<string, number>;
+  token_previa: string;
+}
+
+function serializarIntencao(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(serializarIntencao).join(",")}]`;
+  if (value !== null && typeof value === "object") return `{${Object.entries(value)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, item]) => `${JSON.stringify(key)}:${serializarIntencao(item)}`).join(",")}}`;
+  return JSON.stringify(value) ?? "null";
+}
+
+// Guardamos só a assinatura e a chave, nunca os dados pessoais do formulário.
+export async function chaveOperacaoTutor(escopo: string, payload: unknown): Promise<string> {
+  const texto = serializarIntencao(payload);
+  const bytes = new TextEncoder().encode(texto);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const assinatura = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  const storageKey = `fortcordis:tutor-operacao:${escopo}`;
+  const atual = operacoesTutor.get(storageKey);
+  if (atual?.assinatura === assinatura) return atual.chave;
+  try {
+    const persistida = JSON.parse(sessionStorage.getItem(storageKey) || "null") as { assinatura?: string; chave?: string } | null;
+    if (persistida?.assinatura === assinatura && typeof persistida.chave === "string") {
+      operacoesTutor.set(storageKey, { assinatura, chave: persistida.chave });
+      return persistida.chave;
+    }
+  } catch { /* Armazenamento indisponível: a chave em memória mantém a repetição segura. */ }
+  const operacao = { assinatura, chave: crypto.randomUUID() };
+  operacoesTutor.set(storageKey, operacao);
+  try { sessionStorage.setItem(storageKey, JSON.stringify(operacao)); } catch { /* Memória acima é o fallback. */ }
+  return operacao.chave;
+}
+
+const operacoesTutor = new Map<string, { assinatura: string; chave: string }>();
+
+export function concluirOperacaoTutor(escopo: string): void {
+  const storageKey = `fortcordis:tutor-operacao:${escopo}`;
+  operacoesTutor.delete(storageKey);
+  try { sessionStorage.removeItem(storageKey); } catch { /* Não impede a conclusão já conhecida. */ }
+}
+
 export const nomesCamposTutor: Record<string, string> = {
   nome: "Nome", telefone: "Telefone", whatsapp: "WhatsApp", email: "E-mail", cpf: "CPF",
   identificacao_pendente: "Identificação pendente", origem_cadastro: "Origem do cadastro",
@@ -20,6 +67,7 @@ export const nomesCamposTutor: Record<string, string> = {
 export const nomesVinculosTutor: Record<string, string> = {
   pacientes: "Animais", agendamentos: "Agendamentos", atendimentos_clinicos: "Atendimentos",
   creditos_financeiros: "Movimentos de crédito",
+  tutores_contatos: "Contatos adicionais", tutores_origens: "Clínicas e origens",
 };
 
 export function valorTutorPreenchido(value: ValorTutor): boolean {

@@ -541,6 +541,7 @@ type PacienteDetalhe = {
 type TutorDetalhe = {
   id?: number | null;
   nome: string;
+  identificacao_pendente?: boolean;
   telefone?: string;
   whatsapp?: string;
   email?: string;
@@ -1602,6 +1603,7 @@ export default function AtendimentoPage() {
   const [exameFiltroRapido, setExameFiltroRapido] = useState<ExameFiltroRapido>("todos");
   const [painelExameSelecionado, setPainelExameSelecionado] = useState("");
   const [cadastroComplementar, setCadastroComplementar] = useState<CadastroComplementar>(emptyCadastroComplementar());
+  const cadastroTutorOriginalRef = useRef("");
   const [carregandoCadastroComplementar, setCarregandoCadastroComplementar] = useState(false);
   const [salvandoCadastroComplementar, setSalvandoCadastroComplementar] = useState(false);
   const [customPaineis, setCustomPaineis] = useState<PainelExame[]>([]);
@@ -1984,6 +1986,7 @@ export default function AtendimentoPage() {
   ) => {
     setNovaRacaCadastro("");
     setStatusCepTutor("");
+    cadastroTutorOriginalRef.current = JSON.stringify(normalizeTutorDetalhe(tutorData));
     setCadastroComplementar({
       paciente: normalizePacienteDetalhe(pacienteData),
       tutor: normalizeTutorDetalhe(tutorData),
@@ -2058,6 +2061,21 @@ export default function AtendimentoPage() {
     } finally {
       if (requestId === cadastroComplementarRequestIdRef.current) setCarregandoCadastroComplementar(false);
     }
+  };
+
+  const atualizarRevisaoTutor = async () => {
+    const tutorId = cadastroComplementar.tutor.id;
+    const requestId = cadastroComplementarRequestIdRef.current;
+    const tutorAntes = JSON.stringify(cadastroComplementar.tutor);
+    if (!tutorId) return;
+    const { data } = await api.get(`/tutores/${tutorId}`);
+    if (requestId !== cadastroComplementarRequestIdRef.current) return;
+    const tutor = normalizeTutorDetalhe(data);
+    setCadastroComplementar((prev) => {
+      if (Number(prev.tutor.id) !== Number(tutorId) || JSON.stringify(prev.tutor) !== tutorAntes) return prev;
+      cadastroTutorOriginalRef.current = JSON.stringify(tutor);
+      return { ...prev, tutor };
+    });
   };
 
   const getDraftContext = (source: AtendimentoForm) => ({
@@ -2606,6 +2624,7 @@ export default function AtendimentoPage() {
   }, [cadastroComplementar.paciente.raca, especieCadastroAtual, racasCustomPorEspecie]);
   const cadastroComplementarPendencias = useMemo(() => {
     const pendencias: string[] = [];
+    if (cadastroComplementar.tutor.id && cadastroComplementar.tutor.identificacao_pendente !== false) pendencias.push("identificação do tutor");
     if (!cadastroComplementar.paciente.especie) pendencias.push("especie");
     if (!cadastroComplementar.paciente.raca) pendencias.push("raca");
     if (!cadastroComplementar.paciente.sexo) pendencias.push("sexo");
@@ -8244,6 +8263,8 @@ export default function AtendimentoPage() {
 
                 {isConsultaWorkspace ? (
                   <AtendimentoCadastroComplementarSection
+                    onRevisaoTutorUpdated={atualizarRevisaoTutor}
+                    revisaoTutorDisponivel={cadastroDoPacienteAtual && JSON.stringify(cadastroComplementar.tutor) === cadastroTutorOriginalRef.current}
                     buscandoCepTutor={buscandoCepTutor}
                     cadastroComplementar={cadastroComplementar}
                     cadastroComplementarExpandido={cadastroComplementarExpandido}

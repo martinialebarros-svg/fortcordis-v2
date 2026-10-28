@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -178,6 +179,9 @@ def processar_submissao(
     nome_tutor: str,
     telefone_tutor: str,
 ) -> Agendamento:
+    if db.get_bind().dialect.name == "sqlite":
+        # SQLite ignora FOR UPDATE: reserve a escrita antes de ler o estado.
+        db.execute(text("UPDATE agendamentos SET id=id WHERE id=:id"), {"id": invite.agendamento_id})
     agendamento = (
         db.query(Agendamento)
         .filter(Agendamento.id == invite.agendamento_id)
@@ -186,16 +190,25 @@ def processar_submissao(
     )
     if agendamento is None:
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado.")
+    # O convite pode ter sido consumido enquanto esta requisicao aguardava o
+    # lock do agendamento. Releia antes de criar outra pessoa ou outro animal.
+    invite = (db.query(AgendaFormalizacaoInvite).filter(AgendaFormalizacaoInvite.id == invite.id)
+              .populate_existing().with_for_update().first())
+    if invite is None or invite.status != STATUS_PENDING:
+        raise HTTPException(status_code=410, detail="Este link ja foi utilizado ou nao esta mais disponivel.")
+    if invite.expires_at and _as_aware_utc(invite.expires_at) <= _utcnow():
+        raise HTTPException(status_code=410, detail="Este link expirou. Solicite um novo pela conversa do WhatsApp.")
+
     if str(agendamento.status or "").strip() not in {"Reservado", "Agendado"}:
         raise HTTPException(status_code=409, detail="Este agendamento nao esta mais aguardando dados.")
 
     nome_paciente = nome_paciente.strip()[:200]
     nome_tutor = nome_tutor.strip()[:200]
-    if not nome_paciente or not nome_tutor or not str(telefone_tutor or "").strip():
+    if not nome_paciente or not nome_tutor:
         raise HTTPException(
-            status_code=422, detail="Preencha o nome do paciente, do tutor e um telefone valido."
+            status_code=422, detail="Preencha o nome do paciente e o primeiro nome do tutor."
         )
-    telefone_tutor = normalize_whatsapp_number(telefone_tutor)
+    telefone_tutor = normalize_whatsapp_number(telefone_tutor) if str(telefone_tutor or "").strip() else ""
 
     tutor = _match_or_create_tutor(db, nome=nome_tutor, telefone=telefone_tutor)
     db.flush()
@@ -211,7 +224,7 @@ def processar_submissao(
             nome=nome_paciente,
             nome_key=nome_key_paciente,
             tutor_id=tutor.id,
-            especie="Canina",
+            especie=None,
             ativo=1,
         )
         db.add(paciente)

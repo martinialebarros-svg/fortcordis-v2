@@ -2,6 +2,7 @@
 
 import { ArrowRight, ChevronDown, ChevronRight, Loader2, Save, User } from "lucide-react";
 import type { LooseAtendimentoComponentProps } from "./component-props";
+import TutorRevisaoCadastro from "@/components/TutorRevisaoCadastro";
 
 type AtendimentoCadastroComplementarSectionProps = LooseAtendimentoComponentProps;
 
@@ -29,6 +30,8 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
     setStatusCepTutor,
     sincronizarPesoCadastroNaTriagem,
     statusCepTutor,
+    onRevisaoTutorUpdated,
+    revisaoTutorDisponivel,
   } = props;
 
   return (
@@ -43,10 +46,10 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
               <User className="h-5 w-5 text-amber-600" />
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Antes da triagem</p>
+              <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Durante o atendimento</p>
               <h3 className="text-lg font-semibold text-slate-900">Complementacao cadastral</h3>
               <p className="mt-1 text-sm text-slate-500">
-                Corrija paciente e tutor aqui. Os dados atuais serao usados tambem nas reimpressoes.
+                Complemente paciente e tutor quando tiver os dados. A pendência não impede continuar o atendimento.
               </p>
             </div>
           </div>
@@ -96,7 +99,7 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
               ? "Selecione um paciente para revisar os dados cadastrais somente quando necessario."
               : cadastroComplementarPendencias.length > 0
                 ? `Cadastro recolhido para manter o foco clinico. ${cadastroComplementarPendencias.length} campo(s) importante(s) ainda precisam de revisao.`
-                : "Cadastro conferido. Os dados completos ficam recolhidos para manter a consulta objetiva."}
+                : "Dados principais preenchidos. O cadastro fica recolhido para manter a consulta objetiva."}
           </div>
         ) : !form.paciente_id ? (
           <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
@@ -109,6 +112,11 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
           </div>
         ) : (
           <>
+            {cadastroComplementar.tutor.id && Number(cadastroComplementar.paciente.id) === Number(form.paciente_id) && (
+              revisaoTutorDisponivel ? <TutorRevisaoCadastro key={cadastroComplementar.tutor.id}
+                tutorId={Number(cadastroComplementar.tutor.id)} onUpdated={onRevisaoTutorUpdated} />
+                : <p className="text-sm text-slate-500">Salve as alterações cadastrais abaixo antes de revisar a identificação do tutor.</p>
+            )}
             <div
               className={`rounded-[22px] border px-4 py-4 text-sm ${
                 cadastroComplementarPendencias.length > 0
