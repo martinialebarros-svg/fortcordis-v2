@@ -47,3 +47,11 @@ PR [#485](https://github.com/martinialebarros-svg/fortcordis-v2/pull/485) integr
 Evidências locais sanitizadas em `output/gestao/stage-api-evidence.json`, `stage-browser-evidence.json`, `stage-public-evidence.json` e snapshots runtime. Screenshots locais `stage-desktop.png` e `stage-mobile.png` foram inspecionados. Dados financeiros, tokens e identidades não foram incluídos nos relatórios JSON.
 
 A restauração paralela `a93390d3` foi conferida: os 26 caminhos da entrega permanecem literalmente iguais ao snapshot validado. Essa restauração e posteriores publicações têm sua própria verificação; não foram confundidas com o SHA instalado nesta evidência. Salvamento de cenário foi validado localmente; não se gravaram premissas reais de stage para testar persistência.
+
+## Correção de rastreabilidade dos movimentos do caixa
+
+Apontamento P2 da PR #509, `discussion_r4395903511`: a descrição era salva na premissa, mas descartada ao criar as ocorrências da projeção. Correção preparada sobre stage `ccc3a6f7`: transportar descrição em cada detalhe manual/recorrente e exibi-la na interface, preservando origem/ID e compatibilidade com linhas sem o campo. Sem migração ou alteração de cálculos.
+
+Regressões cobrem duas premissas do mesmo valor com descrições diferentes, recorrência no fim do mês, filtro de região, totais semanais/mensais e contrato HTTP com normalização da descrição sem gravações ou extrapolação ao período anterior. Interface cobre descrições distintas, ocorrências mensais, legado sem campo e HTML renderizado como texto.
+
+Validação local: 59 testes backend de Gestão, 20 testes frontend de Gestão/navegação/host, lint completo, TypeScript e `git diff --check` passaram. Revisão independente do backend não identificou regressão. A sessão administrativa existente em stage foi localizada para o smoke após deploy. Baseline remota somente leitura: stage `ccc3a6f7`, produção `9569b111`, serviços ativos e painel ausente da produção. Publicação desta correção ainda em andamento; evidência local não equivale a deploy.

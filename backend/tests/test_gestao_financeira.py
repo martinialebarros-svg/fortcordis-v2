@@ -236,12 +236,21 @@ class GestaoFinanceiraTest(unittest.TestCase):
         self.assertEqual(r["caixa"]["entradas_previstas"], 0)
         self.assertTrue(r["caixa"]["lacunas"])
 
-    def test_monthly_assumptions_keep_month_end_and_remain_estimates(self):
-        c = self.metrics({"movimentos": [{"data": "2026-01-31", "tipo": "saida", "valor": 100, "recorrencia": "mensal"}]}, start=date(2026, 2, 1), end=date(2026, 3, 31), region="Norte")["caixa"]
-        self.assertEqual([r["data"] for r in c["detalhes"]], ["2026-02-28", "2026-03-31"])
-        self.assertEqual(c["saidas_premissas"], 200)
+    def test_monthly_assumptions_keep_descriptions_month_end_and_totals(self):
+        c = self.metrics({"movimentos": [
+            {"data": "2026-01-31", "tipo": "saida", "valor": 100, "recorrencia": "mensal", "descricao": "Aluguel do equipamento"},
+            {"data": "2026-02-28", "tipo": "saida", "valor": 100, "recorrencia": "unica", "descricao": "Manutencao do equipamento"},
+        ]}, start=date(2026, 2, 1), end=date(2026, 3, 31), region="Norte")["caixa"]
+        self.assertEqual([(r["data"], r["descricao"]) for r in c["detalhes"]], [
+            ("2026-02-28", "Aluguel do equipamento"),
+            ("2026-02-28", "Manutencao do equipamento"),
+            ("2026-03-31", "Aluguel do equipamento"),
+        ])
+        self.assertTrue(all(r["fonte"] == r["natureza"] == "premissa" for r in c["detalhes"]))
+        self.assertEqual(c["saidas_premissas"], 300)
         self.assertIsNone(c["saldo_final"])
-        self.assertEqual(sum(r["saidas_premissas"] for r in c["semanas"]), 200)
+        self.assertEqual(sum(r["saidas_premissas"] for r in c["semanas"]), 300)
+        self.assertEqual(sum(r["saidas_premissas"] for r in c["meses"]), 300)
 
     def test_empty_denominators_negative_balance_and_local_dates(self):
         r = self.metrics({"saldo_inicial": -10, "despesas_completas": True})
