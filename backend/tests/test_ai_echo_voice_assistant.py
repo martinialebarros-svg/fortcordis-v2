@@ -235,6 +235,7 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                     diagnostico="conclusão anterior",
                     status="Rascunho",
                     clinic_id=3,
+                    data_laudo=datetime(2020, 1, 15),
                 )
             )
             db.commit()

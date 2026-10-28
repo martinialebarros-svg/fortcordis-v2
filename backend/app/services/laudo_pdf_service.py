@@ -18,7 +18,7 @@ from app.utils.ecocardiograma_medidas import (
     extrair_medidas_ecocardiograma_da_descricao,
 )
 from app.utils.ecocardiograma_qualitativa import extrair_qualitativa_ecocardiograma_da_descricao
-from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
+from app.utils.paciente_helpers import data_civil_referencia, extrair_idade_paciente, normalizar_sexo_paciente
 
 
 LAUDO_PDF_RENDERER_VERSION = "2026-09-24-eco-presentation-v2"
@@ -222,12 +222,15 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
         data_exame = laudo.data_exame or laudo.data_laudo
         if data_exame and isinstance(data_exame, str):
             data_exame = laudos_endpoint._parse_data_exame(data_exame)
+        if data_exame is not None and (laudo.tipo or "").lower() == "ecocardiograma":
+            data_exame = data_civil_referencia(data_exame, data_calendario=bool(laudo.data_exame))
         data_exame_str = data_exame.strftime("%d/%m/%Y") if data_exame else datetime.now().strftime("%d/%m/%Y")
 
         idade = extrair_idade_paciente(
             paciente.nascimento if paciente else None,
             paciente.observacoes if paciente else None,
-            **({"data_referencia": laudo.data_exame or laudo.data_laudo}
+            **({"data_referencia": laudo.data_exame or laudo.data_laudo,
+                "data_calendario": bool(laudo.data_exame)}
                if (laudo.tipo or "").lower() == "ecocardiograma" else {}),
         )
 

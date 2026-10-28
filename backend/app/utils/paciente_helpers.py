@@ -4,8 +4,10 @@ import re
 import unicodedata
 from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 IDADE_OBSERVACOES_RE = re.compile(r"(?im)^Idade:\s*(.+?)\s*$")
+OPERATIONAL_TIME_ZONE = ZoneInfo("America/Fortaleza")
 
 
 def normalizar_sexo_paciente(sexo: Any) -> str:
@@ -20,21 +22,35 @@ def normalizar_sexo_paciente(sexo: Any) -> str:
     return str(sexo or "").strip()
 
 
+def data_civil_referencia(value: Any, *, data_calendario: bool = False) -> date | None:
+    """Date-only exam fields and report instants have different midnight semantics."""
+    try:
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, date):
+            return value
+        else:
+            parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        # Match the existing exam calendar policy: legacy midnight values keep
+        # their nominal day. A data_laudo fallback is an instant, never this case.
+        midnight = (parsed.hour, parsed.minute, parsed.second, parsed.microsecond) == (0, 0, 0, 0)
+        if parsed.utcoffset() is not None and not (data_calendario and midnight):
+            parsed = parsed.astimezone(OPERATIONAL_TIME_ZONE)
+        return parsed.date()
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def extrair_idade_paciente(
     nascimento: Any, observacoes: Any, *, data_referencia: Any = None,
+    data_calendario: bool = False,
 ) -> str:
     referencia = date.today()
     if data_referencia is not None:
-        try:
-            if isinstance(data_referencia, datetime):
-                referencia = data_referencia.date()
-            elif isinstance(data_referencia, date):
-                referencia = data_referencia
-            else:
-                referencia = datetime.fromisoformat(str(data_referencia).strip().replace("Z", "+00:00")).date()
-        except (TypeError, ValueError, OverflowError):
+        referencia = data_civil_referencia(data_referencia, data_calendario=data_calendario)
+        if referencia is None:
             return ""
-        if referencia > date.today():
+        if referencia > datetime.now(OPERATIONAL_TIME_ZONE).date():
             return ""
 
     if nascimento:
