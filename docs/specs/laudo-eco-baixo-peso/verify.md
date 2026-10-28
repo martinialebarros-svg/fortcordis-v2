@@ -43,6 +43,8 @@
 
 ## Homologação concluída e promoção autorizada — 27/10/2026
 
+Homologação final das correções: stage `3f757fa9aafd70fcfa91a1dfa6d30d612a076f14`, workflow `40608370395` terminal SUCCESS, seis checks e revisão exata aprovados. Canário SQL READ ONLY/rollback e 11 fontes conferidos, sete PDFs em memória, controles históricos/fuso e notas simultâneas aprovados. UI após reload confirmou seis faixas de 2,25 kg e avisos/retirada dos avisos sem salvar. HTTP de três hosts/nove rotas, APIs 401, nove marcadores por rota e 17 hashes disco/HTTPS aprovados. Snapshot préprodução preserva cinco JSON por ambiente contra a baseline. Merge protegido #508 em `9569b111`; o workflow de produção `40610491338` ainda exige confirmação terminal e smoke próprios antes de liberar esta restauração.
+
 Plano de encerramento do ciclo: restauração em rascunho contendo exatamente os 34 caminhos paralelos preservados de `698dbf40`, mais esta documentação. Conferir cada blob e o código clínico inalterado; integrar somente após produção terminal e smoke aprovado. A preparação desta branch não confirma restauração instalada nem autoriza promover esses caminhos paralelos.
 
 - Stage instalado `698dbf409d2fc14203c5e91fedea03ad2c51df47`, workflow `40534203511` concluído com sucesso. Frontend CI, migrações, SDD e gate completo aprovados; 2.374 testes backend no gate (105 pulos opcionais). Os 41 arquivos do pacote clínico foram conferidos com o snapshot instalado.
