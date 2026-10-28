@@ -52,3 +52,20 @@ Os testes visuais locais nao equivalem a validacao autenticada em stage/producao
 
 Todas as evidencias usam dados sinteticos. Nenhuma migracao em base real,
 mesclagem operacional, envio de mensagem, commit, push ou deploy nesta etapa.
+
+## Publicacao autorizada — 2026-10-28
+
+- Escopo confirmado pelo usuario: somente tutores, incluindo cadastro minimo,
+  revisao no atendimento e formalizacao da reserva sem contato obrigatorio.
+- Arvore isolada: main `9569b111` + feature `53603958`. O codigo de Gestao,
+  IA/ingress e comparacao de laudos de stage nao entra em producao.
+- Snapshot integral preservado: stage `07317874b7b09eb7e8e1e076e9db4acc1294c90f`,
+  a restaurar por PR depois da promocao protegida stage -> main.
+- Maior migracao remota apos fetch: 102. Migracoes 103/104 nao colidem e nao
+  dependem de 101 (Gestao). Scripts de deploy/producao inalterados.
+- Regressao da arvore isolada: 2417 testes backend OK (139 skips opcionais),
+  2387 Vitest e 23 Node aprovados; build com lint/tipos aprovado. O primeiro
+  comando npm test recebeu um argumento indevido no Node; Node foi executado
+  separadamente e passou. Guardrails SDD e promocao aprovados sem excecoes.
+- Preservacao revisada: seis arquivos runtime mantidos pelo deploy, SHA
+  imutavel, migrations/readiness/canario autenticado/backup-restore drill ativos.
