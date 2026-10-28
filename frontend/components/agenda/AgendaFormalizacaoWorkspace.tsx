@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BadgeCheck, Loader2, ShieldCheck } from "lucide-react";
 
 import {
@@ -17,6 +17,7 @@ export default function AgendaFormalizacaoWorkspace({ token }: AgendaFormalizaca
   const [contexto, setContexto] = useState<AgendaFormalizacaoContext | null>(null);
   const [loadingContexto, setLoadingContexto] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [nomePaciente, setNomePaciente] = useState("");
   const [nomeTutor, setNomeTutor] = useState("");
   const [telefoneTutor, setTelefoneTutor] = useState("");
@@ -47,6 +48,8 @@ export default function AgendaFormalizacaoWorkspace({ token }: AgendaFormalizaca
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setError("");
     setSubmitting(true);
     try {
@@ -59,6 +62,7 @@ export default function AgendaFormalizacaoWorkspace({ token }: AgendaFormalizaca
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível enviar os dados informados.");
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -100,6 +104,7 @@ export default function AgendaFormalizacaoWorkspace({ token }: AgendaFormalizaca
             </div>
           ) : (
             <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
+              <p className="text-sm text-slate-600">Pode informar apenas o primeiro nome do tutor e o nome do pet. Os demais dados serão completados no atendimento.</p>
               <label className="block text-sm font-semibold text-slate-900">
                 Nome do paciente
                 <input
@@ -123,9 +128,8 @@ export default function AgendaFormalizacaoWorkspace({ token }: AgendaFormalizaca
               </label>
 
               <label className="block text-sm font-semibold text-slate-900">
-                Telefone do tutor (WhatsApp)
+                Telefone do tutor (WhatsApp, opcional)
                 <input
-                  required
                   type="tel"
                   value={telefoneTutor}
                   onChange={(event) => setTelefoneTutor(event.target.value)}

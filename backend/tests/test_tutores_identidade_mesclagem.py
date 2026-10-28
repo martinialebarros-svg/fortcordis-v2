@@ -30,6 +30,7 @@ from app.models.financeiro import CreditoFinanceiro
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.tutor_mesclagem import TutorMesclagem
+from app.models.tutor_rotina import TutorIdentificacaoEvento
 from app.services.tutor_identidade_service import exigir_tutor_utilizavel
 from app.services import tutor_mesclagem_service
 
@@ -81,9 +82,14 @@ class TutoresIdentidadeTest(unittest.TestCase):
         self.assertEqual(original.telefone, "85911111111")
 
     def test_pendente_persiste_e_so_muda_com_decisao_explicita(self):
+        TutorIdentificacaoEvento.__table__.create(self.engine, checkfirst=True)
         resultado = tutores.criar_tutor(tutores.TutorCreate(nome="Cristiane Silva", cpf="11111111111", origem_cadastro="Clinica Alfa"), self.db, self.user)
         self.assertTrue(resultado["identificacao_pendente"])
         tutores.atualizar_tutor(resultado["id"], tutores.TutorUpdate(identificacao_pendente=False), self.db, self.user)
+        salvo = tutores.obter_tutor(resultado["id"], self.db, self.user)
+        self.assertTrue(salvo["identificacao_pendente"])
+        tutores.confirmar_identificacao_tutor(resultado["id"], tutores.IdentificacaoConfirmarPayload(
+            metodo="Conferencia presencial", evidencia="Nome conferido no atendimento", versao=salvo["versao"]), self.db, self.user)
         salvo = tutores.obter_tutor(resultado["id"], self.db, self.user)
         self.assertFalse(salvo["identificacao_pendente"])
         self.assertEqual(salvo["origem_cadastro"], "Clinica Alfa")
