@@ -2,7 +2,7 @@
 
 Data: 2026-10-28
 Responsavel: Codex
-Status: verified-local
+Status: verified-stage
 
 | Criterio | Evidencia | Status |
 | --- | --- | --- |
@@ -52,3 +52,61 @@ Os testes visuais locais nao equivalem a validacao autenticada em stage/producao
 
 Todas as evidencias usam dados sinteticos. Nenhuma migracao em base real,
 mesclagem operacional, envio de mensagem, commit, push ou deploy nesta etapa.
+
+## Publicacao autorizada — 2026-10-28
+
+- Escopo confirmado pelo usuario: somente tutores, incluindo cadastro minimo,
+  revisao no atendimento e formalizacao da reserva sem contato obrigatorio.
+- Arvore isolada: main `9569b111` + feature `53603958`. O codigo de Gestao,
+  IA/ingress e comparacao de laudos de stage nao entra em producao.
+- Snapshot integral preservado: stage `07317874b7b09eb7e8e1e076e9db4acc1294c90f`,
+  a restaurar por PR depois da promocao protegida stage -> main.
+- Maior migracao remota apos fetch: 102. Migracoes 103/104 nao colidem e nao
+  dependem de 101 (Gestao). Scripts de deploy/producao inalterados.
+- Regressao da arvore isolada: 2417 testes backend OK (139 skips opcionais),
+  2387 Vitest e 23 Node aprovados; build com lint/tipos aprovado. O primeiro
+  comando npm test recebeu um argumento indevido no Node; Node foi executado
+  separadamente e passou. Guardrails SDD e promocao aprovados sem excecoes.
+- Preservacao revisada: seis arquivos runtime mantidos pelo deploy, SHA
+  imutavel, migrations/readiness/canario autenticado/backup-restore drill ativos.
+
+- Backup privado pre-migracao concluido na VPS: schema PostgreSQL completo
+  (1.69 MB), dados de tutores/tutores_mesclagens/schema_migrations e sequencias
+  (57.5 KB), catalogos validados, arquivos 0600 e diretorio 0700. Escopo protege
+  103/104; nao e backup integral contra perda geral do banco. Nenhuma tabela
+  nova de 103/104 existia. Rollback preferencial conserva schema aditivo/dados.
+- Liberados aproximadamente 800 MB somente de caches Webpack regeneraveis de
+  stage/producao; arquivos servidos, imagens, uploads e backups preservados.
+- O primeiro gate SDD exigiu manter a estrutura documental da comparacao de
+  exames retirada de stage. Documentos preservados com escopo historico claro e
+  pendencias originais explicitamente vinculadas ao SHA preservado; nenhum
+  codigo clinico ou aprovacao dessa feature acompanha tutores.
+
+## Stage validado e promocao
+
+- PR #520 integrado como `9aa9aab5ccc669c6cc6954027288d7b995ed4cac`. Workflow
+  Deploy to Stage `40733663493` concluido com sucesso, assim como Frontend CI,
+  Migration CI e Google Maps Cost Control. Preservacao/restauracao dos seis
+  arquivos runtime, MIGRATIONS_OK (103/104), canario autenticado e restore drill.
+- Contrato instalado: 43 testes e 5 subtestes, sem skips/falhas, em 43 schemas
+  sinteticos exclusivos. 283 transacoes com search_path verificado; zero schemas
+  remanescentes, nenhuma alteracao operacional.
+- Metadados instalados: 103/104 aplicadas, seis tabelas com RLS ativo, unicidade
+  historica do secundario removida. Rotas autenticadas /tutores, /pacientes/novo,
+  /atendimento e formalizacao publica retornam 200, bundles servidos iguais aos
+  instalados (hashes), inclusive chunk dinamico do cadastro no Atendimento.
+- Aliases de stage 200; /tutores anonimo 307 para login, API anonima 401. /health
+  publico nao existe (404); readiness interno foi aprovado pelo deploy.
+- PR protegido #521 stage -> main integrado como
+  `9553518d2ebb20bd9b7f6c7d12b039fa677c4df0`, sem excecoes aos gates. Deploy de
+  producao em acompanhamento; resultados finais vinculados ao PR e ao chat.
+
+## Restauracao integral de stage
+
+- Restauracao preserva o codigo e os documentos originais de `07317874`,
+  incluindo pendencias reais de homologacao da comparacao de exames, e soma
+  somente tutores. Producao e ancestral para evitar regressao futura.
+- Snapshot integrado `c05e4ff6`: 2513 testes backend OK (139 skips opcionais),
+  2526 Vitest em 141 arquivos e 23 Node aprovados; build/lint/tipos aprovados.
+- Restauracao so sera integrada depois do deploy de producao e verificacao
+  terminal. Nenhuma configuracao/credencial Meta e alterada por este processo.
