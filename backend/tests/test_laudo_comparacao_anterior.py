@@ -21,6 +21,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.v1.endpoints import laudos
 from app.core import security
+from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.db.database import get_db
 from app.models.laudo import Laudo
 from app.models.paciente import Paciente
@@ -116,6 +117,77 @@ class LaudoComparacaoAnteriorTest(unittest.TestCase):
                 selected = comparar_laudo_anterior(self.db, 1, anterior_id=report_id)
                 self.assertEqual(selected.estado, "disponivel")
                 self.assertEqual(selected.anterior.id, report_id)
+
+    def test_automatic_selection_keeps_completed_statuses_in_both_snapshots(self):
+        for current_status in ("Finalizado", PORTAL_RELEASED_STATUS):
+            for previous_status in ("Finalizado", PORTAL_RELEASED_STATUS):
+                with self.subTest(current=current_status, previous=previous_status):
+                    self.db.query(Laudo).delete()
+                    self.db.commit()
+                    self.add_report(1, "2024-10-20", status=current_status)
+                    self.add_report(2, "2024-10-01", status=previous_status)
+                    self.add_report(3, "2024-09-01", status="Finalizado")
+
+                    result = comparar_laudo_anterior(self.db, 1)
+
+                    self.assertEqual(result.estado, "disponivel")
+                    self.assertEqual(result.anterior.id, 2)
+                    self.assertEqual(result.atual.status, current_status)
+                    self.assertEqual(result.anterior.status, previous_status)
+                    self.assertEqual([option.id for option in result.opcoes], [2, 3])
+
+    def test_manual_selection_accepts_both_completed_statuses_and_excludes_noncompleted(self):
+        self.add_report(1, "2024-10-20", status="Rascunho")
+        self.add_report(2, "2024-10-01", status=PORTAL_RELEASED_STATUS)
+        self.add_report(3, "2024-09-01", status="Finalizado")
+        excluded = ("Rascunho", "Arquivado", "FinalizadoXYZ", "Liberado no portalXYZ", "")
+        for report_id, status in enumerate(excluded, start=4):
+            self.add_report(report_id, "2024-10-19", status=status)
+
+        for report_id, status in ((2, PORTAL_RELEASED_STATUS), (3, "Finalizado")):
+            with self.subTest(report_id=report_id):
+                result = comparar_laudo_anterior(self.db, 1, anterior_id=report_id)
+                self.assertEqual(result.anterior.id, report_id)
+                self.assertEqual(result.anterior.status, status)
+                self.assertEqual(result.atual.status, "Rascunho")
+                self.assertEqual([option.id for option in result.opcoes], [2, 3])
+        for report_id in range(4, 4 + len(excluded)):
+            with self.subTest(excluded_id=report_id):
+                with self.assertRaises(LaudoComparacaoNaoEncontrada):
+                    comparar_laudo_anterior(self.db, 1, anterior_id=report_id)
+
+    def test_same_day_tie_across_completed_statuses_still_requires_selection(self):
+        self.add_report(1, "2024-10-20")
+        self.add_report(2, "2024-10-01T08:00:00", status="Finalizado")
+        self.add_report(3, "2024-10-01T14:00:00", status=PORTAL_RELEASED_STATUS)
+
+        result = comparar_laudo_anterior(self.db, 1)
+
+        self.assertEqual(result.estado, "data_anterior_ambigua")
+        self.assertIsNone(result.anterior)
+        self.assertEqual([option.id for option in result.opcoes], [3, 2])
+        for report_id in (2, 3):
+            with self.subTest(report_id=report_id):
+                self.assertEqual(comparar_laudo_anterior(self.db, 1, anterior_id=report_id).anterior.id,
+                                 report_id)
+
+    def test_portal_released_candidates_keep_patient_date_and_modality_guards(self):
+        self.add_report(1, "2024-10-20")
+        self.add_report(2, "2024-10-01", status=PORTAL_RELEASED_STATUS)
+        self.add_report(3, "2024-10-19", status=PORTAL_RELEASED_STATUS, paciente_id=2)
+        self.add_report(4, "2024-10-20", status=PORTAL_RELEASED_STATUS)
+        self.add_report(5, "2024-10-21", status=PORTAL_RELEASED_STATUS)
+        self.add_report(6, None, status=PORTAL_RELEASED_STATUS)
+        self.add_report(7, "2024-10-19", status=PORTAL_RELEASED_STATUS, tipo="consulta")
+
+        result = comparar_laudo_anterior(self.db, 1)
+
+        self.assertEqual(result.anterior.id, 2)
+        self.assertEqual([option.id for option in result.opcoes], [2])
+        for report_id in range(3, 8):
+            with self.subTest(report_id=report_id):
+                with self.assertRaises(LaudoComparacaoNaoEncontrada):
+                    comparar_laudo_anterior(self.db, 1, anterior_id=report_id)
 
     def test_ineligible_manual_selection_has_one_generic_exception(self):
         self.add_report(1, "2024-10-20")
@@ -508,6 +580,20 @@ class LaudoComparacaoAnteriorAuthorizationTest(unittest.TestCase):
         response = self.get_comparison("reader")
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.json(), {"detail": "Paciente do laudo indisponível"})
+
+    def test_route_returns_portal_released_previous_automatically_and_when_selected(self):
+        with self.sessions() as db:
+            db.query(Laudo).filter(Laudo.id.in_((1, 2))).update({"status": PORTAL_RELEASED_STATUS})
+            db.commit()
+        for query in ("", "?anterior_id=2"):
+            with self.subTest(query=query):
+                response = self.get_comparison("reader", query=query)
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertEqual(payload["estado"], "disponivel")
+                self.assertEqual(payload["anterior"]["id"], 2)
+                self.assertEqual(payload["atual"]["status"], PORTAL_RELEASED_STATUS)
+                self.assertEqual(payload["anterior"]["status"], PORTAL_RELEASED_STATUS)
 
 
 if __name__ == "__main__":

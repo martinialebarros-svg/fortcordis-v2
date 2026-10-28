@@ -8,6 +8,7 @@ from datetime import date, datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session, load_only
 
+from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.laudo import Laudo
 from app.models.paciente import Paciente
 from app.schemas.laudo_comparacao import (
@@ -92,7 +93,7 @@ def comparar_laudo_anterior(
     *,
     anterior_id: int | None = None,
 ) -> LaudoComparacaoAnteriorResponse:
-    """Select a finalized prior echo by acquisition day, never by patient name.
+    """Select a completed prior echo by acquisition day, never by patient name.
 
     Values remain as recorded, with explicit unit/method metadata. There is no
     current-patient weight fallback, clinical derivation, persistence or PDF job.
@@ -130,7 +131,10 @@ def comparar_laudo_anterior(
                 Laudo.paciente_id == current.paciente_id,
                 Laudo.id != current.id,
                 func.lower(func.trim(Laudo.tipo)) == "ecocardiograma",
-                Laudo.status == "Finalizado",
+                # Portal release changes the stored status of a completed
+                # report; it must remain eligible without admitting drafts or
+                # archived reports. Keep the original status in the snapshot.
+                Laudo.status.in_(("Finalizado", PORTAL_RELEASED_STATUS)),
                 Laudo.data_exame.isnot(None),
             )
             .all()

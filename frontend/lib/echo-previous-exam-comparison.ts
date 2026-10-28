@@ -46,7 +46,7 @@ export function isEchoPreviousExamResponse(value: unknown, reportId: number, pat
     }
     return options.length === 0;
   }
-  if (!day(currentDay) || !snapshot(value.anterior, patientId) || value.anterior.status !== "Finalizado"
+  if (!day(currentDay) || !snapshot(value.anterior, patientId) || !["Finalizado", "Liberado no portal"].includes(value.anterior.status)
     || !day(value.anterior.data_exame) || value.anterior.data_exame >= currentDay || value.anterior.id === reportId
     || (selectedId !== null && value.anterior.id !== selectedId)) return false;
   const previous = value.anterior;

@@ -70,6 +70,11 @@ describe("identidade e cronologia da resposta", () => {
     expect(isEchoPreviousExamResponse(data, 20, 7, 10)).toBe(true);
     expect(data).toEqual(before);
   });
+  it("aceita exame concluído que passou ao estado Liberado no portal", () => {
+    const published = response(); published.anterior!.status = "Liberado no portal";
+    expect(isEchoPreviousExamResponse(published, 20, 7, null)).toBe(true);
+    expect(isEchoPreviousExamResponse(published, 20, 7, 10)).toBe(true);
+  });
   it("rejeita outro paciente em qualquer snapshot, ID obsoleto e seleção divergente", () => {
     for (const change of [
       (d: EchoPreviousExamResponse) => { d.paciente_id = 8; },

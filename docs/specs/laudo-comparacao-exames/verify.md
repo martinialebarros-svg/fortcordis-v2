@@ -25,3 +25,9 @@ Implementação local em 28/10/2026, branch `codex/echo-previous-exam-comparison
 ## Publicação em stage — 28/10/2026
 
 Autorizada pelo usuário após a validação local. Preflight remoto: `origin/stage` e base da feature iguais a `ccc3a6f7372b51ba3ecb380ba19bfbefc23ee906`; produção permanece em `9569b1113945c453108cfef247b7c70c985d879b`. Publicação, workflow final, SHA instalado e smoke serão registrados após a execução. Teste visual autenticado permanece pendente; nenhum resultado visual é presumido a partir de HTTP 200 ou de testes de componentes.
+
+### Correção da revisão da PR #519
+
+O P1 identificou que a liberação no portal muda `Finalizado` para `Liberado no portal`, tornando um exame concluído inelegível ao filtro inicial. O teste frontend novo reproduziu a rejeição antes da correção. Ajustar serviço e validador para aceitar os dois estados concluídos, mantendo as exclusões de rascunho/arquivado e todos os limites de identidade/data/método/unidade. Executar regressões de seleção automática/manual, snapshot e componente antes do merge. O deploy continua aguardando checks do snapshot corrigido.
+
+Correção congelada: serviço usa a constante canônica `PORTAL_RELEASED_STATUS` no filtro dos dois estados concluídos; frontend aceita exatamente os mesmos estados. Baseline backend dos cinco testes novos reproduziu 6 falhas e 2 erros de subcenários; após correção, 29 testes backend passaram. Frontend: 35 testes focados passaram, incluindo o validador e a exibição do histórico liberado no portal; TypeScript e lint global aprovados. O restante do código clínico não mudou. Evidências locais `pr519-completed-status-{baseline,fixed}.log` e `echo-portal-comparison-{baseline,fixed,types,lint}.log` serão mantidas na pasta QA de stage.

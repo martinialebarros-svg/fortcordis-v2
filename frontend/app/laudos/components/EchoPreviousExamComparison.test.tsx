@@ -38,6 +38,13 @@ describe("consulta opcional de exames anteriores", () => {
     await screen.findByText("+2,00 mm");
     expect(get).toHaveBeenCalledTimes(2);
   });
+  it("exibe o histórico concluído também após liberação no portal", async () => {
+    const published = data(); published.anterior!.status = "Liberado no portal";
+    get.mockResolvedValue({ data: published });
+    const view = render(<EchoPreviousExamComparison laudoId={20} pacienteId={7} />); toggle(view.container);
+    await screen.findByText("+2,00 mm");
+    expect(screen.getByRole("link", { name: "Abrir laudo #10" })).toHaveAttribute("href", "/laudos/10");
+  });
   it("cancela a solicitação ao fechar/desmontar e ignora resposta tardia", async () => {
     const pending = deferred(); get.mockReturnValue(pending.promise);
     const view = render(<EchoPreviousExamComparison laudoId={20} pacienteId={7} />);
