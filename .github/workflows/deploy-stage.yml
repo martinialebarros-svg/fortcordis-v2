@@ -92,6 +92,13 @@ jobs:
           SECRET_KEY: whatsapp-triage-ci-secret-key-1234567890
         run: python -m pytest -q backend/tests/test_whatsapp_bot_reacoes.py backend/tests/test_whatsapp_bot_mensagens_automaticas.py backend/tests/test_whatsapp_bot_saudacoes_agrupadas.py
 
+      - name: Test management indicators and administrative permissions
+        env:
+          FORTCORDIS_PROCESS_ROLE: api
+          DATABASE_URL: sqlite://
+          SECRET_KEY: management-stage-ci-synthetic-secret-123456789
+        run: python -m pytest -q backend/tests/test_gestao_api.py backend/tests/test_gestao_agenda.py backend/tests/test_gestao_financeira.py
+
       - name: Test Google Maps shared limits and operational transactions in PostgreSQL
         env:
           FORTCORDIS_PROCESS_ROLE: api
@@ -150,6 +157,10 @@ jobs:
       - name: Test Financeiro batch receipt interface
         working-directory: frontend
         run: npx vitest run app/financeiro/page.test.tsx
+
+      - name: Test management dashboard and administrative navigation
+        working-directory: frontend
+        run: npx vitest run app/gestao/page.test.tsx lib/host-routing.test.ts lib/dashboard-shell-routes.test.ts
 
       - name: Test manual fiscal routines and package regressions
         working-directory: frontend
