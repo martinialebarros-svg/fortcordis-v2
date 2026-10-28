@@ -1,5 +1,5 @@
 export interface EchoRangeMetadata {
-  status: "published" | "requires_method" | "blocked" | "unavailable" | "catalog";
+  status: "published" | "requires_method" | "blocked" | "unavailable" | "catalog" | "estimated";
   reason?: string;
   source?: string;
   doi?: string;
@@ -10,6 +10,13 @@ export interface EchoRangeMetadata {
   candidate_min?: number | null;
   candidate_max?: number | null;
   candidate_weight_kg?: number | null;
+  model_weight_kg?: number;
+  estimate_min?: number;
+  estimate_max?: number;
+  estimate_context?: "age_unconfirmed" | "weight_extrapolation";
+  calculation?: "allometric" | "interpolated" | "tabulated" | "extrapolated";
+  formula?: string;
+  exponent?: number;
   required_measurement_key?: string;
   required_measurement_value?: string;
   required_method?: string;
@@ -22,24 +29,26 @@ export interface ReferenciaEco {
   peso_kg: number;
   policy_version?: string;
   patient_weight_kg?: number;
+  patient_age?: string | null;
+  reference_origin?: "computed";
   catalog_weight_min?: number | null;
   catalog_weight_max?: number | null;
   catalog_ranges?: Record<string, { min?: number | null; max?: number | null }>;
   range_metadata?: Record<string, EchoRangeMetadata>;
   
   // Medidas estruturais (VE - Modo M)
-  lvid_d_min?: number;
-  lvid_d_max?: number;
-  lvid_s_min?: number;
-  lvid_s_max?: number;
-  ivs_d_min?: number;
-  ivs_d_max?: number;
-  ivs_s_min?: number;
-  ivs_s_max?: number;
-  lvpw_d_min?: number;
-  lvpw_d_max?: number;
-  lvpw_s_min?: number;
-  lvpw_s_max?: number;
+  lvid_d_min?: number | null;
+  lvid_d_max?: number | null;
+  lvid_s_min?: number | null;
+  lvid_s_max?: number | null;
+  ivs_d_min?: number | null;
+  ivs_d_max?: number | null;
+  ivs_s_min?: number | null;
+  ivs_s_max?: number | null;
+  lvpw_d_min?: number | null;
+  lvpw_d_max?: number | null;
+  lvpw_s_min?: number | null;
+  lvpw_s_max?: number | null;
   
   // Função
   fs_min?: number;

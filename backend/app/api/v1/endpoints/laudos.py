@@ -79,6 +79,7 @@ from app.utils.ecocardiograma_qualitativa import extrair_qualitativa_ecocardiogr
 from app.utils.echo_diastolic_aliases import ECHO_DIASTOLIC_CANONICAL_KEYS
 from app.utils.paciente_helpers import (
     atualizar_observacoes_com_idade,
+    data_civil_referencia,
     extrair_idade_paciente,
     normalizar_sexo_paciente,
 )
@@ -2982,6 +2983,9 @@ def obter_laudo(
     idade = extrair_idade_paciente(
         paciente.nascimento if paciente else None,
         paciente.observacoes if paciente else None,
+        **({"data_referencia": laudo.data_exame or laudo.data_laudo,
+            "data_calendario": bool(laudo.data_exame)}
+           if (laudo.tipo or "").lower() == "ecocardiograma" else {}),
     )
     
     # Buscar nome da clínica
@@ -4406,11 +4410,16 @@ def gerar_pdf_laudo(
         data_exame = laudo.data_exame or laudo.data_laudo
         if data_exame and isinstance(data_exame, str):
             data_exame = _parse_data_exame(data_exame)
+        if data_exame is not None and (laudo.tipo or "").lower() == "ecocardiograma":
+            data_exame = data_civil_referencia(data_exame, data_calendario=bool(laudo.data_exame))
         data_exame_str = data_exame.strftime("%d/%m/%Y") if data_exame else datetime.now().strftime("%d/%m/%Y")
 
         idade = extrair_idade_paciente(
             paciente.nascimento if paciente else None,
             paciente.observacoes if paciente else None,
+            **({"data_referencia": laudo.data_exame or laudo.data_laudo,
+                "data_calendario": bool(laudo.data_exame)}
+               if (laudo.tipo or "").lower() == "ecocardiograma" else {}),
         )
 
         dados_paciente = {
@@ -4522,10 +4531,12 @@ def gerar_pdf_laudo(
 
             referencia_eco = None
             if paciente and paciente.especie and paciente.peso_kg and paciente.peso_kg > 0:
+                dados_paciente["peso"] = str(paciente.peso_kg)
                 try:
                     referencia_eco = load_echo_reference(
                         db, species=paciente.especie, weight_kg=paciente.peso_kg,
                         medidas=medidas,
+                        idade=dados_paciente.get("idade"),
                     )
                 except Exception as e:
                     db.rollback()

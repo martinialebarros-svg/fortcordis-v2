@@ -1,4 +1,5 @@
-import { isFelineEchoSpecies } from "./echo-species";
+import { isEchoNarrativeHypothetical, isPreviousExamUnavailable, withoutPreviousExamAvailabilityModal } from "./echo-previous-exam-availability";
+import { isFelineEchoSpecies, normalizeEchoSpecies } from "./echo-species";
 
 export type FelineNarrativeDiscrepancy = {
   key: "feline_transmitral_fusion" | "feline_tissue_fusion";
@@ -6,6 +7,10 @@ export type FelineNarrativeDiscrepancy = {
   section: string;
   excerpt: string;
   suggestion: string;
+};
+
+export type EchoWaveNarrativeDiscrepancy = Omit<FelineNarrativeDiscrepancy, "key"> & {
+  key: FelineNarrativeDiscrepancy["key"] | "canine_transmitral_fusion" | "canine_tissue_fusion";
 };
 
 function normalized(text: string): string {
@@ -98,9 +103,21 @@ function isContextHeader(text: string): boolean {
     || /^(?:[-•]\s*)?(?:se|avaliar|verificar|confirmar|revisar)\b/.test(text);
 }
 
+const PREVIOUS_EXAM = /\b(?:exame|estudo|avaliacao|laudo)\s+(?:anterior|previo|previa|passado|(?:de|em)\s+(?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}))\b/;
+
 function isHistoricalContext(text: string): boolean {
-  return /\b(?:historia|historico|historica|historicos|historicas|previamente|anteriormente)\b/.test(text)
-    || /\b(?:exame|estudo|avaliacao|laudo)\s+(?:anterior|previo|previa|passado|(?:de|em)\s+(?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}))\b/.test(text);
+  // Antecedents qualify their own clause. Persist only an explicit historical
+  // heading or previous examination, never the absence of that examination.
+  if (/^(?:[-•]\s*)?(?:(?:historia|historico|historicos|historicas)\s*:|(?:previamente|anteriormente)\s*:?\s*$)/.test(text)) return true;
+  const previous = PREVIOUS_EXAM.exec(text);
+  if (!previous) return false;
+  const before = text.slice(0, previous.index);
+  const after = text.slice(previous.index + previous[0].length);
+  return !isPreviousExamUnavailable(before, after);
+}
+
+function isCurrentExamContext(text: string): boolean {
+  return /\b(?:atualmente|agora|nest[ea]\s+(?:exame|estudo|laudo|avaliacao)|(?:(?:no|na)\s+)?(?:exame|estudo|laudo|avaliacao)\s+atual|valor\s+atual)\b/.test(text);
 }
 
 function isQualificationContinuation(text: string): boolean {
@@ -136,10 +153,16 @@ function hasUnqualifiedClaim(text: string, claim: (text: string) => boolean): bo
     // Punctuation alone does not end a historical exam. Conditional headers
     // apply to their clause group; returning to the current exam is explicit.
     if (clause.boundary.includes(";") || /\b(?:mas|porem|contudo|entretanto|todavia)\b/.test(clause.boundary)) inheritedContext = false;
-    const currentExam = /\b(?:atualmente|agora|neste\s+exame|exame\s+atual)\b/.test(clause.text);
+    const currentExam = isCurrentExamContext(clause.text);
     if (currentExam) {
       inheritedContext = false;
       historicalContext = false;
+    }
+    const previousExam = PREVIOUS_EXAM.exec(clause.text);
+    if (previousExam && isPreviousExamUnavailable(clause.text.slice(0, previousExam.index), clause.text.slice(previousExam.index + previousExam[0].length))) {
+      const hypothesis = withoutPreviousExamAvailabilityModal(clause.text.slice(0, previousExam.index)) + clause.text.slice(previousExam.index);
+      if (isEchoNarrativeHypothetical(hypothesis)) inheritedContext = true;
+      continue;
     }
     if (isHistoricalContext(clause.text)) historicalContext = true;
     if (!anyClaim(clause.text) && isContextHeader(clause.text)) inheritedContext = true;
@@ -168,34 +191,40 @@ function hasUnqualifiedClaim(text: string, claim: (text: string) => boolean): bo
   return false;
 }
 
-export function findFelineNarrativeDiscrepancies(
+export function findEchoWaveNarrativeDiscrepancies(
   measurements: Record<string, string>, qualitative: object, conclusion: string, species?: string,
-): FelineNarrativeDiscrepancy[] {
-  if (!isFelineEchoSpecies(species)) return [];
+): EchoWaveNarrativeDiscrepancy[] {
+  const normalizedSpecies = normalizeEchoSpecies(species);
+  if (normalizedSpecies !== "Canina" && normalizedSpecies !== "Felina") return [];
+  const prefix = normalizedSpecies === "Canina" ? "canine" : "feline";
   const sources = [
     ...Object.entries(qualitative).filter((entry): entry is [string, string] => typeof entry[1] === "string")
       .map(([key, text]) => ({ section: SECTION_LABELS[key] || key, text })),
     { section: "Conclusão", text: conclusion },
   ];
   const families = [
-    { key: "feline_transmitral_fusion" as const, active: measurements.Diastolica_ondas === "fundidas", claim: transmitralClaim,
+    { key: `${prefix}_transmitral_fusion` as const, active: measurements.Diastolica_ondas === "fundidas", claim: transmitralClaim,
       message: "Ondas E/A registradas como fundidas: revise a afirmação de picos, relações ou padrão transmitral neste trecho.",
       suggestion: "Ondas E e A fundidas, sem mensuração independente dos picos transmitrais e das relações dependentes. A interpretação diastólica deve considerar os demais parâmetros disponíveis." },
-    { key: "feline_tissue_fusion" as const, active: measurements.TDI_ondas === "fundidas", claim: tissueClaim,
+    { key: `${prefix}_tissue_fusion` as const, active: measurements.TDI_ondas === "fundidas", claim: tissueClaim,
       message: "Ondas e′/a′ registradas como fundidas: revise a afirmação de picos ou relações teciduais individuais neste trecho.",
       suggestion: "Ondas e′ e a′ fundidas; picos e relações teciduais dependentes não mensuráveis individualmente. A interpretação diastólica deve considerar os demais parâmetros disponíveis." },
   ];
-  const results: FelineNarrativeDiscrepancy[] = [];
+  const results: EchoWaveNarrativeDiscrepancy[] = [];
   for (const family of families) {
     if (!family.active) continue;
     let found = false;
     for (const source of sources) {
+      let historicalPassage = false;
       // Decimal points inside values do not split a sentence. Retain the
       // original text for review rather than printing a normalized paraphrase.
       for (const fragment of source.text.split(/[\r\n]+|(?<=[.!?])\s+/)) {
         const excerpt = fragment.trim();
         const text = normalized(excerpt);
-        if (!text || !hasUnqualifiedClaim(text, family.claim)) continue;
+        const currentExam = isCurrentExamContext(text);
+        if (currentExam) historicalPassage = false;
+        if (isHistoricalContext(text) && !currentExam) historicalPassage = true;
+        if (!text || historicalPassage || !hasUnqualifiedClaim(text, family.claim)) continue;
         results.push({ key: family.key, section: source.section, excerpt,
           message: `${source.section}: ${family.message}`, suggestion: family.suggestion });
         found = true;
@@ -205,4 +234,14 @@ export function findFelineNarrativeDiscrepancies(
     }
   }
   return results;
+}
+
+/** Preserve the existing feline-only API and its discrepancy keys. */
+export function findFelineNarrativeDiscrepancies(
+  measurements: Record<string, string>, qualitative: object, conclusion: string, species?: string,
+): FelineNarrativeDiscrepancy[] {
+  if (!isFelineEchoSpecies(species)) return [];
+  return findEchoWaveNarrativeDiscrepancies(measurements, qualitative, conclusion, species)
+    .filter((issue): issue is FelineNarrativeDiscrepancy =>
+      issue.key === "feline_transmitral_fusion" || issue.key === "feline_tissue_fusion");
 }
