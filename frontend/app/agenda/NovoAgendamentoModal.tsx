@@ -64,6 +64,7 @@ import {
 } from "@/lib/agenda-whatsapp-templates";
 
 import TutorIdentificacaoFields from "@/components/TutorIdentificacaoFields";
+import { chaveOperacaoTutor, concluirOperacaoTutor } from "@/lib/tutor-mesclagem";
 
 const LIMITE_MINUTOS_PROXIMIDADE = 25;
 const LIMITE_ESTENDIDO_EXTRA_MIN = 15;
@@ -515,9 +516,9 @@ const buildInitialTutorForm = (): NovoTutorForm => ({
 const buildInitialAnimalForm = (tutorId = ""): NovoAnimalForm => ({
   tutor_id: tutorId,
   nome: "",
-  especie: "Canina",
+  especie: "",
   raca: "",
-  sexo: "Macho",
+  sexo: "",
   peso_kg: "",
   data_nascimento: "",
   microchip: "",
@@ -2967,13 +2968,14 @@ export default function NovoAgendamentoModal({
       };
       const response = novoTutor.id
         ? await api.put(`/tutores/${novoTutor.id}`, payload)
-        : await api.post("/tutores", payload);
+        : await api.post("/tutores", { ...payload, chave_operacao: await chaveOperacaoTutor("agenda-tutor", payload) });
 
       const tutorId = response?.data?.id;
       const tutorNome = response?.data?.nome || nome;
       if (!tutorId) {
         throw new Error("Nao foi possivel salvar o tutor.");
       }
+      concluirOperacaoTutor("agenda-tutor");
 
       setTutores((prev) => {
         const tutorNormalizado: TutorOption = {
@@ -3061,29 +3063,32 @@ export default function NovoAgendamentoModal({
 
     try {
       setSalvandoAnimal(true);
-      const response = await api.post("/pacientes", {
+      const payload = {
         nome: nomeAnimal,
-        tutor: tutor.nome,
-        especie: (novoAnimal.especie || "").trim() || "Canina",
+        tutor_id: tutor.id,
+        especie: (novoAnimal.especie || "").trim() || null,
         raca: novoAnimal.raca || "",
-        sexo: novoAnimal.sexo || "Macho",
+        sexo: novoAnimal.sexo || null,
         peso_kg: Number.isFinite(pesoKg) ? pesoKg : null,
         data_nascimento: novoAnimal.data_nascimento || null,
         microchip: novoAnimal.microchip || "",
         observacoes: novoAnimal.observacoes || "Cadastro via modal de animal na agenda",
-      });
+      };
+      const response = await api.post("/pacientes", { ...payload,
+        chave_operacao: await chaveOperacaoTutor("agenda-animal", payload) });
 
       const novoPacienteId = response?.data?.id;
       if (!novoPacienteId) {
         throw new Error("Nao foi possivel salvar o animal.");
       }
+      concluirOperacaoTutor("agenda-animal");
 
       const pacienteCriado: PacienteOption = {
         id: Number(novoPacienteId),
         nome: response?.data?.nome || nomeAnimal,
         tutor: tutor.nome,
         tutor_id: tutor.id,
-        especie: response?.data?.especie || novoAnimal.especie || "Canina",
+        especie: response?.data?.especie || novoAnimal.especie || "",
         raca: response?.data?.raca || novoAnimal.raca || "",
       };
 
@@ -5076,7 +5081,7 @@ export default function NovoAgendamentoModal({
                   />
                 </div>
                 <TutorIdentificacaoFields value={novoTutor} onChange={(value) => setNovoTutor((prev) => ({ ...prev, ...value }))} />
-                {!novoTutor.id && <p className="col-span-full text-sm text-slate-600">Este é um cadastro separado. Um nome igual nunca reutiliza outro tutor automaticamente.</p>}
+                {!novoTutor.id && <p className="col-span-full text-sm text-slate-600">Pode informar só o primeiro nome. O cadastro ficará pendente para complementar no atendimento; nomes iguais continuam separados.</p>}
                 {novoTutor.id && <button type="button" disabled={salvandoTutor}
                   className="col-span-full rounded-lg border px-3 py-2 text-sm text-blue-700"
                   onClick={() => setNovoTutor({ ...buildInitialTutorForm(), nome: novoTutor.nome,
@@ -5084,6 +5089,9 @@ export default function NovoAgendamentoModal({
                   Criar outra pessoa com este nome
                 </button>}
 
+                <details className="col-span-full" open={Boolean(novoTutor.id)}>
+                  <summary className="cursor-pointer text-sm font-medium text-blue-700">Contato e documento — preencher se disponíveis</summary>
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
                   <input
@@ -5130,9 +5138,12 @@ export default function NovoAgendamentoModal({
                     placeholder="email@exemplo.com"
                   />
                 </div>
+                  </div>
+                </details>
               </div>
 
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+              <details open={atendimentoDomiciliar || Boolean(novoTutor.id)} className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+                <summary className="cursor-pointer text-sm font-medium text-slate-700">Endereço — necessário para atendimento domiciliar</summary>
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold text-slate-900">Endereco do tutor</div>
@@ -5268,7 +5279,7 @@ export default function NovoAgendamentoModal({
                     {novoTutor.endereco_normalizado ? ` - ${novoTutor.endereco_normalizado}` : ""}
                   </div>
                 )}
-              </div>
+              </details>
 
               {tutorPanorama?.tutor?.id && String(tutorPanorama.tutor.id) === String(novoTutor.id || "") && (
                 <div className="rounded-lg border border-slate-200 p-4">
@@ -5350,7 +5361,7 @@ export default function NovoAgendamentoModal({
                   <option value="">Selecione...</option>
                   {tutores.map((tutor) => (
                     <option key={tutor.id} value={tutor.id.toString()}>
-                      {tutor.nome}
+                      {tutor.nome} #{tutor.id}
                     </option>
                   ))}
                 </select>
@@ -5379,6 +5390,7 @@ export default function NovoAgendamentoModal({
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   >
+                    <option value="">Não informada</option>
                     {["Canina", "Felina", "Equina", "Outra"].map((especie) => (
                       <option key={especie} value={especie}>
                         {especie}
@@ -5524,6 +5536,7 @@ export default function NovoAgendamentoModal({
                     onChange={(e) => setNovoAnimal((prev) => ({ ...prev, sexo: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   >
+                    <option value="">Não informado</option>
                     {["Macho", "Femea"].map((sexo) => (
                       <option key={sexo} value={sexo}>
                         {sexo}

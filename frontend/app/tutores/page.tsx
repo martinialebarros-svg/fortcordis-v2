@@ -1,18 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import TutorIdentificacaoFields, { type TutorIdentificacao } from "@/components/TutorIdentificacaoFields";
-import { erroTutor, formatarValorTutor, nomesCamposTutor, nomesVinculosTutor, resultadoCampoTutor,
-  type EscolhaTutor, type PreviaMesclagem, type ValorTutor } from "@/lib/tutor-mesclagem";
+import TutorRevisaoCadastro from "@/components/TutorRevisaoCadastro";
+import { formatarCpfVisual, formatarTelefoneVisual, normalizarCpf, normalizarTelefone } from "@/lib/atendimento-cadastro";
+import { chaveOperacaoTutor, concluirOperacaoTutor, erroTutor, formatarValorTutor, nomesCamposTutor, nomesVinculosTutor, resultadoCampoTutor,
+  type EscolhaTutor, type PreviaMesclagem, type PreviaReversaoMesclagem, type ValorTutor } from "@/lib/tutor-mesclagem";
 
 interface TutorLista {
   id: number; nome: string; telefone?: string; whatsapp?: string; email?: string;
   endereco_resumo?: string; identificacao_pendente: boolean; origem_cadastro?: string;
   pets?: { id: number; nome: string }[];
+  proximo_atendimento?: string | null;
 }
 interface TutorForm extends TutorIdentificacao {
   id?: number; nome: string; telefone: string; whatsapp: string; email: string; cpf: string;
@@ -21,6 +24,7 @@ interface Historico {
   id: number; principal_id: number; secundario_id: number; usuario_nome: string; motivo: string; created_at: string;
   detalhes: { antes: { principal: Record<string, ValorTutor>; secundario: Record<string, ValorTutor> };
     resultado: Record<string, ValorTutor>; vinculos_movidos: Record<string, number[]> };
+  reversao?: { usuario_nome: string; motivo: string; created_at: string } | null;
 }
 const vazio = (): TutorForm => ({ nome: "", telefone: "", whatsapp: "", email: "", cpf: "",
   identificacao_pendente: true, origem_cadastro: "", identificacao_observacoes: "" });
@@ -35,6 +39,9 @@ export default function TutoresPage() {
   });
   const [items, setItems] = useState<TutorLista[]>([]);
   const [busca, setBusca] = useState("");
+  const [pendentes, setPendentes] = useState("todos");
+  const [origem, setOrigem] = useState("");
+  const [ordenar, setOrdenar] = useState("proximo_atendimento");
   const [pagina, setPagina] = useState(0);
   const [total, setTotal] = useState(0);
   const [versao, setVersao] = useState(0);
@@ -50,6 +57,9 @@ export default function TutoresPage() {
   const [motivo, setMotivo] = useState("");
   const [confirmar, setConfirmar] = useState(false);
   const [historico, setHistorico] = useState<{ tutorId: number; items: Historico[] } | null>(null);
+  const [reversao, setReversao] = useState<{ id: number; previa: PreviaReversaoMesclagem } | null>(null);
+  const [motivoReversao, setMotivoReversao] = useState("");
+  const [confirmarReversao, setConfirmarReversao] = useState(false);
   const previaRef = useRef<HTMLElement>(null);
   const historicoRef = useRef<HTMLElement>(null);
 
@@ -62,6 +72,9 @@ export default function TutoresPage() {
     const timer = window.setTimeout(() => {
       const params = new URLSearchParams({ skip: String(pagina * 50), limit: "50" });
       if (busca.trim()) params.set("busca", busca.trim());
+      if (pendentes !== "todos") params.set("pendentes", pendentes);
+      if (origem.trim()) params.set("origem", origem.trim());
+      params.set("ordenar", ordenar);
       api.get(`/tutores?${params}`).then((response) => {
         if (!ativo) return;
         setItems(response.data.items); setTotal(response.data.total);
@@ -70,22 +83,38 @@ export default function TutoresPage() {
       }).finally(() => { if (ativo) setLoading(false); });
     }, 250);
     return () => { ativo = false; window.clearTimeout(timer); };
-  }, [busca, pagina, versao]);
+  }, [busca, pagina, versao, pendentes, origem, ordenar]);
 
   const limparPrevia = () => { setPrevia(null); setEscolhas({}); setConfirmar(false); setMotivo(""); };
-  const executar = async (action: () => Promise<void>) => {
+  const executar = useCallback(async (action: () => Promise<void>) => {
     setBusy(true); setErro(""); setMensagem("");
     try { await action(); } catch (error) { setErro(erroTutor(error)); } finally { setBusy(false); }
-  };
-  const editar = (id: number) => executar(async () => {
+  }, []);
+  const editar = useCallback((id: number) => executar(async () => {
     const { data } = await api.get(`/tutores/${id}`);
     setForm({ id: data.id, nome: data.nome ?? "", telefone: data.telefone ?? "", whatsapp: data.whatsapp ?? "",
       email: data.email ?? "", cpf: data.cpf ?? "", identificacao_pendente: data.identificacao_pendente,
       origem_cadastro: data.origem_cadastro ?? "", identificacao_observacoes: data.identificacao_observacoes ?? "" });
-  });
+  }), [executar]);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = Number(params.get("tutor_id"));
+    if (Number.isSafeInteger(id) && id > 0) { setBusca(`#${id}`); void editar(id); }
+    const principalId = Number(params.get("principal_id"));
+    const secundarioId = Number(params.get("secundario_id"));
+    if (principalId > 0 && secundarioId > 0 && principalId !== secundarioId) {
+      setPrincipal(principalId); setSecundario(secundarioId);
+    }
+  }, [editar]);
   const salvar = () => executar(async () => {
     if (!form) return;
-    if (form.id) await api.put(`/tutores/${form.id}`, form); else await api.post("/tutores", form);
+    const payload = { ...form, telefone: normalizarTelefone(form.telefone), whatsapp: normalizarTelefone(form.whatsapp), cpf: normalizarCpf(form.cpf) };
+    if (form.id) await api.put(`/tutores/${form.id}`, payload);
+    else {
+      const chave_operacao = await chaveOperacaoTutor("novo-tutores", payload);
+      await api.post("/tutores", { ...payload, chave_operacao });
+      concluirOperacaoTutor("novo-tutores");
+    }
     setForm(null); limparPrevia(); setVersao((v) => v + 1); setMensagem("Cadastro salvo.");
   });
   const gerarPrevia = () => executar(async () => {
@@ -95,16 +124,43 @@ export default function TutoresPage() {
   });
   const mesclar = () => executar(async () => {
     if (!previa) return;
+    const payload = { principal_id: previa.principal.id, secundario_id: previa.secundario.id,
+      token_previa: previa.token_previa, escolhas, motivo: motivo.trim(), confirmar };
+    const chave_operacao = await chaveOperacaoTutor("mesclagem-tutores", payload);
     try {
-      await api.post("/tutores/mesclagens", { principal_id: previa.principal.id, secundario_id: previa.secundario.id,
-        token_previa: previa.token_previa, escolhas, motivo: motivo.trim(), confirmar });
-    } catch (error) { limparPrevia(); throw error; }
+      await api.post("/tutores/mesclagens", { ...payload, chave_operacao });
+    } catch (error) {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      if (status === 409 || status === 422) limparPrevia();
+      throw error;
+    }
+    concluirOperacaoTutor("mesclagem-tutores");
     setMensagem(`Mesclagem concluída. O cadastro #${previa.principal.id} é o principal; o histórico foi preservado.`);
     setPrincipal(null); setSecundario(null); limparPrevia(); setHistorico(null); setVersao((v) => v + 1);
   });
   const abrirHistorico = (id: number) => executar(async () => {
     const { data } = await api.get(`/tutores/${id}/mesclagens`);
     setHistorico({ tutorId: id, items: data.items });
+  });
+  const prepararReversao = (id: number) => executar(async () => {
+    setReversao(null); setMotivoReversao(""); setConfirmarReversao(false);
+    const { data } = await api.post(`/tutores/mesclagens/${id}/reversao/previa`);
+    setReversao({ id, previa: data });
+  });
+  const reverter = () => executar(async () => {
+    if (!reversao) return;
+    const payload = { token_previa: reversao.previa.token_previa, motivo: motivoReversao.trim(), confirmar: confirmarReversao };
+    const chave_operacao = await chaveOperacaoTutor(`reversao-tutores-${reversao.id}`, payload);
+    try {
+      await api.post(`/tutores/mesclagens/${reversao.id}/reversao`, { ...payload, chave_operacao });
+    } catch (error) {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      if (status === 409 || status === 422) setReversao(null);
+      throw error;
+    }
+    concluirOperacaoTutor(`reversao-tutores-${reversao.id}`);
+    setReversao(null); setHistorico(null); setVersao((v) => v + 1);
+    setMensagem("Mesclagem revertida. Os vínculos e os dois cadastros foram restaurados com registro no histórico.");
   });
   const podeMesclar = previa && !previa.bloqueios.length && confirmar && motivo.trim().length >= 5
     && previa.conflitos.every((campo) => escolhas[campo]);
@@ -114,23 +170,38 @@ export default function TutoresPage() {
       <div><Link href="/pacientes" className="text-sm text-blue-700">← Pacientes</Link>
         <h1 className="mt-2 text-3xl font-semibold">Tutores</h1>
         <p className="mt-2 text-slate-600">Cadastros separados para pessoas com o mesmo nome. Confirme a identidade antes de reutilizar um cadastro.</p></div>
-      <button className={buttonClass} disabled={busy} onClick={() => { setForm(vazio()); limparPrevia(); }}>Novo tutor</button>
+      <button className={buttonClass} disabled={busy} onClick={() => { concluirOperacaoTutor("novo-tutores"); setForm(vazio()); limparPrevia(); }}>Novo tutor</button>
     </header>
     {erro && <div role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{erro}
       <button className="ml-3 underline" onClick={() => { setErro(""); setVersao((v) => v + 1); }}>Tentar novamente</button></div>}
     {mensagem && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-emerald-900">{mensagem}</p>}
     {form && <form className="grid gap-4 rounded-2xl border bg-white p-5 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); void salvar(); }}>
       <h2 className="col-span-full text-xl font-semibold">{form.id ? `Editar tutor #${form.id}` : "Novo cadastro separado"}</h2>
-      <p className="col-span-full text-sm text-slate-600">Salvar um novo cadastro sempre cria outra pessoa, mesmo que o nome coincida.</p>
-      {(["nome", "telefone", "whatsapp", "email", "cpf"] as const).map((campo) => <label key={campo} className="text-sm">{nomesCamposTutor[campo]}
-        <input required={campo === "nome"} type={campo === "email" ? "email" : "text"} className={inputClass}
-          value={form[campo]} onChange={(event) => setForm({ ...form, [campo]: event.target.value })} /></label>)}
+      <p className="col-span-full text-sm text-slate-600">{form.id
+        ? "Complemente os dados disponíveis. A confirmação da identidade fica na revisão opcional abaixo."
+        : "Salvar um novo cadastro sempre cria outra pessoa, mesmo que o nome coincida."}</p>
+      <label className="col-span-full text-sm">Nome<input required className={`${inputClass} mt-1`} value={form.nome} autoComplete="name"
+        onChange={(event) => setForm({ ...form, nome: event.target.value })} /></label>
+      <details className="col-span-full space-y-3"><summary className="cursor-pointer text-sm font-medium text-blue-700">Contato e outros dados (opcional)</summary>
+      <div className="grid gap-3 md:grid-cols-2">{(["telefone", "whatsapp", "email", "cpf"] as const).map((campo) => <label key={campo} className="text-sm">{nomesCamposTutor[campo]}
+        <input type={campo === "email" ? "email" : "text"} inputMode={campo === "email" ? "email" : campo === "cpf" ? "numeric" : "tel"} className={inputClass}
+          value={form[campo]} onChange={(event) => setForm({ ...form, [campo]: campo === "cpf" ? formatarCpfVisual(event.target.value)
+            : campo === "email" ? event.target.value : formatarTelefoneVisual(event.target.value) })} /></label>)}</div></details>
       <TutorIdentificacaoFields value={form} onChange={(value) => setForm({ ...form, ...value })} />
       <div className="col-span-full flex gap-2"><button disabled={busy || !form.nome.trim()} className={buttonClass}>Salvar cadastro</button>
         <button type="button" disabled={busy} className={buttonClass} onClick={() => setForm(null)}>Cancelar</button></div>
     </form>}
+    {form?.id && <TutorRevisaoCadastro tutorId={form.id} onUpdated={() => { setVersao((v) => v + 1); void editar(form.id!); }} />}
+    <section aria-label="Fila de revisão dos cadastros" className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-3">
+      <label className="text-sm">Situação da identificação<select className={`${inputClass} mt-1`} value={pendentes} onChange={(event) => { setPendentes(event.target.value); setPagina(0); }}>
+        <option value="todos">Todos os cadastros</option><option value="true">Somente pendentes</option><option value="false">Somente confirmados</option></select></label>
+      <label className="text-sm">Clínica ou origem<input className={`${inputClass} mt-1`} value={origem} placeholder="Filtrar pela origem" onChange={(event) => { setOrigem(event.target.value); setPagina(0); }} /></label>
+      <label className="text-sm">Ordenar cadastros<select className={`${inputClass} mt-1`} value={ordenar} onChange={(event) => { setOrdenar(event.target.value); setPagina(0); }}>
+        <option value="proximo_atendimento">Próximos atendimentos primeiro</option><option value="antigos">Cadastros mais antigos primeiro</option></select></label>
+      <p className="text-sm text-slate-600 md:col-span-3">Use a fila para complementar os dados no atendimento. A pendência não impede o agendamento.</p>
+    </section>
     <label className="block text-sm font-medium">Buscar tutor, contato, origem ou animal
-      <input className={`${inputClass} mt-1`} value={busca} onChange={(event) => { setBusca(event.target.value); setPagina(0); }} /></label>
+      <input className={`${inputClass} mt-1`} placeholder="Nome, #código, CPF, telefone ou animal" value={busca} onChange={(event) => { setBusca(event.target.value); setPagina(0); }} /></label>
     {admin && <section aria-label="Selecionar cadastros para mesclagem" className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-100 p-4">
       <p>Principal: <strong>{principal ? `#${principal}` : "selecione"}</strong> · Secundário: <strong>{secundario ? `#${secundario}` : "selecione"}</strong></p>
       <button className={buttonClass} disabled={busy || !principal || !secundario || principal === secundario}
@@ -144,6 +215,7 @@ export default function TutoresPage() {
         <p className="text-sm">{tutor.whatsapp || tutor.telefone || "Contato não informado"} · {tutor.origem_cadastro || "Origem não informada"}</p>
         <p className="text-sm text-slate-600">{tutor.endereco_resumo || "Endereço não informado"}</p>
         <p className="text-sm">Animais: {tutor.pets?.map((pet) => `${pet.nome} #${pet.id}`).join(", ") || "Nenhum vinculado"}</p>
+        {tutor.proximo_atendimento && <p className="text-sm text-blue-800">Próximo atendimento: {new Date(tutor.proximo_atendimento).toLocaleString("pt-BR", { timeZone: "America/Fortaleza" })}</p>}
         <div className="flex flex-wrap gap-2"><button className={buttonClass} disabled={busy} onClick={() => void editar(tutor.id)}>Editar #{tutor.id}</button>
           {admin && <><button className={buttonClass} disabled={busy || tutor.id === secundario} aria-pressed={principal === tutor.id}
             onClick={() => { setPrincipal(tutor.id); limparPrevia(); }}>Manter #{tutor.id} como principal</button>
@@ -197,6 +269,8 @@ export default function TutoresPage() {
         <p className="font-medium">#{h.secundario_id} mesclado em #{h.principal_id}</p>
         <p className="text-sm">{new Date(h.created_at).toLocaleString("pt-BR", { timeZone: "America/Fortaleza" })} · {h.usuario_nome}</p>
         <p>{h.motivo}</p>
+        {h.reversao ? <p className="text-sm text-amber-800">Revertida por {h.reversao.usuario_nome} em {new Date(h.reversao.created_at).toLocaleString("pt-BR", { timeZone: "America/Fortaleza" })}. {h.reversao.motivo}</p>
+          : <button className={buttonClass} disabled={busy} onClick={() => void prepararReversao(h.id)}>Revisar reversão da mesclagem #{h.id}</button>}
         <details><summary className="cursor-pointer text-sm text-blue-700">Ver dados anteriores, resultado e vínculos transferidos</summary>
           <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead><tr>
             <th className="p-2">Campo</th><th className="p-2">Principal antes</th><th className="p-2">Secundário antes</th><th className="p-2">Resultado</th>
@@ -210,6 +284,22 @@ export default function TutoresPage() {
             {nomesVinculosTutor[tabela] || tabela.replace(/_/g, " ")}: {ids.map((id) => `#${id}`).join(", ")}
           </li>)}</ul></details>
       </article>)}
+    </section>}
+    {reversao && <section aria-label="Prévia da reversão" className="space-y-4 rounded-xl border-2 border-amber-200 bg-white p-5">
+      <h2 className="text-xl font-semibold">Revisar reversão: separar #{reversao.previa.secundario_id} de #{reversao.previa.principal_id}</h2>
+      <p className="text-sm text-slate-600">A reversão só é permitida quando os cadastros e seus vínculos permanecem como ficaram na mesclagem. O histórico será preservado.</p>
+      {reversao.previa.bloqueios.map((bloqueio) => <p role="alert" className="text-sm text-red-800" key={bloqueio}>{bloqueio}</p>)}
+      {reversao.previa.avisos.map((aviso) => <p className="text-sm text-amber-800" key={aviso}>{aviso}</p>)}
+      <ul className="list-inside list-disc text-sm">{Object.entries(reversao.previa.vinculos).map(([tabela, quantidade]) => <li key={tabela}>
+        {nomesVinculosTutor[tabela] || tabela.replace(/_/g, " ")}: {quantidade} vínculo(s) a restaurar
+      </li>)}</ul>
+      <label className="block text-sm">Motivo da reversão<textarea className={`${inputClass} mt-1`} rows={2} value={motivoReversao} maxLength={2000} disabled={busy}
+        onChange={(event) => { setMotivoReversao(event.target.value); setConfirmarReversao(false); }} /></label>
+      <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmarReversao} disabled={busy || reversao.previa.bloqueios.length > 0}
+        onChange={(event) => setConfirmarReversao(event.target.checked)} />Revisei a separação e confirmo a restauração dos cadastros e vínculos originais.</label>
+      <div className="flex flex-wrap gap-2"><button className={buttonClass} disabled={busy || reversao.previa.bloqueios.length > 0 || motivoReversao.trim().length < 5 || !confirmarReversao}
+        onClick={() => void reverter()}>Confirmar reversão</button>
+        <button className={buttonClass} disabled={busy} onClick={() => setReversao(null)}>Cancelar reversão</button></div>
     </section>}
   </div></DashboardLayout>;
 }

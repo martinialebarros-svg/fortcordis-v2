@@ -3,7 +3,7 @@ import json
 import math
 import re
 import unicodedata
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -17,8 +17,12 @@ from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.user import User
 from app.models.tutor_mesclagem import TutorMesclagem
+from app.models.agendamento import Agendamento
+from app.models.clinica import Clinica
+from app.models.tutor_rotina import TutorContato, TutorOrigem
 from app.services.tutor_identidade_service import exigir_tutor_utilizavel
 from app.services.tutor_mesclagem_service import obter_previa, mesclar
+from app.services import tutor_rotina_service as rotina
 from app.services.geocoding_service import GeocodingError, geocodificar_endereco_google, montar_endereco_completo
 from app.core.config import settings
 
@@ -110,7 +114,7 @@ def _coordenadas_tutor_confiaveis(tutor: Optional[Tutor]) -> tuple[Optional[floa
     return lat, lng
 
 
-def _serialize_tutor(tutor: Tutor) -> dict:
+def _serialize_tutor(tutor: Tutor, db: Session | None = None) -> dict:
     latitude, longitude = _coordenadas_tutor_confiaveis(tutor)
     return {
         "id": tutor.id,
@@ -118,6 +122,8 @@ def _serialize_tutor(tutor: Tutor) -> dict:
         "identificacao_pendente": tutor.identificacao_pendente,
         "origem_cadastro": tutor.origem_cadastro,
         "identificacao_observacoes": tutor.identificacao_observacoes,
+        "versao": rotina.versao_identificacao(tutor),
+        "identificacao_confirmacao": rotina.resumo_confirmacao(db, tutor) if db is not None else None,
         "mesclado_em_id": tutor.mesclado_em_id,
         "telefone": tutor.telefone,
         "whatsapp": tutor.whatsapp,
@@ -168,6 +174,7 @@ def _serialize_tutor_lista_item(tutor: Tutor) -> dict:
 
 class TutorCreate(BaseModel):
     nome: str = Field(min_length=1)
+    chave_operacao: Optional[str] = Field(default=None, min_length=8, max_length=128)
     identificacao_pendente: bool = True
     origem_cadastro: Optional[str] = None
     identificacao_observacoes: Optional[str] = None
@@ -228,11 +235,23 @@ def listar_tutores(
     limit: int = 100,
     busca: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    pendentes: Optional[bool] = None,
+    origem: Optional[str] = None,
+    ordenar: Optional[Literal["proximo_atendimento", "antigos"]] = None,
 ):
     """Lista todos os tutores."""
     _ensure_tutores_georef_columns(db)
     query = db.query(Tutor).filter(_filtro_tutor_ativo())
+
+    if pendentes is not None:
+        query = query.filter(Tutor.identificacao_pendente.is_(pendentes))
+    if origem and origem.strip():
+        escaped = origem.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        origem_filters = [Tutor.origem_cadastro.ilike(f"%{escaped}%", escape="\\")]
+        if rotina.tabela_disponivel(db, TutorOrigem):
+            origem_filters.append(Tutor.id.in_(db.query(TutorOrigem.tutor_id).filter(TutorOrigem.descricao.ilike(f"%{escaped}%", escape="\\"))))
+        query = query.filter(or_(*origem_filters))
 
     if busca:
         termo = busca.strip()
@@ -251,6 +270,24 @@ def listar_tutores(
                 Tutor.email.ilike(f"%{termo_escapado}%", escape="\\"),
                 Tutor.cidade.ilike(f"%{termo_escapado}%", escape="\\"),
             ]
+            if rotina.tabela_disponivel(db, TutorContato):
+                filtros.append(Tutor.id.in_(db.query(TutorContato.tutor_id).filter(TutorContato.valor.ilike(f"%{termo_escapado}%", escape="\\"))))
+            if rotina.tabela_disponivel(db, TutorOrigem):
+                filtros.append(Tutor.id.in_(db.query(TutorOrigem.tutor_id).filter(TutorOrigem.descricao.ilike(f"%{termo_escapado}%", escape="\\"))))
+            if re.fullmatch(r"#?\d+", termo):
+                filtros.append(Tutor.id == int(termo.lstrip("#")))
+            digits = re.sub(r"\D", "", termo)
+            if digits and re.fullmatch(r"[\d\s().+/\-]+", termo):
+                for field in (Tutor.cpf, Tutor.telefone, Tutor.whatsapp):
+                    filtros.append(rotina.digitos_sql(field).contains(digits))
+                telefone_busca = rotina.normalizar_contato("telefone", digits)
+                filtros.extend([rotina.telefone_sql(Tutor.telefone).contains(telefone_busca),
+                                rotina.telefone_sql(Tutor.whatsapp).contains(telefone_busca)])
+                if rotina.tabela_disponivel(db, TutorContato):
+                    filtros.append(Tutor.id.in_(db.query(TutorContato.tutor_id).filter(TutorContato.valor_normalizado.contains(rotina.normalizar_contato("telefone", digits)))))
+            if termo.startswith("#") and termo[1:].isdigit():
+                # #ID e uma selecao inequívoca; nao misturar resultados por nome/pet.
+                query = query.filter(Tutor.id == int(termo[1:]))
             variantes_nome = _variantes_busca_nome(termo_key)
             for variante in variantes_nome:
                 variante_escapada = (
@@ -281,14 +318,33 @@ def listar_tutores(
             query = query.filter(or_(*filtros))
 
     total = query.count()
+    next_appointment = None
+    if rotina.tabela_disponivel(db, Agendamento):
+        next_appointment = (db.query(func.min(Agendamento.inicio)).filter(
+            Agendamento.tutor_id == Tutor.id,
+            Agendamento.inicio >= datetime.now(timezone.utc),
+            ~func.lower(func.coalesce(Agendamento.status, "")).in_(["cancelado", "cancelada", "cancelled", "concluido", "concluído"]),
+        ).correlate(Tutor).scalar_subquery())
+    ordering = [Tutor.nome.asc(), Tutor.id.asc()]
+    if ordenar == "proximo_atendimento" and next_appointment is not None:
+        ordering = [next_appointment.is_(None), next_appointment.asc(), Tutor.id.asc()]
+    elif ordenar == "antigos":
+        ordering = [Tutor.created_at.asc(), Tutor.id.asc()]
     items = (
-        query.order_by(Tutor.nome.asc(), Tutor.id.asc())
-        .offset(skip)
-        .limit(limit)
+        query.order_by(*ordering)
+        .offset(max(0, skip))
+        .limit(max(1, min(limit, 500)))
         .all()
     )
 
     items_serializados = [_serialize_tutor_lista_item(tutor) for tutor in items]
+    proximo = {}
+    if next_appointment is not None and items:
+        proximo = dict(db.query(Tutor.id, next_appointment).filter(Tutor.id.in_([t.id for t in items])).all())
+    criados_em = {t.id: rotina._iso(t.created_at) for t in items}
+    for item in items_serializados:
+        item["proximo_atendimento"] = rotina._iso(proximo.get(item["id"]))
+        item["created_at"] = criados_em[item["id"]]
     if items_serializados:
         tutor_ids = [item["id"] for item in items_serializados]
         pets_por_tutor: dict[int, list[dict[str, object]]] = {
@@ -331,10 +387,23 @@ def criar_tutor(
     if tutor.confirmar_reativacao:
         raise HTTPException(422, "Reative explicitamente pelo ID; o nome nao identifica uma pessoa.")
 
+    try:
+        operacao, resposta_salva = rotina.preparar_operacao(
+            db, usuario_id=current_user.id, tipo="criar_tutor", chave=tutor.chave_operacao,
+            payload=tutor.model_dump(exclude={"chave_operacao"}),
+        )
+        if resposta_salva is not None:
+            db.rollback()  # libera o lock da consulta de replay, sem alterar o resultado salvo
+            return resposta_salva
+    except Exception:
+        db.rollback()
+        raise
+
     novo_tutor = Tutor(
         nome=nome,
         nome_key=nome_key,
-        identificacao_pendente=tutor.identificacao_pendente,
+        # Cadastro rapido nao afirma identidade; a confirmacao tem evidencia propria.
+        identificacao_pendente=True,
         origem_cadastro=tutor.origem_cadastro,
         identificacao_observacoes=tutor.identificacao_observacoes,
         telefone=tutor.telefone,
@@ -358,16 +427,18 @@ def criar_tutor(
 
     db.add(novo_tutor)
     try:
+        db.flush()
+        resposta = {**_serialize_tutor(novo_tutor), "message": "Tutor criado com sucesso"}
+        rotina.concluir_operacao(operacao, resposta)
         db.commit()
-        db.refresh(novo_tutor)
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "Nao foi possivel criar um cadastro separado. Verifique se a migracao de homonimos foi aplicada.")
+    except Exception:
+        db.rollback()
+        raise
 
-    return {
-        **_serialize_tutor(novo_tutor),
-        "message": "Tutor criado com sucesso"
-    }
+    return resposta
 
 
 class MesclagemPreviaPayload(BaseModel):
@@ -380,6 +451,7 @@ class MesclagemPayload(MesclagemPreviaPayload):
     escolhas: dict[str, str] = Field(default_factory=dict)
     motivo: str = Field(min_length=5, max_length=2000)
     confirmar: bool = False
+    chave_operacao: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 @router.post("/mesclagens/previa")
@@ -394,6 +466,10 @@ def confirmar_mesclagem(payload: MesclagemPayload, db: Session = Depends(get_db)
     return mesclar(db, payload, current_user)
 
 
+from app.api.v1.endpoints.tutor_mesclagem_reversao import router as reversao_router
+router.include_router(reversao_router)
+
+
 @router.get("/{tutor_id}/mesclagens")
 def historico_mesclagens(tutor_id: int, db: Session = Depends(get_db),
                         current_user: User = Depends(require_papel("admin"))):
@@ -406,10 +482,115 @@ def historico_mesclagens(tutor_id: int, db: Session = Depends(get_db),
         if relacionados == ids:
             break
         ids = relacionados
+    from app.models.tutor_mesclagem_reversao import TutorMesclagemReversao
+    reversoes = {}
+    if rows and "tutores_mesclagens_reversoes" in inspect(db.connection()).get_table_names():
+        reversoes = {r.mesclagem_id: {"id": r.id, "usuario_nome": r.usuario_nome, "motivo": r.motivo,
+                     "created_at": r.created_at.replace(tzinfo=r.created_at.tzinfo or timezone.utc).isoformat()}
+                     for r in db.query(TutorMesclagemReversao).filter(TutorMesclagemReversao.mesclagem_id.in_([m.id for m in rows])).all()}
     return {"items": [{"id": r.id, "principal_id": r.principal_id, "secundario_id": r.secundario_id,
                        "usuario_id": r.usuario_id, "usuario_nome": r.usuario_nome, "motivo": r.motivo,
                        "created_at": r.created_at.replace(tzinfo=r.created_at.tzinfo or timezone.utc).isoformat(),
-                       "detalhes": json.loads(r.detalhes_json)} for r in rows]}
+                       "detalhes": json.loads(r.detalhes_json), "reversao": reversoes.get(r.id)} for r in rows]}
+
+
+class IdentificacaoConfirmarPayload(BaseModel):
+    metodo: str = Field(min_length=3, max_length=120)
+    evidencia: str = Field(min_length=5, max_length=2000)
+    versao: str = Field(min_length=64, max_length=64)
+
+
+class MotivoIdentificacaoPayload(BaseModel):
+    motivo: str = Field(min_length=5, max_length=2000)
+
+
+class ContatoTutorPayload(BaseModel):
+    tipo: Literal["telefone", "whatsapp", "email"]
+    valor: str = Field(min_length=1, max_length=320)
+    rotulo: Optional[str] = Field(default=None, max_length=120)
+
+
+class OrigemTutorPayload(BaseModel):
+    descricao: str = Field(min_length=1, max_length=300)
+    clinica_id: Optional[int] = Field(default=None, gt=0)
+
+
+def _tutor_rotina(db, tutor_id):
+    tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first()
+    if not tutor:
+        raise HTTPException(404, "Tutor nao encontrado.")
+    return tutor
+
+
+@router.post("/{tutor_id}/identificacao/confirmar")
+def confirmar_identificacao_tutor(tutor_id: int, payload: IdentificacaoConfirmarPayload,
+                                  db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    tutor = exigir_tutor_utilizavel(db, tutor_id)
+    rotina.confirmar_identificacao(db, tutor, current_user, **payload.model_dump())
+    db.commit()
+    return _serialize_tutor(tutor, db)
+
+
+@router.post("/{tutor_id}/identificacao/reabrir")
+def reabrir_identificacao_tutor(tutor_id: int, payload: MotivoIdentificacaoPayload,
+                               db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    tutor = exigir_tutor_utilizavel(db, tutor_id)
+    rotina.reabrir_identificacao(db, tutor, current_user, payload.motivo)
+    db.commit()
+    return _serialize_tutor(tutor, db)
+
+
+@router.get("/{tutor_id}/identificacao/historico")
+def historico_identificacao_tutor(tutor_id: int, db: Session = Depends(get_db),
+                                 current_user: User = Depends(get_current_user)):
+    _tutor_rotina(db, tutor_id)
+    return {"items": rotina.historico_identificacao(db, tutor_id)}
+
+
+@router.get("/{tutor_id}/duplicidades")
+def duplicidades_tutor(tutor_id: int, db: Session = Depends(get_db),
+                      current_user: User = Depends(get_current_user)):
+    return {"items": rotina.sugerir_duplicidades(db, _tutor_rotina(db, tutor_id))}
+
+
+@router.post("/{tutor_id}/duplicidades/{outro_id}/descartar")
+def descartar_duplicidade_tutor(tutor_id: int, outro_id: int, payload: MotivoIdentificacaoPayload,
+                               db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    # Ordem deterministica tambem para duas revisoes simultaneas do mesmo par.
+    by_id = {i: exigir_tutor_utilizavel(db, i) for i in sorted({tutor_id, outro_id})}
+    rotina.descartar_duplicidade(db, by_id[tutor_id], by_id[outro_id], current_user, payload.motivo)
+    db.commit()
+    return {"message": "Sugestao descartada para os dados atuais. Novas evidencias podem gerar outra revisao."}
+
+
+@router.get("/{tutor_id}/contatos")
+def contatos_tutor(tutor_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return {"items": rotina.listar_contatos(db, _tutor_rotina(db, tutor_id))}
+
+
+@router.post("/{tutor_id}/contatos")
+def adicionar_contato_tutor(tutor_id: int, payload: ContatoTutorPayload, db: Session = Depends(get_db),
+                           current_user: User = Depends(get_current_user)):
+    tutor = exigir_tutor_utilizavel(db, tutor_id)
+    rotina.adicionar_contato(db, tutor, user=current_user, **payload.model_dump())
+    db.commit()
+    return {"items": rotina.listar_contatos(db, tutor), "message": "Contato adicional salvo; nenhuma autorizacao de envio foi criada."}
+
+
+@router.get("/{tutor_id}/origens")
+def origens_tutor(tutor_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return {"items": rotina.listar_origens(db, _tutor_rotina(db, tutor_id))}
+
+
+@router.post("/{tutor_id}/origens")
+def adicionar_origem_tutor(tutor_id: int, payload: OrigemTutorPayload, db: Session = Depends(get_db),
+                          current_user: User = Depends(get_current_user)):
+    tutor = exigir_tutor_utilizavel(db, tutor_id)
+    if payload.clinica_id and not db.query(Clinica.id).filter(Clinica.id == payload.clinica_id).first():
+        raise HTTPException(422, "Clinica de origem nao encontrada.")
+    rotina.adicionar_origem(db, tutor, user=current_user, **payload.model_dump())
+    db.commit()
+    return {"items": rotina.listar_origens(db, tutor)}
 
 
 class ReativacaoPayload(BaseModel):
@@ -444,7 +625,7 @@ def obter_tutor(
     if not tutor:
         raise HTTPException(status_code=404, detail="Tutor não encontrado")
 
-    return _serialize_tutor(tutor)
+    return _serialize_tutor(tutor, db)
 
 
 @router.get("/{tutor_id}/panorama")
@@ -543,7 +724,8 @@ def atualizar_tutor(
     """Atualiza um tutor existente."""
     _ensure_tutores_georef_columns(db)
     db_tutor = exigir_tutor_utilizavel(db, tutor_id)
-    for campo in ("identificacao_pendente", "origem_cadastro", "identificacao_observacoes"):
+    identidade_antes = rotina.dados_identidade(db_tutor)
+    for campo in ("origem_cadastro", "identificacao_observacoes"):
         if getattr(tutor, campo) is not None:
             setattr(db_tutor, campo, getattr(tutor, campo))
     if tutor.nome is not None and not tutor.nome.strip():
@@ -583,11 +765,15 @@ def atualizar_tutor(
     if tutor.endereco_normalizado is not None:
         db_tutor.endereco_normalizado = tutor.endereco_normalizado
 
+    rotina.registrar_edicao_identidade(db, db_tutor, identidade_antes, current_user)
+    if tutor.identificacao_pendente is True and db_tutor.identificacao_pendente is False:
+        rotina.reabrir_identificacao(db, db_tutor, current_user, "Revisao solicitada ao complementar o cadastro.")
+
     db.commit()
     db.refresh(db_tutor)
 
     return {
-        **_serialize_tutor(db_tutor),
+        **_serialize_tutor(db_tutor, db),
         "message": "Tutor atualizado com sucesso"
     }
 

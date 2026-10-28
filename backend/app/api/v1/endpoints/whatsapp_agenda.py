@@ -68,7 +68,7 @@ class AgendaUtilityTemplateSendRequest(BaseModel):
 class AgendaFormalizacaoSubmitRequest(BaseModel):
     nome_paciente: str = Field(..., min_length=1, max_length=200)
     nome_tutor: str = Field(..., min_length=1, max_length=200)
-    telefone_tutor: str = Field(..., min_length=8, max_length=32)
+    telefone_tutor: str = Field(default="", max_length=32)
 
 
 class WhatsAppInboundMessageNotificationRequest(BaseModel):

@@ -9,7 +9,7 @@ class TutorMesclagem(Base):
 
     id = Column(Integer, primary_key=True)
     principal_id = Column(Integer, nullable=False, index=True)
-    secundario_id = Column(Integer, nullable=False, unique=True)
+    secundario_id = Column(Integer, nullable=False, index=True)
     usuario_id = Column(Integer, nullable=False)
     usuario_nome = Column(Text)
     motivo = Column(Text, nullable=False)

@@ -114,3 +114,10 @@ pendente e continuam podendo ser agendados conforme as regras existentes.
 - PR #506 prepara a restauracao exclusiva de stage do snapshot f48220c6, com
   tutores preservados e main como ancestral. A outra tarefa de laudos foi
   avisada com autorizacao humana conferida; aguarda liberacao do SHA restaurado.
+
+## Evolucao de rotina agil
+
+O contrato de confirmar identidade agora exige metodo/evidencia/versao. A nova
+matriz em `../tutores-rotina-agil/verify.md` cobre cadastro minimo, resposta perdida,
+contatos alternativos e reversao conservadora, preservando o contrato original
+de homonimos separados, escolha por ID e historico administrativo.
