@@ -235,6 +235,7 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                     diagnostico="conclusão anterior",
                     status="Rascunho",
                     clinic_id=3,
+                    data_laudo=datetime(2020, 1, 15),
                 )
             )
             db.commit()
@@ -1748,7 +1749,8 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                     patch.object(ai_echo_service, "extrair_idade_paciente", wraps=ai_echo_service.extrair_idade_paciente) as age_loader,
                 ):
                     ai_echo_service._process_structure(session_id, measurements)
-                age_loader.assert_called_once_with(None, f"Idade: {age}" if age else "")
+                self.assertEqual(age_loader.call_count, 1)
+                self.assertEqual(age_loader.call_args.args, (None, f"Idade: {age}" if age else ""))
                 self.assertEqual(loader.call_args.kwargs.get("age"), age)
                 fake_provider.structure.assert_called_once()
                 provider_input = fake_provider.structure.call_args.kwargs
@@ -1766,6 +1768,51 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                     self.assertEqual(patient.observacoes, f"Idade: {age}" if age else "")
                     self.assertEqual(patient.peso_kg, weight)
                     self.assertEqual((report.descricao, report.diagnostico), ("texto anterior", "conclusão anterior"))
+
+    def test_historical_echo_structure_uses_exam_age_without_mutating_patient_or_report(self) -> None:
+        m_keys = {"DIVEd", "DIVES", "SIVd", "SIVs", "PLVEd", "PLVES"}
+        for species in ("Canina", "Felina"):
+            for index, (exam_date, report_date, birth, observations, expected) in enumerate((
+                (datetime(2018, 8, 15), datetime(2020, 1, 15), "2018-01-15", "", "7m"),
+                (datetime(2020, 1, 15), datetime(2020, 1, 15), "2018-01-15", "", "2a"),
+                (None, datetime(2018, 8, 15), "2018-01-15", "", "7m"),
+                (datetime(2018, 8, 15), datetime(2020, 1, 15), None, "Idade: 7 meses", "7 meses"),
+            )):
+                with self.subTest(species=species, expected=expected, fallback=exam_date is None):
+                    with self.session_factory() as db:
+                        patient = db.query(Paciente).filter(Paciente.id == 99).one()
+                        patient.especie, patient.peso_kg = species, 2.25
+                        patient.nascimento, patient.observacoes = birth, observations
+                        report = db.query(Laudo).filter(Laudo.id == 44).one()
+                        report.data_exame, report.data_laudo = exam_date, report_date
+                        session = self.create_session(db)
+                        session_id = session.id
+                        db.add(AIEchoTranscript(id=f"t-history-{species}-{index}", session_id=session_id,
+                            raw_text="Análise dos diâmetros ventriculares.",
+                            edited_text="Análise dos diâmetros ventriculares.", language="pt-BR"))
+                        db.commit()
+                    measurements = {key: "5" for key in m_keys}
+                    before = dict(measurements)
+                    fake_provider = SimpleNamespace(structure=Mock(return_value=StructuringResult(
+                        output=empty_output(), model="mock-history-only", provider_response_id=None,
+                        input_tokens=None, output_tokens=None)))
+                    with (
+                        patch.object(ai_echo_service, "SessionLocal", self.session_factory),
+                        patch.object(ai_echo_service, "get_clinical_structuring_provider", return_value=fake_provider),
+                        patch.object(ai_echo_service, "load_echo_reference_context", wraps=load_echo_reference_context) as loader,
+                    ):
+                        ai_echo_service._process_structure(session_id, measurements)
+                    self.assertEqual(loader.call_args.kwargs["age"], expected)
+                    provider_input = fake_provider.structure.call_args.kwargs
+                    self.assertEqual(provider_input["exam_context"]["age"], expected)
+                    self.assertEqual(m_keys.issubset(provider_input["reference_context"]["ranges"]), expected == "2a")
+                    self.assertEqual(measurements, before)
+                    with self.session_factory() as db:
+                        patient = db.query(Paciente).filter(Paciente.id == 99).one()
+                        report = db.query(Laudo).filter(Laudo.id == 44).one()
+                        self.assertEqual((patient.nascimento, patient.observacoes, patient.peso_kg), (birth, observations, 2.25))
+                        self.assertEqual((report.data_exame, report.data_laudo), (exam_date, report_date))
+                        self.assertEqual((report.descricao, report.diagnostico), ("texto anterior", "conclusão anterior"))
 
     def test_exact_mild_mitral_b1_case_does_not_call_external_provider(self) -> None:
         transcript_text = (
