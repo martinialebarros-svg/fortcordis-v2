@@ -178,7 +178,9 @@ def test_real_aggregators_http_contract_and_database_immutability(client):
     event.listen(db.bind, "before_cursor_execute", observe)
     try:
         result = http.post("/gestao/painel", json={**CONTEXT, "premissas": {"tributos_percentual": 10, "taxas_percentual": 0,
-                            "repasses_percentual": 0, "custos_variaveis": 20, "horas_atendimento": 1, "horas_laudos": 1, "horas_deslocamento": 0}})
+                            "repasses_percentual": 0, "custos_variaveis": 20, "horas_atendimento": 1, "horas_laudos": 1, "horas_deslocamento": 0,
+                            "movimentos": [{"data": "2026-09-02", "tipo": "saida", "valor": 80,
+                                            "recorrencia": "mensal", "descricao": "  Equipamento & materiais  "}]}})
     finally:
         event.remove(db.bind, "before_cursor_execute", observe)
     assert result.status_code == 200, result.text
@@ -188,6 +190,12 @@ def test_real_aggregators_http_contract_and_database_immutability(client):
     assert body["atual"]["cancelamentos"]["taxa_pct"] == 50
     assert body["atual"]["concentracao"]["top1_pct"] == 100
     assert body["atual"]["caixa"]["saldo_final"] is None
+    cash_details = body["atual"]["caixa"]["detalhes"]
+    assert [(row["data"], row["descricao"]) for row in cash_details if row["fonte"] == "premissa"] == [
+        ("2026-10-02", "Equipamento & materiais"),
+    ]
+    assert body["atual"]["caixa"]["saidas_premissas"] == 80
+    assert not any(row["fonte"] == "premissa" for row in body["anterior"]["caixa"]["detalhes"])
     assert body["anterior"]["contribuicao"]["por_hora"] is None
     assert "NÃO EXPOR" not in result.text
     assert not any(s.startswith(("INSERT", "UPDATE", "DELETE", "ALTER", "CREATE")) for s in statements)

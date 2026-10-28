@@ -529,7 +529,8 @@ def build_financial_metrics(
             if start <= when <= end and _d(movement.get("valor")) > 0:
                 entries.append({"fonte": "premissa", "id": index + 1, "os_id": None, "clinica_id": clinic_id,
                                 "data": when.isoformat(), "data_original": when.isoformat(), "tipo": movement["tipo"],
-                                "valor": _money(movement["valor"]), "natureza": "premissa", "vencido": False})
+                                "valor": _money(movement["valor"]), "natureza": "premissa", "vencido": False,
+                                "descricao": movement.get("descricao")})
     entries.sort(key=lambda row: (row["data"], row["fonte"], row["id"]))
     initial = assumptions.get("saldo_inicial")
     if initial is None:

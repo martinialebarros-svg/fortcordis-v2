@@ -139,6 +139,52 @@ describe("painel de gestão administrativo", () => {
     expect(within(section).getByText("Tributos").nextElementSibling).toHaveTextContent("Não disponível");
   });
 
+  it("distingue movimentos de mesmo valor pela descrição, preserva recorrências e identifica descrições ausentes", async () => {
+    const detalhes: MetricasGestao["caixa"]["detalhes"] = [
+      { fonte: "premissa", id: 1, descricao: "Aluguel estimado", clinica_id: null, data: "2026-10-10", tipo: "saida", valor: 300, natureza: "premissa" },
+      { fonte: "premissa", id: 2, descricao: "Manutenção estimada", clinica_id: null, data: "2026-10-10", tipo: "saida", valor: 300, natureza: "premissa" },
+      { fonte: "premissa", id: 1, descricao: "Aluguel estimado", clinica_id: null, data: "2026-11-10", tipo: "saida", valor: 300, natureza: "premissa" },
+      { fonte: "conta_pagar", id: 7, clinica_id: null, data: "2026-10-11", tipo: "saida", valor: 300, natureza: "previsto" },
+      { fonte: "premissa", id: 8, descricao: null, clinica_id: null, data: "2026-10-12", tipo: "saida", valor: 300, natureza: "premissa" },
+    ];
+    mocks.post.mockResolvedValue({ data: { ...response, atual: { ...metrics, caixa: { ...metrics.caixa, detalhes } } } });
+    render(<GestaoWorkspace />);
+    await screen.findByRole("navigation", { name: "Indicadores de gestão" });
+    fireEvent.click(screen.getByText("Ver movimentos que formam a projeção"));
+    const table = screen.getByRole("table", { name: /Movimentos por origem/ });
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(5);
+    expect(within(table).getByRole("columnheader", { name: "Descrição" })).toBeVisible();
+    expect(within(rows[0]).getByRole("cell", { name: "Aluguel estimado" })).toBeVisible();
+    expect(within(rows[1]).getByRole("cell", { name: "Manutenção estimada" })).toBeVisible();
+    expect(within(rows[2]).getByRole("cell", { name: "Aluguel estimado" })).toBeVisible();
+    expect(rows[0]).toHaveTextContent("10/10/2026");
+    expect(rows[2]).toHaveTextContent("10/11/2026");
+    expect(rows[0]).toHaveTextContent("Premissa informada #1");
+    expect(rows[1]).toHaveTextContent("Premissa informada #2");
+    expect(rows[2]).toHaveTextContent("Premissa informada #1");
+    expect(rows[3]).toHaveTextContent("Conta a pagar #7");
+    expect(rows[4]).toHaveTextContent("Premissa informada #8");
+    for (const row of rows) expect(row).toHaveTextContent("300,00");
+    expect(within(rows[3]).getByRole("cell", { name: "Não informada" })).toBeVisible();
+    expect(within(rows[4]).getByRole("cell", { name: "Não informada" })).toBeVisible();
+    expect(mocks.put).not.toHaveBeenCalled();
+  });
+
+  it("renderiza descrições de premissas como texto sem interpretar HTML", async () => {
+    const descricao = '<img src=x onerror="alert(1)"><script>alert(2)</script>';
+    const detalhes: MetricasGestao["caixa"]["detalhes"] = [
+      { fonte: "premissa", id: 1, descricao, clinica_id: null, data: hoje, tipo: "saida", valor: 50, natureza: "premissa" },
+    ];
+    mocks.post.mockResolvedValue({ data: { ...response, atual: { ...metrics, caixa: { ...metrics.caixa, detalhes } } } });
+    render(<GestaoWorkspace />);
+    await screen.findByRole("navigation", { name: "Indicadores de gestão" });
+    fireEvent.click(screen.getByText("Ver movimentos que formam a projeção"));
+    const table = screen.getByRole("table", { name: /Movimentos por origem/ });
+    expect(within(table).getByRole("cell", { name: descricao })).toBeVisible();
+    expect(table.querySelector("img, script")).toBeNull();
+  });
+
   it("não envia movimentos incompletos e permite recuperar erros de consulta", async () => {
     mocks.post.mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ data: response });
     render(<GestaoWorkspace />);

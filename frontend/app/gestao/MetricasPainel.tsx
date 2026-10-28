@@ -106,7 +106,7 @@ export default function MetricasPainel({ atual, anterior }: { atual: MetricasGes
       <Lacunas items={cx.lacunas} />
       <CaixaTabela title="Projeção semanal" rows={cx.semanas} />
       <Detalhes title="Ver projeção mensal"><CaixaTabela title="Projeção mensal" rows={cx.meses} /></Detalhes>
-      <Detalhes title="Ver movimentos que formam a projeção"><LimiteDetalhes total={cx.total_registros} limitado={cx.detalhes_limitados} /><Tabela caption="Movimentos por origem" rows={cx.detalhes} columns={[{ title: "Data", render: (r) => formatCalendarDate(r.data) }, { title: "Origem", render: (r) => `${fontesCaixa[r.fonte] || "Registro financeiro"} #${r.id}` }, { title: "Tipo", render: (r) => r.tipo === "entrada" ? "Entrada" : "Saída" }, { title: "Natureza", render: (r) => ({ confirmado: "Confirmado", previsto: "Previsto", premissa: "Premissa" })[r.natureza] }, { title: "Valor", render: (r) => moeda(r.valor) }]} /></Detalhes>
+      <Detalhes title="Ver movimentos que formam a projeção"><LimiteDetalhes total={cx.total_registros} limitado={cx.detalhes_limitados} /><Tabela caption="Movimentos por origem" rows={cx.detalhes} columns={[{ title: "Data", render: (r) => formatCalendarDate(r.data) }, { title: "Descrição", render: (r) => r.descricao?.trim() || "Não informada" }, { title: "Origem", render: (r) => `${fontesCaixa[r.fonte] || "Registro financeiro"} #${r.id}` }, { title: "Tipo", render: (r) => r.tipo === "entrada" ? "Entrada" : "Saída" }, { title: "Natureza", render: (r) => ({ confirmado: "Confirmado", previsto: "Previsto", premissa: "Premissa" })[r.natureza] }, { title: "Valor", render: (r) => moeda(r.valor) }]} /></Detalhes>
     </Secao>
   </div>;
 }
