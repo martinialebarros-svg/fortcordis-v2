@@ -305,6 +305,45 @@ class PdfLaudoLowWeightTest(unittest.TestCase):
         for prefix in KEYS.values():
             self.assertNotIn(formatar_referencia(carrier[f"{prefix}_min"], carrier[f"{prefix}_max"], "mm"), juvenile)
 
+    def test_unknown_age_extrapolated_pdf_preserves_both_independent_limitations(self):
+        for species in ("Canina", "Felina"):
+            for weight in (1, 1.49, 1.5):
+                with self.subTest(species=species, weight=weight):
+                    payload = report(species, weight, age=None)
+                    _, text = pdf(payload)
+                    self.assertIn("confirmar idade/maturidade", text)
+                    self.assertEqual("estimativa por extrapolação abaixo de 1,5 kg" in text, weight < 1.5)
+                    if weight < 1.5:
+                        self.assertIn("não constitui intervalo individual validado", text)
+                        self.assertIn("não permite classificação automática", text)
+
+    def test_unknown_age_note_requires_an_actually_displayed_estimated_m_model(self):
+        for species in ("Canina", "Felina"):
+            for weight in (1, 1.49, 1.5):
+                for age in ("2 anos", "7m"):
+                    with self.subTest(species=species, weight=weight, age=age):
+                        _, text = pdf(report(species, weight, age))
+                        self.assertNotIn("confirmar idade/maturidade", text)
+                        self.assertEqual("estimativa por extrapolação abaixo de 1,5 kg" in text,
+                                         weight < 1.5 and age == "2 anos")
+                with self.subTest(species=species, weight=weight, technique="2d"):
+                    payload = report(species, weight, age=None)
+                    payload["medidas"] = {"VE_tecnica_relatorio": "2d", "DIVEd_2D": "22"}
+                    self.assertNotIn("confirmar idade/maturidade", pdf(payload)[1])
+            for key, prefix in KEYS.items():
+                with self.subTest(species=species, custom_key=key):
+                    custom = {"especie": species, "peso_kg": 2.5,
+                              f"{prefix}_min": 1, f"{prefix}_max": 99}
+                    original = deepcopy(custom)
+                    payload = report(species, 2.5, age=None, reference=custom)
+                    payload["medidas"] = {"VE_tecnica_relatorio": "modo_m", key: MEASUREMENTS[key]}
+                    if species == "Felina":
+                        payload["medidas"]["TAPSE"] = "9"
+                    _, text = pdf(payload)
+                    self.assertIn("1.00 - 99.00 mm", text)
+                    self.assertNotIn("confirmar idade/maturidade", text)
+                    self.assertEqual(custom, original)
+
     def test_feline_juvenile_computed_carrier_does_not_cite_unused_adult_m_source(self):
         for species in ("Felina", "Cat"):
             for weight in (1, 2.25, 2.99):
