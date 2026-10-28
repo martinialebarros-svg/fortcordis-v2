@@ -4,7 +4,7 @@ import re
 import sys
 import unittest
 from copy import deepcopy
-from datetime import date
+from datetime import date, timezone
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -53,6 +53,97 @@ def pdf(payload):
 
 
 class PdfLaudoLowWeightTest(unittest.TestCase):
+    def test_historical_echo_age_matches_exam_for_both_pdf_paths_and_saved_report(self):
+        from app.models.laudo import Laudo
+        from app.models.paciente import Paciente
+        from app.services.laudo_pdf_service import render_laudo_pdf
+        from app.api.v1.endpoints.laudos import gerar_pdf_laudo, obter_laudo, _parse_data_exame
+        from app.utils.paciente_helpers import extrair_idade_paciente
+
+        for entrypoint in ("service", "endpoint", "saved_report"):
+            for species in ("Canina", "Felina"):
+                for exam_date, report_date, birth, observations, expected, expected_date in (
+                    (date(2018, 8, 15), date(2020, 1, 15), "2018-01-15", "", "7m", "15/08/2018"),
+                    (date(2020, 1, 15), None, "2018-01-15", "", "2a", "15/01/2020"),
+                    (None, date(2018, 8, 15), "2018-01-15", "", "7m", "15/08/2018"),
+                    (date(2018, 8, 15), None, None, "Idade: 7 meses", "7 meses", "15/08/2018"),
+                    (_parse_data_exame("2019-01-14T23:30:00-03:00").astimezone(timezone.utc), None,
+                     "2018-01-15", "", "11m", "14/01/2019"),
+                    (None, _parse_data_exame("2019-01-14T23:30:00-03:00").astimezone(timezone.utc),
+                     "2018-01-15", "", "11m", "14/01/2019"),
+                    (_parse_data_exame("2019-01-14").astimezone(timezone.utc), None,
+                     "2018-01-15", "", "11m", "14/01/2019"),
+                    (_parse_data_exame("2020-01-15T23:30:00-03:00").astimezone(timezone.utc), None,
+                     "2018-01-15", "", "2a", "15/01/2020"),
+                    (_parse_data_exame("2019-01-15T00:00:00Z"), None,
+                     "2018-01-15", "", "1a", "15/01/2019"),
+                    (None, _parse_data_exame("2019-01-15T00:00:00Z"),
+                     "2018-01-15", "", "11m", "14/01/2019"),
+                ):
+                    with self.subTest(entrypoint=entrypoint, species=species, expected=expected, fallback=exam_date is None):
+                        patient = SimpleNamespace(id=8, nome="QA IDADE HISTORICA", especie=species,
+                                                  peso_kg=2.25, tutor_id=None, nascimento=birth,
+                                                  observacoes=observations, raca="SRD", sexo="Macho")
+                        description = "## Medidas Ecocardiograficas\n" + "\n".join(
+                            f"- {key}: {value}" for key, value in MEASUREMENTS.items())
+                        laudo = SimpleNamespace(id=91, paciente_id=8, clinic_id=None,
+                            medico_solicitante="Clinica sintetica", data_exame=exam_date,
+                            data_laudo=report_date, descricao=description, diagnostico="Teste sintetico.",
+                            observacoes="", anexos=None, tipo="ecocardiograma", titulo="QA sintetico",
+                            status="Rascunho", created_at=None, updated_at=None,
+                            veterinario_parceiro_id=None, whatsapp_envios=None)
+                        before = deepcopy((vars(patient), vars(laudo)))
+                        rows = {Laudo: laudo, Paciente: patient}
+                        database = MagicMock()
+                        def query_for(model):
+                            query = MagicMock()
+                            query.filter.return_value = query
+                            query.order_by.return_value = query
+                            query.first.return_value = rows.get(model)
+                            query.all.return_value = []
+                            return query
+                        database.query.side_effect = query_for
+                        with patch("app.services.laudo_pdf_service.compute_laudo_pdf_cache_key", return_value="synthetic-cache-key"), \
+                             patch("app.api.v1.endpoints.laudos.compute_laudo_pdf_cache_key", return_value="synthetic-cache-key"), \
+                             patch("app.api.v1.endpoints.laudos.get_cached_laudo_pdf_job", return_value=None), \
+                             patch("app.api.v1.endpoints.laudos._serialize_portal_release_state", return_value={}), \
+                             patch("app.utils.pdf_laudo.gerar_pdf_laudo_eco", return_value=b"synthetic-renderer-capture") as renderer:
+                            user = SimpleNamespace(id=1, nome="QA VETERINARIO")
+                            if entrypoint == "saved_report":
+                                saved = obter_laudo(91, db=database, current_user=user)
+                                self.assertEqual(saved["paciente"]["idade"], expected)
+                                renderer.assert_not_called()
+                            else:
+                                if entrypoint == "endpoint":
+                                    generated = gerar_pdf_laudo(91, db=database, current_user=user)
+                                    self.assertIn(expected_date[6:] + "-" + expected_date[3:5] + "-" + expected_date[:2], generated.headers["content-disposition"])
+                                else:
+                                    generated = render_laudo_pdf(database, 91, user)
+                                    self.assertTrue(generated.filename.startswith(expected_date[6:] + "-" + expected_date[3:5] + "-" + expected_date[:2]))
+                                payload = renderer.call_args.args[0]
+                                self.assertEqual(payload["paciente"]["idade"], expected)
+                                self.assertEqual(payload["paciente"]["data_exame"], expected_date)
+                                for prefix in KEYS.values():
+                                    status = payload["referencia_eco"]["range_metadata"][prefix]["status"]
+                                    self.assertEqual(status, "published" if expected in {"1a", "2a"} else "unavailable")
+                            laudo.tipo = "pressao_arterial"
+                            current_age = extrair_idade_paciente(birth, observations)
+                            if entrypoint == "saved_report":
+                                saved_other = obter_laudo(91, db=database, current_user=user)
+                                self.assertEqual(saved_other["paciente"]["idade"], current_age)
+                            else:
+                                with patch("app.utils.pdf_laudo.gerar_pdf_laudo_pressao", return_value=b"synthetic-other-modality") as other_renderer:
+                                    render_laudo_pdf(database, 91, user)
+                                    self.assertEqual(other_renderer.call_args.args[0]["paciente"]["idade"], current_age)
+                            laudo.tipo = "ecocardiograma"
+                        if entrypoint != "saved_report":
+                            _, text = pdf(payload)
+                            doi = "10.3389/fvets.2022.918457" if species == "Canina" else "10.1111/jvim.14569"
+                            self.assertEqual(doi in text, expected in {"1a", "2a"})
+                        self.assertEqual((vars(patient), vars(laudo)), before)
+                        database.add.assert_not_called()
+                        database.commit.assert_not_called()
+
     def test_real_pdf_loader_keeps_the_same_precise_weight_for_reference_and_renderer(self):
         from app.models.laudo import Laudo
         from app.models.paciente import Paciente
@@ -214,6 +305,45 @@ class PdfLaudoLowWeightTest(unittest.TestCase):
         for prefix in KEYS.values():
             self.assertNotIn(formatar_referencia(carrier[f"{prefix}_min"], carrier[f"{prefix}_max"], "mm"), juvenile)
 
+    def test_unknown_age_extrapolated_pdf_preserves_both_independent_limitations(self):
+        for species in ("Canina", "Felina"):
+            for weight in (1, 1.49, 1.5):
+                with self.subTest(species=species, weight=weight):
+                    payload = report(species, weight, age=None)
+                    _, text = pdf(payload)
+                    self.assertIn("confirmar idade/maturidade", text)
+                    self.assertEqual("estimativa por extrapolação abaixo de 1,5 kg" in text, weight < 1.5)
+                    if weight < 1.5:
+                        self.assertIn("não constitui intervalo individual validado", text)
+                        self.assertIn("não permite classificação automática", text)
+
+    def test_unknown_age_note_requires_an_actually_displayed_estimated_m_model(self):
+        for species in ("Canina", "Felina"):
+            for weight in (1, 1.49, 1.5):
+                for age in ("2 anos", "7m"):
+                    with self.subTest(species=species, weight=weight, age=age):
+                        _, text = pdf(report(species, weight, age))
+                        self.assertNotIn("confirmar idade/maturidade", text)
+                        self.assertEqual("estimativa por extrapolação abaixo de 1,5 kg" in text,
+                                         weight < 1.5 and age == "2 anos")
+                with self.subTest(species=species, weight=weight, technique="2d"):
+                    payload = report(species, weight, age=None)
+                    payload["medidas"] = {"VE_tecnica_relatorio": "2d", "DIVEd_2D": "22"}
+                    self.assertNotIn("confirmar idade/maturidade", pdf(payload)[1])
+            for key, prefix in KEYS.items():
+                with self.subTest(species=species, custom_key=key):
+                    custom = {"especie": species, "peso_kg": 2.5,
+                              f"{prefix}_min": 1, f"{prefix}_max": 99}
+                    original = deepcopy(custom)
+                    payload = report(species, 2.5, age=None, reference=custom)
+                    payload["medidas"] = {"VE_tecnica_relatorio": "modo_m", key: MEASUREMENTS[key]}
+                    if species == "Felina":
+                        payload["medidas"]["TAPSE"] = "9"
+                    _, text = pdf(payload)
+                    self.assertIn("1.00 - 99.00 mm", text)
+                    self.assertNotIn("confirmar idade/maturidade", text)
+                    self.assertEqual(custom, original)
+
     def test_feline_juvenile_computed_carrier_does_not_cite_unused_adult_m_source(self):
         for species in ("Felina", "Cat"):
             for weight in (1, 2.25, 2.99):
@@ -315,6 +445,72 @@ class PdfLaudoLowWeightTest(unittest.TestCase):
         self.assertIn("1.00 - 99.00 mm", text)
         self.assertNotIn("Isayama", text)
         self.assertEqual(custom, original)
+
+    def test_model_sources_do_not_attribute_unmeasured_models_to_the_only_custom_dimension(self):
+        for species, weight, source, doi in (("Canina", 2.5, "Isayama", "10.3389/fvets.2022.918457"),
+                                             ("Felina", 2.25, "Häggström", "10.1111/jvim.14569")):
+            for key, prefix in KEYS.items():
+                for age in ("2 anos", None):
+                    with self.subTest(species=species, key=key, age=age):
+                        custom = {"especie": species, "peso_kg": weight,
+                                  f"{prefix}_min": 1, f"{prefix}_max": 99}
+                        original = deepcopy(custom)
+                        payload = report(species, weight, age, custom)
+                        payload["medidas"] = {"VE_tecnica_relatorio": "modo_m", key: MEASUREMENTS[key]}
+                        if species == "Felina":
+                            # Keep another bibliography source present so an
+                            # unused model cannot leak back through footnotes.
+                            payload["medidas"]["TAPSE"] = "9"
+                        _, text = pdf(payload)
+                        self.assertIn("1.00 - 99.00 mm", text)
+                        self.assertNotIn(source, text)
+                        self.assertNotIn(doi, text)
+                        self.assertNotIn("Adultos:", text)
+                        if species == "Felina":
+                            self.assertIn("Spalla et al. (2017)", text)
+                        self.assertEqual(custom, original)
+
+    def test_model_source_remains_when_another_measured_dimension_uses_its_model(self):
+        keys = list(KEYS)
+        for species, weight, doi in (("Canina", 2.5, "10.3389/fvets.2022.918457"),
+                                     ("Felina", 2.25, "10.1111/jvim.14569")):
+            for index, (key, prefix) in enumerate(KEYS.items()):
+                with self.subTest(species=species, key=key):
+                    model_key = keys[(index + 1) % len(keys)]
+                    custom = {"especie": species, "peso_kg": weight,
+                              f"{prefix}_min": 1, f"{prefix}_max": 99}
+                    payload = report(species, weight, reference=custom)
+                    payload["medidas"] = {"VE_tecnica_relatorio": "modo_m", key: MEASUREMENTS[key],
+                                            model_key: MEASUREMENTS[model_key]}
+                    _, text = pdf(payload)
+                    expected = reference(species, weight)
+                    self.assertIn("1.00 - 99.00 mm", text)
+                    self.assertIn(formatar_referencia(expected[KEYS[model_key] + "_min"],
+                                                     expected[KEYS[model_key] + "_max"], "mm"), text)
+                    self.assertIn(doi, text)
+                    self.assertIn("Tabela 2 de Isayama" if species == "Canina" else "interpolação entre os pesos", text)
+
+    def test_canine_source_requires_a_finite_unambiguous_applicable_measured_model(self):
+        for value in ("", "0", "nan"):
+            with self.subTest(value=value):
+                payload = report()
+                payload["medidas"] = {"VE_tecnica_relatorio": "modo_m", "DIVEd": value}
+                self.assertNotIn("Isayama", pdf(payload)[1])
+        ambiguous = report()
+        ambiguous["medidas"] = {"VE_tecnica_relatorio": "modo_m", "DIVEd": "1.2",
+                                  "DIVES": "0.7", "SIVd": "0.4"}
+        _, text = pdf(ambiguous)
+        self.assertIn("unidade a confirmar", text.lower())
+        self.assertNotIn("Isayama", text)
+        for weight, age, marker in ((2.5, None, "Adultos:"), (1, "2 anos", "Est.:")):
+            with self.subTest(weight=weight, age=age):
+                _, text = pdf(report(weight=weight, age=age))
+                self.assertIn(marker, text)
+                self.assertIn("10.3389/fvets.2022.918457", text)
+        self.assertNotIn("Isayama", pdf(report(age="7m"))[1])
+        two_d = report()
+        two_d["medidas"].update({"VE_tecnica_relatorio": "2d", "DIVEd_2D": "22"})
+        self.assertNotIn("Isayama", pdf(two_d)[1])
 
     def test_2d_does_not_receive_the_m_fallback_or_extend_visser_below_its_domain(self):
         for weight in (2.7, 2.5):
