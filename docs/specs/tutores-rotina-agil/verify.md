@@ -69,3 +69,15 @@ mesclagem operacional, envio de mensagem, commit, push ou deploy nesta etapa.
   separadamente e passou. Guardrails SDD e promocao aprovados sem excecoes.
 - Preservacao revisada: seis arquivos runtime mantidos pelo deploy, SHA
   imutavel, migrations/readiness/canario autenticado/backup-restore drill ativos.
+
+- Backup privado pre-migracao concluido na VPS: schema PostgreSQL completo
+  (1.69 MB), dados de tutores/tutores_mesclagens/schema_migrations e sequencias
+  (57.5 KB), catalogos validados, arquivos 0600 e diretorio 0700. Escopo protege
+  103/104; nao e backup integral contra perda geral do banco. Nenhuma tabela
+  nova de 103/104 existia. Rollback preferencial conserva schema aditivo/dados.
+- Liberados aproximadamente 800 MB somente de caches Webpack regeneraveis de
+  stage/producao; arquivos servidos, imagens, uploads e backups preservados.
+- O primeiro gate SDD exigiu manter a estrutura documental da comparacao de
+  exames retirada de stage. Documentos preservados com escopo historico claro e
+  pendencias originais explicitamente vinculadas ao SHA preservado; nenhum
+  codigo clinico ou aprovacao dessa feature acompanha tutores.
