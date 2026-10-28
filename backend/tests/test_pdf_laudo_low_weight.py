@@ -4,7 +4,7 @@ import re
 import sys
 import unittest
 from copy import deepcopy
-from datetime import date
+from datetime import date, timezone
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -57,16 +57,28 @@ class PdfLaudoLowWeightTest(unittest.TestCase):
         from app.models.laudo import Laudo
         from app.models.paciente import Paciente
         from app.services.laudo_pdf_service import render_laudo_pdf
-        from app.api.v1.endpoints.laudos import gerar_pdf_laudo, obter_laudo
+        from app.api.v1.endpoints.laudos import gerar_pdf_laudo, obter_laudo, _parse_data_exame
         from app.utils.paciente_helpers import extrair_idade_paciente
 
         for entrypoint in ("service", "endpoint", "saved_report"):
             for species in ("Canina", "Felina"):
-                for exam_date, report_date, birth, observations, expected in (
-                    (date(2018, 8, 15), date(2020, 1, 15), "2018-01-15", "", "7m"),
-                    (date(2020, 1, 15), None, "2018-01-15", "", "2a"),
-                    (None, date(2018, 8, 15), "2018-01-15", "", "7m"),
-                    (date(2018, 8, 15), None, None, "Idade: 7 meses", "7 meses"),
+                for exam_date, report_date, birth, observations, expected, expected_date in (
+                    (date(2018, 8, 15), date(2020, 1, 15), "2018-01-15", "", "7m", "15/08/2018"),
+                    (date(2020, 1, 15), None, "2018-01-15", "", "2a", "15/01/2020"),
+                    (None, date(2018, 8, 15), "2018-01-15", "", "7m", "15/08/2018"),
+                    (date(2018, 8, 15), None, None, "Idade: 7 meses", "7 meses", "15/08/2018"),
+                    (_parse_data_exame("2019-01-14T23:30:00-03:00").astimezone(timezone.utc), None,
+                     "2018-01-15", "", "11m", "14/01/2019"),
+                    (None, _parse_data_exame("2019-01-14T23:30:00-03:00").astimezone(timezone.utc),
+                     "2018-01-15", "", "11m", "14/01/2019"),
+                    (_parse_data_exame("2019-01-14").astimezone(timezone.utc), None,
+                     "2018-01-15", "", "11m", "14/01/2019"),
+                    (_parse_data_exame("2020-01-15T23:30:00-03:00").astimezone(timezone.utc), None,
+                     "2018-01-15", "", "2a", "15/01/2020"),
+                    (_parse_data_exame("2019-01-15T00:00:00Z"), None,
+                     "2018-01-15", "", "1a", "15/01/2019"),
+                    (None, _parse_data_exame("2019-01-15T00:00:00Z"),
+                     "2018-01-15", "", "11m", "14/01/2019"),
                 ):
                     with self.subTest(entrypoint=entrypoint, species=species, expected=expected, fallback=exam_date is None):
                         patient = SimpleNamespace(id=8, nome="QA IDADE HISTORICA", especie=species,
@@ -103,14 +115,17 @@ class PdfLaudoLowWeightTest(unittest.TestCase):
                                 renderer.assert_not_called()
                             else:
                                 if entrypoint == "endpoint":
-                                    gerar_pdf_laudo(91, db=database, current_user=user)
+                                    generated = gerar_pdf_laudo(91, db=database, current_user=user)
+                                    self.assertIn(expected_date[6:] + "-" + expected_date[3:5] + "-" + expected_date[:2], generated.headers["content-disposition"])
                                 else:
-                                    render_laudo_pdf(database, 91, user)
+                                    generated = render_laudo_pdf(database, 91, user)
+                                    self.assertTrue(generated.filename.startswith(expected_date[6:] + "-" + expected_date[3:5] + "-" + expected_date[:2]))
                                 payload = renderer.call_args.args[0]
                                 self.assertEqual(payload["paciente"]["idade"], expected)
+                                self.assertEqual(payload["paciente"]["data_exame"], expected_date)
                                 for prefix in KEYS.values():
                                     status = payload["referencia_eco"]["range_metadata"][prefix]["status"]
-                                    self.assertEqual(status, "published" if expected == "2a" else "unavailable")
+                                    self.assertEqual(status, "published" if expected in {"1a", "2a"} else "unavailable")
                             laudo.tipo = "pressao_arterial"
                             current_age = extrair_idade_paciente(birth, observations)
                             if entrypoint == "saved_report":
@@ -124,7 +139,7 @@ class PdfLaudoLowWeightTest(unittest.TestCase):
                         if entrypoint != "saved_report":
                             _, text = pdf(payload)
                             doi = "10.3389/fvets.2022.918457" if species == "Canina" else "10.1111/jvim.14569"
-                            self.assertEqual(doi in text, expected == "2a")
+                            self.assertEqual(doi in text, expected in {"1a", "2a"})
                         self.assertEqual((vars(patient), vars(laudo)), before)
                         database.add.assert_not_called()
                         database.commit.assert_not_called()

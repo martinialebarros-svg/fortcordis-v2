@@ -649,7 +649,8 @@ def _process_structure(
         patient_age = (
             extrair_idade_paciente(
                 patient.nascimento, patient.observacoes,
-                **({"data_referencia": report.data_exame or report.data_laudo}
+                **({"data_referencia": report.data_exame or report.data_laudo,
+                    "data_calendario": bool(report.data_exame)}
                    if report and (report.tipo or "").lower() == "ecocardiograma" else {}),
             )
             if patient else None
