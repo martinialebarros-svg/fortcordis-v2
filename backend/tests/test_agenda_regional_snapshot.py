@@ -75,6 +75,11 @@ class AgendaRegionalSnapshotTest(unittest.TestCase):
             with self.assertRaises(HTTPException) as raised:
                 agenda._validar_deslocamento_agendamento(self.db, moved,
                     agendamento_id_excluir=moved.id, baseline_regional=baseline)
+            bypass = agenda._validar_deslocamento_agendamento(self.db, moved,
+                agendamento_id_excluir=moved.id, baseline_regional=baseline,
+                confirmar_conflito_deslocamento=True)
+            self.assertEqual(bypass, {"origem": "confirmacao_admin",
+                "bloqueio": "TRANSICAO_REGIONAL_COTA_EXCEDIDA"})
         self.assertEqual(raised.exception.detail["motivo_regional"], "TRANSICAO_REGIONAL_COTA_EXCEDIDA")
         self.assertEqual(raised.exception.detail["transicao_regional"]["transicoes_longas_anteriores"], 0)
         self.assertEqual(baseline[1]["destino_operacional"]["entity_id"], c2)

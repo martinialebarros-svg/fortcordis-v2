@@ -183,3 +183,21 @@ ENV/configuração. Reverter somente o P1 ao snapshot anterior de produção e
 preservar os incrementos paralelos. Fora de escopo: enviar ofertas, criar
 reservas reais, atualizar rotas pagas, inferir demanda, alterar dados clínicos e
 flexibilizar duas transições longas.
+
+## Correcao: excecao administrativa na validacao regional (2026-10-28)
+
+O bloqueio regional de `POST /agenda` e dos demais escritores deve respeitar
+`confirmar_conflito_deslocamento=true`, autorizado exclusivamente para admin
+pelos endpoints, ou uma excecao persistida valida para a rota atual. A regra
+regional continua sendo avaliada: sem concessao, mantem o 409
+`CONFLITO_DESLOCAMENTO` e seu `motivo_regional`.
+
+Quando a excecao ignora esse bloqueio, o validador retorna a origem da concessao
+e `bloqueio=regional.codigo`, permitindo ao fluxo existente persistir quem,
+quando, motivo e escopo, e registrar `bloqueio_ignorado` na auditoria. A alteracao
+nao libera sobreposicao de horarios nem concede excecao operacional a nao-admin.
+A pesquisa de ofertas continua aplicando os limites regionais normalmente.
+
+Nao ha migracao nem alteracao de configuracao. Rollback: remover apenas o retorno
+condicional adicionado ao bloqueio regional; campos persistidos seguem o contrato
+existente de excecao por escopo.
