@@ -86,7 +86,7 @@ describe("deriveAutomaticEchoMeasurements", () => {
       expect(historical).toEqual(before);
     });
 
-  it("mantém os cálculos caninos existentes sem ampliar a aplicabilidade pelo novo classificador", () => {
+  it("aplica os mesmos cálculos aos aliases caninos exatos sem aceitar prefixos", () => {
     const measurements = {
       Onda_E: "1.08", Onda_A: "0.95", TRIV: "40", e_doppler: "0.16", a_doppler: "0.08",
       DIVEd: "30", DIVEd_2D: "32", VE_vista_2D: "eixo_curto",
@@ -95,10 +95,16 @@ describe("deriveAutomaticEchoMeasurements", () => {
       E_A: "1.14", E_TRIV: "2.7", E_E_linha: "6.75", doppler_tecidual_relacao: "2",
       DIVEd_normalizado: "1.52", DIVEd_normalizado_2D: "1.55",
     });
-    const dog = deriveAutomaticEchoMeasurements(measurements, 10, "Dog");
-    expect(dog).not.toHaveProperty("DIVEd_normalizado");
-    expect(dog).not.toHaveProperty("DIVEd_normalizado_2D");
-    expect(dog.E_A).toBe("1.14");
+    for (const species of ["Dog", " Cão ", "cães", "Cachorro", "canino", "Canine"]) {
+      expect(deriveAutomaticEchoMeasurements(measurements, 10, species)).toMatchObject({
+        DIVEd_normalizado: "1.52", DIVEd_normalizado_2D: "1.55", E_A: "1.14",
+      });
+    }
+    for (const species of ["CaninaXYZ", "Caninoide", "Dogfish", "Felina"]) {
+      const derived = deriveAutomaticEchoMeasurements(measurements, 10, species);
+      expect(derived).not.toHaveProperty("DIVEd_normalizado");
+      expect(derived).not.toHaveProperty("DIVEd_normalizado_2D");
+    }
   });
 
   it("exige separação felina confirmada após editar ou reimportar origens de um contexto fundido", () => {
