@@ -358,3 +358,30 @@ pendência. Deploy terminal de produção e smoke autenticado/Completar dia são
 evidências posteriores de publicação, não critérios de stage em aberto. Esta
 preparação realizou somente commits locais; nenhum push, PR, deploy, consulta
 SSH ou escrita em banco operacional foi executado nela.
+
+## Correcao da excecao administrativa — 2026-10-28
+
+Reproducao automatizada em SQLite temporario, com rotas sinteticas e sem servicos
+externos: `POST /agenda` retorna 409 regional na primeira tentativa e devolvia o
+mesmo 409 apos `confirmar_conflito_deslocamento=true`. O teste falhou antes da
+correcao e passou depois dela.
+
+Validacao focada: 40 testes e 18 subtestes passaram nos arquivos
+`test_agenda_excecao_regional_admin.py`, `test_agenda_regional_snapshot.py`,
+`test_agenda_excecao_deslocamento_persistente.py` e
+`test_agenda_regional_transition.py`.
+
+Cobertura adicional: criacao apos confirmacao com persistencia de autor/motivo,
+auditoria do codigo regional ignorado, reuso da concessao, invalidacao por troca
+de horario, 403 para nao-admin, sobreposicao ainda bloqueada e concessao para
+cota regional excedida. Os demais testes preservam os limites e margens regionais.
+
+Validacao local; nenhuma publicacao nem alteracao de agendamento real realizada.
+
+Regressao ampliada: `PYTHONPATH="$PWD/backend:$PWD/backend/tests"` e ambiente
+SQLite/chave sinteticos, executando `pytest backend/tests/ -q -k
+'agenda or agendamento' --tb=short --disable-warnings`: **478 passed, 6 skipped,
+2063 deselected, 143 subtests passed**. Sintaxe Python, `git diff --check` e
+`evaluate_guardrail` sobre os cinco arquivos alterados tambem passaram.
+A primeira coleta ampla exigiu incluir `backend/tests` no caminho de imports
+por imports absolutos de fixtures existentes; a repeticao acima concluiu.

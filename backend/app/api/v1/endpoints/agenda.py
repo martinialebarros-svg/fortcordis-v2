@@ -2294,6 +2294,8 @@ def _validar_deslocamento_agendamento(
         ),
     )
     if regional is not None and not regional.permitida:
+        if ignorar_conflito:
+            return {"origem": origem_excecao, "bloqueio": regional.codigo}
         raise HTTPException(status_code=409, detail={
             "codigo": "CONFLITO_DESLOCAMENTO", "motivo_regional": regional.codigo,
             "mensagem": "A rota permite uma transicao de ate 50 minutos no dia, com pelo menos 15 minutos de margem. Revise a viagem, a folga e as demais transicoes.",
