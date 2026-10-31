@@ -1,7 +1,7 @@
 # Intent — Assistência multimodal no atendimento
 
-Data: 2026-10-27
-Status: in_progress (base publicada com IA desativada; homologação da ativação em andamento)
+Data: 2026-10-26
+Status: done (implementação local; homologação e publicação pendentes)
 
 ## Problema e objetivo
 
@@ -10,8 +10,6 @@ O veterinário divide sua atenção entre paciente/tutor e digitação; fotos/PD
 ## Escopo autorizado
 
 Implementação local de áudio/transcrição, análise de fotos/PDFs e preparação de documentos para WhatsApp. Preferência do usuário por GPT-6.1 Sol preservada; API documenta esforço máximo `max`, enquanto Ultra é configuração do Codex. A implementação não promete ausência de erros de IA.
-
-A base foi publicada com IA desativada em 26/10. Em 27/10, o usuário autorizou a continuação e reutilização da credencial existente para preparar a homologação. A fase atual permite testes sintéticos de provedor e correções preparatórias em stage, respeitando a fila concorrente; não equivale a aprovação clínica nem ativação da IA em produção. O dispositivo móvel informado é Android com Chrome.
 
 ## Restrições
 

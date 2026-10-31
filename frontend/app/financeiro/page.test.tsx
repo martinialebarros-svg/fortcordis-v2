@@ -233,6 +233,139 @@ describe("Ordens pagination", () => {
   });
 });
 
+describe("Desfazer recebimento de OS", () => {
+  let ordemAtual: ReturnType<typeof osItem>;
+
+  beforeEach(() => {
+    mocks.get.mockReset(); mocks.patch.mockReset(); mocks.post.mockReset();
+    localStorage.setItem("token", "synthetic-test");
+    window.history.replaceState({}, "", "/financeiro?aba=ordens");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.spyOn(window, "alert").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    ordemAtual = { ...osItem(21), status: "Pago", valor_final: 180 };
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/ordens-servico?")) return {
+        data: {
+          total: 1, items: [{ ...ordemAtual }],
+          resumo: {
+            pendentes: ordemAtual.status === "Pendente" ? 1 : 0,
+            valor_pendente: ordemAtual.status === "Pendente" ? ordemAtual.valor_final : 0,
+          },
+        },
+      };
+      if (url === "/ordens-servico/21") return { data: { ...ordemAtual } };
+      return { data: { items: [] } };
+    });
+  });
+  afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); window.history.replaceState({}, "", "/"); });
+
+  const abrirDesfazer = async () => {
+    render(<FinanceiroPage />);
+    const abrir = await screen.findByRole("button", { name: "Desfazer" });
+    abrir.focus();
+    fireEvent.click(abrir);
+    return screen.findByRole("alertdialog", { name: "Desfazer recebimento?" });
+  };
+
+  it("identifica o recebimento e permite cancelar sem enviar a reversao", async () => {
+    const modal = await abrirDesfazer();
+
+    expect(modal).toHaveAttribute("aria-modal", "true");
+    expect(within(modal).getByText(/OS-21/)).toBeInTheDocument();
+    expect(within(modal).getByText(/Paciente sintetico/)).toBeInTheDocument();
+    expect(within(modal).getByText(/R\$\s*180,00/)).toBeInTheDocument();
+    expect(within(modal).getByRole("button", { name: "Cancelar" })).toHaveFocus();
+    expect(mocks.patch).not.toHaveBeenCalled();
+
+    fireEvent.click(within(modal).getByRole("button", { name: "Cancelar" }));
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Desfazer" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Desfazer" })).toHaveFocus();
+    expect(mocks.patch).not.toHaveBeenCalled();
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(window.alert).not.toHaveBeenCalled();
+  });
+
+  it("cancela por Escape antes de confirmar sem alterar o recebimento", async () => {
+    await abrirDesfazer();
+
+    fireEvent.keyDown(document.activeElement || window, { key: "Escape" });
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Desfazer" })).toBeEnabled();
+    expect(mocks.patch).not.toHaveBeenCalled();
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it("mantem o foco dentro da confirmacao ao navegar por Tab e Shift+Tab", async () => {
+    const modal = await abrirDesfazer();
+    const cancelar = within(modal).getByRole("button", { name: "Cancelar" });
+    const confirmar = within(modal).getByRole("button", { name: "Desfazer recebimento" });
+
+    confirmar.focus();
+    fireEvent.keyDown(confirmar, { key: "Tab" });
+    expect(cancelar).toHaveFocus();
+    fireEvent.keyDown(cancelar, { key: "Tab", shiftKey: true });
+    expect(confirmar).toHaveFocus();
+    expect(mocks.patch).not.toHaveBeenCalled();
+  });
+
+  it("bloqueia repeticoes enquanto processa e atualiza a OS apos uma unica reversao", async () => {
+    let concluir!: (value: unknown) => void;
+    mocks.patch.mockImplementation(() => new Promise((resolve) => { concluir = resolve; }));
+    const modal = await abrirDesfazer();
+    const confirmar = within(modal).getByRole("button", { name: "Desfazer recebimento" });
+    const leiturasAntes = mocks.get.mock.calls.filter(([url]) => String(url).startsWith("/ordens-servico?")).length;
+
+    act(() => {
+      fireEvent.click(confirmar);
+      fireEvent.click(confirmar);
+    });
+
+    await waitFor(() => expect(mocks.patch).toHaveBeenCalledTimes(1));
+    expect(mocks.patch).toHaveBeenCalledWith("/ordens-servico/21/desfazer-recebimento");
+    expect(within(modal).getByRole("button", { name: "Desfazendo..." })).toBeDisabled();
+    expect(within(modal).getByRole("button", { name: "Cancelar" })).toBeDisabled();
+    fireEvent.keyDown(document.activeElement || window, { key: "Escape" });
+    expect(screen.getByRole("alertdialog", { name: "Desfazer recebimento?" })).toBeInTheDocument();
+    expect(screen.queryByText("Recebimento da OS OS-21 desfeito com sucesso.")).not.toBeInTheDocument();
+
+    await act(async () => {
+      ordemAtual = { ...ordemAtual, status: "Pendente" };
+      concluir({ data: { mensagem: "Recebimento desfeito com sucesso.", os_id: 21, status: "Pendente" } });
+    });
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Recebimento da OS OS-21 desfeito com sucesso.");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Receber" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Desfazer" })).not.toBeInTheDocument();
+    expect(mocks.get.mock.calls.filter(([url]) => String(url).startsWith("/ordens-servico?")).length).toBeGreaterThan(leiturasAntes);
+    expect(mocks.patch).toHaveBeenCalledTimes(1);
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(window.alert).not.toHaveBeenCalled();
+  });
+
+  it("mantem a confirmacao e mostra o detalhe da API quando a reversao falha", async () => {
+    mocks.patch.mockRejectedValueOnce({ response: { status: 409, data: { detail: "A OS sintetica mudou. Confira o recebimento atual." } } });
+    const modal = await abrirDesfazer();
+
+    fireEvent.click(within(modal).getByRole("button", { name: "Desfazer recebimento" }));
+
+    expect(await within(modal).findByRole("alert")).toHaveTextContent("A OS sintetica mudou. Confira o recebimento atual.");
+    expect(screen.getByRole("alertdialog", { name: "Desfazer recebimento?" })).toBeInTheDocument();
+    expect(within(modal).getByRole("button", { name: "Desfazer recebimento" })).toBeEnabled();
+    expect(within(modal).getByRole("button", { name: "Cancelar" })).toBeEnabled();
+    expect(screen.queryByText("Recebimento da OS OS-21 desfeito com sucesso.")).not.toBeInTheDocument();
+    expect(mocks.patch).toHaveBeenCalledTimes(1);
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(window.alert).not.toHaveBeenCalled();
+  });
+});
+
 describe("Ordens vinculadas a laudos", () => {
   let ordem: ReturnType<typeof osItem> & { laudo_id?: number; clinica_id: number; servico_id: number };
   beforeEach(() => {

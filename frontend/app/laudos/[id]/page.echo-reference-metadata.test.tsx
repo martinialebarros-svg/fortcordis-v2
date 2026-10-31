@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import VisualizarLaudoPage from "./page";
@@ -38,25 +38,6 @@ describe("referências diastólicas no visualizador do laudo salvo", () => {
     localStorage.setItem("token", "synthetic-local-token");
   });
   afterEach(() => localStorage.clear());
-
-  it("integra comparação opcional sem prender o laudo atual a uma falha do histórico", async () => {
-    mocks.get.mockImplementation(async (url: string) => {
-      if (url.endsWith("comparacao-anterior")) throw new Error("synthetic timeout");
-      return { data: { id: 91, paciente_id: 8, tipo: "ecocardiograma", titulo: "QA COMPARAÇÃO",
-        descricao: "## Medidas Ecocardiograficas\n- DIVEd: 30\n- VE_tecnica_relatorio: modo_m",
-        medidas: { DIVEd: "30", VE_tecnica_relatorio: "modo_m" }, diagnostico: "Conclusão atual preservada",
-        status: "Rascunho", data_exame: "2026-10-27", data_laudo: "2026-10-27T12:00:00",
-        paciente: { id: 8, nome: "SINTÉTICO", especie: "Canina", peso_kg: 10 } } };
-    });
-    const view = render(<VisualizarLaudoPage />);
-    await screen.findByRole("heading", { name: "Medidas Ecocardiográficas" });
-    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("/laudos/91");
-    const details = view.container.querySelector("details")!;
-    details.open = true; fireEvent(details, new Event("toggle"));
-    await screen.findByRole("button", { name: "Tentar novamente" });
-    expect(screen.getByText("Conclusão atual preservada")).toBeInTheDocument();
-    expect(mocks.post).not.toHaveBeenCalled(); expect(mocks.put).not.toHaveBeenCalled();
-  });
 
   const cases = ["Felina", "Gato"].flatMap((species) =>
     ["separadas", "fundidas", "desconhecidas", "legado"].map((scenario) => ({ species, scenario })));

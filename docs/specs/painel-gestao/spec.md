@@ -34,5 +34,3 @@ NFR-001: leitura sem chamadas externas de rota/Maps, mensagens, fiscal ou altera
 - Capacidade histórica usa configuração vigente, sem prometer reconstrução histórica ou vaga logisticamente viável. Motivos de cancelamento e mudanças exclusivamente em campos legados de data/hora não são inferidos. Não há coleta de tempos reais de execução neste escopo.
 
 RF-011: o quality-gate de stage executa explicitamente os testes de Gestão backend (incluindo funções pytest de API) e interface/navegação antes da instalação. O workflow de produção não é alterado.
-
-RF-012: cada movimento manual ou recorrente conserva a descrição informada nas linhas de detalhe do caixa. A interface exibe essa descrição como texto em coluna própria, mantendo fonte e identificador para rastreabilidade. Fontes operacionais e respostas antigas sem descrição mostram “Não informada”. A mudança não altera valores, datas, recorrências, filtros, totais, persistência ou permissões e não busca texto clínico/operacional adicional.
