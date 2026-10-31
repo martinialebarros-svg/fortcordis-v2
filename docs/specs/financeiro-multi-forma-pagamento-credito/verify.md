@@ -1,5 +1,26 @@
 # Verify - financeiro-multi-forma-pagamento-credito
 
+## Adendo 2026-10-31 — modal de Desfazer recebimento
+
+Escopo: RF-011, NFR-005 e CA-011. Alteracao local de interface, sem operacoes em registros reais e sem publicacao em Stage/producao. O backend continua responsavel pela reversao; o modal utiliza o mesmo endpoint e nao presume sucesso antes da resposta.
+
+Validacao local concluida em 31/10/2026 no worktree `financeiro-desfazer-modal`, base `c65081ae`, branch `codex/financeiro-desfazer-modal`:
+
+- `npx vitest run app/financeiro/page.test.tsx`: 48/48 passaram, com 5 cenarios novos para abrir/cancelar e restaurar foco, Escape, ciclo Tab/Shift+Tab, envio unico com bloqueio durante processamento e sucesso/recarga, e erro da API sem falso sucesso. A API utiliza exclusivamente mocks e dados sinteticos.
+- Os testes verificam ausencia de chamadas a `window.confirm` e `window.alert` no fluxo de Desfazer.
+- `npx eslint app/financeiro/page.tsx app/financeiro/DesfazerRecebimentoModal.tsx app/financeiro/page.test.tsx --max-warnings=0`: passou.
+- `npx tsc --noEmit`: passou. A verificacao inicial encontrou opcoes `exact` incompativeis nos testes novos; foram removidas antes da validacao final.
+- `npm test`: 136 arquivos / 2.392 testes Vitest e 23 testes do runner Node passaram.
+- `npm run build`: passou, incluindo lint e verificacao de tipos do Next.js. Aviso de base Browserslist desatualizada nao bloqueou a compilacao.
+- Guardrail SDD: `evaluate_guardrail` executado sobre o diff de trabalho e arquivos novos aprovou `financeiro-multi-forma-pagamento-credito`.
+- `git diff --check`: passou. Revisao independente do diff sem achados acionaveis.
+
+Nao houve teste manual no Chrome do BOOK3, deploy, migracao ou operacao financeira real.
+
+Risco/limite: indisponibilidade do controle do Chrome/Windows continua sendo uma condicao externa. O modal elimina a dependencia de dialogos nativos apenas neste fluxo; nao comprova a correcao do pagamento do Bonito nem a recuperacao do controle do BOOK3.
+
+O checklist de release historico abaixo nao autoriza publicar este adendo.
+
 Data: 2026-05-25  
 Responsavel: Martiniano + Codex  
 Status: in-progress

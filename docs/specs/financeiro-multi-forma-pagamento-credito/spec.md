@@ -23,6 +23,7 @@ Evoluir o recebimento financeiro de Ordem de Servico (OS) para suportar pagament
 - RF-008: fluxo legado com `forma_pagamento` unica deve permanecer compativel para rollback controlado.
 - RF-009: no recebimento da OS (Agenda Lista e FullCalendar), deve existir campo de desconto explicito no modal, com recalculo do valor liquido da OS antes da validacao de cobertura.
 - RF-010: no modulo Financeiro, a tabela de formas de pagamento deve permitir editar as taxas aplicadas (percentual e fixa) sem desativar/recriar o cadastro.
+- RF-011 (2026-10-31): Desfazer recebimento no Financeiro deve abrir um modal da aplicacao com numero da OS, paciente, clinica e valor, com acoes explicitas de cancelar e confirmar. Este fluxo nao deve depender de `window.confirm` ou `window.alert`, inclusive para sucesso/erro.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -30,6 +31,7 @@ Evoluir o recebimento financeiro de Ordem de Servico (OS) para suportar pagament
 - NFR-002 (governanca): criacao/edicao de cadastro de bandeiras/formas deve ser restrita a perfil `admin`.
 - NFR-003 (observabilidade operacional): payloads de retorno devem expor totais (bruto/taxa/liquido/excedente) para rastreabilidade.
 - NFR-004 (acessibilidade operacional): no modal de recebimento individual do Financeiro, o formulario deve rolar dentro da viewport e manter as acoes de cancelar e confirmar acessiveis, mesmo com varias formas de pagamento.
+- NFR-005 (2026-10-31): o modal de reversao deve ter nome e descricao acessiveis, foco inicial em Cancelar, navegacao por Tab contida e Escape para cancelar antes do envio. Durante a requisicao, cancelar/confirmar/Escape ficam bloqueados, com protecao contra envio duplicado.
 
 ## 4) Contratos tecnicos
 
@@ -96,6 +98,7 @@ Evoluir o recebimento financeiro de Ordem de Servico (OS) para suportar pagament
 - CA-008: secretaria pode informar desconto no modal de recebimento da agenda e o backend deve validar `desconto <= valor_servico`, recalculando o valor da OS para cobertura.
 - CA-009: admin consegue editar `taxa_percentual` e `taxa_fixa` de forma de pagamento existente e a alteracao reflete nos proximos recebimentos.
 - CA-010: com duas ou mais formas de pagamento no recebimento individual do Financeiro, a area do formulario pode ser rolada e o botao `Confirmar Recebimento` permanece visivel e acionavel.
+- CA-011 (2026-10-31): abrir ou cancelar o modal de Desfazer nao envia requisicao; confirmar envia um unico `PATCH /ordens-servico/{os_id}/desfazer-recebimento` para a OS exibida. Sucesso fecha o modal, anuncia o numero da OS na pagina e recarrega a lista. Falha preserva o modal com erro visivel, sem anunciar sucesso nem repetir automaticamente a operacao.
 
 ## 7) Casos de borda
 
@@ -108,3 +111,4 @@ Evoluir o recebimento financeiro de Ordem de Servico (OS) para suportar pagament
 
 - Consumo automatico de credito em uma OS futura.
 - Parcelamento com agenda de liquidacao por adquirente (D+N por parcela).
+- A troca do modal de Desfazer nao altera os contratos de API, regras de cancelamento, dados financeiros ou preenchimento da data de Receber, nem executa correcao de OS real. Publicacao continua sendo uma etapa separada. Rollback da UI: reverter o componente/handler; nao ha migracao nem transformacao de dados nesta alteracao.
