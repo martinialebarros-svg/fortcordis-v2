@@ -48,8 +48,9 @@ import {
 import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
 import { calendarDateInput, operationalTodayDateInput } from "@/lib/calendar-date";
 import { confirmedUnitKey, echoLengthInMm, echoLengthInputLabel } from "@/lib/echo-unit-provenance";
-import { isCanineEchoSpecies, isFelineEchoSpecies } from "@/lib/echo-species";
+import { isCanineEchoSpecies, isFelineEchoSpecies, normalizeEchoSpecies } from "@/lib/echo-species";
 import { useEchoMeasurements } from "../hooks/useEchoMeasurements";
+import { NEW_REPORT_PROTOCOL_KEYS } from "@/lib/echo-new-report-defaults";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -319,7 +320,7 @@ export default function NovoLaudoPage() {
   };
   
   // Medidas
-  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas } = useEchoMeasurements();
+  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas, setProtocolMeasurement } = useEchoMeasurements({ newReportSpecies: paciente.especie });
   
   // Qualitativa
   const [qualitativa, setQualitativa] = useState({
@@ -931,6 +932,10 @@ export default function NovoLaudoPage() {
   };
 
   const handleMedidaChange = (key: string, value: string) => {
+    if (normalizeEchoSpecies(paciente.especie) === "Canina" && NEW_REPORT_PROTOCOL_KEYS.includes(key)) {
+      setProtocolMeasurement(key, value);
+      return;
+    }
     setMedidas(prev => ECHO_OUTFLOW_KEYS.has(key)
       ? updateEchoOutflowMeasurement(prev, key, value)
       : updateFelineDiastolicMeasurement(prev, key, value, paciente.especie));
