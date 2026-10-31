@@ -21,6 +21,12 @@ Risco/limite: indisponibilidade do controle do Chrome/Windows continua sendo uma
 
 O checklist de release historico abaixo nao autoriza publicar este adendo.
 
+### Publicacao solicitada em 31/10/2026
+
+O usuario solicitou publicar esta entrega. PR #525 integrou o snapshot isolado em Stage, SHA `648678f8`. O run `41192856582` aprovou testes e build do modal, mas falhou em `npm audit --omit=dev` do servico WhatsApp por `follow-redirects` 1.16.1 (GHSA-mrwp-f3q8-3g9p). O job de instalacao foi pulado e producao permaneceu em `c65081ae`.
+
+A remediacao de release e limitada ao patch 1.16.2 no lockfile, documentado em `agenda-whatsapp-cloud-api`. A promocao PR #526 continua sujeita a todos os gates, instalacao e smoke de Stage antes do merge. As funcionalidades exclusivas de Stage foram preservadas para restauracao posterior com esta entrega.
+
 Data: 2026-05-25  
 Responsavel: Martiniano + Codex  
 Status: in-progress

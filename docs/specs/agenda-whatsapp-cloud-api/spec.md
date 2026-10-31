@@ -2,6 +2,10 @@
 
 O lockfile do backend Node deve usar `body-parser` 2.4.0 e `multer` 2.5.0 (mesma faixa major já permitida), com `qs` 6.16.1 exigido pelo parser. Correção das advisories GHSA-27r3-jxmh-p828 e GHSA-q7qp-rjg7-q26m detectadas pelo gate de publicação. Preservar rotas, autenticação, configurações, mensagens e isolamento dos ambientes. Nenhum envio real é necessário para validar a atualização.
 
+## Dependência HTTP — 31/10/2026
+
+O lockfile deve resolver `follow-redirects` em 1.16.2, patch compativel com a faixa ja exigida pelo Axios 1.20.0. A atualizacao corrige GHSA-mrwp-f3q8-3g9p, que bloqueou a auditoria de producao do servico no release do modal financeiro. Preservar manifest, contratos, configuracoes e isolamento; validar com build, testes simulados e `npm audit --omit=dev`, sem envios reais e sem contornar o gate. Fonte primaria: https://github.com/advisories/GHSA-mrwp-f3q8-3g9p.
+
 # Spec - agenda-whatsapp-cloud-api
 
 Data: 2026-08-14
