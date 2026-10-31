@@ -24,8 +24,11 @@ export function useEchoMeasurements(options: { newReportSpecies?: string } = {})
     previousSpecies.current = species;
     setState((previous) => {
       const measurements = { ...previous.measurements };
+      const observedWaves = Object.fromEntries(["Diastolica_ondas", "TDI_ondas"]
+        .filter((key) => ["fundidas", "nao_confirmadas"].includes(measurements[key]))
+        .map((key) => [key, measurements[key]]));
       for (const key of NEW_REPORT_PROTOCOL_KEYS) delete measurements[key];
-      return { ...previous, measurements: { ...measurements, ...newEchoReportProtocol(species) } };
+      return { ...previous, measurements: { ...measurements, ...newEchoReportProtocol(species), ...observedWaves } };
     });
   }, [species]);
 
