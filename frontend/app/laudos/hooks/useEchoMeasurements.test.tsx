@@ -181,6 +181,19 @@ describe("técnicas de rotina nos novos laudos", () => {
     expect(hook.result.current.measurements).toMatchObject(NEW_CANINE_REPORT_PROTOCOL);
   });
 
+  it("não transforma fusão observada em ondas separadas ao trocar a espécie", () => {
+    const hook = renderHook(({ species }) => useEchoMeasurements({ newReportSpecies: species }), {
+      initialProps: { species: "Felina" },
+    });
+    act(() => hook.result.current.setMeasurements({ Diastolica_ondas: "fundidas", TDI_ondas: "nao_confirmadas" }));
+    hook.rerender({ species: "Canina" });
+    expect(hook.result.current.measurements).toMatchObject({
+      Diastolica_metodo: "canino_nao_sedado_pw_apical", Diastolica_ondas: "fundidas", TDI_ondas: "nao_confirmadas",
+    });
+    hook.rerender({ species: "Felina" });
+    expect(hook.result.current.measurements).toEqual({ Diastolica_ondas: "fundidas", TDI_ondas: "nao_confirmadas" });
+  });
+
   it("não preenche laudo existente e mantém a invalidação de aquisição histórica", () => {
     const hook = renderHook(() => useEchoMeasurements());
     expect(hook.result.current.measurements).toEqual({});

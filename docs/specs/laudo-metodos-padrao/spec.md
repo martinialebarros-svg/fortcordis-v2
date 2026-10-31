@@ -17,7 +17,7 @@ A fonte dos padrões é a preferência expressa pelo veterinário para a rotina 
 
 As seis escolhas permanecem durante importações e alterações numéricas no novo exame. A troca explícita por outro método, ondas fundidas ou uma escolha vazia prevalece e também permanece nas importações seguintes. A fusão transmitral e a tecidual continuam independentes e o tratamento de ondas fundidas na comparação/PDF é preservado.
 
-Trocar a espécie remove os seis campos do protocolo canino, preservando os números digitados. Voltar à espécie canina inicializa os padrões de rotina. Felinos, espécies desconhecidas e outros animais não recebem os padrões caninos.
+Trocar a espécie remove os métodos caninos e a separação preenchida por padrão, preservando os números digitados. Marcações de ondas fundidas ou de separação não confirmada são preservadas nas duas direções: um padrão nunca transforma fusão observada em ondas separadas. Voltar à espécie canina inicializa os padrões de rotina sem sobrescrever essas marcações. Felinos, espécies desconhecidas e outros animais não recebem os padrões caninos.
 
 ## Compatibilidade e persistência
 
