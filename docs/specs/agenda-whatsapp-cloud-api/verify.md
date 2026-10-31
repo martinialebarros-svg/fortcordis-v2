@@ -2,6 +2,12 @@
 
 Reproduzido bloqueio de `npm audit --omit=dev` no workflow de stage 40104243770, antes de qualquer instalação. Atualizar somente o lockfile, sem alteração de API ou destino Meta. Validar build TypeScript, Express HTTP, upload/anexos e redação de logs com transportes simulados; repetir o gate completo e exigir auditoria de dependências de produção sem vulnerabilidades. Não contornar o gate nem executar envios reais. Local: build, Express HTTP, anexos e redação de logs aprovados; `npm audit --omit=dev` retorna zero vulnerabilidades. A dependência de desenvolvimento não entra no runtime de produção.
 
+## Correcao de dependencia HTTP — 31/10/2026
+
+O run de Stage `41192856582` falhou antes da instalacao somente na auditoria de `follow-redirects` 1.16.1, GHSA-mrwp-f3q8-3g9p. O patch altera apenas version/resolved/integrity dessa dependencia para 1.16.2 no lockfile; `package.json` e Axios 1.20.0 permanecem iguais. Referencia: https://github.com/advisories/GHSA-mrwp-f3q8-3g9p.
+
+Validacao local em 31/10: instalacao limpa, `npm run build` e os 13 scripts do passo `Test WhatsApp backend` aprovados, com chamadas Graph simuladas e HTTP restrito ao loopback. `npm audit --omit=dev` passou com zero vulnerabilidades; `npm ls axios follow-redirects --all` confirmou Axios 1.20.0 → follow-redirects 1.16.2. Nao houve envio real, alteracao de callback, template ou credencial. Os resultados historicos abaixo sao preservados com suas datas e escopos.
+
 # Verify - agenda-whatsapp-cloud-api
 
 Data: 2026-08-14

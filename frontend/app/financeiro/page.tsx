@@ -17,6 +17,8 @@ import {
   type FinanceiroLoadOrigin,
 } from "@/lib/financeiro-loading";
 import TransacaoModal from "./TransacaoModal";
+import DesfazerRecebimentoModal from "./DesfazerRecebimentoModal";
+import { extractApiErrorMessageSync } from "@/lib/api-error";
 import { calendarDateInput, formatCalendarDate, operationalTodayDateInput } from "@/lib/calendar-date";
 import {
   FORMA_PAGAMENTO_FALLBACK,
@@ -437,6 +439,11 @@ export default function FinanceiroPage() {
   }, [chaveOrdens]);
   const [rotaFinanceiroResolvida, setRotaFinanceiroResolvida] = useState(false);
   const [modalReceberOS, setModalReceberOS] = useState<OrdemServico | null>(null);
+  const [modalDesfazerRecebimentoOS, setModalDesfazerRecebimentoOS] = useState<OrdemServico | null>(null);
+  const [desfazendoRecebimentoOS, setDesfazendoRecebimentoOS] = useState(false);
+  const desfazendoRecebimentoOSRef = useRef(false);
+  const [erroDesfazerRecebimentoOS, setErroDesfazerRecebimentoOS] = useState("");
+  const [mensagemDesfazerRecebimentoOS, setMensagemDesfazerRecebimentoOS] = useState("");
   const [modalReceberLoteOS, setModalReceberLoteOS] = useState<OrdemServico[] | null>(null);
   const [erroRecebimentoLoteOS, setErroRecebimentoLoteOS] = useState("");
   const [loteExigeRevisao, setLoteExigeRevisao] = useState(false);
@@ -1755,16 +1762,39 @@ export default function FinanceiroPage() {
     }
   };
 
-  const handleDesfazerRecebimentoOS = async (os: OrdemServico) => {
-    if (!confirm(`Desfazer o recebimento da OS ${os.numero_os}?`)) return;
+  const abrirDesfazerRecebimentoOS = (os: OrdemServico) => {
+    if (desfazendoRecebimentoOSRef.current) return;
+    setErroDesfazerRecebimentoOS("");
+    setMensagemDesfazerRecebimentoOS("");
+    setModalDesfazerRecebimentoOS(os);
+  };
+
+  const fecharDesfazerRecebimentoOS = () => {
+    if (desfazendoRecebimentoOSRef.current) return;
+    setModalDesfazerRecebimentoOS(null);
+    setErroDesfazerRecebimentoOS("");
+  };
+
+  const confirmarDesfazerRecebimentoOS = async () => {
+    const os = modalDesfazerRecebimentoOS;
+    if (!os || desfazendoRecebimentoOSRef.current) return;
+    desfazendoRecebimentoOSRef.current = true;
+    setDesfazendoRecebimentoOS(true);
+    setErroDesfazerRecebimentoOS("");
     try {
       await api.patch(`/ordens-servico/${os.id}/desfazer-recebimento`);
-      alert("Recebimento desfeito com sucesso!");
-      carregarDados();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Erro ao desfazer recebimento:", error);
-      alert("Erro ao desfazer recebimento: " + (error.response?.data?.detail || error.message));
+      const detalhe = extractApiErrorMessageSync(error, "Não foi possível confirmar a reversão.");
+      setErroDesfazerRecebimentoOS(`${detalhe} Confira o estado da OS antes de tentar novamente.`);
+      return;
+    } finally {
+      desfazendoRecebimentoOSRef.current = false;
+      setDesfazendoRecebimentoOS(false);
     }
+    setModalDesfazerRecebimentoOS(null);
+    setMensagemDesfazerRecebimentoOS(`Recebimento da OS ${os.numero_os} desfeito com sucesso.`);
+    void carregarDados();
   };
 
   const salvarEdicaoOS = async () => {
@@ -2610,6 +2640,12 @@ export default function FinanceiroPage() {
         {mensagemAjusteOS && (
           <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             {mensagemAjusteOS}
+          </div>
+        )}
+
+        {mensagemDesfazerRecebimentoOS && (
+          <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            {mensagemDesfazerRecebimentoOS}
           </div>
         )}
 
@@ -3766,7 +3802,7 @@ export default function FinanceiroPage() {
                           )}
                           {os.status === "Pago" && (
                             <button
-                              onClick={() => handleDesfazerRecebimentoOS(os)}
+                              onClick={() => abrirDesfazerRecebimentoOS(os)}
                               className="px-3 py-1.5 text-sm bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-lg flex items-center gap-1"
                               title="Desfazer recebimento"
                             >
@@ -3853,6 +3889,19 @@ export default function FinanceiroPage() {
           </a>
         </div>
       </div>
+
+      {modalDesfazerRecebimentoOS && (
+        <DesfazerRecebimentoModal
+          numeroOS={modalDesfazerRecebimentoOS.numero_os}
+          paciente={modalDesfazerRecebimentoOS.paciente}
+          clinica={modalDesfazerRecebimentoOS.clinica}
+          valor={formatarValor(modalDesfazerRecebimentoOS.valor_final)}
+          processando={desfazendoRecebimentoOS}
+          erro={erroDesfazerRecebimentoOS}
+          onCancel={fecharDesfazerRecebimentoOS}
+          onConfirm={() => void confirmarDesfazerRecebimentoOS()}
+        />
+      )}
 
       {/* Modal de Transacao */}
       <TransacaoModal
