@@ -60,7 +60,7 @@ import {
 import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
 import { operationalTodayDateInput } from "@/lib/calendar-date";
 import { confirmedUnitKey, echoLengthInMm, echoLengthInputLabel } from "@/lib/echo-unit-provenance";
-import { isCanineEchoSpecies, isFelineEchoSpecies } from "@/lib/echo-species";
+import { isFelineEchoSpecies } from "@/lib/echo-species";
 import { useEchoMeasurements } from "../../hooks/useEchoMeasurements";
 
 // Componente de input de medida com botões +/-
@@ -496,7 +496,7 @@ export default function EditarLaudoPage() {
         : null;
 
     const divedNormalizadoCalculado =
-      isCanineEchoSpecies(pacienteForm.especie) && divedMm !== null && divedMm > 0 && peso !== null && peso > 0
+      pacienteForm.especie === "Canina" && divedMm !== null && divedMm > 0 && peso !== null && peso > 0
         ? formatar2Casas((divedMm / 10.0) / Math.pow(peso, 0.294))
         : null;
 
@@ -1328,9 +1328,6 @@ export default function EditarLaudoPage() {
                         >
                           <option value="Canina">Canina</option>
                           <option value="Felina">Felina</option>
-                          {isCanineEchoSpecies(pacienteForm.especie) && pacienteForm.especie !== "Canina" && (
-                            <option value={pacienteForm.especie}>{pacienteForm.especie} (canina)</option>
-                          )}
                           {isFelineEchoSpecies(pacienteForm.especie) && pacienteForm.especie !== "Felina" && (
                             <option value={pacienteForm.especie}>{pacienteForm.especie} (felina)</option>
                           )}
@@ -1622,12 +1619,12 @@ export default function EditarLaudoPage() {
                           value={medidas["DIVEd"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd", v)}
                         />
-                        {isCanineEchoSpecies(pacienteForm.especie) && <MedidaInput
+                        {pacienteForm.especie === "Canina" && <MedidaInput
                           label="DIVEd normalizado (DIVEd [cm] / peso^0,294)"
                           value={medidas["DIVEd_normalizado"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd_normalizado", v)}
                           readOnly
-                          reference={isCanineEchoSpecies(pacienteForm.especie) && (parsePesoKg(pacienteForm.peso) ?? 0) >= 2.2 && (parsePesoKg(pacienteForm.peso) ?? 0) <= 95
+                          reference={pacienteForm.especie === "Canina" && (parsePesoKg(pacienteForm.peso) ?? 0) >= 2.2 && (parsePesoKg(pacienteForm.peso) ?? 0) <= 95
                             ? "Cornell 2004 (amostra de cães adultos, Modo M): 1,27–1,85"
                             : "Faixa aplicável não cadastrada"}
                         />}

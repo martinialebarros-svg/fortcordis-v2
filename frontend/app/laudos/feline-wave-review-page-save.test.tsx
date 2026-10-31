@@ -81,7 +81,8 @@ async function openPage(mode: Mode, flow: string, tissue: string, species = "Gat
     fireEvent.change(screen.getByLabelText("Ondas transmitrais E/A"), { target: { value: flow } });
     fireEvent.change(screen.getByLabelText("Ondas teciduais e'/a'"), { target: { value: tissue } });
   }
-  await waitFor(() => expect(live().Diastolica_ondas || "").toBe(flow));
+  const expectedFlow = mode === "novo" && species === "Canina" ? "separadas" : flow;
+  await waitFor(() => expect(live().Diastolica_ondas || "").toBe(expectedFlow));
   return view;
 }
 async function savePage(mode: Mode) {

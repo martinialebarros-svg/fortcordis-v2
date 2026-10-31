@@ -48,8 +48,9 @@ import {
 import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
 import { calendarDateInput, operationalTodayDateInput } from "@/lib/calendar-date";
 import { confirmedUnitKey, echoLengthInMm, echoLengthInputLabel } from "@/lib/echo-unit-provenance";
-import { isCanineEchoSpecies, isFelineEchoSpecies } from "@/lib/echo-species";
+import { isFelineEchoSpecies, normalizeEchoSpecies } from "@/lib/echo-species";
 import { useEchoMeasurements } from "../hooks/useEchoMeasurements";
+import { NEW_REPORT_PROTOCOL_KEYS } from "@/lib/echo-new-report-defaults";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -319,7 +320,7 @@ export default function NovoLaudoPage() {
   };
   
   // Medidas
-  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas } = useEchoMeasurements();
+  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas, setProtocolMeasurement } = useEchoMeasurements({ newReportSpecies: paciente.especie });
   
   // Qualitativa
   const [qualitativa, setQualitativa] = useState({
@@ -484,7 +485,7 @@ export default function NovoLaudoPage() {
         : null;
 
     const divedNormalizadoCalculado =
-      isCanineEchoSpecies(paciente.especie) && divedMm !== null && divedMm > 0 && peso !== null && peso > 0
+      paciente.especie === "Canina" && divedMm !== null && divedMm > 0 && peso !== null && peso > 0
         ? formatar2Casas((divedMm / 10.0) / Math.pow(peso, 0.294))
         : null;
 
@@ -931,6 +932,10 @@ export default function NovoLaudoPage() {
   };
 
   const handleMedidaChange = (key: string, value: string) => {
+    if (normalizeEchoSpecies(paciente.especie) === "Canina" && NEW_REPORT_PROTOCOL_KEYS.includes(key)) {
+      setProtocolMeasurement(key, value);
+      return;
+    }
     setMedidas(prev => ECHO_OUTFLOW_KEYS.has(key)
       ? updateEchoOutflowMeasurement(prev, key, value)
       : updateFelineDiastolicMeasurement(prev, key, value, paciente.especie));
@@ -1235,9 +1240,6 @@ export default function NovoLaudoPage() {
                         >
                           <option value="Canina">Canina</option>
                           <option value="Felina">Felina</option>
-                          {isCanineEchoSpecies(paciente.especie) && paciente.especie !== "Canina" && (
-                            <option value={paciente.especie}>{paciente.especie} (canina)</option>
-                          )}
                           {isFelineEchoSpecies(paciente.especie) && paciente.especie !== "Felina" && (
                             <option value={paciente.especie}>{paciente.especie} (felina)</option>
                           )}
@@ -1464,12 +1466,12 @@ export default function NovoLaudoPage() {
                           value={medidas["DIVEd"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd", v)}
                         />
-                        {isCanineEchoSpecies(paciente.especie) && <MedidaInput
+                        {paciente.especie === "Canina" && <MedidaInput
                           label="DIVEd normalizado (DIVEd [cm] / peso^0,294)"
                           value={medidas["DIVEd_normalizado"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd_normalizado", v)}
                           readOnly
-                          reference={isCanineEchoSpecies(paciente.especie) && (parsePesoKg(paciente.peso) ?? 0) >= 2.2 && (parsePesoKg(paciente.peso) ?? 0) <= 95
+                          reference={paciente.especie === "Canina" && (parsePesoKg(paciente.peso) ?? 0) >= 2.2 && (parsePesoKg(paciente.peso) ?? 0) <= 95
                             ? "Cornell 2004 (amostra de cães adultos, Modo M): 1,27–1,85"
                             : "Faixa aplicável não cadastrada"}
                         />}
