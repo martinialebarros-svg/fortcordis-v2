@@ -5,11 +5,34 @@ import { EchoDiastolicProtocol } from "./EchoDiastolicProtocol";
 import { ReferenciaComparison } from "./ReferenciaComparison";
 import { mergeImportedEchoMeasurements, updateEchoMeasurement } from "@/lib/echo-unit-provenance";
 import { parseStoredEchoMeasurements } from "@/lib/echo-derived-measurements";
+import { useEchoMeasurements } from "../hooks/useEchoMeasurements";
 
 vi.mock("@/lib/axios", () => ({ default: { get: vi.fn(async () => ({ data: null })) } }));
 const measured = { Onda_E: ".47", Onda_A: ".67", E_A: ".70", TRIV: "85", e_doppler: ".07", a_doppler: ".12", E_E_linha: "6.71", doppler_tecidual_relacao: ".58" };
 
 describe("canine protocol and real evidence comparison", () => {
+  it("carrega os padrões no novo exame e preserva a troca explícita de ondas após importação", async () => {
+    function NewReport() {
+      const { measurements, importMeasurements, setProtocolMeasurement } = useEchoMeasurements({ newReportSpecies: "Canina" });
+      return <>
+        <ReferenciaComparison especie="Canina" medidas={measurements} onMedidaChange={setProtocolMeasurement} />
+        <button onClick={() => importMeasurements(measured)}>Importar medidas sintéticas</button>
+      </>;
+    }
+    render(<NewReport />);
+    expect(screen.getByLabelText("Aquisição transmitral e TRIV")).toHaveValue("canino_nao_sedado_pw_apical");
+    expect(screen.getByLabelText("Técnica e sítio do Doppler tecidual")).toHaveValue("canino_pw_basal_lateral_wess");
+    expect(screen.getByLabelText("Ondas transmitrais E/A")).toHaveValue("separadas");
+    expect(screen.getByLabelText("Ondas teciduais e'/a'")).toHaveValue("separadas");
+    fireEvent.click(screen.getByText("Importar medidas sintéticas"));
+    expect(await screen.findByText("Intervalo de referência publicado: IR95%: 0,51-1,10 m/s")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Ondas transmitrais E/A"), { target: { value: "fundidas" } });
+    fireEvent.click(screen.getByText("Importar medidas sintéticas"));
+    expect(screen.getByLabelText("Ondas transmitrais E/A")).toHaveValue("fundidas");
+    expect(screen.getByLabelText("Ondas teciduais e'/a'")).toHaveValue("separadas");
+    await waitFor(() => expect(screen.queryByText("0.47")).not.toBeInTheDocument());
+  });
+
   it("starts unknown and asks only relevant acquisition domains", () => {
     const change = vi.fn();
     const view = render(<EchoDiastolicProtocol especie="Cão" medidas={{ Onda_E: ".47" }} onMedidaChange={change} />);

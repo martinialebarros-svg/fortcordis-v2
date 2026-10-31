@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { useEchoMeasurements } from "./useEchoMeasurements";
 import { confirmedUnitKey, updateEchoMeasurement } from "@/lib/echo-unit-provenance";
 import { parseStoredEchoMeasurements } from "@/lib/echo-derived-measurements";
+import { NEW_CANINE_REPORT_PROTOCOL } from "@/lib/echo-new-report-defaults";
 
 function edit(hook: ReturnType<typeof renderHook<ReturnType<typeof useEchoMeasurements>, unknown>>, key: string, value: string) {
   act(() => hook.result.current.setMeasurements((previous) => updateEchoMeasurement(previous, key, value)));
@@ -120,5 +121,72 @@ describe("ownership da razão AE/Ao no formulário", () => {
       "## Medidas Ecocardiográficas\n- AE_Ao: 1,46\n\n## Avaliação Qualitativa")));
     edit(hook, "Aorta", "");
     expect(hook.result.current.measurements.AE_Ao).toBe("1.46");
+  });
+});
+
+describe("técnicas de rotina nos novos laudos", () => {
+  it("inicia somente o novo laudo canino com as seis escolhas do veterinário", () => {
+    const hook = renderHook(() => useEchoMeasurements({ newReportSpecies: "Canina" }));
+    expect(hook.result.current.measurements).toEqual({
+      Diastolica_metodo: "canino_nao_sedado_pw_apical", Diastolica_ondas: "separadas",
+      TDI_metodo: "canino_pw_basal_lateral_wess", TDI_ondas: "separadas",
+      TAPSE_metodo: "modo_m_apical", AE_Ao_metodo: "2d_eixo_curto_diastole_inicial_sueco",
+    });
+  });
+
+  it("mantém os padrões ao importar e editar medidas, sem perder a derivação AE/Ao", () => {
+    const hook = renderHook(() => useEchoMeasurements({ newReportSpecies: "Canina" }));
+    act(() => hook.result.current.importMeasurements({
+      Onda_E: "0.62", Onda_A: "0.54", e_doppler: "0.09", a_doppler: "0.06",
+      TAPSE: "9.79", Aorta: "12.36", Atrio_esquerdo: "16.82", AE_Ao: "1.36",
+    }));
+    edit(hook, "Aorta", "12.5");
+    edit(hook, "Onda_E", "0.65");
+    expect(hook.result.current.measurements).toMatchObject(NEW_CANINE_REPORT_PROTOCOL);
+    expect(hook.result.current.measurements.AE_Ao).toBe("1.35");
+    edit(hook, "Aorta", "");
+    expect(hook.result.current.measurements).not.toHaveProperty("AE_Ao");
+    expect(hook.result.current.measurements.AE_Ao_metodo).toBe(NEW_CANINE_REPORT_PROTOCOL.AE_Ao_metodo);
+  });
+
+  it("preserva alterações manuais, ondas fundidas e escolhas vazias após reimportar e renderizar", () => {
+    const hook = renderHook(() => useEchoMeasurements({ newReportSpecies: "Canina" }));
+    act(() => {
+      hook.result.current.setProtocolMeasurement("Diastolica_ondas", "fundidas");
+      hook.result.current.setProtocolMeasurement("TDI_metodo", "canino_pw_basal_septal_wess");
+      hook.result.current.setProtocolMeasurement("TAPSE_metodo", "2d");
+      hook.result.current.setProtocolMeasurement("AE_Ao_metodo", "");
+    });
+    act(() => hook.result.current.importMeasurements({ Onda_E: "0.62", e_doppler: "0.09", TAPSE: "10", AE_Ao: "1.36" }));
+    hook.rerender();
+    expect(hook.result.current.measurements).toMatchObject({
+      Diastolica_ondas: "fundidas", TDI_ondas: "separadas",
+      TDI_metodo: "canino_pw_basal_septal_wess", TAPSE_metodo: "2d", AE_Ao_metodo: "",
+    });
+  });
+
+  it.each(["Felina", "Gato", "Equina", ""])("não preenche técnicas caninas para %s", (species) => {
+    const hook = renderHook(() => useEchoMeasurements({ newReportSpecies: species }));
+    expect(hook.result.current.measurements).toEqual({});
+  });
+
+  it("remove técnicas caninas ao trocar a espécie, preservando valores numéricos", () => {
+    const hook = renderHook(({ species }) => useEchoMeasurements({ newReportSpecies: species }), {
+      initialProps: { species: "Canina" },
+    });
+    act(() => hook.result.current.importMeasurements({ Onda_E: "0.62" }));
+    hook.rerender({ species: "Felina" });
+    expect(hook.result.current.measurements).toEqual({ Onda_E: "0.62" });
+    hook.rerender({ species: "Cão" });
+    expect(hook.result.current.measurements).toMatchObject(NEW_CANINE_REPORT_PROTOCOL);
+  });
+
+  it("não preenche laudo existente e mantém a invalidação de aquisição histórica", () => {
+    const hook = renderHook(() => useEchoMeasurements());
+    expect(hook.result.current.measurements).toEqual({});
+    act(() => hook.result.current.replaceMeasurements({ Onda_E: "0.62", ...NEW_CANINE_REPORT_PROTOCOL }));
+    edit(hook, "Onda_E", "0.65");
+    expect(hook.result.current.measurements.Diastolica_metodo).toBeUndefined();
+    expect(hook.result.current.measurements.Diastolica_ondas).toBe("nao_confirmadas");
   });
 });
