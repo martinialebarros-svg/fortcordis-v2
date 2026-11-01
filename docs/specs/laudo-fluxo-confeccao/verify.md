@@ -1,6 +1,6 @@
 # Verify — Fluxo de confecção do laudo ecocardiográfico
 
-## Situação atual — autorização restrita de produção em 01/11/2026
+## Pré-promoção — autorização restrita de produção em 01/11/2026
 
 A fase 1a e a correção da seleção de imagens em lote foram homologadas em stage, incluindo o complemento básico de teclado e viewport estreito descrito abaixo. O usuário autorizou promover **somente novos ecocardiogramas com workspace/autosave e a correção de imagens em lote**. Outras funcionalidades presentes em stage não estão autorizadas por este pedido. A publicação em produção ainda não foi realizada nem comprovada neste registro.
 
@@ -8,7 +8,7 @@ O candidato isolado está na branch `codex/echo-draft-prod-isolated-20261101`, b
 
 A integração de workspace/autosave permanece exclusiva de `/laudos/novo`. O patch de lote é no `ImageUploader` compartilhado: também corrige o processamento da seleção múltipla quando usado pelo editor de laudos existentes e pela ultrassonografia abdominal. Isso não implementa recuperação/autosave nesses consumidores, nem entrega a fase 1b.
 
-### Matriz atual da entrega — fase 1a e correção de lote
+### Matriz de aceitação da entrega — fase 1a e correção de lote
 
 A matriz abaixo consolida evidências automatizadas e de homologação. As matrizes iniciais foram mantidas no histórico para não apagar resultados anteriores; estados iniciais substituídos não representam a situação atual. “Aprovado” refere-se ao critério desta entrega e não declara implantação em produção.
 

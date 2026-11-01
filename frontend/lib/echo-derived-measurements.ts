@@ -263,7 +263,7 @@ export function deriveAutomaticEchoMeasurements(
 
   const weight = parsePositiveNumber(weightKg);
   const divedM = echoLengthInMm(measurements, "DIVEd");
-  if (/^canin/i.test(species.trim())) {
+  if (canine) {
     derived.DIVEd_normalizado = divedM !== null && weight !== null
       ? formatDerivedValue(divedM / 10 / weight ** 0.294) : "";
   }
