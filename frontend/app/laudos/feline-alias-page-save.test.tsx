@@ -71,10 +71,14 @@ describe("páginas reais: aliases felinos, efeitos e payload de salvamento", () 
     vi.clearAllMocks();
     mocks.imported = { ...ORIGINS, ...HISTORIC };
     localStorage.setItem("token", "synthetic-local-test-token");
+    localStorage.setItem("user", JSON.stringify({ id: 7 }));
+    sessionStorage.clear();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.spyOn(window, "alert").mockImplementation(() => {});
     mocks.post.mockResolvedValue({ data: { id: 904 } });
-    mocks.put.mockResolvedValue({ data: { id: 904 } });
+    mocks.put.mockImplementation(async (url, body) => ({ data: url.startsWith("/laudos/editor-drafts/")
+      ? { draft_id: url.split("/").at(-1), revision: body.expected_revision + 1, context_key: body.context_key, snapshot: body.snapshot, updated_at: "2026-11-01T12:00:00Z" }
+      : { id: 904 } }));
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -99,6 +103,7 @@ describe("páginas reais: aliases felinos, efeitos e payload de salvamento", () 
     const metadata: Record<string, string> = scenario === "desconhecidas" ? {} : { Diastolica_ondas: scenario, TDI_ondas: scenario };
     const stored = { ...ORIGINS, ...HISTORIC, ...metadata };
     mocks.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/laudos/editor-drafts/")) throw { response: { status: 404 } };
       if (url === "/pacientes/901") return { data: patient };
       if (url === "/laudos/904") return { data: { id: 904, tipo: "ecocardiograma", paciente_id: 901,
         paciente: patient, titulo: "QA HISTORICO ALIAS", diagnostico: "QA conclusão preservada", observacoes: "QA observação",
@@ -131,7 +136,7 @@ describe("páginas reais: aliases felinos, efeitos e payload de salvamento", () 
     // Read the visible probe after actual effects, before clicking Save; do not
     // assert first, so a baseline failure still yields the corrupted payload.
     const observedBeforeSave = selectedRatios(liveMeasurements());
-    fireEvent.click(screen.getByRole("button", { name: "Salvar Laudo" }));
+    fireEvent.click(screen.getByRole("button", { name: mode === "novo" ? "Emitir laudo" : "Salvar Laudo" }));
     const transport = mode === "novo" ? mocks.post : mocks.put;
     const target = mode === "novo" ? "/laudos" : "/laudos/904";
     await waitFor(() => expect(transport.mock.calls.some(([url]) => url === target)).toBe(true));

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import {
@@ -51,6 +52,9 @@ import { confirmedUnitKey, echoLengthInMm, echoLengthInputLabel } from "@/lib/ec
 import { isFelineEchoSpecies, normalizeEchoSpecies } from "@/lib/echo-species";
 import { useEchoMeasurements } from "../hooks/useEchoMeasurements";
 import { NEW_REPORT_PROTOCOL_KEYS } from "@/lib/echo-new-report-defaults";
+import { useEchoEditorDraft } from "../hooks/useEchoEditorDraft";
+import EchoDraftStatus from "../components/EchoDraftStatus";
+import { serializeDraftImages, type EchoEditorDraftSnapshot } from "@/lib/echo-editor-draft";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -320,7 +324,7 @@ export default function NovoLaudoPage() {
   };
   
   // Medidas
-  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas, setProtocolMeasurement } = useEchoMeasurements({ newReportSpecies: paciente.especie });
+  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas, setProtocolMeasurement, exportState, restoreState } = useEchoMeasurements({ newReportSpecies: paciente.especie });
   
   // Qualitativa
   const [qualitativa, setQualitativa] = useState({
@@ -376,11 +380,165 @@ export default function NovoLaudoPage() {
   const [sessionId, setSessionId] = useState<string>("");
   const [draftLaudoId, setDraftLaudoId] = useState<number | null>(null);
   const draftPromiseRef = useRef<Promise<number> | null>(null);
+  const [contextReady, setContextReady] = useState(false);
+  const [draftUserId, setDraftUserId] = useState<number | null>(null);
+  const firstDraftUserId = useRef<number | null>(null);
+  const [draftSessionChanged, setDraftSessionChanged] = useState(false);
+  const [draftContextKey, setDraftContextKey] = useState("");
+  const [draftImageNotice, setDraftImageNotice] = useState<string | null>(null);
+  const [draftNavigationNotice, setDraftNavigationNotice] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
+  const navigationInProgress = useRef(false);
+  const navigationHandler = useRef<(href: string) => Promise<void>>(async () => {});
+  const [submission, setSubmission] = useState<EchoEditorDraftSnapshot["submission"]>(undefined);
+  const emissionInProgress = useRef(false);
+  const voiceDraftIdRef = useRef<number | null>(null);
+  const restoreGeneration = useRef(0);
+  useEffect(() => {
+    restoreGeneration.current += 1;
+    return () => { restoreGeneration.current += 1; };
+  }, [draftUserId, draftContextKey]);
   const opcoesRitmoPaciente = incluirOpcaoAtual(OPCOES_RITMO, ecocardiogramaCabecalho.ritmo);
   const opcoesEstadoPaciente = incluirOpcaoAtual(
     OPCOES_ESTADO_PACIENTE,
     ecocardiogramaCabecalho.estado,
   );
+
+  const draftSnapshot = useMemo<EchoEditorDraftSnapshot>(() => ({
+    schema_version: 1,
+    editor: "new-echo",
+    paciente,
+    measurementState: exportState(),
+    qualitativa,
+    conteudo,
+    ecocardiogramaCabecalho,
+    ecocardiogramaEstruturado,
+    pressaoArterial,
+    clinicaId,
+    clinicaNome,
+    veterinario,
+    agendamentoVinculadoId,
+    sessionId,
+    draftLaudoId,
+    imagens: serializeDraftImages(imagens),
+    aba,
+    submission,
+  }), [paciente, medidas, exportState, qualitativa, conteudo, ecocardiogramaCabecalho,
+    ecocardiogramaEstruturado, pressaoArterial, clinicaId, clinicaNome, veterinario,
+    agendamentoVinculadoId, sessionId, draftLaudoId, imagens, aba, submission]);
+  const draftSnapshotRef = useRef(draftSnapshot);
+  draftSnapshotRef.current = draftSnapshot;
+
+  const restoreDraft = async (snapshot: EchoEditorDraftSnapshot) => {
+    const generation = restoreGeneration.current;
+    const owner = draftUserId;
+    // Verify temporary images before showing an old uploaded flag as received.
+    // Files that never finished uploading cannot be reconstructed from JSON.
+    const uploaded = snapshot.imagens.filter((image) => image.uploaded && image.tempId);
+    const available = uploaded.length
+      ? (await api.get(`/imagens/temp/session/${encodeURIComponent(snapshot.sessionId)}`)).data.items || []
+      : [];
+    const availableIds = new Set(available.map((image: { id: number }) => image.id));
+    const restoredImages = await Promise.all(snapshot.imagens.map(async (image) => {
+      if (!image.uploaded || !image.tempId || !availableIds.has(image.tempId)) {
+        return { ...image, dataUrl: "", uploaded: false, tempId: undefined, requerReenvio: true };
+      }
+      let dataUrl = "";
+      try {
+        const response = await api.get(`/imagens/temp/${image.tempId}`, { responseType: "blob", timeout: 10_000 });
+        dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(new Error("Prévia indisponível"));
+          reader.readAsDataURL(response.data);
+        });
+      } catch { /* Image is present on the server; only its preview failed. */ }
+      return { ...image, dataUrl, requerReenvio: false };
+    }));
+    let currentOwner: number | null = null;
+    try {
+      const user = JSON.parse(localStorage.getItem("user") || "null");
+      currentOwner = Number(user?.id ?? user?.user_id) || null;
+    } catch { /* The owner must still be confirmed before applying patient data. */ }
+    if (generation !== restoreGeneration.current || owner !== currentOwner) {
+      throw new Error("A sessão mudou durante a recuperação. Reabra o formulário para continuar.");
+    }
+    setPaciente(snapshot.paciente as typeof paciente);
+    restoreState(snapshot.measurementState, String(snapshot.paciente.especie || ""));
+    setQualitativa(snapshot.qualitativa as typeof qualitativa);
+    setConteudo(snapshot.conteudo as typeof conteudo);
+    setEcocardiogramaCabecalho(snapshot.ecocardiogramaCabecalho as typeof ecocardiogramaCabecalho);
+    setEcocardiogramaEstruturado(snapshot.ecocardiogramaEstruturado as typeof ecocardiogramaEstruturado);
+    setPressaoArterial(snapshot.pressaoArterial as typeof pressaoArterial);
+    setClinicaId(snapshot.clinicaId);
+    setClinicaNome(snapshot.clinicaNome);
+    setVeterinario(snapshot.veterinario);
+    setAgendamentoVinculadoId(snapshot.agendamentoVinculadoId);
+    setSessionId(snapshot.sessionId);
+    setDraftLaudoId(snapshot.draftLaudoId);
+    setSubmission(snapshot.submission);
+    voiceDraftIdRef.current = snapshot.draftLaudoId;
+    setImagens(restoredImages);
+    const missing = restoredImages.filter((image) => image.requerReenvio).length;
+    setDraftImageNotice(missing
+      ? `${missing} imagem(ns) não puderam ser recuperadas. Reenvie os arquivos antes de emitir.`
+      : null);
+    if (["paciente", "medidas", "qualitativa", "biblioteca", "imagens", "pressao", "referencias"].includes(snapshot.aba || "")) {
+      setAba(snapshot.aba as typeof aba);
+    }
+    return { ...snapshot, imagens: serializeDraftImages(restoredImages) };
+  };
+
+  const editorDraft = useEchoEditorDraft({
+    enabled: contextReady && !draftSessionChanged && !entradaPressao && !pressaoArterial.salvar_como_laudo_pressao,
+    userId: draftUserId,
+    contextKey: draftContextKey,
+    snapshot: draftSnapshot,
+    onRestore: restoreDraft,
+  });
+  const draftApplies = !entradaPressao && !pressaoArterial.salvar_como_laudo_pressao;
+
+  useEffect(() => {
+    const readUser = () => {
+      let id: number | null = null;
+      try {
+        const user = JSON.parse(localStorage.getItem("user") || "null");
+        const candidate = Number(user?.id ?? user?.user_id);
+        id = Number.isSafeInteger(candidate) && candidate > 0 ? candidate : null;
+      } catch { /* A lost owner must never reassign an open editor. */ }
+      if (firstDraftUserId.current !== null && firstDraftUserId.current !== id) {
+        setDraftSessionChanged(true);
+        return;
+      }
+      if (id !== null) firstDraftUserId.current = id;
+      setDraftUserId(id);
+    };
+    readUser();
+    window.addEventListener("storage", readUser);
+    window.addEventListener("focus", readUser);
+    return () => {
+      window.removeEventListener("storage", readUser);
+      window.removeEventListener("focus", readUser);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!draftApplies || !draftUserId || draftSessionChanged) return;
+    // Next Links do not trigger beforeunload. Save before the shell's normal
+    // same-tab links navigate, including the sidebar outside this page.
+    const onLink = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
+      if (!anchor || anchor.hasAttribute("download") || (anchor.target && anchor.target !== "_self")) return;
+      const destination = new URL(anchor.href, window.location.href);
+      if (destination.origin !== window.location.origin || (destination.pathname === window.location.pathname && destination.search === window.location.search)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void navigationHandler.current(`${destination.pathname}${destination.search}${destination.hash}`);
+    };
+    document.addEventListener("click", onLink, true);
+    return () => document.removeEventListener("click", onLink, true);
+  }, [draftApplies, draftUserId, draftSessionChanged]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -434,43 +592,30 @@ export default function NovoLaudoPage() {
   }, [router]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const token = localStorage.getItem("token");
-    if (!token) return;
-
     const params = new URLSearchParams(window.location.search);
-    const clinicaParam = params.get("clinica_id");
-    if (clinicaParam) {
-      const clinicaId = Number(clinicaParam);
-      if (Number.isFinite(clinicaId) && clinicaId > 0) {
-        setClinicaId(String(clinicaId));
-      }
-    }
-
-    const agendamentoParam = params.get("agendamento_id");
-    const atendimentoParam = params.get("atendimento_id");
-
-    if (atendimentoParam) {
-      const atendimentoId = Number(atendimentoParam);
-      if (Number.isFinite(atendimentoId) && atendimentoId > 0) {
-        preencherDadosDoAtendimento(atendimentoId);
-        return;
-      }
-    }
-
-    if (agendamentoParam) {
-      const agendamentoId = Number(agendamentoParam);
-      if (!Number.isFinite(agendamentoId) || agendamentoId <= 0) return;
-      setAgendamentoVinculadoId(agendamentoId);
-      preencherDadosDoAgendamento(agendamentoId);
-      return;
-    }
-
-    const pacienteParam = params.get("paciente_id");
-    if (!pacienteParam) return;
-    const pacienteId = Number(pacienteParam);
-    if (!Number.isFinite(pacienteId) || pacienteId <= 0) return;
-    preencherDadosDoPaciente(pacienteId);
+    const positiveId = (key: string) => {
+      const value = Number(params.get(key));
+      return Number.isSafeInteger(value) && value > 0 ? value : null;
+    };
+    const atendimentoId = positiveId("atendimento_id");
+    const agendamentoId = positiveId("agendamento_id");
+    const pacienteId = positiveId("paciente_id");
+    setDraftContextKey(atendimentoId ? `new:atendimento:${atendimentoId}`
+      : agendamentoId ? `new:agendamento:${agendamentoId}`
+      : pacienteId ? `new:paciente:${pacienteId}` : "new:manual");
+    let active = true;
+    const initialize = async () => {
+      if (!localStorage.getItem("token")) return;
+      const clinicaParam = positiveId("clinica_id");
+      if (clinicaParam) setClinicaId(String(clinicaParam));
+      if (atendimentoId) await preencherDadosDoAtendimento(atendimentoId);
+      else if (agendamentoId) {
+        setAgendamentoVinculadoId(agendamentoId);
+        await preencherDadosDoAgendamento(agendamentoId);
+      } else if (pacienteId) await preencherDadosDoPaciente(pacienteId);
+    };
+    void initialize().finally(() => { if (active) setContextReady(true); });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -774,30 +919,66 @@ export default function NovoLaudoPage() {
     };
   };
 
+  const ensureDraftOwner = () => {
+    if (draftSessionChanged) return false;
+    if (firstDraftUserId.current === null) return !draftApplies;
+    let currentOwner: number | null = null;
+    try {
+      const user = JSON.parse(localStorage.getItem("user") || "null");
+      currentOwner = Number(user?.id ?? user?.user_id) || null;
+    } catch { /* Preserve the original owner of this mounted form. */ }
+    if (currentOwner !== firstDraftUserId.current) {
+      setDraftSessionChanged(true);
+      return false;
+    }
+    return true;
+  };
+
   const garantirRascunhoParaDitado = async (): Promise<number> => {
-    if (draftLaudoId) return draftLaudoId;
+    if (!ensureDraftOwner() || !contextReady || submission || (draftApplies && !editorDraft.canEmit)) {
+      throw new Error("Resolva a recuperação ou o salvamento do rascunho antes de iniciar o ditado.");
+    }
+    if (voiceDraftIdRef.current) return voiceDraftIdRef.current;
     if (!(paciente.nome || "").trim()) {
       throw new Error("Informe ou selecione o paciente antes de iniciar o ditado.");
     }
     if (draftPromiseRef.current) return draftPromiseRef.current;
 
-    const promise = api
-      .post("/laudos", montarPayloadEcocardiograma("Rascunho"))
-      .then((response) => {
+    const promise = (async () => {
+      let started = false;
+      try {
+        // Dictation is also an explicit clinical creation. Preserve its pending
+        // intent before POST so an unknown response cannot create a second draft.
+        await editorDraft.flush({ ...draftSnapshotRef.current, submission: { status: "pending", laudoId: null } });
+        setSubmission({ status: "pending", laudoId: null });
+        started = true;
+        const response = await api.post("/laudos", montarPayloadEcocardiograma("Rascunho"));
         const id = Number(response.data?.id);
-        if (!Number.isFinite(id) || id <= 0) {
+        if (!Number.isSafeInteger(id) || id <= 0) {
           throw new Error("O rascunho do laudo não foi criado.");
         }
+        if (!ensureDraftOwner()) throw new Error("A sessão mudou durante a preparação do ditado. Confira a central de laudos.");
+        voiceDraftIdRef.current = id;
         setDraftLaudoId(id);
-        window.history.replaceState(null, "", `/laudos/${id}/editar`);
+        // Keep this editor's recovery context until explicit issue. A refresh
+        // must recover all later edits, not just the first dictation seed.
+        await editorDraft.flush({ ...draftSnapshotRef.current, draftLaudoId: id, submission: undefined });
+        setSubmission(undefined);
         setMensagemSucesso(
           "Rascunho preparado. Faça o ditado e revise as sugestões antes de salvar."
         );
         return id;
-      })
-      .finally(() => {
+      } catch (error) {
+        const httpStatus = Number((error as any)?.response?.status);
+        if (!started || [400, 401, 403, 404, 409, 422, 429].includes(httpStatus)) {
+          setSubmission(undefined);
+          try { await editorDraft.flush({ ...draftSnapshotRef.current, submission: undefined }); } catch { /* Preserve the last confirmed recovery copy. */ }
+        }
+        throw error;
+      } finally {
         draftPromiseRef.current = null;
-      });
+      }
+    })();
     draftPromiseRef.current = promise;
     return promise;
   };
@@ -830,6 +1011,10 @@ export default function NovoLaudoPage() {
   };
 
   const handleSalvar = async () => {
+    if (!ensureDraftOwner() || navigationInProgress.current || emissionInProgress.current || submission || !contextReady || (draftApplies && !editorDraft.canEmit)) return;
+    emissionInProgress.current = true;
+    let clinicalRequestStarted = false;
+    let confirmedLaudoId: number | null = null;
     setLoading(true);
     try {
       if (
@@ -859,6 +1044,11 @@ export default function NovoLaudoPage() {
       }
 
       if (tipoLaudo === "ecocardiograma") {
+        if (imagens.some((imagem) => !imagem.uploaded)) {
+          setAba("imagens");
+          setDraftImageNotice("Há imagens com envio pendente. Reenvie ou remova esses arquivos antes de emitir.");
+          return;
+        }
         const mensagemAlerta = criarMensagemAlertaSalvamentoEcocardiograma({
           analiseQualitativaAplicada: ecocardiogramaEstruturado.usar_no_laudo,
           imagensCarregadas: imagens.some((imagem) => imagem.uploaded),
@@ -869,12 +1059,28 @@ export default function NovoLaudoPage() {
           );
           return;
         }
+        // Autosave writes only the private workspace. Drain and pause that
+        // queue before the existing, explicit clinical save begins.
+        if (draftApplies) await editorDraft.pause();
       }
 
       // Garante que legendas e ordem opcionais cheguem ao PDF mesmo quando
       // o usuário salva imediatamente após editar uma imagem.
       const imagensEnviadas = imagens.filter((imagem) => imagem.uploaded && imagem.tempId);
       if (imagensEnviadas.length > 0) {
+        if (tipoLaudo === "ecocardiograma" && draftApplies) {
+          const response = await api.get(`/imagens/temp/session/${encodeURIComponent(sessionId)}`);
+          const received = new Set((response.data.items || []).map((image: { id: number }) => image.id));
+          const missing = imagensEnviadas.filter((image) => !received.has(image.tempId));
+          if (missing.length) {
+            const missingIds = new Set(missing.map((image) => image.id));
+            setImagens((previous) => previous.map((image) => missingIds.has(image.id)
+              ? { ...image, uploaded: false, tempId: undefined, requerReenvio: true } : image));
+            setAba("imagens");
+            setDraftImageNotice("Algumas imagens temporárias expiraram. Reenvie ou remova esses arquivos antes de emitir.");
+            return;
+          }
+        }
         await api.put(`/imagens/temp/session/${sessionId}/configuracao`, {
           imagens: imagensEnviadas.map((imagem) => ({
             id: imagem.tempId,
@@ -905,19 +1111,55 @@ export default function NovoLaudoPage() {
               ecocardiograma_estruturado: null,
             };
 
+      const preparedVoiceId = voiceDraftIdRef.current || (draftPromiseRef.current ? await draftPromiseRef.current : null);
+      if (tipoLaudo === "ecocardiograma" && draftApplies) {
+        const pending = { status: "pending" as const, laudoId: null };
+        await editorDraft.flush({ ...draftSnapshotRef.current, submission: pending });
+        setSubmission(pending);
+      }
+      clinicalRequestStarted = true;
       const response =
-        tipoLaudo === "ecocardiograma" && draftLaudoId
-          ? await api.put(`/laudos/${draftLaudoId}`, payload)
+        tipoLaudo === "ecocardiograma" && preparedVoiceId
+          ? await api.put(`/laudos/${preparedVoiceId}`, payload)
           : await api.post("/laudos", payload);
       const laudoId = response.data.id;
+      if (!Number.isSafeInteger(laudoId) || laudoId <= 0) throw new Error("A emissão precisa ser conferida na central de laudos.");
+      confirmedLaudoId = laudoId;
+      if (tipoLaudo === "ecocardiograma" && draftApplies) {
+        const confirmed = { status: "confirmed" as const, laudoId };
+        setSubmission(confirmed);
+        try { await editorDraft.flush({ ...draftSnapshotRef.current, submission: confirmed }); }
+        catch { /* Never retry clinical creation after its ID was confirmed. */ }
+      }
       
       // Associar imagens ao laudo se houver imagens enviadas
       if (imagens.length > 0 && imagens.some(img => img.uploaded)) {
         try {
           await api.post(`/imagens/associar/${laudoId}?session_id=${sessionId}`);
+          if (tipoLaudo === "ecocardiograma" && draftApplies) {
+            const associated = (await api.get(`/imagens/laudo/${laudoId}`)).data.items;
+            if (!Array.isArray(associated)) throw new Error("A associação das imagens não foi confirmada.");
+            const remaining = [...associated];
+            for (const expected of imagensEnviadas) {
+              const index = remaining.findIndex((image) => image.nome === expected.nome
+                && image.tamanho === expected.tamanho && (image.descricao || "") === (expected.descricao || "")
+                && Boolean(image.incluir_no_pdf) === (expected.incluirNoPdf ?? true));
+              if (index < 0) throw new Error("A associação das imagens não foi confirmada.");
+              remaining.splice(index, 1);
+            }
+          }
         } catch (imgError) {
           console.error("Erro ao associar imagens:", imgError);
+          setDraftImageNotice(`O laudo #${laudoId} foi emitido, mas a associação das imagens não foi confirmada. Confira o laudo antes de qualquer nova emissão.`);
+          return;
         }
+      }
+
+      if (tipoLaudo === "ecocardiograma" && draftApplies) {
+        // Failure to retire a workspace cannot turn a confirmed emission into
+        // an apparent clinical failure that invites a duplicate submission.
+        try { await editorDraft.close(); }
+        catch { setMensagemSucesso("Laudo emitido. O encerramento do rascunho precisa ser conferido."); }
       }
       
       alert("Laudo salvo com sucesso!");
@@ -925,11 +1167,44 @@ export default function NovoLaudoPage() {
     } catch (error) {
       console.error("Erro ao salvar laudo:", error);
       const detail = (error as any)?.response?.data?.detail;
+      const httpStatus = Number((error as any)?.response?.status);
+      if (clinicalRequestStarted && !confirmedLaudoId && ![400, 401, 403, 404, 409, 422, 429].includes(httpStatus)) {
+        setSubmission({ status: "pending", laudoId: null });
+        alert("A resposta da emissão não foi confirmada. Confira a central de laudos antes de tentar novamente; seu rascunho foi preservado.");
+        return;
+      }
+      if (!confirmedLaudoId) {
+        setSubmission(undefined);
+        try { await editorDraft.flush({ ...draftSnapshotRef.current, submission: undefined }); } catch { /* Keep the recovery copy. */ }
+      }
       alert(typeof detail === "string" && detail.trim() ? detail : "Erro ao salvar laudo");
     } finally {
+      emissionInProgress.current = false;
+      editorDraft.resume();
       setLoading(false);
     }
   };
+
+  const leaveEditor = async (href: string) => {
+    if (!ensureDraftOwner() || !contextReady || emissionInProgress.current || navigationInProgress.current) return;
+    navigationInProgress.current = true;
+    setLeaving(true);
+    setDraftNavigationNotice(null);
+    try {
+      if (draftPromiseRef.current) await draftPromiseRef.current;
+      if (draftApplies && !submission) {
+        await editorDraft.flush();
+        if (editorDraft.pendingImages > 0 && !window.confirm("Há arquivos ainda não recebidos que precisarão ser reenviados ao retomar. Sair mesmo assim?")) return;
+      }
+      router.push(href);
+    } catch {
+      setDraftNavigationNotice("Não foi possível confirmar o rascunho antes de sair. Mantenha esta tela aberta e tente salvar novamente.");
+    } finally {
+      navigationInProgress.current = false;
+      setLeaving(false);
+    }
+  };
+  navigationHandler.current = leaveEditor;
 
   const handleMedidaChange = (key: string, value: string) => {
     if (normalizeEchoSpecies(paciente.especie) === "Canina" && NEW_REPORT_PROTOCOL_KEYS.includes(key)) {
@@ -957,6 +1232,14 @@ export default function NovoLaudoPage() {
     "DIVEd_normalizado_2D", pesoIndice2D ?? undefined, vistaIndice2D, paciente.idade,
   );
 
+  if (draftSessionChanged) return <DashboardLayout>
+    <div role="alert" className="m-6 rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-900">
+      <p className="font-semibold">A sessão do usuário mudou.</p>
+      <p className="mt-2">Reabra o formulário na conta correta para recuperar o rascunho. Este preenchimento não será gravado em outra conta.</p>
+      <Link className="mt-3 inline-block font-semibold underline" href="/laudos">Abrir central de laudos</Link>
+    </div>
+  </DashboardLayout>;
+
   return (
     <DashboardLayout>
       <div className="fc-report-editor-page">
@@ -964,7 +1247,8 @@ export default function NovoLaudoPage() {
           <div className="fc-report-editor-heading">
             <button
               type="button"
-              onClick={() => router.push("/laudos")}
+              onClick={() => { void leaveEditor("/laudos"); }}
+              disabled={loading || leaving || !contextReady}
               className="fc-report-editor-back"
               aria-label="Voltar para laudos"
             >
@@ -990,17 +1274,46 @@ export default function NovoLaudoPage() {
               )}
             </div>
           </div>
+          <div className="flex flex-wrap items-center gap-3">
+          {!entradaPressao && !pressaoArterial.salvar_como_laudo_pressao && (
+            <button type="button" onClick={() => { void editorDraft.flush().catch(() => {}); }}
+              disabled={loading || leaving || !contextReady || editorDraft.blocked || !draftUserId}
+              className="rounded-lg border border-white/60 bg-white/95 px-4 py-3 text-sm font-semibold text-teal-900 disabled:opacity-50">
+              Salvar rascunho
+            </button>
+          )}
           <button
             type="button"
             onClick={handleSalvar}
-            disabled={loading}
+            disabled={loading || leaving || Boolean(submission) || !contextReady || (draftApplies && !editorDraft.canEmit)}
             className="fc-report-editor-save"
           >
             <Save className="w-4 h-4" />
-            {loading ? "Salvando..." : entradaPressao ? "Salvar Laudo de PA" : "Salvar Laudo"}
+            {loading ? "Salvando..." : entradaPressao ? "Salvar Laudo de PA" : "Emitir laudo"}
           </button>
+          </div>
         </header>
 
+        {!entradaPressao && !pressaoArterial.salvar_como_laudo_pressao && <EchoDraftStatus draft={editorDraft} />}
+        {contextReady && draftApplies && !draftUserId && <div role="alert" className="my-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          Não foi possível identificar o usuário do rascunho. Reabra o sistema na conta correta antes de iniciar o ditado ou emitir.
+        </div>}
+        {draftNavigationNotice && <div role="alert" className="my-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{draftNavigationNotice}</div>}
+        {submission && <div role="status" className="my-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <p>{submission.laudoId ? `Laudo #${submission.laudoId} já emitido. Confira o documento e as imagens.`
+            : "Há uma tentativa de salvamento sem resposta confirmada. Confira a central antes de salvar novamente."}</p>
+          <a className="mt-2 inline-block font-semibold underline" target="_blank" rel="noreferrer"
+            href={submission.laudoId ? `/laudos/${submission.laudoId}` : "/laudos"}>Conferir na central de laudos</a>
+          {!submission.laudoId && <button type="button" className="ml-4 font-semibold underline" onClick={() => {
+            if (window.confirm("Você conferiu a central e confirmou que nenhum laudo foi emitido nesta tentativa?")) {
+              setSubmission(undefined);
+              void editorDraft.flush({ ...draftSnapshotRef.current, submission: undefined }).catch(() => {});
+            }
+          }}>Confirmei que não foi emitido; retomar rascunho</button>}
+        </div>}
+        {draftImageNotice && <div role="status" className="my-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{draftImageNotice}</div>}
+
+        <fieldset disabled={loading || leaving || !contextReady || (draftApplies && ["loading", "recovery"].includes(editorDraft.status))} className="min-w-0">
         <div className="fc-report-editor-layout">
           {/* Coluna Esquerda - Importadores */}
           <aside className="fc-report-editor-sidebar">
@@ -2112,6 +2425,7 @@ export default function NovoLaudoPage() {
             </div>
           </div>
         </div>
+        </fieldset>
       </div>
     </DashboardLayout>
   );

@@ -18,6 +18,7 @@ interface Imagem {
   uploaded: boolean;
   persisted?: boolean;
   incluirNoPdf?: boolean;
+  requerReenvio?: boolean;
 }
 
 interface ImageUploaderProps {
@@ -112,6 +113,8 @@ export default function ImageUploader({
 
   const processarArquivos = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    // Clearing the input or finishing a drop can invalidate the live FileList.
+    const arquivos = Array.from(files);
     if (!sessionId) {
       setError("A sessão de imagens ainda está sendo preparada. Tente novamente em instantes.");
       return;
@@ -122,8 +125,7 @@ export default function ImageUploader({
 
     const novasImagens: Imagem[] = [];
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    for (const file of arquivos) {
       
       if (!file.type.startsWith("image/")) {
         setError(`Arquivo ${file.name} não é uma imagem válida`);
@@ -345,7 +347,7 @@ export default function ImageUploader({
               >
                 {/* Preview */}
                 <div className="aspect-square bg-gray-100 relative">
-                  <img
+                  {imagem.dataUrl ? <img
                     src={imagem.dataUrl}
                     alt={imagem.nome}
                     className="w-full h-full object-cover cursor-zoom-in"
@@ -360,7 +362,9 @@ export default function ImageUploader({
                         setPreviewIndex(index);
                       }
                     }}
-                  />
+                  /> : <div className="flex h-full items-center justify-center p-3 text-center text-xs text-gray-600">
+                    {imagem.requerReenvio ? "Reenvie este arquivo" : "Prévia indisponível"}
+                  </div>}
                   
                   {/* Número da ordem */}
                   <div className="absolute top-2 left-2 bg-teal-600 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center">
@@ -373,7 +377,7 @@ export default function ImageUploader({
                   {/* Status de upload */}
                     {!imagem.uploaded && (
                       <div className="absolute top-2 right-2 bg-yellow-500 text-white text-xs px-2 py-1 rounded">
-                        Enviando...
+                        {imagem.requerReenvio ? "Reenviar" : "Enviando..."}
                       </div>
                     )}
                     {imagem.persisted && (
