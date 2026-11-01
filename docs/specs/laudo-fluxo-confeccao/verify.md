@@ -83,3 +83,26 @@ Também foi executado PostgreSQL **16.13 real e descartável**, local, em socket
 Na primeira solicitação houve apenas implementação local. Em 01/11/2026, o usuário autorizou publicar em **stage** e testar rascunho automático, recuperação e emissão de novos laudos. A preparação desta publicação preserva a versão remota `a7b97cff25a10fb6dd61fdc11dc75f949b2a0b72` e confirmou que a maior migração remota é a 104, sem colisão com a nova 105. A fila anterior de deploy estava concluída com sucesso.
 
 A autorização é restrita a stage. A publicação só será considerada comprovada após checks/workflow terminais, versão instalada e testes aplicáveis. Promoção a produção não foi solicitada neste ciclo. Os resultados locais acima não são evidência de ambiente instalado; registrar abaixo o resultado efetivo da homologação.
+
+### Primeira publicação e homologação de stage — PR #536
+
+- Publicação concluída: PR #536, merge `554ab4f8a2dca5e551d770c1bcc597c8bb0c95d2`. A atualização intermediária do painel de gestão (`4a7e24d6`) também foi integrada e preservada antes do merge.
+- Workflow [Deploy to Stage (VPS)](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/41335383746) terminou com `success`, incluindo quality gate, SDD, diagnóstico e deploy. Migration CI `41335383796`, Frontend CI `41335383816` e Google Maps Cost Control `41335383810` também terminaram com sucesso.
+- Log do deploy confirmou `Installed deploy SHA` igual ao merge, migração `20261101_105` aplicada, preservação/restauração dos seis arquivos runtime, backend health, runtime gate, canário autenticado e backup restore drill aprovados. O gate não publica o payload completo de `/health`; não afirmar leitura independente desses campos.
+- A árvore integrada passou localmente por 147 arquivos / 2.617 testes Vitest, 23 testes Node, lint/build/TypeScript e 2.560 testes unittest de backend (139 skips de integrações opcionais), além dos testes focados e do PostgreSQL descartável já registrados.
+- No navegador interno autenticado, com nome/tutor sintéticos únicos e sem vínculo com paciente/agendamento existente: autosave confirmado; emissão bloqueada antes da decisão de recuperação; recargas recuperaram cabeçalho, valores literais, zero, campo apagado e estados independentes de fusão. Edição de medida invalidou a confirmação pertinente como previsto, sem uma nova confirmação fabricada.
+- Uma revisão de conclusão seguida de Voltar antes do debounce foi recuperada na reabertura. A busca pelo identificador sintético na central retornou zero laudos antes da emissão, distinguindo workspace de documento clínico.
+- Duas imagens sintéticas recebidas individualmente foram recuperadas com nomes, legendas, ordem e seleção de inclusão no PDF corretas. A conclusão da emissão/PDF ainda estava aguardando o diálogo nativo durante a preparação desta correção complementar.
+- Smoke externo foi parcial por timeouts TCP intermitentes da CLI: `www.stage` completou a cadeia HTTPS com login 200; o chunk canônico `app/laudos/novo/page-8bfec82e363a55ee.js` respondeu 200 e contém os quatro marcadores do incremento. Foram obtidos 12/20 chunks; oito timeouts e a API anônima não foram marcados como aprovados. A interface autenticada funcionou. Evidências locais: `/tmp/fortcordis-pr536-stage-deploy-watch.log` e arquivos temporários da homologação; não incluem credenciais.
+
+### Correção complementar encontrada na homologação: lote de imagens
+
+O seletor recebeu dois PNGs sintéticos, mas o painel exibiu apenas o primeiro. A rotina existente também estava presente na base `4a7e24d6`: o handler limpava o input enquanto `processarArquivos` aguardava o primeiro FileReader e continuava iterando a coleção viva. A regressão local esvazia a seleção quando `input.value` é limpo e demonstrou **um POST em vez de dois** antes do patch.
+
+A correção captura `Array.from(files)` antes da primeira leitura assíncrona e processa essa coleção estável, mantendo a semântica de metadados, ordem, inclusão e upload. O teste novo verifica dois arquivos, dois uploads e seus identificadores próprios.
+
+| Critério | Estado local | Evidência e limite |
+| --- | --- | --- |
+| CA-FC-09 | automatizado aprovado; stage pendente | RED reproduzido antes da cópia; GREEN com 26 testes nos três arquivos focados, lint completo, build de 45 páginas e TypeScript aprovados. A seleção simultânea será repetida após publicar esta correção em stage. |
+
+Comando focado: `npx vitest run app/laudos/components/ImageUploader.test.tsx app/laudos/echo-draft-new-page.test.tsx app/laudos/components/ImagePreviewModal.test.tsx --maxWorkers=2`. Logs locais `/tmp/fortcordis-image-batch-{red,green,lint,build,tsc}-554ab4f8.log`. Nenhum valor, método ou referência clínica foi alterado.

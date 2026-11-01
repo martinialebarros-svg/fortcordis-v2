@@ -113,6 +113,8 @@ export default function ImageUploader({
 
   const processarArquivos = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    // Clearing the input or finishing a drop can invalidate the live FileList.
+    const arquivos = Array.from(files);
     if (!sessionId) {
       setError("A sessão de imagens ainda está sendo preparada. Tente novamente em instantes.");
       return;
@@ -123,8 +125,7 @@ export default function ImageUploader({
 
     const novasImagens: Imagem[] = [];
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    for (const file of arquivos) {
       
       if (!file.type.startsWith("image/")) {
         setError(`Arquivo ${file.name} não é uma imagem válida`);

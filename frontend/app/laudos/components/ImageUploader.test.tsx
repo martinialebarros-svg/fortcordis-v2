@@ -135,6 +135,58 @@ describe("ImageUploader", () => {
     expect(screen.getByRole("button", { name: "Aumentar zoom" })).toBeEnabled();
   });
 
+  it("envia todo o lote mesmo quando limpar o input esvazia seu FileList vivo", async () => {
+    const onImagensChange = vi.fn();
+    const { container } = render(
+      <ImageUploader sessionId="sessao-lote" imagensIniciais={[]} onImagensChange={onImagensChange} />
+    );
+    mocks.post
+      .mockResolvedValueOnce({ data: { success: true, imagem_id: 31 } })
+      .mockResolvedValueOnce({ data: { success: true, imagem_id: 32 } });
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    let selecionados = [
+      new File(["imagem 1"], "qa-echo-1.png", { type: "image/png" }),
+      new File(["imagem 2"], "qa-echo-2.png", { type: "image/png" }),
+    ];
+    // Browsers invalidate this live collection synchronously when value is cleared.
+    // A plain files: [file1, file2] fixture would conceal that behavior in jsdom.
+    const liveFiles = {
+      get length() { return selecionados.length; },
+      get 0() { return selecionados[0]; },
+      get 1() { return selecionados[1]; },
+      item(index: number) { return selecionados[index] ?? null; },
+      [Symbol.iterator]() { return selecionados[Symbol.iterator](); },
+    };
+    let selectionValue = "C:\\fakepath\\qa-echo-1.png";
+    Object.defineProperties(input, {
+      files: { configurable: true, get: () => liveFiles },
+      value: {
+        configurable: true,
+        get: () => selectionValue,
+        set: (value: string) => {
+          selectionValue = value;
+          if (value === "") selecionados = [];
+        },
+      },
+    });
+
+    fireEvent.change(input);
+
+    expect(input.value).toBe("");
+    expect(liveFiles).toHaveLength(0);
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(mocks.post).toHaveBeenCalledTimes(2);
+    expect(mocks.post.mock.calls.map(([, formData]) => (formData.get("arquivo") as File).name))
+      .toEqual(["qa-echo-1.png", "qa-echo-2.png"]);
+    expect(mocks.post.mock.calls.map(([, formData]) => formData.get("ordem"))).toEqual(["0", "1"]);
+    expect(screen.getByText("Imagens (2)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ampliar qa-echo-2.png" })).toBeInTheDocument();
+    expect(onImagensChange.mock.lastCall?.[0]).toMatchObject([
+      { nome: "qa-echo-1.png", uploaded: true, tempId: 31, ordem: 0 },
+      { nome: "qa-echo-2.png", uploaded: true, tempId: 32, ordem: 1 },
+    ]);
+  });
+
   it("salva uma legenda opcional sem exigir campo adicional no upload", async () => {
     const onImagensChange = vi.fn();
     render(<ImageUploader sessionId="sessao-1" imagensIniciais={initialImages} onImagensChange={onImagensChange} />);
