@@ -64,3 +64,12 @@ Status: in-progress
 - [x] `spec.md` aprovado.
 - [x] Fases e rollback revisados.
 - [x] Ambiente de teste definido (local/stage).
+
+## Incremento 2026-11-01 — plano de publicacao
+
+1. Integrar somente desconto e baixa de credito sobre a base atual de producao, preservando os trabalhos locais alheios.
+2. Validar contrato e concorrencia em SQLite/PostgreSQL descartavel, suite frontend, build, lint e tipos; incluir regressao nos gates de deploy.
+3. Preservar o SHA de homologacao e preparar snapshot Stage com somente o incremento sobre producao.
+4. Aguardar gates e deploy Stage; promover por PR direto stage -> main com o SHA validado.
+5. Conferir preservacao/restauracao de arquivos runtime, canario autenticado e assets servidos. Restaurar a homologacao por PR com o incremento mantido.
+6. Registrar SHAs, PRs e limites da verificacao. Desfazer uma baixa usa movimento Cancelado, sem apagar historico; rollback de codigo nao exige migracao reversa.

@@ -1,5 +1,26 @@
 # Verify - financeiro-multi-forma-pagamento-credito
 
+## Incremento local de 2026-10-31 — desconto e baixa sem contrapartida
+
+Escopo: CA-012 a CA-014 e RF-012 a RF-016. Implementacao local, sem migracao,
+sem lancamentos reais e sem publicacao em Stage/producao. A aprovacao historica
+ao final deste documento nao se aplica automaticamente a este incremento.
+
+- Backend: `tests/test_recebimento_desconto_baixa_credito.py` exercita HTTP com SQLite temporario, usuarios e cadastros sinteticos; notificacoes externas/auditoria global substituidas no teste. Cobre desconto R$ 340 - R$ 90, desconto integral, excedente real com credito preservado, baixa de cliente/clinica, saldo compartilhado pelo tutor, idempotencia, desfazer, permissoes, valores invalidos e reversao sem saldo negativo.
+- Regressao: `tests/test_ordens_servico_domiciliar.py`.
+- Frontend: `lib/recebimento-desconto.test.ts` e `components/financeiro/BaixaCredito.test.tsx`: sugestao versus valores manuais/divididos, valor/motivo, permissao, titular, repeticao apos timeout e desfazer.
+- Contrato confirmado pelo usuario: baixa de credito ja existente, independente de OS ou devolucao. Usa lancamento negativo no historico; excedentes reais do recebimento mantem a geracao de credito existente. Consultas antigas continuam entendendo movimentos negativos e cancelados.
+- Rollback: reverter UI/endpoints novos; dados sao compativeis com o ledger existente. Restauracao funcional de uma baixa usa `desfazer-baixa`, sem apagar historico. OS cujo credito foi usado/baixado exige reversao da dependencia antes de desfazer recebimento.
+- Limite: testes locais SQLite nao demonstram concorrencia real em Postgres nem homologacao autenticada em ambiente publicado. O bloqueio por titular em Postgres precisa ser exercitado antes da promocao.
+
+Validacao final local:
+
+- Backend focado + regressao domiciliar: **21 passed**; inclui duas baixas simultaneas SQLite, com mesma chave (uma baixa) e chaves distintas acima do saldo combinado (uma rejeicao).
+- Frontend focado: **8 passed**.
+- ESLint dos arquivos afetados, TypeScript `--noEmit`, `npm run build`, compilacao Python, `git diff --check` e guardrail SDD sobre a lista de arquivos deste incremento: **PASS**.
+- Permanecem apenas os avisos preexistentes de depreciacao Pydantic/SQLAlchemy nos testes backend.
+- Sem homologacao visual/autenticada em Stage ou teste concorrente em Postgres nesta entrega local.
+
 ## Adendo 2026-10-31 — modal de Desfazer recebimento
 
 Escopo: RF-011, NFR-005 e CA-011. Alteracao local de interface, sem operacoes em registros reais e sem publicacao em Stage/producao. O backend continua responsavel pela reversao; o modal utiliza o mesmo endpoint e nao presume sucesso antes da resposta.
@@ -26,6 +47,20 @@ O checklist de release historico abaixo nao autoriza publicar este adendo.
 O usuario solicitou publicar esta entrega. PR #525 integrou o snapshot isolado em Stage, SHA `648678f8`. O run `41192856582` aprovou testes e build do modal, mas falhou em `npm audit --omit=dev` do servico WhatsApp por `follow-redirects` 1.16.1 (GHSA-mrwp-f3q8-3g9p). O job de instalacao foi pulado e producao permaneceu em `c65081ae`.
 
 A remediacao de release e limitada ao patch 1.16.2 no lockfile, documentado em `agenda-whatsapp-cloud-api`. A promocao PR #526 continua sujeita a todos os gates, instalacao e smoke de Stage antes do merge. As funcionalidades exclusivas de Stage foram preservadas para restauracao posterior com esta entrega.
+
+## Publicacao autorizada em 01/11/2026 — baixa de credito existente
+
+O usuario solicitou publicar o incremento RF-012 a RF-016, NFR-006/007 e CA-012 a CA-014. O escopo confirmado e baixa de credito ja existente, sem devolucao/abatimento; nao inclui dispensa de excedentes novos.
+
+Integracao isolada sobre producao `336a0e25837781edb8c5d928594e57836f790c16`. Snapshot de homologacao preservado em `0062f02d2d106aeec8d5f5c0ad8694d3bfefcdd5`; as funcionalidades exclusivas de Stage serao restauradas apos a promocao.
+
+Validacoes da base atual em worktree isolada:
+
+- 48 testes backend aprovados: contrato HTTP em SQLite e PostgreSQL descartavel local, concorrencia de baixas com mesma chave e chaves distintas, recebimentos em lote e regressao domiciliar. Schemas sinteticos removidos ao final.
+- Suite completa frontend: 138 arquivos / 2.411 testes Vitest + 23 testes Node aprovados; lint focado, build e TypeScript aprovados.
+- O job de CI de Stage inclui este contrato nos testes com PostgreSQL; producao inclui seus testes SQLite no gate. Nenhuma nova migracao ou configuracao de ambiente e necessaria.
+- Nenhum lancamento operacional, envio WhatsApp ou alteracao clinica faz parte da validacao.
+- Estado de publicacao sera registrado apos conclusao dos workflows e smoke; validacao local nao e prova de instalacao.
 
 Data: 2026-05-25  
 Responsavel: Martiniano + Codex  

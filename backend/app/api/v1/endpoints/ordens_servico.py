@@ -39,6 +39,7 @@ from app.models.servico import Servico
 from app.models.tutor import Tutor
 from app.models.user import User
 from app.services.auditoria_service import _request_meta, registrar_auditoria
+from app.services.credito_baixa_service import bloquear_destino, saldo_destino, destino_credito as resolver_destino_credito
 from app.services.precos_service import calcular_preco_servico
 from app.services.laudo_ordem_servico_service import mesma_data
 from app.services.push_notifications import send_financeiro_push_notification
@@ -2748,6 +2749,8 @@ def _preparar_recebimento_ordem(
         from app.services.tutor_identidade_service import exigir_tutor_utilizavel
         exigir_tutor_utilizavel(db, tutor_id)
 
+    if valor_credito_solicitado > 0:
+        resolver_destino_credito(db, tipo_destino="cliente", paciente_id=os_data.paciente_id, bloquear=True)
     saldo_credito_disponivel = _calcular_saldo_credito_cliente(
         db,
         paciente_id=os_data.paciente_id,
@@ -3108,6 +3111,23 @@ def desfazer_recebimento_ordem(
         raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
     if os_data.status != "Pago":
         raise HTTPException(status_code=400, detail="Apenas OS com status Pago podem ser desfeitas.")
+
+    creditos_do_recebimento = db.query(CreditoFinanceiro).filter(
+        CreditoFinanceiro.ordem_servico_id == os_data.id,
+        CreditoFinanceiro.origem.in_(["excedente_pagamento_os", "consumo_credito_os"]),
+        CreditoFinanceiro.status == "Ativo",
+    ).all()
+    destinos = {}
+    for movimento in creditos_do_recebimento:
+        destino = {chave: getattr(movimento, chave) for chave in ("tipo_destino", "clinica_id", "paciente_id", "tutor_id")}
+        chave = tuple(destino.values())
+        if chave not in destinos:
+            destinos[chave] = [destino, Decimal("0")]
+        destinos[chave][1] += Decimal(str(movimento.valor))
+    for destino, valor_removido in sorted(destinos.values(), key=lambda item: item[0]["tipo_destino"]):
+        bloquear_destino(db, destino)
+        if saldo_destino(db, destino) - valor_removido < 0:
+            raise HTTPException(400, "O credito deste recebimento ja foi utilizado ou baixado. Desfaca a baixa ou o uso antes de desfazer o recebimento.")
 
     marker = f"OS_ID={os_data.id};TIPO=RECEBIMENTO_OS"
     transacoes = (

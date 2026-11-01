@@ -30,6 +30,14 @@ export const consultarSaldoCreditoCliente = async (
     return 0;
   }
 
+  if (pacienteId) {
+    const response = await api.get<{ saldo: number }>("/financeiro/creditos/disponivel", {
+      params: { tipo_destino: "cliente", paciente_id: pacienteId },
+    });
+    const saldo = Number(response.data.saldo);
+    return Number.isFinite(saldo) ? Number(saldo.toFixed(2)) : 0;
+  }
+
   const query: Record<string, string | number | boolean> = {
     tipo_destino: "cliente",
   };
