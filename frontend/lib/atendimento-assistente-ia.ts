@@ -1,7 +1,9 @@
 import type { ClinicalFieldKey } from "./atendimento-clinical-notes";
 
-export const ASSISTENTE_AUDIO_MAX_BYTES = 24 * 1024 * 1024;
+// Decimal bytes leave headroom below the provider's documented 25 MB ceiling.
+export const ASSISTENTE_AUDIO_MAX_BYTES = 24_000_000;
 export const ASSISTENTE_AUDIO_MAX_SECONDS = 30 * 60;
+export const ASSISTENTE_AUDIO_ACCEPT = ".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm";
 export const ASSISTENTE_FILE_ACCEPT = ".jpg,.jpeg,.png,.webp,.pdf";
 export const ASSISTENTE_CAMPO_LABELS: Partial<Record<ClinicalFieldKey, string>> = {
   queixa_principal: "Queixa principal",
@@ -45,15 +47,34 @@ export function validarArquivosAssistente(files: File[], limites?: AssistenteIAS
 }
 
 export function escolherMimeGravacao(isSupported: (mime: string) => boolean): string | undefined {
-  return ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg;codecs=opus"].find(isSupported);
+  return ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find(isSupported);
 }
 
 export function extensaoAudio(mime: string): string {
   if (mime.includes("mp4")) return "m4a";
+  if (mime.includes("webm")) return "webm";
   if (mime.includes("ogg")) return "ogg";
+  if (mime.includes("flac")) return "flac";
   if (mime.includes("wav")) return "wav";
   if (mime.includes("mpeg")) return "mp3";
-  return "webm";
+  // Preserve an unknown recording for download without relabeling it as WebM.
+  return "bin";
+}
+
+export function limiteAudioAssistente(maxBytes = ASSISTENTE_AUDIO_MAX_BYTES): number {
+  return Number.isFinite(maxBytes) && maxBytes > 0 ? Math.min(maxBytes, ASSISTENTE_AUDIO_MAX_BYTES) : ASSISTENTE_AUDIO_MAX_BYTES;
+}
+
+export function validarAudioParaTranscricao(file: Pick<File, "name" | "size">, maxBytes = ASSISTENTE_AUDIO_MAX_BYTES): string | null {
+  const limit = limiteAudioAssistente(maxBytes);
+  if (!file.size) return "O áudio está vazio. Grave novamente ou selecione outro arquivo.";
+  if (file.size > limit) {
+    return `O áudio excede ${new Intl.NumberFormat("pt-BR").format(limit)} bytes e não pode ser enviado para transcrição. O original foi preservado: baixe-o, divida em trechos menores e carregue um trecho por vez.`;
+  }
+  if (!/\.(mp3|mp4|mpeg|mpga|m4a|wav|webm)$/i.test(file.name)) {
+    return "Este formato de áudio não pode ser enviado para transcrição. O original foi preservado para ouvir ou baixar; converta uma cópia para MP3, MP4/M4A, MPEG/MPGA, WAV ou WebM e carregue essa cópia.";
+  }
+  return null;
 }
 
 export function podeIncorporarCampo(resultado: AssistenteIAResultado, campo: AssistenteIAResultado["campos"][number]): boolean {
