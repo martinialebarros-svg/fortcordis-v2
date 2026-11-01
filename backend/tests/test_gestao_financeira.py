@@ -7,6 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.attributes import set_committed_value
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("DATABASE_URL", "sqlite://")
@@ -65,6 +66,17 @@ class GestaoFinanceiraTest(unittest.TestCase):
         self.db.add(a)
         self.db.flush()
         return a
+
+    def account_receipt(self, account, fee=0, status="Recebido"):
+        account.data_recebimento = datetime(2026, 10, 11, 10)
+        tx = Transacao(tipo="entrada", categoria="outros", valor=account.valor,
+                       valor_final=account.valor-fee, valor_taxa=fee, status=status,
+                       agendamento_id=account.agendamento_id,
+                       data_transacao=account.data_recebimento,
+                       observacoes=f"Gerado do recebimento da conta #{account.id}")
+        self.db.add(tx)
+        self.db.flush()
+        return tx
 
     def metrics(self, assumptions=None, **kwargs):
         self.db.commit()
@@ -221,12 +233,266 @@ class GestaoFinanceiraTest(unittest.TestCase):
 
     def test_os_account_transaction_not_three_receipts(self):
         o = self.order(appointment=10, status="Pago")
-        self.payment(o, 100)
         a = self.account(100, status="Recebido", appointment=10)
-        a.data_recebimento = datetime(2026, 10, 11)
-        self.db.add(Transacao(tipo="entrada", categoria="outros", valor=100, valor_final=100, status="Recebido", data_transacao=datetime(2026, 10, 11), observacoes=f"Gerado do recebimento da conta #{a.id}"))
+        tx = self.account_receipt(a, fee=2)
+        self.payment(o, 100, fee=2, tx=tx)
+        c = self.metrics()["caixa"]
+        self.assertEqual((c["entradas_confirmadas"], c["entradas_previstas"]), (98, 0))
+        self.assertEqual([(r["fonte"], r["valor"]) for r in c["detalhes"]], [("pagamento_os", 98)])
+
+    def test_received_account_with_pending_os_retains_its_own_cash_receipt(self):
+        self.order(appointment=10)
+        a = self.account(100, status="Recebido", appointment=10)
+        self.account_receipt(a)
         c = self.metrics()["caixa"]
         self.assertEqual((c["entradas_confirmadas"], c["entradas_previstas"]), (100, 0))
+        self.assertEqual([(r["fonte"], r["valor"]) for r in c["detalhes"]], [("conta_receber", 100)])
+
+    def test_full_os_allocation_to_second_account_mirror_is_not_counted_twice(self):
+        o = self.order(appointment=10, status="Pago")
+        a = self.account(100, status="Recebido", appointment=10)
+        self.account_receipt(a, fee=2)
+        second = self.account_receipt(a, fee=2)
+        self.payment(o, 100, fee=2, tx=second)
+        c = self.metrics()["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 98)
+        self.assertEqual([(r["fonte"], r["valor"]) for r in c["detalhes"]], [("pagamento_os", 98)])
+        self.assertTrue(any("várias transações" in gap for gap in c["lacunas"]))
+
+    def test_partial_os_allocation_to_second_account_mirror_preserves_only_residual(self):
+        o = self.order(appointment=10)
+        a = self.account(100, status="Recebido", appointment=10)
+        self.account_receipt(a, fee=2)
+        second = self.account_receipt(a, fee=2)
+        self.payment(o, 40, fee=1, tx=second)
+        result = self.metrics()
+        c = result["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 98)
+        self.assertEqual({r["fonte"]: r["valor"] for r in c["detalhes"]},
+                         {"pagamento_os": 39, "conta_receber": 59})
+        # Cash reconciliation does not manufacture an OS payment allocation.
+        self.assertEqual(result["recebimento"]["saldo_aberto"], 60)
+
+    def test_second_account_mirror_allocation_is_subtracted_before_filters(self):
+        o = self.order(appointment=10, clinic=1)
+        a = self.account(100, status="Recebido", appointment=10, clinic=2)
+        self.account_receipt(a, fee=2)
+        second = self.account_receipt(a, fee=2)
+        self.payment(o, 40, day=5, fee=1, tx=second)
+        self.assertEqual(self.metrics()["caixa"]["entradas_confirmadas"], 98)
+        self.assertEqual(self.metrics(clinic_id=1)["caixa"]["entradas_confirmadas"], 39)
+        self.assertEqual(self.metrics(clinic_id=2)["caixa"]["entradas_confirmadas"], 59)
+        self.assertEqual(self.metrics(region="Caucaia")["caixa"]["entradas_confirmadas"], 59)
+        self.assertEqual(self.metrics(start=date(2026, 10, 10))["caixa"]["entradas_confirmadas"], 59)
+
+    def test_allocations_across_account_mirrors_are_aggregated_for_residual(self):
+        o = self.order(appointment=10)
+        a = self.account(100, status="Recebido", appointment=10)
+        first = self.account_receipt(a, fee=2)
+        second = self.account_receipt(a, fee=2)
+        self.payment(o, 20, fee=1, tx=first)
+        self.payment(o, 40, fee=1, tx=second)
+        c = self.metrics()["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 98)
+        self.assertEqual(sum(r["valor"] for r in c["detalhes"] if r["fonte"] == "pagamento_os"), 58)
+        self.assertEqual([r["valor"] for r in c["detalhes"] if r["fonte"] == "conta_receber"], [40])
+
+    def test_unknown_second_mirror_allocation_does_not_invent_residual(self):
+        o = self.order(appointment=10)
+        a = self.account(100, status="Recebido", appointment=10)
+        self.account_receipt(a)
+        second = self.account_receipt(a)
+        payment, _ = self.payment(o, 40, tx=second)
+        self.db.commit()
+        set_committed_value(payment, "valor_liquido", None)
+        c = build_financial_metrics(self.db, date(2026, 10, 1), date(2026, 10, 31),
+                                    today=date(2026, 10, 25))["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 0)
+        self.assertTrue(any("líquido ausente" in gap for gap in c["lacunas"]))
+        self.assertFalse(self.db.dirty or self.db.new or self.db.deleted)
+
+    def test_inconsistent_second_mirror_allocation_does_not_reintroduce_cash(self):
+        o = self.order(200, appointment=10)
+        a = self.account(100, status="Recebido", appointment=10)
+        self.account_receipt(a)
+        second = self.account_receipt(a)
+        self.payment(o, 150, tx=second)
+        c = self.metrics()["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 0)
+        self.assertTrue(any("inconsistente" in gap.lower() for gap in c["lacunas"]))
+
+    def test_two_full_os_allocations_across_account_mirrors_are_excluded(self):
+        o = self.order(appointment=10, status="Pago")
+        a = self.account(100, status="Recebido", appointment=10)
+        for _ in range(2):
+            tx = self.account_receipt(a, fee=2)
+            self.payment(o, 100, fee=2, tx=tx)
+        c = self.metrics()["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 0)
+        self.assertEqual(c["detalhes"], [])
+        self.assertTrue(any("espelhos da mesma conta excede" in gap for gap in c["lacunas"]))
+
+    def test_partial_allocations_exceeding_account_are_excluded_before_filters(self):
+        first_order = self.order(appointment=10, clinic=1)
+        second_order = self.order(appointment=11, clinic=2)
+        a = self.account(100, status="Recebido", appointment=10, clinic=2)
+        first = self.account_receipt(a)
+        second = self.account_receipt(a)
+        self.payment(first_order, 60, day=5, tx=first)
+        self.payment(second_order, 60, day=20, tx=second)
+        self.payment(self.order(10, clinic=1), 10, day=15)
+        for filters, expected in (({}, 10), ({"clinic_id": 1}, 10), ({"clinic_id": 2}, 0),
+                                  ({"region": "Caucaia"}, 0), ({"start": date(2026, 10, 10)}, 10)):
+            with self.subTest(filters=filters):
+                c = self.metrics(**filters)["caixa"]
+                self.assertEqual(c["entradas_confirmadas"], expected)
+                self.assertTrue(any("espelhos da mesma conta excede" in gap for gap in c["lacunas"]))
+
+    def test_account_mirror_net_allocation_cannot_exceed_first_receipt(self):
+        o = self.order(appointment=10)
+        a = self.account(100, status="Recebido", appointment=10)
+        first = self.account_receipt(a, fee=10)
+        second = self.account_receipt(a)
+        self.payment(o, 40, tx=first)
+        self.payment(o, 60, tx=second)
+        c = self.metrics()["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 0)
+        self.assertTrue(any("espelhos da mesma conta excede" in gap for gap in c["lacunas"]))
+
+    def test_distinct_account_markers_preserve_independent_payment_transactions(self):
+        o = self.order(200, appointment=10, status="Pago")
+        for _ in range(2):
+            a = self.account(100, status="Recebido", appointment=10)
+            tx = self.account_receipt(a, fee=2)
+            self.payment(o, 100, fee=2, tx=tx)
+        c = self.metrics()["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 196)
+        self.assertFalse(any("espelhos da mesma conta excede" in gap for gap in c["lacunas"]))
+
+    def test_cancelled_account_mirror_does_not_trigger_aggregate_exclusion(self):
+        o = self.order(appointment=10, status="Pago")
+        a = self.account(100, status="Recebido", appointment=10)
+        first = self.account_receipt(a, fee=2)
+        second = self.account_receipt(a, fee=2, status="Cancelado")
+        self.payment(o, 100, fee=2, tx=first)
+        self.payment(o, 100, fee=2, tx=second)
+        c = self.metrics()["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 98)
+        self.assertFalse(any("espelhos da mesma conta excede" in gap for gap in c["lacunas"]))
+
+    def test_received_account_is_not_replaced_by_independent_partial_os_payment(self):
+        o = self.order(appointment=10)
+        self.payment(o, 40, fee=1)
+        a = self.account(100, status="Recebido", appointment=10)
+        self.account_receipt(a, fee=2)
+        c = self.metrics()["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 137)
+        self.assertEqual({r["fonte"]: r["valor"] for r in c["detalhes"]},
+                         {"pagamento_os": 39, "conta_receber": 98})
+
+    def test_different_transactions_with_same_amount_date_and_appointment_are_distinct(self):
+        o = self.order(appointment=10, status="Pago")
+        self.payment(o, 100)
+        a = self.account(100, status="Recebido", appointment=10)
+        self.account_receipt(a)
+        c = self.metrics()["caixa"]
+        self.assertEqual((c["entradas_confirmadas"], c["entradas_previstas"]), (200, 0))
+        self.assertEqual(len(c["detalhes"]), 2)
+
+    def test_partial_os_allocation_counts_only_remaining_net_receivable_cash(self):
+        o = self.order(appointment=10)
+        a = self.account(100, status="Recebido", appointment=10)
+        tx = self.account_receipt(a, fee=2)
+        self.payment(o, 40, fee=1, tx=tx)
+        c = self.metrics()["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 98)
+        self.assertEqual({r["fonte"]: r["valor"] for r in c["detalhes"]},
+                         {"pagamento_os": 39, "conta_receber": 59})
+
+    def test_receivable_residual_subtracts_allocation_before_clinic_filter(self):
+        o = self.order(appointment=10, clinic=1)
+        a = self.account(100, status="Recebido", appointment=10, clinic=2)
+        tx = self.account_receipt(a, fee=2)
+        self.payment(o, 40, fee=1, tx=tx)
+        self.assertEqual(self.metrics()["caixa"]["entradas_confirmadas"], 98)
+        self.assertEqual(self.metrics(clinic_id=1)["caixa"]["entradas_confirmadas"], 39)
+        c = self.metrics(clinic_id=2)["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 59)
+        self.assertEqual([(r["fonte"], r["clinica_id"], r["valor"]) for r in c["detalhes"]],
+                         [("conta_receber", 2, 59)])
+        self.assertEqual(self.metrics(region="Caucaia")["caixa"]["entradas_confirmadas"], 59)
+
+    def test_receivable_residual_subtracts_allocation_outside_cash_date_filter(self):
+        o = self.order(appointment=10)
+        a = self.account(100, status="Recebido", appointment=10)
+        tx = self.account_receipt(a, fee=2)
+        self.payment(o, 40, day=5, fee=1, tx=tx)
+        c = self.metrics(start=date(2026, 10, 10))["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 59)
+        self.assertEqual([(r["fonte"], r["valor"]) for r in c["detalhes"]], [("conta_receber", 59)])
+        self.assertEqual(self.metrics()["caixa"]["entradas_confirmadas"], 98)
+
+    def test_inconsistent_receivable_allocation_does_not_reintroduce_rejected_cash(self):
+        o = self.order(200, appointment=10)
+        a = self.account(100, status="Recebido", appointment=10)
+        tx = self.account_receipt(a)
+        self.payment(o, 150, tx=tx)
+        c = self.metrics()["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 0)
+        self.assertTrue(any("inconsistente" in gap.lower() for gap in c["lacunas"]))
+
+    def test_unknown_payment_net_does_not_invent_a_receivable_residual(self):
+        o = self.order(appointment=10)
+        a = self.account(100, status="Recebido", appointment=10)
+        tx = self.account_receipt(a)
+        payment, _ = self.payment(o, 40, tx=tx)
+        self.db.commit()
+        # Simulate a legacy missing value in the read snapshot without writing
+        # NULL through today's non-nullable schema or mutating persisted rows.
+        set_committed_value(payment, "valor_liquido", None)
+        c = build_financial_metrics(self.db, date(2026, 10, 1), date(2026, 10, 31),
+                                    today=date(2026, 10, 25))["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 0)
+        self.assertTrue(any("líquido ausente" in gap for gap in c["lacunas"]))
+        self.assertFalse(self.db.dirty or self.db.new or self.db.deleted)
+
+    def test_settled_linked_account_without_transaction_keeps_legacy_cash(self):
+        self.order(appointment=10)
+        a = self.account(100, status="Recebido", appointment=10)
+        a.data_recebimento = datetime(2026, 10, 11)
+        c = self.metrics()["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 100)
+        self.assertEqual([(r["fonte"], r["valor"]) for r in c["detalhes"]], [("conta_receber", 100)])
+
+    def test_cancelled_linked_receivable_transaction_prevents_false_cash(self):
+        o = self.order(appointment=10)
+        a = self.account(100, status="Recebido", appointment=10)
+        tx = self.account_receipt(a, status="Cancelado")
+        self.payment(o, 100, tx=tx)
+        c = self.metrics()["caixa"]
+        self.assertEqual(c["entradas_confirmadas"], 0)
+        self.assertTrue(any("estorn" in v.lower() or "cancelad" in v.lower() for v in c["lacunas"]))
+
+    def test_cancelled_linked_receivable_without_receipt_does_not_create_cash(self):
+        self.order(appointment=10)
+        self.account(100, status="Cancelado", appointment=10)
+        c = self.metrics()["caixa"]
+        self.assertEqual((c["entradas_confirmadas"], c["entradas_previstas"]), (0, 0))
+
+    def test_pending_linked_account_does_not_double_schedule_os_balance(self):
+        self.order(appointment=10)
+        self.account(100, appointment=10)
+        c = self.metrics()["caixa"]
+        self.assertEqual((c["entradas_confirmadas"], c["entradas_previstas"]), (0, 100))
+        self.assertEqual([(r["fonte"], r["valor"]) for r in c["detalhes"]], [("saldo_os", 100)])
+
+    def test_pending_linked_account_keeps_existing_precedence_with_received_transaction(self):
+        self.order(appointment=10)
+        a = self.account(100, appointment=10)
+        self.account_receipt(a)
+        c = self.metrics()["caixa"]
+        self.assertEqual((c["entradas_confirmadas"], c["entradas_previstas"]), (0, 100))
+        self.assertEqual([(r["fonte"], r["valor"]) for r in c["detalhes"]], [("saldo_os", 100)])
 
     def test_orphan_os_transaction_does_not_also_schedule_full_os_balance(self):
         self.order(appointment=10)
