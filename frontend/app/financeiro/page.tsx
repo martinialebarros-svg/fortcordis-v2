@@ -27,6 +27,7 @@ import {
   normalizarCodigoFormaPagamento,
   type FormaPagamentoConfig,
 } from "@/lib/agenda-shared-actions";
+import BaixaCredito from "@/components/financeiro/BaixaCredito";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
 import { 
   DollarSign, TrendingUp, TrendingDown, Plus, Search, 
@@ -465,6 +466,7 @@ export default function FinanceiroPage() {
   const [carregandoSaldoCreditoClienteOS, setCarregandoSaldoCreditoClienteOS] = useState(false);
   const [erroSaldoCreditoClienteOS, setErroSaldoCreditoClienteOS] = useState("");
   const [usarCreditoClienteOS, setUsarCreditoClienteOS] = useState(false);
+  const [baixandoCredito, setBaixandoCredito] = useState(false);
   const [valorCreditoUtilizadoOS, setValorCreditoUtilizadoOS] = useState("0.00");
   const [enviarReciboPdfWhatsAppAposRecebimento, setEnviarReciboPdfWhatsAppAposRecebimento] = useState(false);
   const [salvandoOS, setSalvandoOS] = useState(false);
@@ -4496,6 +4498,18 @@ export default function FinanceiroPage() {
                 </div>
               )}
 
+              <BaixaCredito
+                onBusy={setBaixandoCredito}
+                key={modalReceberOS.id}
+                pacienteId={modalReceberOS.paciente_id}
+                clinicaId={modalReceberOS.clinica_id}
+                onSaldoCliente={(saldo) => {
+                  setSaldoCreditoClienteOS(Math.max(0, saldo));
+                  setUsarCreditoClienteOS(false);
+                  setValorCreditoUtilizadoOS("0.00");
+                }}
+              />
+
 	              <div className="space-y-3">
 	                {pagamentosRecebimentoOS.map((pagamento, index) => (
 	                  <div key={pagamento.id} className="rounded-lg border border-gray-200 p-3">
@@ -4677,6 +4691,7 @@ export default function FinanceiroPage() {
 	            
 	            <div className="shrink-0 p-6 border-t flex justify-end gap-3">
               <button
+                  disabled={baixandoCredito}
                 onClick={() => {
                   setModalReceberOS(null);
                   setSaldoCreditoClienteOS(0);
@@ -4692,7 +4707,7 @@ export default function FinanceiroPage() {
               </button>
 	              <button
 	                onClick={confirmarRecebimentoOS}
-	                disabled={carregandoFormasPagamento || resumoPagamentoOS.faltante > 0}
+                    disabled={baixandoCredito || carregandoFormasPagamento || resumoPagamentoOS.faltante > 0}
 	                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60"
 	              >
 	                <CheckCircle className="w-4 h-4" />

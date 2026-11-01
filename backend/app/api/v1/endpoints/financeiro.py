@@ -22,11 +22,12 @@ from app.models.financeiro import (
 from app.models.user import User
 from app.core.security import get_current_user
 from app.services.auditoria_service import registrar_auditoria
+from app.services.credito_baixa_service import baixar_credito, bloquear_destino, destino_credito, saldo_destino
 from app.schemas.financeiro import (
     TransacaoCreate, TransacaoUpdate, TransacaoResponse, TransacaoLista,
     BandeiraCartaoCreate, BandeiraCartaoUpdate, BandeiraCartaoResponse, BandeiraCartaoLista,
     FormaPagamentoConfigCreate, FormaPagamentoConfigUpdate, FormaPagamentoConfigResponse, FormaPagamentoConfigLista,
-    CreditoFinanceiroResponse, CreditoFinanceiroLista, CreditoSaldoLista, CreditoSaldoItem,
+    CreditoBaixaInput, CreditoFinanceiroResponse, CreditoFinanceiroLista, CreditoSaldoLista, CreditoSaldoItem,
     ContaPagarCreate, ContaPagarUpdate, ContaPagarResponse, ContaPagarLista,
     ContaReceberCreate, ContaReceberUpdate, ContaReceberResponse, ContaReceberLista,
     CustoFrotaCreate, CustoFrotaUpdate, CustoFrotaResponse, CustoFrotaLista,
@@ -655,6 +656,66 @@ def desativar_forma_pagamento(
     registro.updated_at = datetime.now()
     db.commit()
     return None
+
+
+@router.get("/creditos/disponivel")
+def consultar_credito_disponivel(
+    tipo_destino: str = Query(..., pattern="^(cliente|clinica)$"),
+    paciente_id: Optional[int] = Query(None, ge=1),
+    clinica_id: Optional[int] = Query(None, ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    destino = destino_credito(db, tipo_destino=tipo_destino, paciente_id=paciente_id, clinica_id=clinica_id)
+    return {"saldo": float(saldo_destino(db, destino)), "pode_baixar": current_user.tem_papel("admin")}
+
+
+@router.post("/creditos/baixar")
+def baixar_credito_sem_contrapartida(
+    dados: CreditoBaixaInput,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    movimento, destino, saldo, criado = baixar_credito(db, dados, current_user)
+    if criado:
+        registrar_auditoria(
+            current_user=current_user, modulo="financeiro", entidade="credito_financeiro",
+            entidade_id=movimento.id, acao="CREDITO_BAIXADO_SEM_CONTRAPARTIDA",
+            descricao="Credito baixado sem devolucao, abatimento ou movimentacao de caixa",
+            detalhes={**destino, "valor": float(dados.valor), "motivo": dados.motivo.strip(),
+                      "saldo_antes": float(saldo + dados.valor), "saldo_depois": float(saldo)}, request=request,
+        )
+    return {"movimento_id": movimento.id, "saldo": float(saldo), "mensagem": "Credito baixado sem contrapartida."}
+
+
+@router.post("/creditos/{credito_id}/desfazer-baixa")
+def desfazer_baixa_credito(
+    credito_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    movimento = db.query(CreditoFinanceiro).filter(CreditoFinanceiro.id == credito_id).first()
+    if not movimento or movimento.origem != "baixa_sem_contrapartida":
+        raise HTTPException(404, "Baixa de credito nao encontrada.")
+    destino = {chave: getattr(movimento, chave) for chave in ("tipo_destino", "clinica_id", "paciente_id", "tutor_id")}
+    bloquear_destino(db, destino)
+    # Read again after acquiring the owner lock to make reversal retries harmless.
+    db.refresh(movimento)
+    if movimento.status == "Ativo":
+        movimento.status = "Cancelado"
+        movimento.updated_at = datetime.now()
+        db.commit()
+        registrar_auditoria(
+            current_user=current_user, modulo="financeiro", entidade="credito_financeiro",
+            entidade_id=movimento.id, acao="BAIXA_CREDITO_DESFEITA",
+            descricao="Baixa sem contrapartida desfeita", detalhes={"valor_restaurado": -movimento.valor},
+            request=request,
+        )
+    return {"saldo": float(saldo_destino(db, destino)), "mensagem": "Baixa desfeita; credito restaurado."}
 
 
 @router.get("/creditos/movimentos", response_model=CreditoFinanceiroLista)

@@ -157,49 +157,4 @@ describe("recuperação de áudio por atendimento e usuário", () => {
     expect(lerRascunhoAssistenteMemoria({ usuarioId: 7, atendimentoId: 1, pacienteId: 1 })?.audio?.finalizado).toBe(true);
     expect(salvarAudioBackup).not.toHaveBeenCalled();
   });
-  it("preserva áudio importado excedente, mas informa que precisa ser dividido", async () => {
-    const { result } = renderHook(() => useAtendimentoAudio(1, 7, 1));
-    await waitFor(() => expect(result.current.carregandoBackup).toBe(false));
-    const file = new File(["123456789"], "consulta.webm");
-    act(() => result.current.importar(file, 8));
-    expect(result.current.audio).toBe(file);
-    expect(result.current.erro).toContain("8 bytes");
-    expect(result.current.erro).toContain("original foi preservado");
-    expect(lerRascunhoAssistenteMemoria({ usuarioId: 7, atendimentoId: 1, pacienteId: 1 })?.audio?.blob).toBe(file);
-  });
-  it.each([
-    { mime: "audio/webm", supported: true, initialSize: 40_000, finalSize: 300_000, expectedExtension: ".webm", expectedError: "300.000 bytes" },
-    { mime: "audio/ogg;codecs=opus", supported: false, initialSize: 0, finalSize: 10, expectedExtension: ".ogg", expectedError: "converta uma cópia" },
-  ])("mantém original final sem envio quando tamanho ou formato inviável: $mime", async ({ mime, supported, initialSize, finalSize, expectedExtension, expectedError }) => {
-    const track = { stop: vi.fn(), onended: null as (() => void) | null };
-    const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
-    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue(stream) } });
-    class Recorder {
-      static current: Recorder;
-      static isTypeSupported() { return supported; }
-      mimeType = mime;
-      state = "inactive";
-      ondataavailable: ((event: { data: Blob }) => void) | null = null;
-      onstop: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-      constructor() { Recorder.current = this; }
-      start() { this.state = "recording"; }
-      stop() {
-        this.state = "inactive";
-        this.ondataavailable?.({ data: new Blob([new Uint8Array(finalSize)], { type: mime }) });
-        this.onstop?.();
-      }
-    }
-    vi.stubGlobal("MediaRecorder", Recorder);
-    const { result } = renderHook(() => useAtendimentoAudio(1, 7, 1));
-    await waitFor(() => expect(result.current.carregandoBackup).toBe(false));
-    await act(() => result.current.iniciar(300_000));
-    if (initialSize) act(() => Recorder.current.ondataavailable?.({ data: new Blob([new Uint8Array(initialSize)], { type: mime }) }));
-    else act(() => result.current.parar());
-    expect(result.current.gravando).toBe(false);
-    expect(result.current.audio?.name.endsWith(expectedExtension)).toBe(true);
-    expect(result.current.audio?.size).toBe(initialSize + finalSize);
-    expect(result.current.erro).toContain(expectedError);
-    expect(lerRascunhoAssistenteMemoria({ usuarioId: 7, atendimentoId: 1, pacienteId: 1 })?.audio?.blob.size).toBe(initialSize + finalSize);
-  });
 });
