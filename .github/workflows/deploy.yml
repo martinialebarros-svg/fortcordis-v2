@@ -87,7 +87,7 @@ jobs:
           FORTCORDIS_PROCESS_ROLE: api
           DATABASE_URL: sqlite:///./fortcordis-ci.db
           SECRET_KEY: whatsapp-triage-ci-secret-key-1234567890
-        run: python -m pytest -q backend/tests/test_whatsapp_bot_reacoes.py backend/tests/test_whatsapp_bot_mensagens_automaticas.py backend/tests/test_whatsapp_bot_saudacoes_agrupadas.py
+        run: python -m pytest -q backend/tests/test_recebimento_desconto_baixa_credito.py backend/tests/test_whatsapp_bot_reacoes.py backend/tests/test_whatsapp_bot_mensagens_automaticas.py backend/tests/test_whatsapp_bot_saudacoes_agrupadas.py
 
       - name: Test clinical edit history, document persistence and PostgreSQL concurrency
         env:

@@ -46,3 +46,7 @@ Habilitar recebimento multiplo por OS com calculo de taxa por forma, registro au
 - [x] Escopo e nao escopo estao explicitos.
 - [x] Restricoes estao registradas.
 - [x] Riscos iniciais estao mapeados.
+
+## Incremento 2026-11-01 — baixa sem contrapartida
+
+Permitir que o administrador baixe parcial ou integralmente um credito ja existente de cliente/clinica, com motivo e historico reversivel, sem movimentar caixa ou quitar OS. Corrigir a sugestao de pagamento ao aplicar desconto na Agenda. A autorizacao de publicacao cobre somente este incremento e suas validacoes.

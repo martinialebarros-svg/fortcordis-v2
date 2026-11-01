@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field
 from datetime import datetime, date
 from typing import Optional, List
+from decimal import Decimal
+from uuid import UUID
 
 
 # ==================== TRANSAÇÕES ====================
@@ -195,6 +197,15 @@ class FormaPagamentoConfigResponse(BaseModel):
 class FormaPagamentoConfigLista(BaseModel):
     total: int
     items: List[FormaPagamentoConfigResponse]
+
+
+class CreditoBaixaInput(BaseModel):
+    tipo_destino: str = Field(..., pattern="^(cliente|clinica)$")
+    paciente_id: Optional[int] = Field(default=None, ge=1)
+    clinica_id: Optional[int] = Field(default=None, ge=1)
+    valor: Decimal = Field(..., gt=0, max_digits=12, decimal_places=2, allow_inf_nan=False)
+    motivo: str = Field(..., min_length=3, max_length=500)
+    idempotency_key: UUID
 
 
 class CreditoFinanceiroResponse(BaseModel):

@@ -120,7 +120,7 @@ jobs:
           OS_BATCH_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/os_batch_test
         run: |
           psql postgresql://postgres:postgres@127.0.0.1:5432/postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE os_batch_test'
-          python -m pytest -q backend/tests/test_ordens_servico_receber_lote_postgres.py
+          python -m pytest -q backend/tests/test_ordens_servico_receber_lote_postgres.py backend/tests/test_recebimento_desconto_baixa_credito.py
 
       - name: Test fiscal monthly package PostgreSQL concurrency
         env:
