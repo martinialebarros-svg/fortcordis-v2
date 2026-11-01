@@ -74,6 +74,12 @@ A revisão do backend, hook e integração na página identificou e motivou corr
 
 ## Publicação e dados
 
+### Preflight da publicação em stage — 01/11/2026
+
+A integração com o `origin/stage` atual foi feita por merge, sem conflitos, preservando o conteúdo financeiro e os workflows já publicados. A validação adicional executou 34 testes e 86 subtestes de contratos/migração/segurança, com sucesso; essas contagens se sobrepõem às suítes anteriores.
+
+Também foi executado PostgreSQL **16.13 real e descartável**, local, em socket Unix privado, sem TCP ou banco remoto: migração 105 aplicada pelo runner (primeira execução: 1; segunda: 0), versão atual/mais recente 105 e zero pendentes. Foram conferidos RLS, bloqueio de privilégios para `anon`/`authenticated`, unicidade proprietário+UUID, FK, roundtrip literal, retry, autoria, CAS concorrente com um sucesso e um conflito, encerramento/retry, GET 410 e rejeição de autosave após fechamento. A tabela sentinela permaneceu intacta; o cluster foi encerrado e removido. Isso complementa o DDL antes simulado, sem comprovar ainda a migração no ambiente instalado.
+
 Na primeira solicitação houve apenas implementação local. Em 01/11/2026, o usuário autorizou publicar em **stage** e testar rascunho automático, recuperação e emissão de novos laudos. A preparação desta publicação preserva a versão remota `a7b97cff25a10fb6dd61fdc11dc75f949b2a0b72` e confirmou que a maior migração remota é a 104, sem colisão com a nova 105. A fila anterior de deploy estava concluída com sucesso.
 
 A autorização é restrita a stage. A publicação só será considerada comprovada após checks/workflow terminais, versão instalada e testes aplicáveis. Promoção a produção não foi solicitada neste ciclo. Os resultados locais acima não são evidência de ambiente instalado; registrar abaixo o resultado efetivo da homologação.
