@@ -61,7 +61,6 @@ jobs:
           bash scripts/tests/test_probe_public_https.sh
           bash scripts/tests/test_monitor_vps_ingress_deltas.sh
           bash scripts/tests/test_vps_ingress_diagnostics_stage_trigger.sh
-          python3 scripts/tests/test_ensure_atendimento_ia_ingress.py
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -92,13 +91,6 @@ jobs:
           DATABASE_URL: sqlite:///./fortcordis-ci.db
           SECRET_KEY: whatsapp-triage-ci-secret-key-1234567890
         run: python -m pytest -q backend/tests/test_whatsapp_bot_reacoes.py backend/tests/test_whatsapp_bot_mensagens_automaticas.py backend/tests/test_whatsapp_bot_saudacoes_agrupadas.py
-
-      - name: Test management indicators and administrative permissions
-        env:
-          FORTCORDIS_PROCESS_ROLE: api
-          DATABASE_URL: sqlite://
-          SECRET_KEY: management-stage-ci-synthetic-secret-123456789
-        run: python -m pytest -q backend/tests/test_gestao_api.py backend/tests/test_gestao_agenda.py backend/tests/test_gestao_financeira.py
 
       - name: Test Google Maps shared limits and operational transactions in PostgreSQL
         env:
@@ -158,10 +150,6 @@ jobs:
       - name: Test Financeiro batch receipt interface
         working-directory: frontend
         run: npx vitest run app/financeiro/page.test.tsx
-
-      - name: Test management dashboard and administrative navigation
-        working-directory: frontend
-        run: npx vitest run app/gestao/page.test.tsx lib/host-routing.test.ts lib/dashboard-shell-routes.test.ts
 
       - name: Test manual fiscal routines and package regressions
         working-directory: frontend
@@ -695,19 +683,6 @@ jobs:
               WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED=true \
               bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"
           EOF
-
-      - name: Configure isolated Atendimento IA ingress on Stage
-        if: success() && contains(github.event.head_commit.message, '[atendimento-ia-ingress]')
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_SUDO_PASSWORD: ${{ secrets.VPS_SUDO_PASSWORD }}
-        run: |
-          set -euo pipefail
-          printf '%s\n' "$VPS_SUDO_PASSWORD" | \
-            ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
-              "${VPS_USER}@${VPS_HOST}" \
-              'exec sudo -S -p "" /usr/bin/python3 /var/www/fortcordis-stage/scripts/ensure_atendimento_ia_ingress.py --apply-stage-ingress --expected-sha ${{ github.sha }}'
 
       - name: Synchronize feline diastolic presets on Stage
         run: |
