@@ -1,7 +1,7 @@
 # Spec — Assistência multimodal no atendimento
 
-Data: 2026-10-27
-Status: in_progress (base publicada com IA desativada; homologação da ativação em andamento)
+Data: 2026-10-26
+Status: done (implementação local; homologação e publicação pendentes)
 
 ## Requisitos
 
@@ -22,9 +22,6 @@ Status: in_progress (base publicada com IA desativada; homologação da ativaç�
 - NFR-003: respostas estruturadas validadas; arquivos e transcrições são fontes não confiáveis, nunca instruções. Não aceitar decisão/normalidade inventada como informação do prontuário.
 - NFR-004: backup local de áudio opcional, com isolamento por usuário/atendimento/paciente, expiração (limpeza na próxima abertura) e descarte. Falha de armazenamento deve ser visível; sem prometer recuperar áudio não salvo pelo navegador.
 - NFR-005: antes de ativar chamadas externas, validar upload e tempo de espera em todo o caminho público. O proxy deve permitir o processamento síncrono previsto pelo servidor, ou o fluxo deve passar a trabalho assíncrono; um teste local no backend não comprova esse caminho.
-
-- NFR-006: áudio limitado a 24.000.000 bytes, abaixo dos 25 MB documentados do provedor. Aceitar MP3, MP4, MPEG, MPGA, M4A, WAV e WebM; não enviar OGG/FLAC sem contrato validado. Revalidar o Blob final e imediatamente antes do envio. Excesso ou formato não suportado conserva reprodução/download e bloqueia apenas a transcrição.
-- NFR-007: homologação automatizada usa exclusivamente fixtures sintéticas e chamadas limitadas, sem banco, prontuários, chave no relatório ou ativação automática. Aprovação dos cenários não substitui homologação física e revisão veterinária.
 
 ## API
 
@@ -57,9 +54,9 @@ Em 2026-10-26, o usuário autorizou publicar após aguardar a fila existente. A 
 
 Esta publicação mantém `ATENDIMENTO_IA_ENABLED=false`; não insere novas chaves de ativação no ambiente. Ativar exige homologação física e clínica, acesso efetivo aos modelos e verificação do caminho público completo.
 
-O backend permite 180 segundos de espera pelo provedor e a UI espera 300 segundos. A leitura dos arquivos habilitados do Nginx em 2026-10-26 encontrou limite de corpo de 30 MiB nas rotas API de stage e produção, mas nenhuma diretiva de timeout nos includes. O [padrão documentado de `proxy_read_timeout`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout) é 60 segundos entre leituras do upstream. Antes de habilitar IA, conferir o dump efetivo do processo, ajustar o timeout especificamente para o fluxo ou implementar resposta assíncrona e comprovar resposta pelo domínio público em processamento superior a 60 segundos. A publicação inicial não alterou Nginx. A continuação autorizada em 2026-10-27 prepara ajuste restrito a stage e mantém produção desativada até a validação completa.
+O backend permite 180 segundos de espera pelo provedor e a UI espera 300 segundos. A leitura dos arquivos habilitados do Nginx em 2026-10-26 encontrou limite de corpo de 30 MiB nas rotas API de stage e produção, mas nenhuma diretiva de timeout nos includes. O [padrão documentado de `proxy_read_timeout`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout) é 60 segundos entre leituras do upstream. Antes de habilitar IA, conferir o dump efetivo do processo, ajustar o timeout especificamente para o fluxo ou implementar resposta assíncrona e comprovar resposta pelo domínio público em processamento superior a 60 segundos. Não alterar Nginx nesta publicação desativada.
 
-A verificação futura deve incluir áudio próximo de 24.000.000 bytes, lote de exames próximo de 20 MiB, cancelamento/repetição e conservação das fontes quando houver falha. O limite de 30 MiB cobre o corpo multipart previsto, mas não substitui um teste real do caminho público. Não há garantia de acurácia ou acesso ao provedor baseada apenas em configuração presente.
+A verificação futura deve incluir áudio próximo de 24 MiB, lote de exames próximo de 20 MiB, cancelamento/repetição e conservação das fontes quando houver falha. O limite de 30 MiB cobre o corpo multipart previsto, mas não substitui um teste real do caminho público. Não há garantia de acurácia ou acesso ao provedor baseada apenas em configuração presente.
 
 Na ativação posterior, registrar o estado anterior das chaves `ATENDIMENTO_IA_*`. Para retornar a código anterior à feature, restaurar também essas chaves antes de reiniciar: `Settings` rejeita campos extras no `.env`. Nenhuma migração de banco é necessária.
 
@@ -72,14 +69,6 @@ Na ativação posterior, registrar o estado anterior das chaves `ATENDIMENTO_IA_
 
 ## Uso em computador e celular — confirmação do usuário
 
-O usuário alterna computador e celular e confirmou Android com Chrome em 27/10. A matriz física prioritária é Android/Chrome e computador/Chrome; outros navegadores dependem de verificação separada. Seleção de codec é por capacidade do navegador; compartilhamento nativo é por suporte a arquivos, sem inferir suporte apenas pelo tipo de aparelho.
+O usuário alterna computador e celular. Ambos integram a matriz de homologação: Safari/iOS, Chrome/Android, Safari/macOS e Chrome/desktop, conforme os aparelhos disponíveis. Seleção de codec é por capacidade do navegador; compartilhamento nativo é por suporte a arquivos, sem inferir suporte apenas pelo tipo de aparelho.
 
 O rascunho da IA e o áudio local não são sincronizados entre aparelhos. A UI orienta parar a gravação, revisar/incorporar, confirmar salvamento do atendimento e baixar o áudio antes de trocar. Somente informação já incorporada/salva e anexos enviados ao prontuário ficam disponíveis pelo sistema no outro aparelho. Não prometer continuação da gravação no segundo dispositivo nem transcrição em segundo plano.
-
-## Continuação autorizada em 2026-10-27
-
-Após a publicação base #489 e a restauração #488, o usuário pediu prosseguir com a preparação da ativação e confirmou reutilizar a chave existente. A chave permanece no destino atual; nenhum segredo é copiado ao repositório. São autorizados testes limitados com material sintético e preparação do timeout. A fila concorrente de laudo (#508/#509) deve terminar e liberar a janela antes de qualquer mudança remota em stage.
-
-O helper de ingress é opt-in e exclusivo de stage: valida SHA instalado, ambiente e vhost, preserva a configuração anterior e restringe 210 segundos às rotas de análise/transcrição; mantém rotas gerais e produção. Falha de validação/reload deve restaurar a configuração. A flag de IA não é ativada pelo helper. A execução depende da validação local e da janela de publicação.
-
-Fontes oficiais reconferidas: [Sol 6.1](https://developers.openai.com/api/docs/models/gpt-6.1-sol), [transcrição de arquivos](https://developers.openai.com/api/docs/guides/speech-to-text) e [entrada de PDFs](https://developers.openai.com/api/docs/guides/file-inputs). `max` é o maior esforço documentado da API; não substituir o modelo solicitado silenciosamente.

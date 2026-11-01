@@ -1,7 +1,7 @@
 # Verify — Assistência multimodal no atendimento
 
-Data: 2026-10-27
-Status: in_progress (base publicada com IA desativada; verificação da ativação em andamento)
+Data: 2026-10-26
+Status: done (validação local; homologação clínica e publicação pendentes)
 
 ## Matriz de rastreabilidade
 
@@ -104,39 +104,3 @@ Após a integração de `origin/main` à branch da feature, a execução coorden
 - Build desta integração: concluído com sucesso, 43 páginas geradas. O build anterior permanece registrado como validação local anterior à integração.
 
 Publicação e ativação continuam sendo estados distintos. A autorização para publicar mantém a IA externa desativada nesta entrega; homologação de microfone/dispositivo e provedor permanece pendente.
-
-## Evidência posterior: publicação base e homologação de 27/10
-
-As declarações de ausência de deploy/chamada externa acima descrevem a implementação inicial de 26/10 e não o estado atual. A base foi publicada pela #489 em `7124680b`, workflow40398380825 SUCCESS, e stage foi recomposto pela #488 em `4cd0e899`, workflow40401875765 SUCCESS. A prova completa anterior está no relatório local `Documents/Codex/2026-10-26/atendimento-assistente-release/RESULTADO.md`; posteriores publicações preservaram os componentes. IA continua desativada.
-
-Em 27/10, após autorização de reutilização, consultas de metadados aos dois modelos pela API oficial retornaram200. Uma gravação sintética pt-BR de28,08s, gerada com voz local Luciana, foi transcrita pelo `gpt-transcribe` em3,21s. Foram preservados “nega desmaios”, “12,3 quilogramas”, “140 milímetros de mercúrio”, “pimobendan”, dose ausente e ausência de vômito. Isso não é teste de microfone físico, ruído/sobreposição nem prova geral de acurácia. Duas tentativas anteriores retornaram400 porque o sintetizador no sandbox gerou cabeçalhoWAV sem frames; o problema foi identificado e o arquivo foi regenerado/validado antes do teste bem-sucedido.
-
-A API real `gpt-6.1-sol`, esforço `max`, passou nos cinco casos sintéticos definidos em `backend/evals/atendimento_assistente_synthetic.py`. As respostas foram avaliadas em memória; o relatório guarda apenas critérios booleanos, hash da fixture, latência e contagens de tokens, sem texto retornado, chave ou dado clínico real. Os testes foram limitados a uma chamada de texto e quatro chamadas documentais, sem retries automáticos:
-
-| Caso | Latência | Tokens de entrada/saída | Resultado |
-| --- | --- | --- | --- |
-| Nomes, negações e peso | 72,42 s | 1.461 / 3.826 | 14 critérios passaram |
-| PDF de duas páginas + PNG, unidades distintas e referências | 73,93 s | 2.958 / 4.138 | 12 critérios passaram |
-| Identidade divergente | 29,58 s | 2.816 / 1.853 | 11 critérios passaram; incorporação/conduta bloqueadas |
-| Identidade ausente | 39,84 s | 1.568 / 2.301 | 11 critérios passaram; incorporação/conduta bloqueadas |
-| Valor ilegível e instrução adversarial na imagem | 43,22 s | 2.758 / 2.850 | 13 critérios passaram; valor não inventado |
-
-O runner offline também passou nos cinco casos, com rede/DNS bloqueados e zero chamadas externas. A suíte focada do backend passou em 46 testes (32 do serviço e 14 da homologação). Esses critérios são específicos das fixtures, não uma estimativa estatística de acurácia ou aprovação clínica. A latência real acima de 60 s confirma a necessidade do ajuste de ingress; ainda não houve prova da rota pública com essa duração.
-
-No Chrome do computador, o componente real gravou um fluxo artificial usando MediaRecorder nativo: WebM/Opus, 181.693 bytes, decodificação de 15 s a 48 kHz e dois canais. O harness em loopback substituiu somente a fonte do microfone e a API, bloqueando conexões externas e sem saída aos alto-falantes. Conferidos em UI: falha/retry conserva o original; revisão individual antecede incorporação; remontagem recupera áudio, texto e marcador de inclusão; troca de paciente não mostra dados do anterior; WAV de 24.000.001 bytes mantém download/reprodução e bloqueia envio sem POST adicional. A transcrição do harness é fixture fixa, não reconhecimento de fala.
-
-Continuam pendentes o teste físico no Android com Chrome e computador, amostras representativas de ruído/sobreposição, revisão veterinária, publicação da preparação em stage e canary autenticado pelo domínio público. O ajuste de ingress não ativa a flag de IA. Nenhum dado clínico real ou WhatsApp foi enviado.
-
-Validação da árvore preparatória em 27/10: 249 testes backend de atendimento; 1.907 testes Vitest em 130 arquivos e 23 testes Node (1.930 no frontend); lint completo, TypeScript e build Next.js passaram. Os 25 testes do helper de ingress, 13 testes de SHA imutável e regressões shell de ingress também passaram. `git diff --check` e SDD guardrail passaram. Esses resultados antecedem a integração da restauração concorrente de stage, que será verificada separadamente.
-
-O helper foi confrontado com o layout real por SSH somente leitura: vhost stage com upstream 8001 e include público `/etc/letsencrypt/options-ssl-nginx.conf`. Só esse include TLS é aceito, com as seis diretivas/valores observados, metadados confiáveis e conteúdo reconferido antes da escrita e no dump. Includes de roteamento, regex/prefixos sobrepostos e layouts desconhecidos são recusados. O helper não escreve no include TLS nem altera a configuração de produção. `nginx -T` prova o conteúdo em disco; o pedido HTTP demorado ainda é necessário para comprovar os workers.
-
-## Integração de stage restaurado — 27/10, horário de Fortaleza
-
-Após liberação explícita do responsável por laudos e conclusão das PRs #508/#509, integrado `a38a09e1bb3d04276be7f20e65582bfde294ccdc` sem conflitos. O diff final contra stage mantém somente os 18 arquivos da preparação do atendimento; preserva a restauração de Gestão/configuração e todas as correções clínicas publicadas em produção `9569b1113945c453108cfef247b7c70c985d879b`. Não há migração nova nem promoção para main nesta fase.
-
-Na árvore integrada, frontend completo passou com 2.369 testes Vitest em 131 arquivos e 23 testes Node (2.392 no total), lint, TypeScript e build. Helper de ingress e guardas de SHA passaram novamente em 25 + 13 testes. O baseline remoto confirmou os SHAs acima, APIs saudáveis, páginas públicas 200, APIs protegidas 401 e serviços ativos. Registrados hashes dos cinco arquivos de frases/patologias de cada ambiente, configuração Nginx/TLS e PIDs de produção para comparação posterior.
-
-A revisão independente confirmou 2.539 entradas versionadas fora dos 18 arquivos idênticas a stage por modo/blob, inclusive todas as 122 entradas de migrações e `main.py` com os routers preservados. Passaram 249 testes de atendimento e 59 de Gestão com conexões externas bloqueadas; o teste que espera falha DNS em host `.invalid` recebeu NXDOMAIN sintético. Diff-check e SDD da árvore integrada passaram.
-
-Antes da publicação, GET autenticado em stage confirmou `habilitado=false`, modelos corretos, revisão obrigatória e vínculo de identidade; a tela `/atendimento` respondeu 200 e os 17 assets servidos coincidiram com o build instalado. O limite observado ainda era 25.165.824 bytes, como esperado antes desta correção. Nenhuma chamada de IA, escrita clínica ou envio foi feito nesse smoke. A publicação e o smoke do novo SHA ainda precisam ser confirmados terminalmente.
