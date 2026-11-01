@@ -400,13 +400,52 @@ def build_financial_metrics(
             kind = "pagar" if marker.group(1) == "pagamento" else "receber"
             key = (kind, int(marker.group(2)))
             account_transactions[key].append(tx)
-    reconciled_transaction_ids = set()
+    valid_payment_groups = {
+        tx_id: [p for p in candidate_payments.get(tx_id, []) if p in active_payments[p.ordem_servico_id]]
+        for tx_id in payment_transaction_ids
+    }
+    rejected_account_keys = set()
+    rejected_mirror_ids = set()
+    for account in receivables:
+        key = ("receber", account.id)
+        mirrors = account_transactions.get(key, [])
+        paid_mirrors = [tx for tx in mirrors if _status(tx.status) in SETTLED and tx.tipo == "entrada"]
+        if len(paid_mirrors) <= 1:
+            continue
+        # Repeated account settlement can create several transactions for one
+        # obligation. Validate their OS allocations together before filters or
+        # cash entries; choosing an arbitrary allocation would invent ownership.
+        first = min(paid_mirrors, key=lambda tx: tx.id)
+        group = [p for tx in paid_mirrors for p in valid_payment_groups.get(tx.id, [])]
+        gross = sum((_d(p.valor_bruto) for p in group), ZERO)
+        net = (sum((_d(p.valor_liquido) for p in group), ZERO)
+               if all(p.valor_liquido is not None and _d(p.valor_liquido) >= 0 for p in group) else None)
+        gross_limits = [value for value in (account.valor, first.valor) if value is not None and _d(value) >= 0]
+        exceeds_gross = any(gross > _d(limit) + CENT for limit in gross_limits)
+        exceeds_net = net is not None and first.valor_final is not None and net > _d(first.valor_final) + CENT
+        if exceeds_gross or exceeds_net:
+            rejected_account_keys.add(key)
+            rejected_mirror_ids.update(tx.id for tx in mirrors)
+            if matches(account.clinica_id) or any(p.ordem_servico_id in orders and matches(orders[p.ordem_servico_id].clinica_id) for p in group):
+                cash_gaps.append("Composição OS entre espelhos da mesma conta excede a obrigação ou sua transação de origem; grupo excluído do caixa até conferência.")
+    reconciled_transaction_ids = set(rejected_mirror_ids)
+    allocated_transaction_net = {}
     for tx_id in payment_transaction_ids:
+        if tx_id in rejected_mirror_ids:
+            continue
         tx = transactions.get(tx_id)
         group = candidate_payments.get(tx_id, [])
-        valid_group = [p for p in group if p in active_payments[p.ordem_servico_id]]
+        valid_group = valid_payment_groups[tx_id]
         if valid_group:
             # Allocated OS rows are authoritative for clinic filters and fees.
+            # Reconcile the whole transaction before applying clinic/date
+            # filters; a generated receivable may retain an unallocated part.
+            allocated_transaction_net[tx_id] = (
+                sum((_d(p.valor_liquido) for p in valid_group), ZERO)
+                if all(p.valor_liquido is not None and _d(p.valor_liquido) >= 0
+                       and p.ordem_servico_id in orders for p in valid_group)
+                else None
+            )
             for payment in valid_group:
                 order = orders.get(payment.ordem_servico_id)
                 if order is not None:
@@ -454,20 +493,39 @@ def build_financial_metrics(
         for account in accounts:
             if _status(account.status) in CANCELED:
                 continue
+            if (kind, account.id) in rejected_account_keys:
+                continue
             mirrors = account_transactions.get((kind, account.id), [])
-            if kind == "receber" and account.id in linked_receivable_ids:
-                # OS payments and balance own this economic obligation. Its
-                # generated account transactions are mirrors, even if legacy.
+            paid_mirrors = [tx for tx in mirrors if _status(tx.status) in SETTLED and tx.tipo == direction]
+            if (kind == "receber" and account.id in linked_receivable_ids
+                    and _status(account.status) not in SETTLED):
+                # The OS balance owns pending obligations. A received account
+                # is separate cash evidence unless its own transaction is
+                # already represented by an OS payment allocation.
                 reconciled_transaction_ids.update(tx.id for tx in mirrors)
                 continue
-            paid_mirrors = [tx for tx in mirrors if _status(tx.status) in SETTLED and tx.tipo == direction]
             if paid_mirrors:
                 # The account is one obligation; the first generated settled
                 # transaction is its evidence, not N repeated endpoint clicks.
                 first = min(paid_mirrors, key=lambda t: t.id)
+                value = first.valor_final
+                allocated_mirror_ids = {tx.id for tx in paid_mirrors if tx.id in payment_transaction_ids}
+                if allocated_mirror_ids:
+                    if any(tx_id not in allocated_transaction_net for tx_id in allocated_mirror_ids):
+                        # Inconsistent allocations have already been excluded;
+                        # the account must not reintroduce that transaction.
+                        reconciled_transaction_ids.update(tx.id for tx in mirrors)
+                        continue
+                    # Repeated settlement calls produce exact mirrors of this
+                    # one account. OS allocations can reference any mirror,
+                    # not necessarily the oldest transaction chosen above.
+                    net_values = [allocated_transaction_net[tx_id] for tx_id in allocated_mirror_ids]
+                    allocated = sum(net_values, ZERO) if all(value is not None for value in net_values) else None
+                    value = (max(_d(value) - allocated, ZERO)
+                             if value is not None and allocated is not None else None)
                 when = _day(first.data_pagamento or first.data_transacao)
                 if when and when <= today:
-                    add_entry(f"conta_{kind}", account.id, account.clinica_id, when, direction, first.valor_final, "confirmado")
+                    add_entry(f"conta_{kind}", account.id, account.clinica_id, when, direction, value, "confirmado")
                 reconciled_transaction_ids.update(tx.id for tx in mirrors)
                 if len(paid_mirrors) > 1 and matches(account.clinica_id):
                     cash_gaps.append("Conta com várias transações automáticas de quitação: considerada uma obrigação; confira os registros duplicados.")
