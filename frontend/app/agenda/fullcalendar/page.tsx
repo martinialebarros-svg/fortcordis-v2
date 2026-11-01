@@ -44,6 +44,8 @@ import {
   normalizarPrazoReabilitacaoHoras,
   podeReabilitarReserva,
 } from "@/lib/agenda-reabilitar-reserva";
+import BaixaCredito from "@/components/financeiro/BaixaCredito";
+import { ajustarPagamentoSugerido } from "@/lib/recebimento-desconto";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
 import {
   montarGoogleMapsDestinoLocal,
@@ -490,6 +492,7 @@ export default function AgendaFullCalendarPage() {
   const [carregandoSaldoCreditoPagamento, setCarregandoSaldoCreditoPagamento] = useState(false);
   const [erroSaldoCreditoPagamento, setErroSaldoCreditoPagamento] = useState("");
   const [usarCreditoClientePagamento, setUsarCreditoClientePagamento] = useState(false);
+  const [baixandoCredito, setBaixandoCredito] = useState(false);
   const [valorCreditoUtilizadoPagamento, setValorCreditoUtilizadoPagamento] = useState("0.00");
   const [descontoPagamento, setDescontoPagamento] = useState("0.00");
   const [excluindoAgendamentoId, setExcluindoAgendamentoId] = useState<number | null>(null);
@@ -1774,7 +1777,7 @@ export default function AgendaFullCalendarPage() {
         }));
       const creditoUtilizado = Number(resumoPagamentoModal.creditoUtilizado || 0);
 
-      if (pagamentosPayload.length === 0 && creditoUtilizado <= 0) {
+      if (pagamentosPayload.length === 0 && creditoUtilizado <= 0 && resumoPagamentoModal.valorOs > 0) {
         setErro("Informe ao menos um pagamento com valor maior que zero ou utilize credito disponivel.");
         return;
       }
@@ -1818,6 +1821,7 @@ export default function AgendaFullCalendarPage() {
     destinoCreditoExcedente,
     intervalo,
     ordensServicoPorAgendamento,
+    resumoPagamentoModal.valorOs,
     resumoPagamentoModal.descontoAplicado,
     resumoPagamentoModal.linhas,
     resumoPagamentoModal.creditoUtilizado,
@@ -3139,11 +3143,17 @@ export default function AgendaFullCalendarPage() {
                 step="0.01"
                 max={Math.max(0, Number(resumoPagamentoModal.valorOsBruto || 0))}
                 value={descontoPagamento}
-                onChange={(event) => setDescontoPagamento(event.target.value)}
+                onChange={(event) => {
+                  const desconto = Math.max(0, Math.min(parseMoneyValue(event.target.value), resumoPagamentoModal.valorOsBruto));
+                  setPagamentosRecebimento((prev) => ajustarPagamentoSugerido(
+                    prev, resumoPagamentoModal.valorOs, resumoPagamentoModal.valorOsBruto - desconto, resumoPagamentoModal.creditoUtilizado
+                  ));
+                  setDescontoPagamento(event.target.value);
+                }}
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
               <div className="mt-1 text-xs text-gray-500">
-                Valor bruto da OS: {formatarMoedaBRL(Number(resumoPagamentoModal.valorOsBruto || 0))}.
+                Valor bruto da OS: {formatarMoedaBRL(Number(resumoPagamentoModal.valorOsBruto || 0))}. A sugestao de pagamento acompanha o desconto; confira o valor efetivamente recebido.
               </div>
 
               {!carregandoSaldoCreditoPagamento && saldoCreditoClientePagamento > 0 && (
@@ -3189,6 +3199,18 @@ export default function AgendaFullCalendarPage() {
                   )}
                 </div>
               )}
+
+              <BaixaCredito
+                onBusy={setBaixandoCredito}
+                key={selecionado?.paciente_id}
+                pacienteId={selecionado?.paciente_id}
+                clinicaId={selecionado?.clinica_id}
+                onSaldoCliente={(saldo) => {
+                  setSaldoCreditoClientePagamento(Math.max(0, saldo));
+                  setUsarCreditoClientePagamento(false);
+                  setValorCreditoUtilizadoPagamento("0.00");
+                }}
+              />
 
               {resumoPagamentoModal.excedente > 0 && (
                 <>
@@ -3288,6 +3310,7 @@ export default function AgendaFullCalendarPage() {
 
               <div className="mt-5 flex justify-end gap-2">
                 <button
+                  disabled={baixandoCredito}
                   onClick={() => {
                     setModalPagamentoAberto(false);
                     setSaldoCreditoClientePagamento(0);
@@ -3305,6 +3328,7 @@ export default function AgendaFullCalendarPage() {
                   onClick={receberPagamentoSelecionado}
                   disabled={
                     recebendoPagamentoId === selecionado.id ||
+                    baixandoCredito ||
                     carregandoFormasPagamento ||
                     resumoPagamentoModal.faltante > 0
                   }
