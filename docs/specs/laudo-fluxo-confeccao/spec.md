@@ -18,6 +18,7 @@ Fase 1a do plano autorizado em 01/11/2026: novos ecocardiogramas com workspace p
 - RF-FC-10: aplicar autenticação, autorização e isolamento de propriedade no servidor do workspace. Todas as operações exigem `X-Editor-Owner-Id` correspondente ao usuário autenticado; divergência ou ausência é rejeitada antes de ler/gravar/fechar o workspace. O cabeçalho é uma precondição, não uma credencial. UUID guardado no navegador não concede acesso. `sessionStorage` guarda somente esse identificador opaco, separado por usuário e contexto; o snapshot bruto de campos fica no servidor e exclui tokens, senhas, `File`, binários e previews/data URLs de imagem.
 - RF-FC-11: manter os cálculos clínicos, referências, regras de espécie/idade/peso, importação e política de fusão existentes. O incremento não calcula diagnóstico, não confirma métodos por presença de medidas e não aplica normalidade automaticamente.
 - RF-FC-12: falha de rascunho não deve retirar acesso à edição dos campos do laudo. Separar bloqueio de emissão de editabilidade local. A interface informa a situação real e oferece recuperação/repetição; não declara emissão ou salvamento quando houve somente uma tentativa. O fluxo dedicado de pressão arterial permanece operante sem depender do workspace eco.
+- RF-FC-13: seleção simultânea de imagens deve processar todos os arquivos válidos, mesmo quando o input é limpo para permitir nova seleção. Capturar os objetos `File` antes da primeira leitura assíncrona; não iterar uma `FileList` viva após o reset do input. A cópia é apenas do processamento local e não insere binários no snapshot do rascunho.
 
 ## Critérios de aceitação da fase 1a
 
@@ -29,6 +30,7 @@ Fase 1a do plano autorizado em 01/11/2026: novos ecocardiogramas com workspace p
 - CA-FC-06: erro e nova tentativa preservam o formulário editável; o estado “Salvo” corresponde somente à versão confirmada. Estados e ações são acessíveis por teclado e legíveis em tela pequena. Pressão arterial dedicada permanece salvável com workspace eco desativado.
 - CA-FC-07: salvar rascunho e autosave não produzem laudo finalizado nem efeitos em cadastro, tutor, portal, mensagens, anexos publicados ou finanças. Emissão explícita usa o conteúdo revisado e não sofre atualização tardia do rascunho. Cobrir ditado iniciado no novo formulário, recarga e emissão por PUT no mesmo identificador, sem segundo POST de criação. Recarga após tentativa clínica sem confirmação ou falha de fechamento conserva o guard de emissão; a ação genérica de continuar não permite apagá-lo silenciosamente.
 - CA-FC-08: regressões clínicas e de integração nas páginas reais, tipos, lint, build, diff check e guardrail SDD passam sobre o snapshot final. Testes de interface e persistência usam dados sintéticos isolados.
+- CA-FC-09: selecionar dois arquivos válidos em uma única abertura do seletor cria duas imagens e dois uploads, com nomes, ordem e identificadores temporários próprios. A limpeza do input durante a leitura assíncrona não reduz o lote a um arquivo.
 
 ## Contrato técnico definido para a fase 1a
 
