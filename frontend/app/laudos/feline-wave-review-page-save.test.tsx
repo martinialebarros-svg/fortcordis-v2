@@ -57,6 +57,7 @@ async function openPage(mode: Mode, flow: string, tissue: string, species = "Gat
   stored = { ...ORIGINS, ...HISTORIC, ...METHODS, Diastolica_ondas: flow, TDI_ondas: tissue, ...overrides };
   description = montarDescricaoEcocardiograma(stored, QUALITATIVE);
   mocks.get.mockImplementation(async (url: string) => {
+    if (url.startsWith("/laudos/editor-drafts/")) throw { response: { status: 404 } };
     if (url === "/pacientes/901") return { data: patient };
     if (url === "/laudos/905") return { data: { id: 905, tipo: "ecocardiograma", paciente_id: 901, paciente: patient,
       titulo: "QA DESCARTE", diagnostico: "QA conclusão preservada", observacoes: "QA observação",
@@ -86,7 +87,7 @@ async function openPage(mode: Mode, flow: string, tissue: string, species = "Gat
   return view;
 }
 async function savePage(mode: Mode) {
-  fireEvent.click(screen.getByRole("button", { name: "Salvar Laudo" }));
+  fireEvent.click(screen.getByRole("button", { name: mode === "novo" ? "Emitir laudo" : "Salvar Laudo" }));
   const transport = mode === "novo" ? mocks.post : mocks.put;
   const target = mode === "novo" ? "/laudos" : "/laudos/905";
   await waitFor(() => expect(transport.mock.calls.some(([url]) => url === target)).toBe(true));
@@ -99,10 +100,14 @@ describe("páginas reais: revisão e descarte explícito de ondas", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.setItem("token", "synthetic-local-test-token");
+    localStorage.setItem("user", JSON.stringify({ id: 7 }));
+    sessionStorage.clear();
     mocks.imported = { ...ORIGINS, ...HISTORIC };
     mocks.legacySeed = {};
     mocks.post.mockResolvedValue({ data: { id: 905 } });
-    mocks.put.mockResolvedValue({ data: { id: 905 } });
+    mocks.put.mockImplementation(async (url, body) => ({ data: url.startsWith("/laudos/editor-drafts/")
+      ? { draft_id: url.split("/").at(-1), revision: body.expected_revision + 1, context_key: body.context_key, snapshot: body.snapshot, updated_at: "2026-11-01T12:00:00Z" }
+      : { id: 905 } }));
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.spyOn(window, "alert").mockImplementation(() => {});
   });

@@ -5,6 +5,7 @@ import {
   createEchoMeasurementState,
   importEchoMeasurementState,
   updateEchoMeasurementState,
+  type EchoMeasurementState,
 } from "@/lib/echo-ae-ao-derivation";
 import { clearReplacedOutflowProvenance } from "@/lib/echo-outflow-editor";
 import { newEchoReportProtocol, NEW_REPORT_PROTOCOL_KEYS, preserveNewReportProtocol } from "@/lib/echo-new-report-defaults";
@@ -55,6 +56,15 @@ export function useEchoMeasurements(options: { newReportSpecies?: string } = {})
   const replaceMeasurements = useCallback((measurements: Measurements) => {
     setState(createEchoMeasurementState(measurements));
   }, []);
+  const exportState = useCallback((): EchoMeasurementState => ({
+    measurements: { ...state.measurements }, aeAoDerived: state.aeAoDerived,
+  }), [state]);
+  const restoreState = useCallback((snapshot: EchoMeasurementState, restoredSpecies?: string) => {
+    // Recovery is not a new acquisition/import. Preserve the original ownership,
+    // including an independently imported ratio, and do not reseed protocols.
+    previousSpecies.current = restoredSpecies === undefined ? undefined : normalizeEchoSpecies(restoredSpecies);
+    setState({ measurements: { ...snapshot.measurements }, aeAoDerived: snapshot.aeAoDerived });
+  }, []);
 
-  return { measurements: state.measurements, setMeasurements, importMeasurements, replaceMeasurements, setProtocolMeasurement };
+  return { measurements: state.measurements, setMeasurements, importMeasurements, replaceMeasurements, setProtocolMeasurement, exportState, restoreState };
 }

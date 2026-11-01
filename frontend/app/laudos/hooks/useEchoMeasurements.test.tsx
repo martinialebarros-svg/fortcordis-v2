@@ -5,11 +5,37 @@ import { confirmedUnitKey, updateEchoMeasurement } from "@/lib/echo-unit-provena
 import { parseStoredEchoMeasurements } from "@/lib/echo-derived-measurements";
 import { NEW_CANINE_REPORT_PROTOCOL } from "@/lib/echo-new-report-defaults";
 
-function edit(hook: ReturnType<typeof renderHook<ReturnType<typeof useEchoMeasurements>, unknown>>, key: string, value: string) {
+function edit(hook: { result: { current: ReturnType<typeof useEchoMeasurements> } }, key: string, value: string) {
   act(() => hook.result.current.setMeasurements((previous) => updateEchoMeasurement(previous, key, value)));
 }
 
 describe("ownership da razão AE/Ao no formulário", () => {
+  it("snapshot recupera razão importada independente sem recalcular nem reaplicar defaults de espécie", () => {
+    const hook = renderHook(({ species }) => useEchoMeasurements({ newReportSpecies: species }), { initialProps: { species: "Canina" } });
+    const restored = { measurements: { Aorta: "10", Atrio_esquerdo: "14.6", AE_Ao: "1,40",
+      AE_Ao_metodo: "", Diastolica_ondas: "fundidas", TDI_metodo: "", Onda_E: "", Onda_A: "0", MV_E: "1.8" }, aeAoDerived: false };
+    act(() => {
+      hook.result.current.restoreState(restored, "Cat");
+      hook.rerender({ species: "Cat" });
+    });
+    expect(hook.result.current.exportState()).toEqual(restored);
+    const exported = hook.result.current.exportState();
+    exported.measurements.AE_Ao = "9";
+    expect(hook.result.current.measurements.AE_Ao).toBe("1,40");
+    edit(hook, "Aorta", "");
+    expect(hook.result.current.measurements.AE_Ao).toBe("1,40");
+    expect(hook.result.current.measurements.Diastolica_ondas).toBe("fundidas");
+  });
+
+  it("snapshot de razão derivada continua limpando a razão ao perder um componente", () => {
+    const hook = renderHook(() => useEchoMeasurements());
+    const snapshot = { measurements: { Aorta: "10", Atrio_esquerdo: "14.6", AE_Ao: "1.46" }, aeAoDerived: true };
+    act(() => hook.result.current.restoreState(snapshot));
+    expect(hook.result.current.exportState()).toEqual(snapshot);
+    edit(hook, "Aorta", "");
+    expect(hook.result.current.measurements).not.toHaveProperty("AE_Ao");
+  });
+
   it("calcula imediatamente e limpa a razão derivada ao apagar qualquer componente", () => {
     const hook = renderHook(() => useEchoMeasurements());
     edit(hook, "Aorta", "10");

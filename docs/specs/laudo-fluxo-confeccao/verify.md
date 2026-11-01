@@ -1,0 +1,79 @@
+# Verify — Fluxo de confecção do laudo ecocardiográfico
+
+## Estado em 01/11/2026
+
+O usuário autorizou criar o plano e iniciar a implementação. Foram preparados `intent.md`, `plan.md`, `spec.md` e este registro. A fase 1 foi dividida em 1a (somente novos ecocardiogramas, neste ciclo) e 1b (edição de laudos existentes, posteriormente e antes da fase 2). A fase 1a foi implementada localmente na branch `codex/echo-draft-recovery-20261101`, em worktree isolada baseada em `origin/stage`.
+
+O delta contém workspace privado com GET/PUT/POST de fechamento lógico, CAS e retry por operação; precondição `X-Editor-Owner-Id` conferida contra a sessão autenticada; snapshot bruto sem binários/credenciais; UUID em `sessionStorage`; debounce de 1.500 ms; recuperação explícita após inicialização do contexto; e ações distintas de rascunho/emissão. Troca/perda do primeiro usuário conhecido bloqueia a tela. A emissão e a criação explícita para ditado conservam guarda recuperável se a resposta clínica for incerta. Imagens temporárias mantêm validade de 24 horas e exigem reenvio quando ausentes; são reconciliadas antes da emissão e após a associação.
+
+As verificações abaixo são locais, com dados sintéticos. Não houve publicação, HTTP autenticado em stage, migração em PostgreSQL operacional, emissão real ou revisão visual de PDF deste incremento. Os resultados foram consolidados pelo executor principal e pelos agentes responsáveis por backend/UI. Nenhum paciente real integra a documentação.
+
+## Validações executadas
+
+| Verificação | Resultado local e escopo |
+| --- | --- |
+| Backend do workspace e regressões clínicas de persistência | 30 testes e 86 subtestes aprovados. CAS, repetição de operação, conflito, fechamento, proprietário, cookie divergente, permissões, limites de transporte e preservação de tabelas clínicas. SQLite foi executado; o DDL PostgreSQL foi simulado. |
+| Helper, hook, medidas e indicador de rascunho | 4 arquivos / 73 testes aprovados. Snapshot literal, estado de derivação AE/Ao, fila, debounce, erros/retry, recuperação explícita, headers de owner, troca de usuário e `beforeunload`, inclusive imagem ainda não enviada. |
+| Quatro páginas reais importadas pelo teste de integração | 100 testes aprovados: 18 da página de novos exames e 82 regressões clínicas anteriores. API e subcomponentes específicos são simulados; não é E2E com servidor/navegador real. |
+| Vitest global | 145 arquivos / 2.609 testes aprovados na última fonte funcional. Após ajustar o link do banner para `NextLink`, os 18 casos da página foram reexecutados e aprovados. |
+| Revisão final da terminologia de salvamento | Após harmonizar os avisos usados também no preparo de ditado, 3 arquivos / 54 testes aprovados e lint das quatro fontes pertinentes aprovado. |
+| Testes Node do frontend | 23 testes aprovados, conforme execução do principal. |
+| TypeScript | `npx tsc --noEmit --incremental false` aprovado na rodada UI. O build final também aprovou a verificação de tipos. |
+| ESLint | Hook e teste de hook aprovados; `npm run lint` global aprovado após substituir a âncora interna do banner por `NextLink`. |
+| Build | `PATH=/Users/martiniano/.local/node-v20/bin:$PATH npm run build` aprovado, com tipos/lint e 45 páginas. A primeira tentativa havia apontado a âncora interna, corrigida antes da rodada aprovada. |
+| Guardrail SDD | `evaluate_guardrail` aprovado sobre diff e arquivos novos, cobrindo 22 arquivos de código, conforme execução do principal. |
+| Diff check | `git diff --check` aprovado; os quatro SDD novos também foram conferidos sem espaços finais. |
+
+Comandos registrados:
+
+```text
+# backend
+PYTHONDONTWRITEBYTECODE=1 /Users/martiniano/fortcordis-v2/backend/venv/bin/python -m pytest -q -p no:cacheprovider tests/test_laudo_editor_drafts.py tests/test_laudos_ecocardiograma_estruturado.py tests/test_laudos_feline_alias_persistence.py
+
+# frontend
+npx vitest run lib/echo-editor-draft.test.ts app/laudos/hooks/useEchoEditorDraft.test.tsx app/laudos/hooks/useEchoMeasurements.test.tsx app/laudos/components/EchoDraftStatus.test.tsx --maxWorkers=2
+npx vitest run app/laudos/echo-draft-new-page.test.tsx app/laudos/feline-alias-page-save.test.tsx app/laudos/feline-wave-review-page-save.test.tsx app/laudos/feline-narrative-review-page.test.tsx --maxWorkers=2
+npx vitest run --maxWorkers=2
+npx vitest run app/laudos/echo-draft-new-page.test.tsx --maxWorkers=2
+npx vitest run app/laudos/echo-draft-new-page.test.tsx app/laudos/hooks/useEchoEditorDraft.test.tsx app/laudos/components/EchoDraftStatus.test.tsx --maxWorkers=2
+node --test
+npx eslint app/laudos/hooks/useEchoEditorDraft.ts app/laudos/hooks/useEchoEditorDraft.test.tsx --max-warnings=0
+npx tsc --noEmit --incremental false
+npm run lint
+PATH=/Users/martiniano/.local/node-v20/bin:$PATH npm run build
+
+# raiz da worktree
+git diff --check
+```
+
+## Critérios e evidências
+
+| Critério | Estado local | Evidência e limite |
+| --- | --- | --- |
+| CA-FC-01 | automatizado aprovado | Backend e hook isolam proprietário/contexto; página bloqueia troca/perda de owner e novo eco sem identidade. Edição existente fora da fase 1a. |
+| CA-FC-02 | automatizado aprovado | Transporte e recuperação literal de medidas/textos, campos limpos, métodos/ondas e estado de derivação; regressões clínicas anteriores mantidas. Falta homologação no ambiente instalado. |
+| CA-FC-03 | automatizado aprovado | Descritores de imagens, ausência/expiração, expiração após retomada e associação 200 sem imagens persistidas. Não houve upload real nem PDF visual nesta rodada. |
+| CA-FC-04 | automatizado aprovado | Fila, edição durante request, CAS, retry, conflito, encerramento lógico e guard de resposta clínica incerta. Concorrência backend em SQLite isolado; PostgreSQL real pendente. |
+| CA-FC-05 | automatizado aprovado | Inicialização tardia, owner divergente/ausente, troca de conta durante recuperação e saída imediata por Voltar/link interno com flush. Browser Back e navegação programática externa não são interceptados. |
+| CA-FC-06 | parcial | Erro/retry preservam edição local e estado confirmado; PA dedicada cria seu próprio payload sem workspace eco. Teclado e tela pequena ainda não foram conferidos visualmente. |
+| CA-FC-07 | automatizado aprovado | Autosave escreve só workspace; emissão explícita, ditado→recarga→PUT no mesmo laudo, resposta incerta e associação incompleta não repetem criação clínica. Casos usam API simulada na página. |
+| CA-FC-08 | automatizado aprovado | Backend, 73 testes UI, 100 integrações, Vitest global, Node, tipos, lint, build, diff check e guardrail aprovados; 18 casos da página aprovados após ajuste do link e 54 testes focados aprovados após a revisão final de terminologia. Homologação visual permanece pendente. |
+
+## Revisão estática independente
+
+A revisão do backend, hook e integração na página identificou e motivou correções de: identidade por cookie divergente do cache local; restauração assíncrona após troca de usuário; formulário congelado por erro de autosave; dependência indevida do fluxo de PA; perda do guard de salvamento clínico ao continuar genericamente; saída SPA antes do debounce; nova criação clínica do ditado após resposta incerta; e associação de imagens HTTP 200 sem recebimento persistido. A releitura terminal confirmou os controles correspondentes nas fontes. Isso não substitui a homologação do ambiente instalado.
+
+## Limitações e pendências
+
+- A descoberta do workspace depende do UUID em `sessionStorage` da aba/sessão atual. Não há lista de rascunhos nem garantia de retomada após fechar a aba ou usar outro dispositivo, embora o snapshot permaneça no servidor até fechamento lógico.
+- Voltar do formulário e cliques comuns em links internos da mesma aba aguardam flush. `beforeunload` protege saída nativa. Botão Voltar do navegador e navegação programática iniciada fora do formulário não são interceptados nesta fatia.
+- Repetir operações do workspace é idempotente; POST clínico não é repetido automaticamente. Resposta clínica incerta exige conferência humana na central antes de retomar.
+- Imagens temporárias mantêm validade de 24 horas; guardar seus descritores não estende a validade. Após associação, a conferência usa quantidade e metadados correspondentes, sem alterar o contrato existente de imagens.
+- A migração `20261101_105_laudo_editor_drafts.py` não foi aplicada em stage/produção. O DDL PostgreSQL foi simulado e SQLite executado nos testes isolados; autorização, isolamento e concorrência no PostgreSQL instalado ainda precisam de homologação.
+- Fase 1b e fases 2–5 permanecem planejadas. A proteção da rota `/laudos/{id}/editar`, prévia real do PDF, layout/rodapés, síntese clínica, comparação no PDF e imagens principais não foram implementados neste delta. O ditado coberto pela 1a começa no formulário novo.
+
+## Publicação e dados
+
+Na primeira solicitação houve apenas implementação local. Em 01/11/2026, o usuário autorizou publicar em **stage** e testar rascunho automático, recuperação e emissão de novos laudos. A preparação desta publicação preserva a versão remota `a7b97cff25a10fb6dd61fdc11dc75f949b2a0b72` e confirmou que a maior migração remota é a 104, sem colisão com a nova 105. A fila anterior de deploy estava concluída com sucesso.
+
+A autorização é restrita a stage. A publicação só será considerada comprovada após checks/workflow terminais, versão instalada e testes aplicáveis. Promoção a produção não foi solicitada neste ciclo. Os resultados locais acima não são evidência de ambiente instalado; registrar abaixo o resultado efetivo da homologação.

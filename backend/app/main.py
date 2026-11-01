@@ -30,6 +30,7 @@ from app.api.v1.endpoints import (
     frases_ecocardiograma_estruturado_teste,
     frases_ultrassom_abdominal,
     imagens,
+    laudo_editor_drafts,
     laudos,
     logistica,
     ordens_servico,
@@ -455,6 +456,7 @@ app.include_router(
 app.include_router(pacientes.router, prefix="/api/v1/pacientes", tags=["pacientes"])
 app.include_router(clinicas.router, prefix="/api/v1/clinicas", tags=["clinicas"])
 app.include_router(servicos.router, prefix="/api/v1/servicos", tags=["servicos"])
+app.include_router(laudo_editor_drafts.router, prefix="/api/v1", tags=["laudos"])
 app.include_router(laudos.router, prefix="/api/v1", tags=["laudos"])
 app.include_router(financeiro.router, prefix="/api/v1/financeiro", tags=["financeiro"])
 app.include_router(gestao.router, prefix="/api/v1/gestao", tags=["gestao"])
