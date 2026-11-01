@@ -115,6 +115,7 @@ async function openPage(mode: Mode, options: { species?: string; weight?: number
   savedStructured = draft === undefined ? undefined : { ...criarEcocardiogramaEstruturadoInicial(),
     usar_no_laudo: true, textos: { funcao_diastolica: draft, conclusao: "Conclusão do rascunho ainda não aplicada." } };
   mocks.get.mockImplementation(async (url: string) => {
+    if (url.startsWith("/laudos/editor-drafts/")) throw { response: { status: 404 } };
     if (url === "/pacientes/901") return { data: patient };
     if (url === "/laudos/905") return { data: { id: 905, tipo: "ecocardiograma", paciente_id: 901, paciente: patient,
       titulo: "QA COERÊNCIA", diagnostico: CONCLUSION, observacoes: "Observação preservada.",
@@ -132,7 +133,7 @@ async function openPage(mode: Mode, options: { species?: string; weight?: number
   for (const section of ["Paciente", "Medidas", "Qualitativa", "Referências"] as const) {
     sectionButtons.set(section, navigation.getByRole("button", { name: section }));
   }
-  saveButton = screen.getByRole("button", { name: "Salvar Laudo" });
+  saveButton = screen.getByRole("button", { name: mode === "novo" ? "Emitir laudo" : "Salvar Laudo" });
   if (mode === "novo") {
     fireEvent.click(screen.getByRole("button", { name: "Importar estudo sintético" }));
     await waitFor(() => expect(live().Onda_E).toBe("1.08"));
@@ -159,9 +160,13 @@ describe("páginas reais: conferência da narrativa canina e felina", () => {
     vi.clearAllMocks();
     sectionButtons.clear(); saveButton = null;
     localStorage.setItem("token", "synthetic-local-token");
+    localStorage.setItem("user", JSON.stringify({ id: 7 }));
+    sessionStorage.clear();
     mocks.imported = { ...MEASURES };
     mocks.post.mockResolvedValue({ data: { id: 905 } });
-    mocks.put.mockResolvedValue({ data: { id: 905 } });
+    mocks.put.mockImplementation(async (url, body) => ({ data: url.startsWith("/laudos/editor-drafts/")
+      ? { draft_id: url.split("/").at(-1), revision: body.expected_revision + 1, context_key: body.context_key, snapshot: body.snapshot, updated_at: "2026-11-01T12:00:00Z" }
+      : { id: 905 } }));
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.spyOn(window, "alert").mockImplementation(() => {});
   });

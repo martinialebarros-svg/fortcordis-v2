@@ -18,6 +18,7 @@ interface Imagem {
   uploaded: boolean;
   persisted?: boolean;
   incluirNoPdf?: boolean;
+  requerReenvio?: boolean;
 }
 
 interface ImageUploaderProps {
@@ -345,7 +346,7 @@ export default function ImageUploader({
               >
                 {/* Preview */}
                 <div className="aspect-square bg-gray-100 relative">
-                  <img
+                  {imagem.dataUrl ? <img
                     src={imagem.dataUrl}
                     alt={imagem.nome}
                     className="w-full h-full object-cover cursor-zoom-in"
@@ -360,7 +361,9 @@ export default function ImageUploader({
                         setPreviewIndex(index);
                       }
                     }}
-                  />
+                  /> : <div className="flex h-full items-center justify-center p-3 text-center text-xs text-gray-600">
+                    {imagem.requerReenvio ? "Reenvie este arquivo" : "Prévia indisponível"}
+                  </div>}
                   
                   {/* Número da ordem */}
                   <div className="absolute top-2 left-2 bg-teal-600 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center">
@@ -373,7 +376,7 @@ export default function ImageUploader({
                   {/* Status de upload */}
                     {!imagem.uploaded && (
                       <div className="absolute top-2 right-2 bg-yellow-500 text-white text-xs px-2 py-1 rounded">
-                        Enviando...
+                        {imagem.requerReenvio ? "Reenviar" : "Enviando..."}
                       </div>
                     )}
                     {imagem.persisted && (

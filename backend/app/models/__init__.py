@@ -10,6 +10,7 @@ from app.models.tutor_rotina import TutorContato, TutorOrigem, TutorIdentificaca
 from app.models.clinica import Clinica
 from app.models.servico import Servico
 from app.models.laudo import Laudo, Exame
+from app.models.laudo_editor_draft import LaudoEditorDraft, LaudoEditorDraftRequest
 from app.models.catalogo_exame import CatalogoExame, PainelExame, PainelExameItem
 from app.models.financeiro import (
     Transacao,
