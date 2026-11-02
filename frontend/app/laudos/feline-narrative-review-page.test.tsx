@@ -117,7 +117,7 @@ async function openPage(mode: Mode, options: { species?: string; weight?: number
   mocks.get.mockImplementation(async (url: string) => {
     if (url.startsWith("/laudos/editor-drafts/")) throw { response: { status: 404 } };
     if (url === "/pacientes/901") return { data: patient };
-    if (url === "/laudos/905") return { data: { id: 905, tipo: "ecocardiograma", paciente_id: 901, paciente: patient,
+    if (url === "/laudos/905") return { data: { editor_revision: "echo-v1:" + "a".repeat(64), id: 905, tipo: "ecocardiograma", paciente_id: 901, paciente: patient,
       titulo: "QA COERÊNCIA", diagnostico: CONCLUSION, observacoes: "Observação preservada.",
       data_exame: "2026-10-15", status: "Rascunho", medidas: stored, descricao: description,
       ecocardiograma_estruturado: savedStructured, imagens: [] } };
@@ -133,7 +133,7 @@ async function openPage(mode: Mode, options: { species?: string; weight?: number
   for (const section of ["Paciente", "Medidas", "Qualitativa", "Referências"] as const) {
     sectionButtons.set(section, navigation.getByRole("button", { name: section }));
   }
-  saveButton = screen.getByRole("button", { name: mode === "novo" ? "Emitir laudo" : "Salvar Laudo" });
+  saveButton = screen.getByRole("button", { name: mode === "novo" ? "Emitir laudo" : "Atualizar laudo" });
   if (mode === "novo") {
     fireEvent.click(screen.getByRole("button", { name: "Importar estudo sintético" }));
     await waitFor(() => expect(live().Onda_E).toBe("1.08"));
@@ -150,9 +150,10 @@ async function save(mode: Mode) {
   expect(saveButton).not.toBeNull();
   fireEvent.click(saveButton!);
   const transport = mode === "novo" ? mocks.post : mocks.put;
-  const url = mode === "novo" ? "/laudos" : "/laudos/905";
+  const url = mode === "novo" ? "/laudos" : "/laudos/905/editor-update";
   await waitFor(() => expect(transport.mock.calls.some(([target]) => target === url)).toBe(true));
-  return transport.mock.calls.find(([target]) => target === url)![1];
+  const body = transport.mock.calls.find(([target]) => target === url)![1];
+  return mode === "editar" ? body.payload_laudo : body;
 }
 
 describe("páginas reais: conferência da narrativa canina e felina", () => {
@@ -166,7 +167,7 @@ describe("páginas reais: conferência da narrativa canina e felina", () => {
     mocks.post.mockResolvedValue({ data: { id: 905 } });
     mocks.put.mockImplementation(async (url, body) => ({ data: url.startsWith("/laudos/editor-drafts/")
       ? { draft_id: url.split("/").at(-1), revision: body.expected_revision + 1, context_key: body.context_key, snapshot: body.snapshot, updated_at: "2026-11-01T12:00:00Z" }
-      : { id: 905 } }));
+      : url.endsWith("/editor-update") ? { id: 905, request_id: body.request_id, updated: true } : { id: 905 } }));
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.spyOn(window, "alert").mockImplementation(() => {});
   });
@@ -182,7 +183,7 @@ describe("páginas reais: conferência da narrativa canina e felina", () => {
       expect(input).toHaveAttribute("readonly");
       const payload = await save(mode);
       if (mode === "novo") expect(payload.paciente.especie).toBe(species);
-      else expect(mocks.put.mock.calls.find(([url]) => url === "/pacientes/901")![1].especie).toBe(species);
+      else expect(mocks.put.mock.calls.some(([url]) => url === "/pacientes/901")).toBe(false);
       const saved = mode === "novo" ? payload.medidas : parseStoredEchoMeasurements(null, payload.descricao);
       expect(saved.DIVEd_normalizado).toBe("2.18");
     });
@@ -191,7 +192,7 @@ describe("páginas reais: conferência da narrativa canina e felina", () => {
     expect(screen.queryByText("DIVEd normalizado (DIVEd [cm] / peso^0,294)", { selector: "label" })).not.toBeInTheDocument();
     expect(live().DIVEd_normalizado).toBe("9");
     const payload = await save("editar");
-    expect(mocks.put.mock.calls.find(([url]) => url === "/pacientes/901")![1].especie).toBe(species);
+    expect(mocks.put.mock.calls.some(([url]) => url === "/pacientes/901")).toBe(false);
     expect(parseStoredEchoMeasurements(null, payload.descricao).DIVEd_normalizado).toBe("9");
   });
   it.each(speciesModes)("$mode/$species recalcula o aviso real ao mudar fusão ou corrigir a redação nas duas abas", async ({ mode, species }) => {

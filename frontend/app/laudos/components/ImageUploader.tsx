@@ -25,12 +25,14 @@ interface ImageUploaderProps {
   onImagensChange?: (imagens: Imagem[]) => void;
   sessionId: string;
   imagensIniciais?: Imagem[];
+  onUploadStateChange?: (active: boolean) => void;
 }
 
 export default function ImageUploader({
   onImagensChange,
   sessionId,
   imagensIniciais = [],
+  onUploadStateChange,
 }: ImageUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [imagens, setImagens] = useState<Imagem[]>(imagensIniciais);
@@ -121,6 +123,7 @@ export default function ImageUploader({
     }
 
     setUploading(true);
+    onUploadStateChange?.(true);
     setError(null);
 
     const novasImagens: Imagem[] = [];
@@ -177,6 +180,7 @@ export default function ImageUploader({
     }
 
     setUploading(false);
+    onUploadStateChange?.(false);
   };
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
