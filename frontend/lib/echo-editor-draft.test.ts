@@ -15,18 +15,6 @@ const snapshot = (): EchoEditorDraftSnapshot => ({
 });
 
 describe("snapshot literal do editor eco", () => {
-  it("mantém origem, flags e imagens existentes sem valores clínicos derivados na recuperação", () => {
-    const source = { ...snapshot(), editor: "existing-echo" as const,
-      source: { laudo_id: 901, editor_revision: "echo-v1:" + "a".repeat(64) },
-      existing: { qualitativaAplicada: true, conclusaoAplicada: false, imagensRemovidas: [10],
-        imagensPersistidas: serializeDraftImages([{ id: "11", serverId: 11, nome: "qa.png", ordem: 0,
-          descricao: "Legenda", tamanho: 12, uploaded: true, persisted: true, incluirNoPdf: false }]) } };
-    expect(cloneEchoEditorDraftSnapshot(source)).toEqual(source);
-    expect(() => cloneEchoEditorDraftSnapshot({ ...source, source: { ...source.source, editor_revision: "invalid" } })).toThrow();
-    expect(() => cloneEchoEditorDraftSnapshot({ ...source, editor: "new-echo" })).toThrow();
-    expect(echoDraftFingerprint({ ...source, existing: { ...source.existing, conclusaoAplicada: true } }))
-      .not.toBe(echoDraftFingerprint(source));
-  });
   it("preserva vazios, zeros, aliases, confirmação retirada e razão independente, sem mutação", () => {
     const source = snapshot();
     const before = JSON.stringify(source);

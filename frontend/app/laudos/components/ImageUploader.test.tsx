@@ -137,9 +137,8 @@ describe("ImageUploader", () => {
 
   it("envia todo o lote mesmo quando limpar o input esvazia seu FileList vivo", async () => {
     const onImagensChange = vi.fn();
-    const onUploadStateChange = vi.fn();
     const { container } = render(
-      <ImageUploader sessionId="sessao-lote" imagensIniciais={[]} onImagensChange={onImagensChange} onUploadStateChange={onUploadStateChange} />
+      <ImageUploader sessionId="sessao-lote" imagensIniciais={[]} onImagensChange={onImagensChange} />
     );
     mocks.post
       .mockResolvedValueOnce({ data: { success: true, imagem_id: 31 } })
@@ -175,10 +174,8 @@ describe("ImageUploader", () => {
 
     expect(input.value).toBe("");
     expect(liveFiles).toHaveLength(0);
-    expect(onUploadStateChange).toHaveBeenCalledWith(true);
     await waitFor(() => expect(input).toBeEnabled());
     expect(mocks.post).toHaveBeenCalledTimes(2);
-    expect(onUploadStateChange.mock.calls.map(([active]) => active)).toEqual([true, false]);
     expect(mocks.post.mock.calls.map(([, formData]) => (formData.get("arquivo") as File).name))
       .toEqual(["qa-echo-1.png", "qa-echo-2.png"]);
     expect(mocks.post.mock.calls.map(([, formData]) => formData.get("ordem"))).toEqual(["0", "1"]);

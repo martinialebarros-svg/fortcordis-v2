@@ -83,3 +83,9 @@ Após a publicação base #489 e a restauração #488, o usuário pediu prossegu
 O helper de ingress é opt-in e exclusivo de stage: valida SHA instalado, ambiente e vhost, preserva a configuração anterior e restringe 210 segundos às rotas de análise/transcrição; mantém rotas gerais e produção. Falha de validação/reload deve restaurar a configuração. A flag de IA não é ativada pelo helper. A execução depende da validação local e da janela de publicação.
 
 Fontes oficiais reconferidas: [Sol 6.1](https://developers.openai.com/api/docs/models/gpt-6.1-sol), [transcrição de arquivos](https://developers.openai.com/api/docs/guides/speech-to-text) e [entrada de PDFs](https://developers.openai.com/api/docs/guides/file-inputs). `max` é o maior esforço documentado da API; não substituir o modelo solicitado silenciosamente.
+
+## Promoção do incremento para produção — autorização de 2026-11-02
+
+O usuário autorizou promover para main o incremento da PR #512. A publicação leva o teto de áudio de24.000.000 bytes e as validações de captura/importação, preservando reprodução/download do original rejeitado. Mantém ATENDIMENTO_IA_ENABLED=false, revisão humana obrigatória e compartilhamento manual. Não ativa a IA, não instala ingress em produção e não altera credenciais, dados clínicos ou políticas de WhatsApp. Testes físicos, canário público demorado e homologação clínica continuam necessários antes de qualquer ativação posterior.
+
+A árvore de produção contém somente esse incremento sobre main; funcionalidades paralelas de Gestão e laudos em stage são preservadas e restauradas após a promoção protegida. O helper transportado permanece restrito a stage, acionado apenas pelo marcador explícito do workflow; sua presença no repositório não executa configuração em produção.

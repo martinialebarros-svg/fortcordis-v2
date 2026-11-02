@@ -22,7 +22,6 @@ from app.api.v1.endpoints.imagens import (  # noqa: E402
     atualizar_configuracao_imagens_temporarias,
 )
 from app.models.imagem_laudo import ImagemLaudo, ImagemTemporaria  # noqa: E402
-from app.models.laudo import Laudo  # noqa: E402
 from app.services.laudo_pdf_service import (  # noqa: E402
     _carregar_stamp_cache,
     _listar_imagens_incluidas_no_pdf,
@@ -40,12 +39,6 @@ class ImagensConfiguracaoPdfTest(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:")
         with self.engine.begin() as connection:
-            Laudo.__table__.create(connection)
-            connection.execute(Laudo.__table__.insert(), [
-                {"id": row_id, "paciente_id": 1, "veterinario_id": 3,
-                 "tipo": "ecocardiograma", "titulo": "TESTE DE IMAGENS"}
-                for row_id in (7, 8, 9)
-            ])
             connection.execute(text("""
                 CREATE TABLE imagens_laudo (
                     id INTEGER PRIMARY KEY, laudo_id INTEGER, nome_arquivo VARCHAR(255) NOT NULL,

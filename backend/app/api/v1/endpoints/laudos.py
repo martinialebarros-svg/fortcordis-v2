@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import exists, func, literal, or_, select, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
@@ -51,14 +51,6 @@ from app.services.laudo_pdf_jobs import (
     submit_laudo_pdf_job,
 )
 from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
-from app.schemas.echo_editor_update import EchoEditorUpdate
-from app.services.echo_editor_source import load_echo_editor_source
-from app.schemas.laudo_comparacao import LaudoComparacaoAnteriorResponse
-from app.services.laudo_comparacao_service import (
-    LaudoComparacaoNaoEncontrada,
-    LaudoComparacaoPacienteAusente,
-    comparar_laudo_anterior,
-)
 from app.services.laudo_ordem_servico_service import (
     buscar_ordem_laudo, buscar_ordem_por_chave, chave_upload_ordem, criar_ordem_laudo,
     exigir_criacao_ordem, hash_upload_ordem, mesma_data, pode_acessar_ordens, resumo_ordem, validar_preco_ordem,
@@ -2961,22 +2953,6 @@ def atualizar_laudo_ultrassonografia_abdominal(
     }
 
 
-@router.get("/laudos/{laudo_id}/comparacao-anterior", response_model=LaudoComparacaoAnteriorResponse)
-def obter_comparacao_laudo_anterior(
-    laudo_id: int,
-    anterior_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Consulta interna protegida pela mesma permissão de visualização do laudo."""
-    try:
-        return comparar_laudo_anterior(db, laudo_id, anterior_id=anterior_id)
-    except LaudoComparacaoNaoEncontrada:
-        raise HTTPException(status_code=404, detail="Comparação não encontrada") from None
-    except LaudoComparacaoPacienteAusente:
-        raise HTTPException(status_code=422, detail="Paciente do laudo indisponível") from None
-
-
 @router.get("/laudos/{laudo_id}")
 def obter_laudo(
     laudo_id: int,
@@ -2991,20 +2967,15 @@ def obter_laudo(
     laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
     if not laudo:
         raise HTTPException(status_code=404, detail="Laudo não encontrado")
-
-    editor_source = (load_echo_editor_source(db, laudo_id, lock=True)
-                     if (laudo.tipo or "").strip().lower() == "ecocardiograma" else None)
-    if editor_source:
-        laudo = editor_source.laudo
     
     # Buscar dados do paciente
-    paciente = editor_source.paciente if editor_source else db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
+    paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
     
     # Buscar dados do tutor se existir
     tutor_nome = None
     tutor_telefone = None
     if paciente and paciente.tutor_id:
-        tutor = editor_source.tutor if editor_source else db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first()
+        tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first()
         if tutor:
             tutor_nome = tutor.nome
             tutor_telefone = tutor.telefone
@@ -3033,11 +3004,10 @@ def obter_laudo(
     
     # Buscar imagens do laudo
     from app.models.imagem_laudo import ImagemLaudo
-    imagens = (sorted([image for image in editor_source.imagens if image.ativo == 1], key=lambda image: (image.ordem or 0, image.id))
-               if editor_source else db.query(ImagemLaudo).filter(
+    imagens = db.query(ImagemLaudo).filter(
         ImagemLaudo.laudo_id == laudo_id,
         ImagemLaudo.ativo == 1
-    ).order_by(ImagemLaudo.ordem).all())
+    ).order_by(ImagemLaudo.ordem).all()
     
     imagens_list = []
     for img in imagens:
@@ -3071,7 +3041,6 @@ def obter_laudo(
         "paciente_id": laudo.paciente_id,
         "paciente": {
             "id": paciente.id if paciente else None,
-            "tutor_id": paciente.tutor_id if paciente else None,
             "nome": paciente.nome if paciente else "Desconhecido",
             "tutor": tutor_nome or "",
             "telefone": tutor_telefone or "",
@@ -3105,7 +3074,6 @@ def obter_laudo(
         "pdf_externo": _extrair_pdf_externo_laudo(laudo.anexos),
         "ordem_servico": resumo_ordem(ordem_servico) if ordem_visivel else None,
         "imagens": imagens_list,
-        **({"editor_revision": editor_source.revision} if editor_source else {}),
         # O seletor de destino do aviso por WhatsApp abre nesta tela tambem, e
         # precisa saber quem ja recebeu.
         "whatsapp_envios": laudo.whatsapp_envios or {},
@@ -3142,15 +3110,9 @@ def atualizar_laudo(
     current_user: User = Depends(get_current_user)
 ):
     """Atualiza um laudo"""
-    laudo = db.query(Laudo).filter(Laudo.id == laudo_id).with_for_update().first()
+    laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
     if not laudo:
         raise HTTPException(status_code=404, detail="Laudo nao encontrado")
-
-    return _atualizar_laudo_transacional(laudo, laudo_data, db, current_user)
-
-
-def _atualizar_laudo_transacional(laudo, laudo_data, db, current_user, *, commit=True):
-    """Existing update contract; the editor can commit it with its own effects."""
 
     if laudo.tipo == TIPO_LAUDO_ELETROCARDIOGRAMA and buscar_ordem_laudo(db, laudo.id, somente_ativa=True):
         altera_identidade = (
@@ -3324,16 +3286,11 @@ def _atualizar_laudo_transacional(laudo, laudo_data, db, current_user, *, commit
             setattr(laudo, field, value)
 
     laudo.updated_at = datetime.now()
-    if not commit:
-        db.flush()
     _, anexo_portal, old_portal_path, new_portal_path = _sincronizar_publicacao_laudo_no_portal(
         db,
         laudo=laudo,
         current_user=current_user,
     )
-
-    if not commit:
-        return laudo, anexo_portal, old_portal_path, new_portal_path
 
     try:
         db.commit()
@@ -3348,21 +3305,6 @@ def _atualizar_laudo_transacional(laudo, laudo_data, db, current_user, *, commit
     if old_portal_path and old_portal_path != new_portal_path:
         remove_atendimento_attachment_file(old_portal_path)
     return laudo
-
-
-@router.put("/laudos/{laudo_id}/editor-update")
-def atualizar_laudo_no_editor(
-    laudo_id: int,
-    payload: EchoEditorUpdate,
-    expected_owner_id: int = Header(..., alias="X-Editor-Owner-Id", gt=0),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    from app.api.v1.endpoints.laudo_editor_drafts import _require_editor_owner
-    from app.services.echo_editor_update import apply_echo_editor_update
-
-    _require_editor_owner(current_user, expected_owner_id)
-    return apply_echo_editor_update(db, current_user, laudo_id, payload)
 
 
 @router.delete("/laudos/{laudo_id}")

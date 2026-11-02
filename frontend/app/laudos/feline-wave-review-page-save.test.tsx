@@ -59,7 +59,7 @@ async function openPage(mode: Mode, flow: string, tissue: string, species = "Gat
   mocks.get.mockImplementation(async (url: string) => {
     if (url.startsWith("/laudos/editor-drafts/")) throw { response: { status: 404 } };
     if (url === "/pacientes/901") return { data: patient };
-    if (url === "/laudos/905") return { data: { editor_revision: "echo-v1:" + "a".repeat(64), id: 905, tipo: "ecocardiograma", paciente_id: 901, paciente: patient,
+    if (url === "/laudos/905") return { data: { id: 905, tipo: "ecocardiograma", paciente_id: 901, paciente: patient,
       titulo: "QA DESCARTE", diagnostico: "QA conclusão preservada", observacoes: "QA observação",
       data_exame: "2026-10-14", status: "Rascunho", medidas: stored, descricao: description, imagens: [] } };
     if (url === "/portal/parceiros/veterinarios/opcoes") return { data: { items: [] } };
@@ -87,12 +87,11 @@ async function openPage(mode: Mode, flow: string, tissue: string, species = "Gat
   return view;
 }
 async function savePage(mode: Mode) {
-  fireEvent.click(screen.getByRole("button", { name: mode === "novo" ? "Emitir laudo" : "Atualizar laudo" }));
+  fireEvent.click(screen.getByRole("button", { name: mode === "novo" ? "Emitir laudo" : "Salvar Laudo" }));
   const transport = mode === "novo" ? mocks.post : mocks.put;
-  const target = mode === "novo" ? "/laudos" : "/laudos/905/editor-update";
+  const target = mode === "novo" ? "/laudos" : "/laudos/905";
   await waitFor(() => expect(transport.mock.calls.some(([url]) => url === target)).toBe(true));
-  const envelope = transport.mock.calls.find(([url]) => url === target)![1];
-    const payload = mode === "editar" ? envelope.payload_laudo : envelope;
+  const payload = transport.mock.calls.find(([url]) => url === target)![1];
   const capturedDescription = mode === "novo" ? montarDescricaoEcocardiograma(payload.medidas, QUALITATIVE) : payload.descricao;
   return { payload, description: capturedDescription, measurements: parseStoredEchoMeasurements(null, capturedDescription) };
 }
@@ -108,7 +107,7 @@ describe("páginas reais: revisão e descarte explícito de ondas", () => {
     mocks.post.mockResolvedValue({ data: { id: 905 } });
     mocks.put.mockImplementation(async (url, body) => ({ data: url.startsWith("/laudos/editor-drafts/")
       ? { draft_id: url.split("/").at(-1), revision: body.expected_revision + 1, context_key: body.context_key, snapshot: body.snapshot, updated_at: "2026-11-01T12:00:00Z" }
-      : url.endsWith("/editor-update") ? { id: 905, request_id: body.request_id, updated: true } : { id: 905 } }));
+      : { id: 905 } }));
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.spyOn(window, "alert").mockImplementation(() => {});
   });
