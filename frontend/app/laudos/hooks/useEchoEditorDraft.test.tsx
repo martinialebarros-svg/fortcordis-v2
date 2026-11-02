@@ -30,6 +30,9 @@ const settle = async () => { await act(async () => {}); };
 const advance = async (ms = 1500) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
 
 describe("workspace de rascunho eco", () => {
+  const existing = (): EchoEditorDraftSnapshot => ({ ...snapshot(), editor: "existing-echo",
+    source: { laudo_id: 901, editor_revision: "echo-v1:" + "a".repeat(64) },
+    existing: { qualitativaAplicada: false, conclusaoAplicada: false, imagensPersistidas: [], imagensRemovidas: [] } });
   beforeEach(() => {
     vi.useFakeTimers(); vi.clearAllMocks(); sessionStorage.clear();
     mocks.get.mockRejectedValue(failure(404));
@@ -39,6 +42,42 @@ describe("workspace de rascunho eco", () => {
     } }));
   });
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); sessionStorage.clear(); });
+
+  it.each([true, false])("workspace existente encerrado segura resultado conhecido=%s sem criar outro UUID", async (known) => {
+    sessionStorage.setItem(echoDraftStorageKey(1, "edit:laudo:901"), ID);
+    const result = known ? { id: 901, request_id: ID, updated: true as const } : null;
+    mocks.get.mockRejectedValue({ response: { status: 410, data: { detail: {
+      code: "EDITOR_DRAFT_CLOSED", laudo_id: 901, apply_result: result } } } });
+    const hook = renderHook(() => useEchoEditorDraft({ ...options(existing()), contextKey: "edit:laudo:901" }));
+    await settle(); await advance(5000);
+    expect(hook.result.current.status).toBe("closed"); expect(hook.result.current.blocked).toBe(true);
+    expect(hook.result.current.closedRecovery).toEqual({ laudoId: 901, result });
+    expect(mocks.get).toHaveBeenCalledOnce(); expect(mocks.put).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(echoDraftStorageKey(1, "edit:laudo:901"))).toBe(ID);
+    act(() => hook.result.current.acknowledgeClosed());
+    expect(sessionStorage.getItem(echoDraftStorageKey(1, "edit:laudo:901"))).toBeNull();
+    expect(mocks.get).toHaveBeenCalledOnce(); expect(mocks.put).not.toHaveBeenCalled();
+  });
+
+  it("não substitui silenciosamente a origem do rascunho existente ao continuar sem retomar", async () => {
+    const recovered = existing(); const current = { ...existing(), source: { laudo_id: 901, editor_revision: "echo-v1:" + "b".repeat(64) } };
+    sessionStorage.setItem(echoDraftStorageKey(1, "edit:laudo:901"), ID);
+    mocks.get.mockResolvedValue(response(recovered, 3, "edit:laudo:901"));
+    const hook = renderHook(() => useEchoEditorDraft({ ...options(current), contextKey: "edit:laudo:901" }));
+    await settle(); act(() => hook.result.current.continueFresh()); await advance();
+    expect(hook.result.current.status).toBe("recovery"); expect(mocks.put).not.toHaveBeenCalled();
+    expect(hook.result.current.error).toMatch(/versão oficial mudou/i);
+  });
+
+  it("não encerra nem descarta prova de atualização pendente ao oferecer recuperação", async () => {
+    const saved = { ...existing(), submission: { status: "pending" as const, laudoId: 901 } };
+    sessionStorage.setItem(echoDraftStorageKey(1, "edit:laudo:901"), ID);
+    mocks.get.mockResolvedValue(response(saved, 3, "edit:laudo:901"));
+    const hook = renderHook(() => useEchoEditorDraft({ ...options(existing()), contextKey: "edit:laudo:901" }));
+    await settle();
+    await expect(hook.result.current.discardExisting()).rejects.toThrow(/tentativa de atualização/);
+    expect(mocks.post).not.toHaveBeenCalled(); expect(mocks.put).not.toHaveBeenCalled();
+  });
 
   it("consulta antes de salvar, não cria cópia vazia e aplica debounce só após alteração", async () => {
     const initial = options(); const hook = renderHook((props) => useEchoEditorDraft(props), { initialProps: initial });
