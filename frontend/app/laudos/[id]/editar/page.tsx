@@ -27,6 +27,7 @@ import EchoVoiceAssistant from "../../components/EchoVoiceAssistant";
 import EchoUnitReview from "../../components/EchoUnitReview";
 import EchoNarrativeConsistencyNotice from "../../components/EchoNarrativeConsistencyNotice";
 import EchoOutflowMeasurements from "../../components/EchoOutflowMeasurements";
+import EchoPulmonaryHypertension from "../../components/EchoPulmonaryHypertension";
 import { mapImportedEchoMeasurements, updateEchoOutflowMeasurement } from "@/lib/echo-outflow-editor";
 import { ECHO_OUTFLOW_KEYS } from "@/lib/echo-outflow";
 import FelineWaveReview from "../../components/FelineWaveReview";
@@ -332,9 +333,6 @@ export default function EditarLaudoPage() {
   const [descricao, setDescricao] = useState("");
   const [status, setStatus] = useState("Rascunho");
 
-  // Medidas
-  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas, replaceMeasurements: substituirMedidas, exportState, restoreState } = useEchoMeasurements();
-
   // Qualitativa
   const [qualitativa, setQualitativa] = useState({
     valvas: "",
@@ -380,6 +378,7 @@ export default function EditarLaudoPage() {
     telefone: "",
     data_exame: operationalTodayDateInput(),
   });
+  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas, replaceMeasurements: substituirMedidas, exportState, restoreState } = useEchoMeasurements({ species: pacienteForm.especie });
   const originalForm = useRef(pacienteForm);
   const [novaRaca, setNovaRaca] = useState("");
   const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<Record<string, string[]>>({});
@@ -2122,10 +2121,15 @@ export default function EditarLaudoPage() {
                           value={medidas["PSAP"] || ""}
                           onChange={(v) => handleMedidaChange("PSAP", v)}
                           readOnly
-                          reference="Estimativa ecocardiográfica; confirmar ausência de obstrução da via de saída do VD."
+                          reference="Estimativa complementar; revisar a avaliação de HP e confirmar ausência de obstrução da via de saída do VD. Não gradua a probabilidade de HP."
                         />
                       </div>
                     </div>
+
+                    <EchoPulmonaryHypertension species={pacienteForm.especie} measurements={medidas}
+                      onPatch={(patch) => {
+                        if (!updateInProgress.current) setMedidas((previous) => ({ ...previous, ...patch }));
+                      }} />
 
                     <div className="border-t pt-6">
                       <h4 className="mb-4 text-sm font-semibold text-gray-900">VE - Modo 2D</h4>
