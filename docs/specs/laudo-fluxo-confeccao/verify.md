@@ -1,63 +1,73 @@
 # Verify — Fluxo de confecção do laudo ecocardiográfico
 
-## Pré-promoção — autorização restrita de produção em 01/11/2026
+## Situação atual — fase 1b implementada e validada parcialmente, somente local
 
-A fase 1a e a correção da seleção de imagens em lote foram homologadas em stage, incluindo o complemento básico de teclado e viewport estreito descrito abaixo. O usuário autorizou promover **somente novos ecocardiogramas com workspace/autosave e a correção de imagens em lote**. Outras funcionalidades presentes em stage não estão autorizadas por este pedido. A publicação em produção ainda não foi realizada nem comprovada neste registro.
+Em 01/11/2026, após a entrega da fase 1a, o usuário autorizou prosseguir com recuperação/rascunho na edição de ecocardiogramas existentes. O ciclo usa a branch `codex/echo-existing-draft-recovery-20261101`, baseada no stage restaurado `2fef8bb13fb8e0f503fdfe070036619885e08288`. A autorização é para implementação e validação **locais**, sem commit, push, publicação ou alteração de banco remoto. A fase 2 de conferência/prévia real do PDF não está iniciada.
 
-O candidato isolado está na branch `codex/echo-draft-prod-isolated-20261101`, baseado em `main` `7430d5d8f9054f80cb9ee61e284462c4b6226892`. O código validado corresponde a `6e3a091496dc89bfc099497c75e1d0c0ee4c00c9`, com 27 caminhos no delta informado pelo executor principal, antes desta consolidação documental. O protocolo prevê apresentar esse escopo isolado em stage, promover pelo fluxo protegido `stage → main` e restaurar o estado de stage `9825174ccea1c586792f0ef54240ebbde1d2e44a` depois; essas operações não são declaradas concluídas aqui. Os checks devem corresponder ao SHA final da promoção, sem reutilizar apenas o sucesso de uma versão anterior.
+A fase 1a e o lote de imagens foram publicados em produção `4f6a11ba81f0433e6b3d061a70bce6a30ec6517f` pela PR #539, e stage foi restaurado `2fef8bb13fb8e0f503fdfe070036619885e08288` pela PR #540. São resultados verificados anteriormente no mesmo chat, não reconsultados remotamente neste ciclo; o registro e seus links estão no Histórico 4. Esses resultados e as matrizes anteriores não comprovam a fase 1b.
 
-A integração de workspace/autosave permanece exclusiva de `/laudos/novo`. O patch de lote é no `ImageUploader` compartilhado: também corrige o processamento da seleção múltipla quando usado pelo editor de laudos existentes e pela ultrassonografia abdominal. Isso não implementa recuperação/autosave nesses consumidores, nem entrega a fase 1b.
+A fase 1b implementa `existing-echo`, contexto `edit:laudo:<id>`, source/revisão opaca e sessão imutáveis, autosave privado e PUT dedicado com validação anterior aos efeitos, recibo e fechamento atômicos na infraestrutura 105. As suítes locais abaixo, build/tipos finais, SDD e diff check passaram. O smoke visual de teclado/viewport da fase 1b **não foi executado**. Não há homologação visual, HTTP autenticado em stage, PDF real de stage ou publicação da fase 1b.
 
-### Matriz de aceitação da entrega — fase 1a e correção de lote
-
-A matriz abaixo consolida evidências automatizadas e de homologação. As matrizes iniciais foram mantidas no histórico para não apagar resultados anteriores; estados iniciais substituídos não representam a situação atual. “Aprovado” refere-se ao critério desta entrega e não declara implantação em produção.
+### Matriz atual — fase 1b
 
 | ID | Status | Evidência |
 | --- | --- | --- |
-| CA-FC-01 | aprovado | Testes de backend/hook/página cobrem isolamento por usuário/contexto, owner divergente/ausente e troca de conta. Stage autenticado preservou o contexto sintético, sem vínculo com paciente/agendamento existente. Não houve repetição de todos os controles negativos no servidor remoto. |
-| CA-FC-02 | aprovado | Contratos locais preservam valores literais, medidas limpas, métodos/ondas e estado de derivação. Em stage, recargas recuperaram cabeçalho, zero, campo apagado e estados de fusão; editar medida invalidou a confirmação pertinente. |
-| CA-FC-03 | aprovado | Testes locais cobrem descritores, envio incompleto, expiração e associação 200 incompleta. Stage recuperou duas imagens com ordem, legendas e inclusão; o PDF sintético #61 foi baixado/renderizado e exibiu somente a imagem selecionada. Expiração e associação incompleta remotas não foram induzidas. |
-| CA-FC-04 | aprovado | Fila/CAS/retry/fechamento cobertos em testes isolados, com concorrência real no PostgreSQL local descartável. Migração 105 e gates foram confirmados pelo log de stage; emissão do sintético #61 foi seguida de novo formulário vazio, sem ressuscitar o documento. GET 410 e concorrência remotos não foram repetidos. |
-| CA-FC-05 | aprovado | Testes cobrem inicialização tardia, respostas de outro contexto/owner, recuperação assíncrona e navegação com flush. Em stage, revisão de conclusão seguida de Voltar antes do debounce foi recuperada. Browser Back e navegação programática externa continuam fora da interceptação contratada. |
-| CA-FC-06 | aprovado | Erro/retry e PA dedicada cobertos em testes locais. O complemento real de stage em 390 × 844 confirmou leitura/ações sem overflow do documento, Tab nos controles pertinentes, Enter para salvar/retomar, bloqueio antes da recuperação e retomada do nome sintético. É smoke básico, sem auditoria WCAG ou cobertura de todos os dispositivos. |
-| CA-FC-07 | aprovado | Testes distinguem workspace, ditado e emissão, conservando guard de resposta clínica incerta sem repetir criação. Em stage, a busca sintética retornou zero laudos antes da emissão; apenas #61 foi finalizado. PDF e novo formulário foram conferidos; sem mensagens, portal ou efeitos financeiros. |
-| CA-FC-08 | aprovado | O código isolado passou nas suítes locais indicadas abaixo: frontend, backend, tipos/lint/build, SHA, SDD, diff e Bash. A funcionalidade e o lote já foram homologados em stage; checks e identidade do SHA final de promoção serão conferidos no protocolo de publicação. |
-| CA-FC-09 | aprovado | RED local reproduziu um upload em vez de dois; GREEN validou dois arquivos, dois uploads e IDs próprios. Após PR #537, um único seletor em stage enviou ambos os PNGs sintéticos; autosave e recarga recuperaram as duas imagens com prévias decodificadas. |
+| CA-FC-1B-01 | automatizado local aprovado | Contratos HTTP/hook/página cobrem identidade editor/context/source/sessão, owner/matriz e negativos de rota/tipo/referência, sem reatribuição da cópia. Não houve repetição remota desses controles. |
+| CA-FC-1B-02 | automatizado local aprovado | Testes de transporte e página preservam valores literais, zero, campo limpo, métodos/ondas/derivação, textos e flags de aplicação, sem carga tardia sobrescrever a cópia. Regressões finais cobrem também apagar clínica/médico solicitante no ramo atômico. UI real ainda não conferida. |
+| CA-FC-1B-03 | automatizado local aprovado | Testes isolados conferem documento/status/cadastros/imagens oficiais invariantes durante operações privadas; ditado mantém ID/status. Falhas de apply preservam estado e arquivo do portal anterior. Não é revisão visual de PDF real em stage. |
+| CA-FC-1B-04 | automatizado local aprovado | CAS privado e origem clínica são distintos; duas sessões concorrentes no PostgreSQL real produziram um sucesso e um conflito. Testes de cliente preservam source antiga e cobrem descarte privado confirmado por CAS, sem flush vazio/rebase/escrita oficial, bloqueado quando há tentativa clínica. |
+| CA-FC-1B-05 | automatizado local aprovado | Backend valida antes dos efeitos e confirma rollback de paciente/imagens/temporários/portal/workspace. O PostgreSQL local confirmou que o portal recebe as imagens novas antes da renderização. Vínculo de tutor é por ID; a UI pede cadastro se ausente, enquanto somente a API admite `criar_novo` explícito e sem vínculo. |
+| CA-FC-1B-06 | automatizado local aprovado | Recibo/replay preservam um único efeito e recusam conteúdo diferente, incluindo omitido versus nulo. Apply encerra a cópia atomicamente. A resposta válida aposenta o UUID local sem POST close extra e a próxima edição usa a origem atual. |
+| CA-FC-1B-07 | automatizado local aprovado | Timeout após commit e recarga recebem 410 estruturado, mantêm UUID/bloqueio e conferência, sem novo apply. Testes cobrem confirmação explícita/reabertura posterior e snapshot congelado coerente entre flush e corpo clínico. |
+| CA-FC-1B-08 | automatizado local aprovado | Imagens persistidas só são alteradas na aplicação; sessão/IDs temporários devem coincidir com descritores recebidos do workspace. Negativos de outra sessão/laudo são rejeitados. Expiração `TEMP_IMAGES_UNAVAILABLE` permite remover/reenviar e tentar novamente sem falso conflito de origem; callbacks antigos não contaminam imagens atuais. |
+| CA-FC-1B-09 | automatizado local aprovado | Ditado usa o ID existente, sem POST de criação nem rebaixamento preparatório. Sugestões/flags permanecem privadas e recuperáveis, com guarda de contexto para callbacks antigos. |
+| CA-FC-1B-10 | automatizado local aprovado | Página/hook cobrem carregamento, owner, navegação com flush, erro/retry e callbacks de upload/atividade/importação/ditado antigos depois de mudar laudo/geração/sessão, sem mistura. Campos locais continuam editáveis em erro; estados incertos não têm saída genérica. |
+| CA-FC-1B-11 | pendente | Não foi executado smoke visual/teclado/viewport da fase 1b. Testes jsdom e o smoke da fase 1a não equivalem a essa prova. |
+| CA-FC-1B-12 | automatizado local aprovado | Backend completo/focos e PostgreSQL final passaram. Frontend global/Node passaram antes das duas atribuições finais; foco posterior de 3 arquivos/61 testes, lint, build 45 páginas, TypeScript e diff passaram na fonte com limpeza de clínica/médico e reabertura após descarte. O SDD final da árvore, incluindo arquivos novos e os quatro documentos consolidados, foi aprovado. |
 
-### Complemento real de CA-FC-06 — teclado e viewport estreito
+### Correções de ciclo de vida e isolamento verificadas localmente
 
-Em 01/11/2026, o executor principal testou o navegador interno autenticado sobre stage `9825174ccea1c586792f0ef54240ebbde1d2e44a`, com viewport **390 × 844**. Ações e status estavam legíveis e o documento não apresentou overflow horizontal. Tab percorreu **Salvar rascunho → Emitir laudo** e **Nome → Tutor**. Um nome sintético privado foi preenchido; Enter em Salvar rascunho produziu o estado salvo, com indicador de 18:30. Após recarga, as duas ações de gravação/emissão permaneceram bloqueadas antes da decisão de recuperação; Enter em Retomar rascunho recuperou o nome. O documento continuou sem overflow, o viewport foi restabelecido e a aba fechada. Nenhum laudo foi emitido nessa rodada.
+- Sucesso 2xx estritamente correspondente a ID/request/`updated: true`, com owner/contexto ativos, aposenta o ponteiro local e permite reabrir a edição. O cliente não envia outro close ao servidor já fechado.
+- Resposta incerta conserva o ponteiro. O 410 existente estruturado mostra o resultado/conferência, sem rotação silenciosa de UUID; só confirmação explícita pode aposentar esse ponteiro e voltar ao laudo.
+- Uma source antiga não é rebased. Descarte privado confirmado fecha por CAS a revisão conhecida, sem flush de formulário vazio nem alteração oficial; cópia com tentativa pendente/confirmada não usa esse descarte. Continuação pela mesma base também usa workspace/sessão novos.
+- Os 409 de apply usam `code`/`message`: origem, imagens oficiais, workspace, vínculo, operação e temporários indisponíveis são distintos. Temporários expirados são reparáveis e não são tratados como mudança da origem clínica.
+- `sessionId` existente é obrigatório e imutável. Apply confere sessão e IDs temporários positivos/recebidos contra o snapshot privado. Mudança de laudo renova a sessão; callbacks de imagem, atividade, importação e ditado validam rota/laudo, geração, owner e sessão antes de alterar estado.
 
-Este smoke encerra a pendência básica de teclado/legibilidade da fase 1a. Não equivale a auditoria WCAG, teste de todos os controles, todos os tamanhos de tela ou todos os dispositivos.
+### Resultados locais da fase 1b
 
-### Validação do código candidato isolado
+Resultados consolidados a partir das execuções do principal e dos agentes sobre a árvore de trabalho, sem publicação. Rodadas se sobrepõem; não somar suas contagens.
 
-Resultados informados pelos executores responsáveis sobre `6e3a091496dc89bfc099497c75e1d0c0ee4c00c9`, antes das alterações documentais deste fechamento. As contagens de rodadas distintas se sobrepõem e não devem ser somadas.
-
-| Verificação | Resultado |
+| Verificação | Resultado e limite |
 | --- | --- |
-| Frontend Vitest | 142 arquivos / 2.479 testes aprovados. |
-| Frontend Node | 23 testes aprovados. |
-| Frontend tipos/lint/build | TypeScript e lint aprovados; build aprovado, com 44 páginas no candidato isolado. |
-| Backend focado e segurança | 84 testes e 89 subtestes aprovados, em SQLite temporário isolado, sem opt-ins de banco externo. Inclui workspace, persistência clínica, migração/runtime, autenticação, permissões, CSRF, WebSocket, headers e isolamento stage/auth. |
-| SHA, SDD e integridade | 13 testes de SHA imutável, SDD, `git diff --check` e `bash -n` dos scripts de deploy aprovados. |
+| Backend completo final | 2.572 testes, com 139 skips de integrações opcionais; OK/exit 0 em 126,506 s. SQLite temporário removido, sem opt-ins de banco externo. Log `/var/folders/6s/4lv007g54pb7l2jj3q9drmtm0000gn/T/echo-phase1b-postfix-full-ppa17cx3.log`. |
+| Backend focado | 96 testes e 324 subtestes aprovados na rodada combinada; a rodada HTTP posterior de 12 testes/9 subtestes também passou, incluindo o fingerprint de campo omitido versus nulo. Os focos se sobrepõem ao completo. |
+| PostgreSQL 16 local real | 4 testes aprovados na última repetição após backend congelado, em 1,56 s, incluindo o reforço de sessão/descritores. CAS concorrente (200/409), retry com um efeito, rollback de paciente/imagens/remoção lógica/temporários/portal/workspace e renderização com imagens novas antes da regeneração. Cluster descartável encerrado/removido; nenhum banco remoto. Log `/tmp/fortcordis-echo-existing-pg-test.log`. |
+| Frontend global antes das duas atribuições finais | 148 arquivos / 2.637 testes aprovados em 64,76 s, Node 20.20.2; suíte inclui fase 1a e componentes compartilhados. A contagem anterior de 2.636 foi substituída nessa rodada. Depois foram alteradas duas atribuições para respeitar clínica/médico apagados no ramo atômico e acrescentadas regressões; não apresentar 2.637 como reexecução global posterior a essas alterações. Log `/tmp/echo-existing-vitest-final.log`. |
+| Frontend focado após os ajustes finais | 3 arquivos / 61 testes e lint aprovados, incluindo limpeza de clínica/médico solicitante e reabertura após descarte. A página de edição possui 15 cenários. Não inferir nem somar uma contagem global nova a partir desse foco. Logs `/tmp/echo-existing-clears-focus.log` e `/tmp/echo-existing-clears-lint.log`. |
+| Frontend Node e lint | 23 testes Node e `npm run lint` aprovados. Logs `/tmp/echo-existing-node-final.log` e `/tmp/echo-existing-lint-final.log`. |
+| Frontend build e TypeScript finais | Build de produção com 45 páginas aprovado e `tsc --noEmit --incremental false` posterior aprovado, com log vazio/exit 0. A primeira verificação de tipos apontou somente a fixture qualitativa do teste novo; após preenchê-la com os seis campos vazios esperados, foco/lint/tipos foram reexecutados e aprovados. Logs `/tmp/echo-existing-build-final-source.log` e `/tmp/echo-existing-tsc-final-source.log`. |
+| SDD e diff finais | Avaliação do principal após a consolidação documental aprovada sobre a árvore de trabalho, incluindo arquivos novos: 23 caminhos de código, 4 documentos e feature `laudo-fluxo-confeccao` qualificada. Relatório `output/echo-existing-sdd-local.json` atualizado; `git diff --check` aprovado. |
 
-Comando backend registrado, executado a partir de `backend` com o Python do venv principal e ambiente sintético isolado:
+Comandos registrados, em ambientes locais sintéticos:
 
 ```text
-python -m pytest -q -p no:cacheprovider tests/test_laudo_editor_drafts.py tests/test_laudos_ecocardiograma_estruturado.py tests/test_laudos_feline_alias_persistence.py tests/test_migration_ci_cycle.py tests/test_runtime_checks_observability.py tests/test_supabase_auth.py tests/test_permission_matrix_sync.py tests/test_csrf_protection.py tests/test_websocket_auth.py tests/test_security_headers.py tests/test_stage_auth_release_isolation.py
+# raiz da worktree: backend/venv principal, DATABASE_URL em TemporaryDirectory,
+# SECRET_KEY sintética, FORTCORDIS_PROCESS_ROLE=api, PYTHONDONTWRITEBYTECODE=1;
+# opt-ins *_TEST_POSTGRES_URL e *_TEST_DATABASE_URL removidos
+/Users/martiniano/fortcordis-v2/backend/venv/bin/python -m unittest discover -s backend/tests -p 'test_*.py'
+
+# frontend, Node 20.20.2
+npx --no-install vitest run --maxWorkers=2
+npx --no-install vitest run app/laudos/echo-draft-existing-page.test.tsx app/laudos/hooks/useEchoEditorDraft.test.tsx lib/echo-editor-draft.test.ts --maxWorkers=2
+node --test
+npm run lint
+npm run build
+npx tsc --noEmit --incremental false
 ```
 
-O histórico abaixo contém os comandos frontend e as rodadas anteriores, incluindo PostgreSQL local real, deploys e PDF sintético de stage. A publicação final continua condicionada aos checks/workflow terminais e à identidade do SHA instalado; nenhum sucesso local é prova de produção.
+### O que continua sem prova
 
-### Limites atuais e fases futuras
-
-- A descoberta depende do UUID em `sessionStorage` da aba/sessão. Não há lista de rascunhos nem garantia de retomada depois de fechar a aba ou mudar de dispositivo.
-- Imagens temporárias mantêm prazo próprio de 24 horas; descritores não prolongam sua validade. A conferência pós-associação usa quantidade e metadados correspondentes.
-- Resposta clínica incerta requer conferência humana na central; POST clínico não é repetido automaticamente. Browser Back e navegação programática externa não estão interceptados.
-- Disponibilidade HTTP externa teve comprovação parcial por conectividade intermitente da CLI. Os timeouts e a API anônima remota não foram registrados como pass; UI autenticada e chunk canônico foram observados funcionando.
-- A migração 105 foi comprovada pelo log de stage, além dos testes em PostgreSQL local real. Implantação e migração em produção ainda não estão comprovadas neste registro.
-- Fase 1b (workspace/autosave para edição existente) e fases 2–5 (prévia real, filtros/rodapés, síntese/comparação no PDF e imagens principais) são roadmap, fora da matriz desta entrega. Não foram convertidas em critérios aprovados ou publicadas por este pedido.
+Não houve smoke visual da fase 1b por teclado/viewport, revisão visual de PDF pelo fluxo do navegador, teste instalado em stage/produção, migração remota ou publicação. As suítes simuladas de interface não foram convertidas nessas provas. CA-FC-1B-11 permanece pendente; não usar exceção de promoção nem resultados da fase 1a para apagá-lo. A autorização deste ciclo continua limitada à implementação e validação locais.
 
 ## Histórico 1 — implementação local em 01/11/2026, antes da homologação
 
@@ -175,3 +185,72 @@ O teste final foi executado após recarregar o frontend publicado: um rascunho s
 Artefatos locais em `output/pdf/`: `qa-autosave-stage-61.pdf`, texto extraído, três PNGs renderizados e verificações JSON. O documento é sintético e não tem finalidade clínica. Não houve envio de mensagens, liberação de portal ou promoção a produção por esta tarefa.
 
 Ao encerrar essa rodada, permaneciam os limites de descoberta por UUID na aba/sessão, prazo próprio de imagens temporárias, workspace para edição existente fora do incremento, teclado/mobile ainda sem smoke completo e disponibilidade HTTP externa parcial por conectividade da CLI. O fechamento remoto foi confirmado pelo comportamento do novo formulário; GET 410 remoto não foi repetido. O complemento de teclado/viewport estreito abaixo substitui a pendência básica de CA-FC-06, sem declarar auditoria WCAG ou cobertura móvel exaustiva. Os demais limites continuam explícitos.
+
+## Histórico 3 — preparação da promoção restrita da fase 1a em 01/11/2026
+
+A fase 1a e a correção da seleção de imagens em lote foram homologadas em stage, incluindo o complemento básico de teclado e viewport estreito descrito abaixo. O usuário autorizou promover **somente novos ecocardiogramas com workspace/autosave e a correção de imagens em lote**. Outras funcionalidades presentes em stage não estão autorizadas por este pedido. Naquele momento, a publicação em produção ainda não havia sido realizada; a conclusão está registrada no Histórico 4.
+
+O candidato isolado está na branch `codex/echo-draft-prod-isolated-20261101`, baseado em `main` `7430d5d8f9054f80cb9ee61e284462c4b6226892`. O código validado corresponde a `6e3a091496dc89bfc099497c75e1d0c0ee4c00c9`, com 27 caminhos no delta informado pelo executor principal, antes desta consolidação documental. O protocolo prevê apresentar esse escopo isolado em stage, promover pelo fluxo protegido `stage → main` e restaurar o estado de stage `9825174ccea1c586792f0ef54240ebbde1d2e44a` depois; essas operações não são declaradas concluídas aqui. Os checks devem corresponder ao SHA final da promoção, sem reutilizar apenas o sucesso de uma versão anterior.
+
+A integração de workspace/autosave permanece exclusiva de `/laudos/novo`. O patch de lote é no `ImageUploader` compartilhado: também corrige o processamento da seleção múltipla quando usado pelo editor de laudos existentes e pela ultrassonografia abdominal. Isso não implementa recuperação/autosave nesses consumidores, nem entrega a fase 1b.
+
+### Matriz de aceitação da entrega — fase 1a e correção de lote
+
+A matriz abaixo consolida evidências automatizadas e de homologação. As matrizes iniciais foram mantidas no histórico para não apagar resultados anteriores; estados iniciais substituídos não representam a situação atual. “Aprovado” refere-se ao critério desta entrega e não declara implantação em produção.
+
+| ID | Status | Evidência |
+| --- | --- | --- |
+| CA-FC-01 | aprovado | Testes de backend/hook/página cobrem isolamento por usuário/contexto, owner divergente/ausente e troca de conta. Stage autenticado preservou o contexto sintético, sem vínculo com paciente/agendamento existente. Não houve repetição de todos os controles negativos no servidor remoto. |
+| CA-FC-02 | aprovado | Contratos locais preservam valores literais, medidas limpas, métodos/ondas e estado de derivação. Em stage, recargas recuperaram cabeçalho, zero, campo apagado e estados de fusão; editar medida invalidou a confirmação pertinente. |
+| CA-FC-03 | aprovado | Testes locais cobrem descritores, envio incompleto, expiração e associação 200 incompleta. Stage recuperou duas imagens com ordem, legendas e inclusão; o PDF sintético #61 foi baixado/renderizado e exibiu somente a imagem selecionada. Expiração e associação incompleta remotas não foram induzidas. |
+| CA-FC-04 | aprovado | Fila/CAS/retry/fechamento cobertos em testes isolados, com concorrência real no PostgreSQL local descartável. Migração 105 e gates foram confirmados pelo log de stage; emissão do sintético #61 foi seguida de novo formulário vazio, sem ressuscitar o documento. GET 410 e concorrência remotos não foram repetidos. |
+| CA-FC-05 | aprovado | Testes cobrem inicialização tardia, respostas de outro contexto/owner, recuperação assíncrona e navegação com flush. Em stage, revisão de conclusão seguida de Voltar antes do debounce foi recuperada. Browser Back e navegação programática externa continuam fora da interceptação contratada. |
+| CA-FC-06 | aprovado | Erro/retry e PA dedicada cobertos em testes locais. O complemento real de stage em 390 × 844 confirmou leitura/ações sem overflow do documento, Tab nos controles pertinentes, Enter para salvar/retomar, bloqueio antes da recuperação e retomada do nome sintético. É smoke básico, sem auditoria WCAG ou cobertura de todos os dispositivos. |
+| CA-FC-07 | aprovado | Testes distinguem workspace, ditado e emissão, conservando guard de resposta clínica incerta sem repetir criação. Em stage, a busca sintética retornou zero laudos antes da emissão; apenas #61 foi finalizado. PDF e novo formulário foram conferidos; sem mensagens, portal ou efeitos financeiros. |
+| CA-FC-08 | aprovado | O código isolado passou nas suítes locais indicadas abaixo: frontend, backend, tipos/lint/build, SHA, SDD, diff e Bash. A funcionalidade e o lote já foram homologados em stage; checks e identidade do SHA final de promoção serão conferidos no protocolo de publicação. |
+| CA-FC-09 | aprovado | RED local reproduziu um upload em vez de dois; GREEN validou dois arquivos, dois uploads e IDs próprios. Após PR #537, um único seletor em stage enviou ambos os PNGs sintéticos; autosave e recarga recuperaram as duas imagens com prévias decodificadas. |
+
+### Complemento real de CA-FC-06 — teclado e viewport estreito
+
+Em 01/11/2026, o executor principal testou o navegador interno autenticado sobre stage `9825174ccea1c586792f0ef54240ebbde1d2e44a`, com viewport **390 × 844**. Ações e status estavam legíveis e o documento não apresentou overflow horizontal. Tab percorreu **Salvar rascunho → Emitir laudo** e **Nome → Tutor**. Um nome sintético privado foi preenchido; Enter em Salvar rascunho produziu o estado salvo, com indicador de 18:30. Após recarga, as duas ações de gravação/emissão permaneceram bloqueadas antes da decisão de recuperação; Enter em Retomar rascunho recuperou o nome. O documento continuou sem overflow, o viewport foi restabelecido e a aba fechada. Nenhum laudo foi emitido nessa rodada.
+
+Este smoke encerra a pendência básica de teclado/legibilidade da fase 1a. Não equivale a auditoria WCAG, teste de todos os controles, todos os tamanhos de tela ou todos os dispositivos.
+
+### Validação do código candidato isolado
+
+Resultados informados pelos executores responsáveis sobre `6e3a091496dc89bfc099497c75e1d0c0ee4c00c9`, antes das alterações documentais deste fechamento. As contagens de rodadas distintas se sobrepõem e não devem ser somadas.
+
+| Verificação | Resultado |
+| --- | --- |
+| Frontend Vitest | 142 arquivos / 2.479 testes aprovados. |
+| Frontend Node | 23 testes aprovados. |
+| Frontend tipos/lint/build | TypeScript e lint aprovados; build aprovado, com 44 páginas no candidato isolado. |
+| Backend focado e segurança | 84 testes e 89 subtestes aprovados, em SQLite temporário isolado, sem opt-ins de banco externo. Inclui workspace, persistência clínica, migração/runtime, autenticação, permissões, CSRF, WebSocket, headers e isolamento stage/auth. |
+| SHA, SDD e integridade | 13 testes de SHA imutável, SDD, `git diff --check` e `bash -n` dos scripts de deploy aprovados. |
+
+Comando backend registrado, executado a partir de `backend` com o Python do venv principal e ambiente sintético isolado:
+
+```text
+python -m pytest -q -p no:cacheprovider tests/test_laudo_editor_drafts.py tests/test_laudos_ecocardiograma_estruturado.py tests/test_laudos_feline_alias_persistence.py tests/test_migration_ci_cycle.py tests/test_runtime_checks_observability.py tests/test_supabase_auth.py tests/test_permission_matrix_sync.py tests/test_csrf_protection.py tests/test_websocket_auth.py tests/test_security_headers.py tests/test_stage_auth_release_isolation.py
+```
+
+O histórico abaixo contém os comandos frontend e as rodadas anteriores, incluindo PostgreSQL local real, deploys e PDF sintético de stage. A publicação final continua condicionada aos checks/workflow terminais e à identidade do SHA instalado; nenhum sucesso local é prova de produção.
+
+### Limites registrados na preparação da promoção da fase 1a
+
+- A descoberta depende do UUID em `sessionStorage` da aba/sessão. Não há lista de rascunhos nem garantia de retomada depois de fechar a aba ou mudar de dispositivo.
+- Imagens temporárias mantêm prazo próprio de 24 horas; descritores não prolongam sua validade. A conferência pós-associação usa quantidade e metadados correspondentes.
+- Resposta clínica incerta requer conferência humana na central; POST clínico não é repetido automaticamente. Browser Back e navegação programática externa não estão interceptados.
+- Disponibilidade HTTP externa teve comprovação parcial por conectividade intermitente da CLI. Os timeouts e a API anônima remota não foram registrados como pass; UI autenticada e chunk canônico foram observados funcionando.
+- A migração 105 foi comprovada pelo log de stage, além dos testes em PostgreSQL local real. Implantação e migração em produção ainda não estão comprovadas neste registro.
+- Fase 1b (workspace/autosave para edição existente) e fases 2–5 (prévia real, filtros/rodapés, síntese/comparação no PDF e imagens principais) são roadmap, fora da matriz desta entrega. Não foram convertidas em critérios aprovados ou publicadas por este pedido.
+
+
+## Histórico 4 — fase 1a publicada em produção e stage restaurado em 01/11/2026
+
+Este registro consolida fatos já verificados em turnos anteriores do mesmo chat, sem nova execução ou consulta remota no ciclo da fase 1b. A evidência principal foi preservada em `output/release-539-proof.json`, complementada pelos logs e pela nota de continuidade da conversa.
+
+- A promoção isolada [PR #539](https://github.com/martinialebarros-svg/fortcordis-v2/pull/539) foi publicada em produção como `4f6a11ba81f0433e6b3d061a70bce6a30ec6517f`. O [Deploy de produção 41354709810](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/41354709810) terminou com `success`, assim como os checks aplicáveis. A migração 105 e a preservação/restauração dos arquivos runtime foram confirmadas; nenhuma funcionalidade alheia de stage foi incluída nessa promoção.
+- O smoke autenticado em produção confirmou rascunho/recuperação e dois arquivos de um mesmo lote, com legendas e inclusão preservadas, usando somente conteúdo sintético privado. Não houve emissão de laudo oficial, envio de mensagens ou liberação de portal nesse smoke.
+- A restauração completa de stage foi concluída pela [PR #540](https://github.com/martinialebarros-svg/fortcordis-v2/pull/540), merge `2fef8bb13fb8e0f503fdfe070036619885e08288`. O [Deploy de restauração 41355892407](https://github.com/martinialebarros-svg/fortcordis-v2/actions/runs/41355892407) e os checks aplicáveis terminaram com `success`, com SHA instalado, migrações sem pendências, runtime, health/readiness, canário autenticado e restore drill confirmados nos logs.
+- O conteúdo funcional de stage voltou a corresponder à árvore `9825174c`, preservando as outras funcionalidades não promovidas; somente spec/verify desta entrega receberam a consolidação documental. A UI autenticada final de stage foi conferida. Esses fatos não dizem que uma edição existente já tem workspace: essa é a fase 1b agora iniciada apenas localmente.

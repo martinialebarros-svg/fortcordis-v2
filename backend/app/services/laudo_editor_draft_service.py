@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models.laudo_editor_draft import LaudoEditorDraft, LaudoEditorDraftRequest
 from app.schemas.laudo_editor_draft import LaudoEditorDraftClose, LaudoEditorDraftSave
+from app.services.echo_editor_source import existing_snapshot_source, validate_existing_binding
 
 
 MAX_SNAPSHOT_BYTES = 512 * 1024
@@ -44,8 +45,9 @@ def validate_snapshot(snapshot: dict[str, Any]) -> str:
     """Validate transport bounds only. Never derive or normalize clinical fields."""
     if type(snapshot.get("schema_version")) is not int or snapshot["schema_version"] != 1:
         raise HTTPException(422, "Versão do rascunho não suportada.")
-    if snapshot.get("editor") != "new-echo":
-        raise HTTPException(422, "Este rascunho aceita somente novos ecocardiogramas.")
+    if snapshot.get("editor") not in {"new-echo", "existing-echo"}:
+        raise HTTPException(422, "Editor de rascunho não suportado.")
+    existing_snapshot_source(snapshot)
     nodes = keys = 0
     pending: list[tuple[Any, int]] = [(snapshot, 0)]
     while pending:
@@ -127,13 +129,24 @@ def get_editor_draft(db: Session, owner_id: int, draft_id: str) -> dict:
         row = _owned(db, owner_id, draft_id)
         if row is None:
             raise HTTPException(404, "Rascunho não encontrado.")
+        snapshot = json.loads(row.snapshot_json)
+        source = validate_existing_binding(db, snapshot, row.context_key)
         if row.closed_at is not None:
+            if source:
+                receipt = db.query(LaudoEditorDraftRequest).filter(
+                    LaudoEditorDraftRequest.draft_row_id == row.id,
+                    LaudoEditorDraftRequest.operation == "apply",
+                ).order_by(LaudoEditorDraftRequest.revision.desc()).first()
+                result = ({"id": source["laudo_id"], "request_id": receipt.request_id, "updated": True}
+                          if receipt else None)
+                raise HTTPException(410, {"code": "EDITOR_DRAFT_CLOSED", "laudo_id": source["laudo_id"], "apply_result": result})
             raise HTTPException(410, "Este rascunho já foi encerrado.")
         return _response(row.draft_id, row.context_key, json.loads(row.snapshot_json), row.revision, row.updated_at)
 
 
 def save_editor_draft(db: Session, owner_id: int, draft_id: str, data: LaudoEditorDraftSave) -> dict:
     serialized = validate_snapshot(data.snapshot)
+    validate_existing_binding(db, data.snapshot, data.context_key)
     fingerprint = hashlib.sha256(_canonical({
         "operation": "save", "expected_revision": data.expected_revision,
         "context_key": data.context_key, "snapshot": data.snapshot,
@@ -141,6 +154,13 @@ def save_editor_draft(db: Session, owner_id: int, draft_id: str, data: LaudoEdit
     request_id = str(data.request_id)
 
     def replay(row: LaudoEditorDraft) -> dict | None:
+        previous = json.loads(row.snapshot_json)
+        validate_existing_binding(db, previous, row.context_key)
+        if (previous.get("editor") != data.snapshot.get("editor")
+                or (previous.get("editor") == "existing-echo"
+                    and (previous.get("source") != data.snapshot.get("source")
+                         or previous.get("sessionId") != data.snapshot.get("sessionId")))):
+            raise _conflict()
         if row.closed_at is not None:
             raise HTTPException(409, "Este rascunho já foi encerrado.")
         if row.context_key != data.context_key:
@@ -210,6 +230,7 @@ def close_editor_draft(db: Session, owner_id: int, draft_id: str, data: LaudoEdi
     row = _owned(db, owner_id, draft_id)
     if row is None:
         raise HTTPException(404, "Rascunho não encontrado.")
+    validate_existing_binding(db, json.loads(row.snapshot_json), row.context_key)
     request_id = str(data.request_id)
     fingerprint = hashlib.sha256(_canonical({
         "operation": "close", "expected_revision": data.expected_revision,
