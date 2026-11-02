@@ -5,6 +5,7 @@ import api from "@/lib/axios";
 import {
   cloneEchoEditorDraftSnapshot, echoDraftFingerprint, echoDraftStorageKey, isEchoDraftUuid,
   parseEchoEditorDraftResponse, pendingEchoDraftImages,
+  sameEchoDraftSource,
   type EchoEditorDraftResponse, type EchoEditorDraftSnapshot,
 } from "@/lib/echo-editor-draft";
 
@@ -64,7 +65,11 @@ export function useEchoEditorDraft(options: UseEchoEditorDraftOptions) {
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recovery, setRecovery] = useState<EchoEditorDraftResponse | null>(null);
+  const [closedRecovery, setClosedRecovery] = useState<{
+    laudoId: number; result: { id: number; request_id: string; updated: true } | null;
+  } | null>(null);
   const [tick, setTick] = useState(0);
+  const [, refreshController] = useState(0);
   const session = useRef<DraftSession | null>(null);
   const initialContext = useRef<{ identity: string; baseline: string } | null>(null);
   const restore = useRef(options.onRestore);
@@ -157,6 +162,7 @@ export function useEchoEditorDraft(options: UseEchoEditorDraftOptions) {
 
   useEffect(() => {
     setRecovery(null);
+    setClosedRecovery(null);
     setLastSavedAt(null);
     setError(null);
     setDraftId(null);
@@ -201,6 +207,18 @@ export function useEchoEditorDraft(options: UseEchoEditorDraftOptions) {
             { timeout: 15_000, signal: current.controller.signal, headers: { "X-Editor-Owner-Id": current.ownerId } });
         } catch (cause) {
           if (httpStatus(cause) !== 410 || !alive(current)) throw cause;
+          if (latest.current?.editor === "existing-echo") {
+            const detail = (cause as { response?: { data?: { detail?: any } } }).response?.data?.detail;
+            if (detail?.code !== "EDITOR_DRAFT_CLOSED" || detail.laudo_id !== latest.current.source?.laudo_id
+              || (detail.apply_result !== null && (!detail.apply_result || detail.apply_result.id !== detail.laudo_id
+                || detail.apply_result.updated !== true || !isEchoDraftUuid(detail.apply_result.request_id)))) {
+              throw new Error("O encerramento da atualização precisa ser conferido no laudo oficial.");
+            }
+            current.closed = true;
+            setClosedRecovery({ laudoId: detail.laudo_id, result: detail.apply_result });
+            setStatus("closed");
+            return;
+          }
           // A completed workspace must never resurrect an issued draft. A new
           // UUID starts a separate workspace without reusing the closed one.
           const id = uuid();
@@ -212,6 +230,10 @@ export function useEchoEditorDraft(options: UseEchoEditorDraftOptions) {
         }
         if (!alive(current)) return;
         const response = parseEchoEditorDraftResponse(result.data, current.draftId, current.contextKey);
+        if (response.snapshot.editor !== latest.current?.editor
+          || (response.snapshot.editor === "existing-echo" && response.snapshot.source?.laudo_id !== latest.current?.source?.laudo_id)) {
+          throw new Error("O rascunho não corresponde a este laudo.");
+        }
         current.response = response;
         current.revision = response.revision;
         current.baseline = echoDraftFingerprint(response.snapshot);
@@ -254,6 +276,7 @@ export function useEchoEditorDraft(options: UseEchoEditorDraftOptions) {
     if (current.restoringTarget) {
       if (fingerprint !== current.restoringTarget) return;
       current.restoringTarget = null;
+      refreshController((revision) => revision + 1);
     }
     if (!latest.current || echoDraftFingerprint(latest.current) === current.baseline) {
       if (status === "pending" || status === "loading") setStatus(current.revision ? "saved" : "idle");
@@ -315,6 +338,18 @@ export function useEchoEditorDraft(options: UseEchoEditorDraftOptions) {
       setError("Há uma tentativa de salvamento registrada. Retome o rascunho para conferir o resultado antes de continuar.");
       return;
     }
+    if (current.response && latest.current && !sameEchoDraftSource(current.response.snapshot, latest.current)) {
+      setError("A versão oficial mudou. Retome a cópia para conferência; ela não será substituída pela versão atual.");
+      return;
+    }
+    if (latest.current?.editor === "existing-echo") {
+      try {
+        if (sessionStorage.getItem(current.key) === current.draftId) sessionStorage.removeItem(current.key);
+        current.active = false;
+        setTick((value) => value + 1);
+      } catch { setError("Não foi possível iniciar uma nova cópia. O rascunho salvo foi preservado."); }
+      return;
+    }
     current.decisionPending = false;
     setRecovery(null);
     setError(null);
@@ -344,8 +379,8 @@ export function useEchoEditorDraft(options: UseEchoEditorDraftOptions) {
 
   const close = useCallback((): Promise<void> => {
     const current = session.current;
-    if (!current?.active || !current.paused || current.saving || current.write || !current.revision
-      || !latest.current || echoDraftFingerprint(latest.current) !== current.baseline) {
+    if (!current?.active || (!current.closeRequest && (!current.paused || current.saving || current.write || !current.revision
+      || !latest.current || echoDraftFingerprint(latest.current) !== current.baseline))) {
       return Promise.reject(new Error("O rascunho precisa estar salvo antes de encerrar a emissão."));
     }
     if (current.closing) return current.closing;
@@ -369,7 +404,9 @@ export function useEchoEditorDraft(options: UseEchoEditorDraftOptions) {
         if (alive(current)) {
           current.error = true;
           setStatus(httpStatus(cause) === 409 ? "conflict" : "error");
-          setError("O laudo foi emitido, mas o encerramento do rascunho não foi confirmado. Tente concluir o encerramento; não emita novamente.");
+          setError(latest.current?.editor === "existing-echo"
+            ? "O encerramento do rascunho privado não foi confirmado. Confira a cópia antes de continuar."
+            : "O laudo foi emitido, mas o encerramento do rascunho não foi confirmado. Tente concluir o encerramento; não emita novamente.");
         }
         throw cause;
       }
@@ -386,14 +423,46 @@ export function useEchoEditorDraft(options: UseEchoEditorDraftOptions) {
     await flush();
   }, [close, flush]);
 
+  const acknowledgeClosed = useCallback(() => {
+    const current = session.current;
+    if (!current?.active || !current.closed || !closedRecovery || latest.current?.editor !== "existing-echo") {
+      throw new Error("Confira o resultado deste rascunho antes de continuar.");
+    }
+    if (sessionStorage.getItem(current.key) === current.draftId) sessionStorage.removeItem(current.key);
+  }, [closedRecovery]);
+
+  const acknowledgeApplied = useCallback((result: { id: number; request_id: string; updated: boolean }, requestId: string) => {
+    const current = session.current;
+    if (!current?.active || !current.paused || current.closed || latest.current?.editor !== "existing-echo"
+      || latest.current.submission?.status !== "pending" || result.id !== latest.current.source?.laudo_id
+      || result.updated !== true || !isEchoDraftUuid(requestId) || result.request_id !== requestId) {
+      throw new Error("O servidor não confirmou a atualização deste laudo.");
+    }
+    current.closed = true;
+    if (sessionStorage.getItem(current.key) === current.draftId) sessionStorage.removeItem(current.key);
+    setStatus("closed");
+  }, []);
+
+  const discardExisting = useCallback(async () => {
+    const current = session.current;
+    if (!current?.active || !current.ready || !current.revision || current.saving
+      || latest.current?.editor !== "existing-echo" || latest.current.submission
+      || (current.decisionPending && current.response?.snapshot.submission)) {
+      throw new Error("Uma tentativa de atualização precisa ser conferida antes de descartar o rascunho.");
+    }
+    current.paused = true;
+    current.closeRequest ??= { expected_revision: current.revision, request_id: uuid() };
+    await close();
+  }, [close]);
+
   const blocked = !enabled || !userId || ["disabled", "loading", "recovery", "error", "conflict", "closed"].includes(status)
     || Boolean(session.current?.restoringTarget) || Boolean(session.current?.closeRequest)
     || Boolean(invalid) || Boolean(parsed?.submission)
     || Boolean(session.current?.paused && fingerprint !== session.current.baseline);
   return {
-    status, draftId, lastSavedAt, error, recovery, blocked, canEmit: !blocked,
+    status, draftId, lastSavedAt, error, recovery, closedRecovery, blocked, canEmit: !blocked,
     pendingImages: parsed ? pendingEchoDraftImages(parsed) : 0,
-    resumeRecovered, continueFresh, flush, pause, resume, close, retry,
+    resumeRecovered, continueFresh, flush, pause, resume, close, retry, acknowledgeClosed, acknowledgeApplied, discardExisting,
   };
 }
 

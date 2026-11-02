@@ -104,6 +104,8 @@ class PdfLaudoLowWeightTest(unittest.TestCase):
                             return query
                         database.query.side_effect = query_for
                         with patch("app.services.laudo_pdf_service.compute_laudo_pdf_cache_key", return_value="synthetic-cache-key"), \
+                             patch("app.api.v1.endpoints.laudos.load_echo_editor_source", return_value=SimpleNamespace(
+                                 laudo=laudo, paciente=patient, tutor=None, imagens=[], revision="echo-v1:" + "0" * 64)), \
                              patch("app.api.v1.endpoints.laudos.compute_laudo_pdf_cache_key", return_value="synthetic-cache-key"), \
                              patch("app.api.v1.endpoints.laudos.get_cached_laudo_pdf_job", return_value=None), \
                              patch("app.api.v1.endpoints.laudos._serialize_portal_release_state", return_value={}), \

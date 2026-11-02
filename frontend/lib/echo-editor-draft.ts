@@ -20,7 +20,14 @@ export interface EchoDraftImage {
 /** Editor state, deliberately separate from the clinical report payload. */
 export interface EchoEditorDraftSnapshot {
   schema_version: 1;
-  editor: "new-echo";
+  editor: "new-echo" | "existing-echo";
+  source?: { laudo_id: number; editor_revision: string };
+  existing?: {
+    qualitativaAplicada: boolean;
+    conclusaoAplicada: boolean;
+    imagensPersistidas: EchoDraftImage[];
+    imagensRemovidas: number[];
+  };
   paciente: EchoDraftFields;
   measurementState: EchoMeasurementState;
   qualitativa: Record<string, string>;
@@ -51,7 +58,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOP_KEYS = new Set([
   "schema_version", "editor", "paciente", "measurementState", "qualitativa", "conteudo",
   "ecocardiogramaCabecalho", "ecocardiogramaEstruturado", "pressaoArterial", "clinicaId",
-  "clinicaNome", "veterinario", "agendamentoVinculadoId", "sessionId", "draftLaudoId", "imagens", "aba", "submission",
+  "clinicaNome", "veterinario", "agendamentoVinculadoId", "sessionId", "draftLaudoId", "imagens", "aba", "submission", "source", "existing",
 ]);
 const IMAGE_KEYS = new Set([
   "id", "nome", "descricao", "ordem", "tamanho", "tempId", "serverId", "uploaded", "persisted",
@@ -73,6 +80,19 @@ const fields = (value: unknown, stringsOnly = false): boolean => isRecord(value)
 const optionalPositiveId = (value: unknown) => value === undefined
   || (typeof value === "number" && Number.isSafeInteger(value) && value > 0);
 const nullableId = (value: unknown) => value === null || optionalPositiveId(value);
+const validImages = (value: unknown): value is EchoDraftImage[] => Array.isArray(value) && value.length <= 200
+  && value.every((image) => isRecord(image)
+    && Object.keys(image).every((key) => IMAGE_KEYS.has(key))
+    && ["id", "nome", "descricao"].every((key) => typeof image[key] === "string")
+    && typeof image.uploaded === "boolean"
+    && ["ordem", "tamanho"].every((key) => typeof image[key] === "number" && Number.isFinite(image[key]) && Number(image[key]) >= 0)
+    && optionalPositiveId(image.tempId) && optionalPositiveId(image.serverId)
+    && ["persisted", "incluirNoPdf", "requerReenvio"].every((key) => image[key] === undefined || typeof image[key] === "boolean"));
+
+export function sameEchoDraftSource(left: EchoEditorDraftSnapshot, right: EchoEditorDraftSnapshot): boolean {
+  return left.editor === right.editor && (left.editor !== "existing-echo"
+    || (left.source?.laudo_id === right.source?.laudo_id && left.source?.editor_revision === right.source?.editor_revision));
+}
 
 export function isEchoDraftUuid(value: unknown): value is string {
   return typeof value === "string" && UUID.test(value);
@@ -107,7 +127,19 @@ export function serializeDraftImages(images: readonly unknown[]): EchoDraftImage
 
 /** Validate without deriving, normalizing, merging aliases or inventing values. */
 export function cloneEchoEditorDraftSnapshot(value: unknown): EchoEditorDraftSnapshot {
-  if (!isRecord(value) || value.schema_version !== 1 || value.editor !== "new-echo"
+  if (!isRecord(value) || value.schema_version !== 1 || !["new-echo", "existing-echo"].includes(String(value.editor))
+    || (value.editor === "new-echo" && (value.source !== undefined || value.existing !== undefined))
+    || (value.editor === "existing-echo" && (!isRecord(value.source)
+      || Object.keys(value.source).some((key) => !["laudo_id", "editor_revision"].includes(key))
+      || !optionalPositiveId(value.source.laudo_id) || value.source.laudo_id === undefined
+      || typeof value.source.editor_revision !== "string" || !/^echo-v1:[a-f0-9]{64}$/.test(value.source.editor_revision)
+      || !isRecord(value.existing)
+      || Object.keys(value.existing).some((key) => !["qualitativaAplicada", "conclusaoAplicada", "imagensPersistidas", "imagensRemovidas"].includes(key))
+      || typeof value.existing.qualitativaAplicada !== "boolean" || typeof value.existing.conclusaoAplicada !== "boolean"
+      || !validImages(value.existing.imagensPersistidas)
+      || !value.existing.imagensPersistidas.every((image) => image.serverId !== undefined && image.uploaded && image.persisted)
+      || !Array.isArray(value.existing.imagensRemovidas) || value.existing.imagensRemovidas.length > 200
+      || !value.existing.imagensRemovidas.every((id) => Number.isSafeInteger(id) && id > 0)))
     || Object.keys(value).some((key) => !TOP_KEYS.has(key))
     || !fields(value.paciente) || !fields(value.qualitativa, true) || !fields(value.conteudo, true)
     || !fields(value.ecocardiogramaCabecalho, true) || !fields(value.pressaoArterial)
@@ -129,14 +161,7 @@ export function cloneEchoEditorDraftSnapshot(value: unknown): EchoEditorDraftSna
       || !Object.hasOwn(value.submission, "laudoId")
       || !nullableId(value.submission.laudoId)
       || (value.submission.status === "confirmed" && !value.submission.laudoId)))
-    || !Array.isArray(value.imagens) || value.imagens.length > 200
-    || !value.imagens.every((image) => isRecord(image)
-      && Object.keys(image).every((key) => IMAGE_KEYS.has(key))
-      && ["id", "nome", "descricao"].every((key) => typeof image[key] === "string")
-      && typeof image.uploaded === "boolean"
-      && ["ordem", "tamanho"].every((key) => typeof image[key] === "number" && Number.isFinite(image[key]) && Number(image[key]) >= 0)
-      && optionalPositiveId(image.tempId) && optionalPositiveId(image.serverId)
-      && ["persisted", "incluirNoPdf", "requerReenvio"].every((key) => image[key] === undefined || typeof image[key] === "boolean"))) {
+    || !validImages(value.imagens)) {
     throw new Error("O rascunho tem dados incompatíveis. O preenchimento atual foi preservado.");
   }
   const serialized = JSON.stringify(value);

@@ -120,6 +120,7 @@ class LaudosEcocardiogramaEstruturadoTest(unittest.TestCase):
         )
         db = Mock()
         db.query.return_value.filter.return_value.first.return_value = laudo
+        db.query.return_value.filter.return_value.with_for_update.return_value = db.query.return_value.filter.return_value
         payload = {
             "paciente": {
                 "nome": "Paciente teste",
@@ -184,6 +185,7 @@ class LaudosEcocardiogramaEstruturadoTest(unittest.TestCase):
         )
         db = Mock()
         db.query.return_value.filter.return_value.first.return_value = laudo
+        db.query.return_value.filter.return_value.with_for_update.return_value = db.query.return_value.filter.return_value
 
         with patch.object(
             laudos,
@@ -219,6 +221,7 @@ class LaudosEcocardiogramaEstruturadoTest(unittest.TestCase):
         )
         db = Mock()
         db.query.return_value.filter.return_value.first.return_value = laudo
+        db.query.return_value.filter.return_value.with_for_update.return_value = db.query.return_value.filter.return_value
 
         with patch.object(
             laudos,
@@ -258,6 +261,7 @@ class LaudosEcocardiogramaEstruturadoTest(unittest.TestCase):
         )
         db = Mock()
         db.query.return_value.filter.return_value.first.return_value = laudo
+        db.query.return_value.filter.return_value.with_for_update.return_value = db.query.return_value.filter.return_value
 
         with patch.object(
             laudos,
@@ -298,6 +302,7 @@ class LaudosEcocardiogramaEstruturadoTest(unittest.TestCase):
         )
         db = Mock()
         db.query.return_value.filter.return_value.first.return_value = laudo
+        db.query.return_value.filter.return_value.with_for_update.return_value = db.query.return_value.filter.return_value
 
         with (
             patch.object(laudos, "_resolver_ou_criar_paciente", return_value=42),
