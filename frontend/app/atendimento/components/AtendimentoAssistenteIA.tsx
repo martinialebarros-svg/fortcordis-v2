@@ -6,8 +6,8 @@ import api from "@/lib/axios";
 import { extractApiErrorMessageSync } from "@/lib/api-error";
 import type { ClinicalFieldKey } from "@/lib/atendimento-clinical-notes";
 import {
-  ASSISTENTE_AUDIO_MAX_BYTES, ASSISTENTE_CAMPO_LABELS, ASSISTENTE_FILE_ACCEPT,
-  podeIncorporarAchado, podeIncorporarCampo, textoAchadoParaRevisao, validarArquivosAssistente, type AssistenteIAResultado, type AssistenteIAStatus,
+  ASSISTENTE_AUDIO_ACCEPT, ASSISTENTE_AUDIO_MAX_BYTES, ASSISTENTE_CAMPO_LABELS, ASSISTENTE_FILE_ACCEPT,
+  podeIncorporarAchado, podeIncorporarCampo, textoAchadoParaRevisao, validarArquivosAssistente, validarAudioParaTranscricao, type AssistenteIAResultado, type AssistenteIAStatus,
 } from "@/lib/atendimento-assistente-ia";
 import { useAtendimentoAudio } from "@/lib/use-atendimento-audio";
 import { guardarRevisaoAssistenteMemoria, lerRascunhoAssistenteMemoria, type AssistenteMemoryReview } from "@/lib/atendimento-assistente-memory";
@@ -36,7 +36,7 @@ function AudioPreview({ audio }: { audio: File }) {
   if (!url) return null;
   return <div className="space-y-2">
     <audio controls src={url} className="w-full" aria-label="Ouvir áudio original" />
-    <a href={url} download={audio.name} className="text-sm font-medium text-teal-800 underline">Baixar áudio original ({(audio.size / 1024 / 1024).toFixed(1)} MB)</a>
+    <a href={url} download={audio.name} className="text-sm font-medium text-teal-800 underline">Baixar áudio original ({(audio.size / 1_000_000).toFixed(1)} MB)</a>
   </div>;
 }
 
@@ -74,6 +74,7 @@ function AtendimentoAssistenteSalvo({ atendimentoId, patientLabel, pacienteId, o
   const alive = useRef(true);
   const request = useRef<AbortController | null>(null);
   const audio = useAtendimentoAudio(atendimentoId, status?.usuario_id ?? null, pacienteId);
+  const erroEnvioAudio = audio.audio ? validarAudioParaTranscricao(audio.audio, status?.limites?.audio_bytes) : null;
   const podeUsarIA = status?.habilitado && status.configurado && consentimento;
   const ocupada = Boolean(busy) || audio.gravando || audio.iniciando;
   const pendente = Boolean(audio.audio || audio.gravando || audio.iniciando || texto || arquivos.length || resultado);
@@ -137,6 +138,8 @@ function AtendimentoAssistenteSalvo({ atendimentoId, patientLabel, pacienteId, o
   const transcrever = async () => {
     if (!audio.audio || identificarAudio(audio.audio) === audioTranscrito || !podeUsarIA || ocupada) return;
     const arquivoAudio = audio.audio;
+    const invalidAudio = validarAudioParaTranscricao(arquivoAudio, status?.limites?.audio_bytes);
+    if (invalidAudio) { setErro(invalidAudio); return; }
     const controller = new AbortController();
     request.current = controller;
     setBusy("transcrever"); setErro(""); limparAnalise();
@@ -238,12 +241,12 @@ function AtendimentoAssistenteSalvo({ atendimentoId, patientLabel, pacienteId, o
           <p className="text-xs text-slate-500">Confira se o medidor reage à voz. Silêncio e ruído podem prejudicar a transcrição.</p>
         </div> : null}
         {!audio.audio ? <label className="block text-sm text-slate-700">Ou carregar áudio
-          <input aria-label="Carregar áudio" type="file" accept="audio/*,.m4a,.webm,.mp3,.wav,.ogg,.flac" disabled={!revisaoPronta || loadingStatus || ocupada || audio.carregandoBackup} className="mt-1 block w-full text-sm" onChange={(event) => { const file = event.target.files?.[0]; if (file) audio.importar(file, status?.limites?.audio_bytes ?? ASSISTENTE_AUDIO_MAX_BYTES); event.target.value = ""; }} />
+          <input aria-label="Carregar áudio" type="file" accept={ASSISTENTE_AUDIO_ACCEPT} disabled={!revisaoPronta || loadingStatus || ocupada || audio.carregandoBackup} className="mt-1 block w-full text-sm" onChange={(event) => { const file = event.target.files?.[0]; if (file) audio.importar(file, status?.limites?.audio_bytes ?? ASSISTENTE_AUDIO_MAX_BYTES); event.target.value = ""; }} />
         </label> : null}
         {audio.audio ? <>
           <AudioPreview audio={audio.audio} />
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={buttonClass} disabled={!podeUsarIA || ocupada || identificarAudio(audio.audio) === audioTranscrito} onClick={() => void transcrever()}><FileAudio className="h-4 w-4" />{busy === "transcrever" ? "Transcrevendo…" : identificarAudio(audio.audio) === audioTranscrito ? "Áudio transcrito" : "Transcrever áudio"}</button>
+            <button type="button" className={buttonClass} disabled={!podeUsarIA || ocupada || Boolean(erroEnvioAudio) || identificarAudio(audio.audio) === audioTranscrito} onClick={() => void transcrever()}><FileAudio className="h-4 w-4" />{busy === "transcrever" ? "Transcrevendo…" : identificarAudio(audio.audio) === audioTranscrito ? "Áudio transcrito" : "Transcrever áudio"}</button>
             <button type="button" className={buttonClass} disabled={ocupada} onClick={() => setConfirmarDescarte(true)}><Trash2 className="h-4 w-4" />Descartar áudio</button>
           </div>
           {confirmarDescarte ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm">
@@ -252,7 +255,7 @@ function AtendimentoAssistenteSalvo({ atendimentoId, patientLabel, pacienteId, o
           </div> : null}
         </> : null}
         {audio.aviso ? <p role="status" className="text-sm text-amber-800">{audio.aviso}</p> : null}
-        {audio.erro ? <p role="alert" className="text-sm text-red-700">{audio.erro}</p> : null}
+        {erroEnvioAudio || audio.erro ? <p role="alert" className="text-sm text-red-700">{erroEnvioAudio || audio.erro}</p> : null}
       </div>
 
       <div className="space-y-3 rounded-2xl bg-slate-50 p-4">

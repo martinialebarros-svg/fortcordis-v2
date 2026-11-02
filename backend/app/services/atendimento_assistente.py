@@ -18,7 +18,8 @@ from pypdf import PdfReader
 from app.core.config import settings
 from app.schemas.atendimento_assistente import AnaliseClinica
 
-AUDIO_MAX_BYTES = 24 * 1024 * 1024
+# Stay below the provider's documented 25 MB limit, including decimal units.
+AUDIO_MAX_BYTES = 24_000_000
 ARQUIVO_MAX_BYTES = 10 * 1024 * 1024
 ARQUIVOS_MAX_BYTES = 20 * 1024 * 1024
 ARQUIVOS_MAX_COUNT = 5
@@ -88,12 +89,10 @@ def validar_audio(nome: str | None, mime: str | None, content: bytes) -> tuple[s
         ".mp3": ("audio/mpeg", content.startswith(b"ID3") or (len(content) >= 2 and content[0] == 255 and content[1] & 224 == 224)),
         ".mpeg": ("audio/mpeg", content.startswith(b"ID3") or (len(content) >= 2 and content[0] == 255 and content[1] & 224 == 224)),
         ".mpga": ("audio/mpeg", content.startswith(b"ID3") or (len(content) >= 2 and content[0] == 255 and content[1] & 224 == 224)),
-        ".ogg": ("audio/ogg", content.startswith(b"OggS")),
-        ".flac": ("audio/flac", content.startswith(b"fLaC")),
     }
     detected = kinds.get(ext)
     if not detected or not detected[1]:
-        raise AssistenteError("O áudio não corresponde a um formato aceito: WebM, MP4/M4A, WAV, MP3, OGG ou FLAC.")
+        raise AssistenteError("O áudio não corresponde a um formato aceito: WebM, MP4/M4A, WAV ou MP3/MPEG.")
     declared = (mime or "").split(";", 1)[0].lower()
     if declared and declared != "application/octet-stream" and not declared.startswith(("audio/", "video/")):
         raise AssistenteError("Tipo de áudio inválido.")

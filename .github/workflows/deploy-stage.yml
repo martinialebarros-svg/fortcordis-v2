@@ -61,6 +61,7 @@ jobs:
           bash scripts/tests/test_probe_public_https.sh
           bash scripts/tests/test_monitor_vps_ingress_deltas.sh
           bash scripts/tests/test_vps_ingress_diagnostics_stage_trigger.sh
+          python3 scripts/tests/test_ensure_atendimento_ia_ingress.py
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -683,6 +684,19 @@ jobs:
               WHATSAPP_HOME_REPORT_TEMPLATE_ENABLED=true \
               bash "$deploy_scripts_dir/scripts/deploy_stage_vps.sh"
           EOF
+
+      - name: Configure isolated Atendimento IA ingress on Stage
+        if: success() && contains(github.event.head_commit.message, '[atendimento-ia-ingress]')
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SUDO_PASSWORD: ${{ secrets.VPS_SUDO_PASSWORD }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$VPS_SUDO_PASSWORD" | \
+            ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+              "${VPS_USER}@${VPS_HOST}" \
+              'exec sudo -S -p "" /usr/bin/python3 /var/www/fortcordis-stage/scripts/ensure_atendimento_ia_ingress.py --apply-stage-ingress --expected-sha ${{ github.sha }}'
 
       - name: Synchronize feline diastolic presets on Stage
         run: |
