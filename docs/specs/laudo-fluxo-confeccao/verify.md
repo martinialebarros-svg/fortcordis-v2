@@ -1,12 +1,12 @@
 # Verify — Fluxo de confecção do laudo ecocardiográfico
 
-## Situação atual — fase 1b implementada e validada parcialmente, somente local
+## Situação atual — publicação e testes de stage autorizados em 02/11/2026
 
-Em 01/11/2026, após a entrega da fase 1a, o usuário autorizou prosseguir com recuperação/rascunho na edição de ecocardiogramas existentes. O ciclo usa a branch `codex/echo-existing-draft-recovery-20261101`, baseada no stage restaurado `2fef8bb13fb8e0f503fdfe070036619885e08288`. A autorização é para implementação e validação **locais**, sem commit, push, publicação ou alteração de banco remoto. A fase 2 de conferência/prévia real do PDF não está iniciada.
+Em 01/11/2026, após a entrega da fase 1a, o usuário autorizou implementar e validar localmente recuperação/rascunho na edição de ecocardiogramas existentes. Em **02/11/2026**, autorizou publicar a fase 1b em **stage** e realizar os testes com dados sintéticos. Essa autorização substitui o limite anterior de trabalho somente local; não autoriza promoção a produção. O ciclo usa a branch `codex/echo-existing-draft-recovery-20261101`, baseada no stage restaurado `2fef8bb13fb8e0f503fdfe070036619885e08288`; o código e os SDD locais foram registrados no commit `49ca43811e280ba2df388d7c253753276546fc46`. Publicação e homologação em stage ainda estão pendentes neste registro. A fase 2 de conferência/prévia real do PDF não está iniciada.
 
 A fase 1a e o lote de imagens foram publicados em produção `4f6a11ba81f0433e6b3d061a70bce6a30ec6517f` pela PR #539, e stage foi restaurado `2fef8bb13fb8e0f503fdfe070036619885e08288` pela PR #540. São resultados verificados anteriormente no mesmo chat, não reconsultados remotamente neste ciclo; o registro e seus links estão no Histórico 4. Esses resultados e as matrizes anteriores não comprovam a fase 1b.
 
-A fase 1b implementa `existing-echo`, contexto `edit:laudo:<id>`, source/revisão opaca e sessão imutáveis, autosave privado e PUT dedicado com validação anterior aos efeitos, recibo e fechamento atômicos na infraestrutura 105. As suítes locais abaixo, build/tipos finais, SDD e diff check passaram. O smoke visual de teclado/viewport da fase 1b **não foi executado**. Não há homologação visual, HTTP autenticado em stage, PDF real de stage ou publicação da fase 1b.
+A fase 1b implementa `existing-echo`, contexto `edit:laudo:<id>`, source/revisão opaca e sessão imutáveis, autosave privado e PUT dedicado com validação anterior aos efeitos, recibo e fechamento atômicos na infraestrutura 105. As suítes locais abaixo, build/tipos finais, SDD e diff check passaram. O smoke visual de teclado/viewport da fase 1b **não foi executado**. A publicação e as provas de fluxo instalado, homologação visual e PDF de stage da fase 1b serão registradas após execução; não são declaradas aprovadas antecipadamente.
 
 ### Matriz atual — fase 1b
 
