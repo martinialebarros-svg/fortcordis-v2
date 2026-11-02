@@ -105,10 +105,10 @@ async function changeWave(label: string, value: string, destination: Section = "
   await changeWaves([[label, value]], destination);
 }
 
-async function openPage(mode: Mode, options: { species?: string; weight?: number; flow?: string; tissue?: string; official?: string; draft?: string; measurements?: Record<string, string> } = {}) {
-  const { species = "Gato", weight = 5.6, flow = "separadas", tissue = "separadas", official = CONFLICT, draft, measurements = {} } = options;
+async function openPage(mode: Mode, options: { species?: string; flow?: string; tissue?: string; official?: string; draft?: string; measurements?: Record<string, string> } = {}) {
+  const { species = "Gato", flow = "separadas", tissue = "separadas", official = CONFLICT, draft, measurements = {} } = options;
   patient = { id: 901, nome: "QA COERÊNCIA CLÍNICA", especie: species, tutor: "QA TUTOR", tutor_id: 902,
-    peso_kg: weight, sexo: "Macho", raca: "SRD", idade: "4 anos" };
+    peso_kg: 5.6, sexo: "Macho", raca: "SRD", idade: "4 anos" };
   stored = { ...MEASURES, ...measurements, Diastolica_ondas: flow, TDI_ondas: tissue };
   mocks.imported = { ...MEASURES, ...measurements };
   description = montarDescricaoEcocardiograma(stored, qualitative(official));
@@ -117,7 +117,7 @@ async function openPage(mode: Mode, options: { species?: string; weight?: number
   mocks.get.mockImplementation(async (url: string) => {
     if (url.startsWith("/laudos/editor-drafts/")) throw { response: { status: 404 } };
     if (url === "/pacientes/901") return { data: patient };
-    if (url === "/laudos/905") return { data: { editor_revision: "echo-v1:" + "a".repeat(64), id: 905, tipo: "ecocardiograma", paciente_id: 901, paciente: patient,
+    if (url === "/laudos/905") return { data: { id: 905, tipo: "ecocardiograma", paciente_id: 901, paciente: patient,
       titulo: "QA COERÊNCIA", diagnostico: CONCLUSION, observacoes: "Observação preservada.",
       data_exame: "2026-10-15", status: "Rascunho", medidas: stored, descricao: description,
       ecocardiograma_estruturado: savedStructured, imagens: [] } };
@@ -133,7 +133,7 @@ async function openPage(mode: Mode, options: { species?: string; weight?: number
   for (const section of ["Paciente", "Medidas", "Qualitativa", "Referências"] as const) {
     sectionButtons.set(section, navigation.getByRole("button", { name: section }));
   }
-  saveButton = screen.getByRole("button", { name: mode === "novo" ? "Emitir laudo" : "Atualizar laudo" });
+  saveButton = screen.getByRole("button", { name: mode === "novo" ? "Emitir laudo" : "Salvar Laudo" });
   if (mode === "novo") {
     fireEvent.click(screen.getByRole("button", { name: "Importar estudo sintético" }));
     await waitFor(() => expect(live().Onda_E).toBe("1.08"));
@@ -150,10 +150,9 @@ async function save(mode: Mode) {
   expect(saveButton).not.toBeNull();
   fireEvent.click(saveButton!);
   const transport = mode === "novo" ? mocks.post : mocks.put;
-  const url = mode === "novo" ? "/laudos" : "/laudos/905/editor-update";
+  const url = mode === "novo" ? "/laudos" : "/laudos/905";
   await waitFor(() => expect(transport.mock.calls.some(([target]) => target === url)).toBe(true));
-  const body = transport.mock.calls.find(([target]) => target === url)![1];
-  return mode === "editar" ? body.payload_laudo : body;
+  return transport.mock.calls.find(([target]) => target === url)![1];
 }
 
 describe("páginas reais: conferência da narrativa canina e felina", () => {
@@ -167,34 +166,13 @@ describe("páginas reais: conferência da narrativa canina e felina", () => {
     mocks.post.mockResolvedValue({ data: { id: 905 } });
     mocks.put.mockImplementation(async (url, body) => ({ data: url.startsWith("/laudos/editor-drafts/")
       ? { draft_id: url.split("/").at(-1), revision: body.expected_revision + 1, context_key: body.context_key, snapshot: body.snapshot, updated_at: "2026-11-01T12:00:00Z" }
-      : url.endsWith("/editor-update") ? { id: 905, request_id: body.request_id, updated: true } : { id: 905 } }));
+      : { id: 905 } }));
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.spyOn(window, "alert").mockImplementation(() => {});
   });
   afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); window.history.replaceState(null, "", "/"); });
 
   const speciesModes = MODES.flatMap((mode) => ["Gato", "Canina"].map((species) => ({ mode, species })));
-  it.each(MODES.flatMap((mode) => ["Dog", "Cão"].map((species) => ({ mode, species }))))
-    ("$mode/$species mantém cálculo canino e espécie original ao salvar", async ({ mode, species }) => {
-      await openPage(mode, { species, weight: 13.9, measurements: { DIVEd: "47.19" } });
-      const label = screen.getByText("DIVEd normalizado (DIVEd [cm] / peso^0,294)", { selector: "label" });
-      const input = within(label.parentElement!).getByRole("textbox");
-      await waitFor(() => expect(input).toHaveValue("2.18"));
-      expect(input).toHaveAttribute("readonly");
-      const payload = await save(mode);
-      if (mode === "novo") expect(payload.paciente.especie).toBe(species);
-      else expect(mocks.put.mock.calls.some(([url]) => url === "/pacientes/901")).toBe(false);
-      const saved = mode === "novo" ? payload.medidas : parseStoredEchoMeasurements(null, payload.descricao);
-      expect(saved.DIVEd_normalizado).toBe("2.18");
-    });
-  it.each(["CaninaXYZ", "Caninoide"])("editor não mostra Cornell nem altera índice histórico para %s", async (species) => {
-    await openPage("editar", { species, weight: 13.9, measurements: { DIVEd: "47.19", DIVEd_normalizado: "9" } });
-    expect(screen.queryByText("DIVEd normalizado (DIVEd [cm] / peso^0,294)", { selector: "label" })).not.toBeInTheDocument();
-    expect(live().DIVEd_normalizado).toBe("9");
-    const payload = await save("editar");
-    expect(mocks.put.mock.calls.some(([url]) => url === "/pacientes/901")).toBe(false);
-    expect(parseStoredEchoMeasurements(null, payload.descricao).DIVEd_normalizado).toBe("9");
-  });
   it.each(speciesModes)("$mode/$species recalcula o aviso real ao mudar fusão ou corrigir a redação nas duas abas", async ({ mode, species }) => {
     await openPage(mode, { species });
     expect(panel()).not.toBeInTheDocument();

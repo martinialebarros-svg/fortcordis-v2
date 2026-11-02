@@ -1,7 +1,7 @@
 # Verify — Assistência multimodal no atendimento
 
-Data: 2026-10-27
-Status: in_progress (base publicada com IA desativada; verificação da ativação em andamento)
+Data: 2026-11-02
+Status: promoção do incremento com IA desativada em preparação; ativação fora deste escopo
 
 ## Matriz de rastreabilidade
 
@@ -140,3 +140,15 @@ Na árvore integrada, frontend completo passou com 2.369 testes Vitest em 131 ar
 A revisão independente confirmou 2.539 entradas versionadas fora dos 18 arquivos idênticas a stage por modo/blob, inclusive todas as 122 entradas de migrações e `main.py` com os routers preservados. Passaram 249 testes de atendimento e 59 de Gestão com conexões externas bloqueadas; o teste que espera falha DNS em host `.invalid` recebeu NXDOMAIN sintético. Diff-check e SDD da árvore integrada passaram.
 
 Antes da publicação, GET autenticado em stage confirmou `habilitado=false`, modelos corretos, revisão obrigatória e vínculo de identidade; a tela `/atendimento` respondeu 200 e os 17 assets servidos coincidiram com o build instalado. O limite observado ainda era 25.165.824 bytes, como esperado antes desta correção. Nenhuma chamada de IA, escrita clínica ou envio foi feito nesse smoke. A publicação e o smoke do novo SHA ainda precisam ser confirmados terminalmente.
+
+## Promoção autorizada do incremento — 2026-11-02
+
+O usuário pediu “Promova pra main”. O escopo é o incremento já homologado na PR #512: teto de áudio de24.000.000 bytes, validação antes de envio com preservação do original, runner sintético e helper opt-in de ingress exclusivo de stage. A IA permanece desativada em ambos os ambientes. Não há nova migração, ativação de provedor, envio de WhatsApp ou execução do runner pago.
+
+Em29/10, a restauração #522 terminou no SHA0e7be726, workflow40860705395 SUCCESS. GET autenticado confirmou IAfalse e teto24000000;17chunks conferidos com o build. Em atendimento inteiramente fictício, WAV28,081s foi carregado localmente, metadata readyState4 sem erro e download idêntico ao original por SHA256; nenhum microfone físico foi acionado e nenhuma reprodução audível foi verificada. Fingerprints de tutor/paciente/atendimento/auditoria permaneceram iguais antes/depois da UI. Evidência local em output/atendimento-homologacao/retomada-2026-10-29.json.
+
+Base da nova promoção: produção4f6a11ba81f0433e6b3d061a70bce6a30ec6517f; stage preservado89b58cb498dec9fab6ae856e51b8301435f93f99. O commit9fb86593 foi reaplicado sobre main, sem conflitos. Os caminhos funcionais do atendimento coincidem com a versão homologada; no workflow foi reaplicado somente o delta próprio, sem transportar testes ou funcionalidades de Gestão. O ciclo deve instalar esse snapshot isolado em stage por PR, promover por PR direta stage→main e restaurar integralmente stage. Nenhuma exceção de gate é necessária ou autorizada.
+
+Os testes físicos em Android/Chrome e computador/Chrome, ruído/sobreposição, recuperação real de24h, validação clínica e canário público autenticado com espera superior a60s continuam requisitos reais de uma futura ativação. Eles não foram executados por esta promoção. O ingress de produção não será alterado pelo helper de stage. Publicação de código com a flagfalse não comprova esses requisitos nem habilita transcrição/análise.
+
+Validação local da árvore isolada de promoção: 249 testes backend de atendimento; 2.487 testes Vitest em 142 arquivos e 23 testes Node; lint completo, TypeScript no build e build de44 páginas; 25 testes de ingress. Todos passaram. O SHA256 do workflow isolado coincide com a reconstrução independente do delta (1fbcdf656d60c03bcbc486ae91c02f28742e8422f098c7a6b7e1efbf38318e77). Publicação e smokes desta nova árvore ainda aguardam execução.

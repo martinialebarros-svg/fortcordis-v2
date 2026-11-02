@@ -15,12 +15,6 @@ from app.core.config import settings
 
 router = APIRouter()
 
-
-def _lock_laudo_for_image_write(db, laudo_id):
-    """Share the existing-editor lock before changing official image metadata."""
-    from app.models.laudo import Laudo
-    db.query(Laudo.id).filter(Laudo.id == laudo_id).with_for_update().first()
-
 # Tamanho máximo do arquivo (10MB)
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
@@ -188,7 +182,6 @@ def associar_imagens_ao_laudo(
     current_user: User = Depends(get_current_user)
 ):
     """Associa imagens temporárias a um laudo salvo"""
-    _lock_laudo_for_image_write(db, laudo_id)
     # Limpar imagens temporárias expiradas primeiro
     imagens_expiradas = db.query(ImagemTemporaria).filter(
         ImagemTemporaria.expira_em <= datetime.utcnow()
@@ -200,7 +193,7 @@ def associar_imagens_ao_laudo(
     imagens_temp = db.query(ImagemTemporaria).filter(
         ImagemTemporaria.session_id == session_id,
         ImagemTemporaria.expira_em > datetime.utcnow()
-    ).order_by(ImagemTemporaria.ordem).with_for_update().all()
+    ).order_by(ImagemTemporaria.ordem).all()
     
     if not imagens_temp:
         db.commit()  # Commit da limpeza
@@ -313,12 +306,11 @@ def atualizar_configuracao_imagens_laudo(
 ):
     """Atualiza atomicamente ordem, inclusao e legenda opcional das imagens."""
     del current_user
-    _lock_laudo_for_image_write(db, laudo_id)
     ids = [item.id for item in payload.imagens]
     if len(ids) != len(set(ids)):
         raise HTTPException(status_code=422, detail="IDs de imagem duplicados")
     imagens = (
-        db.query(ImagemLaudo).populate_existing()
+        db.query(ImagemLaudo)
         .filter(
             ImagemLaudo.laudo_id == laudo_id,
             ImagemLaudo.ativo == 1,
@@ -376,9 +368,6 @@ def delete_imagem(
     
     if not imagem:
         raise HTTPException(status_code=404, detail="Imagem não encontrada")
-
-    _lock_laudo_for_image_write(db, imagem.laudo_id)
-    db.refresh(imagem)
     
     imagem.ativo = 0
     db.commit()
@@ -398,9 +387,6 @@ def atualizar_ordem_imagem(
     
     if not imagem:
         raise HTTPException(status_code=404, detail="Imagem não encontrada")
-
-    _lock_laudo_for_image_write(db, imagem.laudo_id)
-    db.refresh(imagem)
     
     imagem.ordem = ordem
     db.commit()
