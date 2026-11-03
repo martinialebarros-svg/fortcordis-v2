@@ -25,6 +25,8 @@ describe("prévia PDF vinculada ao snapshot privado", () => {
     act(() => { void hook.result.current.generate(); });
     await waitFor(() => expect(hook.result.current.status).toBe("ready"));
     expect(hook.result.current.url).toBe("blob:synthetic-preview");
+    expect(hook.result.current.blob).toBeInstanceOf(Blob);
+    expect(createUrl).toHaveBeenCalledWith(hook.result.current.blob);
     expect(input.requestPreview).toHaveBeenCalledWith(expect.any(AbortSignal));
     expect(createUrl).toHaveBeenCalledWith(expect.any(Blob));
     expect(local).not.toHaveBeenCalled();
@@ -37,7 +39,7 @@ describe("prévia PDF vinculada ao snapshot privado", () => {
     const hook = renderHook(() => useEchoPdfPreview(options(vi.fn(async () => response()))));
     act(() => { void hook.result.current.generate(); });
     await waitFor(() => expect(hook.result.current.status).toBe("error"));
-    expect(hook.result.current.url).toBeNull(); expect(createUrl).not.toHaveBeenCalled();
+    expect(hook.result.current.url).toBeNull(); expect(hook.result.current.blob).toBeNull(); expect(createUrl).not.toHaveBeenCalled();
   });
   it("uma falha mantém erro local e permite nova tentativa sem emitir", async () => {
     const request = vi.fn().mockRejectedValueOnce(new Error("private provider detail")).mockResolvedValueOnce(pdf());
@@ -58,7 +60,7 @@ describe("prévia PDF vinculada ao snapshot privado", () => {
     expect(request.mock.calls[0][0].aborted).toBe(true);
     expect(hook.result.current.status).toBe("stale");
     await act(async () => pending.resolve(pdf()));
-    expect(createUrl).not.toHaveBeenCalled(); expect(hook.result.current.url).toBeNull();
+    expect(createUrl).not.toHaveBeenCalled(); expect(hook.result.current.url).toBeNull(); expect(hook.result.current.blob).toBeNull();
   });
   it.each(["scope", "disabled"])("mudança de %s esconde, aborta e descarta conteúdo de outra revisão", async (change) => {
     const pending = deferred<Blob>(); const request = vi.fn((_signal: AbortSignal) => pending.promise);
@@ -67,7 +69,7 @@ describe("prévia PDF vinculada ao snapshot privado", () => {
     act(() => { void hook.result.current.generate(); });
     hook.rerender({ ...initial, ...(change === "scope" ? { scopeKey: "owner:2/edit:44" } : { enabled: false }) });
     expect(request.mock.calls[0][0].aborted).toBe(true);
-    expect(hook.result.current.visible).toBe(false);
+    expect(hook.result.current.visible).toBe(false); expect(hook.result.current.blob).toBeNull();
     await act(async () => pending.resolve(pdf()));
     expect(createUrl).not.toHaveBeenCalled();
   });
@@ -76,7 +78,7 @@ describe("prévia PDF vinculada ao snapshot privado", () => {
     act(() => { void hook.result.current.generate(); }); await waitFor(() => expect(hook.result.current.status).toBe("ready"));
     hook.rerender({ ...initial, snapshotKey: "image-caption-changed" });
     expect(revokeUrl).toHaveBeenCalledWith("blob:synthetic-preview");
-    expect(hook.result.current.status).toBe("stale"); expect(hook.result.current.url).toBeNull();
+    expect(hook.result.current.status).toBe("stale"); expect(hook.result.current.url).toBeNull(); expect(hook.result.current.blob).toBeNull();
   });
   it("recriar callback sem mudar conteúdo não invalida; a próxima geração usa callback atual", async () => {
     const initial = options(); const hook = renderHook((props: EchoPdfPreviewOptions) => useEchoPdfPreview(props), { initialProps: initial });
@@ -90,7 +92,7 @@ describe("prévia PDF vinculada ao snapshot privado", () => {
   it("fechar e desmontar revogam URL e cancelam requisição em andamento", async () => {
     const hook = renderHook(() => useEchoPdfPreview(options()));
     act(() => { void hook.result.current.generate(); }); await waitFor(() => expect(hook.result.current.status).toBe("ready"));
-    act(() => hook.result.current.close()); expect(revokeUrl).toHaveBeenCalledTimes(1); expect(hook.result.current.visible).toBe(false);
+    act(() => hook.result.current.close()); expect(revokeUrl).toHaveBeenCalledTimes(1); expect(hook.result.current.visible).toBe(false); expect(hook.result.current.blob).toBeNull();
     act(() => { void hook.result.current.generate(); }); await waitFor(() => expect(hook.result.current.status).toBe("ready"));
     hook.unmount(); expect(revokeUrl).toHaveBeenCalledTimes(2);
     const pending = deferred<Blob>(); const request = vi.fn((_signal: AbortSignal) => pending.promise);
@@ -128,7 +130,7 @@ describe("prévia PDF vinculada ao snapshot privado", () => {
   it("desabilitar após PDF pronto revoga URL e impede gerar outra prévia", async () => {
     const initial = options(); const hook = renderHook((props: EchoPdfPreviewOptions) => useEchoPdfPreview(props), { initialProps: initial });
     act(() => { void hook.result.current.generate(); }); await waitFor(() => expect(hook.result.current.status).toBe("ready"));
-    hook.rerender({ ...initial, enabled: false }); expect(hook.result.current.visible).toBe(false); expect(revokeUrl).toHaveBeenCalledOnce();
+    hook.rerender({ ...initial, enabled: false }); expect(hook.result.current.visible).toBe(false); expect(hook.result.current.blob).toBeNull(); expect(revokeUrl).toHaveBeenCalledOnce();
     act(() => { void hook.result.current.generate(); }); expect(initial.requestPreview).toHaveBeenCalledOnce();
   });
 });

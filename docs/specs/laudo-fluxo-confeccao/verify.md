@@ -1,8 +1,8 @@
 # Verify — Fluxo de confecção do laudo ecocardiográfico
 
-## Situação atual — fase 2 validada localmente; publicação em stage autorizada em03/11/2026
+## Situação atual — fase 2 instalada em stage; correção do visualizador em03/11/2026
 
-A fase2 de conferência final e prévia real do PDF foi implementada e aprovada nos testes locais finais registrados ao final deste documento. O usuário autorizou agora publicar exclusivamente em stage e fazer a homologação sintética autenticada. PR/workflows/SHA instalado e QA remota serão registrados após sua execução; não há publicação da fase2 ou autorização de produção declarada por este parágrafo.
+A fase2 foi instalada exclusivamente em stage pela PR #546, merge873a94a5, com workflows e gates aprovados. A homologação autenticada recuperou o rascunho e gerou um PDF válido, mas identificou falha na leitura da URL blob pelo PDF.js. A correção pelo caminho de bytes e sua revalidação estão em andamento; não considerar a homologação remota completa até o complemento final. Produção permanece fora do pedido.
 
 ## Histórico — fase 1b publicada e homologação central de stage aprovada em02/11/2026
 
@@ -332,3 +332,22 @@ Aviso explícito recebido e relatório responsável conferido; GitHub41578561817
 ## Publicação fase 2 em stage — autorizada, em preparação em03/11/2026
 
 Usuário autorizou “publique” após a proposta explícita de stage. Base remota conferida45f06fee e main3f134432, fila vazia; não há promoção de produção autorizada. Código local mantém validações finais acima. Esta seção substitui apenas a ausência anterior de autorização para commit/push/deploy em stage; a publicação e a homologação remota ainda serão comprovadas por PR/workflows/logs e UI/PDF sintéticos. HPplan/verify e output anteriores preservados fora do commit desta fase.
+
+
+### Stage PR #546 — deploy aprovado e achado de homologação em03/11/2026
+
+- Head a5ed822a e merge873a94a5b7f8091dbad52d1c0b4d499f3bbc97c4 têm árvores idênticas. Checks de tipos/testes/migração/SDD/shared-budget aprovados. Deploy41678188977, Frontend41678189012, Migration41678189100 e Maps41678189009 terminaram completed/success no merge. Revisão externa automática foi ignorada por quota e não conta como aprovação; revisão independente local foi executada.
+- Instalador confirmou SHA resolvido/instalado/final coincidentes, seis arquivos runtime preservados/restaurados, migrações, readiness, canário geral e restore drill aprovados. As cinco amostras/p95 368,99ms são de latência da Agenda, não cinco canários clínicos. Nginx sem reload/alteração e canários pagos opcionais não executados; WhatsApp real não aplicável em stage sem número. Main3f134432 permaneceu intacto.
+- Smoke público: canônico e dois aliases200, API protegida401 e worker local200/application/javascript/hash esperado. Logs/provas em output/echo-preview-stage-20261103. Não houve acesso SSH adicional: uma tentativa somente leitura falhou na autenticação antes de executar comando.
+- UI recuperou a cópia nova exclusivamente sintética criada antes do deploy, com medidas/textos/imagem/legenda; a cópia anterior do teste #62 permaneceu intocada. Prévia recebida e baixada pela UI:927055bytes, SHA25667c9fbcce4385a451124d4868815b4606b6779da247078d5725cd2c16a2e7022, três páginas, marca/rodapé visíveis em todas e conteúdo esperado. Mudar E0,7→0,8 invalidou imediatamente o PDF/link antigos, recalculou E/A1,6 e E/e′10 e salvou o rascunho. Nenhuma emissão clínica ocorreu nessa etapa.
+- Achado: o visualizador mostrou erro de carregamento, apesar do PDF válido. Reprodução em harness Next15 compilado de produção, com componente/CSP/worker reais e o mesmo fixture sintético: URL blob falhou com ResponseException/status0; Uint8Array dos mesmos bytes carregou três páginas. PDF.js usa XMLHttpRequest para blob URLs. O harness Vite anterior não comprovava esse caminho Next; a falha remota permanece registrada. Não enfraquecer CSP nem atribuir problema ao backend/worker ausente.
+- Branch de correção codex/echo-preview-pdf-bytes-20261103 parte exatamente de stage873a94a5. Alterar somente transporte efêmero Blob→bytes e regressões relacionadas, atualizar SDD e revalidar o frontend/Next real, publicar novamente em stage e concluir QA novo/edição/PDF. Resultados serão acrescentados após execução.
+
+
+### Correção Blob→bytes — validação local terminal
+
+O hook agora mantém o Blob já validado somente em memória e o entrega ao viewer; cada load/retry lê ArrayBuffer próprio e passa Uint8Array ao PDF.js, sem XHR/fetch do documento. URL continua exclusivamente no link e é revogada junto ao Blob em invalidação/fechamento/contexto. Guards antes/depois da leitura e cancelamento/destroy preservados. Regressões incluem transferência/detach real do buffer e nova cópia na repetição, leitura cancelada e troca de fonte. Nenhuma alteração de CSP/backend/referência clínica.
+
+- Foco31/31 aprovado por implementador e por revisor independente; revisão dos seis arquivos sem bloqueadores acionáveis. Os testes focados se sobrepõem ao total global.
+- Frontend global155 arquivos/2789 testes e Node23 aprovados; TypeScript/ESLint dos seis arquivos e build completo Next45 páginas aprovados. Logs fix-frontend-full.log/fix-node.log/fix-build.log e BLOB-FIX-REVIEW.md em output/echo-preview-stage-20261103.
+- CUA no harness Next15 de produção, componente real corrigido, PDF real de stage e CSP original: canvas e navegação1→2→3 aprovados, screenshot next-bytes-fixed.png e AX salvos. Aba própria encerrada; servidor isolado em limpeza pelo implementador. Esse resultado local não substitui a próxima homologação autenticada remota.

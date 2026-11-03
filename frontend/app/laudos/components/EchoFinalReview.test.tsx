@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import EchoFinalReview from "./EchoFinalReview";
 
-vi.mock("./EchoPdfPages", () => ({ default: ({ url }: { url: string }) => <section title="Prévia do laudo em PDF — rascunho" data-pdf-url={url} /> }));
+vi.mock("./EchoPdfPages", () => ({ default: ({ blob }: { blob: Blob }) => <section title="Prévia do laudo em PDF — rascunho" data-pdf-bytes={blob.size} /> }));
 
 const pdf = () => new Blob(["%PDF-1.4\nSYNTHETIC"], { type: "application/pdf" });
 const base = (): ComponentProps<typeof EchoFinalReview> => ({
@@ -37,7 +37,7 @@ describe("painel compacto de conferência e prévia real", () => {
     const props = base(); render(<EchoFinalReview {...props} />);
     expect(props.requestPreview).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Conferir e ver PDF" }));
-    await waitFor(() => expect(screen.getByTitle("Prévia do laudo em PDF — rascunho")).toHaveAttribute("data-pdf-url", "blob:synthetic-preview"));
+    await waitFor(() => expect(screen.getByTitle("Prévia do laudo em PDF — rascunho")).toHaveAttribute("data-pdf-bytes", String(pdf().size)));
     expect(screen.getByRole("link", { name: "Abrir prévia em outra aba" })).toHaveAttribute("rel", "noopener noreferrer");
     expect(screen.getByText(/não emite nem substitui/)).toBeInTheDocument();
     fireEvent.click(screen.getByText(/1 ponto/)); fireEvent.click(screen.getByRole("button", { name: "Revisar Ondas E/A" }));

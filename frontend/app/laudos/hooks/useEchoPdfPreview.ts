@@ -13,6 +13,7 @@ type State = {
   visible: boolean;
   status: "idle" | "loading" | "ready" | "error" | "stale";
   url: string | null;
+  blob: Blob | null;
   error: string | null;
   scopeKey: string;
   snapshotKey: string;
@@ -44,7 +45,7 @@ export function useEchoPdfPreview(options: EchoPdfPreviewOptions) {
   const objectUrl = useRef<string | null>(null);
   const activeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const observed = useRef({ scopeKey, snapshotKey, enabled });
-  const [state, setState] = useState<State>({ visible: false, status: "idle", url: null, error: null, scopeKey, snapshotKey });
+  const [state, setState] = useState<State>({ visible: false, status: "idle", url: null, blob: null, error: null, scopeKey, snapshotKey });
 
   const release = useCallback(() => {
     if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
@@ -61,7 +62,7 @@ export function useEchoPdfPreview(options: EchoPdfPreviewOptions) {
   const close = useCallback(() => {
     cancel();
     const current = latest.current;
-    setState({ visible: false, status: "idle", url: null, error: null, scopeKey: current.scopeKey, snapshotKey: current.snapshotKey });
+    setState({ visible: false, status: "idle", url: null, blob: null, error: null, scopeKey: current.scopeKey, snapshotKey: current.snapshotKey });
   }, [cancel]);
 
   useEffect(() => {
@@ -71,7 +72,7 @@ export function useEchoPdfPreview(options: EchoPdfPreviewOptions) {
     cancel();
     setState((value) => ({ visible: enabled && previous.scopeKey === scopeKey && value.visible,
       status: enabled && previous.scopeKey === scopeKey && value.visible ? "stale" : "idle",
-      url: null, error: null, scopeKey, snapshotKey }));
+      url: null, blob: null, error: null, scopeKey, snapshotKey }));
   }, [scopeKey, snapshotKey, enabled, cancel]);
   useEffect(() => {
     mounted.current = true;
@@ -87,14 +88,14 @@ export function useEchoPdfPreview(options: EchoPdfPreviewOptions) {
     controller.current = abort;
     const current = () => mounted.current && generation.current === requestGeneration
       && latest.current.enabled && latest.current.scopeKey === captured.scopeKey && latest.current.snapshotKey === captured.snapshotKey;
-    setState({ visible: true, status: "loading", url: null, error: null, scopeKey: captured.scopeKey, snapshotKey: captured.snapshotKey });
+    setState({ visible: true, status: "loading", url: null, blob: null, error: null, scopeKey: captured.scopeKey, snapshotKey: captured.snapshotKey });
     const timer = setTimeout(() => {
       if (!current()) return;
       generation.current += 1;
       activeTimer.current = null;
       abort.abort();
       if (controller.current === abort) controller.current = null;
-      setState({ visible: true, status: "error", url: null, error: TIMEOUT, scopeKey: captured.scopeKey, snapshotKey: captured.snapshotKey });
+      setState({ visible: true, status: "error", url: null, blob: null, error: TIMEOUT, scopeKey: captured.scopeKey, snapshotKey: captured.snapshotKey });
     }, captured.timeoutMs ?? 30_000);
     activeTimer.current = timer;
     try {
@@ -104,10 +105,10 @@ export function useEchoPdfPreview(options: EchoPdfPreviewOptions) {
       if (!current() || abort.signal.aborted) return;
       const url = URL.createObjectURL(blob);
       objectUrl.current = url;
-      setState({ visible: true, status: "ready", url, error: null, scopeKey: captured.scopeKey, snapshotKey: captured.snapshotKey });
+      setState({ visible: true, status: "ready", url, blob, error: null, scopeKey: captured.scopeKey, snapshotKey: captured.snapshotKey });
     } catch {
       if (!current() || abort.signal.aborted) return;
-      setState({ visible: true, status: "error", url: null, error: ERROR, scopeKey: captured.scopeKey, snapshotKey: captured.snapshotKey });
+      setState({ visible: true, status: "error", url: null, blob: null, error: ERROR, scopeKey: captured.scopeKey, snapshotKey: captured.snapshotKey });
     } finally {
       clearTimeout(timer);
       if (activeTimer.current === timer) activeTimer.current = null;
@@ -120,5 +121,5 @@ export function useEchoPdfPreview(options: EchoPdfPreviewOptions) {
   const sameSnapshot = sameScope && state.snapshotKey === snapshotKey;
   return { generate, close, visible: sameScope && state.visible,
     status: sameSnapshot ? state.status : sameScope && state.visible ? "stale" as const : "idle" as const,
-    url: sameSnapshot ? state.url : null, error: sameSnapshot ? state.error : null };
+    url: sameSnapshot ? state.url : null, blob: sameSnapshot ? state.blob : null, error: sameSnapshot ? state.error : null };
 }
