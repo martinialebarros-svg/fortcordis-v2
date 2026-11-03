@@ -54,7 +54,7 @@ export default function EchoFinalReview({ snapshotKey, scopeKey, disabled = fals
       {preview.error && <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">{preview.error}</p>}
       {preview.url && <>
         <a href={preview.url} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-sm font-semibold text-teal-800 underline">Abrir prévia em outra aba</a>
-        <EchoPdfPages url={preview.url} />
+        {preview.blob && <EchoPdfPages blob={preview.blob} />}
       </>}
     </div>}
   </section>;

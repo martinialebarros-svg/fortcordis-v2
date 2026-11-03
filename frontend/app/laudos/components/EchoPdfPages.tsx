@@ -3,25 +3,26 @@
 import { useEffect, useRef, useState } from "react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
 
-type Props = { url: string };
+type Props = { blob: Blob };
 const TITLE = "Prévia do laudo em PDF — rascunho";
 
 /** Render the actual PDF bytes without depending on a native PDF plug-in.
  * Only the selected page is rendered. No document is sent to another service. */
-export default function EchoPdfPages({ url }: Props) {
+export default function EchoPdfPages({ blob }: Props) {
   const container = useRef<HTMLDivElement | null>(null);
   const canvas = useRef<HTMLCanvasElement | null>(null);
-  const currentUrl = useRef(url);
-  currentUrl.current = url;
-  const [document, setDocument] = useState<{ url: string; retry: number; pdf: PDFDocumentProxy } | null>(null);
+  const source = useRef({ blob, generation: 0 });
+  if (source.current.blob !== blob) source.current = { blob, generation: source.current.generation + 1 };
+  const sourceGeneration = source.current.generation;
+  const [document, setDocument] = useState<{ blob: Blob; retry: number; pdf: PDFDocumentProxy } | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [width, setWidth] = useState(800);
   const [retry, setRetry] = useState(0);
   const [loadError, setLoadError] = useState("");
   const [renderError, setRenderError] = useState("");
   const [readyPage, setReadyPage] = useState("");
-  const activeDocument = document?.url === url && document.retry === retry ? document.pdf : null;
-  const pageKey = `${url}|${retry}|${pageNumber}|${width}`;
+  const activeDocument = document?.blob === blob && document.retry === retry ? document.pdf : null;
+  const pageKey = `${sourceGeneration}|${retry}|${pageNumber}|${width}`;
   const pageReady = Boolean(activeDocument && readyPage === pageKey);
 
   useEffect(() => {
@@ -46,17 +47,23 @@ export default function EchoPdfPages({ url }: Props) {
       try {
         // Both library and worker are bundled locally and loaded only on demand.
         const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-        if (cancelled || currentUrl.current !== url) return;
+        if (cancelled || source.current.blob !== blob) return;
         pdfjs.GlobalWorkerOptions.workerSrc = new URL(
           "pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url,
         ).toString();
-        task = pdfjs.getDocument({ url, useWorkerFetch: false, isEvalSupported: false });
+        // Blob URLs use PDF.js' XMLHttpRequest network path, which can fail
+        // with status 0 under the actual Next/WebKit CSP. Read the validated
+        // Blob directly instead. Every load/retry owns a fresh ArrayBuffer;
+        // PDF.js may transfer it to the worker without detaching our source.
+        const data = new Uint8Array(await blob.arrayBuffer());
+        if (cancelled || source.current.blob !== blob) return;
+        task = pdfjs.getDocument({ data, useWorkerFetch: false, isEvalSupported: false });
         const pdf = await task.promise;
-        if (cancelled || currentUrl.current !== url) return;
+        if (cancelled || source.current.blob !== blob) return;
         if (!Number.isSafeInteger(pdf.numPages) || pdf.numPages < 1) throw new Error("Empty PDF");
-        setDocument({ url, retry, pdf });
+        setDocument({ blob, retry, pdf });
       } catch {
-        if (!cancelled && currentUrl.current === url) setLoadError("Não foi possível visualizar o PDF. Tente novamente ou abra a prévia em outra aba.");
+        if (!cancelled && source.current.blob === blob) setLoadError("Não foi possível visualizar o PDF. Tente novamente ou abra a prévia em outra aba.");
       }
     };
     void load();
@@ -66,7 +73,7 @@ export default function EchoPdfPages({ url }: Props) {
       // worker, including a document that finished loading before this cleanup.
       if (task) void task.destroy().catch(() => {});
     };
-  }, [url, retry]);
+  }, [blob, retry]);
 
   useEffect(() => {
     if (!activeDocument || !canvas.current) return;
@@ -78,7 +85,7 @@ export default function EchoPdfPages({ url }: Props) {
     const render = async () => {
       try {
         page = await activeDocument.getPage(pageNumber);
-        if (cancelled || currentUrl.current !== url) { page.cleanup(); return; }
+        if (cancelled || source.current.blob !== blob) { page.cleanup(); return; }
         const base = page.getViewport({ scale: 1 });
         const viewport = page.getViewport({ scale: width / base.width });
         const outputScale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
@@ -89,9 +96,9 @@ export default function EchoPdfPages({ url }: Props) {
         task = page.render({ canvas: target, viewport,
           transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0] });
         await task.promise;
-        if (!cancelled && currentUrl.current === url) setReadyPage(pageKey);
+        if (!cancelled && source.current.blob === blob) setReadyPage(pageKey);
       } catch {
-        if (!cancelled && currentUrl.current === url) setRenderError("Não foi possível visualizar esta página. Tente novamente ou abra a prévia em outra aba.");
+        if (!cancelled && source.current.blob === blob) setRenderError("Não foi possível visualizar esta página. Tente novamente ou abra a prévia em outra aba.");
       }
     };
     void render();
@@ -101,7 +108,7 @@ export default function EchoPdfPages({ url }: Props) {
       if (task) void task.promise.catch(() => {}).then(() => page?.cleanup()).catch(() => {});
       else page?.cleanup();
     };
-  }, [activeDocument, pageNumber, width, pageKey, url]);
+  }, [activeDocument, pageNumber, width, pageKey, blob]);
 
   const error = loadError || renderError;
   return <section title={TITLE} aria-label={TITLE} className="mt-3 min-w-0 rounded-lg border border-slate-300 bg-slate-100 p-2 sm:p-3">

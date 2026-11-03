@@ -93,3 +93,10 @@ Aviso explícito recebido e relatório responsável conferido; GitHub41578561817
 ## Publicação autorizada da fase 2 — stage,03/11/2026
 
 Pedido humano “publique”, após proposta explícita de stage. Fila consultada sem execuções em andamento/queued, refs stage45f06fee/main3f134432; janela do Atendimento concluída. Preparar commit apenas dos19 arquivos de código da fase2 e dos quatro SDD laudo-fluxo-confeccao, deixando HPplan/verify e output preservados fora do snapshot. Revalidar SDD/diff/hashes e checks; PR base stage, merge com head aprovado e refstage rechecado, aguardar todos os workflows terminais. Conferir logs de SHA instalado/runtime/migrações/canário/restore e smoke domínio/assets/API. QA autenticada somente com novo exame sintético; produção sem publicação e sem mudança de Atendimento/Nginx. Não usar marcadores de canários IA/ingress de outro projeto.
+
+
+### Correção descoberta na homologação de stage —03/11/2026
+
+PR #546 instalada no SHA873a94a5 com gates/workflows aprovados. Rascunho recuperado e PDF canônico válido; PDF.js falhou na leitura XHR da URL blob. Reprodução no Next compilado confirmou falha status0 por URL e sucesso dos mesmos bytes como Uint8Array. Entregar Blob validado ao visualizador, criar bytes próprios por tentativa e conservar cancelamento/isolamento/revogação/link, sem relaxar CSP ou alterar conteúdo clínico. Testar regressões e componente real compilado, publicar correção por PR base stage e concluir QA autenticada sintética antes de encerrar. Produção continua fora da autorização.
+
+Corretivo implementado nos três componentes/hooks e três testes:31foco e2789globais+23Node, lint/tipos/build aprovados; revisão independente sem bloqueadores. Next compilado real exibiu1→3 viaCUA. Preparar PR stage e aguardar CI/deploy, sem promover produção.
