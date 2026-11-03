@@ -17,11 +17,11 @@ Fase 1a e correção do lote de imagens publicadas em produção pela PR #539 (`
 7. Cobrir recarga, falha de rede, repetição da mesma operação, alteração durante salvamento, múltiplas abas, troca de usuário/contexto, carregamento tardio e emissão com salvamento pendente. Confirmar preservação de laudos emitidos, portal, cadastros e efeitos externos. Não repetir automaticamente a emissão como se fosse PUT de workspace.
 8. Testar integração no formulário real de novos exames com dados sintéticos; executar verificações de tipos, lint, build e guardrail SDD pertinentes. Registrar resultado e limitações em `verify.md`, sem antecipar aprovação de testes não executados.
 
-## Fase 1b — Edição de laudos existentes (iniciada; somente local)
+## Fase 1b — Edição de laudos existentes (homologação central aprovada em stage)
 
-Implementação e verificações automatizadas locais em andamento/consolidação. O smoke visual de teclado/viewport da fase 1b ainda não foi executado; resultados da fase 1a não o substituem. O estado dos critérios e das suítes finais pertence a `verify.md`.
+Em 02/11/2026, o usuário autorizou publicar em stage e testar com conteúdo sintético. A PR #541 foi instalada como `89b58cb498dec9fab6ae856e51b8301435f93f99`, com workflow terminal aprovado. Autosave privado, recuperação, atualização única do sintético #61, PDF renderizado, conflito e reabertura da edição na mesma aba foram conferidos; o smoke básico de teclado/390 × 844 foi aprovado. A limpeza final também foi concluída: após reautenticar a sessão expirada, Descartar foi acionado uma vez e o diálogo nativo confirmado por Return; a UI voltou ao #61 com Revisão 3 e Finalizado intactos. O reset do viewport teve sucesso, com DOM em 504 × 774, tamanho normal atual do painel. O bloqueio inicial do diálogo e o primeiro reset expirado ficam preservados em `verify.md`. Produção não foi autorizada para a fase 1b. O fechamento de evidências permanece local, sem nova publicação de código idêntico.
 
-1. Trabalhar na branch `codex/echo-existing-draft-recovery-20261101`, baseada em stage restaurado `2fef8bb1`, sem commit, push ou publicação neste ciclo. Conferir o carregamento e a atualização do editor existente, o ditado, a persistência de imagens e os efeitos em paciente/tutor/portal antes de integrar autosave.
+1. Preparar a entrega na branch `codex/echo-existing-draft-recovery-20261101`, baseada em stage restaurado `2fef8bb1`. O limite inicial era local; a autorização de 02/11 ampliou o ciclo para commit/publicação e testes em stage. Conferir o carregamento e a atualização do editor existente, o ditado, a persistência de imagens e os efeitos em paciente/tutor/portal, preservando as evidências.
 2. Definir uma revisão opaca emitida pelo servidor, `echo-v1:<hash>`, para a origem clínica. Usar `editor: existing-echo`, contexto `edit:laudo:<id>` e `source: {laudo_id, editor_revision}`. A revisão de origem clínica e a revisão CAS do workspace têm funções distintas; origem e sessão de temporários não podem ser trocadas no mesmo workspace.
 3. Estender o workspace privado, preservando os contratos da fase 1a de proprietário, sessão, limites, fila, retry e fechamento. Inicializar a base completa antes de consultar/restaurar o workspace. Conservar medidas literais, unidades, métodos/ondas, derivação, textos, estados de aplicação e imagens; não fabricar confirmações ao recuperar.
 4. Tornar “Salvar rascunho” e autosave exclusivamente privados. Digitação, importação, sugestões de ditado e alterações de imagens persistidas não devem chamar atualizações clínicas ou modificar o documento emitido. Erro de rascunho mantém a edição local e bloqueia a atualização clínica até resolução.
@@ -30,7 +30,7 @@ Implementação e verificações automatizadas locais em andamento/consolidaçã
 7. Separar imagens já persistidas de arquivos temporários. Legenda, ordem, inclusão e remoção de imagem persistida ficam locais/workspace até atualização explícita, com validação de pertencimento ao laudo. Vincular sessão e IDs temporários recebidos aos descritores do workspace; não aceitar sessão de outra cópia. Recuperar temporários disponíveis, respeitar 24 horas e permitir remover/reenviar os ausentes sem falso conflito da origem. Conferir o conjunto após a atualização; não repetir criação/atualização para reparar associação incerta.
 8. Reutilizar o identificador existente no ditado, sem criar outro laudo nem rebaixar status para preparar o assistente. Aplicar sugestões apenas ao formulário/workspace até confirmação clínica. Isolar todos os callbacks assíncronos por laudo/rota, geração, usuário e sessão; renovar a sessão de upload ao mudar o laudo. Cobrir recarga, navegação com flush e seus limites de Browser Back/programação externa.
 9. Executar testes sintéticos locais de preservação do documento/status/PDF/portal/cadastros, concorrência clínica e CAS do workspace, retry/recibos, recuperação literal, imagens persistidas/temporárias, ditado, falhas parciais, resposta incerta, navegação e regressão da fase 1a/PA/consumidores do uploader. Conferir teclado, viewport estreito, tipos, lint, build e guardrail SDD conforme o delta final; atualizar a matriz `ID | Status | Evidência` somente com resultados executados.
-10. Encerrar os critérios da fase 1b antes de iniciar a fase 2. Homologação em stage e promoção a produção da fase 1b exigem solicitação posterior; os resultados da fase 1a não comprovam essa nova implementação.
+10. Concluir a homologação autorizada e os critérios da fase 1b antes de iniciar a fase 2. Promoção a produção da fase 1b continua dependente de solicitação própria e do protocolo de publicação; os resultados da fase 1a não substituem provas dessa nova implementação.
 
 ## Fase 2 — Conferência e prévia do PDF
 
@@ -62,3 +62,34 @@ Implementação e verificações automatizadas locais em andamento/consolidaçã
 ## Avaliação do resultado
 
 Comparar, em testes sintéticos e depois na homologação autorizada, tempo de confecção, necessidade de reconstrução após interrupção, quantidade de ações na revisão e correções após emissão. Contagens de campos preenchidos não equivalem a qualidade clínica. Não incluir dados pessoais em telemetria ou evidências de teste.
+
+
+## Execução local da fase 2 — autorizada em 03/11/2026
+
+1. Preservar os quatro documentos pós-homologação e `output/` existentes; reutilizar a worktree deste chat, branch `codex/echo-pdf-preview-20261103` baseada em stage45f06fee. Nenhuma mudança remota. Janela deste chat cedida ao Atendimento para ativação separada; aguardar seu encerramento antes de futuro deploy concorrente.
+2. Compartilhar renderização canônica e implementar projeção de prévia somente leitura, vinculada a owner/workspace/revisão e imagens da mesma origem. Sem migração; rollback remove apenas rota/componente novos e preserva fluxos entregues.
+3. Implementar painel/hook compartilhados e reutilizar construtores de payload na integração das duas páginas. Cancelamento, snapshot e ciclo de objectURLs ficam isolados do autosave/emissão.
+4. Executar regressões de segurança/efeitos, paridade real de PDF, avisos e async UI, seguidas dos checks pertinentes. Usar somente SQLite/arquivos temporários/sintéticos locais; nenhuma chamada paga, mensagem, dado clínico ou runtime remoto.
+5. Renderizar/inspecionar PDFs e interface desktop/estreita. Registrar resultados exatos e limitações, sem declarar stage/produção como aprovados por testes locais.
+
+EGM foi sugerido como revisão opcional da especificação, mas não explicitamente solicitado; não executar neste incremento.
+
+
+### Resultado da implementação da fase 2 — 03/11/2026
+
+- Rota de prévia implementada em `laudo_editor_drafts.py`, schema e projeção somente leitura em `echo_pdf_preview.py`. Reutiliza `render_echo_pdf_content` do PDF oficial/portal e marca cada página. Confere owner, visualizar+editar, revisão da origem e imagens completas da mesma sessão/laudo. Não usa rollback de uma mutação para simular prévia.
+- Painel compartilhado em novo/edição, avisos orientativos e navegação com foco. Construtores oficiais reutilizados por prévia/emissão; metadado de serialização estruturada estabilizado enquanto o conteúdo não muda. Autosave privado pode concluir antes da prévia; documento oficial não é atualizado.
+- Hook isola respostas por snapshot/contexto, cancela/descarta pedidos antigos e libera URLs. Digitação não gera PDFs. Guards de emissão, conflito, recuperação e resposta incerta conservados.
+- Iframe nativo inicial ficou vazio no IAB. Substituído no mesmo ciclo por PDF.js já instalado, carregado sob demanda com worker empacotado, uma página por vez, navegação e cleanup. CUA verificou o PDF real visível e páginas1–3, teclado e390px sob CSP idêntica ao Next, sem enfraquecê-la.
+- Casos sintéticos reproduzíveis em `output/echo-preview-pdf-20261103/`: canino HP confirmada/pendente e felino com fusão E/A, cada um com três páginas, catálogo/diastólica, unidades, fontes e imagem/legenda. Todos renderizados e inspecionados. Harness UI usa uma fixture PDF fixa e está explicitamente rotulado; prova responsividade/interações, não paridade do payload, que é testada por HTTP.
+- QA local encerrada, aba temporária fechada, viewport restaurado e porta3557 fechada. Não houve nova migração, dado real, chamada paga, mensagem, escrita remota, commit, push ou publicação. Resultados finais/checks e limitações da suíte geral estão em `verify.md`.
+
+
+### Janela do Atendimento encerrada — 03/11/2026
+
+Aviso explícito recebido e relatório responsável conferido; GitHub41578561817/41579081548 completed/success, refs main3f134432/stage45f06fee preservados. A espera deste chat está encerrada. Segundo o relatório, o estado intencional autorizado do Atendimento é IA ON persistente em produção e OFF em stage; não restaurar o OFF histórico. Nenhum novo deploy ou teste pago foi feito por laudos. A publicação/homologação da fase2 continua dependente do pedido próprio e preflight vigente; essa coordenação não a autoriza. Detalhe/proveniência na nota Obsidian deste chat de03/11.
+
+
+## Publicação autorizada da fase 2 — stage,03/11/2026
+
+Pedido humano “publique”, após proposta explícita de stage. Fila consultada sem execuções em andamento/queued, refs stage45f06fee/main3f134432; janela do Atendimento concluída. Preparar commit apenas dos19 arquivos de código da fase2 e dos quatro SDD laudo-fluxo-confeccao, deixando HPplan/verify e output preservados fora do snapshot. Revalidar SDD/diff/hashes e checks; PR base stage, merge com head aprovado e refstage rechecado, aguardar todos os workflows terminais. Conferir logs de SHA instalado/runtime/migrações/canário/restore e smoke domínio/assets/API. QA autenticada somente com novo exame sintético; produção sem publicação e sem mudança de Atendimento/Nginx. Não usar marcadores de canários IA/ingress de outro projeto.

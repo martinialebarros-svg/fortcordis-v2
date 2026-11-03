@@ -1734,7 +1734,9 @@ def gerar_pdf_laudo_eco(
     assinatura_bytes: bytes = None,
     nome_veterinario: str = None,
     crmv: str = None,
-    texto_rodape: str = None
+    texto_rodape: str = None,
+    *,
+    preview: bool = False,
 ) -> bytes:
     """
     Gera o PDF completo do laudo ecocardiográfico.
@@ -2234,6 +2236,14 @@ def gerar_pdf_laudo_eco(
         
         def add_footer(canvas_obj, doc):
             footer_todas_paginas(canvas_obj, doc, rodape_texto)
+            if preview:
+                # Canvas-only identity: preserve the clinical layout/page count
+                # while making every extracted/printed page visibly unofficial.
+                canvas_obj.saveState()
+                canvas_obj.setFont("Helvetica-Bold", 8)
+                canvas_obj.setFillColor(colors.HexColor("#9B1C31"))
+                canvas_obj.drawCentredString(A4[0] / 2, A4[1] - 9 * mm, "PRÉVIA - NÃO EMITIDO")
+                canvas_obj.restoreState()
         
         doc.build(elements, onFirstPage=add_footer, onLaterPages=add_footer)
         buffer.seek(0)

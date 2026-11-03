@@ -19,6 +19,9 @@ import {
 import XmlUploader from "../../components/XmlUploader";
 import ImageHeaderUploader from "../../components/ImageHeaderUploader";
 import ImageUploader from "../../components/ImageUploader";
+import EchoFinalReview from "../../components/EchoFinalReview";
+import { buildEchoFinalReviewIssues } from "@/lib/echo-final-review";
+import { echoEditorImageSelection, echoPreviewSnapshotKey, navigateEchoFinalReview } from "@/lib/echo-preview-request";
 import ImagePreviewModal from "../../components/ImagePreviewModal";
 import EcoStudyImportUploader from "../../components/EcoStudyImportUploader";
 import EcocardiogramaEstruturadoEditor from "../../components/EcocardiogramaEstruturadoEditor";
@@ -848,6 +851,135 @@ export default function EditarLaudoPage() {
     } finally { if (current()) setLoading(false); }
   };
 
+  // Keep serialization metadata stable while the clinical snapshot is unchanged,
+  // so the optional preview and the explicit emission share the same intent.
+  const estruturaParaPayload = useMemo(() => serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado), [ecocardiogramaEstruturado]);
+
+  const montarPayloadEdicao = () => {
+    const medidasPayload = {
+      ...medidas,
+      ...deriveAutomaticEchoMeasurements(medidas, pacienteForm.peso, pacienteForm.especie, pacienteForm.idade),
+    };
+    const pressaoPayload = montarPayloadPressao();
+    const ecoEstruturadoPayload = laudoEhPressao
+      ? null
+      : estruturaParaPayload;
+    const textoClinico = resolverTextoClinicoNaEdicao(
+      ecoEstruturadoPayload,
+      qualitativa,
+      diagnostico,
+      {
+        qualitativa: qualitativaEstruturadaAplicada,
+        conclusao: conclusaoEstruturadaAplicada,
+      }
+    );
+    const qualitativaPayload = textoClinico.qualitativa;
+    const diagnosticoPayload = textoClinico.conclusao;
+
+    // 2. Montar descricao do laudo conforme tipo
+    let descricao = "";
+    if (laudoEhPressao) {
+      const pas1 = parseInteiroPositivo(pressaoArterial.pas_1) || 0;
+      const pas2 = parseInteiroPositivo(pressaoArterial.pas_2) || 0;
+      const pas3 = parseInteiroPositivo(pressaoArterial.pas_3) || 0;
+      descricao = "## Afericao de Pressao Arterial\n";
+      descricao += `- 1a afericao (PAS): ${pas1} mmHg\n`;
+      descricao += `- 2a afericao (PAS): ${pas2} mmHg\n`;
+      descricao += `- 3a afericao (PAS): ${pas3} mmHg\n`;
+      descricao += `- PAS media: ${pasMediaCalculada || 0} mmHg\n`;
+      descricao += "- Metodo: Doppler\n";
+    } else {
+      descricao = montarDescricaoEcocardiograma(
+        medidasPayload,
+        qualitativaPayload
+      );
+    }
+
+    // 3. Salvar laudo
+    const payload: any = {
+      titulo:
+        titulo ||
+        (laudoEhPressao
+          ? `Laudo de Pressao Arterial - ${pacienteForm.nome || "Paciente"}`
+          : `Laudo de Ecocardiograma - ${pacienteForm.nome || "Paciente"}`),
+      descricao,
+      diagnostico: diagnosticoPayload,
+      observacoes,
+      status,
+      data_exame: pacienteForm.data_exame,
+      tipo_laudo: laudoEhPressao ? "pressao_arterial" : "ecocardiograma",
+      pressao_arterial: pressaoPayload,
+      ecocardiograma_cabecalho: laudoEhPressao ? null : ecocardiogramaCabecalho,
+      ecocardiograma_estruturado: ecoEstruturadoPayload,
+      aplicar_qualitativa_estruturada: qualitativaEstruturadaAplicada,
+      aplicar_conclusao_estruturada: conclusaoEstruturadaAplicada,
+    };
+
+    // Adicionar clinic_id se selecionado
+    if (clinicaId) {
+      payload.clinic_id = parseInt(clinicaId);
+    }
+
+    payload.veterinario_parceiro_id = veterinarioParceiroId
+      ? parseInt(veterinarioParceiroId)
+      : null;
+
+    // Adicionar médico solicitante
+    if (medicoSolicitante) {
+      payload.medico_solicitante = medicoSolicitante;
+    }
+    return { payload, medidasPayload };
+  };
+
+  const montarAlteracoesCadastro = () => {
+    const patientPatch: Record<string, unknown> = {};
+    for (const key of ["nome", "especie", "raca", "sexo", "idade"] as const) {
+      if (pacienteForm[key] !== originalForm.current[key]) patientPatch[key] = pacienteForm[key];
+    }
+    if (parsePesoKg(pacienteForm.peso) !== parsePesoKg(originalForm.current.peso)) patientPatch.peso_kg = parsePesoKg(pacienteForm.peso);
+    const tutorPatch: Record<string, unknown> = {};
+    if (pacienteForm.tutor !== originalForm.current.tutor) tutorPatch.nome = pacienteForm.tutor;
+    if (pacienteForm.telefone !== originalForm.current.telefone) tutorPatch.telefone = pacienteForm.telefone;
+    return { patientPatch, tutorPatch };
+  };
+
+  const requestPdfPreview = async (signal: AbortSignal): Promise<Blob> => {
+    if (!draftApplies || !draftUserId || readEditorOwner() !== draftUserId || sourceConflict || submission
+      || !editorDraft.canEmit || updateInProgress.current || imageUploadActive) {
+      throw new Error("Conclua a recuperação e confira a versão oficial antes de gerar a prévia.");
+    }
+    const captured = cloneEchoEditorDraftSnapshot(snapshotRef.current);
+    const generation = loadGeneration.current;
+    const key = echoPreviewSnapshotKey(captured);
+    if (captured.imagens.some((image) => !image.uploaded || !image.tempId)) {
+      throw new Error("Reenvie ou remova as imagens pendentes antes de gerar a prévia.");
+    }
+    const { payload } = montarPayloadEdicao();
+    payload.clinic_id = captured.clinicaId ? Number(captured.clinicaId) : null;
+    payload.medico_solicitante = captured.conteudo.medicoSolicitante;
+    const { patientPatch, tutorPatch } = montarAlteracoesCadastro();
+    if (Object.keys(tutorPatch).length && !paciente?.tutor_id) {
+      throw new Error("Vincule o tutor ao paciente no cadastro antes de atualizar os dados do tutor.");
+    }
+    const assertCurrent = () => {
+      if (signal.aborted || readEditorOwner() !== draftUserId || generation !== loadGeneration.current
+        || echoPreviewSnapshotKey(snapshotRef.current) !== key) {
+        throw new DOMException("O conteúdo ou a sessão da prévia mudou.", "AbortError");
+      }
+    };
+    const saved = await editorDraft.flush(captured);
+    assertCurrent();
+    if (!saved) throw new Error("O rascunho não foi confirmado para a prévia.");
+    const response = await api.post(`/laudos/editor-drafts/${saved.draft_id}/preview`, {
+      expected_revision: saved.revision, payload_laudo: payload,
+      ...(Object.keys(patientPatch).length ? { paciente: patientPatch } : {}),
+      ...(Object.keys(tutorPatch).length ? { tutor: { ...tutorPatch, id: paciente!.tutor_id } } : {}),
+      imagens: echoEditorImageSelection(captured),
+    }, { signal, responseType: "blob", timeout: 30_000, headers: { "X-Editor-Owner-Id": draftUserId } });
+    assertCurrent();
+    return response.data;
+  };
+
   const handleSalvar = async () => {
     if (updateInProgress.current || leaving || sessionChanged || laudo?.id !== Number(laudoId)) return;
     if (draftApplies && (!draftUserId || readEditorOwner() !== draftUserId || sourceConflict || submission || !editorDraft.canEmit)) return;
@@ -858,10 +990,7 @@ export default function EditarLaudoPage() {
     let clinicalRequestStarted = false;
     setSalvando(true);
     try {
-      const medidasPayload = {
-        ...medidas,
-        ...deriveAutomaticEchoMeasurements(medidas, pacienteForm.peso, pacienteForm.especie, pacienteForm.idade),
-      };
+      const { payload, medidasPayload } = montarPayloadEdicao();
       if (
         hasAnyMeasurement(medidasPayload, LV_M_MODE_KEYS) &&
         hasAnyMeasurement(medidasPayload, LV_2D_KEYS) &&
@@ -929,74 +1058,6 @@ export default function EditarLaudoPage() {
         }
       }
 
-      const pressaoPayload = montarPayloadPressao();
-      const ecoEstruturadoPayload = laudoEhPressao
-        ? null
-        : serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado);
-      const textoClinico = resolverTextoClinicoNaEdicao(
-        ecoEstruturadoPayload,
-        qualitativa,
-        diagnostico,
-        {
-          qualitativa: qualitativaEstruturadaAplicada,
-          conclusao: conclusaoEstruturadaAplicada,
-        }
-      );
-      const qualitativaPayload = textoClinico.qualitativa;
-      const diagnosticoPayload = textoClinico.conclusao;
-
-      // 2. Montar descricao do laudo conforme tipo
-      let descricao = "";
-      if (laudoEhPressao) {
-        const pas1 = parseInteiroPositivo(pressaoArterial.pas_1) || 0;
-        const pas2 = parseInteiroPositivo(pressaoArterial.pas_2) || 0;
-        const pas3 = parseInteiroPositivo(pressaoArterial.pas_3) || 0;
-        descricao = "## Afericao de Pressao Arterial\n";
-        descricao += `- 1a afericao (PAS): ${pas1} mmHg\n`;
-        descricao += `- 2a afericao (PAS): ${pas2} mmHg\n`;
-        descricao += `- 3a afericao (PAS): ${pas3} mmHg\n`;
-        descricao += `- PAS media: ${pasMediaCalculada || 0} mmHg\n`;
-        descricao += "- Metodo: Doppler\n";
-      } else {
-        descricao = montarDescricaoEcocardiograma(
-          medidasPayload,
-          qualitativaPayload
-        );
-      }
-
-      // 3. Salvar laudo
-      const payload: any = {
-        titulo:
-          titulo ||
-          (laudoEhPressao
-            ? `Laudo de Pressao Arterial - ${pacienteForm.nome || "Paciente"}`
-            : `Laudo de Ecocardiograma - ${pacienteForm.nome || "Paciente"}`),
-        descricao,
-        diagnostico: diagnosticoPayload,
-        observacoes,
-        status,
-        data_exame: pacienteForm.data_exame,
-        tipo_laudo: laudoEhPressao ? "pressao_arterial" : "ecocardiograma",
-        pressao_arterial: pressaoPayload,
-        ecocardiograma_cabecalho: laudoEhPressao ? null : ecocardiogramaCabecalho,
-        ecocardiograma_estruturado: ecoEstruturadoPayload,
-        aplicar_qualitativa_estruturada: qualitativaEstruturadaAplicada,
-        aplicar_conclusao_estruturada: conclusaoEstruturadaAplicada,
-      };
-
-      // Adicionar clinic_id se selecionado
-      if (clinicaId) {
-        payload.clinic_id = parseInt(clinicaId);
-      }
-
-      payload.veterinario_parceiro_id = veterinarioParceiroId
-        ? parseInt(veterinarioParceiroId)
-        : null;
-
-      // Adicionar médico solicitante
-      if (medicoSolicitante) {
-        payload.medico_solicitante = medicoSolicitante;
-      }
 
       if (!laudoId) return;
       if (draftApplies && captured) {
@@ -1005,14 +1066,7 @@ export default function EditarLaudoPage() {
         if (imageUploadActive || imagensTemp.some((image) => !image.uploaded || !image.tempId)) {
           setAba("imagens"); setDraftNotice("Reenvie ou remova as imagens pendentes antes de atualizar."); return;
         }
-        const patientPatch: Record<string, unknown> = {};
-        for (const key of ["nome", "especie", "raca", "sexo", "idade"] as const) {
-          if (pacienteForm[key] !== originalForm.current[key]) patientPatch[key] = pacienteForm[key];
-        }
-        if (parsePesoKg(pacienteForm.peso) !== parsePesoKg(originalForm.current.peso)) patientPatch.peso_kg = parsePesoKg(pacienteForm.peso);
-        const tutorPatch: Record<string, unknown> = {};
-        if (pacienteForm.tutor !== originalForm.current.tutor) tutorPatch.nome = pacienteForm.tutor;
-        if (pacienteForm.telefone !== originalForm.current.telefone) tutorPatch.telefone = pacienteForm.telefone;
+        const { patientPatch, tutorPatch } = montarAlteracoesCadastro();
         if (Object.keys(tutorPatch).length && !paciente?.tutor_id) {
           setDraftNotice("Vincule o tutor ao paciente no cadastro antes de atualizar os dados do tutor."); return;
         }
@@ -1029,13 +1083,7 @@ export default function EditarLaudoPage() {
           payload_laudo: payload,
           ...(Object.keys(patientPatch).length ? { paciente: patientPatch } : {}),
           ...(Object.keys(tutorPatch).length ? { tutor: { ...tutorPatch, id: paciente!.tutor_id } } : {}),
-          imagens: {
-            persistidas: captured.existing!.imagensPersistidas.map((image, index) => ({
-              id: image.serverId, ordem: index, incluir_no_pdf: image.incluirNoPdf !== false, descricao: image.descricao })),
-            removidas_ids: captured.existing!.imagensRemovidas, temp_session_id: captured.sessionId,
-            temp_config: captured.imagens.map((image, index) => ({ id: image.tempId, ordem: captured.existing!.imagensPersistidas.length + index,
-              incluir_no_pdf: image.incluirNoPdf !== false, descricao: image.descricao })),
-          },
+          imagens: echoEditorImageSelection(captured),
         };
         clinicalRequestStarted = true;
         const response = await api.put(`/laudos/${laudoId}/editor-update`, body, {
@@ -1317,6 +1365,18 @@ export default function EditarLaudoPage() {
           </div>}
           {draftNotice && <p role="alert" className="my-3 rounded border border-amber-300 p-3">{draftNotice}</p>}
         </>}
+        {draftApplies && <EchoFinalReview
+          snapshotKey={echoPreviewSnapshotKey(draftSnapshot)} scopeKey={`${draftUserId}:edit:${laudoId}`}
+          disabled={salvando || leaving || imageUploadActive || sourceConflict || Boolean(submission) || !draftUserId || !editorDraft.canEmit}
+          issues={buildEchoFinalReviewIssues({ measurements: medidas, species: pacienteForm.especie,
+            qualitative: textoParaConferencia.qualitativa, conclusion: textoParaConferencia.conclusao,
+            patientName: pacienteForm.nome, qualitativeApplied: ecocardiogramaEstruturado.usar_no_laudo,
+            images: [...imagens.map((image) => ({ uploaded: true, included: image.incluir_no_pdf !== false })),
+              ...imagensTemp.map((image) => ({ uploaded: image.uploaded, included: image.incluirNoPdf !== false }))] })}
+          imageCount={imagens.filter((image) => image.incluir_no_pdf !== false).length
+            + imagensTemp.filter((image) => image.uploaded && image.incluirNoPdf !== false).length}
+          requestPreview={requestPdfPreview} onNavigate={(target) => navigateEchoFinalReview(target, setAba)} />}
+
         <fieldset disabled={salvando || leaving || (draftApplies && (!draftUserId || Boolean(submission)
           || ["loading", "recovery", "closed"].includes(editorDraft.status)))} className="min-w-0">
         <div className="fc-report-editor-layout">
@@ -1493,7 +1553,7 @@ export default function EditarLaudoPage() {
               {/* Conteúdo das Abas */}
               <div className="fc-report-editor-body">
                 {aba === "paciente" && (
-                  <div className="space-y-4">
+                  <div data-echo-review-target="patient" className="space-y-4">
                     <h3 className="font-medium text-gray-900 mb-4">Dados do Paciente</h3>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1800,15 +1860,16 @@ export default function EditarLaudoPage() {
 
                 {aba === "medidas" && (
                   <div className="space-y-6">
-                    <EchoUnitReview
+                    <div data-echo-review-target="units"><EchoUnitReview
                       measurements={medidas}
                       onConfirm={(key, unit) => handleMedidaChange(confirmedUnitKey(key), unit)}
-                    />
+                    /></div>
                     <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
                       <label className="block text-sm font-semibold text-gray-900">
                         Técnica do estudo do ventrículo esquerdo exibida no PDF
                       </label>
                       <select
+                        data-echo-review-target="technique"
                         value={medidas["VE_tecnica_relatorio"] || ""}
                         onChange={(event) =>
                           handleMedidaChange("VE_tecnica_relatorio", event.target.value)
@@ -1951,7 +2012,7 @@ export default function EditarLaudoPage() {
 
                         <hr className="border-gray-200 my-4" />
 
-                        <h4 className="font-semibold text-gray-900 text-sm">Diastólica</h4>
+                        <h4 data-echo-review-target="diastolic" className="font-semibold text-gray-900 text-sm">Diastólica</h4>
                         <FelineWaveReview especie={pacienteForm.especie} medidas={medidas}
                           onMedidaChange={handleMedidaChange}
                           onDiscard={(kind) => setMedidas(prev => discardFelineFusedMeasurements(prev, pacienteForm.especie, kind))}
@@ -2126,10 +2187,10 @@ export default function EditarLaudoPage() {
                       </div>
                     </div>
 
-                    <EchoPulmonaryHypertension species={pacienteForm.especie} measurements={medidas}
+                    <div data-echo-review-target="pulmonary"><EchoPulmonaryHypertension species={pacienteForm.especie} measurements={medidas}
                       onPatch={(patch) => {
                         if (!updateInProgress.current) setMedidas((previous) => ({ ...previous, ...patch }));
-                      }} />
+                      }} /></div>
 
                     <div className="border-t pt-6">
                       <h4 className="mb-4 text-sm font-semibold text-gray-900">VE - Modo 2D</h4>
@@ -2200,7 +2261,7 @@ export default function EditarLaudoPage() {
                 )}
 
                 {aba === "qualitativa" && (
-                  <div className="space-y-4">
+                  <div data-echo-review-target="qualitative" className="space-y-4">
                     {!laudoEhPressao && <EchoNarrativeConsistencyNotice
                       species={pacienteForm.especie}
                       measurements={medidas}
@@ -2247,7 +2308,7 @@ export default function EditarLaudoPage() {
                 )}
 
                 {aba === "imagens" && (
-                  <div className="space-y-4">
+                  <div data-echo-review-target="images" className="space-y-4">
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="font-medium text-gray-900">Imagens do Exame</h3>
                       <span className="text-sm text-gray-500">
@@ -2554,7 +2615,7 @@ export default function EditarLaudoPage() {
                 )}
 
                 {aba === "referencias" && (
-                  <div className="space-y-4">
+                  <div data-echo-review-target="references" className="space-y-4">
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="font-medium text-gray-900">Tabelas de Referência</h3>
                       <a
