@@ -99,7 +99,38 @@ describe("ecocardiograma existente: cópia privada e atualização explícita", 
     qa.post.mockImplementation(async (url: string, body) => ({ data: {
       draft_id: url.split("/").at(-2), closed: true, revision: body.expected_revision + 1 } }));
   });
-  afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); sessionStorage.clear(); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.clear(); sessionStorage.clear(); });
+
+  it("prévia preserva o oficial e compartilha payload, cadastro e imagens com a atualização explícita", async () => {
+    vi.stubGlobal("URL", Object.assign(class extends URL {}, {
+      createObjectURL: vi.fn(() => "blob:qa-existing-preview"), revokeObjectURL: vi.fn(),
+    }));
+    const original = qa.post.getMockImplementation()!;
+    qa.post.mockImplementation((url, ...args) => String(url).endsWith("/preview")
+      ? Promise.resolve({ data: new Blob(["%PDF-1.4\nQA"], { type: "application/pdf" }) }) : original(url, ...args));
+    official.imagens = [2, 1].map((id, index) => ({ id, nome: `qa-${id}.png`, ordem: index,
+      descricao: `Legenda ${id}`, url: `/imagens/${id}`, tamanho: 10, incluir_no_pdf: id === 2 }));
+    const view = await open();
+    fireEvent.change(input("Nome do Paciente"), { target: { value: "QA ALTERAÇÃO PRIVADA" } });
+    fireEvent.click(screen.getByRole("button", { name: "Conferir e ver PDF" }));
+    await screen.findByTitle("Prévia do laudo em PDF — rascunho");
+    const preview = qa.post.mock.calls.find(([url]) => String(url).endsWith("/preview"))!;
+    expect(preview[1]).toMatchObject({ expected_revision: expect.any(Number), paciente: { nome: "QA ALTERAÇÃO PRIVADA" },
+      payload_laudo: { diagnostico: "Conclusão oficial QA.", aplicar_conclusao_estruturada: false,
+        aplicar_qualitativa_estruturada: false, clinic_id: null },
+      imagens: { persistidas: [{ id: 2, ordem: 0, descricao: "Legenda 2", incluir_no_pdf: true },
+        { id: 1, ordem: 1, descricao: "Legenda 1", incluir_no_pdf: false }], temp_config: [], removidas_ids: [] } });
+    expect(preview[2]).toMatchObject({ responseType: "blob", headers: { "X-Editor-Owner-Id": 7 } });
+    expect(updates()).toEqual([]); expect(privateWritesOnly()).toBe(true);
+    expect(official.paciente.nome).toBe(patient.nome);
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar laudo" }));
+    await waitFor(() => expect(updates()).toHaveLength(1));
+    const body = updates()[0][1];
+    expect(body.payload_laudo).toEqual(preview[1].payload_laudo);
+    expect(body.paciente).toEqual(preview[1].paciente);
+    expect(body.imagens).toEqual(preview[1].imagens);
+    view.unmount();
+  });
 
   it("salva e retoma valores literais, status e flags sem modificar o documento oficial", async () => {
     let view = await open();

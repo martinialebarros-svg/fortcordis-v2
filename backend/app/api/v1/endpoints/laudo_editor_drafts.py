@@ -12,6 +12,7 @@ from app.schemas.laudo_editor_draft import (
     LaudoEditorDraftClose, LaudoEditorDraftClosedResponse,
     LaudoEditorDraftResponse, LaudoEditorDraftSave,
 )
+from app.schemas.echo_pdf_preview import EchoPdfPreviewRequest
 from app.services.laudo_editor_draft_service import close_editor_draft, get_editor_draft, save_editor_draft
 
 
@@ -50,3 +51,24 @@ def close_draft(draft_id: UUID, payload: LaudoEditorDraftClose, response: Respon
     _require_editor_owner(user, expected_owner_id)
     response.headers["Cache-Control"] = "no-store"
     return close_editor_draft(db, user.id, str(draft_id), payload)
+
+
+@router.post("/{draft_id}/preview", response_class=Response)
+def preview_draft(draft_id: UUID, payload: EchoPdfPreviewRequest,
+                  expected_owner_id: int = Header(..., alias="X-Editor-Owner-Id", gt=0),
+                  db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.echo_pdf_preview import render_echo_editor_preview
+
+    _require_editor_owner(user, expected_owner_id)
+    try:
+        pdf = render_echo_editor_preview(db, user, str(draft_id), payload)
+    except HTTPException:
+        raise
+    except Exception:
+        # Do not echo the submitted clinical content or internal file paths.
+        raise HTTPException(500, "Não foi possível gerar a prévia. O rascunho permanece preservado.") from None
+    return Response(content=pdf.content, media_type="application/pdf", headers={
+        "Content-Disposition": f'inline; filename="{pdf.filename}"',
+        "Cache-Control": "private, no-store", "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff", "X-Echo-Preview-Snapshot": pdf.cache_key,
+    })

@@ -4,7 +4,7 @@
 
 Em 01/11/2026, o usuário pediu um plano de implementação e autorizou iniciar as melhorias de fluxo e de apresentação do laudo ecocardiográfico. A primeira entrega foi dividida em fase 1a, para novos ecocardiogramas com área de trabalho separada, e fase 1b, para edição de laudos existentes. A fase 1a e a correção complementar de seleção de imagens em lote foram posteriormente publicadas em produção pela PR #539; a restauração de stage foi concluída pela PR #540, conforme evidências já verificadas neste chat e registradas em `verify.md`.
 
-Após perguntar pela próxima etapa e responder “prossiga”, o usuário autorizou iniciar a **fase 1b**, antes da fase 2. O ciclo atual é de implementação e validação **locais**, na branch `codex/echo-existing-draft-recovery-20261101`, baseada em stage restaurado `2fef8bb1`. Não inclui commit, push ou publicação em stage/produção. A autorização anterior de publicar a fase 1a não é autorização de publicar a fase 1b.
+As evidências posteriores de publicação e homologação da fase 1b em stage estão em `plan.md` e `verify.md`; a produção dessa fase continua separada. Em 03/11/2026, após a proposta de conferência compacta e prévia real do PDF, o usuário autorizou “pode seguir com o plano”. O ciclo atual implementa e valida localmente a **fase 2**, na branch `codex/echo-pdf-preview-20261103`, baseada em `origin/stage` `45f06feeee3cfe1b695a84facc134fa411f30199`. Não inclui commit, push ou publicação. A recomendação opcional de EGM não foi um pedido explícito de uso e nenhuma skill EGM integra este ciclo.
 
 ## Problema
 
@@ -22,7 +22,7 @@ Reduzir retrabalho durante a confecção e facilitar ao clínico localizar o res
 4. Primeira página orientada à pergunta clínica e comparação longitudinal opcional no PDF.
 5. Seleção rápida de imagens principais e apresentação das demais imagens.
 
-A fase 1a está entregue. A fase 1b está implementada localmente neste ciclo: workspace privado para `/laudos/{id}/editar`, vinculado à identidade e à revisão clínica de origem; recuperação explícita; atualização clínica por ação específica; e controles de conflito, imagens e resposta incerta. Já há verificações automatizadas locais; resultados e lacunas estão em `verify.md`. Ainda não houve homologação visual ou publicação da fase 1b. As fases 2–5 continuam no roteiro; prévia real do PDF e alterações de estrutura do documento não integram este incremento.
+A fase 1a está entregue em produção; a fase 1b está entregue e homologada tecnicamente em stage conforme as evidências posteriores em `verify.md`. A fase 2 agora autorizada acrescenta conferência compacta e uma prévia gerada a partir do conteúdo atual, sem modificar o laudo oficial. Os documentos de autorização anterior são históricos; o pedido atual limita-se à implementação e validação locais. As fases 3–5 permanecem no roteiro.
 
 ## Limites clínicos e operacionais
 
@@ -39,3 +39,12 @@ A fase 1a está entregue. A fase 1b está implementada localmente neste ciclo: w
 - Identidade e data do exame, espécie, unidades, métodos, textos e referências continuam com seus contratos existentes. Nomes não substituem identificadores.
 - O trabalho de revisão do paciente discutido anteriormente está concluído e não integra este incremento. Testes usam somente dados sintéticos isolados.
 - Permanecem as decisões de apresentação já aceitas: conclusão no início e referências bibliográficas compactas depois da análise qualitativa.
+
+## Fase 2 — prévia e conferência final
+
+A prévia usa o mesmo gerador, normalização, fontes e políticas do PDF emitido, com identificação de prévia em todas as páginas. A solicitação é explícita, sem custo adicional de geração a cada digitação. A interface reúne pendências existentes e permite chegar ao campo correspondente; ausência de avisos não certifica normalidade ou revisão veterinária. Emitir/atualizar continuam ações próprias com seus controles existentes, sem exigir abrir a prévia a cada exame. Conteúdo alterado invalida uma prévia antiga; nenhum resultado tardio pode ser apresentado para outro exame, usuário ou conjunto de imagens.
+
+
+## Publicação da fase 2 em stage — autorizada em03/11/2026
+
+Após a implementação/validação local e a liberação da janela do Atendimento, o usuário respondeu “publique” à proposta explícita de publicar em stage e fazer homologação autenticada. Esta autorização substitui a restrição anterior de não commit/push/deploy **somente para stage** e inclui preparação do snapshot, commit/PR/checks/merge/workflow, preservação de runtime e QA sintética. Produção não foi autorizada. Rascunhos privados já existentes e dados clínicos reais são preservados; QA usa um exame novo inteiramente sintético. Não há chamada paga de IA, WhatsApp ou liberação de portal.
