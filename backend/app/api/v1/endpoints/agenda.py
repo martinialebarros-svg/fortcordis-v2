@@ -6630,11 +6630,31 @@ def atualizar_agendamento(
     update_data.pop("motivo_excecao_operacional", None)
     update_data.pop("motivo_excecao_deslocamento", None)
     update_data.pop("confirmar_alteracao_servico_hoje", None)
+    confirmar_alteracao_retroativa = agendamento.confirmar_alteracao_retroativa
+    update_data.pop("confirmar_alteracao_retroativa", None)
+    if confirmar_alteracao_retroativa and not _usuario_tem_papel(current_user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Somente administradores podem confirmar alteracao retroativa de horario.",
+        )
 
     novo_servico_id = update_data.get("servico_id", servico_original)
     alterando_servico = novo_servico_id != servico_original
     inicio_original_local = _to_local_naive(inicio_original)
     agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None)
+    inicio_solicitado = _to_local_naive(_coerce_datetime(update_data.get("inicio")))
+    # Dispensa por requisicao para uma correcao historica; nao amplia nem
+    # reutiliza a excecao persistente de conflito de rota.
+    alteracao_retroativa = bool(
+        inicio_solicitado is not None
+        and inicio_solicitado != inicio_original_local
+        and inicio_solicitado <= agora_local
+    )
+    if confirmar_alteracao_retroativa and not alteracao_retroativa:
+        raise HTTPException(
+            status_code=422,
+            detail="A confirmacao retroativa exige mudar o inicio para um horario ja passado.",
+        )
     atendimento_ja_iniciado = bool(
         inicio_original_local is not None and inicio_original_local <= agora_local
     )
@@ -6756,18 +6776,35 @@ def atualizar_agendamento(
                 agendamento_id_excluir=agendamento_id,
                 confirmar_slot_reserva_expirada=confirmou_slot_reserva_expirada,
             )
-            bypass_deslocamento = _validar_deslocamento_agendamento(
-                db,
-                db_agendamento,
-                agendamento_id_excluir=agendamento_id,
-                confirmar_conflito_deslocamento=override_conflito_deslocamento,
-                baseline_regional=baseline_regional,
-                validar_primeira_saida=not (
-                    inicio_original_local is not None
-                    and inicio_original_local <= agora_local
-                    and _to_local_naive(inicio_atual) == inicio_original_local
-                ),
-            )
+            try:
+                bypass_deslocamento = _validar_deslocamento_agendamento(
+                    db,
+                    db_agendamento,
+                    agendamento_id_excluir=agendamento_id,
+                    confirmar_conflito_deslocamento=override_conflito_deslocamento,
+                    baseline_regional=baseline_regional,
+                    validar_primeira_saida=not (
+                        confirmar_alteracao_retroativa or (
+                            inicio_original_local is not None
+                            and inicio_original_local <= agora_local
+                            and _to_local_naive(inicio_atual) == inicio_original_local
+                        )
+                    ),
+                )
+            except HTTPException as erro:
+                if (
+                    erro.status_code == 409
+                    and isinstance(erro.detail, dict)
+                    and erro.detail.get("codigo") == "PRIMEIRA_SAIDA_INVIAVEL"
+                    and alteracao_retroativa
+                    and _usuario_tem_papel(current_user, "admin")
+                ):
+                    erro.detail = {
+                        **erro.detail,
+                        "confirmavel": True,
+                        "confirmacao": "confirmar_alteracao_retroativa",
+                    }
+                raise
     elif reativando_inativo:
         _apply_service_duration_if_needed(db, db_agendamento)
         motivo_agenda_fechada = _validar_agendamento_no_funcionamento(
@@ -6852,6 +6889,7 @@ def atualizar_agendamento(
                 alterando_servico_ja_iniciado and confirmar_alteracao_servico_hoje
             ),
             "intervalo_original_preservado": preservar_intervalo_servico_iniciado,
+            "confirmou_alteracao_retroativa": confirmar_alteracao_retroativa,
             "contexto_agendamento": contexto,
         },
         request=request,
@@ -6894,6 +6932,24 @@ def atualizar_agendamento(
             agendamento=db_agendamento,
             bypass=bypass_deslocamento,
             acao_operacional="editar_agendamento",
+        )
+
+    if confirmar_alteracao_retroativa:
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="agenda",
+            entidade="agendamento",
+            entidade_id=db_agendamento.id,
+            acao="AGENDAMENTO_HORARIO_RETROATIVO_CONFIRMADO",
+            descricao="Administrador confirmou correcao retroativa do horario do atendimento.",
+            detalhes={
+                "antes": dados_anteriores,
+                "inicio": str(db_agendamento.inicio),
+                "fim": str(db_agendamento.fim),
+                "validacao_dispensada": "primeira_saida",
+                "contexto_agendamento": contexto,
+            },
+            request=request,
         )
 
     acao_push_update = "updated"

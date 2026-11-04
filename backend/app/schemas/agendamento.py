@@ -65,6 +65,7 @@ class AgendamentoUpdate(BaseModel):
     motivo_excecao_operacional: Optional[str] = None
     motivo_excecao_deslocamento: Optional[str] = None
     confirmar_alteracao_servico_hoje: Optional[bool] = None
+    confirmar_alteracao_retroativa: bool = False
     urgente_laudo: Optional[bool] = None
 
     @validator('inicio', 'fim', 'reserva_expira_em', pre=True)

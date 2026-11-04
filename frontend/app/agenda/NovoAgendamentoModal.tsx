@@ -3627,6 +3627,7 @@ export default function NovoAgendamentoModal({
             ? String(motivoSemOpcao || "").trim()
             : null,
         confirmar_alteracao_servico_hoje: false,
+        confirmar_alteracao_retroativa: false,
       };
 
       const servicoOriginalId = String(agendamento?.servico_id ?? "");
@@ -3696,7 +3697,7 @@ export default function NovoAgendamentoModal({
       let response;
       let confirmouConflitoDeslocamento = false;
       let confirmouRevisaoReservaExpirada = false;
-      for (let tentativa = 0; tentativa < 3 && !response; tentativa += 1) {
+      for (let tentativa = 0; tentativa < 4 && !response; tentativa += 1) {
         try {
           response = await enviarAgendamento(
             confirmouConflitoDeslocamento,
@@ -3704,6 +3705,28 @@ export default function NovoAgendamentoModal({
           );
           continue;
         } catch (error: any) {
+          const detail = error?.response?.data?.detail;
+          if (
+            isEditando && isAdmin &&
+            error?.response?.status === 409 &&
+            detail?.codigo === "PRIMEIRA_SAIDA_INVIAVEL" &&
+            detail?.confirmavel === true &&
+            detail?.confirmacao === "confirmar_alteracao_retroativa" &&
+            !payloadBase.confirmar_alteracao_retroativa
+          ) {
+            const confirmou = await fortinho.confirm({
+              title: "Confirmar correção retroativa",
+              message:
+                "O horário informado já passou. Como administrador, você pode corrigir este registro dispensando o cálculo de saída de casa. A alteração ficará registrada na auditoria.",
+              mood: "alert",
+              gesture: "open-arms",
+              confirmLabel: "Confirmar correção do horário",
+              cancelLabel: "Voltar",
+            });
+            if (!confirmou) return;
+            payloadBase.confirmar_alteracao_retroativa = true;
+            continue;
+          }
           const reservaExpirada = extrairReservaExpirada(error);
           if (reservaExpirada && !confirmouRevisaoReservaExpirada) {
             const confirmou = await confirmarRevisaoReservaExpirada(reservaExpirada);
@@ -3715,7 +3738,7 @@ export default function NovoAgendamentoModal({
           }
 
         const conflito = extrairConflitoDeslocamento(error);
-        if (conflito) {
+        if (conflito && !confirmouConflitoDeslocamento) {
           if (!isAdmin) {
             throw new Error(
               extrairMensagemErro(
@@ -3806,7 +3829,7 @@ export default function NovoAgendamentoModal({
         resetFluxoAssistente();
         setFormData((prev) => ({ ...prev, hora: "" }));
       }
-      setErroSalvamento(ofertaInviavel ? `${detailStr} Gere novas ofertas e confirme outro horario.` : detailStr);
+      setErroSalvamento(ofertaInviavel && !isEditando ? `${detailStr} Gere novas ofertas e confirme outro horario.` : detailStr);
       fortinho.notify({
         title: `Erro ao ${isEditando ? "editar" : "criar"} agendamento`,
         message: detailStr,
