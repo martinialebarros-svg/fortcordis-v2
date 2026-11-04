@@ -1,7 +1,7 @@
 # Verify — Assistência multimodal no atendimento
 
 Data: 2026-11-04
-Status: referência de nome validada; publicação autorizada em preparação
+Status: melhoria tutor/doutor validada localmente e no provedor isolado; não publicada
 
 ## Referência de nome — 04/11/2026
 
@@ -169,3 +169,27 @@ Base da nova promoção: produção4f6a11ba81f0433e6b3d061a70bce6a30ec6517f; sta
 Os testes físicos em Android/Chrome e computador/Chrome, ruído/sobreposição, recuperação real de24h, validação clínica e canário público autenticado com espera superior a60s continuam requisitos reais de uma futura ativação. Eles não foram executados por esta promoção. O ingress de produção não será alterado pelo helper de stage. Publicação de código com a flagfalse não comprova esses requisitos nem habilita transcrição/análise.
 
 Validação local da árvore isolada de promoção: 249 testes backend de atendimento; 2.487 testes Vitest em 142 arquivos e 23 testes Node; lint completo, TypeScript no build e build de44 páginas; 25 testes de ingress. Todos passaram. O SHA256 do workflow isolado coincide com a reconstrução independente do delta (1fbcdf656d60c03bcbc486ae91c02f28742e8422f098c7a6b7e1efbf38318e77). Publicação e smokes desta nova árvore ainda aguardam execução.
+
+
+## Reteste tutor/doutor — preparação local de04/11/2026
+
+Novo pedido explícito após teste público no main4c109329: melhorar a distinção entre tutor e doutor, sem correção silenciosa, e testar áudio fictício. O teste público anterior sem nome não inseriu o nome cadastrado, mas retornou “Doutor” para “Tutor”; originais em `output/atendimento-nome-ausente-publico-20261104/`. Essa falha observada justifica o novo reteste; não repetir outros testes pagos sem finalidade nova.
+
+Candidata na branch `codex/atendimento-transcricao-tutor-20261104`, base main4c109329. Contexto e quatro termos equilibrados passam ao provider; texto continua retornado sem substituições posteriores e aviso explicita a pista. CA-008 inclui controles realmente falados de doutor/doutora e ausência de pistas não faladas, além dos nomes. Testes unitários validam contrato e preservação textual; confirmação de reconhecimento exige chamadas reais separadas. Estado inicial: testes locais/reais pendentes, sem commit, push, publicação ou alteração de produção.
+
+
+### Resultado da candidata tutor/doutor — 04/11/2026
+
+- CA-008: quatro chamadas reais delimitadas do `gpt-transcribe`, usando cópia isolada do provider candidato e a configuração/credencial já autorizadas no servidor. Não instalou código, criou cadastro, sessão ou acessou DB. Não é prova da rota pública com a candidata instalada.
+- Mesmo WAV5,195s que falhou em produção: “Tutor relata tosse há três dias e nega desmaios. Não usa furosemida.” retornou corretamente Tutor em1,751s, sem nome cadastrado nem doutor inseridos.
+- Controle de7,082s: Doutor/Tutor/Doutora/Tutora realmente falados foram preservados em1,131s. Nome divergente OrionX9 e tutor preservados em1,746s. Nome compatível NébulaQ7 em áudio sem o vocabulário preservado em1,031s, sem acrescentar tutor/doutor.
+-35/35 critérios específicos aprovados, incluindo igualdade com o texto bruto do provedor após o trim já existente e avisos de vocabulário/referência. Quatro chamadas, zero retry, nenhuma análise. Não é estatística de acurácia, garantia universal de distinção de papéis ou revisão clínica completa.
+-38 testes do assistente,255 de atendimento e17 do painel aprovados; sintaxe e diff-check aprovados. A primeira rodada unitária teve um erro de organização da nova asserção (NameError); corrigido no teste antes da execução real, mantendo os dois logs. Frontend genérico renderiza todos os avisos; nenhum código de UI precisou mudar.
+- Produção4c109329 permaneceu IAON/saudável, código instalado/env/Nginx/runtimeJSONs/PIDs preservados.17 arquivos temporários remotos removidos por lista/hashes/owner após baixar provas; dois AIFF temporários locais do TTS removidos após validar WAVs. Sem WhatsApp ou dados reais.
+- Evidências: `output/atendimento-transcricao-tutor-20261104/RELATORIO.md`, `live-result.json`, `remote-state/`, `cleanup.json`, `cases.json`, logs e hashes. SDD spec/verify alinhados para os quatro caminhos modificados. GuardrailCI não foi executado sobre um commit novo, pois não houve stage/commit/push; não declarar CI/publicação aprovados.
+- Estado final desta tarefa: implementação local pronta, sem commit/push/deploy. Publicação protegida e confirmação do novo comportamento na rota pública instalada continuam etapas separadas.
+
+
+### Preparação da publicação solicitada em04/11/2026
+
+A publicação foi explicitamente solicitada depois dos quatro testes reais aprovados. Nenhuma chamada paga adicional é necessária nesta fase. Refs observadas: main4c109329/stagecompleto07ab0677, ambos instalados/serviços ativos; zero workflow de deploy concorrente na consulta inicial. Espaço livreVPS1,6GB e atividade recente de recuperação de backup precisam ser esclarecidos antes de qualquer merge/deploy. Não considerar ociosidade como liberação de owner, nem realizar limpeza alheia. Próximos gates: lint/tipos/SDD, revisão/checks do snapshot, stage isolado, PRdireta stage→main com merge[preserve-nginx], workflows terminais/smokes/contrato instalado e restauração literal do snapshot paralelo. Registrar resultado final somente com evidência.
