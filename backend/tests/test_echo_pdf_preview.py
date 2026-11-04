@@ -21,7 +21,7 @@ from app.models.paciente import Paciente
 from app.models.papel_permissao import PapelPermissao
 from app.models.referencia_eco import ReferenciaEco
 from app.models.user import User
-from app.services.laudo_pdf_service import render_laudo_pdf
+from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
 
 
 def png(color="teal"):
@@ -360,6 +360,21 @@ class EchoPdfPreviewHTTPTest(unittest.TestCase):
         self.assertNotIn("private",response.text)
         self.assertEqual(self.state(),before)
         self.assertEqual(self.client.get(self.url,headers=self.headers()).status_code,200)
+
+    def test_official_cache_drops_previous_layout_version_without_touching_other_modalities(self):
+        # A v32 official PDF may contain the old empty page. The corrected
+        # renderer must not reuse that cache while a new preview renders fresh.
+        with self.sessions() as db:
+            db.add(Laudo(id=903, paciente_id=901, veterinario_id=1, tipo="pressao_arterial", titulo="QA"))
+            db.commit()
+            with patch("app.services.laudo_pdf_service.LAUDO_PDF_ECO_RENDERER_VERSION",
+                       "2026-10-27-eco-extrapolated-age-note-v32"):
+                old_echo = compute_laudo_pdf_cache_key(db, 901, 1)
+                old_pressure = compute_laudo_pdf_cache_key(db, 903, 1)
+            current_echo = compute_laudo_pdf_cache_key(db, 901, 1)
+            self.assertNotEqual(current_echo, old_echo)
+            self.assertEqual(compute_laudo_pdf_cache_key(db, 903, 1), old_pressure)
+            self.assertEqual(render_laudo_pdf(db, 901, db.get(User, 1)).cache_key, current_echo)
 
     def test_real_pdf_clinical_projections_match_for_2d_and_feline_fusion(self):
         cases=[]

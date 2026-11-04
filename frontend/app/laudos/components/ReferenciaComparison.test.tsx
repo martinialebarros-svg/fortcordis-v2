@@ -13,6 +13,15 @@ vi.mock("../hooks/useReferenciaEco", async () => ({
 }));
 
 describe("identificação da referência ecocardiográfica", () => {
+  it.each(["Dog", "Cão", "cachorro"])("mantém o índice normalizado atual ao comparar referências de %s", async (species) => {
+    compararMedidas.mockClear(); compararMedidas.mockImplementationOnce(compararMedidasComReferencia);
+    buscarReferencia.mockResolvedValueOnce({ id: 1, especie: "Canina", peso_kg: 10 });
+    const raw = { DIVEd: "30", DIVEd_normalizado: "0.9" };
+    render(<ReferenciaComparison especie={species} peso={10} medidas={raw} onMedidaChange={vi.fn()} />);
+    await waitFor(() => expect(compararMedidas).toHaveBeenCalledWith(expect.objectContaining({ DIVEd: "30", DIVEd_normalizado: "1.52" }), expect.objectContaining({ especie: "Canina" }), "", 10));
+    expect(raw.DIVEd_normalizado).toBe("0.9");
+  });
+
   it.each(["Canina", "Felina"])("mostra um cartão por medida e o valor canônico após mesclar o catálogo de %s", async (species) => {
     buscarReferencia.mockResolvedValueOnce({ id: 1, especie: species, peso_kg: 11 });
     compararMedidas.mockImplementationOnce(compararMedidasComReferencia);

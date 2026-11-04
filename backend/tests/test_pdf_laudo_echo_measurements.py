@@ -402,6 +402,39 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("Sem derrame pericárdico.", text)
         self.assertEqual(text.count("Médico Veterinário"), 1)
 
+    def test_report_at_page_end_without_images_has_no_footer_only_page(self) -> None:
+        # Frozen real layout boundary: the narrative/signature fit on one page,
+        # but an unrelated trailing gap used to spill onto a second empty page.
+        payload = {
+            "paciente": {
+                "nome": "QA LIMITE DE PAGINA", "especie": "Canina", "raca": "SRD",
+                "sexo": "Macho", "idade": "4a", "peso": "10", "tutor": "QA TUTOR",
+                "data_exame": "2026-11-04",
+            },
+            "medidas": {"DIVEd": "30", "VE_tecnica_relatorio": "modo_m"},
+            "qualitativa": {
+                "valvas": "Texto sintetico de avaliacao ecocardiografica, sem finalidade clinica. " * 31,
+            },
+            "conclusao": "EXAME INTEIRAMENTE SINTETICO PARA TESTE DE SOFTWARE.",
+            "clinica": "CLINICA QA", "imagens": [],
+        }
+        bodies = []
+        for preview in (False, True):
+            with self.subTest(preview=preview):
+                content = gerar_pdf_laudo_eco(
+                    payload, nome_veterinario="QA", texto_rodape="RODAPE SINTETICO", preview=preview,
+                )
+                reader = PdfReader(BytesIO(content))
+                self.assertEqual(len(reader.pages), 1)
+                body = reader.pages[0].extract_text() or ""
+                self.assertIn("Texto sintetico de avaliacao ecocardiografica", body)
+                self.assertIn("Médico Veterinário", body)
+                self.assertIn("RODAPE SINTETICO", body)
+                self.assertNotIn("IMAGENS", body)
+                self.assertEqual(body.count("PRÉVIA - NÃO EMITIDO"), int(preview))
+                bodies.append(body.replace("PRÉVIA - NÃO EMITIDO\n", ""))
+        self.assertEqual(bodies[0], bodies[1])
+
     def test_moderate_report_does_not_leave_signature_alone_on_a_page(self) -> None:
         payload = _base_report("modo_m")
         payload["paciente"].update({

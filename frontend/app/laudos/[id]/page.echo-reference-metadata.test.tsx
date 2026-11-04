@@ -39,6 +39,17 @@ describe("referências diastólicas no visualizador do laudo salvo", () => {
   });
   afterEach(() => localStorage.clear());
 
+  it.each(["Dog", "Cão", "cachorro"])("detalhe exibe o índice atual do PDF para espécie %s", async (species) => {
+    const raw = { DIVEd: "30", DIVEd_normalizado: "0.9", VE_tecnica_relatorio: "modo_m" };
+    mocks.get.mockResolvedValue({ data: { id: 91, tipo: "ecocardiograma", titulo: "QA PARIDADE CANINA", descricao: montarDescricaoEcocardiograma(raw, { valvas: "", camaras: "", funcao: "", pericardio: "", vasos: "", ad_vd: "" }), medidas: raw,
+      diagnostico: "Texto sintético", status: "Finalizado", data_laudo: "2026-11-04T12:00:00", paciente: { id: 8, nome: "QA SINTÉTICO", especie: species, peso_kg: 10, idade: "5 anos" } } });
+    render(<VisualizarLaudoPage />);
+    await screen.findByRole("heading", { name: "Medidas Ecocardiográficas" });
+    expect(cells("DIVEd normalizado · DIVEd [cm] / peso^0,294")[1]).toHaveTextContent(/^1\.52$/);
+    expect(raw.DIVEd_normalizado).toBe("0.9");
+    expect(mocks.put).not.toHaveBeenCalled(); expect(mocks.post).not.toHaveBeenCalled();
+  });
+
   const cases = ["Felina", "Gato"].flatMap((species) =>
     ["separadas", "fundidas", "desconhecidas", "legado"].map((scenario) => ({ species, scenario })));
   it.each(cases)("rehidrata $species/$scenario preservando o registro e ocultando picos fundidos", async ({ species, scenario }) => {
