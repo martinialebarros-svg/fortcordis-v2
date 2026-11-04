@@ -153,3 +153,21 @@ Sem alteração automática de registros existentes. Reversão do código restau
 o comportamento anterior de sugestão/validação; configuração residencial
 aditiva pode permanecer sem afetar versões antigas. Testes de integração usam
 banco temporário e dados sintéticos. Publicação exige ciclo protegido posterior.
+
+## Revisao autorizada — excecao administrativa (04/11/2026)
+
+As exigencias de RF-005/RF-006, NFR-002 e CA-005/CA-007 continuam valendo para
+geracao/revalidacao de ofertas e salvamento sem excecao. No salvamento, admin
+pode confirmar explicitamente `confirmar_conflito_deslocamento=true` para
+ultrapassar a primeira saida, inclusive o piso municipal ou a falta de estimativa
+confiavel. A excecao persistida vale somente para o mesmo escopo de rota e segue
+a auditoria existente (autor, momento, motivo e bloqueio ignorado).
+
+`PRIMEIRA_SAIDA_INVIAVEL` continua retornando 409 sem concessao, agora com
+`confirmavel=true`. A UI permite confirmar somente para admin; cancelar conserva
+a rejeicao e invalida o aceite obsoleto. Sobreposicoes, bloqueios de slot e as
+permissoes existentes continuam sendo exigidos antes de aplicar a excecao.
+O fluxo direto e seus criterios estao em
+`docs/specs/agenda-excecoes-operacionais-for51/spec.md`, CA-ADM-01 a CA-ADM-05.
+Sem migracao ou alteracao da configuracao geral. Validacao/publicacao sao
+registradas no verify correspondente deste ciclo.

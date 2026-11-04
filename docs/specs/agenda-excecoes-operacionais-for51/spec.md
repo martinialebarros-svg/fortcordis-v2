@@ -74,3 +74,32 @@ Fechar o ramo de excecao do assistente guiado de agendamento com permissao por p
 
 - Motor de aprovacao com fila e SLA de solicitacoes de excecao.
 - Notificacao push/whatsapp automatica para admins quando secretaria solicitar excecao.
+
+## Excecao administrativa direta — 04/11/2026
+
+Pedido autorizado: como admin, poder ultrapassar as regras de horario e do
+assistente exibidas no Novo Agendamento. Esta revisao substitui a exigencia
+anterior de gerar/recusar ofertas para o admin abrir a excecao.
+
+- CA-ADM-01: admin pode abrir o ramo de horario manual diretamente, sem consultar
+  ofertas nem registrar uma recusa ficticia. Motivo util e concessao explicita
+  continuam obrigatorios; o painel aparece antes de data/hora.
+- CA-ADM-02: concessao libera data/hora e autoriza a excecao de rota no payload;
+  trocar data/hora preserva motivo. Mudar destino, origem ou servico e revogar
+  a concessao restabelecem as regras existentes. Gerar ofertas tambem revoga.
+- CA-ADM-03: primeira saida (relogio atual, abertura, viagem, margem e piso
+  municipal) respeita a mesma excecao de deslocamento confirmada por admin ou
+  persistida para o escopo atual. Sem excecao, continua bloqueando. A pesquisa
+  e revalidacao de ofertas continuam conservadoras.
+- CA-ADM-04: erro PRIMEIRA_SAIDA_INVIAVEL permite confirmacao explicita de admin
+  no salvamento; sem confirmacao, nenhum agendamento e gravado. Concessao/reuso
+  registram autor, data, motivo, escopo e bloqueio pela auditoria existente.
+- CA-ADM-05: nao-admin nao ve a acao direta e o backend recusa flags de excecao
+  com 403. Motivo operacional vazio retorna 422. Sobreposicoes e bloqueios
+  administrativos de slot, duracao do servico, identidade e georreferenciamento
+  continuam obrigatorios. Agenda fechada conserva sua confirmacao separada.
+
+Sem migracao, alteracao de configuracao, chamadas reais ao Google, mensagens ou
+registros operacionais. Rollback: reverter somente este incremento frontend e
+backend; dados de auditoria e campos de excecao existentes continuam compativeis.
+Publicacao em Stage/producao permanece um passo separado.
