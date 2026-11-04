@@ -30,6 +30,7 @@ import EchoVoiceAssistant from "../../components/EchoVoiceAssistant";
 import EchoUnitReview from "../../components/EchoUnitReview";
 import EchoNarrativeConsistencyNotice from "../../components/EchoNarrativeConsistencyNotice";
 import EchoOutflowMeasurements from "../../components/EchoOutflowMeasurements";
+import EchoPulmonaryHypertension from "../../components/EchoPulmonaryHypertension";
 import { mapImportedEchoMeasurements, updateEchoOutflowMeasurement } from "@/lib/echo-outflow-editor";
 import { ECHO_OUTFLOW_KEYS } from "@/lib/echo-outflow";
 import FelineWaveReview from "../../components/FelineWaveReview";
@@ -63,7 +64,7 @@ import {
 import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
 import { operationalTodayDateInput } from "@/lib/calendar-date";
 import { confirmedUnitKey, echoLengthInMm, echoLengthInputLabel } from "@/lib/echo-unit-provenance";
-import { isFelineEchoSpecies, normalizeEchoSpecies } from "@/lib/echo-species";
+import { isCanineEchoSpecies, isFelineEchoSpecies } from "@/lib/echo-species";
 import { useEchoMeasurements } from "../../hooks/useEchoMeasurements";
 import { useEchoEditorDraft } from "../../hooks/useEchoEditorDraft";
 import EchoDraftStatus from "../../components/EchoDraftStatus";
@@ -335,9 +336,6 @@ export default function EditarLaudoPage() {
   const [descricao, setDescricao] = useState("");
   const [status, setStatus] = useState("Rascunho");
 
-  // Medidas
-  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas, replaceMeasurements: substituirMedidas, exportState, restoreState } = useEchoMeasurements();
-
   // Qualitativa
   const [qualitativa, setQualitativa] = useState({
     valvas: "",
@@ -383,6 +381,7 @@ export default function EditarLaudoPage() {
     telefone: "",
     data_exame: operationalTodayDateInput(),
   });
+  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas, replaceMeasurements: substituirMedidas, exportState, restoreState } = useEchoMeasurements({ species: pacienteForm.especie });
   const originalForm = useRef(pacienteForm);
   const [novaRaca, setNovaRaca] = useState("");
   const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<Record<string, string[]>>({});
@@ -641,7 +640,7 @@ export default function EditarLaudoPage() {
         : null;
 
     const divedNormalizadoCalculado =
-      normalizeEchoSpecies(pacienteForm.especie) === "Canina" && divedMm !== null && divedMm > 0 && peso !== null && peso > 0
+      isCanineEchoSpecies(pacienteForm.especie) && divedMm !== null && divedMm > 0 && peso !== null && peso > 0
         ? formatar2Casas((divedMm / 10.0) / Math.pow(peso, 0.294))
         : null;
 
@@ -1601,7 +1600,7 @@ export default function EditarLaudoPage() {
                         >
                           <option value="Canina">Canina</option>
                           <option value="Felina">Felina</option>
-                          {normalizeEchoSpecies(pacienteForm.especie) === "Canina" && pacienteForm.especie !== "Canina" && (
+                          {isCanineEchoSpecies(pacienteForm.especie) && pacienteForm.especie !== "Canina" && (
                             <option value={pacienteForm.especie}>{pacienteForm.especie} (canina)</option>
                           )}
                           {isFelineEchoSpecies(pacienteForm.especie) && pacienteForm.especie !== "Felina" && (
@@ -1897,12 +1896,12 @@ export default function EditarLaudoPage() {
                           value={medidas["DIVEd"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd", v)}
                         />
-                        {normalizeEchoSpecies(pacienteForm.especie) === "Canina" && <MedidaInput
+                        {isCanineEchoSpecies(pacienteForm.especie) && <MedidaInput
                           label="DIVEd normalizado (DIVEd [cm] / peso^0,294)"
                           value={medidas["DIVEd_normalizado"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd_normalizado", v)}
                           readOnly
-                          reference={normalizeEchoSpecies(pacienteForm.especie) === "Canina" && (parsePesoKg(pacienteForm.peso) ?? 0) >= 2.2 && (parsePesoKg(pacienteForm.peso) ?? 0) <= 95
+                          reference={isCanineEchoSpecies(pacienteForm.especie) && (parsePesoKg(pacienteForm.peso) ?? 0) >= 2.2 && (parsePesoKg(pacienteForm.peso) ?? 0) <= 95
                             ? "Cornell 2004 (amostra de cães adultos, Modo M): 1,27–1,85"
                             : "Faixa aplicável não cadastrada"}
                         />}
@@ -2183,10 +2182,15 @@ export default function EditarLaudoPage() {
                           value={medidas["PSAP"] || ""}
                           onChange={(v) => handleMedidaChange("PSAP", v)}
                           readOnly
-                          reference="Estimativa ecocardiográfica; confirmar ausência de obstrução da via de saída do VD."
+                          reference="Estimativa complementar; revisar a avaliação de HP e confirmar ausência de obstrução da via de saída do VD. Não gradua a probabilidade de HP."
                         />
                       </div>
                     </div>
+
+                    <div data-echo-review-target="pulmonary"><EchoPulmonaryHypertension species={pacienteForm.especie} measurements={medidas}
+                      onPatch={(patch) => {
+                        if (!updateInProgress.current) setMedidas((previous) => ({ ...previous, ...patch }));
+                      }} /></div>
 
                     <div className="border-t pt-6">
                       <h4 className="mb-4 text-sm font-semibold text-gray-900">VE - Modo 2D</h4>
