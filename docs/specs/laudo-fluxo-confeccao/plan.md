@@ -135,3 +135,10 @@ Os dois comportamentos já existiam no baseline main e foram percebidos pela rev
 Validação terminal após as correções: backend2469 testes+2422subtestes,175skips/25warnings,137,83s, papelapi e bloqueio externo; frontend2581Vitest/147arquivos+23Node, tipos/lint/build aprovados; foco193 sobreposto. Backend foco124+428subtestes e13+26subtestes também aprovado. Revisão independente de ambas correções sem achados acionáveis. PostgreSQL4/4 anterior permanece prova do módulo transacional que não mudou nesses P2. Logs/regressões em output/echo-preview-prod-20261104/backend/footer-boundary e output/echo-preview-frontend-20261104/alias-validation.json.
 
 As afirmações de paridade byte a byte de nove arquivos com main e renderer v32 nos registros anteriores se referem ao snapshot antes desses ajustes; não descrevem a fonte final corrigida. A paridade dos seis arquivos de viewer/painel/hook com e541de8c continua válida.
+
+
+### Fechamento do seletor de método AE/Ao —04/11/2026
+
+A revisão apontou um terceiro gate de espécie literal em ReferenciaComparison: o seletor canino de método AE/Ao ficava oculto para Dog/Cão/cachorro e aparecia indevidamente para CaninaXYZ. O import/predicado usa agora o mesmo normalizeEchoSpecies já produtivo. A seleção permanece explícita, altera somente AE_Ao_metodo e não reescreve espécie nem confirma aquisição automaticamente. Gates que operam a espécie canônica do catálogo continuam preservados.
+
+Regressões reproduziram quatro falhas antes do ajuste e agora cobrem quatro aliases e seis controles desconhecidos/felinos; foco107 aprovado, com seleção/callback único/rerender e objetos/literal preservados. Frontend final2591Vitest/147arquivos+23Node, tipos/lint/build53 e diffcheck aprovados. Backend fonte e resultados2469+2422 permanecem inalterados por este ajuste de UI. Revisão independente sem achados; não há fórmula/faixa/fonte nova. Evidência aeao-alias-validation.json e logs próprios no output/echo-preview-frontend-20261104.

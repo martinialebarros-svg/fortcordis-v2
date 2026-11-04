@@ -148,3 +148,12 @@ As afirmações de paridade byte a byte de nove arquivos com main e renderer v32
 
 - RF-ISO-01: sem imagens, um espaçador de seção ausente não pode criar página contendo somente rodapé/marca. Oficial e prévia usam a mesma correção e o cache oficial deve distinguir a versão corrigida.
 - RF-ISO-02: aliases caninos já reconhecidos pelo backend devem produzir o mesmo índice na edição, payload, detalhe, comparação e PDF. Usar normalização exata, preservar espécie armazenada e manter fórmulas/unidades/limites existentes. Nomes apenas prefixados por Canina ou Dog não são espécie canina reconhecida.
+
+
+### Fechamento do seletor de método AE/Ao —04/11/2026
+
+A revisão apontou um terceiro gate de espécie literal em ReferenciaComparison: o seletor canino de método AE/Ao ficava oculto para Dog/Cão/cachorro e aparecia indevidamente para CaninaXYZ. O import/predicado usa agora o mesmo normalizeEchoSpecies já produtivo. A seleção permanece explícita, altera somente AE_Ao_metodo e não reescreve espécie nem confirma aquisição automaticamente. Gates que operam a espécie canônica do catálogo continuam preservados.
+
+Regressões reproduziram quatro falhas antes do ajuste e agora cobrem quatro aliases e seis controles desconhecidos/felinos; foco107 aprovado, com seleção/callback único/rerender e objetos/literal preservados. Frontend final2591Vitest/147arquivos+23Node, tipos/lint/build53 e diffcheck aprovados. Backend fonte e resultados2469+2422 permanecem inalterados por este ajuste de UI. Revisão independente sem achados; não há fórmula/faixa/fonte nova. Evidência aeao-alias-validation.json e logs próprios no output/echo-preview-frontend-20261104.
+
+- RF-ISO-03: os aliases caninos reconhecidos recebem o seletor de aquisição AE/Ao com as opções já existentes. Não pré-selecionar método ou alterar o cadastro. Unknowns e felinos não recebem as opções caninas por simples prefixo de nome.
