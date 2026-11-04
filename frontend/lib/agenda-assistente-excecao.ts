@@ -9,7 +9,8 @@ export interface EstadoExcecaoManual {
 
 /**
  * A excecao manual so vale para agendamento novo, quando o admin registrou o
- * motivo, recusou todas as ofertas do panorama e concedeu a excecao.
+ * motivo e concedeu a excecao. O ramo sem_opcao tambem pode ser aberto
+ * diretamente pelo admin, sem gerar ofertas ou registrar uma recusa.
  */
 export function excecaoManualEstaLiberada(estado: EstadoExcecaoManual): boolean {
   return (

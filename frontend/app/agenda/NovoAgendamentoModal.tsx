@@ -2568,6 +2568,12 @@ export default function NovoAgendamentoModal({
     }
   };
 
+  const abrirExcecaoAdmin = () => {
+    if (!isAdmin || isEditando) return;
+    resetFluxoAssistente(false);
+    setDecisaoAssistente("sem_opcao");
+  };
+
   const concederExcecaoAdmin = () => {
     if (!isAdmin) {
       setErroSugestoes("Apenas administradores podem conceder excecao de horario.");
@@ -2715,7 +2721,10 @@ export default function NovoAgendamentoModal({
   const extrairConflitoDeslocamento = (error: any): ConflitoDeslocamentoDetail | null => {
     if (error?.response?.status !== 409) return null;
     const detail = error?.response?.data?.detail;
-    if (detail && typeof detail === "object" && detail.codigo === "CONFLITO_DESLOCAMENTO") {
+    if (
+      detail && typeof detail === "object" &&
+      ["CONFLITO_DESLOCAMENTO", "PRIMEIRA_SAIDA_INVIAVEL"].includes(detail.codigo)
+    ) {
       return detail as ConflitoDeslocamentoDetail;
     }
 
@@ -3470,7 +3479,7 @@ export default function NovoAgendamentoModal({
           );
         }
         if (decisaoAssistente === "sem_opcao" && !(motivoSemOpcao || "").trim()) {
-          throw new Error("Descreva o motivo da recusa das sugestoes para seguir com horario manual.");
+          throw new Error("Descreva o motivo da excecao para seguir com horario manual.");
         }
         if (decisaoAssistente === "sem_opcao" && (!isAdmin || !excecaoConcedida)) {
           if (isAdmin) {
@@ -3586,7 +3595,7 @@ export default function NovoAgendamentoModal({
             );
           }
         } else if (decisaoAssistente === "sem_opcao") {
-          observacoesAssistente.push("[Assistente agenda] sem opcao aderente para o cliente.");
+          observacoesAssistente.push("[Assistente agenda] horario manual solicitado.");
           observacoesAssistente.push(
             `[Assistente agenda] motivo informado: ${String(motivoSemOpcao || "").trim()}`
           );
@@ -3694,7 +3703,7 @@ export default function NovoAgendamentoModal({
       };
 
       let response;
-      let confirmouConflitoDeslocamento = false;
+      let confirmouConflitoDeslocamento = excecaoManualAtiva;
       let confirmouRevisaoReservaExpirada = false;
       for (let tentativa = 0; tentativa < 3 && !response; tentativa += 1) {
         try {
@@ -3717,22 +3726,12 @@ export default function NovoAgendamentoModal({
         const conflito = extrairConflitoDeslocamento(error);
         if (conflito) {
           if (!isAdmin) {
-            throw new Error(
-              extrairMensagemErro(
-                conflito,
-                "Conflito operacional de deslocamento. Ajuste o horario ou revise o destino do atendimento."
-              )
-            );
+            throw error;
           }
 
           const confirmouExcecao = await confirmarExcecaoConflitoAdmin(conflito);
           if (!confirmouExcecao) {
-            throw new Error(
-              extrairMensagemErro(
-                conflito,
-                "Conflito operacional de deslocamento. Ajuste o horario ou revise o destino do atendimento."
-              )
-            );
+            throw error;
           }
           confirmouConflitoDeslocamento = true;
           continue;
@@ -3828,9 +3827,13 @@ export default function NovoAgendamentoModal({
   const tituloAssistente = isEditando ? "Sugerir horarios operacionais" : "Assistente guiado de agendamento";
   const descricaoAssistente = isEditando
     ? "Considera conflitos de agenda e tempo de deslocamento usando o destino operacional georreferenciado."
-    : atendimentoDomiciliar
-      ? "Fluxo obrigatorio: selecionar tutor georreferenciado/servico, oferecer sugestao, registrar aceite ou recusa do cliente."
-      : "Fluxo obrigatorio: selecionar clinica georreferenciada/servico, oferecer sugestao, registrar aceite ou recusa do cliente.";
+    : excecaoManualAtiva
+      ? "Exceção administrativa ativa. Revise o horário manual e o motivo antes de salvar."
+      : isAdmin
+        ? "Gere ofertas para o cliente ou use a exceção administrativa para escolher um horário manual."
+        : atendimentoDomiciliar
+          ? "Fluxo obrigatorio: selecionar tutor georreferenciado/servico, oferecer sugestao, registrar aceite ou recusa do cliente."
+          : "Fluxo obrigatorio: selecionar clinica georreferenciada/servico, oferecer sugestao, registrar aceite ou recusa do cliente.";
   const rotuloBotaoAssistente = carregandoSugestoes
     ? "Buscando..."
     : (isEditando ? "Sugerir horarios" : "Gerar melhor oferta");
@@ -4417,6 +4420,96 @@ export default function NovoAgendamentoModal({
             disabled={loading}
           />
 
+          {!isEditando && isAdmin && decisaoAssistente !== "sem_opcao" && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 space-y-2">
+              <p className="text-sm font-medium text-amber-900">Exceção administrativa</p>
+              <p className="text-xs text-amber-900">
+                Como admin, você pode escolher um horário manual com motivo e confirmação,
+                sem gerar ou recusar ofertas do assistente.
+              </p>
+              <button
+                type="button"
+                onClick={abrirExcecaoAdmin}
+                disabled={loading}
+                className="px-3 py-2 rounded-md bg-amber-600 text-white text-sm hover:bg-amber-700 disabled:opacity-60"
+              >
+                Usar horário manual como admin
+              </button>
+            </div>
+          )}
+
+          {!isEditando && decisaoAssistente === "sem_opcao" && (
+            <div className="rounded-md border border-amber-300 bg-white px-3 py-2 space-y-2">
+              <div className="text-xs font-medium text-amber-800">
+                {isAdmin ? "Exceção administrativa de horário" : "Nenhuma oferta panoramica atendeu. Registre o motivo para concluir o desfecho."}
+              </div>
+              {isAdmin && (
+                <p className="text-xs text-amber-900">
+                  Informe o motivo e confirme para escolher data/hora sem percorrer as ofertas.
+                  A exceção permite ultrapassar as regras de saída de casa, deslocamento e margem segura
+                  neste agendamento e fica registrada na auditoria. Horários ocupados continuam bloqueados.
+                </p>
+              )}
+              <textarea
+                aria-label={isAdmin ? "Motivo da exceção administrativa" : "Motivo da recusa das ofertas"}
+                rows={2}
+                value={motivoSemOpcao}
+                onChange={(e) => setMotivoSemOpcao(e.target.value)}
+                placeholder="Ex.: cliente so pode no turno da manha por urgencia clinica."
+                className="w-full px-2 py-1 border border-amber-200 rounded-md text-xs focus:ring-2 focus:ring-amber-500"
+              />
+              <div className="flex flex-wrap gap-2">
+                {isAdmin ? (
+                  <>
+                    {!excecaoConcedida ? (
+                      <button
+                        type="button"
+                        onClick={concederExcecaoAdmin}
+                        disabled={registrandoEncerramento}
+                        className="px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs hover:bg-amber-700 disabled:opacity-60"
+                      >
+                        Conceder excecao e liberar horario manual
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={revogarExcecaoAdmin}
+                        disabled={registrandoEncerramento}
+                        className="px-3 py-1.5 rounded-md border border-amber-300 text-amber-700 text-xs hover:bg-amber-50 disabled:opacity-60"
+                      >
+                        Revogar excecao
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void registrarDesfechoSemAgendamento("solicitacao_excecao")}
+                    disabled={registrandoEncerramento}
+                    className="px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs hover:bg-amber-700 disabled:opacity-60"
+                  >
+                    {registrandoEncerramento
+                      ? "Registrando..."
+                      : "Solicitar excecao ao admin e encerrar"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void registrarDesfechoSemAgendamento("encerramento_sem_agendamento")}
+                  disabled={registrandoEncerramento}
+                  className="px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 text-xs hover:bg-gray-50 disabled:opacity-60"
+                >
+                  Encerrar sem agendamento
+                </button>
+              </div>
+              {isAdmin && excecaoConcedida && (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+                  Excecao concedida por admin. Data/hora manual liberadas para concluir o agendamento.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Data e Hora */}
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -4473,8 +4566,9 @@ export default function NovoAgendamentoModal({
             <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
               {decisaoAssistente !== "sem_opcao" && (
                 <span>
-                  Data/hora manuais ficam bloqueadas enquanto o assistente guiado estiver ativo. Se nenhuma oferta atender,
-                  marque a recusa para seguir o fluxo de excecao.
+                  {isAdmin
+                    ? "Data/hora manuais ficam bloqueadas até você conceder a exceção administrativa acima."
+                    : "Data/hora manuais ficam bloqueadas enquanto o assistente guiado estiver ativo. Se nenhuma oferta atender, marque a recusa para seguir o fluxo de excecao."}
                 </span>
               )}
               {decisaoAssistente === "sem_opcao" && isAdmin && !excecaoConcedida && (
@@ -4670,70 +4764,6 @@ export default function NovoAgendamentoModal({
               <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 Cliente com credito ativo: <strong>{formatarMoedaBRL(saldoCreditoCliente)}</strong>. Confirme com
                 o cliente se deseja abater esse valor neste novo agendamento.
-              </div>
-            )}
-
-            {!isEditando && decisaoAssistente === "sem_opcao" && (
-              <div className="rounded-md border border-amber-300 bg-white px-3 py-2 space-y-2">
-                <div className="text-xs font-medium text-amber-800">
-                  Nenhuma oferta panoramica atendeu. Registre o motivo para concluir o desfecho.
-                </div>
-                <textarea
-                  rows={2}
-                  value={motivoSemOpcao}
-                  onChange={(e) => setMotivoSemOpcao(e.target.value)}
-                  placeholder="Ex.: cliente so pode no turno da manha por urgencia clinica."
-                  className="w-full px-2 py-1 border border-amber-200 rounded-md text-xs focus:ring-2 focus:ring-amber-500"
-                />
-                <div className="flex flex-wrap gap-2">
-                  {isAdmin ? (
-                    <>
-                      {!excecaoConcedida ? (
-                        <button
-                          type="button"
-                          onClick={concederExcecaoAdmin}
-                          disabled={registrandoEncerramento}
-                          className="px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs hover:bg-amber-700 disabled:opacity-60"
-                        >
-                          Conceder excecao e liberar horario manual
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={revogarExcecaoAdmin}
-                          disabled={registrandoEncerramento}
-                          className="px-3 py-1.5 rounded-md border border-amber-300 text-amber-700 text-xs hover:bg-amber-50 disabled:opacity-60"
-                        >
-                          Revogar excecao
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => void registrarDesfechoSemAgendamento("solicitacao_excecao")}
-                      disabled={registrandoEncerramento}
-                      className="px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs hover:bg-amber-700 disabled:opacity-60"
-                    >
-                      {registrandoEncerramento
-                        ? "Registrando..."
-                        : "Solicitar excecao ao admin e encerrar"}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => void registrarDesfechoSemAgendamento("encerramento_sem_agendamento")}
-                    disabled={registrandoEncerramento}
-                    className="px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 text-xs hover:bg-gray-50 disabled:opacity-60"
-                  >
-                    Encerrar sem agendamento
-                  </button>
-                </div>
-                {isAdmin && excecaoConcedida && (
-                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
-                    Excecao concedida por admin. Data/hora manual liberadas para concluir o agendamento.
-                  </div>
-                )}
               </div>
             )}
 
