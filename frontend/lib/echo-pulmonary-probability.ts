@@ -1,4 +1,5 @@
 import { normalizeEchoSpecies } from "./echo-species";
+import { ECHO_LENGTH_KEYS, ambiguousEchoLengthKeys, echoLengthInMm } from "./echo-unit-provenance";
 
 /** ACVIM 2020, Tables 2/3. This is echo probability, not a pressure grade. */
 export const HP_SITE_KEYS = {
@@ -40,6 +41,14 @@ function number(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 type Measurements = Record<string, string>;
+function lengthContext(measurements: Measurements): Measurements {
+  const context = { ...measurements };
+  for (const key of ECHO_LENGTH_KEYS) {
+    const value = number(measurements[key]);
+    context[key] = value === null ? "" : String(value);
+  }
+  return context;
+}
 type Probability = "baixa" | "intermediaria" | "alta";
 export type EchoPulmonaryAssessment = {
   active: boolean; applicable: boolean;
@@ -53,10 +62,12 @@ export type EchoPulmonaryAssessment = {
 };
 
 export function makePulmonaryReviewStamp(measurements: Measurements, species: string): string {
-  return JSON.stringify(["acvim2020-v1", normalizeEchoSpecies(species), HP_CONTEXT_KEYS.map((key) => {
+  const context: Array<[string, string | number | null | string[]]> = HP_CONTEXT_KEYS.map((key) => {
     const raw = text(measurements[key]);
     return [key, NUMERIC_CONTEXT.has(key) ? number(measurements[key]) ?? (raw || null) : raw];
-  })]);
+  });
+  context.push(["unidades_ambiguas_AP_Ao", [...ambiguousEchoLengthKeys(lengthContext(measurements))].filter((key) => key === "AP" || key === "Ao_nivel_AP").sort()]);
+  return JSON.stringify(["acvim2020-v1", normalizeEchoSpecies(species), context]);
 }
 export function hasValidPulmonaryReview(measurements: Measurements, species: string): boolean {
   try {
@@ -121,10 +132,17 @@ export function evaluatePulmonaryProbability(measurements: Measurements, species
   }
   let apAo = number(m.AP_Ao);
   if (apAo === null || apAo <= 0) {
-    const ap = number(m.AP), ao = number(m.Ao_nivel_AP);
+    const lengths = lengthContext(m);
+    const ambiguous = [...ambiguousEchoLengthKeys(lengths)].filter((key) => key === "AP" || key === "Ao_nivel_AP").sort();
+    const ap = echoLengthInMm(lengths, "AP");
+    const ao = echoLengthInMm(lengths, "Ao_nivel_AP");
     const apUnit = text(m.unidade_confirmada_AP), aoUnit = text(m.unidade_confirmada_Ao_nivel_AP);
-    apAo = ap !== null && ao !== null && ap > 0 && ao > 0 && ["", "cm", "mm"].includes(apUnit) && ["", "cm", "mm"].includes(aoUnit)
-      ? ap * (apUnit === "cm" ? 10 : 1) / (ao * (aoUnit === "cm" ? 10 : 1)) : null;
+    apAo = ap !== null && ao !== null && ap > 0 && ao > 0 && ["", "cm", "mm"].includes(apUnit) && ["", "cm", "mm"].includes(aoUnit) ? ap / ao : null;
+    if (ambiguous.length) {
+      const message = `Confirmar unidade de AP/Ao antes de usar a razão derivada: ${ambiguous.join(", ")}.`;
+      if (applicable && text(m.HP_suporte_automatico) !== "nao") missing.push(message);
+      else notes.push(message);
+    }
     if (apAo !== null && (!Number.isFinite(apAo) || apAo <= 0)) {
       missing.push("Revisar AP/Ao calculado: resultado deve ser positivo e finito.");
       apAo = null;

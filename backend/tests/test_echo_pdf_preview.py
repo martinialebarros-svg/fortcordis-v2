@@ -374,6 +374,7 @@ class EchoPdfPreviewHTTPTest(unittest.TestCase):
                 "2026-10-27-eco-extrapolated-age-note-v32",
                 "2026-11-02-eco-reviewed-pulmonary-probability-v33",
                 "2026-11-04-eco-reviewed-preview-layout-v34",
+                "2026-11-04-eco-full-stage-reviewed-preview-hp-v35",
             ):
                 with self.subTest(previous_version=previous_version):
                     with patch("app.services.laudo_pdf_service.LAUDO_PDF_ECO_RENDERER_VERSION", previous_version):
@@ -406,6 +407,21 @@ class EchoPdfPreviewHTTPTest(unittest.TestCase):
                     self.assertNotIn("1.14",text(response.content)); self.assertIn("fundidas",text(response.content))
                 if index==2: self.assertIn("probabilidade ecocardiográfica alta",text(response.content).lower())
                 if index==3: self.assertIn("pendente",text(response.content).lower())
+
+    def test_preview_and_official_withhold_ambiguous_pulmonary_ratio(self):
+        body = self.new_body()
+        measures = {"HP_ativa":"sim", "HP_TRV":"adequado", "HP_VSVD":"sem_obstrucao", "IT_Vmax":"3.0", "HP_ventriculos":"com_sinais", "HP_arteria_pulmonar":"sem_sinais", "HP_atrio_cava":"sem_sinais", "HP_suporte_automatico":"sim", "AP":"2.2", "Ao_nivel_AP":"20", "unidade_confirmada_Ao_nivel_AP":"mm", "DIVEd":"2.2", "SIVd":"1.2", "PLVEd":"1.2"}
+        measures["HP_revisao"] = make_pulmonary_review_stamp(measures,"Canina")
+        body["payload_laudo"]["medidas"] = measures
+        self.save()
+        preview = self.post(body); self.assert_pdf(preview)
+        content = text(preview.content).lower()
+        self.assertIn("confirmar unidade de ap/ao", content)
+        self.assertNotRegex(content, r"\bap/ao\s*[:=]?\s*0[.,]11\b")
+        self.assertNotIn("probabilidade ecocardiográfica baixa", content)
+        emitted = self.client.post("/api/v1/laudos",json=body["payload_laudo"],headers=self.headers())
+        self.assertEqual(emitted.status_code,201,emitted.text)
+        self.assert_preview_matches_official(preview.content,emitted.json()["id"])
 
 
 if __name__ == "__main__":

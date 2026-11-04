@@ -44,6 +44,40 @@ def pdf_text(measures, species="Canina"):
 
 
 class PulmonaryProbabilityTest(unittest.TestCase):
+    def test_unit_ambiguity_context_invalidates_review_in_both_directions(self):
+        ambiguous = reviewed(AP="2.2", Ao_nivel_AP="20", unidade_confirmada_Ao_nivel_AP="mm", DIVEd="2.2", SIVd="1.2", PLVEd="1.2")
+        unambiguous = {**ambiguous, "DIVEd": "22", "SIVd": "12", "PLVEd": "12"}
+        self.assertFalse(has_valid_pulmonary_review(unambiguous, "Canina"))
+        unambiguous["HP_revisao"] = make_pulmonary_review_stamp(unambiguous, "Canina")
+        changed_back = {**unambiguous, "DIVEd": "2.2", "SIVd": "1.2", "PLVEd": "1.2"}
+        self.assertFalse(has_valid_pulmonary_review(changed_back, "Canina"))
+        legacy = json.loads(make_pulmonary_review_stamp(ambiguous, "Canina"))
+        legacy[2].pop()
+        self.assertFalse(has_valid_pulmonary_review({**ambiguous, "HP_revisao": json.dumps(legacy)}, "Canina"))
+
+    def test_unit_confirmation_requires_review_and_retains_anatomic_review(self):
+        m = reviewed(AP="2.2", Ao_nivel_AP="20", unidade_confirmada_Ao_nivel_AP="mm", DIVEd="2.2", SIVd="1.2", PLVEd="1.2", HP_ventriculos="com_sinais")
+        pending = evaluate_pulmonary_probability(m, "Canina")
+        self.assertIsNone(pending["metrics"]["ap_ao"])
+        self.assertEqual(pending["status"], "pending")
+        m["unidade_confirmada_AP"] = "cm"
+        self.assertFalse(has_valid_pulmonary_review(m, "Canina"))
+        m["HP_revisao"] = make_pulmonary_review_stamp(m, "Canina")
+        result = evaluate_pulmonary_probability(m, "Canina")
+        self.assertAlmostEqual(result["metrics"]["ap_ao"], 1.1)
+        self.assertEqual(result["status"], "pending")
+        m["HP_arteria_pulmonar"] = "com_sinais"
+        m["HP_revisao"] = make_pulmonary_review_stamp(m, "Canina")
+        self.assertEqual(evaluate_pulmonary_probability(m, "Canina")["status"], "classified")
+        self.assertEqual(m["AP"], "2.2")
+
+    def test_ambiguous_ratio_is_not_published_in_direct_pdf(self):
+        m = reviewed(AP="2.2", Ao_nivel_AP="20", unidade_confirmada_Ao_nivel_AP="mm", DIVEd="2.2", SIVd="1.2", PLVEd="1.2", HP_ventriculos="com_sinais")
+        output = pdf_text(m).lower()
+        self.assertIn("confirmar unidade de ap/ao", output)
+        self.assertNotRegex(output, r"\bap/ao\s*[:=]?\s*0[.,]11\b")
+        self.assertNotIn("probabilidade ecocardiográfica baixa", output)
+
     def test_shared_frontend_backend_probability_fixtures(self):
         fixtures = json.loads((Path(__file__).parent / "fixtures/echo_pulmonary_probability.json").read_text())
         def compare(actual, expected):

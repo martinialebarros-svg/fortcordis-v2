@@ -12,11 +12,42 @@ const cases = JSON.parse(readFileSync(resolve(process.cwd(), "../backend/tests/f
 const base = { HP_ativa: "sim", HP_TRV: "adequado", HP_VSVD: "sem_obstrucao", HP_ventriculos: "sem_sinais", HP_arteria_pulmonar: "sem_sinais", HP_atrio_cava: "sem_sinais", HP_suporte_automatico: "sim", IT_Vmax: "3" };
 
 describe("ACVIM pulmonary probability shared clinical cases", () => {
+  it("invalidates review when the effective unit ambiguity changes through other diameters", () => {
+    const source = { ...base, AP: "2.2", Ao_nivel_AP: "20", unidade_confirmada_Ao_nivel_AP: "mm", DIVEd: "2.2", SIVd: "1.2", PLVEd: "1.2" };
+    const reviewed = { ...source, HP_revisao: makePulmonaryReviewStamp(source, "Canina") };
+    const changed = { ...reviewed, DIVEd: "22", SIVd: "12", PLVEd: "12" };
+    expect(hasValidPulmonaryReview(changed, "Canina")).toBe(false);
+    const changedReview = { ...changed, HP_revisao: makePulmonaryReviewStamp(changed, "Canina") };
+    expect(hasValidPulmonaryReview({ ...changedReview, DIVEd: "2.2", SIVd: "1.2", PLVEd: "1.2" }, "Canina")).toBe(false);
+    const legacy = JSON.parse(reviewed.HP_revisao); legacy[2].pop();
+    expect(hasValidPulmonaryReview({ ...reviewed, HP_revisao: JSON.stringify(legacy) }, "Canina")).toBe(false);
+  });
+  it("requires a fresh review after unit confirmation, without double conversion", () => {
+    const source = { ...base, HP_ventriculos: "com_sinais", AP: "2.2", Ao_nivel_AP: "20", unidade_confirmada_Ao_nivel_AP: "mm", DIVEd: "2.2", SIVd: "1.2", PLVEd: "1.2" };
+    const stamp = makePulmonaryReviewStamp(source, "Canina");
+    expect(evaluatePulmonaryProbability({ ...source, HP_revisao: stamp }, "Canina").metrics.ap_ao).toBeNull();
+    const confirmed = { ...source, unidade_confirmada_AP: "cm", HP_revisao: stamp };
+    expect(hasValidPulmonaryReview(confirmed, "Canina")).toBe(false);
+    const result = evaluatePulmonaryProbability({ ...confirmed, HP_revisao: makePulmonaryReviewStamp(confirmed, "Canina") }, "Canina");
+    expect(result.metrics.ap_ao).toBeCloseTo(1.1);
+    expect(result.status).toBe("pending");
+    expect(confirmed.AP).toBe("2.2");
+  });
+  it.each(["0x10", "3_2", "Infinity", "true"])("does not broaden the accepted diameter syntax: %s", (AP) => {
+    const source = { ...base, AP, Ao_nivel_AP: "20" };
+    expect(evaluatePulmonaryProbability({ ...source, HP_revisao: makePulmonaryReviewStamp(source, "Canina") }, "Canina").metrics.ap_ao).toBeNull();
+  });
   it.each(cases)("$name", ({ species, measurements, reviewed, expected }) => {
     const m = { ...measurements, ...(reviewed ? { HP_revisao: makePulmonaryReviewStamp(measurements, species) } : {}) };
     const before = JSON.stringify(m);
     const result = evaluatePulmonaryProbability(Object.freeze(m), species);
-    expect(result).toMatchObject(expected);
+    const comparable = structuredClone(expected);
+    const metrics = comparable.metrics as Record<string, unknown> | undefined;
+    if (metrics && typeof metrics.ap_ao === "number") {
+      expect(result.metrics.ap_ao).toBeCloseTo(metrics.ap_ao, 9);
+      delete metrics.ap_ao;
+    }
+    expect(result).toMatchObject(comparable);
     expect(JSON.stringify(m)).toBe(before);
   });
 
@@ -26,7 +57,7 @@ describe("ACVIM pulmonary probability shared clinical cases", () => {
     const parsed = JSON.parse(stamp);
     expect(parsed[0]).toBe("acvim2020-v1");
     expect(parsed[1]).toBe("Canina");
-    expect(parsed[2].map((pair: unknown[]) => pair[0])).toEqual(HP_CONTEXT_KEYS);
+    expect(parsed[2].map((pair: unknown[]) => pair[0])).toEqual([...HP_CONTEXT_KEYS, "unidades_ambiguas_AP_Ao"]);
     expect(parsed[2].find((pair: unknown[]) => pair[0] === "IT_Vmax")).toEqual(["IT_Vmax", 3]);
     expect(parsed[2].find((pair: unknown[]) => pair[0] === "HP_RPAD")).toEqual(["HP_RPAD", 0]);
     expect(hasValidPulmonaryReview({ ...m, IT_Vmax: "3.00", HP_revisao: stamp }, "Dog")).toBe(true);

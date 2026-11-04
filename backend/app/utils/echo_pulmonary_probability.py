@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from app.utils.referencia_eco_defaults import normalizar_especie_referencia
+from app.utils.echo_unit_provenance import ECHO_LENGTH_KEYS, ambiguous_echo_length_keys, normalize_confirmed_echo_lengths
 
 HP_CONTEXT_KEYS = (
     "HP_ativa", "HP_TRV", "HP_VSVD", "HP_ventriculos", "HP_arteria_pulmonar",
@@ -63,6 +64,14 @@ def _species(species: Any) -> str:
     return normalizar_especie_referencia(species) or _text(species)
 
 
+def _length_context(measurements: dict[str, Any]) -> dict[str, Any]:
+    """Use HP's decimal grammar for the entire unit-detection cohort."""
+    context = dict(measurements)
+    for key in ECHO_LENGTH_KEYS:
+        context[key] = _number(measurements.get(key))
+    return context
+
+
 def make_pulmonary_review_stamp(measurements: dict[str, Any], species: Any) -> str:
     context = []
     for key in HP_CONTEXT_KEYS:
@@ -70,6 +79,9 @@ def make_pulmonary_review_stamp(measurements: dict[str, Any], species: Any) -> s
         number = _number(measurements.get(key))
         value = (number if number is not None else raw or None) if key in HP_NUMERIC_KEYS else raw
         context.append([key, value])
+    # This state depends on the original cohort of length measurements, not
+    # just AP/Ao fields. It is review metadata, never a saved clinical value.
+    context.append(["unidades_ambiguas_AP_Ao", sorted(ambiguous_echo_length_keys(_length_context(measurements)) & {"AP", "Ao_nivel_AP"})])
     return json.dumps(["acvim2020-v1", _species(species), context], ensure_ascii=False, separators=(",", ":"))
 
 
@@ -144,12 +156,30 @@ def evaluate_pulmonary_probability(measurements: dict[str, Any] | None, species:
 
     ap_ao = _number(m.get("AP_Ao"))
     if ap_ao is None or ap_ao <= 0:
-        ap, ao = _number(m.get("AP")), _number(m.get("Ao_nivel_AP"))
+        ambiguous = ambiguous_echo_length_keys(_length_context(m)) & {"AP", "Ao_nivel_AP"}
+        raw_ap, raw_ao = _number(m.get("AP")), _number(m.get("Ao_nivel_AP"))
+        # Validate the original syntax before the generic unit normalizer,
+        # whose float parser also accepts representations outside HP's grammar.
+        normalized = normalize_confirmed_echo_lengths({
+            "AP": raw_ap, "Ao_nivel_AP": raw_ao,
+            "unidade_confirmada_AP": m.get("unidade_confirmada_AP"),
+            "unidade_confirmada_Ao_nivel_AP": m.get("unidade_confirmada_Ao_nivel_AP"),
+        })
+        ap, ao = _number(normalized.get("AP")), _number(normalized.get("Ao_nivel_AP"))
         ap_unit, ao_unit = _text(m.get("unidade_confirmada_AP")), _text(m.get("unidade_confirmada_Ao_nivel_AP"))
-        if ap is not None and ao is not None and ap > 0 and ao > 0 and ap_unit in {"", "cm", "mm"} and ao_unit in {"", "cm", "mm"}:
-            ap_ao = (ap * (10 if ap_unit == "cm" else 1)) / (ao * (10 if ao_unit == "cm" else 1))
+        if ambiguous:
+            ap_ao = None
+            message = "Confirmar unidade de AP/Ao antes de usar a razão derivada: " + ", ".join(sorted(ambiguous)) + "."
+            if applicable and _text(m.get("HP_suporte_automatico")) != "nao":
+                missing.append(message)
+            else:
+                notes.append(message)
+        elif ap is not None and ao is not None and ap > 0 and ao > 0 and ap_unit in {"", "cm", "mm"} and ao_unit in {"", "cm", "mm"}:
+            ap_ao = ap / ao
         else:
             ap_ao = None
+            if raw_ap is not None and raw_ao is not None and raw_ap > 0 and raw_ao > 0 and ap_unit in {"", "cm", "mm"} and ao_unit in {"", "cm", "mm"} and (ap is None or ao is None):
+                missing.append("Revisar AP/Ao calculado: resultado deve ser positivo e finito.")
         if ap_ao is not None and (not math.isfinite(ap_ao) or ap_ao <= 0):
             missing.append("Revisar AP/Ao calculado: resultado deve ser positivo e finito.")
             ap_ao = None

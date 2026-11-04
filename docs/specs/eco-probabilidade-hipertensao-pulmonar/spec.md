@@ -52,3 +52,15 @@ Sítios (cada um conta uma vez): ventrículos/septo; artéria pulmonar; átrio d
 | HP-08 | IA não contradiz a matriz canina nem inventa graduação felina. |
 | HP-09 | UI rápida, compartilhada, utilizável por teclado e tela estreita. |
 | HP-10 | Regressões pertinentes, tipos/lint/build e paridade TS/Python aprovados. |
+
+## Proveniência de AP/Ao — correção de segurança em04/11/2026, somente stage
+
+O P2PRRT_kwDORR2efM6zlyPp da restauraçãoPR554 reproduziu razão derivada e classificação em PDF antes de resolver unidade de diâmetros. O código já estava no snapshotf93; HP permanece fora do main da publicação do Atendimento. Esta correção adicional preserva a funcionalidade paralela e somente impede suporte derivado de dados ambíguos. Não altera matriz, referências, limiares, PSAP, dados salvos ou confirmação dos sítios.
+
+- Ao derivar AP/Ao, consultar a política existente de ambiguidade sobre o conjunto ORIGINAL de medidas. Se AP ou Ao_nivel_AP for ambíguo, não liberar a razão. Com suporte automático ativo, exigir resolução da unidade mesmo com selo de revisão válido.
+- HP_suporte_automatico=nao continua decisão explícita do examinador: permite avaliação pelos sítios/TRV já revisados, mas não libera a razão ambígua. AP_Ao independente digitado mantém sua via adimensional. Não presumir que esse valor histórico tenha sido derivado, nem inventar proveniência.
+- Converter apenas unidade explicitamente confirmada, uma vez e em cópia. Diâmetros legados não ambíguos preservam o tratamento existente; nenhum número salvo é reescrito. Overflow/underflow continuam bloqueados.
+- Acrescentar ao conteúdo do selo de revisão a máscara ordenada de ambiguidade relevante(AP/Ao_nivel_AP), calculada das medidas originais. Mudanças de outras dimensões que alterem essa máscara invalidam a revisão. É metadado de revisão, não novo parâmetro clínico persistido; o novo conteúdo exige reconfirmação dos selos anteriores. TS/Python mantêm formato compatível.
+- PDF oficial e prévia usam o mesmo guard. CacheECO de stage muda dev35 para2026-11-04-eco-full-stage-hp-unit-guard-v36; PA e produção v34 permanecem inalterados. PDF antigo não comprova a correção.
+
+O detector de ambiguidade e a máscara do selo usam uma cópia de toda a coorte ECHO_LENGTH_KEYS validada pela mesma gramática decimal HP em Python/TypeScript. Texto inválido (underscore, hexadecimal, binário, dígitos Unicode) não participa da coorte nem da normalização de AP/Ao; a fonte persistida e o helper global de unidades são preservados.
