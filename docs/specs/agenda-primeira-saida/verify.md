@@ -159,3 +159,11 @@ direto de promoção vinculado a ele. O resultado local não é prova de publica
 - Na validação local não houve migração, publicação, envio externo, mudança
   de agendamentos reais ou gravação de configurações em stage/produção. A correção previne novas
   perdas; não tenta reconstruir pisos municipais eventualmente removidos antes.
+
+## Ciclo local de 04/11/2026 — excecao de admin
+
+Revisao autorizada da politica de gravacao; geracao/revalidacao conservadoras
+preservadas. Testes de concessao, permissao, motivo, escopo, auditoria e ocupacao
+em `backend/tests/test_agenda_excecao_primeira_saida_admin.py`; a matriz final
+e os comandos deste ciclo ficam em
+`docs/specs/agenda-excecoes-operacionais-for51/verify.md`. Sem publicacao neste ciclo.

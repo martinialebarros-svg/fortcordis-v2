@@ -1291,7 +1291,7 @@ def _exigir_primeira_saida_viavel(avaliacao: Optional[dict[str, Any]]) -> None:
             "inicio_minimo_primeira_saida": minimo,
             "tempo_deslocamento_base_min": avaliacao.get("tempo_deslocamento_base_min"),
             "fonte_deslocamento_base": avaliacao.get("fonte_deslocamento_base"),
-            "confirmavel": False,
+            "confirmavel": True,
         },
     )
 
@@ -2234,17 +2234,20 @@ def _validar_deslocamento_agendamento(
     destino_atual_nome = _rotulo_destino_operacional(destino_atual)
     destino_atual_confiavel = bool(destino_atual.get("localizacao_confiavel"))
 
+    primeira_saida_ignorada = False
     if validar_primeira_saida and status_atual not in AGENDA_STATUS_NAO_ANCORA:
-        _exigir_primeira_saida_viavel(
-            _avaliar_primeira_saida(
-                db,
-                inicio=inicio_dt,
-                destino=destino_atual,
-                agendamentos_dia=agendamentos_dia,
-                regras_rota=regras_rota,
-                perfil=perfil_norm,
-            )
+        primeira_saida = _avaliar_primeira_saida(
+            db,
+            inicio=inicio_dt,
+            destino=destino_atual,
+            agendamentos_dia=agendamentos_dia,
+            regras_rota=regras_rota,
+            perfil=perfil_norm,
         )
+        if primeira_saida is not None and not primeira_saida.get("viavel") and ignorar_conflito:
+            primeira_saida_ignorada = True
+        else:
+            _exigir_primeira_saida_viavel(primeira_saida)
 
     if anterior:
         destino_anterior = anterior.get("destino_operacional") if isinstance(anterior, dict) else None
@@ -2526,6 +2529,9 @@ def _validar_deslocamento_agendamento(
                         "confirmavel": False,
                     },
                 )
+
+    if primeira_saida_ignorada:
+        return {"origem": origem_excecao, "bloqueio": "PRIMEIRA_SAIDA_INVIAVEL"}
 
 
 def _notificar_agenda_update(
