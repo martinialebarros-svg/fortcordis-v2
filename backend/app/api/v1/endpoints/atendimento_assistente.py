@@ -89,11 +89,15 @@ async def transcrever_atendimento(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    _, actor = _preparar(db, atendimento_id, consentimento, current_user)
+    context, actor = _preparar(db, atendimento_id, consentimento, current_user)
     try:
         content = await audio.read(AUDIO_MAX_BYTES + 1)
         nome, mime = validar_audio(audio.filename, audio.content_type, content)
-        result = await run_in_threadpool(OpenAIAtendimentoProvider().transcrever, nome=nome, mime=mime, content=content)
+        result = await run_in_threadpool(
+            OpenAIAtendimentoProvider().transcrever,
+            nome=nome, mime=mime, content=content,
+            paciente_nome=context["paciente"]["nome"],
+        )
     except AssistenteError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
     finally:
