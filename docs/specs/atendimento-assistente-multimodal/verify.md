@@ -1,7 +1,23 @@
 # Verify — Assistência multimodal no atendimento
 
-Data: 2026-11-02
-Status: promoção do incremento com IA desativada em preparação; ativação fora deste escopo
+Data: 2026-11-04
+Status: referência de nome validada; publicação autorizada em preparação
+
+## Referência de nome — 04/11/2026
+
+Pedido explícito: usar nome cadastrado como referência de transcrição, sem substituições silenciosas, e testar com áudio fictício. Branch `codex/atendimento-transcricao-referencia-20261104`, base stage `1a5b444acd5e370a3076097b011eed05d0142b69`. Esta preparação não publica código nem altera a IA já ativada em produção.
+
+- CA-007: testes do provider preservam resposta com nome divergente/ausente, verificam pista literal/aviso, delimitam aspas como dados e omitem nomes inválidos sem truncar. Teste da rota garante que o nome vem do contexto do servidor e não do multipart, libera a transação e não grava o prontuário.
+- CA-007/UI: teste confirma exibição do aviso de referência e preservação do nome divergente retornado pelo provider.
+- Validação local:37 testes do assistente e254 testes de atendimento passaram;17 testes do painel passaram. Lint, TypeScript, build de45 páginas, diff e guardrailSDD passaram. Provider/API preservam autenticação, consentimento, liberação da transação e ausência de gravação clínica.
+- Validação real em04/11:3 transcrições com o modelo/configuração/chave existentes, usando a versão candidata isolada, sem instalá-la no serviço. Mesmo áudio fictício anterior: “Nébula Q7” reconhecido em1,850s; áudio com “Órion X nove”: “Orion X9” preservado em1,025s, sem forçar o cadastro; áudio sem nome: nenhuma inserção de “Nébula”, em0,614s. Todos os19 critérios específicos de referência/nomes, preservação do retorno, avisos e sinais selecionados passaram. Não houve retry automático nem chamada de análise.
+- Limite observado: no áudio sem nome, “Tutor” virou “Doutor”. Isso não é erro de nome do paciente, mas impede declarar transcrição perfeita ou exatidão geral de atribuição de falas. Revisão do áudio continua obrigatória.
+- Preservação: sem acessoDB, fixtures ou novas sessões; SHAprodução3f134432, ambiente, Nginx, arquivosruntime e processos preservados;IAON/readiness200.13 arquivos temporários próprios removidos por lista/hashes/owner exatos. Nenhum deploy/restart/WhatsApp. O teste prova o comportamento do provider candidato; ainda não é homologação dessa mudança instalada pelo domínio público.
+- Evidências:`output/atendimento-transcricao-referencia-20261104/live-result.json`, `cleanup.json`, `backend-tests.log`, logs lint/types/build e `RELATORIO.md`. A mudança está local, sem commit/push/publicação.
+
+Publicação autorizada em04/11 após esses testes. Baseline da fila: main `4d8dd7dec7099b73a46505bb1b10a83bdd953c09`, stage completo `f93f404e7994851198df78f798217920182844c9`; os arquivos funcionais próprios são iguais nas duas refs antes do delta. A preparação isola apenas o Atendimento e retém backup/restauração do stage completo. Validação remota e SHAs de instalação serão registrados no relatório de publicação; esta frase não declara deploy concluído.
+
+O histórico abaixo descreve ciclos anteriores, inclusive quando a flag ainda estava desativada. Não é instrução para reverter a configuração de produção.
 
 ## Matriz de rastreabilidade
 
@@ -11,6 +27,7 @@ Status: promoção do incremento com IA desativada em preparação; ativação f
 | CA-003/004 | Testes IA/hook/helpers: revisão individual, append entre trechos, mesmo áudio sem duplicação, falha conserva fontes, isolamento de recuperação por usuário/caso/paciente, fragmento final após unmount, sincronização antes de anexar | Passaram |
 | CA-005 | Helper/UI WhatsApp: telefone e DDD, confirmação destinatário, PDF preparado, revisão de conteúdo estável no autosave, edição/troca invalida arquivo, cancelamento e fallback | 42 testes passaram |
 | CA-006 | Suite frontend completa, regressão backend atendimento, lint, TypeScript/build, diff e SDD | Passaram; comandos abaixo |
+| CA-007 | Referência de nome autoritativa, nenhuma substituição posterior;37 testes do assistente,17 do painel e3 áudios reais fictícios com19 critérios específicos | Passou; erro residual Tutor/Doutor registrado como limite de acurácia geral |
 
 ## Testes executados
 

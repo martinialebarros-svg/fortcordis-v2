@@ -22,7 +22,7 @@ from app.utils.paciente_helpers import data_civil_referencia, extrair_idade_paci
 
 
 LAUDO_PDF_RENDERER_VERSION = "2026-09-24-eco-presentation-v2"
-LAUDO_PDF_ECO_RENDERER_VERSION = "2026-11-04-eco-full-stage-reviewed-preview-hp-v35"
+LAUDO_PDF_ECO_RENDERER_VERSION = "2026-11-04-eco-reviewed-preview-layout-v34"
 
 
 @dataclass(frozen=True)

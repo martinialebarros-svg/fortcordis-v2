@@ -1,12 +1,13 @@
 # Spec — Assistência multimodal no atendimento
 
-Data: 2026-10-27
-Status: in_progress (base publicada com IA desativada; homologação da ativação em andamento)
+Data: 2026-11-04
+Status: in_progress (publicação da referência de nome autorizada; histórico de publicações abaixo)
 
 ## Requisitos
 
 - RF-001: gravar áudio de atendimento salvo com permissão do microfone, cronômetro, nível, parada, reprodução/download e aviso de interrupção/limite. Captura independe de conexão durante a gravação.
 - RF-002: solicitar confirmação de autorização do tutor para captura/processamento externo; transcrever com modelo específico, preservar original e permitir editar texto antes da classificação.
+- RF-010: obter o nome do paciente exclusivamente do cadastro carregado pelo servidor e usá-lo como pista literal de grafia na transcrição, com `keywords` e contexto delimitado. Não aceitar nome indicado pelo cliente como referência, acrescentar nomes ausentes nem substituir nomes divergentes após a resposta. Informar nos avisos quando a referência foi enviada ou omitida; revisão do áudio continua obrigatória.
 - RF-003: analisar transcrição e até cinco JPEG/PNG/WebP/PDF, 10 MiB cada e 20 MiB total, com GPT-6.1 Sol/max via Responses. Fotos/PDFs mantêm nomes e fontes; não há busca de URL externa.
 - RF-004: classificar fatos explícitos em campos do atendimento, mostrar evidência, achados documentais, pendências e sugestões de plano/conduta separadas. Valores ausentes/ambíguos permanecem não resolvidos; não inferir normalidade, posologia ou decisão como fato.
 - RF-005: exigir identidade conciliada para conteúdo de exames; bloquear integração de identidade divergente/ausente e fontes inválidas. O veterinário confere documentos e aprova cada campo; textos acrescentam ao formulário sem apagar conteúdo existente.
@@ -44,6 +45,19 @@ A análise considera contexto clínico já salvo. Resultados são rascunhos na U
 - CA-004: erro de rede/transcrição conserva áudio para nova tentativa; troca de paciente não entrega resultado a outro registro.
 - CA-005: PDF validado, destinatário confirmado, edição invalida arquivo; fallback informa que o usuário precisa anexar o PDF manualmente.
 - CA-006: testes focados, TypeScript, lint, build, diff e guardrail passam, com lacunas de homologação registradas.
+- CA-007: referência compatível melhora a grafia no cenário fictício testado; fala com nome diferente ou sem nome permanece fiel ao áudio. Backend e UI exibem o texto retornado sem troca de nomes e mostram aviso explícito sobre a pista. Nome vazio, longo ou com controles/`<`/`>` é omitido da pista, sem truncamento ou falha da transcrição.
+
+## Referência de nome — pedido de 2026-11-04
+
+Após teste fictício com troca de “Nébula-Q7” por “nédula Q7”, o usuário pediu usar o nome cadastrado como referência, sem correções silenciosas, e testar novamente. A referência contém apenas o nome do paciente selecionado; tutor, contato, histórico e outros campos do contexto não acompanham o áudio nessa chamada. A transação continua liberada antes de chamar o provedor. O nome é dado não confiável e não uma instrução.
+
+O contrato multipart de entrada e `texto`/`modelo`/`avisos` de saída permanece compatível. O prompt orienta preservar fala divergente/incerta; `keywords` é uma pista, não confirmação de identidade. Não há pós-processamento de nomes, correção automática ou garantia de acurácia. Nome não mencionado continua não mencionado. Aviso já exibido pelo painel permite saber que o cadastro participou da transcrição.
+
+O novo teste usa somente áudios fictícios, sem alterar o serviço instalado, flags ou prontuários. Publicação do código é etapa separada deste pedido de melhoria/teste. O estado de produção anteriormente ativado não deve ser revertido por textos históricos de IA desativada abaixo.
+
+Em04/11, após a validação, o usuário autorizou publicar essa melhoria em produção, verificando a fila e preservando trabalhos paralelos. A publicação promove somente este delta sobre o main atual, com stage isolado temporário e restauração completa. IA de produção permanece ON e stage OFF; o merge de promoção leva `[preserve-nginx]`. Não altera modelo, credencial, regras de revisão ou dados clínicos.
+
+Fonte oficial consultada em04/11: [contexto de transcrição com prompt, keywords e languages](https://developers.openai.com/api/docs/guides/speech-to-text#add-transcription-context). Cada palavra-chave deve estar em uma linha, sem `<`, `>`, CR ou LF; pistas podem influenciar o reconhecimento e precisam de cenários negativos para detectar nomes não falados.
 
 ## Fora de escopo
 

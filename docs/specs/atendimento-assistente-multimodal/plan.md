@@ -5,6 +5,8 @@ Status: in_progress (base publicada com IA desativada; homologação da ativaç�
 
 ## Fases
 
+Publicação autorizada em04/11: reservar a janela com os responsáveis, registrar SHAs/runtime/config, guardar stage completo, reaplicar apenas o delta do Atendimento sobre main atual, instalar o snapshot isolado em stage por PR, validar e promover pela PR direta stage→main. A mensagem do merge final deve conter `[preserve-nginx]`, preservando o ingress existente. Restaurar integralmente stage com ancestry da promoção e somente o delta próprio acrescido. Conferir workflows terminais, fontes instaladas, status autenticado/anônimo, bundles e preservação; não repetir os três testes pagos já aprovados sem necessidade nova. Produção ON/stage OFF permanecem intencionais.
+
 1. Confirmar documentação oficial de GPT-6.1 Sol, transcrição e arquivos. Isolar checkout sem copiar trabalho alheio.
 2. Criar contrato Pydantic, serviço OpenAI e router autenticado com feature flag desligada. Transcrição e análise não escrevem prontuário. Rejeitar arquivos inválidos, recusa/incompletude do modelo e fontes/identidade inconsistentes.
 3. Adicionar painel de captura/revisão, reprodução/download do áudio, seleção de arquivos, campos com revisão individual e sugestões separadas. Manter montagem ao trocar painéis do atendimento.
