@@ -61,3 +61,8 @@ A prévia usa o mesmo gerador, normalização, fontes e políticas do PDF emitid
 ## Publicação da fase 2 em stage — autorizada em03/11/2026
 
 Após a implementação/validação local e a liberação da janela do Atendimento, o usuário respondeu “publique” à proposta explícita de publicar em stage e fazer homologação autenticada. Esta autorização substitui a restrição anterior de não commit/push/deploy **somente para stage** e inclui preparação do snapshot, commit/PR/checks/merge/workflow, preservação de runtime e QA sintética. Produção não foi autorizada. Rascunhos privados já existentes e dados clínicos reais são preservados; QA usa um exame novo inteiramente sintético. Não há chamada paga de IA, WhatsApp ou liberação de portal.
+
+
+### Registro documental de exclusão de HP
+
+O guardrail SDD exige a estrutura de uma feature tocada mesmo quando seu código é temporariamente retirado. O snapshot mantém somente quatro documentos mínimos de eco-probabilidade-hipertensao-pulmonar que registram a exclusão. Não há implementação/avisos/referências/testes de HP na promoção, nem critério clínico declarado aprovado nesses documentos. Os documentos completos, assim como o código, estão no backup1a5b444a e serão restaurados em stage. Guardrail não foi alterado nem recebeu exceção.

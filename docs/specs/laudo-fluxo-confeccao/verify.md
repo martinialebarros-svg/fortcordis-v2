@@ -398,3 +398,8 @@ Suíte backend ampla terminal:2467 testes +2420 subtestes aprovados,175 skips op
 Frontend terminal:2555 Vitest em147arquivos +23Node, foco208 sobreposto, tipos/lint/build aprovados. PostgreSQL real local:4/4 aprovados e cluster removido. Comparação oficial baseline main→recorte:3 fixtures/7páginas, texto/geometria/pixels idênticos. SalvaguardaNginx6/6 e13 immutableSHA aprovados. Paridade dos seis arquivos de viewer/hook/painel com e541de8c e de nove arquivos fora do recorte com main comprovadas. Não há migração nova, referência clínica nova ou HP no recorte.
 
 O stage completo está preservado no ref remoto codex/echo-stage-full-before-preview-prod-20261104, SHA1a5b444a. A sessão de produção foi confirmada pela UI no dashboard, sem ler/exportar dados clínicos; será usada somente para smoke delimitado após a instalação autorizada.
+
+
+### Registro documental de exclusão de HP
+
+O guardrail SDD exige a estrutura de uma feature tocada mesmo quando seu código é temporariamente retirado. O snapshot mantém somente quatro documentos mínimos de eco-probabilidade-hipertensao-pulmonar que registram a exclusão. Não há implementação/avisos/referências/testes de HP na promoção, nem critério clínico declarado aprovado nesses documentos. Os documentos completos, assim como o código, estão no backup1a5b444a e serão restaurados em stage. Guardrail não foi alterado nem recebeu exceção.

@@ -118,3 +118,8 @@ Corretivo implementado nos três componentes/hooks e três testes:31foco e2789gl
 ### Encerramento de QA autorizada em stage —03→04/11/2026
 
 Após retorno do controle do navegador e pedido explícito do usuário, a prévia instalada e a atualização sintética63 foram conferidas. PDF.js1→3, teclado/390px, invalidação/índice, edição+recuperação com oficial intacto, atualização única no mesmoID e PDF revisão2 correspondente à prévia passaram; reabertura sem recuperação antiga confirmada. Substitui a pendência de homologação remota do viewer acima, no escopo e com os limites de verify/qa63-final. Sem novo código/deploy ou produção.
+
+
+### Registro documental de exclusão de HP
+
+O guardrail SDD exige a estrutura de uma feature tocada mesmo quando seu código é temporariamente retirado. O snapshot mantém somente quatro documentos mínimos de eco-probabilidade-hipertensao-pulmonar que registram a exclusão. Não há implementação/avisos/referências/testes de HP na promoção, nem critério clínico declarado aprovado nesses documentos. Os documentos completos, assim como o código, estão no backup1a5b444a e serão restaurados em stage. Guardrail não foi alterado nem recebeu exceção.

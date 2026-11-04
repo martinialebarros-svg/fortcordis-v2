@@ -125,3 +125,8 @@ A proteção por workspace/autosave da edição de laudos existentes integra a f
 ## Aceite da publicação em stage
 
 Conferir PR/head/merge SHA e workflows terminais no mesmo snapshot, preservação/restauração de runtime e migrações, canário/health/readiness/restore, domínio canônico/aliases e API protegida anônima, assets do frontend e worker PDF.js. Exercitar novo/edição com um laudo exclusivamente sintético, prévia antes da emissão/atualização, invalidação/recuperação e PDF oficial; não sobrescrever cópia recuperável anterior de outro teste. Stage sem Meta registrado mantém envios reais não aplicáveis, sem bloquear esse módulo independente. Preservar Atendimento IA ON em produção e OFF em stage; não aplicar baseline antigo OFF de produção. Limites externos/autenticação devem ser registrados como tais e não convertidos em sucesso.
+
+
+### Registro documental de exclusão de HP
+
+O guardrail SDD exige a estrutura de uma feature tocada mesmo quando seu código é temporariamente retirado. O snapshot mantém somente quatro documentos mínimos de eco-probabilidade-hipertensao-pulmonar que registram a exclusão. Não há implementação/avisos/referências/testes de HP na promoção, nem critério clínico declarado aprovado nesses documentos. Os documentos completos, assim como o código, estão no backup1a5b444a e serão restaurados em stage. Guardrail não foi alterado nem recebeu exceção.
