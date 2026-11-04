@@ -1,8 +1,21 @@
 # Verify — Fluxo de confecção do laudo ecocardiográfico
 
-## Situação atual — fase 2 instalada em stage; correção do visualizador em03/11/2026
+## Promoção isolada autorizada —04/11/2026
 
-A fase2 foi instalada exclusivamente em stage pela PR #546, merge873a94a5, com workflows e gates aprovados. A homologação autenticada recuperou o rascunho e gerou um PDF válido, mas identificou falha na leitura da URL blob pelo PDF.js. A correção pelo caminho de bytes e sua revalidação estão em andamento; não considerar a homologação remota completa até o complemento final. Produção permanece fora do pedido.
+Pedido humano atual: “Publique em produção a conferência final e a prévia do PDF do laudo.” A entrega inclui a fase1b de rascunho/atualização atômica **como dependência necessária e explícita da prévia na edição**, usada na homologação do caso sintético63. A fase1a já está em produção. O recorte parte de main3f134432 e reaplica os commits funcionais49ca4381/a5ed822a/e541de8c, resolvendo contextos contra o baseline de produção. Nenhuma migração nova:105 já integra main.
+
+Ficam fora do recorte: Gestão/migração101, comparação anterior, classificação/avisos de HP, novas faixas de referência e mudanças de WhatsApp/egress/host-routing que só estão em stage. As fórmulas, fontes e faixas de produção são conservadas. Duas correções de revisão integram o recorte: retirar o espaçador terminal quando não há imagens e usar a normalização exata de espécie já existente no backend para os índices. O cache de eco recebe identificador v34 para não servir um PDF v32 com página vazia; PA não muda. O helper de avisos usa o normalizador já existente em main; a dependência opcional de HP foi retirada. Viewer/hook/painel e seis respectivos testes permanecem byte idênticos ao corretivo e541de8c homologado. O literal de espécie cadastrado é preservado; apenas as decisões de cálculo/apresentação usam o normalizador compartilhado.
+
+Stage completo1a5b444a será preservado por ref antes da substituição temporária por um snapshot isolado. A promoção permanece pelo PR protegido direto stage→main, após CI/deploy/homologação do recorte. Depois, restaurar o conteúdo completo de stage com ancestry de main, preservando a salvaguarda operacional e os registros. Não publicar os módulos excluídos nem usar cherry-pick/PR de feature direto em main.
+
+A salvaguarda documentada em deploy-preserve-nginx seleciona ENABLE_NGINX_HTTP2=0 e RELOAD_NGINX_ON_DEPLOY=0 apenas para o SHA cujo commit contém [preserve-nginx]. O merge final em main deverá portar esse marcador. Não altera nginx.conf, TLS/CSP, flags do Atendimento ou os defaults das demais publicações.
+
+O histórico abaixo registra autorizações e validações anteriores; limites antigos de publicação somente local/stage são substituídos apenas pela autorização atual deste recorte. Evidências do recorte e da instalação serão registradas sem converter testes locais ou do stage completo em prova de produção.
+
+
+## Situação atual — fase 2 em stage; QA autenticada do caso63 concluída em03→04/11/2026
+
+A fase2 foi instalada pela PR #546 e pelo corretivo #548, SHA1a5b444a, com workflows/gates aprovados. Em novo pedido humano de03/11, a conferência autenticada da prévia e da atualização do caso sintético63 foi concluída: PDF.js real, edição/recuperação, preservação do oficial até aplicação explícita, atualização única no mesmo ID e paridade das três páginas. Este resultado substitui a pendência temporária do controle de navegador descrita no histórico; produção não foi promovida.
 
 ## Histórico — fase 1b publicada e homologação central de stage aprovada em02/11/2026
 
@@ -351,3 +364,61 @@ O hook agora mantém o Blob já validado somente em memória e o entrega ao view
 - Foco31/31 aprovado por implementador e por revisor independente; revisão dos seis arquivos sem bloqueadores acionáveis. Os testes focados se sobrepõem ao total global.
 - Frontend global155 arquivos/2789 testes e Node23 aprovados; TypeScript/ESLint dos seis arquivos e build completo Next45 páginas aprovados. Logs fix-frontend-full.log/fix-node.log/fix-build.log e BLOB-FIX-REVIEW.md em output/echo-preview-stage-20261103.
 - CUA no harness Next15 de produção, componente real corrigido, PDF real de stage e CSP original: canvas e navegação1→2→3 aprovados, screenshot next-bytes-fixed.png e AX salvos. Aba própria encerrada; servidor isolado em limpeza pelo implementador. Esse resultado local não substitui a próxima homologação autenticada remota.
+
+
+### Homologação autenticada final — caso sintético63,03→04/11/2026
+
+- Browser voltou a estar disponível. Usuário autorizou explicitamente conferir visualmente a prévia e testar a atualização de63 em stage. Refs observados stage1a5b444a/main3f134432, sem novo deploy. Documento inteiramente sintético confirmado antes de qualquer edição.
+- PDF oficial inicial e o anterior à atualização são byte idênticos (hash402464d6…); o segundo foi baixado depois de editar, salvar, recarregar e retomar o workspace. A prévia baseline do editor existente corresponde ao oficial nas três páginas, removendo apenas a marca.
+- Viewer instalado carregou canvas1→2→3 e navegação por teclado. Desktop1280×900 e390×844 aprovados; documento375px/canvas291px na tela estreita, sem corte horizontal. Ao mudar DIVEd30→31mm, índice1,52→1,58 e retirada imediata da prévia/link antigos; nenhuma geração automática. Conclusão e legenda revisão2 foram salvas/recuperadas com a mesma imagem incluída.
+- Uma única ação Atualizar, por teclado, exibiu “Laudo atualizado com sucesso!” e retornou ao mesmo63/Finalizado. PDF oficial revisão2 tem926937bytes, SHA25653b9fcdaeecb09037d886de1af404c896a74822346879620fe777afae88431a9. Corpo/paginação/geometria de três páginas iguais à prévia; pixels diferem somente no retângulo da marca em cada página. Revisão independente inspecionou todas as páginas: sem cortes/sobreposições, campos previstos e imagem/legenda corretos, nenhuma marca no oficial.
+- Reabertura confirmou0 recuperações antigas, Atualizar habilitado e valores31/1,58. O workspace novo limpo criado por essa reabertura foi recarregado/retomado sem novas alterações e deixado por Voltar, sem segunda aplicação. Sua cópia de QA fica privada; não foi forçado descarte nem tocado o rascunho62. Viewport restaurado e aba auxiliar fechada;63 mantido para avaliação humana.
+- Evidências em output/echo-preview-stage-20261103/qa63-final/{qa-completion.json,QA-RESULTADO.md,PDF-INDEPENDENT-REVIEW.md,parity-review2.json,official-updated-ui.png}. Os cenários clínicos felinos/fusão/HP permanecem as provas locais já registradas; não alegar que o caso canino63 sozinho repetiu toda essa matriz remota. Smoke de teclado/responsividade não é auditoria WCAG/cross-browser exaustiva; IDs internos de paciente/tutor não foram lidos por API remota.
+
+**Resultado:** homologação técnica deste incremento no fluxo novo/edição e PDF sintético concluída no escopo registrado. Avaliação clínica humana e promoção de produção continuam etapas separadas. Nenhuma mudança de código, publicação, IA paga, envio/portal ou paciente real neste turno.
+
+
+## Validação do snapshot isolado de produção —04/11/2026
+
+Este registro pertence ao recorte main3f134432+fase1b+fase2, não à árvore completa stage1a5b444a. Antes de promover, aguardar todos os resultados locais/CI, stage isolado e preservação operacional. A prova clínica usa somente fixtures sintéticos.
+
+- Frontend:208 testes focados em12arquivos e2555 Vitest/147arquivos+23Node globais aprovados (conjuntos se sobrepõem), lint/tipos/build aprovados. Nove arquivos de cálculo/espécie/referência/detalhe/dashboard byte idênticos ao main; viewer/hook/painel e seus testes byte idênticos a e541de8c. Sem pacote/lock/CSP novos.
+- Backend:82 testes+303subtestes focados aprovados, incluindo leitura semDML/permissões/origem/imagens/paridade. Comparação adicional oficial baseline main→recorte: três fixtures cãoM/cm/cão2D/gato com fusão, sete páginas com texto/geometria/pixels120dpi idênticos, sem mascaramento. Bytes de PDF podem variar por metadata temporal. Nenhum import de HP/comparador/Gestão nos módulos novos; renderer v32 mantido.
+- PostgreSQL16 local descartável por socket Unix, sem listenTCP: quatro testes de atualização concorrente/atomicidade aprovados; cluster encerrado e removido. Sem banco ou comando remoto.
+- A primeira suíte backend ampla foi interrompida para corrigir o caminho do guard de rede local; log preservado. Nova execução confirma guard de socket ativo antes de iniciar, papelapi, SQLite em memória e sem opt-ins remotos. Resultado terminal será registrado antes do commit.
+- Salvaguarda Nginx:6 testes dedicados e13 de SHA, sintaxe e isolamento aprovados. O marcador é lido do próprio DEPLOY_SHA, sem avaliar nem ecoar a mensagem de commit. Flags0 impedem helper/reload inclusive no caminho de rollback.
+
+Artefatos em output/echo-preview-prod-20261104 e output/echo-preview-frontend-20261104 da worktree de promoção. Os testes isolados e de baseline não substituem o deploy/QA do recorte em stage nem a confirmação terminal em produção.
+
+
+### Fechamento local do recorte —04/11/2026
+
+Suíte backend ampla terminal:2467 testes +2420 subtestes aprovados,175 skips opt-in/dependência e25 warnings,143,21s. Papelapi e guard externo conferido antes da execução, SQLite em memória; fonte sem mudança durante a rodada. A tentativa interrompida por configuração local do caminho do guard está preservada separadamente e não foi tratada como falha/correção de produto.
+
+Frontend terminal:2555 Vitest em147arquivos +23Node, foco208 sobreposto, tipos/lint/build aprovados. PostgreSQL real local:4/4 aprovados e cluster removido. Comparação oficial baseline main→recorte:3 fixtures/7páginas, texto/geometria/pixels idênticos. SalvaguardaNginx6/6 e13 immutableSHA aprovados. Paridade dos seis arquivos de viewer/hook/painel com e541de8c e de nove arquivos fora do recorte com main comprovadas. Não há migração nova, referência clínica nova ou HP no recorte.
+
+O stage completo está preservado no ref remoto codex/echo-stage-full-before-preview-prod-20261104, SHA1a5b444a. A sessão de produção foi confirmada pela UI no dashboard, sem ler/exportar dados clínicos; será usada somente para smoke delimitado após a instalação autorizada.
+
+
+### Registro documental de exclusão de HP
+
+O guardrail SDD exige a estrutura de uma feature tocada mesmo quando seu código é temporariamente retirado. O snapshot mantém somente quatro documentos mínimos de eco-probabilidade-hipertensao-pulmonar que registram a exclusão. Não há implementação/avisos/referências/testes de HP na promoção, nem critério clínico declarado aprovado nesses documentos. Os documentos completos, assim como o código, estão no backup1a5b444a e serão restaurados em stage. Guardrail não foi alterado nem recebeu exceção.
+
+
+### P2 da revisão de isolamento — corrigidos e validados em04/11/2026
+
+Os dois comportamentos já existiam no baseline main e foram percebidos pela revisão como diferenças contra o stage completo. A decisão de corrigi-los é explícita neste recorte, pois afetam o PDF e a coerência da prévia/edição; não se promove a auditoria completa de referências nem a classificação HP.
+
+1. PDF: fixture sem imagens reproduziu duas páginas, a última apenas com rodapé. Espaçador5mm agora pertence somente à seção de imagens. A mesma fixture gera uma página em oficial e prévia, com texto/pixels da primeira página preservados. Cache de eco v34 invalida v32; cache de PA continua igual. Sete páginas com imagens dos três fixtures representativos continuam idênticas ao baseline main por texto/geometria/pixels.
+2. Espécie: reproduzidas sete falhas com Dog/Cão/cachorro, incluindo payload com índice0,9 desatualizado após alterarDIVEd25→30mm. Cinco pontos de fonte usam o normalizador exato já existente: apresentação, derivação Cornell, gate2D e predicados das páginas novo/editar. Nenhuma fórmula0,294/0,316, fonte, faixa, domínio, vista ou unidade foi mudada. Literal cadastrado preservado; CaninaXYZ/Dogfish/felinos não recebem índice canino. Regressões cobrem formulário/payload, detalhe e argumentos da comparação de referências.
+
+Validação terminal após as correções: backend2469 testes+2422subtestes,175skips/25warnings,137,83s, papelapi e bloqueio externo; frontend2581Vitest/147arquivos+23Node, tipos/lint/build aprovados; foco193 sobreposto. Backend foco124+428subtestes e13+26subtestes também aprovado. Revisão independente de ambas correções sem achados acionáveis. PostgreSQL4/4 anterior permanece prova do módulo transacional que não mudou nesses P2. Logs/regressões em output/echo-preview-prod-20261104/backend/footer-boundary e output/echo-preview-frontend-20261104/alias-validation.json.
+
+As afirmações de paridade byte a byte de nove arquivos com main e renderer v32 nos registros anteriores se referem ao snapshot antes desses ajustes; não descrevem a fonte final corrigida. A paridade dos seis arquivos de viewer/painel/hook com e541de8c continua válida.
+
+
+### Fechamento do seletor de método AE/Ao —04/11/2026
+
+A revisão apontou um terceiro gate de espécie literal em ReferenciaComparison: o seletor canino de método AE/Ao ficava oculto para Dog/Cão/cachorro e aparecia indevidamente para CaninaXYZ. O import/predicado usa agora o mesmo normalizeEchoSpecies já produtivo. A seleção permanece explícita, altera somente AE_Ao_metodo e não reescreve espécie nem confirma aquisição automaticamente. Gates que operam a espécie canônica do catálogo continuam preservados.
+
+Regressões reproduziram quatro falhas antes do ajuste e agora cobrem quatro aliases e seis controles desconhecidos/felinos; foco107 aprovado, com seleção/callback único/rerender e objetos/literal preservados. Frontend final2591Vitest/147arquivos+23Node, tipos/lint/build53 e diffcheck aprovados. Backend fonte e resultados2469+2422 permanecem inalterados por este ajuste de UI. Revisão independente sem achados; não há fórmula/faixa/fonte nova. Evidência aeao-alias-validation.json e logs próprios no output/echo-preview-frontend-20261104.

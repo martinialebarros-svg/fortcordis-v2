@@ -1,5 +1,18 @@
 # Plan — Fluxo de confecção do laudo ecocardiográfico
 
+## Promoção isolada autorizada —04/11/2026
+
+Pedido humano atual: “Publique em produção a conferência final e a prévia do PDF do laudo.” A entrega inclui a fase1b de rascunho/atualização atômica **como dependência necessária e explícita da prévia na edição**, usada na homologação do caso sintético63. A fase1a já está em produção. O recorte parte de main3f134432 e reaplica os commits funcionais49ca4381/a5ed822a/e541de8c, resolvendo contextos contra o baseline de produção. Nenhuma migração nova:105 já integra main.
+
+Ficam fora do recorte: Gestão/migração101, comparação anterior, classificação/avisos de HP, novas faixas de referência e mudanças de WhatsApp/egress/host-routing que só estão em stage. As fórmulas, fontes e faixas de produção são conservadas. Duas correções de revisão integram o recorte: retirar o espaçador terminal quando não há imagens e usar a normalização exata de espécie já existente no backend para os índices. O cache de eco recebe identificador v34 para não servir um PDF v32 com página vazia; PA não muda. O helper de avisos usa o normalizador já existente em main; a dependência opcional de HP foi retirada. Viewer/hook/painel e seis respectivos testes permanecem byte idênticos ao corretivo e541de8c homologado. O literal de espécie cadastrado é preservado; apenas as decisões de cálculo/apresentação usam o normalizador compartilhado.
+
+Stage completo1a5b444a será preservado por ref antes da substituição temporária por um snapshot isolado. A promoção permanece pelo PR protegido direto stage→main, após CI/deploy/homologação do recorte. Depois, restaurar o conteúdo completo de stage com ancestry de main, preservando a salvaguarda operacional e os registros. Não publicar os módulos excluídos nem usar cherry-pick/PR de feature direto em main.
+
+A salvaguarda documentada em deploy-preserve-nginx seleciona ENABLE_NGINX_HTTP2=0 e RELOAD_NGINX_ON_DEPLOY=0 apenas para o SHA cujo commit contém [preserve-nginx]. O merge final em main deverá portar esse marcador. Não altera nginx.conf, TLS/CSP, flags do Atendimento ou os defaults das demais publicações.
+
+O histórico abaixo registra autorizações e validações anteriores; limites antigos de publicação somente local/stage são substituídos apenas pela autorização atual deste recorte. Evidências do recorte e da instalação serão registradas sem converter testes locais ou do stage completo em prova de produção.
+
+
 ## Estratégia de entrega
 
 Entregar incrementos pequenos e verificáveis. Cada fase deve preservar o preenchimento clínico existente e ter critérios próprios de aceitação. Preparar e validar localmente; publicação em stage e promoção a produção exigem o pedido correspondente e a verificação da versão efetivamente instalada.
@@ -100,3 +113,32 @@ Pedido humano “publique”, após proposta explícita de stage. Fila consultad
 PR #546 instalada no SHA873a94a5 com gates/workflows aprovados. Rascunho recuperado e PDF canônico válido; PDF.js falhou na leitura XHR da URL blob. Reprodução no Next compilado confirmou falha status0 por URL e sucesso dos mesmos bytes como Uint8Array. Entregar Blob validado ao visualizador, criar bytes próprios por tentativa e conservar cancelamento/isolamento/revogação/link, sem relaxar CSP ou alterar conteúdo clínico. Testar regressões e componente real compilado, publicar correção por PR base stage e concluir QA autenticada sintética antes de encerrar. Produção continua fora da autorização.
 
 Corretivo implementado nos três componentes/hooks e três testes:31foco e2789globais+23Node, lint/tipos/build aprovados; revisão independente sem bloqueadores. Next compilado real exibiu1→3 viaCUA. Preparar PR stage e aguardar CI/deploy, sem promover produção.
+
+
+### Encerramento de QA autorizada em stage —03→04/11/2026
+
+Após retorno do controle do navegador e pedido explícito do usuário, a prévia instalada e a atualização sintética63 foram conferidas. PDF.js1→3, teclado/390px, invalidação/índice, edição+recuperação com oficial intacto, atualização única no mesmoID e PDF revisão2 correspondente à prévia passaram; reabertura sem recuperação antiga confirmada. Substitui a pendência de homologação remota do viewer acima, no escopo e com os limites de verify/qa63-final. Sem novo código/deploy ou produção.
+
+
+### Registro documental de exclusão de HP
+
+O guardrail SDD exige a estrutura de uma feature tocada mesmo quando seu código é temporariamente retirado. O snapshot mantém somente quatro documentos mínimos de eco-probabilidade-hipertensao-pulmonar que registram a exclusão. Não há implementação/avisos/referências/testes de HP na promoção, nem critério clínico declarado aprovado nesses documentos. Os documentos completos, assim como o código, estão no backup1a5b444a e serão restaurados em stage. Guardrail não foi alterado nem recebeu exceção.
+
+
+### P2 da revisão de isolamento — corrigidos e validados em04/11/2026
+
+Os dois comportamentos já existiam no baseline main e foram percebidos pela revisão como diferenças contra o stage completo. A decisão de corrigi-los é explícita neste recorte, pois afetam o PDF e a coerência da prévia/edição; não se promove a auditoria completa de referências nem a classificação HP.
+
+1. PDF: fixture sem imagens reproduziu duas páginas, a última apenas com rodapé. Espaçador5mm agora pertence somente à seção de imagens. A mesma fixture gera uma página em oficial e prévia, com texto/pixels da primeira página preservados. Cache de eco v34 invalida v32; cache de PA continua igual. Sete páginas com imagens dos três fixtures representativos continuam idênticas ao baseline main por texto/geometria/pixels.
+2. Espécie: reproduzidas sete falhas com Dog/Cão/cachorro, incluindo payload com índice0,9 desatualizado após alterarDIVEd25→30mm. Cinco pontos de fonte usam o normalizador exato já existente: apresentação, derivação Cornell, gate2D e predicados das páginas novo/editar. Nenhuma fórmula0,294/0,316, fonte, faixa, domínio, vista ou unidade foi mudada. Literal cadastrado preservado; CaninaXYZ/Dogfish/felinos não recebem índice canino. Regressões cobrem formulário/payload, detalhe e argumentos da comparação de referências.
+
+Validação terminal após as correções: backend2469 testes+2422subtestes,175skips/25warnings,137,83s, papelapi e bloqueio externo; frontend2581Vitest/147arquivos+23Node, tipos/lint/build aprovados; foco193 sobreposto. Backend foco124+428subtestes e13+26subtestes também aprovado. Revisão independente de ambas correções sem achados acionáveis. PostgreSQL4/4 anterior permanece prova do módulo transacional que não mudou nesses P2. Logs/regressões em output/echo-preview-prod-20261104/backend/footer-boundary e output/echo-preview-frontend-20261104/alias-validation.json.
+
+As afirmações de paridade byte a byte de nove arquivos com main e renderer v32 nos registros anteriores se referem ao snapshot antes desses ajustes; não descrevem a fonte final corrigida. A paridade dos seis arquivos de viewer/painel/hook com e541de8c continua válida.
+
+
+### Fechamento do seletor de método AE/Ao —04/11/2026
+
+A revisão apontou um terceiro gate de espécie literal em ReferenciaComparison: o seletor canino de método AE/Ao ficava oculto para Dog/Cão/cachorro e aparecia indevidamente para CaninaXYZ. O import/predicado usa agora o mesmo normalizeEchoSpecies já produtivo. A seleção permanece explícita, altera somente AE_Ao_metodo e não reescreve espécie nem confirma aquisição automaticamente. Gates que operam a espécie canônica do catálogo continuam preservados.
+
+Regressões reproduziram quatro falhas antes do ajuste e agora cobrem quatro aliases e seis controles desconhecidos/felinos; foco107 aprovado, com seleção/callback único/rerender e objetos/literal preservados. Frontend final2591Vitest/147arquivos+23Node, tipos/lint/build53 e diffcheck aprovados. Backend fonte e resultados2469+2422 permanecem inalterados por este ajuste de UI. Revisão independente sem achados; não há fórmula/faixa/fonte nova. Evidência aeao-alias-validation.json e logs próprios no output/echo-preview-frontend-20261104.

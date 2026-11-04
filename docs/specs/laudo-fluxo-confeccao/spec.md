@@ -1,6 +1,19 @@
 # Spec — Fluxo de confecção do laudo ecocardiográfico
 
-## Escopo atual — fase 2, publicação e homologação em stage autorizadas
+## Promoção isolada autorizada —04/11/2026
+
+Pedido humano atual: “Publique em produção a conferência final e a prévia do PDF do laudo.” A entrega inclui a fase1b de rascunho/atualização atômica **como dependência necessária e explícita da prévia na edição**, usada na homologação do caso sintético63. A fase1a já está em produção. O recorte parte de main3f134432 e reaplica os commits funcionais49ca4381/a5ed822a/e541de8c, resolvendo contextos contra o baseline de produção. Nenhuma migração nova:105 já integra main.
+
+Ficam fora do recorte: Gestão/migração101, comparação anterior, classificação/avisos de HP, novas faixas de referência e mudanças de WhatsApp/egress/host-routing que só estão em stage. As fórmulas, fontes e faixas de produção são conservadas. Duas correções de revisão integram o recorte: retirar o espaçador terminal quando não há imagens e usar a normalização exata de espécie já existente no backend para os índices. O cache de eco recebe identificador v34 para não servir um PDF v32 com página vazia; PA não muda. O helper de avisos usa o normalizador já existente em main; a dependência opcional de HP foi retirada. Viewer/hook/painel e seis respectivos testes permanecem byte idênticos ao corretivo e541de8c homologado. O literal de espécie cadastrado é preservado; apenas as decisões de cálculo/apresentação usam o normalizador compartilhado.
+
+Stage completo1a5b444a será preservado por ref antes da substituição temporária por um snapshot isolado. A promoção permanece pelo PR protegido direto stage→main, após CI/deploy/homologação do recorte. Depois, restaurar o conteúdo completo de stage com ancestry de main, preservando a salvaguarda operacional e os registros. Não publicar os módulos excluídos nem usar cherry-pick/PR de feature direto em main.
+
+A salvaguarda documentada em deploy-preserve-nginx seleciona ENABLE_NGINX_HTTP2=0 e RELOAD_NGINX_ON_DEPLOY=0 apenas para o SHA cujo commit contém [preserve-nginx]. O merge final em main deverá portar esse marcador. Não altera nginx.conf, TLS/CSP, flags do Atendimento ou os defaults das demais publicações.
+
+O histórico abaixo registra autorizações e validações anteriores; limites antigos de publicação somente local/stage são substituídos apenas pela autorização atual deste recorte. Evidências do recorte e da instalação serão registradas sem converter testes locais ou do stage completo em prova de produção.
+
+
+## Histórico — escopo anterior de publicação em stage
 
 Em 03/11/2026 o usuário autorizou prosseguir com a conferência final e prévia real do PDF. Base local `origin/stage` `45f06fee`, branch `codex/echo-pdf-preview-20261103`. As fases 1a/1b abaixo são base de regressão, com evidências históricas preservadas; a fase 1a foi publicada em produção e a fase 1b homologada em stage. O ciclo local anterior não autorizava commit/push/publicação; após sua conclusão o usuário autorizou explicitamente publicar esta fase em stage em03/11/2026. Preparar PR/checks/deploy e homologação sintética autenticada; produção permanece fora do pedido. Não há alteração de referências clínicas, interpretação automática, biblioteca de frases, emissão automática ou fluxo dedicado de PA/ultrassonografia.
 
@@ -92,10 +105,10 @@ A proteção por workspace/autosave da edição de laudos existentes integra a f
 ## Requisitos da fase 2 — conferência final e PDF de prévia
 
 - RF-FC2-01: oferecer “Conferir e ver PDF” no formulário novo e na edição ecocardiográfica. Manter emissão/atualização explícitas e seus guards; abrir a prévia é opcional. Geração somente por ação humana; digitação não dispara renderizações remotas.
-- RF-FC2-02: reunir em painel compacto as verificações existentes de unidade, técnica/método, ondas, coerência textual, HP, qualitativa e imagens. Não transformar fusão confirmada, ausência de intervalo aplicável ou HP inativa em erro clínico. Não afirmar normalidade ou conferência completa por ausência de avisos. Cada pendência acionável oferece navegação para a seção/campo pertinente, com foco e teclado.
+- RF-FC2-02: reunir em painel compacto as verificações existentes de unidade, técnica/método, ondas, coerência textual, qualitativa e imagens. O recorte de produção não introduz classificação nem avisos de HP. Não transformar fusão confirmada ou ausência de intervalo aplicável em erro clínico. Não afirmar normalidade ou conferência completa por ausência de avisos. Cada pendência acionável oferece navegação para a seção/campo pertinente, com foco e teclado.
 - RF-FC2-03: usar exatamente o mesmo construtor de payload de emissão em novos laudos e de atualização em existentes. Preservar a diferença entre aplicação estruturada automática do novo e flags de aplicação/manual na edição. Incluir identidade/data/idade/peso, medidas/métodos, conclusão, observações, cabeçalho, PA e descritores ordenados de imagens no snapshot de prévia.
 - RF-FC2-04: endpoint autenticado `POST /api/v1/laudos/editor-drafts/{draft_id}/preview`, com precondição `X-Editor-Owner-Id`, workspace privado salvo e revisão esperada. Corpo `{expected_revision, payload_laudo, paciente?, tutor?, imagens}`. Modo novo/edição e `source` existente `{laudo_id, editor_revision}` são inferidos do workspace próprio, sem ID de origem arbitrário adicional; imagens seguem `{persistidas, removidas_ids, temp_session_id, temp_config}` do editor. Validar owner, sessão/IDs do snapshot, origem/permissão/revisão, vínculos e disponibilidade/validade dos arquivos antes de renderizar. Sem caminhos, URLs, base64 ou arquivos arbitrários fornecidos pelo cliente. Resposta `application/pdf`, inline, `Cache-Control: private, no-store` e identificador do snapshot; rejeições preservam o formulário.
-- RF-FC2-05: projetar conteúdo em memória e compartilhar a chamada canônica `gerar_pdf_laudo_eco` usada no download oficial/portal, com referências, unidades, política de ondas e HP idênticas. Identificar “PRÉVIA — NÃO EMITIDO” em todas as páginas. Não chamar create/update clínico, job/cache de PDF, associação/consumo de imagens, criação de paciente/tutor, sincronização de portal, envio ou assinatura nova. Nenhuma escrita em banco/arquivo oficial; flush prévio do workspace pelo cliente permanece apenas autosave privado.
+- RF-FC2-05: projetar conteúdo em memória e compartilhar a chamada canônica `gerar_pdf_laudo_eco` usada no download oficial/portal, com referências, unidades e política de ondas idênticas ao renderer oficial de produção. Identificar “PRÉVIA — NÃO EMITIDO” em todas as páginas. Não chamar create/update clínico, job/cache de PDF, associação/consumo de imagens, criação de paciente/tutor, sincronização de portal, envio ou assinatura nova. Nenhuma escrita em banco/arquivo oficial; flush prévio do workspace pelo cliente permanece apenas autosave privado.
 - RF-FC2-06: mudança de qualquer conteúdo/ordem/legenda/inclusão/método/confirmacão, usuário, rota ou origem invalida a prévia. Cancelar requisição pendente, ignorar resposta tardia mesmo sem cancelamento efetivo, liberar objectURL ao substituir/fechar/desmontar e oferecer repetição após erro/timeout sem perder campos. Recuperação e resposta incerta de emissão conservam seus bloqueios atuais.
 - RF-FC2-07: manter leitura e ações usáveis em desktop/tela estreita; O visualizador local PDF.js, o título e a alternativa de abrir o PDF são identificados como prévia. Carregar biblioteca/worker empacotados somente sob demanda, sem CDN; renderizar uma página por vez, com contagem, navegação por teclado, largura responsiva e cancelamento/limpeza do documento e da página ao trocar/fechar. Entregar ao leitor os bytes do Blob já validado, sem XHR/fetch da URL blob; esta URL serve apenas ao link de abertura. A leitura gera Uint8Array próprio por tentativa, ignora conclusão tardia e libera Blob/URL ao invalidar ou fechar. Não alterar CSP para viabilizar a leitura. Dados clínicos e URL blob não vão para storage/logs/analytics. Não depender da prévia para salvar o rascunho.
 
@@ -103,7 +116,7 @@ A proteção por workspace/autosave da edição de laudos existentes integra a f
 
 - CA-FC2-01: páginas reais novo/edição enviam payload igual ao da emissão/atualização correspondente; cobrir aplicação estruturada e texto manual preservado, cabeçalho, dados do paciente, PA e imagens ordenadas/excluídas.
 - CA-FC2-02: regressão HTTP com PDFs reais comprova ausência de escrita clínica/portal/job/cache/arquivo, inclusive erro/repetição; auth/owner, origem alterada, sessão alheia, imagem expirada/removida ou de outro laudo são rejeitados.
-- CA-FC2-03: corpo clínico extraído do PDF da prévia corresponde ao oficial para o mesmo conteúdo, exceto marca de prévia. Casos sintéticos incluem M/2D, unidades, fusão felina, HP confirmada/pendente e legendas. Inspecionar páginas renderizadas, sem cortes/sobreposições ou falsa assinatura de emissão.
+- CA-FC2-03: corpo clínico extraído do PDF da prévia corresponde ao oficial para o mesmo conteúdo, exceto marca de prévia. Casos sintéticos incluem M/2D, unidades, fusão felina, legendas e seleção de imagens. Inspecionar páginas renderizadas, sem cortes/sobreposições ou falsa assinatura de emissão.
 - CA-FC2-04: regressões de concorrência provam cancelamento/timeout/erro, alteração durante pedido, resposta antiga após fechar/trocar usuário/rota, revogação de URLs e preservação do autosave/guards. Nenhuma emissão parte do painel.
 - CA-FC2-05: avisos reaproveitam políticas existentes, sem diagnóstico novo nem normalidade fabricada; links levam ao campo/área esperados. Desktop/tela estreita e teclado verificáveis com dados sintéticos.
 - CA-FC2-06: testes focados, suíte relevante, lint/tipos/build, diff check e SDD passam. Publicação/homologação remota continuam pendentes de pedido próprio.
@@ -112,3 +125,35 @@ A proteção por workspace/autosave da edição de laudos existentes integra a f
 ## Aceite da publicação em stage
 
 Conferir PR/head/merge SHA e workflows terminais no mesmo snapshot, preservação/restauração de runtime e migrações, canário/health/readiness/restore, domínio canônico/aliases e API protegida anônima, assets do frontend e worker PDF.js. Exercitar novo/edição com um laudo exclusivamente sintético, prévia antes da emissão/atualização, invalidação/recuperação e PDF oficial; não sobrescrever cópia recuperável anterior de outro teste. Stage sem Meta registrado mantém envios reais não aplicáveis, sem bloquear esse módulo independente. Preservar Atendimento IA ON em produção e OFF em stage; não aplicar baseline antigo OFF de produção. Limites externos/autenticação devem ser registrados como tais e não convertidos em sucesso.
+
+
+### Registro documental de exclusão de HP
+
+O guardrail SDD exige a estrutura de uma feature tocada mesmo quando seu código é temporariamente retirado. O snapshot mantém somente quatro documentos mínimos de eco-probabilidade-hipertensao-pulmonar que registram a exclusão. Não há implementação/avisos/referências/testes de HP na promoção, nem critério clínico declarado aprovado nesses documentos. Os documentos completos, assim como o código, estão no backup1a5b444a e serão restaurados em stage. Guardrail não foi alterado nem recebeu exceção.
+
+
+### P2 da revisão de isolamento — corrigidos e validados em04/11/2026
+
+Os dois comportamentos já existiam no baseline main e foram percebidos pela revisão como diferenças contra o stage completo. A decisão de corrigi-los é explícita neste recorte, pois afetam o PDF e a coerência da prévia/edição; não se promove a auditoria completa de referências nem a classificação HP.
+
+1. PDF: fixture sem imagens reproduziu duas páginas, a última apenas com rodapé. Espaçador5mm agora pertence somente à seção de imagens. A mesma fixture gera uma página em oficial e prévia, com texto/pixels da primeira página preservados. Cache de eco v34 invalida v32; cache de PA continua igual. Sete páginas com imagens dos três fixtures representativos continuam idênticas ao baseline main por texto/geometria/pixels.
+2. Espécie: reproduzidas sete falhas com Dog/Cão/cachorro, incluindo payload com índice0,9 desatualizado após alterarDIVEd25→30mm. Cinco pontos de fonte usam o normalizador exato já existente: apresentação, derivação Cornell, gate2D e predicados das páginas novo/editar. Nenhuma fórmula0,294/0,316, fonte, faixa, domínio, vista ou unidade foi mudada. Literal cadastrado preservado; CaninaXYZ/Dogfish/felinos não recebem índice canino. Regressões cobrem formulário/payload, detalhe e argumentos da comparação de referências.
+
+Validação terminal após as correções: backend2469 testes+2422subtestes,175skips/25warnings,137,83s, papelapi e bloqueio externo; frontend2581Vitest/147arquivos+23Node, tipos/lint/build aprovados; foco193 sobreposto. Backend foco124+428subtestes e13+26subtestes também aprovado. Revisão independente de ambas correções sem achados acionáveis. PostgreSQL4/4 anterior permanece prova do módulo transacional que não mudou nesses P2. Logs/regressões em output/echo-preview-prod-20261104/backend/footer-boundary e output/echo-preview-frontend-20261104/alias-validation.json.
+
+As afirmações de paridade byte a byte de nove arquivos com main e renderer v32 nos registros anteriores se referem ao snapshot antes desses ajustes; não descrevem a fonte final corrigida. A paridade dos seis arquivos de viewer/painel/hook com e541de8c continua válida.
+
+
+### Requisitos adicionais de coerência da promoção
+
+- RF-ISO-01: sem imagens, um espaçador de seção ausente não pode criar página contendo somente rodapé/marca. Oficial e prévia usam a mesma correção e o cache oficial deve distinguir a versão corrigida.
+- RF-ISO-02: aliases caninos já reconhecidos pelo backend devem produzir o mesmo índice na edição, payload, detalhe, comparação e PDF. Usar normalização exata, preservar espécie armazenada e manter fórmulas/unidades/limites existentes. Nomes apenas prefixados por Canina ou Dog não são espécie canina reconhecida.
+
+
+### Fechamento do seletor de método AE/Ao —04/11/2026
+
+A revisão apontou um terceiro gate de espécie literal em ReferenciaComparison: o seletor canino de método AE/Ao ficava oculto para Dog/Cão/cachorro e aparecia indevidamente para CaninaXYZ. O import/predicado usa agora o mesmo normalizeEchoSpecies já produtivo. A seleção permanece explícita, altera somente AE_Ao_metodo e não reescreve espécie nem confirma aquisição automaticamente. Gates que operam a espécie canônica do catálogo continuam preservados.
+
+Regressões reproduziram quatro falhas antes do ajuste e agora cobrem quatro aliases e seis controles desconhecidos/felinos; foco107 aprovado, com seleção/callback único/rerender e objetos/literal preservados. Frontend final2591Vitest/147arquivos+23Node, tipos/lint/build53 e diffcheck aprovados. Backend fonte e resultados2469+2422 permanecem inalterados por este ajuste de UI. Revisão independente sem achados; não há fórmula/faixa/fonte nova. Evidência aeao-alias-validation.json e logs próprios no output/echo-preview-frontend-20261104.
+
+- RF-ISO-03: os aliases caninos reconhecidos recebem o seletor de aquisição AE/Ao com as opções já existentes. Não pré-selecionar método ou alterar o cadastro. Unknowns e felinos não recebem as opções caninas por simples prefixo de nome.
