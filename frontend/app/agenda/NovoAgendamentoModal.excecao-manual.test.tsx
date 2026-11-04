@@ -5,6 +5,7 @@ import { DEFAULT_AGENDA_SEMANAL } from "@/lib/agenda-config";
 
 const apiGet = vi.fn();
 const apiPost = vi.fn();
+const fortinhoConfirm = vi.fn(async (_config?: unknown) => false);
 
 vi.mock("@/lib/axios", () => ({
   default: {
@@ -17,7 +18,7 @@ vi.mock("@/lib/axios", () => ({
 vi.mock("@/components/fortinho/FortinhoProvider", () => ({
   useFortinho: () => ({
     notify: vi.fn(),
-    confirm: vi.fn(async () => false),
+    confirm: (config: unknown) => fortinhoConfirm(config),
   }),
 }));
 
@@ -50,14 +51,14 @@ const OFERTA = {
   proximo: null,
 };
 
-function montarModal() {
+function montarModal(isAdmin = true, defaultDate = "2026-09-15", onSuccess = vi.fn()) {
   return render(
     <NovoAgendamentoModal
       isOpen
-      isAdmin
+      isAdmin={isAdmin}
       onClose={vi.fn()}
-      onSuccess={vi.fn()}
-      defaultDate="2026-09-15"
+      onSuccess={onSuccess}
+      defaultDate={defaultDate}
       defaultTime="09:00"
       agendaSemanal={DEFAULT_AGENDA_SEMANAL}
       agendaFeriados={[]}
@@ -90,6 +91,7 @@ describe("NovoAgendamentoModal - excecao manual de horario", () => {
   beforeEach(() => {
     apiGet.mockReset();
     apiPost.mockReset();
+    fortinhoConfirm.mockReset().mockResolvedValue(false);
 
     apiGet.mockImplementation(async (url: string) => {
       if (url.startsWith("/pacientes")) return { data: { items: [] } };
@@ -191,4 +193,103 @@ describe("NovoAgendamentoModal - excecao manual de horario", () => {
     expect(inputData.disabled).toBe(true);
     expect(inputHora.disabled).toBe(true);
   });
+  it("admin abre a excecao sem ofertas, exige motivo e envia a autorizacao de rota", async () => {
+    const onSuccess = vi.fn();
+    const { container } = montarModal(true, "2099-05-25", onSuccess);
+    await selecionarClinicaEServico();
+    fireEvent.click(screen.getByRole("button", { name: "Usar horário manual como admin" }));
+
+    const inputHora = container.querySelector('input[type="time"]') as HTMLInputElement;
+    const motivo = screen.getByRole("textbox", { name: "Motivo da exceção administrativa" });
+    expect(inputHora).toBeDisabled();
+    fireEvent.change(motivo, { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: /Conceder excecao e liberar horario manual/i }));
+    expect(inputHora).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Salvar Agendamento/i })).toBeDisabled();
+
+    fireEvent.change(motivo, { target: { value: "Admin ja esta no local do atendimento." } });
+    fireEvent.click(screen.getByRole("button", { name: /Conceder excecao e liberar horario manual/i }));
+    expect(inputHora).toBeEnabled();
+    fireEvent.change(inputHora, { target: { value: "08:30" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Marcar como reserva de horário/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Salvar Agendamento/i }));
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith("/agenda", expect.objectContaining({
+      inicio: "2099-05-25T08:30:00",
+      confirmar_conflito_deslocamento: true,
+      excecao_operacional_concedida: true,
+      motivo_excecao_operacional: "Admin ja esta no local do atendimento.",
+    })));
+    const payload = apiPost.mock.calls.find(([url]) => url === "/agenda")?.[1];
+    expect(payload.observacoes).toContain("excecao manual concedida por admin");
+    expect(payload.observacoes).not.toContain("sem opcao aderente");
+    expect(apiPost.mock.calls.some(([url]) => url === "/agenda/assistente/ofertas")).toBe(false);
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+  });
+
+  it("nao oferece excecao direta para nao-admin", async () => {
+    const { container } = montarModal(false);
+    await selecionarClinicaEServico();
+    expect(screen.queryByRole("button", { name: "Usar horário manual como admin" })).not.toBeInTheDocument();
+    expect(container.querySelector('input[type="time"]')).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Salvar Agendamento/i })).toBeDisabled();
+  });
+
+  it("trocar o servico revoga a excecao direta e bloqueia o horario novamente", async () => {
+    const { container } = montarModal();
+    await selecionarClinicaEServico();
+    fireEvent.click(screen.getByRole("button", { name: "Usar horário manual como admin" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Motivo da exceção administrativa" }), {
+      target: { value: "Horario conferido pelo admin." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Conceder excecao e liberar horario manual/i }));
+    expect(container.querySelector('input[type="time"]')).toBeEnabled();
+    const servico = Array.from(container.querySelectorAll("select")).find((select) =>
+      Array.from(select.options).some((option) => option.textContent === SERVICO.nome));
+    fireEvent.change(servico!, { target: { value: "" } });
+    expect(container.querySelector('input[type="time"]')).toBeDisabled();
+    expect(screen.queryByText(/Excecao concedida por admin/i)).not.toBeInTheDocument();
+  });
+
+  it.each([true, false])("primeira saida inviavel permite confirmar ou cancelar o salvamento (%s)", async (confirmar) => {
+    const onSuccess = vi.fn();
+    let tentativas = 0;
+    apiPost.mockImplementation(async (url: string) => {
+      if (url === "/agenda/assistente/ofertas") return { data: { panorama_ofertas: { items: [{
+        ...OFERTA, inicio: "2099-05-25 09:00", fim: "2099-05-25 09:30",
+      }] } } };
+      if (url === "/agenda/assistente/validar-oferta") return { data: { valido: true } };
+      if (url === "/agenda") {
+        tentativas += 1;
+        if (tentativas === 1) throw { response: { status: 409, data: { detail: {
+          codigo: "PRIMEIRA_SAIDA_INVIAVEL", mensagem: "A primeira chegada exige 09:10.", confirmavel: true,
+        } } } };
+        return { data: { id: 901 } };
+      }
+      return { data: { sugerir: false } };
+    });
+    fortinhoConfirm.mockResolvedValue(confirmar);
+    montarModal(true, "2099-05-25", onSuccess);
+    await selecionarClinicaEServico();
+    fireEvent.click(screen.getByRole("button", { name: "Gerar melhor oferta" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cliente aceitou esta oferta" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Salvar Agendamento" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("checkbox", { name: /Marcar como reserva de horário/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar Agendamento" }));
+    await waitFor(() => expect(fortinhoConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Conflito operacional", confirmLabel: "Conceder excecao",
+    })));
+    if (confirmar) {
+      await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+      const gravacoes = apiPost.mock.calls.filter(([url]) => url === "/agenda");
+      expect(gravacoes).toHaveLength(2);
+      expect(gravacoes[0][1].confirmar_conflito_deslocamento).toBe(false);
+      expect(gravacoes[1][1].confirmar_conflito_deslocamento).toBe(true);
+    } else {
+      await screen.findByText(/A primeira chegada exige 09:10/);
+      expect(tentativas).toBe(1);
+      expect(onSuccess).not.toHaveBeenCalled();
+    }
+  });
+
 });
