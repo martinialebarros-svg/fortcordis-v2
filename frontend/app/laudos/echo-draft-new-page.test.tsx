@@ -79,7 +79,82 @@ describe("novo ecocardiograma: recuperação e emissão explícita", () => {
       return { data: { id: 905 } };
     });
   });
-  afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); sessionStorage.clear(); window.history.replaceState(null, "", "/"); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.clear(); sessionStorage.clear(); window.history.replaceState(null, "", "/"); });
+
+  it.each(["Dog", "Cão"])("emite índice recalculado após editar DIVEd de paciente %s", async (species) => {
+    const original = mocks.get.getMockImplementation()!;
+    mocks.get.mockImplementation((url, ...args) => url === "/pacientes/901"
+      ? Promise.resolve({ data: { ...patient, especie: species, peso_kg: 10 } }) : original(url, ...args));
+    const view = await open();
+    mocks.imported = { DIVEd: "25", DIVEd_normalizado: "0.9" };
+    fireEvent.click(screen.getByRole("button", { name: "Importar estudo sintético" }));
+    fireEvent.click(screen.getByRole("button", { name: "Medidas" }));
+    fireEvent.change(input("DIVEd (mm - Diâmetro interno do VE em diástole)"), { target: { value: "30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Emitir laudo" }));
+    await waitFor(() => expect(mocks.post.mock.calls.some(([url]) => url === "/laudos")).toBe(true));
+    const payload = mocks.post.mock.calls.find(([url]) => url === "/laudos")![1];
+    expect(payload).toMatchObject({ paciente: { especie: species }, medidas: { DIVEd: "30", DIVEd_normalizado: "1.52" } });
+    expect(input("DIVEd normalizado (DIVEd [cm] / peso^0,294)")).toHaveValue("1.52");
+    view.unmount();
+  });
+
+  it("prévia usa o mesmo payload da emissão, salva só a cópia privada e não emite ao conferir", async () => {
+    vi.stubGlobal("URL", Object.assign(class extends URL {}, {
+      createObjectURL: vi.fn(() => "blob:qa-preview"), revokeObjectURL: vi.fn(),
+    }));
+    const original = mocks.post.getMockImplementation()!;
+    mocks.post.mockImplementation((url, ...args) => String(url).endsWith("/preview")
+      ? Promise.resolve({ data: new Blob(["%PDF-1.4\nQA"], { type: "application/pdf" }) }) : original(url, ...args));
+    const view = await open();
+    mocks.imported = { DIVEd: "25", DIVES: "12", Onda_E: "0.9", Onda_A: "0.7" };
+    fireEvent.click(screen.getByRole("button", { name: "Importar estudo sintético" }));
+    fireEvent.click(screen.getByRole("button", { name: "Conferir e ver PDF" }));
+    await screen.findByTitle("Prévia do laudo em PDF — rascunho");
+    const preview = mocks.post.mock.calls.find(([url]) => String(url).endsWith("/preview"))!;
+    expect(preview[1]).toMatchObject({ expected_revision: expect.any(Number),
+      payload_laudo: { paciente: { nome: patient.nome }, medidas: { DIVEd: "25", Onda_E: "0.9" } },
+      imagens: { persistidas: [], temp_config: [], temp_session_id: lastSnapshot().sessionId } });
+    expect(preview[2]).toMatchObject({ responseType: "blob", headers: { "X-Editor-Owner-Id": 7 } });
+    expect(clinicalWrites()).toEqual([]);
+    expect(mocks.router.push).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Emitir laudo" }));
+    await waitFor(() => expect(mocks.post.mock.calls.some(([url]) => url === "/laudos")).toBe(true));
+    expect(mocks.post.mock.calls.find(([url]) => url === "/laudos")![1]).toEqual(preview[1].payload_laudo);
+    view.unmount();
+  });
+
+  it("edição invalida uma prévia pronta e a navegação abre a seção correspondente", async () => {
+    const revoke = vi.fn();
+    vi.stubGlobal("URL", Object.assign(class extends URL {}, {
+      createObjectURL: vi.fn(() => "blob:qa-preview"), revokeObjectURL: revoke,
+    }));
+    mocks.post.mockResolvedValue({ data: new Blob(["%PDF-1.4\nQA"], { type: "application/pdf" }) });
+    const view = await open();
+    fireEvent.click(screen.getByRole("button", { name: "Conferir e ver PDF" }));
+    await screen.findByTitle("Prévia do laudo em PDF — rascunho");
+    fireEvent.change(input("Nome do Paciente"), { target: { value: "QA NOME REVISTO" } });
+    await screen.findByText(/O conteúdo mudou/);
+    expect(screen.queryByTitle("Prévia do laudo em PDF — rascunho")).not.toBeInTheDocument();
+    expect(revoke).toHaveBeenCalledWith("blob:qa-preview");
+    fireEvent.click(screen.getByText(/ponto\(s\) para conferir/));
+    fireEvent.click(screen.getByRole("button", { name: "Revisar PDF sem imagens selecionadas" }));
+    await screen.findByTestId("draft-images");
+    expect(document.querySelector('[data-echo-review-target="images"]')).toBeInTheDocument();
+    expect(clinicalWrites()).toEqual([]);
+    view.unmount();
+  });
+
+  it("aviso diastólico abre a aba Medidas e leva o foco ao seletor de ondas", async () => {
+    const view = await open();
+    mocks.imported = { Onda_E: "0.9", Onda_A: "0.7" };
+    fireEvent.click(screen.getByRole("button", { name: "Importar estudo sintético" }));
+    fireEvent.click(screen.getByText(/ponto\(s\) para conferir/));
+    fireEvent.click(screen.getByRole("button", { name: "Revisar Ondas transmitrais E/A" }));
+    const wave = await screen.findByLabelText("Ondas transmitrais E/A");
+    await waitFor(() => expect(wave).toHaveFocus());
+    expect(clinicalWrites()).toEqual([]);
+    view.unmount();
+  });
 
   it("salva só workspace e recupera literalmente medidas importadas sem criar laudo ou cadastro", async () => {
     let view = await open();

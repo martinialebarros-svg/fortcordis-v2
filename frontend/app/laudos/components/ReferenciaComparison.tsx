@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { CheckCircle, AlertCircle, AlertTriangle, ArrowUp, ArrowDown, Minus } from "lucide-react";
-import { isFelineEchoSpecies } from "@/lib/echo-species";
+import { isFelineEchoSpecies, normalizeEchoSpecies } from "@/lib/echo-species";
 import { compararMedidasDiastolicas, useReferenciaEco } from "../hooks/useReferenciaEco";
 import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
@@ -63,7 +63,7 @@ export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaCh
   const aeAoCanino = Number(String(medidasSeguras.AE_Ao ?? medidasSeguras.LA_Ao ?? "").replace(",", "."));
   const unidadesAmbiguas = ambiguousEchoLengthKeys(medidas);
   const origemAeAoAmbigua = ["AE_Ao", "Aorta", "Atrio_esquerdo"].some((key) => unidadesAmbiguas.has(key));
-  const metodoAeAoCanino = /^canin/i.test(especie ?? "") && !origemAeAoAmbigua && Number.isFinite(aeAoCanino) && aeAoCanino > 0 ? (
+  const metodoAeAoCanino = normalizeEchoSpecies(especie) === "Canina" && !origemAeAoAmbigua && Number.isFinite(aeAoCanino) && aeAoCanino > 0 ? (
     <div className="p-3 bg-blue-50 rounded-lg space-y-2 text-left">
       <label htmlFor="metodo-ae-ao-canino" className="block text-sm font-medium text-blue-900">Método de obtenção de AE/Ao</label>
       <select id="metodo-ae-ao-canino" value={medidas.AE_Ao_metodo || ""}

@@ -78,7 +78,7 @@ describe("páginas reais: aliases felinos, efeitos e payload de salvamento", () 
     mocks.post.mockResolvedValue({ data: { id: 904 } });
     mocks.put.mockImplementation(async (url, body) => ({ data: url.startsWith("/laudos/editor-drafts/")
       ? { draft_id: url.split("/").at(-1), revision: body.expected_revision + 1, context_key: body.context_key, snapshot: body.snapshot, updated_at: "2026-11-01T12:00:00Z" }
-      : { id: 904 } }));
+      : url.endsWith("/editor-update") ? { id: 904, request_id: body.request_id, updated: true } : { id: 904 } }));
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -105,7 +105,7 @@ describe("páginas reais: aliases felinos, efeitos e payload de salvamento", () 
     mocks.get.mockImplementation(async (url: string) => {
       if (url.startsWith("/laudos/editor-drafts/")) throw { response: { status: 404 } };
       if (url === "/pacientes/901") return { data: patient };
-      if (url === "/laudos/904") return { data: { id: 904, tipo: "ecocardiograma", paciente_id: 901,
+      if (url === "/laudos/904") return { data: { editor_revision: "echo-v1:" + "a".repeat(64), id: 904, tipo: "ecocardiograma", paciente_id: 901,
         paciente: patient, titulo: "QA HISTORICO ALIAS", diagnostico: "QA conclusão preservada", observacoes: "QA observação",
         data_exame: "2026-10-14", status: "Rascunho", medidas: stored,
         descricao: montarDescricaoEcocardiograma(stored, EMPTY_QUALITATIVE), imagens: [] } };
@@ -136,13 +136,14 @@ describe("páginas reais: aliases felinos, efeitos e payload de salvamento", () 
     // Read the visible probe after actual effects, before clicking Save; do not
     // assert first, so a baseline failure still yields the corrupted payload.
     const observedBeforeSave = selectedRatios(liveMeasurements());
-    fireEvent.click(screen.getByRole("button", { name: mode === "novo" ? "Emitir laudo" : "Salvar Laudo" }));
+    fireEvent.click(screen.getByRole("button", { name: mode === "novo" ? "Emitir laudo" : "Atualizar laudo" }));
     const transport = mode === "novo" ? mocks.post : mocks.put;
-    const target = mode === "novo" ? "/laudos" : "/laudos/904";
+    const target = mode === "novo" ? "/laudos" : "/laudos/904/editor-update";
     await waitFor(() => expect(transport.mock.calls.some(([url]) => url === target)).toBe(true));
-    const payload = JSON.parse(JSON.stringify(transport.mock.calls.find(([url]) => url === target)![1]));
+    const envelope = JSON.parse(JSON.stringify(transport.mock.calls.find(([url]) => url === target)![1]));
+    const payload = mode === "editar" ? envelope.payload_laudo : envelope;
     const patientPayload = mode === "editar"
-      ? JSON.parse(JSON.stringify(mocks.put.mock.calls.find(([url]) => url === "/pacientes/901")![1])) : payload.paciente;
+      ? mocks.put.mock.calls.filter(([url]) => url.startsWith("/laudos/editor-drafts/")).at(-1)![1].snapshot.paciente : payload.paciente;
     const description = mode === "editar" ? payload.descricao : montarDescricaoEcocardiograma(payload.medidas, EMPTY_QUALITATIVE);
     const parsed = parseStoredEchoMeasurements(null, description);
     const expected = scenario === "separadas" ? COMPUTED : HISTORIC;

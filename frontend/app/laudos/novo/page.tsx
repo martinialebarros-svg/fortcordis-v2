@@ -14,6 +14,9 @@ import {
 import XmlUploader from "../components/XmlUploader";
 import ImageHeaderUploader from "../components/ImageHeaderUploader";
 import ImageUploader from "../components/ImageUploader";
+import EchoFinalReview from "../components/EchoFinalReview";
+import { buildEchoFinalReviewIssues } from "@/lib/echo-final-review";
+import { echoEditorImageSelection, echoPreviewSnapshotKey, navigateEchoFinalReview } from "@/lib/echo-preview-request";
 import EcoStudyImportUploader from "../components/EcoStudyImportUploader";
 import EcocardiogramaEstruturadoEditor from "../components/EcocardiogramaEstruturadoEditor";
 import EcocardiogramaEstruturadoBiblioteca from "../components/EcocardiogramaEstruturadoBiblioteca";
@@ -54,7 +57,7 @@ import { useEchoMeasurements } from "../hooks/useEchoMeasurements";
 import { NEW_REPORT_PROTOCOL_KEYS } from "@/lib/echo-new-report-defaults";
 import { useEchoEditorDraft } from "../hooks/useEchoEditorDraft";
 import EchoDraftStatus from "../components/EchoDraftStatus";
-import { serializeDraftImages, type EchoEditorDraftSnapshot } from "@/lib/echo-editor-draft";
+import { cloneEchoEditorDraftSnapshot, serializeDraftImages, type EchoEditorDraftSnapshot } from "@/lib/echo-editor-draft";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -630,7 +633,7 @@ export default function NovoLaudoPage() {
         : null;
 
     const divedNormalizadoCalculado =
-      paciente.especie === "Canina" && divedMm !== null && divedMm > 0 && peso !== null && peso > 0
+      normalizeEchoSpecies(paciente.especie) === "Canina" && divedMm !== null && divedMm > 0 && peso !== null && peso > 0
         ? formatar2Casas((divedMm / 10.0) / Math.pow(peso, 0.294))
         : null;
 
@@ -880,6 +883,10 @@ export default function NovoLaudoPage() {
     };
   };
 
+  // Keep serialization metadata stable while the clinical snapshot is unchanged,
+  // so the optional preview and the explicit emission share the same intent.
+  const estruturaParaPayload = useMemo(() => serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado), [ecocardiogramaEstruturado]);
+
   const montarPayloadEcocardiograma = (status = "Finalizado") => {
     const medidasPayload = {
       ...medidas,
@@ -889,7 +896,7 @@ export default function NovoLaudoPage() {
       ? { id: parseInt(clinicaId), nome: clinicaNome }
       : clinicaNome;
     const ecoEstruturadoPayload =
-      serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado);
+      estruturaParaPayload;
     const legadoEco = ecoEstruturadoPayload?.usar_no_laudo
       ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
       : null;
@@ -917,6 +924,32 @@ export default function NovoLaudoPage() {
       ecocardiograma_cabecalho: ecocardiogramaCabecalho,
       ecocardiograma_estruturado: ecoEstruturadoPayload,
     };
+  };
+
+  const requestPdfPreview = async (signal: AbortSignal): Promise<Blob> => {
+    if (!ensureDraftOwner() || !draftUserId || !editorDraft.canEmit || submission || emissionInProgress.current) {
+      throw new Error("Conclua a recuperação e confira a sessão antes de gerar a prévia.");
+    }
+    if (!paciente.nome.trim()) throw new Error("Preencha o nome do paciente antes de gerar a prévia.");
+    const captured = cloneEchoEditorDraftSnapshot(draftSnapshotRef.current);
+    const key = echoPreviewSnapshotKey(captured);
+    if (captured.imagens.some((image) => !image.uploaded || !image.tempId)) {
+      throw new Error("Reenvie ou remova as imagens pendentes antes de gerar a prévia.");
+    }
+    const payload = montarPayloadEcocardiograma("Finalizado");
+    const assertCurrent = () => {
+      if (signal.aborted || !ensureDraftOwner() || echoPreviewSnapshotKey(draftSnapshotRef.current) !== key) {
+        throw new DOMException("O conteúdo da prévia mudou.", "AbortError");
+      }
+    };
+    const saved = await editorDraft.flush(captured);
+    assertCurrent();
+    if (!saved) throw new Error("O rascunho não foi confirmado para a prévia.");
+    const response = await api.post(`/laudos/editor-drafts/${saved.draft_id}/preview`, {
+      expected_revision: saved.revision, payload_laudo: payload, imagens: echoEditorImageSelection(captured),
+    }, { signal, responseType: "blob", timeout: 30_000, headers: { "X-Editor-Owner-Id": draftUserId } });
+    assertCurrent();
+    return response.data;
   };
 
   const ensureDraftOwner = () => {
@@ -1313,6 +1346,16 @@ export default function NovoLaudoPage() {
         </div>}
         {draftImageNotice && <div role="status" className="my-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{draftImageNotice}</div>}
 
+        {draftApplies && <EchoFinalReview
+          snapshotKey={echoPreviewSnapshotKey(draftSnapshot)} scopeKey={`${draftUserId}:${draftContextKey}`}
+          disabled={loading || leaving || !contextReady || Boolean(submission) || !draftUserId || !editorDraft.canEmit}
+          issues={buildEchoFinalReviewIssues({ measurements: medidas, species: paciente.especie,
+            qualitative: qualitativaParaConferencia, conclusion: conclusaoParaConferencia,
+            patientName: paciente.nome, qualitativeApplied: ecocardiogramaEstruturado.usar_no_laudo,
+            images: imagens.map((image) => ({ uploaded: image.uploaded, included: image.incluirNoPdf !== false })) })}
+          imageCount={imagens.filter((image) => image.uploaded && image.incluirNoPdf !== false).length}
+          requestPreview={requestPdfPreview} onNavigate={(target) => navigateEchoFinalReview(target, setAba)} />}
+
         <fieldset disabled={loading || leaving || !contextReady || (draftApplies && ["loading", "recovery"].includes(editorDraft.status))} className="min-w-0">
         <div className="fc-report-editor-layout">
           {/* Coluna Esquerda - Importadores */}
@@ -1506,7 +1549,7 @@ export default function NovoLaudoPage() {
               {/* Conteúdo das Abas */}
               <div className="fc-report-editor-body">
                 {aba === "paciente" && (
-                  <div className="space-y-4">
+                  <div data-echo-review-target="patient" className="space-y-4">
                     <h3 className="font-medium text-gray-900 mb-4">Dados do Paciente</h3>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1553,6 +1596,9 @@ export default function NovoLaudoPage() {
                         >
                           <option value="Canina">Canina</option>
                           <option value="Felina">Felina</option>
+                          {normalizeEchoSpecies(paciente.especie) === "Canina" && paciente.especie !== "Canina" && (
+                            <option value={paciente.especie}>{paciente.especie} (canina)</option>
+                          )}
                           {isFelineEchoSpecies(paciente.especie) && paciente.especie !== "Felina" && (
                             <option value={paciente.especie}>{paciente.especie} (felina)</option>
                           )}
@@ -1744,15 +1790,16 @@ export default function NovoLaudoPage() {
 
                 {aba === "medidas" && (
                   <div className="space-y-6">
-                    <EchoUnitReview
+                    <div data-echo-review-target="units"><EchoUnitReview
                       measurements={medidas}
                       onConfirm={(key, unit) => handleMedidaChange(confirmedUnitKey(key), unit)}
-                    />
+                    /></div>
                     <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
                       <label className="block text-sm font-semibold text-gray-900">
                         Técnica do estudo do ventrículo esquerdo exibida no PDF
                       </label>
                       <select
+                        data-echo-review-target="technique"
                         value={medidas["VE_tecnica_relatorio"] || ""}
                         onChange={(event) =>
                           handleMedidaChange("VE_tecnica_relatorio", event.target.value)
@@ -1779,12 +1826,12 @@ export default function NovoLaudoPage() {
                           value={medidas["DIVEd"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd", v)}
                         />
-                        {paciente.especie === "Canina" && <MedidaInput
+                        {normalizeEchoSpecies(paciente.especie) === "Canina" && <MedidaInput
                           label="DIVEd normalizado (DIVEd [cm] / peso^0,294)"
                           value={medidas["DIVEd_normalizado"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd_normalizado", v)}
                           readOnly
-                          reference={paciente.especie === "Canina" && (parsePesoKg(paciente.peso) ?? 0) >= 2.2 && (parsePesoKg(paciente.peso) ?? 0) <= 95
+                          reference={normalizeEchoSpecies(paciente.especie) === "Canina" && (parsePesoKg(paciente.peso) ?? 0) >= 2.2 && (parsePesoKg(paciente.peso) ?? 0) <= 95
                             ? "Cornell 2004 (amostra de cães adultos, Modo M): 1,27–1,85"
                             : "Faixa aplicável não cadastrada"}
                         />}
@@ -1895,7 +1942,7 @@ export default function NovoLaudoPage() {
 
                         <hr className="border-gray-200 my-4" />
 
-                        <h4 className="font-semibold text-gray-900 text-sm">Diastólica</h4>
+                        <h4 data-echo-review-target="diastolic" className="font-semibold text-gray-900 text-sm">Diastólica</h4>
                         <FelineWaveReview especie={paciente.especie} medidas={medidas}
                           onMedidaChange={handleMedidaChange}
                           onDiscard={(kind) => setMedidas(prev => discardFelineFusedMeasurements(prev, paciente.especie, kind))}
@@ -2139,7 +2186,7 @@ export default function NovoLaudoPage() {
                 )}
 
                 {aba === "qualitativa" && (
-                  <div className="space-y-4">
+                  <div data-echo-review-target="qualitative" className="space-y-4">
                     <EchoNarrativeConsistencyNotice
                       species={paciente.especie}
                       measurements={medidas}
@@ -2188,7 +2235,7 @@ export default function NovoLaudoPage() {
                 )}
 
                 {aba === "imagens" && (
-                  <div className="space-y-4">
+                  <div data-echo-review-target="images" className="space-y-4">
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="font-medium text-gray-900">Imagens do Exame</h3>
                       <span className="text-sm text-gray-500">
@@ -2392,7 +2439,7 @@ export default function NovoLaudoPage() {
                 )}
 
                 {aba === "referencias" && (
-                  <div className="space-y-4">
+                  <div data-echo-review-target="references" className="space-y-4">
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="font-medium text-gray-900">Tabelas de Referência</h3>
                       <a 

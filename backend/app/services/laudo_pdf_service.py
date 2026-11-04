@@ -22,7 +22,7 @@ from app.utils.paciente_helpers import data_civil_referencia, extrair_idade_paci
 
 
 LAUDO_PDF_RENDERER_VERSION = "2026-09-24-eco-presentation-v2"
-LAUDO_PDF_ECO_RENDERER_VERSION = "2026-10-27-eco-extrapolated-age-note-v32"
+LAUDO_PDF_ECO_RENDERER_VERSION = "2026-11-04-eco-reviewed-preview-layout-v34"
 
 
 @dataclass(frozen=True)
@@ -164,6 +164,81 @@ def _preparar_imagens_pdf(imagens: list[Any]) -> tuple[list[bytes], list[dict[st
     return imagens_bytes, imagens_eco
 
 
+def load_laudo_pdf_configuration(db: Session, user_id: int) -> tuple[Any, Any]:
+    """One branding source for the official renderer and the read-only preview."""
+    from app.models.configuracao import Configuracao, ConfiguracaoUsuario
+
+    config_sistema = config_usuario = None
+    try:
+        config_sistema = db.query(Configuracao).first()
+    except Exception as exc:
+        db.rollback()
+        print(f"[WARN] Configuracao indisponivel para PDF: {exc}")
+    try:
+        config_usuario = db.query(ConfiguracaoUsuario).filter(
+            ConfiguracaoUsuario.user_id == user_id
+        ).first()
+    except Exception as exc:
+        db.rollback()
+        print(f"[WARN] ConfiguracaoUsuario indisponivel para PDF: {exc}")
+    return config_sistema, config_usuario
+
+
+def render_echo_pdf_content(
+    db: Session, current_user: User, *, paciente: dict[str, Any],
+    medidas: dict[str, Any], qualitativa: dict[str, Any], conclusao: str,
+    clinica: str, pressao_arterial: dict[str, Any] | None,
+    imagens: list[dict[str, Any]], config_sistema: Any, config_usuario: Any,
+    preview: bool = False,
+) -> bytes:
+    """Canonical echo projection used by official downloads, portal and preview.
+
+    This function only reads reference/branding data. Clinical persistence,
+    publication, PDF jobs and file-cache writes belong to separate callers.
+    """
+    from app.services.echo_reference_resolver import load_echo_reference
+    from app.utils.pdf_laudo import gerar_pdf_laudo_eco
+
+    referencia_eco = None
+    peso = paciente.get("peso")
+    if paciente.get("especie") and peso:
+        try:
+            weight = float(str(peso).replace(",", "."))
+        except (ValueError, TypeError):
+            weight = 0
+        if weight > 0:
+            try:
+                referencia_eco = load_echo_reference(
+                    db, species=paciente["especie"], weight_kg=weight,
+                    medidas=medidas, idade=paciente.get("idade"),
+                )
+            except Exception as exc:
+                db.rollback()
+                print(f"[WARN] ReferenciaEco indisponivel para PDF: {exc}")
+
+    logomarca = assinatura = texto_rodape = None
+    if config_sistema:
+        if config_sistema.mostrar_logomarca and config_sistema.logomarca_dados:
+            logomarca = config_sistema.logomarca_dados
+        texto_rodape = config_sistema.texto_rodape_laudo
+    if config_usuario and config_usuario.assinatura_dados:
+        assinatura = config_usuario.assinatura_dados
+    elif config_sistema and config_sistema.mostrar_assinatura and config_sistema.assinatura_dados:
+        assinatura = config_sistema.assinatura_dados
+    crmv = config_usuario.crmv if config_usuario else ""
+    dados_eco = {
+        "paciente": dict(paciente), "medidas": medidas, "qualitativa": qualitativa,
+        "conclusao": conclusao, "clinica": clinica, "referencia_eco": referencia_eco,
+        "pressao_arterial": pressao_arterial, "imagens": imagens,
+        "veterinario_nome": current_user.nome, "veterinario_crmv": crmv,
+    }
+    return gerar_pdf_laudo_eco(
+        dados_eco, logomarca_bytes=logomarca, assinatura_bytes=assinatura,
+        nome_veterinario=current_user.nome, crmv=crmv, texto_rodape=texto_rodape,
+        **({"preview": True} if preview else {}),
+    )
+
+
 def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> GeneratedLaudoPdf:
     from app.api.v1.endpoints import laudos as laudos_endpoint
     from app.models.clinica import Clinica
@@ -171,9 +246,7 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
     from app.models.imagem_laudo import ImagemLaudo
     from app.models.paciente import Paciente
     from app.models.tutor import Tutor
-    from app.services.echo_reference_resolver import load_echo_reference
     from app.utils.pdf_laudo import (
-        gerar_pdf_laudo_eco,
         gerar_pdf_laudo_pressao,
         gerar_pdf_laudo_ultrassom_abdominal,
     )
@@ -203,21 +276,7 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
         imagens = _listar_imagens_incluidas_no_pdf(db, laudo_id)
         imagens_bytes, imagens_eco = _preparar_imagens_pdf(imagens)
 
-        config_sistema = None
-        config_usuario = None
-        try:
-            config_sistema = db.query(Configuracao).first()
-        except Exception as exc:
-            db.rollback()
-            print(f"[WARN] Configuracao indisponivel para PDF: {exc}")
-
-        try:
-            config_usuario = db.query(ConfiguracaoUsuario).filter(
-                ConfiguracaoUsuario.user_id == current_user.id
-            ).first()
-        except Exception as exc:
-            db.rollback()
-            print(f"[WARN] ConfiguracaoUsuario indisponivel para PDF: {exc}")
+        config_sistema, config_usuario = load_laudo_pdf_configuration(db, current_user.id)
 
         data_exame = laudo.data_exame or laudo.data_laudo
         if data_exame and isinstance(data_exame, str):
@@ -340,39 +399,14 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
             qualitativa = extrair_qualitativa_ecocardiograma_da_descricao(laudo.descricao)
             pressao_arterial = laudos_endpoint._extrair_pressao_arterial_de_anexos(laudo.anexos)
 
-            referencia_eco = None
-            if paciente and paciente.especie and paciente.peso_kg and paciente.peso_kg > 0:
+            if paciente and paciente.peso_kg and paciente.peso_kg > 0:
                 dados_paciente["peso"] = str(paciente.peso_kg)
-                try:
-                    referencia_eco = load_echo_reference(
-                        db, species=paciente.especie, weight_kg=paciente.peso_kg,
-                        medidas=medidas,
-                        idade=dados_paciente.get("idade"),
-                    )
-                except Exception as exc:
-                    db.rollback()
-                    print(f"[WARN] ReferenciaEco indisponivel para PDF: {exc}")
-
-            dados_eco = {
-                "paciente": dados_paciente,
-                "medidas": medidas,
-                "qualitativa": qualitativa,
-                "conclusao": laudo.diagnostico or "",
-                "clinica": clinica_nome,
-                "referencia_eco": referencia_eco,
-                "pressao_arterial": pressao_arterial,
-                "imagens": imagens_eco,
-                "veterinario_nome": current_user.nome,
-                "veterinario_crmv": config_usuario.crmv if config_usuario else "",
-            }
-
-            pdf_bytes = gerar_pdf_laudo_eco(
-                dados_eco,
-                logomarca_bytes=logomarca,
-                assinatura_bytes=assinatura,
-                nome_veterinario=current_user.nome,
-                crmv=config_usuario.crmv if config_usuario else "",
-                texto_rodape=texto_rodape,
+            pdf_bytes = render_echo_pdf_content(
+                db, current_user, paciente=dados_paciente, medidas=medidas,
+                qualitativa=qualitativa, conclusao=laudo.diagnostico or "",
+                clinica=clinica_nome, pressao_arterial=pressao_arterial,
+                imagens=imagens_eco, config_sistema=config_sistema,
+                config_usuario=config_usuario,
             )
             filename = f"{filename_base}.pdf"
 

@@ -86,7 +86,16 @@ describe("deriveAutomaticEchoMeasurements", () => {
       expect(historical).toEqual(before);
     });
 
-  it("mantém os cálculos caninos existentes sem ampliar a aplicabilidade pelo novo classificador", () => {
+  it.each(["Dog", "Cão", "cachorro"])("recalcula índices caninos após editar DIVEd sem manter o histórico em %s", (species) => {
+    const stored = { DIVEd: "25", DIVEd_normalizado: "0.9", DIVEd_2D: "32", DIVEd_normalizado_2D: "0.8", VE_vista_2D: "eixo_curto" };
+    const changed = { ...stored, DIVEd: "30" };
+    const derived = deriveAutomaticEchoMeasurements(changed, 10, species, "5 anos");
+    expect(derived).toMatchObject({ DIVEd_normalizado: "1.52", DIVEd_normalizado_2D: "1.55" });
+    expect({ ...changed, ...derived }.DIVEd_normalizado).toBe("1.52");
+    expect(stored.DIVEd_normalizado).toBe("0.9");
+  });
+
+  it("mantém fórmulas caninas e usa os aliases exatos do classificador compartilhado", () => {
     const measurements = {
       Onda_E: "1.08", Onda_A: "0.95", TRIV: "40", e_doppler: "0.16", a_doppler: "0.08",
       DIVEd: "30", DIVEd_2D: "32", VE_vista_2D: "eixo_curto",
@@ -96,9 +105,14 @@ describe("deriveAutomaticEchoMeasurements", () => {
       DIVEd_normalizado: "1.52", DIVEd_normalizado_2D: "1.55",
     });
     const dog = deriveAutomaticEchoMeasurements(measurements, 10, "Dog");
-    expect(dog).not.toHaveProperty("DIVEd_normalizado");
-    expect(dog).not.toHaveProperty("DIVEd_normalizado_2D");
+    expect(dog).toMatchObject({ DIVEd_normalizado: "1.52", DIVEd_normalizado_2D: "1.55" });
     expect(dog.E_A).toBe("1.14");
+  });
+
+  it.each(["CaninaXYZ", "Dogfish", "Felina", "Cat"])("não deriva índices caninos para espécie não canina %s", (species) => {
+    const derived = deriveAutomaticEchoMeasurements({ DIVEd: "30", DIVEd_2D: "32", VE_vista_2D: "eixo_curto" }, 10, species, "5 anos");
+    expect(derived).not.toHaveProperty("DIVEd_normalizado");
+    expect(derived).not.toHaveProperty("DIVEd_normalizado_2D");
   });
 
   it("exige separação felina confirmada após editar ou reimportar origens de um contexto fundido", () => {
