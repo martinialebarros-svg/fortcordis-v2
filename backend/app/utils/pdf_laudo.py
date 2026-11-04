@@ -2044,7 +2044,7 @@ def gerar_pdf_laudo_eco(
 
         # 6. Espaço antes das imagens (rodapé será adicionado automaticamente em todas as páginas)
         elements.append(Spacer(1, 5*mm))
-        
+
         # 7. Imagens (se houver) - Layout conforme modelo de referência
         if imagens:
             paciente_imagens = dados_pdf.get("paciente") or {}
