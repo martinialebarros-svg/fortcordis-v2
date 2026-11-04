@@ -1,5 +1,18 @@
 # Intent — Fluxo de confecção do laudo ecocardiográfico
 
+## Promoção isolada autorizada —04/11/2026
+
+Pedido humano atual: “Publique em produção a conferência final e a prévia do PDF do laudo.” A entrega inclui a fase1b de rascunho/atualização atômica **como dependência necessária e explícita da prévia na edição**, usada na homologação do caso sintético63. A fase1a já está em produção. O recorte parte de main3f134432 e reaplica os commits funcionais49ca4381/a5ed822a/e541de8c, resolvendo contextos contra o baseline de produção. Nenhuma migração nova:105 já integra main.
+
+Ficam fora do recorte: Gestão/migração101, comparação anterior, classificação/avisos de HP, novas auditorias de referências/aliases e mudanças de WhatsApp/egress/host-routing que só estão em stage. Os cálculos/referências e o renderer oficial v32 de produção são conservados. O helper de avisos usa o normalizador já existente em main; a dependência opcional de HP foi retirada. Viewer/hook/painel e seis respectivos testes permanecem byte idênticos ao corretivo e541de8c homologado.
+
+Stage completo1a5b444a será preservado por ref antes da substituição temporária por um snapshot isolado. A promoção permanece pelo PR protegido direto stage→main, após CI/deploy/homologação do recorte. Depois, restaurar o conteúdo completo de stage com ancestry de main, preservando a salvaguarda operacional e os registros. Não publicar os módulos excluídos nem usar cherry-pick/PR de feature direto em main.
+
+A salvaguarda documentada em deploy-preserve-nginx seleciona ENABLE_NGINX_HTTP2=0 e RELOAD_NGINX_ON_DEPLOY=0 apenas para o SHA cujo commit contém [preserve-nginx]. O merge final em main deverá portar esse marcador. Não altera nginx.conf, TLS/CSP, flags do Atendimento ou os defaults das demais publicações.
+
+O histórico abaixo registra autorizações e validações anteriores; limites antigos de publicação somente local/stage são substituídos apenas pela autorização atual deste recorte. Evidências do recorte e da instalação serão registradas sem converter testes locais ou do stage completo em prova de produção.
+
+
 ## Pedido e autorização
 
 Em 01/11/2026, o usuário pediu um plano de implementação e autorizou iniciar as melhorias de fluxo e de apresentação do laudo ecocardiográfico. A primeira entrega foi dividida em fase 1a, para novos ecocardiogramas com área de trabalho separada, e fase 1b, para edição de laudos existentes. A fase 1a e a correção complementar de seleção de imagens em lote foram posteriormente publicadas em produção pela PR #539; a restauração de stage foi concluída pela PR #540, conforme evidências já verificadas neste chat e registradas em `verify.md`.

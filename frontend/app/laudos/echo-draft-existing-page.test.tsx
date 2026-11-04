@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EditarLaudoPage from "./[id]/editar/page";
 import { montarDescricaoEcocardiograma, criarEcocardiogramaEstruturadoInicial } from "@/lib/ecocardiograma-estruturado";
 import type { EchoEditorDraftResponse } from "@/lib/echo-editor-draft";
-import { makePulmonaryReviewStamp } from "@/lib/echo-pulmonary-probability";
 
 const qa = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn(), delete: vi.fn(),
   router: { push: vi.fn(), replace: vi.fn() }, id: "905", records: new Map<string, EchoEditorDraftResponse>(),
@@ -146,30 +145,6 @@ describe("ecocardiograma existente: cópia privada e atualização explícita", 
     fireEvent.click(resume); await screen.findByDisplayValue("QA CÓPIA PRIVADA");
     expect(JSON.parse(screen.getByTestId("measurements").textContent!)).toMatchObject(measures);
     expect(privateWritesOnly()).toBe(true); view.unmount();
-  });
-
-  it("recupera a avaliação de HP na cópia privada sem alterar a conclusão e envia a revisão na atualização explícita", async () => {
-    const hp = { HP_ativa: "sim", HP_TRV: "adequado", HP_VSVD: "sem_obstrucao", HP_suporte_automatico: "sim",
-      HP_ventriculos: "sem_sinais", HP_arteria_pulmonar: "sem_sinais", HP_atrio_cava: "sem_sinais", IT_Vmax: "3.2" };
-    const stamp = makePulmonaryReviewStamp(hp, "Canina");
-    official.paciente = { ...patient, especie: "Canina" };
-    official.medidas = { ...measures, ...hp, HP_revisao: stamp };
-    const view = await open();
-    fireEvent.click(screen.getByRole("button", { name: "Medidas" }));
-    expect(screen.getByText("Probabilidade intermediária de hipertensão pulmonar")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Observações da avaliação de HP (opcional)"), { target: { value: "QA observação HP\nSegunda linha." } });
-    await saveDraft();
-    expect(lastSnapshot().measurementState.measurements).toMatchObject({ HP_revisao: stamp, HP_observacoes: "QA observação HP\nSegunda linha." });
-    expect(lastSnapshot().conteudo.diagnostico).toBe("Conclusão oficial QA.");
-    expect(privateWritesOnly()).toBe(true);
-    view.unmount(); render(<EditarLaudoPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Retomar rascunho" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar laudo" })).toBeEnabled());
-    expect(JSON.parse(screen.getByTestId("measurements").textContent!)).toMatchObject({ HP_revisao: stamp, HP_observacoes: "QA observação HP\nSegunda linha." });
-    fireEvent.click(screen.getByRole("button", { name: "Atualizar laudo" }));
-    await waitFor(() => expect(updates()).toHaveLength(1));
-    expect(updates()[0][1].payload_laudo.diagnostico).toBe("Conclusão oficial QA.");
-    expect(updates()[0][1].payload_laudo.descricao).toContain('- HP_observacoes: "QA observação HP\\nSegunda linha."');
   });
 
   it("recupera flags estruturadas e o ditado não transforma Finalizado em Rascunho", async () => {

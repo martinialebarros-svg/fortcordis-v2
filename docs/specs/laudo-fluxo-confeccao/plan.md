@@ -1,5 +1,18 @@
 # Plan — Fluxo de confecção do laudo ecocardiográfico
 
+## Promoção isolada autorizada —04/11/2026
+
+Pedido humano atual: “Publique em produção a conferência final e a prévia do PDF do laudo.” A entrega inclui a fase1b de rascunho/atualização atômica **como dependência necessária e explícita da prévia na edição**, usada na homologação do caso sintético63. A fase1a já está em produção. O recorte parte de main3f134432 e reaplica os commits funcionais49ca4381/a5ed822a/e541de8c, resolvendo contextos contra o baseline de produção. Nenhuma migração nova:105 já integra main.
+
+Ficam fora do recorte: Gestão/migração101, comparação anterior, classificação/avisos de HP, novas auditorias de referências/aliases e mudanças de WhatsApp/egress/host-routing que só estão em stage. Os cálculos/referências e o renderer oficial v32 de produção são conservados. O helper de avisos usa o normalizador já existente em main; a dependência opcional de HP foi retirada. Viewer/hook/painel e seis respectivos testes permanecem byte idênticos ao corretivo e541de8c homologado.
+
+Stage completo1a5b444a será preservado por ref antes da substituição temporária por um snapshot isolado. A promoção permanece pelo PR protegido direto stage→main, após CI/deploy/homologação do recorte. Depois, restaurar o conteúdo completo de stage com ancestry de main, preservando a salvaguarda operacional e os registros. Não publicar os módulos excluídos nem usar cherry-pick/PR de feature direto em main.
+
+A salvaguarda documentada em deploy-preserve-nginx seleciona ENABLE_NGINX_HTTP2=0 e RELOAD_NGINX_ON_DEPLOY=0 apenas para o SHA cujo commit contém [preserve-nginx]. O merge final em main deverá portar esse marcador. Não altera nginx.conf, TLS/CSP, flags do Atendimento ou os defaults das demais publicações.
+
+O histórico abaixo registra autorizações e validações anteriores; limites antigos de publicação somente local/stage são substituídos apenas pela autorização atual deste recorte. Evidências do recorte e da instalação serão registradas sem converter testes locais ou do stage completo em prova de produção.
+
+
 ## Estratégia de entrega
 
 Entregar incrementos pequenos e verificáveis. Cada fase deve preservar o preenchimento clínico existente e ter critérios próprios de aceitação. Preparar e validar localmente; publicação em stage e promoção a produção exigem o pedido correspondente e a verificação da versão efetivamente instalada.
@@ -100,3 +113,8 @@ Pedido humano “publique”, após proposta explícita de stage. Fila consultad
 PR #546 instalada no SHA873a94a5 com gates/workflows aprovados. Rascunho recuperado e PDF canônico válido; PDF.js falhou na leitura XHR da URL blob. Reprodução no Next compilado confirmou falha status0 por URL e sucesso dos mesmos bytes como Uint8Array. Entregar Blob validado ao visualizador, criar bytes próprios por tentativa e conservar cancelamento/isolamento/revogação/link, sem relaxar CSP ou alterar conteúdo clínico. Testar regressões e componente real compilado, publicar correção por PR base stage e concluir QA autenticada sintética antes de encerrar. Produção continua fora da autorização.
 
 Corretivo implementado nos três componentes/hooks e três testes:31foco e2789globais+23Node, lint/tipos/build aprovados; revisão independente sem bloqueadores. Next compilado real exibiu1→3 viaCUA. Preparar PR stage e aguardar CI/deploy, sem promover produção.
+
+
+### Encerramento de QA autorizada em stage —03→04/11/2026
+
+Após retorno do controle do navegador e pedido explícito do usuário, a prévia instalada e a atualização sintética63 foram conferidas. PDF.js1→3, teclado/390px, invalidação/índice, edição+recuperação com oficial intacto, atualização única no mesmoID e PDF revisão2 correspondente à prévia passaram; reabertura sem recuperação antiga confirmada. Substitui a pendência de homologação remota do viewer acima, no escopo e com os limites de verify/qa63-final. Sem novo código/deploy ou produção.
