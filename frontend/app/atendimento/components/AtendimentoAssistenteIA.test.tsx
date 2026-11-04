@@ -108,6 +108,19 @@ describe("AtendimentoAssistenteIA", () => {
     expect(screen.getByRole("link", { name: /Baixar áudio original/ })).toBeTruthy();
     expect(original.descartar).not.toHaveBeenCalled();
   });
+  it("mostra o uso da referência e preserva nome divergente recebido da IA", async () => {
+    const original = vi.mocked(useAtendimentoAudio).getMockImplementation()!(1, 7, 1);
+    vi.mocked(useAtendimentoAudio).mockReturnValue({ ...original, audio: new File(["audio"], "consulta.webm") });
+    const aviso = "O nome cadastrado foi usado apenas como pista de grafia. O texto recebido da IA é exibido sem substituições automáticas de nomes; confira diferenças com o áudio.";
+    vi.mocked(api.post).mockResolvedValue({ data: { texto: "Paciente Órion-X9, sem desmaios.", modelo: "gpt-transcribe", avisos: [aviso] } });
+    await preparar();
+    fireEvent.click(screen.getByRole("button", { name: "Transcrever áudio" }));
+    await screen.findByRole("button", { name: "Áudio transcrito" });
+    expect(screen.getByText(aviso)).toBeTruthy();
+    const texto = (screen.getByLabelText("Transcrição para revisão") as HTMLTextAreaElement).value;
+    expect(texto).toContain("Paciente Órion-X9, sem desmaios.");
+    expect(texto).not.toContain("Paciente Teste");
+  });
   it("adiciona novos trechos preservando texto revisado e impede retranscrição duplicada", async () => {
     const audioState = vi.mocked(useAtendimentoAudio).getMockImplementation()!(1, 7, 1);
     vi.mocked(useAtendimentoAudio).mockReturnValue({ ...audioState, audio: new File(["primeiro"], "primeiro.webm") });

@@ -9,6 +9,8 @@ O veterinário divide sua atenção entre paciente/tutor e digitação; fotos/PD
 
 ## Escopo autorizado
 
+Atualização de04/11/2026: o usuário autorizou publicar a referência do nome cadastrado na transcrição, verificando a fila e preservando trabalhos paralelos. Produção foi ativada em03/11 e deve permanecer ON; stage permanece OFF. Essa autorização substitui os limites históricos de preparação/desativação abaixo somente para esta melhoria. Mantém revisão individual e proibição de correções silenciosas, dados reais nos testes e envio WhatsApp.
+
 Implementação local de áudio/transcrição, análise de fotos/PDFs e preparação de documentos para WhatsApp. Preferência do usuário por GPT-6.1 Sol preservada; API documenta esforço máximo `max`, enquanto Ultra é configuração do Codex. A implementação não promete ausência de erros de IA.
 
 A base foi publicada com IA desativada em 26/10. Em 27/10, o usuário autorizou a continuação e reutilização da credencial existente para preparar a homologação. A fase atual permite testes sintéticos de provedor e correções preparatórias em stage, respeitando a fila concorrente; não equivale a aprovação clínica nem ativação da IA em produção. O dispositivo móvel informado é Android com Chrome.
