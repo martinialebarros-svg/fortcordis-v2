@@ -117,3 +117,19 @@ Sem mudança de modelo, credencial, captura de áudio, API pública, schema, mig
 ## Publicação de tutor/doutor autorizada — 04/11/2026
 
 Pedido explícito: publicar em produção verificando fila e preservando os trabalhos paralelos. Escopo funcional restrito às pistas de contexto/vocabulário e aviso; sem substituição posterior, alteração de modelo, flag, captura, schema ou dados. Main observado4c109329 e stage completo07ab0677 serão reconferidos após liberação. Promoção protegida de snapshot isolado e restauração integral de stage são obrigatórias; IA ON em produção/OFF em stage e ingress preservados. Esta autorização não comprova instalação nem permite apagar backups/cache de outros trabalhos.
+
+## Evidência produtiva do ciclo tutor/doutor
+
+Produção instalada e verificada em `6185b334a058889cc9dceaaca2394570ac6f769b`, PR #560, workflow `41953329675` terminal/sucesso. Árvore exata da candidata, somente quatro caminhos próprios sobre main4c109329; mensagem efetiva do merge contém `[preserve-nginx]`. Política Nginx0/0, seis runtime preservados/restaurados, migrações, canário autenticado e backup/restore aprovados.
+
+Smokes independentes confirmaram status autenticado200/anônimo401, bundles servidos iguais ao build, referência autoritativa, quatro pistas de vocabulário e aviso. Cinco casos offline do código instalado preservaram exatamente o retorno simulado, sem substituições de tutor/doutor ou nomes. Nenhuma nova chamada paga foi executada: os quatro testes reais da candidata/35critérios continuam a evidência de reconhecimento, não uma nova transcrição pública pós-deploy. IA ON em produção/OFF em stage, configuração e arquivos de runtime preservados; processos de stage não mudaram durante a instalação produtiva.
+
+A primeira execução do FrontendCI de produção teve todas as2597asserções aprovadas, mas falhou por callback de timer preexistente após teardown (windowundefined); log preservado. Foco23/23 e uma única reexecução do job falho foram aprovados sem mudar fonte, timeout, asserções ou configuração. Causa observada está no lifecycle da página antiga; não é correção implementada por esta melhoria. A falha inicial anterior de recuperação/linkVeroriginal e sua reexecução também permanecem nos artefatos.
+
+OwnerBackup liberou a janela após cópia/integridade/retenção. Limpeza exclusiva do cache de downloads FFmpeg foi autorizada por mensagem humana direta, executada com guards e comparações de binários/runtime, recuperando≈6GB; dados, uploads, logs e backups não foram removidos por essa limpeza. Espaço e inodes são reconferidos antes de cada deploy. Não foi necessária a limpeza de cache npm adicional cogitada no preflight.
+
+Restauração agora preparada para devolver todo o stage07ab0677, mantendo provider/test iguais ao novo main e atualizando apenas estes dois SDD próprios com evidência produtiva. Todos os outros caminhos devem permanecer byte/modo idênticos ao snapshot salvo, incluindo Gestão, HP/cacheECOv36, comparador, workflows e migrações. O P2 preexistente de vozHP permanece fora da melhoria e somente em stage; não foi promovido ou corrigido por inferência. Checks, workflow e smokes da restauração ainda são gate posterior ao estado descrito aqui. Provas finais em `output/atendimento-tutor-release-20261104/RELATORIO.md` e JSONs; não declarar restauração concluída apenas por preparar esta árvore.
+
+## Publicação da correção de latência
+
+A correção de latência da análise só de texto foi promovida de Stage para main no PR #569, SHA ebec9de6aaa8c52109873d9febd00947cd4b9bf7. O fluxo protegido, os checks do PR e a prova de equivalência da árvore mantiveram em produção somente os dez caminhos da correção. A execução da instalação e os smokes são registrados no workflow de deploy de main. A transcrição longa fictícia do serviço candidato concluiu em 16,033 s e passou em 10/10 critérios específicos. Nenhuma fonte clínica real foi usada na validação.
