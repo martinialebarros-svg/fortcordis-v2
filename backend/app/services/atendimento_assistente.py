@@ -41,12 +41,20 @@ class ArquivoAnalise:
     paginas: int
 
 
+def _esforco_analise(*, com_arquivos: bool) -> str:
+    effort = settings.ATENDIMENTO_IA_REASONING_EFFORT
+    if not com_arquivos and effort in {"high", "xhigh", "max"}:
+        return "medium"
+    return effort
+
+
 def feature_status() -> dict[str, Any]:
     return {
         "habilitado": bool(settings.ATENDIMENTO_IA_ENABLED),
         "configurado": bool(str(settings.OPENAI_API_KEY or "").strip()),
         "modelo": settings.ATENDIMENTO_IA_MODEL,
         "esforco": settings.ATENDIMENTO_IA_REASONING_EFFORT,
+        "esforco_texto": _esforco_analise(com_arquivos=False),
         "modelo_transcricao": settings.ATENDIMENTO_IA_TRANSCRIPTION_MODEL,
         "revisao_obrigatoria": True,
         "limites": {
@@ -206,7 +214,7 @@ def validar_resultado(output: AnaliseClinica, *, transcript: str, context: dict,
         result["pendencias"].append("Corrija ou remova os arquivos com identificação divergente ou não confirmada e refaça a análise.")
     result["campos"] = valid_fields
     result["avisos"].append(REVIEW_NOTICE)
-    return {**result, "modelo": settings.ATENDIMENTO_IA_MODEL, "esforco": settings.ATENDIMENTO_IA_REASONING_EFFORT, "revisao_obrigatoria": True, "bloqueado_integracao": blocked}
+    return {**result, "modelo": settings.ATENDIMENTO_IA_MODEL, "esforco": _esforco_analise(com_arquivos=bool(files)), "revisao_obrigatoria": True, "bloqueado_integracao": blocked}
 
 
 INSTRUCTIONS = """Você auxilia um médico-veterinário a REVISAR um atendimento, em português.
@@ -306,7 +314,7 @@ class OpenAIAtendimentoProvider:
         try:
             response = self.client.responses.parse(
                 model=settings.ATENDIMENTO_IA_MODEL,
-                reasoning={"effort": settings.ATENDIMENTO_IA_REASONING_EFFORT},
+                reasoning={"effort": _esforco_analise(com_arquivos=bool(files))},
                 instructions=INSTRUCTIONS,
                 input=[{"role": "user", "content": content}],
                 text_format=AnaliseClinica,

@@ -1,4 +1,5 @@
 import copy
+import json
 import os
 import sys
 import unittest
@@ -198,13 +199,22 @@ class ProviderTests(unittest.TestCase):
 
     def test_current_models_no_retry_no_fallback_no_store(self):
         self.client.responses.parse.return_value = SimpleNamespace(status="completed", output_parsed=AnaliseClinica.model_validate(raw_output()))
-        self.provider.analisar(transcript=TRANSCRIPT, context=CONTEXT, files=[], user_id=1)
+        transcript = TRANSCRIPT.ljust(service.TRANSCRICAO_MAX_CHARS - len(TRANSCRIPT), "x") + TRANSCRIPT
+        with patch.object(settings, "ATENDIMENTO_IA_REASONING_EFFORT", "max"):
+            result = self.provider.analisar(transcript=transcript, context=CONTEXT, files=[], user_id=1)
+            self.assertEqual(service.feature_status()["esforco_texto"], "medium")
         kwargs = self.client.responses.parse.call_args.kwargs
         self.assertEqual(kwargs["model"], "gpt-6.1-sol")
-        self.assertEqual(kwargs["reasoning"], {"effort": "max"})
+        self.assertEqual(kwargs["reasoning"], {"effort": "medium"})
+        self.assertEqual(result["esforco"], "medium")
+        self.assertEqual(json.loads(kwargs["input"][0]["content"][0]["text"])["transcricao"], transcript)
         self.assertFalse(kwargs["store"])
         self.assertNotIn("tools", kwargs)
         self.assertEqual(service.OpenAI.call_args.kwargs["max_retries"], 0)
+
+    def test_text_analysis_preserves_lower_configured_effort(self):
+        with patch.object(settings, "ATENDIMENTO_IA_REASONING_EFFORT", "low"):
+            self.assertEqual(service.feature_status()["esforco_texto"], "low")
 
     def test_pdf_and_image_are_embedded_without_external_urls(self):
         image = service.ArquivoAnalise("02_foto.png", "image/png", png_bytes(), 1)
@@ -213,8 +223,12 @@ class ProviderTests(unittest.TestCase):
         extra["arquivo"] = image.nome
         output["fontes"].append(extra)
         self.client.responses.parse.return_value = SimpleNamespace(status="completed", output_parsed=AnaliseClinica.model_validate(output))
-        self.provider.analisar(transcript=TRANSCRIPT, context=CONTEXT, files=[FILE, image], user_id=1)
-        content = self.client.responses.parse.call_args.kwargs["input"][0]["content"]
+        with patch.object(settings, "ATENDIMENTO_IA_REASONING_EFFORT", "max"):
+            result = self.provider.analisar(transcript=TRANSCRIPT, context=CONTEXT, files=[FILE, image], user_id=1)
+        kwargs = self.client.responses.parse.call_args.kwargs
+        self.assertEqual(kwargs["reasoning"], {"effort": "max"})
+        self.assertEqual(result["esforco"], "max")
+        content = kwargs["input"][0]["content"]
         pdf = next(item for item in content if item["type"] == "input_file")
         self.assertTrue(pdf["file_data"].startswith("data:application/pdf;base64,"))
         self.assertEqual(pdf["detail"], "high")

@@ -1,14 +1,14 @@
 # Spec — Assistência multimodal no atendimento
 
-Data: 2026-11-04
-Status: produção verificada; restauração integral de stage em validação
+Data: 2026-11-05
+Status: in_progress (correção de latência em validação)
 
 ## Requisitos
 
 - RF-001: gravar áudio de atendimento salvo com permissão do microfone, cronômetro, nível, parada, reprodução/download e aviso de interrupção/limite. Captura independe de conexão durante a gravação.
 - RF-002: solicitar confirmação de autorização do tutor para captura/processamento externo; transcrever com modelo específico, preservar original e permitir editar texto antes da classificação.
 - RF-010: obter o nome do paciente exclusivamente do cadastro carregado pelo servidor e usá-lo como pista literal de grafia na transcrição, com `keywords` e contexto delimitado. Não aceitar nome indicado pelo cliente como referência, acrescentar nomes ausentes nem substituir nomes divergentes após a resposta. Informar nos avisos quando a referência foi enviada ou omitida; revisão do áudio continua obrigatória.
-- RF-003: analisar transcrição e até cinco JPEG/PNG/WebP/PDF, 10 MiB cada e 20 MiB total, com GPT-6.1 Sol/max via Responses. Fotos/PDFs mantêm nomes e fontes; não há busca de URL externa.
+- RF-003: analisar transcrição e até cinco JPEG/PNG/WebP/PDF, 10 MiB cada e 20 MiB total, com GPT-6.1 Sol via Responses. Análises só de texto limitam o esforço a `medium` e respeitam `low` quando configurado. Com exames, aplica-se o esforço configurado (padrão `max`). A transcrição revisada é enviada integralmente dentro do limite de 80.000 caracteres. Fotos/PDFs mantêm nomes e fontes; não há busca de URL externa.
 - RF-004: classificar fatos explícitos em campos do atendimento, mostrar evidência, achados documentais, pendências e sugestões de plano/conduta separadas. Valores ausentes/ambíguos permanecem não resolvidos; não inferir normalidade, posologia ou decisão como fato.
 - RF-005: exigir identidade conciliada para conteúdo de exames; bloquear integração de identidade divergente/ausente e fontes inválidas. O veterinário confere documentos e aprova cada campo; textos acrescentam ao formulário sem apagar conteúdo existente.
 - RF-006: guardar originais no prontuário por botão próprio usando upload autenticado e deduplicação existentes; analisar não significa anexar.
@@ -31,7 +31,7 @@ Status: produção verificada; restauração integral de stage em validação
 
 Prefixo `/api/v1/atendimentos/{atendimento_id}/assistente`:
 
-- `GET /status`: disponibilidade, configuração, modelos efetivos e IDs do usuário/paciente autenticados, sem chave.
+- `GET /status`: disponibilidade, configuração, modelos efetivos, esforço com exames (`esforco`) e só texto (`esforco_texto`), e IDs do usuário/paciente autenticados, sem chave.
 - `POST /transcrever`: multipart `audio`, `consentimento`; responde `texto`, `modelo`, `avisos`.
 - `POST /analisar`: multipart `transcricao`, campo repetido `arquivos`, `consentimento`; responde `modelo`, `esforco`, `campos`, `achados_exames`, `sugestoes`, `pendencias`, `avisos`, fontes e estado de bloqueio.
 
@@ -40,12 +40,13 @@ A análise considera contexto clínico já salvo. Resultados são rascunhos na U
 ## Critérios de aceitação
 
 - CA-001: indisponibilidade, falta de consentimento, formato/limite inválido e falta de permissão impedem envio ao provedor.
-- CA-002: transcrição usa modelo/idioma atuais; análise usa Sol 6.1/max, JSON schema e `store=false`; recusa/incompletude/identidade não conciliada nunca aplicam dados.
+- CA-002: transcrição usa modelo/idioma atuais; análise usa Sol 6.1, o esforço correspondente à seleção, JSON schema e `store=false`; recusa/incompletude/identidade não conciliada nunca aplicam dados.
 - CA-003: nenhum campo é incorporado só por receber resultado; clique individual acrescenta revisão, preserva conteúdo e não duplica por clique repetido.
 - CA-004: erro de rede/transcrição conserva áudio para nova tentativa; troca de paciente não entrega resultado a outro registro.
 - CA-005: PDF validado, destinatário confirmado, edição invalida arquivo; fallback informa que o usuário precisa anexar o PDF manualmente.
 - CA-006: testes focados, TypeScript, lint, build, diff e guardrail passam, com lacunas de homologação registradas.
 - CA-007: referência compatível melhora a grafia no cenário fictício testado; fala com nome diferente ou sem nome permanece fiel ao áudio. Backend e UI exibem o texto retornado sem troca de nomes e mostram aviso explícito sobre a pista. Nome vazio, longo ou com controles/`<`/`>` é omitido da pista, sem truncamento ou falha da transcrição.
+- CA-009: a UI mostra o esforço efetivo antes de analisar e no resultado. Uma transcrição sintética longa deve retornar em até 60 segundos com esforço `medium` e passar nos critérios específicos de negações, peso, unidades, evidência literal e revisão. Falha conserva as fontes para revisão ou nova tentativa.
 
 ## Referência de nome — pedido de 2026-11-04
 
@@ -116,16 +117,3 @@ Sem mudança de modelo, credencial, captura de áudio, API pública, schema, mig
 ## Publicação de tutor/doutor autorizada — 04/11/2026
 
 Pedido explícito: publicar em produção verificando fila e preservando os trabalhos paralelos. Escopo funcional restrito às pistas de contexto/vocabulário e aviso; sem substituição posterior, alteração de modelo, flag, captura, schema ou dados. Main observado4c109329 e stage completo07ab0677 serão reconferidos após liberação. Promoção protegida de snapshot isolado e restauração integral de stage são obrigatórias; IA ON em produção/OFF em stage e ingress preservados. Esta autorização não comprova instalação nem permite apagar backups/cache de outros trabalhos.
-
-
-## Evidência produtiva do ciclo tutor/doutor
-
-Produção instalada e verificada em `6185b334a058889cc9dceaaca2394570ac6f769b`, PR #560, workflow `41953329675` terminal/sucesso. Árvore exata da candidata, somente quatro caminhos próprios sobre main4c109329; mensagem efetiva do merge contém `[preserve-nginx]`. Política Nginx0/0, seis runtime preservados/restaurados, migrações, canário autenticado e backup/restore aprovados.
-
-Smokes independentes confirmaram status autenticado200/anônimo401, bundles servidos iguais ao build, referência autoritativa, quatro pistas de vocabulário e aviso. Cinco casos offline do código instalado preservaram exatamente o retorno simulado, sem substituições de tutor/doutor ou nomes. Nenhuma nova chamada paga foi executada: os quatro testes reais da candidata/35critérios continuam a evidência de reconhecimento, não uma nova transcrição pública pós-deploy. IA ON em produção/OFF em stage, configuração e arquivos de runtime preservados; processos de stage não mudaram durante a instalação produtiva.
-
-A primeira execução do FrontendCI de produção teve todas as2597asserções aprovadas, mas falhou por callback de timer preexistente após teardown (windowundefined); log preservado. Foco23/23 e uma única reexecução do job falho foram aprovados sem mudar fonte, timeout, asserções ou configuração. Causa observada está no lifecycle da página antiga; não é correção implementada por esta melhoria. A falha inicial anterior de recuperação/linkVeroriginal e sua reexecução também permanecem nos artefatos.
-
-OwnerBackup liberou a janela após cópia/integridade/retenção. Limpeza exclusiva do cache de downloads FFmpeg foi autorizada por mensagem humana direta, executada com guards e comparações de binários/runtime, recuperando≈6GB; dados, uploads, logs e backups não foram removidos por essa limpeza. Espaço e inodes são reconferidos antes de cada deploy. Não foi necessária a limpeza de cache npm adicional cogitada no preflight.
-
-Restauração agora preparada para devolver todo o stage07ab0677, mantendo provider/test iguais ao novo main e atualizando apenas estes dois SDD próprios com evidência produtiva. Todos os outros caminhos devem permanecer byte/modo idênticos ao snapshot salvo, incluindo Gestão, HP/cacheECOv36, comparador, workflows e migrações. O P2 preexistente de vozHP permanece fora da melhoria e somente em stage; não foi promovido ou corrigido por inferência. Checks, workflow e smokes da restauração ainda são gate posterior ao estado descrito aqui. Provas finais em `output/atendimento-tutor-release-20261104/RELATORIO.md` e JSONs; não declarar restauração concluída apenas por preparar esta árvore.

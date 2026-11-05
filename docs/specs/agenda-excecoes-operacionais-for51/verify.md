@@ -2,7 +2,7 @@
 
 Data: 2026-05-21
 Responsavel: Martiniano + Codex
-Status: incremento de 04/11/2026 publicado e verificado em producao
+Status: in-progress
 
 ## 1) Matriz de rastreabilidade
 
@@ -48,7 +48,7 @@ Resumo dos resultados:
 ## 5) Decisao de release
 
 - [x] Aprovado para stage.
-- [x] Aprovado para producao.
+- [ ] Aprovado para producao.
 - [ ] Nao aprovado.
 
 ## Ciclo de 04/11/2026 — excecao administrativa direta
@@ -106,52 +106,3 @@ descrito aqui, com Stage primeiro, promocao isolada e preservacao dos trabalhos
 paralelos. Substitui a ausencia de autorizacao registrada no encerramento local;
 nao transforma checks locais em homologacao remota. Preparacao em andamento,
 aguardando conclusao da restauracao de Stage pelo Atendimento (PR #554).
-
-## Homologacao instalada e producao — 04/11/2026
-
-Este resultado substitui a condicao anterior de "somente local" para o
-incremento CA-ADM-01 a CA-ADM-05. O usuario autorizou a publicacao neste chat.
-
-- Stage: PR #555, SHA `f98a6193f6eae63f1439c57a415c7fd000f36cb5`, workflow
-  `41853728979` terminal SUCCESS. Todos os gates, migracoes, canario autenticado
-  e backup/restore aprovados; seis arquivos runtime preservados/restaurados.
-- Producao: PR direta #556 (Stage → main), SHA
-  `4c10932977da200f0a476d109e5cfbab04566730`, workflow `41857157429` terminal
-  SUCCESS. Arvore exata do candidato homologado, diff de nove caminhos contra
-  main anterior; sem migracao ou infraestrutura nova.
-- Logs produtivos confirmam `[preserve-nginx]`, politica HTTP2/reload `0/0` e
-  ambos os skips. Runtime/SQLite/ambiente exceto identidade de deploy, IA e
-  Nginx iguais ao baseline. Stage manteve seus processos durante producao;
-  producao manteve os seus durante a homologacao anterior de Stage.
-- Nos dois ambientes, **seis testes sinteticos novos passaram no codigo
-  instalado**, com rede negada e SQLite temporario. Conferem 403/422/409,
-  concessao, persistencia do escopo, autor/motivo e auditoria. Nao gravam no
-  PostgreSQL operacional nem enviam mensagens.
-- Smoke autenticado nos dois: `/agenda` e `/agenda/fullcalendar` 200,
-  identidade admin 200, API anonima401; **20 bundles** conferidos por hash
-  contra o build instalado, com os tres marcadores novos. Sessoes temporarias
-  do canario encerradas localmente; sem alegar revogacao global de JWTs.
-- Canonical e dois aliases reais de cada ambiente aprovados 200/401. Os hosts
-  institucionais `.com.br`/`www` mantem403 historico separado da aplicacao.
-- UI autenticada de producao: botao direto visivel; motivo vazio manteve hora
-  bloqueada; motivo e concessao liberaram data/hora; revogacao bloqueou hora
-  novamente. Formulario sintetico vazio descartado sem acionar Salvar, gerar
-  ofertas ou escolher paciente/clinica real. Aba original do usuario preservada.
-
-O primeiro verificador de texto nao reconhecia escapes Latin-1 `\x` do SWC;
-a deteccao foi corrigida sem relaxar a comparacao de hashes. Um primeiro probe
-de dominio usou um alias nao pertencente ao ambiente; o alvo foi corrigido para
-`www.stage.fortcordis.com.br`, confirmado nas fontes do release anterior. Os
-resultados originais foram preservados junto dos resultados finais aprovados.
-Esses ajustes foram nos verificadores locais, sem alteracao adicional do produto.
-
-A revisao automatica Claude foi pulada por saldo indisponivel, sem threads
-acionaveis; nao se declara revisao independente. Nao houve excecao de gate,
-Google real, IA paga, envio de mensagem ou criacao de agendamento real pelos
-testes. Um salvamento operacional real nao foi exercitado.
-
-A PR #557 devolve a composicao completa de Stage; seu workflow e a verificacao
-final de preservacao ficam registrados na PR e nos artefatos desta publicacao.
-Backup remoto: `codex/agenda-stage-full-before-excecao-20261104`. Artefatos:
-`output/agenda-excecao-admin-release-20261104/`, incluindo provas de arvores,
-logs resumidos, smokes finais, runtime, preservacao e `production-ui.json`.
