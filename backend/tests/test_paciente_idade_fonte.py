@@ -120,6 +120,8 @@ def test_reference_handles_utc_midnight_without_changing_civil_exam_dates():
     from datetime import datetime, timezone
     from app.utils.paciente_idade import referencia_documento
     instant = datetime(2026, 11, 5, 1, 15, tzinfo=timezone.utc)
+    assert referencia_documento(None, date(2018, 8, 15)) == date(2018, 8, 15)
+    assert referencia_documento(None, datetime(2018, 8, 15)) == date(2018, 8, 15)
     assert referencia_documento(None, instant) == date(2026, 11, 4)
     assert referencia_documento(None, instant.replace(tzinfo=None)) == date(2026, 11, 4)
     assert referencia_documento("2026-11-04T00:00:00Z") == date(2026, 11, 4)
