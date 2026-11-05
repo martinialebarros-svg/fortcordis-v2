@@ -1,5 +1,7 @@
 "use client";
 
+import { PatientAgeFields } from "@/components/pacientes/PatientAgeFields";
+import { calcularIdadeComFonte, patientAgeForm, importedPatientAge, type PatientAgeValue } from "@/lib/paciente-idade";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -187,7 +189,7 @@ const OPCOES_ESTADO_PACIENTE = [
 const incluirOpcaoAtual = (opcoes: string[], valorAtual: string) =>
   valorAtual && !opcoes.includes(valorAtual) ? [valorAtual, ...opcoes] : opcoes;
 
-interface DadosPaciente {
+interface DadosPaciente extends PatientAgeValue {
   id?: number;
   nome: string;
   tutor: string;
@@ -300,7 +302,7 @@ export default function NovoLaudoPage() {
     raca: "",
     especie: "Canina",
     peso: "",
-    idade: "",
+    ...patientAgeForm(),
     sexo: "Macho",
     telefone: "",
     data_exame: "",
@@ -657,6 +659,13 @@ export default function NovoLaudoPage() {
     }
   }, [medidas, paciente.peso, paciente.especie, paciente.idade]);
 
+  useEffect(() => {
+    const resolved = calcularIdadeComFonte(paciente, paciente.data_exame);
+    if (resolved !== null && resolved !== paciente.idade) {
+      setPaciente((prev) => ({ ...prev, idade: resolved }));
+    }
+  }, [paciente.idade_fonte, paciente.idade_informada, paciente.idade_referencia, paciente.data_nascimento, paciente.data_exame]);
+
   const carregarClinicas = async () => {
     try {
       const items = await listarTodasClinicas<Clinica>();
@@ -728,7 +737,8 @@ export default function NovoLaudoPage() {
           dadosPaciente?.peso_kg !== null && dadosPaciente?.peso_kg !== undefined
             ? String(dadosPaciente.peso_kg)
             : prev.peso,
-        idade: extrairIdadePaciente(dadosPaciente || {}) || prev.idade,
+        ...patientAgeForm(dadosPaciente || {}),
+        idade: extrairIdadePaciente(dadosPaciente || {}),
         sexo: normalizarSexoPaciente(dadosPaciente?.sexo || prev.sexo || "Macho") || "Macho",
         telefone: agendamento.telefone || prev.telefone,
         data_exame:
@@ -774,7 +784,8 @@ export default function NovoLaudoPage() {
           dadosPaciente?.peso_kg !== null && dadosPaciente?.peso_kg !== undefined
             ? String(dadosPaciente.peso_kg)
             : prev.peso,
-        idade: extrairIdadePaciente(dadosPaciente || {}) || prev.idade,
+        ...patientAgeForm(dadosPaciente || {}),
+        idade: extrairIdadePaciente(dadosPaciente || {}),
         sexo: normalizarSexoPaciente(dadosPaciente?.sexo || prev.sexo || "Macho") || "Macho",
         data_exame: prev.data_exame || operationalTodayDateInput(),
       }));
@@ -798,7 +809,7 @@ export default function NovoLaudoPage() {
         raca: dados.paciente.raca || anterior.raca || "",
         especie: dados.paciente.especie || anterior.especie || "Canina",
         peso: pesoImportado !== null ? String(pesoImportado) : anterior.peso || "",
-        idade: dados.paciente.idade || anterior.idade || "",
+        ...importedPatientAge(anterior, dados.paciente, dados.paciente.data_exame?.substring(0, 10) || anterior.data_exame),
         sexo: normalizarSexoPaciente(dados.paciente.sexo || anterior.sexo || "Macho") || "Macho",
         telefone: dados.paciente.telefone || anterior.telefone || "",
         data_exame: dados.paciente.data_exame
@@ -1662,18 +1673,7 @@ export default function NovoLaudoPage() {
                         </select>
                       </div>
                       
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Idade
-                        </label>
-                        <input
-                          type="text"
-                          value={paciente.idade}
-                          onChange={(e) => setPaciente({...paciente, idade: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                          placeholder="Ex: 5 anos"
-                        />
-                      </div>
+                      <PatientAgeFields value={paciente} referenceDate={paciente.data_exame} onChange={(patch) => setPaciente((prev) => ({ ...prev, ...patch }))} />
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">

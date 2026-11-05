@@ -2,7 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -97,6 +97,8 @@ class AtendimentoDocumentDemographicsTest(unittest.TestCase):
             raca="SRD",
             sexo="Fêmea",
             peso_kg=8.4,
+            nascimento="2026-07-29", idade_fonte="idade", idade_informada="12 anos",
+            idade_referencia=date(2025, 7, 30),
         )
         tutor = Tutor(id=20, nome="João Felipe Corrigido")
         atendimento_item = AtendimentoClinico(
@@ -129,6 +131,7 @@ class AtendimentoDocumentDemographicsTest(unittest.TestCase):
         )
         texto = _pdf_text(pdf)
 
+        self.assertIn("13a (estimada)", texto)
         self.assertIn("Faísca", texto)
         self.assertIn("Fêmea", texto)
         self.assertIn("João Felipe Corrigido", texto)
@@ -141,6 +144,7 @@ class AtendimentoDocumentDemographicsTest(unittest.TestCase):
             raca="SRD",
             sexo="Fêmea",
             peso_kg=4.1,
+            nascimento="2025", idade_fonte="nascimento",
         )
         tutor = Tutor(id=21, nome="Tutora Atualizada")
         atendimento_item = AtendimentoClinico(
@@ -168,6 +172,7 @@ class AtendimentoDocumentDemographicsTest(unittest.TestCase):
         )
         texto = _pdf_text(pdf)
 
+        self.assertIn("0–1 anos (estimada pelo ano)", texto)
         self.assertIn("Mel", texto)
         self.assertIn("Fêmea", texto)
         self.assertIn("Tutora Atualizada", texto)

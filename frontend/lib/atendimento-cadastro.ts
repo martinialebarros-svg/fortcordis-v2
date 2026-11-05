@@ -82,17 +82,3 @@ export const parseIdadeInformadaParaMeses = (valor: string): number | null => {
   if (!encontrouAlgum) return null;
   return Math.max(0, mesesTotais);
 };
-
-export const calcularDataNascimentoEstimadaPorIdade = (idadeInformada: string): string | null => {
-  const meses = parseIdadeInformadaParaMeses(idadeInformada);
-  if (meses == null) return null;
-
-  const base = new Date();
-  const nascimentoEstimado = new Date(base.getFullYear(), base.getMonth(), base.getDate());
-  nascimentoEstimado.setMonth(nascimentoEstimado.getMonth() - meses);
-
-  const ano = nascimentoEstimado.getFullYear();
-  const mes = String(nascimentoEstimado.getMonth() + 1).padStart(2, "0");
-  const dia = String(nascimentoEstimado.getDate()).padStart(2, "0");
-  return `${ano}-${mes}-${dia}`;
-};

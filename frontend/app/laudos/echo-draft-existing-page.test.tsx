@@ -216,13 +216,13 @@ describe("ecocardiograma existente: cópia privada e atualização explícita", 
   });
 
   it("envia só campos cadastrais alterados e preserva campos clínicos durante resposta pendente", async () => {
-    await open(); fireEvent.change(input("Idade"), { target: { value: "13 anos" } });
+    await open(); fireEvent.change(input("Idade informada"), { target: { value: "13 anos" } });
     const slow = pending<{ data: unknown }>(); const original = qa.put.getMockImplementation()!;
     qa.put.mockImplementation((url, ...args) => url.endsWith("/editor-update") ? slow.promise : original(url, ...args));
     fireEvent.click(screen.getByRole("button", { name: "Atualizar laudo" }));
     await waitFor(() => expect(updates()).toHaveLength(1));
     const body = updates()[0][1];
-    expect(body.paciente).toEqual({ idade: "13 anos" }); expect(body.tutor).toBeUndefined();
+    expect(body.paciente).toEqual({ idade_informada: "13 anos", idade_fonte: "idade", idade_referencia: "2026-10-27", data_nascimento: null }); expect(body.tutor).toBeUndefined();
     expect(input("Nome do Paciente")).toBeDisabled();
     act(() => qa.apply!({ fields: { conclusao: "RESPOSTA TARDIA INVÁLIDA" }, measurements: { Onda_A: "9" }, skipped: [] }));
     expect(lastSnapshot().measurementState.measurements.Onda_A).toBe("0");

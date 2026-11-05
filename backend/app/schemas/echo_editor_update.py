@@ -16,6 +16,10 @@ class EditorPatientPatch(StrictPayload):
     sexo: str | None = Field(default=None, max_length=100)
     peso_kg: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     idade: str | None = Field(default=None, max_length=200)
+    idade_informada: str | None = Field(default=None, max_length=200)
+    idade_referencia: str | None = Field(default=None, max_length=10)
+    idade_fonte: str | None = Field(default=None, max_length=20)
+    data_nascimento: str | None = Field(default=None, max_length=10)
 
 
 class EditorTutorPatch(StrictPayload):

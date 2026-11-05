@@ -151,7 +151,8 @@ from app.services.push_notifications import (
     send_agenda_push_notification,
     send_financeiro_push_notification,
 )
-from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
+from app.utils.paciente_idade import idade_do_paciente, dados_idade_paciente
+from app.utils.paciente_helpers import normalizar_sexo_paciente
 from app.utils.pdf_laudo import (
     create_pdf_styles,
     criar_cabecalho,
@@ -943,10 +944,7 @@ def _montar_dados_pdf_documento(
             "especie": paciente.especie if paciente else (atendimento.especie or ""),
             "raca": paciente.raca if paciente else "",
             "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
-            "idade": extrair_idade_paciente(
-                paciente.nascimento if paciente else None,
-                paciente.observacoes if paciente else None,
-            ),
+            "idade": idade_do_paciente(paciente, data_referencia=atendimento.data_atendimento),
             "peso": f"{peso:.1f}" if peso is not None else "",
             "tutor": tutor.nome if tutor else "",
             "solicitante": atendimento.criado_por_nome or nome_veterinario or "",
@@ -1313,10 +1311,7 @@ def _gerar_pdf_prescricao_bytes(
             "especie": paciente.especie if paciente else "",
             "raca": paciente.raca if paciente else "",
             "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
-            "idade": extrair_idade_paciente(
-                paciente.nascimento if paciente else None,
-                paciente.observacoes if paciente else None,
-            ),
+            "idade": idade_do_paciente(paciente, data_referencia=atendimento.data_atendimento),
             "peso": f"{peso_referencia:.1f}" if peso_referencia is not None else "",
             "tutor": tutor.nome if tutor else "",
             "solicitante": atendimento.criado_por_nome or nome_veterinario or "",
@@ -1495,10 +1490,7 @@ def _gerar_pdf_exames_bytes(
             "especie": paciente.especie if paciente else "",
             "raca": paciente.raca if paciente else "",
             "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
-            "idade": extrair_idade_paciente(
-                paciente.nascimento if paciente else None,
-                paciente.observacoes if paciente else None,
-            ),
+            "idade": idade_do_paciente(paciente, data_referencia=atendimento.data_atendimento),
             "peso": f"{peso_referencia:.1f}" if peso_referencia is not None else "",
             "tutor": tutor.nome if tutor else "",
             "solicitante": atendimento.criado_por_nome or nome_veterinario or "",
@@ -6055,6 +6047,7 @@ def historico_paciente(
             "raca": paciente.raca or "",
             "peso": paciente.peso_kg,
             "nascimento": paciente.nascimento or None,
+            **dados_idade_paciente(paciente),
         },
         "alertas": [
             {
