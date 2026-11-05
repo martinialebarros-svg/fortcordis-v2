@@ -24,6 +24,12 @@ from starlette.background import BackgroundTask
 
 from app.api.v1.endpoints.tutores import GeocodeEnderecoPayload, geocode_endereco_tutor
 from app.db.database import get_db
+from app.services.agenda_sobreposicao import (
+    assinatura as assinatura_sobreposicao,
+    ler_concessao as ler_concessao_sobreposicao,
+    validar_pedido as validar_pedido_sobreposicao,
+    validar_conflitos as validar_conflitos_sobreposicao,
+)
 from app.models.agendamento import Agendamento
 from app.models.agenda_bloqueio import AgendaBloqueio
 from app.models.paciente import Paciente
@@ -180,6 +186,7 @@ def _ensure_agendamento_workflow_columns(db: Session) -> None:
 
     colunas = {col["name"] for col in insp.get_columns("agendamentos")}
     alteracoes: dict[str, str] = {
+        "excecao_sobreposicao": 'ALTER TABLE "agendamentos" ADD COLUMN excecao_sobreposicao TEXT',
         "tutor_id": 'ALTER TABLE "agendamentos" ADD COLUMN tutor_id INTEGER',
         "origem_atendimento": 'ALTER TABLE "agendamentos" ADD COLUMN origem_atendimento VARCHAR(32) DEFAULT \'clinica_parceira\'',
         "reserva_expira_em": 'ALTER TABLE "agendamentos" ADD COLUMN reserva_expira_em TIMESTAMP',
@@ -3006,12 +3013,24 @@ def _validar_agendamento_no_funcionamento(
     return None
 
 
+def _escopo_sobreposicao(item: Agendamento) -> str:
+    inicio = _to_local_naive(_coerce_datetime(item.inicio))
+    fim = _to_local_naive(_coerce_datetime(item.fim))
+    return assinatura_sobreposicao({
+        "rota": _fingerprint_escopo_deslocamento(item),
+        "inicio": inicio.isoformat() if inicio else None,
+        "fim": fim.isoformat() if fim else None,
+    })
+
+
 def _validar_slot_disponivel(
     db: Session,
     agendamento: Agendamento,
     *,
     agendamento_id_excluir: Optional[int] = None,
     confirmar_slot_reserva_expirada: bool = False,
+    detalhar_sobreposicao: bool = False,
+    **confirmacao_sobreposicao,
 ) -> list[Agendamento]:
     _expirar_reservas_vencidas(db)
     status_atual = (str(agendamento.status or "").strip() or "Agendado")
@@ -3077,6 +3096,10 @@ def _validar_slot_disponivel(
             or_(
                 data_sem_vazio == data_referencia,
                 and_(
+                    Agendamento.inicio < _to_local_aware(fim_local),
+                    Agendamento.fim > _to_local_aware(inicio_local),
+                ),
+                and_(
                     data_sem_vazio.is_(None),
                     func.date(Agendamento.inicio) == data_referencia,
                 ),
@@ -3086,6 +3109,12 @@ def _validar_slot_disponivel(
     if agendamento_id_excluir is not None:
         query = query.filter(Agendamento.id != agendamento_id_excluir)
 
+    escopo = _escopo_sobreposicao(agendamento)
+    assinatura_candidato = (
+        assinatura_sobreposicao({"id": agendamento.id, "escopo": escopo})
+        if agendamento.id is not None else None
+    )
+    conflitos_sobreposicao = []
     for existente in query.all():
         inicio_existente_local, fim_existente_local = _intervalo_local_agendamento(existente)
         if inicio_existente_local is None:
@@ -3097,16 +3126,35 @@ def _validar_slot_disponivel(
         if not sobrepoe:
             continue
 
-        horario_inicio = inicio_existente_local.strftime("%H:%M")
-        horario_fim = fim_existente_local.strftime("%H:%M")
-        paciente_existente = (str(existente.paciente or "").strip() or "paciente nao informado")
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Horario indisponivel: ja existe atendimento neste slot "
-                f"({horario_inicio} as {horario_fim}, {paciente_existente})."
+        escopo_existente = _escopo_sobreposicao(existente)
+        concessao_existente = ler_concessao_sobreposicao(existente)
+        conflitos_sobreposicao.append({
+            "id": existente.id,
+            "paciente": str(existente.paciente or "").strip(),
+            "inicio": inicio_existente_local.isoformat(),
+            "fim": fim_existente_local.isoformat(),
+            "assinatura": assinatura_sobreposicao({
+                "id": existente.id, "escopo": escopo_existente,
+            }),
+            # O atendimento original também pode seguir no mesmo horário.
+            "autorizado_pelo_existente": (
+                assinatura_candidato is not None
+                and concessao_existente.get("escopo") == escopo_existente
+                and assinatura_candidato in concessao_existente.get("conflitos", [])
             ),
+        })
+
+    try:
+        validar_conflitos_sobreposicao(
+            agendamento, escopo, conflitos_sobreposicao,
+            **confirmacao_sobreposicao,
         )
+    except HTTPException as exc:
+        # PATCH de status/reabilitacao e clientes legados conservam mensagem
+        # textual. POST/PUT retornam o contrato de revisao para admin.
+        if not detalhar_sobreposicao and exc.status_code == 409 and isinstance(exc.detail, dict):
+            raise HTTPException(409, exc.detail["mensagem"]) from exc
+        raise
 
     if reservas_expiradas_sobrepostas and not confirmar_slot_reserva_expirada:
         reservas_detalhes = []
@@ -3477,6 +3525,7 @@ def _serialize_agendamento(
         "criado_por_nome": agendamento.criado_por_nome,
         "confirmado_por_nome": agendamento.confirmado_por_nome,
         "created_at": str(agendamento.created_at) if agendamento.created_at else None,
+        "excecao_sobreposicao": ler_concessao_sobreposicao(agendamento) or None,
         "excecao_deslocamento_ativa": _excecao_deslocamento_ativa(agendamento),
         "excecao_deslocamento_concedida_em": (
             excecao_deslocamento_em.isoformat() if excecao_deslocamento_em else None
@@ -6372,6 +6421,7 @@ def criar_agendamento(
     if existente is not None:
         return _serialize_agendamento(existente, **_fetch_related_names(db, existente))
 
+    confirmacao_sobreposicao = validar_pedido_sobreposicao(agendamento, current_user)
     override_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
     confirmou_slot_reserva_expirada = bool(
         getattr(agendamento, "confirmar_slot_reserva_expirada", False)
@@ -6406,6 +6456,7 @@ def criar_agendamento(
         **agendamento.model_dump(
             exclude={
                 "pedido_whatsapp_id", "pedido_whatsapp_versao", "pedido_whatsapp_divergencia_confirmada",
+                "confirmar_sobreposicao", "escopo_sobreposicao_confirmado", "motivo_excecao_sobreposicao",
                 "confirmar_conflito_deslocamento",
                 "confirmar_slot_reserva_expirada",
                 "confirmar_agenda_fechada",
@@ -6443,6 +6494,7 @@ def criar_agendamento(
         db,
         db_agendamento,
         confirmar_slot_reserva_expirada=confirmou_slot_reserva_expirada,
+        **confirmacao_sobreposicao,
     )
     bypass_deslocamento = _validar_deslocamento_agendamento(
         db,
@@ -6485,6 +6537,7 @@ def criar_agendamento(
             "servico_id": db_agendamento.servico_id,
             "status": db_agendamento.status,
             "origem_atendimento": _normalizar_origem_atendimento(getattr(db_agendamento, "origem_atendimento", None)),
+            "excecao_sobreposicao": ler_concessao_sobreposicao(db_agendamento) or None,
             "override_conflito_deslocamento": override_conflito_deslocamento,
             "confirmou_revisao_slot_reserva_expirada": bool(reservas_expiradas_revisadas),
             "reservas_expiradas_revisadas_ids": [
@@ -6595,6 +6648,7 @@ def atualizar_agendamento(
     origem_original = _normalizar_origem_atendimento(getattr(db_agendamento, "origem_atendimento", None))
     status_anterior = str(db_agendamento.status or "").strip() or "Agendado"
 
+    confirmacao_sobreposicao = validar_pedido_sobreposicao(agendamento, current_user)
     override_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
     confirmou_slot_reserva_expirada = bool(
         getattr(agendamento, "confirmar_slot_reserva_expirada", False)
@@ -6629,6 +6683,8 @@ def atualizar_agendamento(
         )
 
     update_data = agendamento.model_dump(exclude_unset=True)
+    for campo in ("confirmar_sobreposicao", "escopo_sobreposicao_confirmado", "motivo_excecao_sobreposicao"):
+        update_data.pop(campo, None)
     update_data.pop("confirmar_conflito_deslocamento", None)
     update_data.pop("confirmar_slot_reserva_expirada", None)
     update_data.pop("confirmar_agenda_fechada", None)
@@ -6719,6 +6775,7 @@ def atualizar_agendamento(
     )
     reservas_expiradas_revisadas: list[Agendamento] = []
     bypass_deslocamento: Optional[dict[str, str]] = None
+    slot_ja_validado = False
     if campos_horario:
         if preservar_intervalo_servico_iniciado:
             db_agendamento.inicio = inicio_original
@@ -6761,7 +6818,9 @@ def atualizar_agendamento(
                 db_agendamento,
                 agendamento_id_excluir=agendamento_id,
                 confirmar_slot_reserva_expirada=confirmou_slot_reserva_expirada,
+                **confirmacao_sobreposicao,
             )
+            slot_ja_validado = True
             bypass_deslocamento = _validar_deslocamento_agendamento(
                 db,
                 db_agendamento,
@@ -6787,7 +6846,9 @@ def atualizar_agendamento(
             db_agendamento,
             agendamento_id_excluir=agendamento_id,
             confirmar_slot_reserva_expirada=confirmou_slot_reserva_expirada,
+            **confirmacao_sobreposicao,
         )
+        slot_ja_validado = True
         bypass_deslocamento = _validar_deslocamento_agendamento(
             db,
             db_agendamento,
@@ -6795,6 +6856,15 @@ def atualizar_agendamento(
             confirmar_conflito_deslocamento=override_conflito_deslocamento,
             baseline_regional=baseline_regional,
             validar_primeira_saida=not atendimento_ja_iniciado,
+        )
+    if (
+        not slot_ja_validado
+        and (confirmacao_sobreposicao["confirmar_sobreposicao"] or db_agendamento.excecao_sobreposicao)
+    ):
+        _validar_slot_disponivel(
+            db, db_agendamento, agendamento_id_excluir=agendamento_id,
+            confirmar_slot_reserva_expirada=confirmou_slot_reserva_expirada or not reativando_inativo,
+            **confirmacao_sobreposicao,
         )
     if bypass_deslocamento and bypass_deslocamento.get("origem") == "confirmacao_admin":
         _conceder_excecao_deslocamento(
@@ -6843,6 +6913,7 @@ def atualizar_agendamento(
                 "servico_id": db_agendamento.servico_id,
                 "origem_atendimento": _normalizar_origem_atendimento(getattr(db_agendamento, "origem_atendimento", None)),
             },
+            "excecao_sobreposicao": ler_concessao_sobreposicao(db_agendamento) or None,
             "override_conflito_deslocamento": override_conflito_deslocamento,
             "excecao_agenda_fechada_reutilizada": bool(
                 not confirmar_agenda_fechada and _excecao_agenda_fechada_ativa(db_agendamento)
