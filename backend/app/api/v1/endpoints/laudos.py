@@ -53,12 +53,6 @@ from app.services.laudo_pdf_jobs import (
 from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
 from app.schemas.echo_editor_update import EchoEditorUpdate
 from app.services.echo_editor_source import load_echo_editor_source
-from app.schemas.laudo_comparacao import LaudoComparacaoAnteriorResponse
-from app.services.laudo_comparacao_service import (
-    LaudoComparacaoNaoEncontrada,
-    LaudoComparacaoPacienteAusente,
-    comparar_laudo_anterior,
-)
 from app.services.laudo_ordem_servico_service import (
     buscar_ordem_laudo, buscar_ordem_por_chave, chave_upload_ordem, criar_ordem_laudo,
     exigir_criacao_ordem, hash_upload_ordem, mesma_data, pode_acessar_ordens, resumo_ordem, validar_preco_ordem,
@@ -85,11 +79,9 @@ from app.utils.ecocardiograma_medidas import (
 )
 from app.utils.ecocardiograma_qualitativa import extrair_qualitativa_ecocardiograma_da_descricao
 from app.utils.echo_diastolic_aliases import ECHO_DIASTOLIC_CANONICAL_KEYS
-from app.utils.echo_pulmonary_probability import HP_MEASUREMENT_KEYS, encode_pulmonary_measurement
+from app.utils.paciente_idade import referencia_documento, idade_do_paciente, dados_idade_paciente, alteracoes_idade
 from app.utils.paciente_helpers import (
-    atualizar_observacoes_com_idade,
     data_civil_referencia,
-    extrair_idade_paciente,
     normalizar_sexo_paciente,
 )
 
@@ -1194,9 +1186,6 @@ def _montar_descricao_ecocardiograma(
 
     descricao_parts = ["## Medidas Ecocardiograficas\n"]
     for key, value in medidas.items():
-        if key in HP_MEASUREMENT_KEYS:
-            descricao_parts.append(f"- {key}: {encode_pulmonary_measurement(value)}")
-            continue
         if value or key in ECHO_DIASTOLIC_CANONICAL_KEYS:
             # Keep explicit clears alongside historical aliases when creating a
             # report; None denotes a blank, never a fabricated numeric value.
@@ -1543,15 +1532,10 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
             db_paciente.tutor_id = tutor_id
             houve_alteracao = True
 
-        idade_payload = str(paciente.get("idade") or "").strip()
-        if idade_payload:
-            observacoes_atualizadas = atualizar_observacoes_com_idade(
-                db_paciente.observacoes,
-                idade_payload,
-            )
-            if observacoes_atualizadas != str(db_paciente.observacoes or "").strip():
-                db_paciente.observacoes = observacoes_atualizadas or None
-                houve_alteracao = True
+        for key, value in alteracoes_idade(db_paciente, paciente,
+                data_referencia=paciente.get("data_exame") or paciente.get("data")).items():
+            setattr(db_paciente, key, value)
+            houve_alteracao = True
 
         if db_paciente.ativo != 1:
             db_paciente.ativo = 1
@@ -1600,8 +1584,6 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
         _atualizar_paciente_existente_sem_limpar_campos(paciente_existente)
         return paciente_existente.id
 
-    observacoes = atualizar_observacoes_com_idade("", paciente.get("idade"))
-
     novo_paciente = Paciente(
         nome=paciente_nome,
         nome_key=paciente_nome_key,
@@ -1610,10 +1592,13 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
         sexo=normalizar_sexo_paciente(paciente.get("sexo", "")),
         peso_kg=_to_float_or_none(paciente.get("peso")),
         tutor_id=tutor_id,
-        observacoes=observacoes if observacoes else None,
+        observacoes=None,
         ativo=1,
         created_at=_legacy_now_dt(),
     )
+    for key, value in alteracoes_idade(novo_paciente, paciente,
+            data_referencia=paciente.get("data_exame") or paciente.get("data")).items():
+        setattr(novo_paciente, key, value)
     db.add(novo_paciente)
     try:
         db.commit()
@@ -2965,22 +2950,6 @@ def atualizar_laudo_ultrassonografia_abdominal(
     }
 
 
-@router.get("/laudos/{laudo_id}/comparacao-anterior", response_model=LaudoComparacaoAnteriorResponse)
-def obter_comparacao_laudo_anterior(
-    laudo_id: int,
-    anterior_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Consulta interna protegida pela mesma permissão de visualização do laudo."""
-    try:
-        return comparar_laudo_anterior(db, laudo_id, anterior_id=anterior_id)
-    except LaudoComparacaoNaoEncontrada:
-        raise HTTPException(status_code=404, detail="Comparação não encontrada") from None
-    except LaudoComparacaoPacienteAusente:
-        raise HTTPException(status_code=422, detail="Paciente do laudo indisponível") from None
-
-
 @router.get("/laudos/{laudo_id}")
 def obter_laudo(
     laudo_id: int,
@@ -3013,12 +2982,8 @@ def obter_laudo(
             tutor_nome = tutor.nome
             tutor_telefone = tutor.telefone
     
-    idade = extrair_idade_paciente(
-        paciente.nascimento if paciente else None,
-        paciente.observacoes if paciente else None,
-        **({"data_referencia": laudo.data_exame or laudo.data_laudo,
-            "data_calendario": bool(laudo.data_exame)}
-           if (laudo.tipo or "").lower() == "ecocardiograma" else {}),
+    idade = idade_do_paciente(paciente,
+        data_referencia=referencia_documento(laudo.data_exame, laudo.data_laudo), data_calendario=bool(laudo.data_exame),
     )
     
     # Buscar nome da clínica
@@ -3083,6 +3048,7 @@ def obter_laudo(
             "raca": paciente.raca if paciente else "",
             "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
             "peso_kg": paciente.peso_kg if paciente else None,
+            **dados_idade_paciente(paciente),
             "idade": idade,
         },
         "clinica": clinica_nome or "",
@@ -4476,12 +4442,8 @@ def gerar_pdf_laudo(
             data_exame = data_civil_referencia(data_exame, data_calendario=bool(laudo.data_exame))
         data_exame_str = data_exame.strftime("%d/%m/%Y") if data_exame else datetime.now().strftime("%d/%m/%Y")
 
-        idade = extrair_idade_paciente(
-            paciente.nascimento if paciente else None,
-            paciente.observacoes if paciente else None,
-            **({"data_referencia": laudo.data_exame or laudo.data_laudo,
-                "data_calendario": bool(laudo.data_exame)}
-               if (laudo.tipo or "").lower() == "ecocardiograma" else {}),
+        idade = idade_do_paciente(paciente,
+            data_referencia=referencia_documento(laudo.data_exame, laudo.data_laudo), data_calendario=bool(laudo.data_exame),
         )
 
         dados_paciente = {

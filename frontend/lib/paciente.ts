@@ -1,3 +1,4 @@
+import { calcularIdadeComFonte, type PatientAgeValue } from "./paciente-idade";
 export function normalizarSexoPaciente(sexo?: string | null): string {
   const texto = String(sexo || "").trim();
   if (!texto) return "";
@@ -45,11 +46,9 @@ function calcularIdadePorNascimento(dataNascimento?: string | null): string {
   return mesesRestantes > 0 ? `${anos}a ${mesesRestantes}m` : `${anos}a`;
 }
 
-export function extrairIdadePaciente(source: {
-  idade?: string | null;
-  data_nascimento?: string | null;
-  observacoes?: string | null;
-}): string {
+export function extrairIdadePaciente(source: PatientAgeValue, referenceDate?: string): string {
+  const authoritative = calcularIdadeComFonte(source, referenceDate);
+  if (authoritative !== null) return authoritative;
   const idadeDireta = String(source.idade || "").trim();
   if (idadeDireta) {
     return idadeDireta;

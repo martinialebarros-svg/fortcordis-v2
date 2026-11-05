@@ -1,5 +1,7 @@
 "use client";
 
+import { PatientAgeFields } from "@/components/pacientes/PatientAgeFields";
+import { patientAgeForm, patientAgePayload } from "@/lib/paciente-idade";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../../layout-dashboard";
@@ -116,7 +118,7 @@ const NOVO_PACIENTE_INICIAL: NovoPacienteForm = {
   raca: "",
   sexo: "Macho",
   peso_kg: "",
-  data_nascimento: "",
+  ...patientAgeForm(),
   microchip: "",
 };
 
@@ -537,7 +539,7 @@ export default function UploadEletrocardiogramaPage() {
         raca: novoPaciente.raca.trim(),
         sexo: novoPaciente.sexo,
         peso_kg: novoPaciente.peso_kg ? Number.parseFloat(novoPaciente.peso_kg.replace(",", ".")) : null,
-        data_nascimento: novoPaciente.data_nascimento || null,
+        ...patientAgePayload(novoPaciente),
         microchip: novoPaciente.microchip.trim(),
       };
 
@@ -1211,18 +1213,7 @@ export default function UploadEletrocardiogramaPage() {
                         />
                       </div>
 
-                      <div>
-                        <label htmlFor="novo-nascimento">Data de nascimento</label>
-                        <input
-                          id="novo-nascimento"
-                          type="date"
-                          value={novoPaciente.data_nascimento}
-                          onChange={(event) =>
-                            setNovoPaciente((current) => ({ ...current, data_nascimento: event.target.value }))
-                          }
-                          className={INPUT_CLASS_NAME}
-                        />
-                      </div>
+                      <PatientAgeFields value={novoPaciente} onChange={(patch) => setNovoPaciente((current) => ({ ...current, ...patch }))} />
 
                       <div className="md:col-span-2">
                         <label htmlFor="novo-microchip">Microchip</label>

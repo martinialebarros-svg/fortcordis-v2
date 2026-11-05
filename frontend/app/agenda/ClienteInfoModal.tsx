@@ -1,5 +1,7 @@
 "use client";
 
+import { PatientAgeFields } from "@/components/pacientes/PatientAgeFields";
+import { patientAgeForm, patientAgePayload, type PatientAgeValue } from "@/lib/paciente-idade";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/axios";
@@ -26,7 +28,7 @@ interface ClienteInfoModalProps {
   onSaved?: () => void;
 }
 
-interface ClienteForm {
+interface ClienteForm extends PatientAgeValue {
   tutorId: string;
   tutorNome: string;
   tutorEmail: string;
@@ -45,7 +47,7 @@ interface ClienteForm {
   raca: string;
   sexo: string;
   pesoKg: string;
-  dataNascimento: string;
+  data_nascimento: string;
   microchip: string;
   observacoes: string;
 }
@@ -69,7 +71,7 @@ const FORM_INICIAL: ClienteForm = {
   raca: "",
   sexo: "Macho",
   pesoKg: "",
-  dataNascimento: "",
+  ...patientAgeForm(),
   microchip: "",
   observacoes: "",
 };
@@ -121,7 +123,7 @@ export default function ClienteInfoModal({ pacienteId, tutorId, onClose, onSaved
             raca: data.raca || "",
             sexo: data.sexo || "Macho",
             pesoKg: data.peso_kg?.toString() || "",
-            dataNascimento: data.data_nascimento || "",
+            ...patientAgeForm(data),
             microchip: data.microchip || "",
             observacoes: data.observacoes || "",
           });
@@ -200,7 +202,7 @@ export default function ClienteInfoModal({ pacienteId, tutorId, onClose, onSaved
           raca: form.raca,
           sexo: form.sexo,
           peso_kg: form.pesoKg ? parseFloat(form.pesoKg) : null,
-          data_nascimento: form.dataNascimento || null,
+          ...patientAgePayload(form),
           microchip: form.microchip,
           observacoes: form.observacoes,
         });
@@ -510,15 +512,7 @@ export default function ClienteInfoModal({ pacienteId, tutorId, onClose, onSaved
                         placeholder="Ex: 10.5"
                       />
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Data de nascimento</label>
-                      <input
-                        type="date"
-                        value={form.dataNascimento}
-                        onChange={(e) => atualizarCampo("dataNascimento", e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
+                    <PatientAgeFields value={form} onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))} />
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Microchip</label>
                       <input

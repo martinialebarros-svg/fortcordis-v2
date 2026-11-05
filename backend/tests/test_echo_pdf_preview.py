@@ -22,7 +22,6 @@ from app.models.papel_permissao import PapelPermissao
 from app.models.referencia_eco import ReferenciaEco
 from app.models.user import User
 from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
-from app.utils.echo_pulmonary_probability import make_pulmonary_review_stamp
 
 
 def png(color="teal"):
@@ -196,7 +195,77 @@ class EchoPdfPreviewHTTPTest(unittest.TestCase):
         self.assertEqual(result.status_code, 200, result.text)
         self.assert_preview_matches_official(response.content, 901)
 
-    def test_new_structured_override_is_the_same_as_creation_and_birthdate_age_is_authoritative(self):
+    def test_other_report_types_use_same_declared_age_in_details_and_pdf(self):
+        for kind in ("pressao_arterial", "ultrassonografia_abdominal"):
+            with self.subTest(kind=kind):
+                payload = self.new_body()["payload_laudo"]
+                payload.update(tipo_laudo=kind, status="Rascunho")
+                payload["paciente"].update(id=901, tutor_id=901, idade_informada="12 anos",
+                                           idade_referencia="2026-10-01", idade_fonte="idade",
+                                           data_nascimento="2026-09-30")
+                result = self.client.post("/api/v1/laudos", json=payload, headers=self.headers())
+                self.assertEqual(result.status_code, 201, result.text)
+                report_id = result.json()["id"]
+                details = self.client.get(f"/api/v1/laudos/{report_id}", headers=self.headers()).json()
+                self.assertEqual(details["paciente"]["idade"], "12a (estimada)")
+                with self.sessions() as db:
+                    rendered = render_laudo_pdf(db, report_id, db.get(User, 1))
+                self.assertIn("12a (estimada)", text(rendered.content))
+
+    def test_new_birth_source_never_stores_derived_age_as_declared_age(self):
+        from app.utils.paciente_idade import alteracoes_idade, idade_do_paciente
+        payload = self.new_body()["payload_laudo"]["paciente"]
+        payload.update(tutor_id=901, data_nascimento="2014", idade="11–12 anos (estimada pelo ano)",
+                       idade_informada=None, idade_referencia=None, idade_fonte="nascimento")
+        with self.sessions() as db:
+            patient_id = laudos._resolver_ou_criar_paciente(payload, db)
+            patient = db.get(Paciente, patient_id)
+            self.assertIsNone(patient.idade_informada)
+            self.assertNotIn("Idade:", patient.observacoes or "")
+            for key, value in alteracoes_idade(patient, {"data_nascimento": None}).items():
+                setattr(patient, key, value)
+            self.assertEqual(idade_do_paciente(patient), "")
+
+    def test_explicit_age_metadata_survives_preview_apply_read_and_pdf_cache(self):
+        with self.sessions() as db:
+            patient = db.get(Paciente, 901)
+            patient.nascimento = "2026-09-30"
+            patient.observacoes = "Nota clínica sintética"
+            db.commit()
+            old_key = compute_laudo_pdf_cache_key(db, 901, 1)
+        saved = self.save(existing=True)
+        body = self.existing_body()
+        body["paciente"] = {"idade_informada": "12 anos", "idade_fonte": "idade",
+                            "idade_referencia": "2026-10-01", "data_nascimento": "2026-09-30"}
+        before = self.state()
+        preview = self.post(body)
+        self.assert_pdf(preview)
+        self.assertIn("12a (estimada)", text(preview.content))
+        self.assertEqual(self.state(), before)
+        update = {"expected_editor_revision": saved["snapshot"]["source"]["editor_revision"],
+                  "request_id": str(uuid4()), "editor_draft_id": saved["draft_id"],
+                  "expected_draft_revision": saved["revision"],
+                  **{key: value for key, value in body.items() if key != "expected_revision"}}
+        with patch.object(laudos, "_sincronizar_publicacao_laudo_no_portal", return_value=(None, None, None, None)):
+            applied = self.client.put("/api/v1/laudos/901/editor-update", json=update, headers=self.headers())
+        self.assertEqual(applied.status_code, 200, applied.text)
+        self.assert_preview_matches_official(preview.content, 901)
+        patient = self.client.get("/api/v1/laudos/901", headers=self.headers()).json()["paciente"]
+        self.assertEqual(patient["idade"], "12a (estimada)")
+        self.assertEqual(patient["idade_fonte"], "idade")
+        self.assertEqual(patient["idade_referencia"], "2026-10-01")
+        self.assertEqual(patient["data_nascimento"], "2026-09-30")
+        with self.sessions() as db:
+            row = db.get(Paciente, 901)
+            self.assertIn("Nota clínica sintética", row.observacoes)
+            key = compute_laudo_pdf_cache_key(db, 901, 1)
+            self.assertNotEqual(key, old_key)
+            row.idade_fonte = "nascimento"
+            db.commit()
+            # A cadastro correction alone invalidates a previously cached download.
+            self.assertNotEqual(compute_laudo_pdf_cache_key(db, 901, 1), key)
+
+    def test_new_structured_override_and_explicit_age_match_creation_despite_existing_birthdate(self):
         self.save()
         with self.sessions() as db:
             db.get(Paciente, 901).nascimento = "2021-10-02"
@@ -209,8 +278,8 @@ class EchoPdfPreviewHTTPTest(unittest.TestCase):
         self.assert_pdf(response)
         self.assertIn("Estruturado novo aplicado", text(response.content))
         self.assertIn("Conclusão estruturada aplicada", text(response.content))
-        self.assertIn("4a 11m", text(response.content))
-        self.assertNotIn("99a", text(response.content))
+        self.assertIn("99a (estimada)", text(response.content))
+        self.assertNotIn("4a 11m", text(response.content))
         self.assertNotIn("NOME DIGITADO NÃO", text(response.content))
         emitted = self.client.post("/api/v1/laudos", json=body["payload_laudo"], headers=self.headers())
         self.assertEqual(emitted.status_code, 201, emitted.text)
@@ -363,36 +432,25 @@ class EchoPdfPreviewHTTPTest(unittest.TestCase):
         self.assertEqual(self.client.get(self.url,headers=self.headers()).status_code,200)
 
     def test_official_cache_drops_previous_layout_version_without_touching_other_modalities(self):
-        # Restored full Stage includes HP, unlike the isolated production PDF.
-        # Neither its former cache nor the production-only layout cache is valid.
+        # A v32 official PDF may contain the old empty page. The corrected
+        # renderer must not reuse that cache while a new preview renders fresh.
         with self.sessions() as db:
             db.add(Laudo(id=903, paciente_id=901, veterinario_id=1, tipo="pressao_arterial", titulo="QA"))
             db.commit()
+            with patch("app.services.laudo_pdf_service.LAUDO_PDF_ECO_RENDERER_VERSION",
+                       "2026-10-27-eco-extrapolated-age-note-v32"):
+                old_echo = compute_laudo_pdf_cache_key(db, 901, 1)
+                old_pressure = compute_laudo_pdf_cache_key(db, 903, 1)
             current_echo = compute_laudo_pdf_cache_key(db, 901, 1)
-            current_pressure = compute_laudo_pdf_cache_key(db, 903, 1)
-            for previous_version in (
-                "2026-10-27-eco-extrapolated-age-note-v32",
-                "2026-11-02-eco-reviewed-pulmonary-probability-v33",
-                "2026-11-04-eco-reviewed-preview-layout-v34",
-                "2026-11-04-eco-full-stage-reviewed-preview-hp-v35",
-            ):
-                with self.subTest(previous_version=previous_version):
-                    with patch("app.services.laudo_pdf_service.LAUDO_PDF_ECO_RENDERER_VERSION", previous_version):
-                        self.assertNotEqual(compute_laudo_pdf_cache_key(db, 901, 1), current_echo)
-                        self.assertEqual(compute_laudo_pdf_cache_key(db, 903, 1), current_pressure)
+            self.assertNotEqual(current_echo, old_echo)
+            self.assertEqual(compute_laudo_pdf_cache_key(db, 903, 1), old_pressure)
             self.assertEqual(render_laudo_pdf(db, 901, db.get(User, 1)).cache_key, current_echo)
 
-    def test_real_pdf_clinical_projections_match_for_2d_feline_fusion_and_hp_review_states(self):
+    def test_real_pdf_clinical_projections_match_for_2d_and_feline_fusion(self):
         cases=[]
         mode2d=self.new_body(); mode2d["payload_laudo"]["medidas"]={"DIVEd_2D":"22", "DIVES_2D":"14", "VE_tecnica_relatorio":"2d", "VE_vista_2D":"eixo_curto"}; cases.append(mode2d)
         fusion=self.new_body(); fusion["payload_laudo"]["paciente"]["especie"]="Gato"
         fusion["payload_laudo"]["medidas"]={"Onda_E":"1.08","Onda_A":".95","E_A":"1.14","E_E_linha":"6.75", "Diastolica_ondas":"fundidas", "e_doppler":".16", "TRIV":"40"}; cases.append(fusion)
-        for reviewed in (True,False):
-            hp=self.new_body()
-            measures={"HP_ativa":"sim","HP_TRV":"adequado","HP_VSVD":"sem_obstrucao","IT_Vmax":"3.2",
-                      "HP_ventriculos":"com_sinais","HP_arteria_pulmonar":"com_sinais","HP_atrio_cava":"sem_sinais"}
-            if reviewed: measures["HP_revisao"]=make_pulmonary_review_stamp(measures,"Canina")
-            hp["payload_laudo"]["medidas"]=measures; cases.append(hp)
         for index, body in enumerate(cases):
             with self.subTest(case=index):
                 self.draft_id=str(uuid4());self.url=f"/api/v1/laudos/editor-drafts/{self.draft_id}";self.preview_url=self.url+"/preview"
@@ -405,23 +463,6 @@ class EchoPdfPreviewHTTPTest(unittest.TestCase):
                 self.assert_preview_matches_official(response.content,emitted.json()["id"])
                 if index==1:
                     self.assertNotIn("1.14",text(response.content)); self.assertIn("fundidas",text(response.content))
-                if index==2: self.assertIn("probabilidade ecocardiográfica alta",text(response.content).lower())
-                if index==3: self.assertIn("pendente",text(response.content).lower())
-
-    def test_preview_and_official_withhold_ambiguous_pulmonary_ratio(self):
-        body = self.new_body()
-        measures = {"HP_ativa":"sim", "HP_TRV":"adequado", "HP_VSVD":"sem_obstrucao", "IT_Vmax":"3.0", "HP_ventriculos":"com_sinais", "HP_arteria_pulmonar":"sem_sinais", "HP_atrio_cava":"sem_sinais", "HP_suporte_automatico":"sim", "AP":"2.2", "Ao_nivel_AP":"20", "unidade_confirmada_Ao_nivel_AP":"mm", "DIVEd":"2.2", "SIVd":"1.2", "PLVEd":"1.2"}
-        measures["HP_revisao"] = make_pulmonary_review_stamp(measures,"Canina")
-        body["payload_laudo"]["medidas"] = measures
-        self.save()
-        preview = self.post(body); self.assert_pdf(preview)
-        content = text(preview.content).lower()
-        self.assertIn("confirmar unidade de ap/ao", content)
-        self.assertNotRegex(content, r"\bap/ao\s*[:=]?\s*0[.,]11\b")
-        self.assertNotIn("probabilidade ecocardiográfica baixa", content)
-        emitted = self.client.post("/api/v1/laudos",json=body["payload_laudo"],headers=self.headers())
-        self.assertEqual(emitted.status_code,201,emitted.text)
-        self.assert_preview_matches_official(preview.content,emitted.json()["id"])
 
 
 if __name__ == "__main__":

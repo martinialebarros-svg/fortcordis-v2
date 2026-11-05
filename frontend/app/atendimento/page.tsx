@@ -1,5 +1,6 @@
 "use client";
 
+import { patientAgeForm, patientAgePayload, changePatientAge } from "@/lib/paciente-idade";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -34,7 +35,6 @@ import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
 import {
   ATENDIMENTOS_LIST_LIMIT,
   PRESCRICAO_PRESETS_STORAGE_KEY,
-  calcularDataNascimentoEstimadaPorIdade,
   formatarCepVisual,
   formatarCpfVisual,
   formatarTelefoneVisual,
@@ -534,6 +534,9 @@ type PacienteDetalhe = {
   peso_kg?: number | null;
   idade?: string;
   data_nascimento?: string | null;
+  idade_informada?: string | null;
+  idade_referencia?: string | null;
+  idade_fonte?: string | null;
   microchip?: string;
   observacoes?: string;
 };
@@ -820,8 +823,7 @@ const emptyPacienteDetalhe = (): PacienteDetalhe => ({
   raca: "",
   sexo: "",
   peso_kg: null,
-  idade: "",
-  data_nascimento: "",
+  ...patientAgeForm(),
   microchip: "",
   observacoes: "",
 });
@@ -2608,11 +2610,7 @@ export default function AtendimentoPage() {
   ]
     .filter(Boolean)
     .join(" - ");
-  const idadePacienteExibicao = extrairIdadePaciente({
-    idade: cadastroComplementar.paciente.idade,
-    data_nascimento: cadastroComplementar.paciente.data_nascimento,
-    observacoes: cadastroComplementar.paciente.observacoes,
-  });
+  const idadePacienteExibicao = extrairIdadePaciente(cadastroComplementar.paciente, form.data_atendimento?.substring(0, 10));
   const especieCadastroAtual = cadastroComplementar.paciente.especie || especieExibicao || "";
   const opcoesRacaCadastro = useMemo(() => {
     if (!especieCadastroAtual) return [];
@@ -2628,7 +2626,7 @@ export default function AtendimentoPage() {
     if (!cadastroComplementar.paciente.especie) pendencias.push("especie");
     if (!cadastroComplementar.paciente.raca) pendencias.push("raca");
     if (!cadastroComplementar.paciente.sexo) pendencias.push("sexo");
-    if (!cadastroComplementar.paciente.data_nascimento) pendencias.push("data de nascimento");
+    if (!cadastroComplementar.paciente.data_nascimento && !cadastroComplementar.paciente.idade) pendencias.push("idade ou nascimento");
     if (cadastroComplementar.paciente.peso_kg == null) pendencias.push("peso cadastral");
     if (!cadastroComplementar.tutor.whatsapp) pendencias.push("whatsapp");
     if (!cadastroComplementar.tutor.email) pendencias.push("email");
@@ -3515,14 +3513,8 @@ export default function AtendimentoPage() {
       ...prev,
       paciente: {
         ...prev.paciente,
-        ...(field === "idade"
-          ? {
-              idade: String(value ?? ""),
-              data_nascimento:
-                calcularDataNascimentoEstimadaPorIdade(String(value ?? "")) ||
-                prev.paciente.data_nascimento ||
-                "",
-            }
+        ...((field === "idade" || field === "data_nascimento")
+          ? changePatientAge(prev.paciente, field, String(value ?? ""))
           : { [field]: value }),
       },
     }));
@@ -3637,7 +3629,7 @@ export default function AtendimentoPage() {
         especie: cadastroComplementar.paciente.especie || null,
         raca: cadastroComplementar.paciente.raca || null,
         sexo: normalizarSexoPaciente(cadastroComplementar.paciente.sexo || "") || null,
-        data_nascimento: cadastroComplementar.paciente.data_nascimento || null,
+        ...patientAgePayload(cadastroComplementar.paciente),
         peso_kg:
           cadastroComplementar.paciente.peso_kg == null || Number.isNaN(Number(cadastroComplementar.paciente.peso_kg))
             ? null
@@ -8281,6 +8273,7 @@ export default function AtendimentoPage() {
                     salvandoCadastroComplementar={salvandoCadastroComplementar}
                     salvarCadastroComplementarAtual={salvarCadastroComplementarAtual}
                     setCadastroPacienteField={setCadastroPacienteField}
+                    setCadastroIdade={(patch: ReturnType<typeof patientAgeForm>) => setCadastroComplementar((prev) => ({ ...prev, paciente: { ...prev.paciente, ...patch } }))}
                     setCadastroComplementarExpandido={setCadastroComplementarExpandido}
                     setCadastroTutorField={setCadastroTutorField}
                     setNovaRacaCadastro={setNovaRacaCadastro}
