@@ -53,12 +53,11 @@ def pdf(payload):
 
 
 class PdfLaudoLowWeightTest(unittest.TestCase):
-    def test_historical_echo_age_matches_exam_for_both_pdf_paths_and_saved_report(self):
+    def test_historical_age_matches_exam_for_all_report_types_and_pdf_paths(self):
         from app.models.laudo import Laudo
         from app.models.paciente import Paciente
         from app.services.laudo_pdf_service import render_laudo_pdf
         from app.api.v1.endpoints.laudos import gerar_pdf_laudo, obter_laudo, _parse_data_exame
-        from app.utils.paciente_helpers import extrair_idade_paciente
 
         for entrypoint in ("service", "endpoint", "saved_report"):
             for species in ("Canina", "Felina"):
@@ -129,14 +128,13 @@ class PdfLaudoLowWeightTest(unittest.TestCase):
                                     status = payload["referencia_eco"]["range_metadata"][prefix]["status"]
                                     self.assertEqual(status, "published" if expected in {"1a", "2a"} else "unavailable")
                             laudo.tipo = "pressao_arterial"
-                            current_age = extrair_idade_paciente(birth, observations)
                             if entrypoint == "saved_report":
                                 saved_other = obter_laudo(91, db=database, current_user=user)
-                                self.assertEqual(saved_other["paciente"]["idade"], current_age)
+                                self.assertEqual(saved_other["paciente"]["idade"], expected)
                             else:
                                 with patch("app.utils.pdf_laudo.gerar_pdf_laudo_pressao", return_value=b"synthetic-other-modality") as other_renderer:
                                     render_laudo_pdf(database, 91, user)
-                                    self.assertEqual(other_renderer.call_args.args[0]["paciente"]["idade"], current_age)
+                                    self.assertEqual(other_renderer.call_args.args[0]["paciente"]["idade"], expected)
                             laudo.tipo = "ecocardiograma"
                         if entrypoint != "saved_report":
                             _, text = pdf(payload)
@@ -179,7 +177,7 @@ class PdfLaudoLowWeightTest(unittest.TestCase):
                      patch("app.api.v1.endpoints.laudos.compute_laudo_pdf_cache_key", return_value="synthetic-cache-key"), \
                      patch("app.api.v1.endpoints.laudos.get_cached_laudo_pdf_job", return_value=None), \
                      patch("app.services.laudo_pdf_service._listar_imagens_incluidas_no_pdf", return_value=[]), \
-                     patch("app.services.laudo_pdf_service.extrair_idade_paciente", return_value="2 anos"), \
+                     patch("app.services.laudo_pdf_service.idade_do_paciente", return_value="2 anos"), \
                      patch("app.api.v1.endpoints.laudos._extrair_ecocardiograma_cabecalho_de_anexos", return_value={}), \
                      patch("app.api.v1.endpoints.laudos._extrair_pressao_arterial_de_anexos", return_value=None), \
                      patch("app.services.echo_reference_resolver.load_echo_reference", wraps=load_echo_reference) as loader, \

@@ -23,6 +23,7 @@ from app.api.v1.endpoints.imagens import (  # noqa: E402
 )
 from app.models.imagem_laudo import ImagemLaudo, ImagemTemporaria  # noqa: E402
 from app.models.laudo import Laudo  # noqa: E402
+from app.models.paciente import Paciente  # noqa: E402
 from app.services.laudo_pdf_service import (  # noqa: E402
     _carregar_stamp_cache,
     _listar_imagens_incluidas_no_pdf,
@@ -40,6 +41,7 @@ class ImagensConfiguracaoPdfTest(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:")
         with self.engine.begin() as connection:
+            Paciente.__table__.create(connection)
             Laudo.__table__.create(connection)
             connection.execute(Laudo.__table__.insert(), [
                 {"id": row_id, "paciente_id": 1, "veterinario_id": 3,
@@ -92,14 +94,7 @@ class ImagensConfiguracaoPdfTest(unittest.TestCase):
         self.assertEqual([imagem.id for imagem in _listar_imagens_incluidas_no_pdf(self.session, 7)], [2])
         stamp = _carregar_stamp_cache(
             self.session,
-            SimpleNamespace(
-                id=7,
-                tipo="ecocardiograma",
-                status="Rascunho",
-                updated_at=None,
-                created_at=None,
-                data_laudo=None,
-            ),
+            self.session.get(Laudo, 7),
             3,
         )
         self.assertEqual(stamp["imagens_config"], [
@@ -132,7 +127,7 @@ class ImagensConfiguracaoPdfTest(unittest.TestCase):
 
         stamp = _carregar_stamp_cache(
             self.session,
-            SimpleNamespace(id=7, tipo="ecocardiograma", status="Rascunho", updated_at=None, created_at=None, data_laudo=None),
+            self.session.get(Laudo, 7),
             3,
         )
         self.assertEqual(stamp["imagens_config"][0]["descricao"], "Doppler da IT")
