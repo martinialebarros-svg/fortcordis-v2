@@ -167,3 +167,14 @@ preservadas. Testes de concessao, permissao, motivo, escopo, auditoria e ocupaca
 em `backend/tests/test_agenda_excecao_primeira_saida_admin.py`; a matriz final
 e os comandos deste ciclo ficam em
 `docs/specs/agenda-excecoes-operacionais-for51/verify.md`. Sem publicacao neste ciclo.
+
+### Evidencia instalada e produtiva — 04/11/2026
+
+PR #555/Stage `f98a6193`, workflow `41853728979`, e PR #556/producao `4c109329`,
+workflow `41857157429`, terminaram SUCCESS com canario e preservacao aprovados.
+Os seis testes novos de primeira saida/excecao passaram no codigo instalado dos
+dois ambientes em SQLite temporario com rede negada; oferta conservadora segue
+coberta na regressao. UI produtiva confirmou motivo obrigatorio, liberacao e
+revogacao sem salvar registro real. Vinte bundles exatos em cada ambiente.
+Matriz, limites, correcoes dos verificadores e evidencia detalhada em
+`docs/specs/agenda-excecoes-operacionais-for51/verify.md`.
