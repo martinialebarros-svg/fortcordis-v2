@@ -51,32 +51,6 @@ def _pdf_bytes(lines: list[str]) -> bytes:
 
 
 class EcoStudyExtractionServiceTest(unittest.TestCase):
-    def test_pulmonary_support_import_requires_explicit_label_and_units(self) -> None:
-        candidates = extract_measurements_from_text(
-            "RPAD 25 %\nPV AT 0.04 s\nTempo de ejeção pulmonar 160 ms",
-            source="pdf:text",
-        )
-        measures, _, conflicts = consolidate_measurement_candidates(candidates)
-        self.assertEqual(measures, {"HP_RPAD": 25, "HP_TA": 40, "HP_TE": 160})
-        self.assertEqual(conflicts, 0)
-        self.assertTrue(all(item["texto_origem"] and item["rotulo_origem"] for item in candidates))
-        self.assertFalse(any(key in measures for key in ("HP_ativa", "HP_TRV", "HP_revisao", "HP_arteria_pulmonar")))
-
-    def test_generic_times_or_unqualified_rpad_do_not_acquire_pulmonary_context(self) -> None:
-        candidates = extract_measurements_from_text(
-            "TA 45 ms\nET 150 ms\nAorta AT 40 ms\nRPAD 25\nPV AT 40\nPV ET 160 mm",
-            source="pdf:text",
-        )
-        self.assertFalse(any(item["campo"].startswith("HP_") for item in candidates))
-
-    def test_support_import_zero_and_conflict_are_not_silently_discarded_or_averaged(self) -> None:
-        measures, candidates, conflicts = consolidate_measurement_candidates(
-            extract_measurements_from_text("RPAD 0 %\nPV AT 40 ms\nPV AT 60 ms", source="pdf:text")
-        )
-        self.assertEqual(measures, {"HP_RPAD": 0})
-        self.assertEqual(conflicts, 1)
-        self.assertEqual(sum(item["status"] == "conflito" for item in candidates), 2)
-
     def test_four_outflow_sites_keep_values_labels_and_imported_precision(self) -> None:
         expected = {
             "Vmax_VSVE": ("Vmáx VSVE", 1.010123),
@@ -411,21 +385,21 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
             "Birthdate: 15/06/2018\nStudy Date: 14/07/2026\nAge: 99 years\nWeight: 7.35 kg"
         )
 
-        self.assertEqual(demographics, {"idade": "8 anos", "peso": "7.35"})
+        self.assertEqual(demographics, {"idade": "8 anos", "peso": "7.35", "data_nascimento": "2018-06-15"})
 
     def test_calculates_age_in_months_when_younger_than_one_year(self) -> None:
         demographics = parse_patient_age_weight(
             "Birthdate: 20/08/2025\nStudy Date: 11/07/2026"
         )
 
-        self.assertEqual(demographics, {"idade": "10 meses", "peso": ""})
+        self.assertEqual(demographics, {"idade": "10 meses", "peso": "", "data_nascimento": "2025-08-20"})
 
     def test_calculates_singular_month_from_birthdate(self) -> None:
         demographics = parse_patient_age_weight(
             "Birthdate: 15/05/2026\nExam Date: 15/06/2026"
         )
 
-        self.assertEqual(demographics, {"idade": "1 mês", "peso": ""})
+        self.assertEqual(demographics, {"idade": "1 mês", "peso": "", "data_nascimento": "2026-05-15"})
 
     def test_accepts_iso_and_unambiguous_month_first_birthdates(self) -> None:
         for birthdate in ("2025-08-20", "08/20/2025"):

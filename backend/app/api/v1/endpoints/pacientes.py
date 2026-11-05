@@ -18,7 +18,8 @@ from app.models.tutor import Tutor
 from app.models.user import User
 from app.services.tutor_identidade_service import exigir_tutor_utilizavel
 from app.services import tutor_rotina_service as rotina_tutor
-from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
+from app.utils.paciente_idade import alteracoes_idade, dados_idade_paciente
+from app.utils.paciente_helpers import normalizar_sexo_paciente
 
 router = APIRouter()
 
@@ -348,6 +349,10 @@ class PacienteCreate(BaseModel):
     sexo: Optional[str] = None
     peso_kg: Optional[float] = None
     data_nascimento: Optional[str] = None
+    idade: Optional[str] = None
+    idade_informada: Optional[str] = None
+    idade_referencia: Optional[str] = None
+    idade_fonte: Optional[str] = None
     microchip: Optional[str] = ""
     observacoes: Optional[str] = ""
 
@@ -375,11 +380,20 @@ class PacienteUpdate(BaseModel):
     sexo: Optional[str] = None
     peso_kg: Optional[float] = None
     data_nascimento: Optional[str] = None
+    idade: Optional[str] = None
+    idade_informada: Optional[str] = None
+    idade_referencia: Optional[str] = None
+    idade_fonte: Optional[str] = None
     microchip: Optional[str] = None
     observacoes: Optional[str] = None
 
 
 class PacienteResponse(BaseModel):
+    idade: str = ""
+    data_nascimento: Optional[str] = None
+    idade_informada: Optional[str] = None
+    idade_referencia: Optional[str] = None
+    idade_fonte: Optional[str] = None
     id: int
     nome: str
     tutor_id: Optional[int] = None
@@ -511,9 +525,10 @@ def criar_paciente(
             db_paciente.raca = paciente.raca
             db_paciente.sexo = normalizar_sexo_paciente(paciente.sexo)
             db_paciente.peso_kg = paciente.peso_kg
-            db_paciente.nascimento = paciente.data_nascimento
             db_paciente.microchip = paciente.microchip
             db_paciente.observacoes = paciente.observacoes
+            for key, value in alteracoes_idade(db_paciente, paciente.model_dump(exclude_unset=True)).items():
+                setattr(db_paciente, key, value)
             db_paciente.ativo = 1
             db_paciente.updated_at = _legacy_now_dt()
         db.flush()
@@ -522,6 +537,7 @@ def criar_paciente(
             **_serialize_tutor_fields(tutor), "especie": db_paciente.especie,
             "raca": db_paciente.raca, "sexo": normalizar_sexo_paciente(db_paciente.sexo),
             "peso_kg": db_paciente.peso_kg,
+            **dados_idade_paciente(db_paciente),
         }
         if message:
             resposta["message"] = message
@@ -563,8 +579,7 @@ def obter_paciente(
         "raca": p.raca,
         "sexo": normalizar_sexo_paciente(p.sexo),
         "peso_kg": p.peso_kg,
-        "idade": extrair_idade_paciente(p.nascimento, p.observacoes),
-        "data_nascimento": p.nascimento,
+        **dados_idade_paciente(p),
         "microchip": p.microchip,
         "observacoes": p.observacoes,
     }
@@ -712,12 +727,13 @@ def atualizar_paciente(
         db_paciente.sexo = normalizar_sexo_paciente(paciente.sexo)
     if "peso_kg" in campos_enviados:
         db_paciente.peso_kg = paciente.peso_kg
-    if "data_nascimento" in campos_enviados:
-        db_paciente.nascimento = paciente.data_nascimento
     if "microchip" in campos_enviados:
         db_paciente.microchip = paciente.microchip
+    age_changes = alteracoes_idade(db_paciente, paciente.model_dump(exclude_unset=True))
     if "observacoes" in campos_enviados:
         db_paciente.observacoes = paciente.observacoes
+    for key, value in age_changes.items():
+        setattr(db_paciente, key, value)
     db_paciente.updated_at = _legacy_now_dt()
 
     db.commit()
@@ -732,7 +748,7 @@ def atualizar_paciente(
         "raca": db_paciente.raca,
         "sexo": normalizar_sexo_paciente(db_paciente.sexo),
         "peso_kg": db_paciente.peso_kg,
-        "data_nascimento": db_paciente.nascimento,
+        **dados_idade_paciente(db_paciente),
         "microchip": db_paciente.microchip,
         "observacoes": db_paciente.observacoes,
         "message": "Paciente atualizado com sucesso",

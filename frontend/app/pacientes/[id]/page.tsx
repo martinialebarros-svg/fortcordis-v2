@@ -1,5 +1,7 @@
 "use client";
 
+import { PatientAgeFields } from "@/components/pacientes/PatientAgeFields";
+import { patientAgeForm, patientAgePayload } from "@/lib/paciente-idade";
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
@@ -111,7 +113,7 @@ export default function EditarPacientePage() {
     raca: "",
     sexo: "Macho",
     peso_kg: "",
-    data_nascimento: "",
+    ...patientAgeForm(),
     microchip: "",
     observacoes: "",
   });
@@ -182,7 +184,7 @@ export default function EditarPacientePage() {
         raca: data.raca || "",
         sexo: data.sexo || "Macho",
         peso_kg: data.peso_kg?.toString() || "",
-        data_nascimento: data.data_nascimento || "",
+        ...patientAgeForm(data),
         microchip: data.microchip || "",
         observacoes: data.observacoes || "",
       });
@@ -215,6 +217,7 @@ export default function EditarPacientePage() {
     try {
       const payload = {
         ...paciente,
+        ...patientAgePayload(paciente),
         tutor_id: paciente.tutor_id ? Number(paciente.tutor_id) : null,
         tutor_telefone: normalizarTelefone(paciente.tutor_telefone),
         tutor_whatsapp: normalizarTelefone(paciente.tutor_whatsapp),
@@ -791,17 +794,7 @@ export default function EditarPacientePage() {
               />
             </div>
             
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Data de Nascimento
-              </label>
-              <input
-                type="date"
-                value={paciente.data_nascimento}
-                onChange={(e) => setPaciente({...paciente, data_nascimento: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            <PatientAgeFields value={paciente} onChange={(patch) => setPaciente((prev) => ({ ...prev, ...patch }))} />
             
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

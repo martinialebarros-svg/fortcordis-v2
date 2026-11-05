@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.security import get_current_user
 from app.db.database import get_db
 from app.models.atendimento_clinico import AtendimentoClinico
+from app.utils.paciente_idade import dados_idade_paciente
 from app.models.paciente import Paciente
 from app.models.user import User
 from app.services.atendimento_assistente import (
@@ -40,7 +41,7 @@ def _contexto(db: Session, atendimento_id: int) -> dict:
     return {
         "atendimento_id": atendimento.id,
         "data_atendimento": atendimento.data_atendimento.isoformat() if atendimento.data_atendimento else None,
-        "paciente": {"id": paciente.id, "nome": paciente.nome, "especie": atendimento.especie or paciente.especie, "raca": paciente.raca, "sexo": paciente.sexo, "nascimento": paciente.nascimento},
+        "paciente": {"id": paciente.id, "nome": paciente.nome, "especie": atendimento.especie or paciente.especie, "raca": paciente.raca, "sexo": paciente.sexo, "nascimento": paciente.nascimento, **dados_idade_paciente(paciente, data_referencia=atendimento.data_atendimento)},
         "triagem": {name: getattr(atendimento, name) for name in ("peso", "temperatura", "frequencia_cardiaca", "frequencia_respiratoria", "pressao_arterial", "saturacao_oxigenio", "mucosas", "hidratacao", "triagem_observacoes")},
         "consulta": {name: getattr(atendimento, name) for name in ("queixa_principal", "anamnese", "exame_fisico", "dados_clinicos", "diagnostico_principal", "diagnostico_secundario", "diagnostico_diferencial", "plano_terapeutico", "observacoes")},
     }

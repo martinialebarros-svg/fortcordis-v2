@@ -1,5 +1,7 @@
 "use client";
 
+import { PatientAgeFields } from "@/components/pacientes/PatientAgeFields";
+
 import { ArrowRight, ChevronDown, ChevronRight, Loader2, Save, User } from "lucide-react";
 import type { LooseAtendimentoComponentProps } from "./component-props";
 import TutorRevisaoCadastro from "@/components/TutorRevisaoCadastro";
@@ -24,6 +26,7 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
     salvandoCadastroComplementar,
     salvarCadastroComplementarAtual,
     setCadastroPacienteField,
+    setCadastroIdade,
     setCadastroComplementarExpandido,
     setCadastroTutorField,
     setNovaRacaCadastro,
@@ -201,29 +204,7 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
                       </button>
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className="block px-1 text-[11px] font-medium uppercase tracking-[0.2em] text-slate-500">
-                      Idade informada
-                    </label>
-                    <input
-                      value={cadastroComplementar.paciente.idade || ""}
-                      onChange={(e) => setCadastroPacienteField("idade", e.target.value)}
-                      placeholder="Ex.: 6, 6a, 8m, 2a 3m"
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block px-1 text-[11px] font-medium uppercase tracking-[0.2em] text-slate-500">
-                      Data de nascimento
-                    </label>
-                    <input
-                      type="date"
-                      value={cadastroComplementar.paciente.data_nascimento || ""}
-                      onChange={(e) => setCadastroPacienteField("data_nascimento", e.target.value)}
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                    />
-                    <p className="px-1 text-[11px] text-slate-500">Preenchida automaticamente pela idade, com ajuste manual se precisar.</p>
-                  </div>
+                  <PatientAgeFields value={cadastroComplementar.paciente} referenceDate={form.data_atendimento?.substring(0, 10)} onChange={setCadastroIdade} />
                   <div className="space-y-1">
                     <label className="block px-1 text-[11px] font-medium uppercase tracking-[0.2em] text-slate-500">
                       Peso cadastral (kg)
@@ -240,7 +221,7 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
                   <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Idade calculada</p>
                     <p className="mt-1 font-medium text-slate-900">{idadePacienteExibicao || "Em aberto"}</p>
-                    <p className="mt-1 text-xs text-slate-500">Atualizada automaticamente pela data de nascimento estimada.</p>
+                    <p className="mt-1 text-xs text-slate-500">Calculada pela fonte informada, na data do atendimento.</p>
                   </div>
                   <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Resumo</p>

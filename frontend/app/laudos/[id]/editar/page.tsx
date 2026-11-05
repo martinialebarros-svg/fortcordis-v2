@@ -1,5 +1,7 @@
 "use client";
 
+import { PatientAgeFields } from "@/components/pacientes/PatientAgeFields";
+import { calcularIdadeComFonte, patientAgeForm, patientAgePayload, importedPatientAge, type PatientAgeValue } from "@/lib/paciente-idade";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import DashboardLayout from "../../../layout-dashboard";
@@ -30,7 +32,6 @@ import EchoVoiceAssistant from "../../components/EchoVoiceAssistant";
 import EchoUnitReview from "../../components/EchoUnitReview";
 import EchoNarrativeConsistencyNotice from "../../components/EchoNarrativeConsistencyNotice";
 import EchoOutflowMeasurements from "../../components/EchoOutflowMeasurements";
-import EchoPulmonaryHypertension from "../../components/EchoPulmonaryHypertension";
 import { mapImportedEchoMeasurements, updateEchoOutflowMeasurement } from "@/lib/echo-outflow-editor";
 import { ECHO_OUTFLOW_KEYS } from "@/lib/echo-outflow";
 import FelineWaveReview from "../../components/FelineWaveReview";
@@ -64,7 +65,7 @@ import {
 import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
 import { operationalTodayDateInput } from "@/lib/calendar-date";
 import { confirmedUnitKey, echoLengthInMm, echoLengthInputLabel } from "@/lib/echo-unit-provenance";
-import { isCanineEchoSpecies, isFelineEchoSpecies } from "@/lib/echo-species";
+import { isFelineEchoSpecies, normalizeEchoSpecies } from "@/lib/echo-species";
 import { useEchoMeasurements } from "../../hooks/useEchoMeasurements";
 import { useEchoEditorDraft } from "../../hooks/useEchoEditorDraft";
 import EchoDraftStatus from "../../components/EchoDraftStatus";
@@ -262,7 +263,7 @@ interface Laudo {
   criado_por_nome: string;
 }
 
-interface Paciente {
+interface Paciente extends PatientAgeValue {
   id: number;
   nome: string;
   especie: string;
@@ -276,7 +277,7 @@ interface Paciente {
 }
 
 interface DadosExame {
-  paciente: {
+  paciente: PatientAgeValue & {
     nome: string;
     tutor: string;
     raca: string;
@@ -336,6 +337,9 @@ export default function EditarLaudoPage() {
   const [descricao, setDescricao] = useState("");
   const [status, setStatus] = useState("Rascunho");
 
+  // Medidas
+  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas, replaceMeasurements: substituirMedidas, exportState, restoreState } = useEchoMeasurements();
+
   // Qualitativa
   const [qualitativa, setQualitativa] = useState({
     valvas: "",
@@ -376,12 +380,11 @@ export default function EditarLaudoPage() {
     raca: "",
     sexo: "Macho",
     peso: "",
-    idade: "",
+    ...patientAgeForm(),
     tutor: "",
     telefone: "",
     data_exame: operationalTodayDateInput(),
   });
-  const { measurements: medidas, setMeasurements: setMedidas, importMeasurements: importarMedidas, replaceMeasurements: substituirMedidas, exportState, restoreState } = useEchoMeasurements({ species: pacienteForm.especie });
   const originalForm = useRef(pacienteForm);
   const [novaRaca, setNovaRaca] = useState("");
   const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<Record<string, string[]>>({});
@@ -640,7 +643,7 @@ export default function EditarLaudoPage() {
         : null;
 
     const divedNormalizadoCalculado =
-      isCanineEchoSpecies(pacienteForm.especie) && divedMm !== null && divedMm > 0 && peso !== null && peso > 0
+      normalizeEchoSpecies(pacienteForm.especie) === "Canina" && divedMm !== null && divedMm > 0 && peso !== null && peso > 0
         ? formatar2Casas((divedMm / 10.0) / Math.pow(peso, 0.294))
         : null;
 
@@ -663,6 +666,13 @@ export default function EditarLaudoPage() {
       }));
     }
   }, [medidas, pacienteForm.peso, pacienteForm.especie, pacienteForm.idade]);
+
+  useEffect(() => {
+    const resolved = calcularIdadeComFonte(pacienteForm, pacienteForm.data_exame);
+    if (resolved !== null && resolved !== pacienteForm.idade) {
+      setPacienteForm((prev) => ({ ...prev, idade: resolved }));
+    }
+  }, [pacienteForm.idade_fonte, pacienteForm.idade_informada, pacienteForm.idade_referencia, pacienteForm.data_nascimento, pacienteForm.data_exame]);
 
   const laudoEhPressao = (laudo?.tipo || "").toLowerCase() === TIPO_LAUDO_PRESSAO_ARTERIAL;
 
@@ -744,7 +754,7 @@ export default function EditarLaudoPage() {
         sexo:
           normalizarSexoPaciente(dados.paciente.sexo || anterior.sexo || "Macho") || "Macho",
         peso: pesoImportado !== null ? String(pesoImportado) : anterior.peso,
-        idade: dados.paciente.idade || anterior.idade,
+        ...importedPatientAge(anterior, dados.paciente, dados.paciente.data_exame?.substring(0, 10) || anterior.data_exame),
         tutor: dados.paciente.tutor || anterior.tutor,
         telefone: dados.paciente.telefone || anterior.telefone,
         data_exame: dados.paciente.data_exame
@@ -809,7 +819,8 @@ export default function EditarLaudoPage() {
         nome: patientData?.nome || "", especie: patientData?.especie || "Canina",
         raca: patientData?.raca || "", sexo: normalizarSexoPaciente(patientData?.sexo || "Macho") || "Macho",
         peso: patientData?.peso_kg != null ? String(patientData.peso_kg) : "",
-        idade: extrairIdadePaciente(patientData || {}) || "", tutor: patientData?.tutor || "",
+        ...patientAgeForm(patientData || {}),
+        idade: patientData?.idade || "", tutor: patientData?.tutor || "",
         telefone: patientData?.telefone || "",
         data_exame: data.data_exame ? data.data_exame.substring(0, 10) : operationalTodayDateInput(),
       };
@@ -933,10 +944,13 @@ export default function EditarLaudoPage() {
 
   const montarAlteracoesCadastro = () => {
     const patientPatch: Record<string, unknown> = {};
-    for (const key of ["nome", "especie", "raca", "sexo", "idade"] as const) {
+    for (const key of ["nome", "especie", "raca", "sexo", "idade_informada", "idade_referencia", "idade_fonte", "data_nascimento"] as const) {
       if (pacienteForm[key] !== originalForm.current[key]) patientPatch[key] = pacienteForm[key];
     }
     if (parsePesoKg(pacienteForm.peso) !== parsePesoKg(originalForm.current.peso)) patientPatch.peso_kg = parsePesoKg(pacienteForm.peso);
+    if (["idade_informada", "idade_referencia", "idade_fonte", "data_nascimento"].some((key) => key in patientPatch)) {
+      Object.assign(patientPatch, patientAgePayload(pacienteForm));
+    }
     const tutorPatch: Record<string, unknown> = {};
     if (pacienteForm.tutor !== originalForm.current.tutor) tutorPatch.nome = pacienteForm.tutor;
     if (pacienteForm.telefone !== originalForm.current.telefone) tutorPatch.telefone = pacienteForm.telefone;
@@ -1018,12 +1032,6 @@ export default function EditarLaudoPage() {
 
       // 1. Salvar dados do paciente primeiro
       if (!draftApplies && paciente?.id) {
-        // Montar observações com idade
-        let observacoesPaciente = "";
-        if (pacienteForm.idade) {
-          observacoesPaciente += `Idade: ${pacienteForm.idade}\n`;
-        }
-
         const pacientePayload = {
           nome: pacienteForm.nome,
           tutor: pacienteForm.tutor || undefined,
@@ -1031,7 +1039,7 @@ export default function EditarLaudoPage() {
           raca: pacienteForm.raca,
           sexo: normalizarSexoPaciente(pacienteForm.sexo),
           peso_kg: parsePesoKg(pacienteForm.peso),
-          observacoes: observacoesPaciente || null,
+          ...patientAgePayload(pacienteForm),
         };
         await api.put(`/pacientes/${paciente.id}`, pacientePayload);
 
@@ -1600,7 +1608,7 @@ export default function EditarLaudoPage() {
                         >
                           <option value="Canina">Canina</option>
                           <option value="Felina">Felina</option>
-                          {isCanineEchoSpecies(pacienteForm.especie) && pacienteForm.especie !== "Canina" && (
+                          {normalizeEchoSpecies(pacienteForm.especie) === "Canina" && pacienteForm.especie !== "Canina" && (
                             <option value={pacienteForm.especie}>{pacienteForm.especie} (canina)</option>
                           )}
                           {isFelineEchoSpecies(pacienteForm.especie) && pacienteForm.especie !== "Felina" && (
@@ -1666,18 +1674,7 @@ export default function EditarLaudoPage() {
                         </select>
                       </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Idade
-                        </label>
-                        <input
-                          type="text"
-                          value={pacienteForm.idade}
-                          onChange={(e) => setPacienteForm({...pacienteForm, idade: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                          placeholder="Ex: 5 anos"
-                        />
-                      </div>
+                      <PatientAgeFields value={pacienteForm} referenceDate={pacienteForm.data_exame} onChange={(patch) => setPacienteForm((prev) => ({ ...prev, ...patch }))} />
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1896,12 +1893,12 @@ export default function EditarLaudoPage() {
                           value={medidas["DIVEd"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd", v)}
                         />
-                        {isCanineEchoSpecies(pacienteForm.especie) && <MedidaInput
+                        {normalizeEchoSpecies(pacienteForm.especie) === "Canina" && <MedidaInput
                           label="DIVEd normalizado (DIVEd [cm] / peso^0,294)"
                           value={medidas["DIVEd_normalizado"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd_normalizado", v)}
                           readOnly
-                          reference={isCanineEchoSpecies(pacienteForm.especie) && (parsePesoKg(pacienteForm.peso) ?? 0) >= 2.2 && (parsePesoKg(pacienteForm.peso) ?? 0) <= 95
+                          reference={normalizeEchoSpecies(pacienteForm.especie) === "Canina" && (parsePesoKg(pacienteForm.peso) ?? 0) >= 2.2 && (parsePesoKg(pacienteForm.peso) ?? 0) <= 95
                             ? "Cornell 2004 (amostra de cães adultos, Modo M): 1,27–1,85"
                             : "Faixa aplicável não cadastrada"}
                         />}
@@ -2182,15 +2179,10 @@ export default function EditarLaudoPage() {
                           value={medidas["PSAP"] || ""}
                           onChange={(v) => handleMedidaChange("PSAP", v)}
                           readOnly
-                          reference="Estimativa complementar; revisar a avaliação de HP e confirmar ausência de obstrução da via de saída do VD. Não gradua a probabilidade de HP."
+                          reference="Estimativa ecocardiográfica; confirmar ausência de obstrução da via de saída do VD."
                         />
                       </div>
                     </div>
-
-                    <div data-echo-review-target="pulmonary"><EchoPulmonaryHypertension species={pacienteForm.especie} measurements={medidas}
-                      onPatch={(patch) => {
-                        if (!updateInProgress.current) setMedidas((previous) => ({ ...previous, ...patch }));
-                      }} /></div>
 
                     <div className="border-t pt-6">
                       <h4 className="mb-4 text-sm font-semibold text-gray-900">VE - Modo 2D</h4>
