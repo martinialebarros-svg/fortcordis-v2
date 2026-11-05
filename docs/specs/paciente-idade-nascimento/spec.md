@@ -25,3 +25,8 @@ Usuário solicitou “publique”. Ciclo Stage isolado → produção por PR dir
 
 ## Compatibilidade detectada no gate completo — 05/11/2026
 Data civil de fallback (`date`, sem horário) preserva o dia, enquanto timestamps UTC continuam convertidos para Fortaleza. A suíte legada agora verifica idade histórica também na pressão arterial, usa a resolução central atual nos mocks de IA/PDF e monta laudos reais na fixture do cache de imagens. O primeiro quality-gate foi interrompido antes de instalar; log de falha preservado, sem supressão de testes.
+
+## Contrato de publicação — 05/11/2026
+
+Promoção autorizada somente da árvore desta funcionalidade sobre main, após testes e homologação instalada de Stage. Restauração deve recompor todas as fontes anteriores de Stage, integrar a ascendência da promoção e preservar Nginx, configurações por ambiente e dados runtime. A conferência instalada cobre as sete rotas de cadastro/edição, laudos/ECG, Agenda, Atendimento e ultrassonografia, além de API protegida e cálculo de idade. Resultados e limites estão em `verify.md` e nas PRs de publicação/restauração.
+
