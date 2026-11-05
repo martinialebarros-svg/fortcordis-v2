@@ -18,7 +18,8 @@ from app.utils.ecocardiograma_medidas import (
     extrair_medidas_ecocardiograma_da_descricao,
 )
 from app.utils.ecocardiograma_qualitativa import extrair_qualitativa_ecocardiograma_da_descricao
-from app.utils.paciente_helpers import data_civil_referencia, extrair_idade_paciente, normalizar_sexo_paciente
+from app.utils.paciente_idade import referencia_documento, idade_do_paciente, dados_idade_paciente
+from app.utils.paciente_helpers import data_civil_referencia, normalizar_sexo_paciente
 
 
 LAUDO_PDF_RENDERER_VERSION = "2026-09-24-eco-presentation-v2"
@@ -52,6 +53,10 @@ def _sanitizar_nome_arquivo(texto: Any, padrao: str) -> str:
 def _carregar_stamp_cache(db: Session, laudo: Laudo, user_id: int) -> dict[str, Any]:
     from app.models.configuracao import Configuracao, ConfiguracaoUsuario
     from app.models.imagem_laudo import ImagemLaudo
+
+    from app.models.paciente import Paciente
+    patient = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
+    age_stamp = dados_idade_paciente(patient, data_referencia=referencia_documento(laudo.data_exame, laudo.data_laudo), data_calendario=bool(laudo.data_exame))
 
     imagens_count = 0
     imagens_max_created = None
@@ -102,6 +107,7 @@ def _carregar_stamp_cache(db: Session, laudo: Laudo, user_id: int) -> dict[str, 
         db.rollback()
 
     return {
+        "paciente_idade": age_stamp,
         "laudo_id": laudo.id,
         "laudo_tipo": laudo.tipo,
         "laudo_status": laudo.status,
@@ -285,12 +291,8 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
             data_exame = data_civil_referencia(data_exame, data_calendario=bool(laudo.data_exame))
         data_exame_str = data_exame.strftime("%d/%m/%Y") if data_exame else datetime.now().strftime("%d/%m/%Y")
 
-        idade = extrair_idade_paciente(
-            paciente.nascimento if paciente else None,
-            paciente.observacoes if paciente else None,
-            **({"data_referencia": laudo.data_exame or laudo.data_laudo,
-                "data_calendario": bool(laudo.data_exame)}
-               if (laudo.tipo or "").lower() == "ecocardiograma" else {}),
+        idade = idade_do_paciente(paciente,
+            data_referencia=referencia_documento(laudo.data_exame, laudo.data_laudo), data_calendario=bool(laudo.data_exame),
         )
 
         dados_paciente = {

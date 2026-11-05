@@ -65,6 +65,27 @@ class TutoresRotinaAgilTest(unittest.TestCase):
         self.assertFalse(result["sexo"])
         self.assertEqual(self.db.query(TutorIdentificacaoEvento).count(), 0)
 
+    def test_idade_e_nascimento_independentes_persistem_sem_reancorar_outros_campos(self):
+        result = pacientes.criar_paciente(pacientes.PacienteCreate(
+            nome="QA idade", tutor="QA tutor", idade_informada="12 anos", idade_fonte="idade",
+            idade_referencia="2025-01-31", data_nascimento="2020-05-03", observacoes="Nota preservada"), self.db, self.user)
+        patient_id = result["id"]
+        row = self.db.get(Paciente, patient_id)
+        self.assertEqual(row.nascimento, "2020-05-03")
+        self.assertEqual(row.idade_fonte, "idade")
+        self.assertEqual(row.observacoes, "Idade: 12 anos\nNota preservada")
+        anchor = row.idade_referencia
+        updated = pacientes.atualizar_paciente(patient_id, pacientes.PacienteUpdate(peso_kg=4.2), self.db, self.user)
+        self.assertEqual(updated["idade_referencia"], "2025-01-31")
+        self.assertEqual(row.idade_referencia, anchor)
+        updated = pacientes.atualizar_paciente(patient_id, pacientes.PacienteUpdate(
+            idade_fonte="nascimento", data_nascimento="2014"), self.db, self.user)
+        self.assertIn("estimada pelo ano", updated["idade"])
+        self.assertEqual(updated["idade_informada"], "12 anos")
+        self.assertEqual(updated["idade_referencia"], "2025-01-31")
+        read = pacientes.obter_paciente(patient_id, self.db, self.user)
+        self.assertEqual(read["idade"], updated["idade"])
+
     def test_booleano_legado_nao_confirma_identidade_no_cadastro_ou_edicao(self):
         result = self.criar(identificacao_pendente=False)
         self.assertTrue(result["identificacao_pendente"])

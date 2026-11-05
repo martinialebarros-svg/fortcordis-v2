@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Float, Integer, Text
+from sqlalchemy import Column, Date, DateTime, Float, Integer, Text
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -14,6 +14,9 @@ class Paciente(Base):
     raca = Column(Text)
     sexo = Column(Text)
     nascimento = Column(Text)
+    idade_informada = Column(Text)
+    idade_referencia = Column(Date)
+    idade_fonte = Column(Text)
     peso_kg = Column(Float)
     microchip = Column(Text)
     observacoes = Column(Text)

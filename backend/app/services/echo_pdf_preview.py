@@ -34,9 +34,10 @@ from app.services.laudo_pdf_service import (
 )
 from app.utils.ecocardiograma_medidas import extrair_medidas_ecocardiograma_da_descricao
 from app.utils.ecocardiograma_qualitativa import extrair_qualitativa_ecocardiograma_da_descricao
+from app.utils.paciente_idade import referencia_documento, AGE_FIELDS, idade_do_paciente, alteracoes_idade
 from app.utils.paciente_helpers import (
-    atualizar_observacoes_com_idade, data_civil_referencia,
-    extrair_idade_paciente, normalizar_sexo_paciente,
+    data_civil_referencia,
+    normalizar_sexo_paciente,
 )
 
 
@@ -45,7 +46,7 @@ _NEW_REPORT_FIELDS = {
     "veterinario", "data_exame", "tipo_laudo", "tipo", "status", "pressao_arterial",
     "ecocardiograma_cabecalho", "ecocardiograma_estruturado", "veterinario_parceiro_id", "anexos",
 }
-_PATIENT_FIELDS = ("nome", "especie", "raca", "sexo", "peso_kg", "nascimento", "observacoes")
+_PATIENT_FIELDS = ("nome", "especie", "raca", "sexo", "peso_kg", "nascimento", "observacoes", *AGE_FIELDS)
 
 
 def _conflict(code: str, message: str) -> None:
@@ -96,8 +97,8 @@ def _patient_pdf(patient: dict, tutor_name: str, requester: str, exam_value: Any
     return {
         "nome": patient.get("nome") or "N/A", "especie": patient.get("especie") or "Canina",
         "raca": patient.get("raca") or "", "sexo": normalizar_sexo_paciente(patient.get("sexo")),
-        "idade": extrair_idade_paciente(patient.get("nascimento"), patient.get("observacoes"),
-                                        data_referencia=exam_value, data_calendario=has_exam_date),
+        "idade": idade_do_paciente(patient,
+                                        data_referencia=referencia_documento(exam_value if has_exam_date else None, exam_value), data_calendario=True),
         "peso": str(weight) if weight and weight > 0 else (f"{weight:.1f}" if weight else ""),
         "tutor": tutor_name, "solicitante": requester or "", "data_exame": exam_text,
         **{key: str(header.get(key) or "").strip() for key in ("ritmo", "estado", "fc")},
@@ -151,9 +152,7 @@ def _project_new(db: Any, report: dict, endpoint: Any) -> dict:
         if not math.isfinite(weight):
             raise HTTPException(422, "Peso inválido para a prévia.")
         patient["peso_kg"] = weight
-    age = str(payload.get("idade") or "").strip()
-    if age:
-        patient["observacoes"] = atualizar_observacoes_com_idade(patient.get("observacoes"), age)
+    patient.update(alteracoes_idade(patient, payload, data_referencia=payload.get("data_exame") or payload.get("data")))
 
     raw_date = payload.get("data_exame") or payload.get("data")
     exam_value, exam_text = _date(raw_date, None, endpoint)
@@ -205,7 +204,7 @@ def _project_existing(db: Any, user: Any, source: Any, report: dict,
     if source.paciente is None:
         raise HTTPException(404, "Paciente do laudo não encontrado.")
     patient = _record_patient(source.paciente)
-    changes = _patient_changes(source, data.paciente)
+    changes = _patient_changes(source, data.paciente, data_referencia=referencia_documento(report.get("data_exame", source.laudo.data_exame), source.laudo.data_laudo))
     tutor_changes, create_tutor = _tutor_changes(source, data.tutor)
     if changes or create_tutor:
         _require_edit(db, user, "pacientes")

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PatientAgeFields } from "@/components/pacientes/PatientAgeFields";
+import { patientAgeForm, patientAgePayload, type PatientAgeValue } from "@/lib/paciente-idade";
 import { useRouter } from "next/navigation";
 import api from "@/lib/axios";
 import ImageUploader from "@/app/laudos/components/ImageUploader";
@@ -28,7 +30,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-interface PacienteForm {
+interface PacienteForm extends PatientAgeValue {
   id?: number;
   nome: string;
   tutor: string;
@@ -84,7 +86,7 @@ const PACIENTE_INICIAL: PacienteForm = {
   raca: "",
   sexo: "Macho",
   peso: "",
-  idade: "",
+  ...patientAgeForm(),
   data_exame: "",
 };
 
@@ -374,6 +376,7 @@ export default function UltrassonografiaAbdominalForm({
           dadosPaciente?.peso_kg !== null && dadosPaciente?.peso_kg !== undefined
             ? String(dadosPaciente.peso_kg)
             : prev.peso,
+        ...patientAgeForm(dadosPaciente),
         data_exame: extras?.dataExame || prev.data_exame || obterDataAtualIso(),
       }));
       setBuscaPaciente("");
@@ -433,7 +436,7 @@ export default function UltrassonografiaAbdominalForm({
       tutor: "",
       raca: "",
       peso: "",
-      idade: "",
+      ...patientAgeForm(),
     }));
   };
 
@@ -460,7 +463,7 @@ export default function UltrassonografiaAbdominalForm({
         raca: laudo.paciente?.raca || "",
         sexo: sexoPaciente,
         peso: laudo.paciente?.peso_kg ? String(laudo.paciente.peso_kg) : "",
-        idade: laudo.paciente?.idade || "",
+        ...patientAgeForm(laudo.paciente),
         data_exame: laudo.data_exame ? calendarDateInput(laudo.data_exame) : operationalTodayDateInput(),
       });
       setStatus(laudo.status || "Finalizado");
@@ -610,7 +613,7 @@ export default function UltrassonografiaAbdominalForm({
         raca: paciente.raca.trim(),
         sexo: paciente.sexo,
         peso: paciente.peso.trim(),
-        idade: paciente.idade.trim(),
+        ...patientAgePayload(paciente),
         data_exame: paciente.data_exame,
       },
       qualitativa: qualitativaPreenchida,
@@ -820,7 +823,7 @@ export default function UltrassonografiaAbdominalForm({
             {campoTexto("Telefone", paciente.telefone, (value) => setPaciente((prev) => ({ ...prev, telefone: value })), "Telefone")}
             {campoTexto("Raca", paciente.raca, (value) => setPaciente((prev) => ({ ...prev, raca: value })), "Raca")}
             {campoTexto("Peso (kg)", paciente.peso, (value) => setPaciente((prev) => ({ ...prev, peso: value })), "Ex: 12.5")}
-            {campoTexto("Idade", paciente.idade, (value) => setPaciente((prev) => ({ ...prev, idade: value })), "Ex: 8a")}
+            <PatientAgeFields value={paciente} referenceDate={paciente.data_exame} onChange={(patch) => setPaciente((prev) => ({ ...prev, ...patch }))} />
             {campoTexto("Veterinario solicitante", veterinario, setVeterinario, "Nome do profissional")}
             {campoTexto("Data do exame", paciente.data_exame, (value) => setPaciente((prev) => ({ ...prev, data_exame: value })), undefined, "date")}
 

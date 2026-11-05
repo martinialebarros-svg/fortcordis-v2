@@ -1,5 +1,7 @@
 "use client";
 
+import { PatientAgeFields } from "@/components/pacientes/PatientAgeFields";
+import { patientAgeForm, patientAgePayload, type PatientAgeValue } from "@/lib/paciente-idade";
 import { useEffect, useRef, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle, Pencil, Plus, Trash2, Send, Loader2 } from "lucide-react";
 import api from "@/lib/axios";
@@ -418,7 +420,7 @@ interface NovoTutorForm {
   endereco_normalizado: string;
 }
 
-interface NovoAnimalForm {
+interface NovoAnimalForm extends PatientAgeValue {
   tutor_id: string;
   nome: string;
   especie: string;
@@ -520,7 +522,7 @@ const buildInitialAnimalForm = (tutorId = ""): NovoAnimalForm => ({
   raca: "",
   sexo: "",
   peso_kg: "",
-  data_nascimento: "",
+  ...patientAgeForm(),
   microchip: "",
   observacoes: "",
 });
@@ -3079,7 +3081,7 @@ export default function NovoAgendamentoModal({
         raca: novoAnimal.raca || "",
         sexo: novoAnimal.sexo || null,
         peso_kg: Number.isFinite(pesoKg) ? pesoKg : null,
-        data_nascimento: novoAnimal.data_nascimento || null,
+        ...patientAgePayload(novoAnimal),
         microchip: novoAnimal.microchip || "",
         observacoes: novoAnimal.observacoes || "Cadastro via modal de animal na agenda",
       };
@@ -5587,15 +5589,7 @@ export default function NovoAgendamentoModal({
                     placeholder="Ex: 12.5"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nascimento</label>
-                  <input
-                    type="date"
-                    value={novoAnimal.data_nascimento}
-                    onChange={(e) => setNovoAnimal((prev) => ({ ...prev, data_nascimento: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+                <PatientAgeFields value={novoAnimal} onChange={(patch) => setNovoAnimal((prev) => ({ ...prev, ...patch }))} />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Microchip</label>
                   <input

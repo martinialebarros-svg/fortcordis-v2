@@ -196,7 +196,77 @@ class EchoPdfPreviewHTTPTest(unittest.TestCase):
         self.assertEqual(result.status_code, 200, result.text)
         self.assert_preview_matches_official(response.content, 901)
 
-    def test_new_structured_override_is_the_same_as_creation_and_birthdate_age_is_authoritative(self):
+    def test_other_report_types_use_same_declared_age_in_details_and_pdf(self):
+        for kind in ("pressao_arterial", "ultrassonografia_abdominal"):
+            with self.subTest(kind=kind):
+                payload = self.new_body()["payload_laudo"]
+                payload.update(tipo_laudo=kind, status="Rascunho")
+                payload["paciente"].update(id=901, tutor_id=901, idade_informada="12 anos",
+                                           idade_referencia="2026-10-01", idade_fonte="idade",
+                                           data_nascimento="2026-09-30")
+                result = self.client.post("/api/v1/laudos", json=payload, headers=self.headers())
+                self.assertEqual(result.status_code, 201, result.text)
+                report_id = result.json()["id"]
+                details = self.client.get(f"/api/v1/laudos/{report_id}", headers=self.headers()).json()
+                self.assertEqual(details["paciente"]["idade"], "12a (estimada)")
+                with self.sessions() as db:
+                    rendered = render_laudo_pdf(db, report_id, db.get(User, 1))
+                self.assertIn("12a (estimada)", text(rendered.content))
+
+    def test_new_birth_source_never_stores_derived_age_as_declared_age(self):
+        from app.utils.paciente_idade import alteracoes_idade, idade_do_paciente
+        payload = self.new_body()["payload_laudo"]["paciente"]
+        payload.update(tutor_id=901, data_nascimento="2014", idade="11–12 anos (estimada pelo ano)",
+                       idade_informada=None, idade_referencia=None, idade_fonte="nascimento")
+        with self.sessions() as db:
+            patient_id = laudos._resolver_ou_criar_paciente(payload, db)
+            patient = db.get(Paciente, patient_id)
+            self.assertIsNone(patient.idade_informada)
+            self.assertNotIn("Idade:", patient.observacoes or "")
+            for key, value in alteracoes_idade(patient, {"data_nascimento": None}).items():
+                setattr(patient, key, value)
+            self.assertEqual(idade_do_paciente(patient), "")
+
+    def test_explicit_age_metadata_survives_preview_apply_read_and_pdf_cache(self):
+        with self.sessions() as db:
+            patient = db.get(Paciente, 901)
+            patient.nascimento = "2026-09-30"
+            patient.observacoes = "Nota clínica sintética"
+            db.commit()
+            old_key = compute_laudo_pdf_cache_key(db, 901, 1)
+        saved = self.save(existing=True)
+        body = self.existing_body()
+        body["paciente"] = {"idade_informada": "12 anos", "idade_fonte": "idade",
+                            "idade_referencia": "2026-10-01", "data_nascimento": "2026-09-30"}
+        before = self.state()
+        preview = self.post(body)
+        self.assert_pdf(preview)
+        self.assertIn("12a (estimada)", text(preview.content))
+        self.assertEqual(self.state(), before)
+        update = {"expected_editor_revision": saved["snapshot"]["source"]["editor_revision"],
+                  "request_id": str(uuid4()), "editor_draft_id": saved["draft_id"],
+                  "expected_draft_revision": saved["revision"],
+                  **{key: value for key, value in body.items() if key != "expected_revision"}}
+        with patch.object(laudos, "_sincronizar_publicacao_laudo_no_portal", return_value=(None, None, None, None)):
+            applied = self.client.put("/api/v1/laudos/901/editor-update", json=update, headers=self.headers())
+        self.assertEqual(applied.status_code, 200, applied.text)
+        self.assert_preview_matches_official(preview.content, 901)
+        patient = self.client.get("/api/v1/laudos/901", headers=self.headers()).json()["paciente"]
+        self.assertEqual(patient["idade"], "12a (estimada)")
+        self.assertEqual(patient["idade_fonte"], "idade")
+        self.assertEqual(patient["idade_referencia"], "2026-10-01")
+        self.assertEqual(patient["data_nascimento"], "2026-09-30")
+        with self.sessions() as db:
+            row = db.get(Paciente, 901)
+            self.assertIn("Nota clínica sintética", row.observacoes)
+            key = compute_laudo_pdf_cache_key(db, 901, 1)
+            self.assertNotEqual(key, old_key)
+            row.idade_fonte = "nascimento"
+            db.commit()
+            # A cadastro correction alone invalidates a previously cached download.
+            self.assertNotEqual(compute_laudo_pdf_cache_key(db, 901, 1), key)
+
+    def test_new_structured_override_and_explicit_age_match_creation_despite_existing_birthdate(self):
         self.save()
         with self.sessions() as db:
             db.get(Paciente, 901).nascimento = "2021-10-02"
@@ -209,8 +279,8 @@ class EchoPdfPreviewHTTPTest(unittest.TestCase):
         self.assert_pdf(response)
         self.assertIn("Estruturado novo aplicado", text(response.content))
         self.assertIn("Conclusão estruturada aplicada", text(response.content))
-        self.assertIn("4a 11m", text(response.content))
-        self.assertNotIn("99a", text(response.content))
+        self.assertIn("99a (estimada)", text(response.content))
+        self.assertNotIn("4a 11m", text(response.content))
         self.assertNotIn("NOME DIGITADO NÃO", text(response.content))
         emitted = self.client.post("/api/v1/laudos", json=body["payload_laudo"], headers=self.headers())
         self.assertEqual(emitted.status_code, 201, emitted.text)

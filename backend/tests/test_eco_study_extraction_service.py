@@ -411,21 +411,21 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
             "Birthdate: 15/06/2018\nStudy Date: 14/07/2026\nAge: 99 years\nWeight: 7.35 kg"
         )
 
-        self.assertEqual(demographics, {"idade": "8 anos", "peso": "7.35"})
+        self.assertEqual(demographics, {"idade": "8 anos", "peso": "7.35", "data_nascimento": "2018-06-15"})
 
     def test_calculates_age_in_months_when_younger_than_one_year(self) -> None:
         demographics = parse_patient_age_weight(
             "Birthdate: 20/08/2025\nStudy Date: 11/07/2026"
         )
 
-        self.assertEqual(demographics, {"idade": "10 meses", "peso": ""})
+        self.assertEqual(demographics, {"idade": "10 meses", "peso": "", "data_nascimento": "2025-08-20"})
 
     def test_calculates_singular_month_from_birthdate(self) -> None:
         demographics = parse_patient_age_weight(
             "Birthdate: 15/05/2026\nExam Date: 15/06/2026"
         )
 
-        self.assertEqual(demographics, {"idade": "1 mês", "peso": ""})
+        self.assertEqual(demographics, {"idade": "1 mês", "peso": "", "data_nascimento": "2026-05-15"})
 
     def test_accepts_iso_and_unambiguous_month_first_birthdates(self) -> None:
         for birthdate in ("2025-08-20", "08/20/2025"):

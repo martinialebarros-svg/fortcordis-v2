@@ -14,7 +14,8 @@ from app.models.laudo_editor_draft import LaudoEditorDraft, LaudoEditorDraftRequ
 from app.models.tutor import Tutor
 from app.services.echo_editor_source import SOURCE_CONFLICT, existing_snapshot_source, load_echo_editor_source
 from app.services.laudo_editor_draft_service import _canonical, _is_write_collision, validate_snapshot
-from app.utils.paciente_helpers import atualizar_observacoes_com_idade, normalizar_sexo_paciente
+from app.utils.paciente_idade import referencia_documento, AGE_INPUT_FIELDS, alteracoes_idade
+from app.utils.paciente_helpers import normalizar_sexo_paciente
 
 REPORT_FIELDS = {
     "titulo", "descricao", "diagnostico", "observacoes", "status", "data_exame", "tipo", "tipo_laudo",
@@ -33,14 +34,15 @@ def _conflict(message=SOURCE_CONFLICT, *, code="SOURCE_CHANGED"):
     raise HTTPException(409, {"code": code, "message": message})
 
 
-def _patient_changes(source, patch):
+def _patient_changes(source, patch, *, data_referencia=None):
     if patch is None:
         return {}
     if source.paciente is None:
         raise HTTPException(404, "Paciente do laudo não encontrado.")
     changes = patch.model_dump(exclude_unset=True)
-    if "idade" in changes:
-        changes["observacoes"] = atualizar_observacoes_com_idade(source.paciente.observacoes, changes.pop("idade")) or None
+    age_changes = alteracoes_idade(source.paciente, changes, data_referencia=data_referencia or referencia_documento(source.laudo.data_exame, source.laudo.data_laudo))
+    changes = {key: value for key, value in changes.items() if key not in AGE_INPUT_FIELDS}
+    changes.update(age_changes)
     if "sexo" in changes:
         changes["sexo"] = normalizar_sexo_paciente(changes["sexo"])
     if "nome" in changes and not str(changes["nome"] or "").strip():
@@ -166,7 +168,7 @@ def apply_echo_editor_update(db, user, laudo_id, data):
         if type(report["veterinario_parceiro_id"]) is not int:
             raise HTTPException(422, "Veterinário parceiro inválido.")
         laudos._load_veterinario_parceiro_or_422(db, report["veterinario_parceiro_id"])
-    patient_changes = _patient_changes(source, data.paciente)
+    patient_changes = _patient_changes(source, data.paciente, data_referencia=referencia_documento(report.get("data_exame", source.laudo.data_exame), source.laudo.data_laudo))
     tutor_changes, create_tutor = _tutor_changes(source, data.tutor)
     if patient_changes or create_tutor:
         _require_edit(db, user, "pacientes")

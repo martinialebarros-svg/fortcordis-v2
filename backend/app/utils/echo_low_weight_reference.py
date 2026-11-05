@@ -47,6 +47,12 @@ def _round_mm(value: float) -> float:
 def low_weight_age_context(age: Any) -> str:
     """Conservative <12-month software guard, not a maturity cutoff from a study."""
     text = unicodedata.normalize("NFKD", str(age or "").strip()).encode("ascii", "ignore").decode().lower()
+    year_range = re.fullmatch(r"(\d+)[–-](\d+) anos \(estimada pelo ano\)", str(age or "").lower())
+    if year_range:
+        return "adult" if int(year_range[1]) >= 1 else "unknown"
+    if str(age or "").lower() == "0–11 meses (estimada pelo ano)":
+        return "juvenile"
+    text = re.sub(r"\s*\(estimada\)$", "", text)
     if re.fullmatch(r"(?:filhote|juvenil|kitten|puppy|em crescimento)", text):
         return "juvenile"
     if re.fullmatch(r"adult[oa]|adult", text):

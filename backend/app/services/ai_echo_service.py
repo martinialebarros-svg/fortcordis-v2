@@ -55,7 +55,7 @@ from app.services.ai_echo_validation import (
     can_recover_normality_deterministically,
     validate_and_enrich_clinical_output,
 )
-from app.utils.paciente_helpers import extrair_idade_paciente
+from app.utils.paciente_idade import referencia_documento, idade_do_paciente
 from app.utils.echo_unit_provenance import clinically_safe_echo_measurements
 
 logger = logging.getLogger(__name__)
@@ -654,9 +654,8 @@ def _process_structure(
             else None
         )
         patient_age = (
-            extrair_idade_paciente(
-                patient.nascimento, patient.observacoes,
-                **({"data_referencia": report.data_exame or report.data_laudo,
+            idade_do_paciente(patient,
+                **({"data_referencia": referencia_documento(report.data_exame, report.data_laudo),
                     "data_calendario": bool(report.data_exame)}
                    if report and (report.tipo or "").lower() == "ecocardiograma" else {}),
             )
