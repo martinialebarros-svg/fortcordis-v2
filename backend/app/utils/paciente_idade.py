@@ -31,9 +31,14 @@ def referencia_documento(exam: Any, created: Any = None) -> date | None:
         return data_civil_referencia(exam, data_calendario=True)
     if created is None:
         return hoje_operacional()
+    if isinstance(created, date) and not isinstance(created, datetime):
+        return created  # A civil date carries no UTC time to convert.
     try:
         instant = created if isinstance(created, datetime) else datetime.fromisoformat(str(created).replace("Z", "+00:00"))
         if instant.tzinfo is None:
+            # SQLite/legacy DateTime also stores date-only values at naive midnight.
+            if (instant.hour, instant.minute, instant.second, instant.microsecond) == (0, 0, 0, 0):
+                return instant.date()
             instant = instant.replace(tzinfo=timezone.utc)
         return data_civil_referencia(instant)
     except (TypeError, ValueError):

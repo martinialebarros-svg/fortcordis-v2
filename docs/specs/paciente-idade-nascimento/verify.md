@@ -29,3 +29,6 @@ Publicação e homologação autenticada em Stage/produção permanecem fora des
 
 ## Preparação de publicação — 05/11/2026
 Pedido explícito de publicação recebido. Baselines conferidas: main `6185b334`, Stage `cf647ead`; serviços ativos, cerca de 6,7 GiB disponíveis, trava local do backup livre. Ainda sem deploy desta funcionalidade neste ponto. Evidências de release separadas em `/Users/martiniano/Documents/Codex/2026-11-05/fortcordis-idade-release`.
+
+## Compatibilidade detectada no gate completo — 05/11/2026
+Data civil de fallback (`date`, sem horário) preserva o dia, enquanto timestamps UTC continuam convertidos para Fortaleza. A suíte legada agora verifica idade histórica também na pressão arterial, usa a resolução central atual nos mocks de IA/PDF e monta laudos reais na fixture do cache de imagens. O primeiro quality-gate foi interrompido antes de instalar; log de falha preservado, sem supressão de testes.

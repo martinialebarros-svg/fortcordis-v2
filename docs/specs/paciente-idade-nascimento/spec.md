@@ -22,3 +22,6 @@ Migração adiciona três colunas nullable; não altera RLS, permissões, víncu
 
 ## Publicação autorizada — 05/11/2026
 Usuário solicitou “publique”. Ciclo Stage isolado → produção por PR direta stage/main → restauração de Stage com os trabalhos paralelos. Migração 106 após máximo remoto 105, sem backfill. Sem edição de cadastro real, assinatura, envio ou reemissão de documento real neste release.
+
+## Compatibilidade detectada no gate completo — 05/11/2026
+Data civil de fallback (`date`, sem horário) preserva o dia, enquanto timestamps UTC continuam convertidos para Fortaleza. A suíte legada agora verifica idade histórica também na pressão arterial, usa a resolução central atual nos mocks de IA/PDF e monta laudos reais na fixture do cache de imagens. O primeiro quality-gate foi interrompido antes de instalar; log de falha preservado, sem supressão de testes.
