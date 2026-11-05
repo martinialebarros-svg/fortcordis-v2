@@ -1,5 +1,7 @@
 "use client";
 
+import { PatientAgeFields } from "@/components/pacientes/PatientAgeFields";
+import { calcularIdadeComFonte, patientAgeForm, patientAgePayload, importedPatientAge, type PatientAgeValue } from "@/lib/paciente-idade";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import DashboardLayout from "../../../layout-dashboard";
@@ -261,7 +263,7 @@ interface Laudo {
   criado_por_nome: string;
 }
 
-interface Paciente {
+interface Paciente extends PatientAgeValue {
   id: number;
   nome: string;
   especie: string;
@@ -275,7 +277,7 @@ interface Paciente {
 }
 
 interface DadosExame {
-  paciente: {
+  paciente: PatientAgeValue & {
     nome: string;
     tutor: string;
     raca: string;
@@ -378,7 +380,7 @@ export default function EditarLaudoPage() {
     raca: "",
     sexo: "Macho",
     peso: "",
-    idade: "",
+    ...patientAgeForm(),
     tutor: "",
     telefone: "",
     data_exame: operationalTodayDateInput(),
@@ -665,6 +667,13 @@ export default function EditarLaudoPage() {
     }
   }, [medidas, pacienteForm.peso, pacienteForm.especie, pacienteForm.idade]);
 
+  useEffect(() => {
+    const resolved = calcularIdadeComFonte(pacienteForm, pacienteForm.data_exame);
+    if (resolved !== null && resolved !== pacienteForm.idade) {
+      setPacienteForm((prev) => ({ ...prev, idade: resolved }));
+    }
+  }, [pacienteForm.idade_fonte, pacienteForm.idade_informada, pacienteForm.idade_referencia, pacienteForm.data_nascimento, pacienteForm.data_exame]);
+
   const laudoEhPressao = (laudo?.tipo || "").toLowerCase() === TIPO_LAUDO_PRESSAO_ARTERIAL;
 
   const pasMediaCalculada = (() => {
@@ -745,7 +754,7 @@ export default function EditarLaudoPage() {
         sexo:
           normalizarSexoPaciente(dados.paciente.sexo || anterior.sexo || "Macho") || "Macho",
         peso: pesoImportado !== null ? String(pesoImportado) : anterior.peso,
-        idade: dados.paciente.idade || anterior.idade,
+        ...importedPatientAge(anterior, dados.paciente, dados.paciente.data_exame?.substring(0, 10) || anterior.data_exame),
         tutor: dados.paciente.tutor || anterior.tutor,
         telefone: dados.paciente.telefone || anterior.telefone,
         data_exame: dados.paciente.data_exame
@@ -810,7 +819,8 @@ export default function EditarLaudoPage() {
         nome: patientData?.nome || "", especie: patientData?.especie || "Canina",
         raca: patientData?.raca || "", sexo: normalizarSexoPaciente(patientData?.sexo || "Macho") || "Macho",
         peso: patientData?.peso_kg != null ? String(patientData.peso_kg) : "",
-        idade: extrairIdadePaciente(patientData || {}) || "", tutor: patientData?.tutor || "",
+        ...patientAgeForm(patientData || {}),
+        idade: patientData?.idade || "", tutor: patientData?.tutor || "",
         telefone: patientData?.telefone || "",
         data_exame: data.data_exame ? data.data_exame.substring(0, 10) : operationalTodayDateInput(),
       };
@@ -934,10 +944,13 @@ export default function EditarLaudoPage() {
 
   const montarAlteracoesCadastro = () => {
     const patientPatch: Record<string, unknown> = {};
-    for (const key of ["nome", "especie", "raca", "sexo", "idade"] as const) {
+    for (const key of ["nome", "especie", "raca", "sexo", "idade_informada", "idade_referencia", "idade_fonte", "data_nascimento"] as const) {
       if (pacienteForm[key] !== originalForm.current[key]) patientPatch[key] = pacienteForm[key];
     }
     if (parsePesoKg(pacienteForm.peso) !== parsePesoKg(originalForm.current.peso)) patientPatch.peso_kg = parsePesoKg(pacienteForm.peso);
+    if (["idade_informada", "idade_referencia", "idade_fonte", "data_nascimento"].some((key) => key in patientPatch)) {
+      Object.assign(patientPatch, patientAgePayload(pacienteForm));
+    }
     const tutorPatch: Record<string, unknown> = {};
     if (pacienteForm.tutor !== originalForm.current.tutor) tutorPatch.nome = pacienteForm.tutor;
     if (pacienteForm.telefone !== originalForm.current.telefone) tutorPatch.telefone = pacienteForm.telefone;
@@ -1019,12 +1032,6 @@ export default function EditarLaudoPage() {
 
       // 1. Salvar dados do paciente primeiro
       if (!draftApplies && paciente?.id) {
-        // Montar observações com idade
-        let observacoesPaciente = "";
-        if (pacienteForm.idade) {
-          observacoesPaciente += `Idade: ${pacienteForm.idade}\n`;
-        }
-
         const pacientePayload = {
           nome: pacienteForm.nome,
           tutor: pacienteForm.tutor || undefined,
@@ -1032,7 +1039,7 @@ export default function EditarLaudoPage() {
           raca: pacienteForm.raca,
           sexo: normalizarSexoPaciente(pacienteForm.sexo),
           peso_kg: parsePesoKg(pacienteForm.peso),
-          observacoes: observacoesPaciente || null,
+          ...patientAgePayload(pacienteForm),
         };
         await api.put(`/pacientes/${paciente.id}`, pacientePayload);
 
@@ -1667,18 +1674,7 @@ export default function EditarLaudoPage() {
                         </select>
                       </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Idade
-                        </label>
-                        <input
-                          type="text"
-                          value={pacienteForm.idade}
-                          onChange={(e) => setPacienteForm({...pacienteForm, idade: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                          placeholder="Ex: 5 anos"
-                        />
-                      </div>
+                      <PatientAgeFields value={pacienteForm} referenceDate={pacienteForm.data_exame} onChange={(patch) => setPacienteForm((prev) => ({ ...prev, ...patch }))} />
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">

@@ -8,7 +8,8 @@ from app.models.atendimento_clinico import AtendimentoClinico, DocumentoAtendime
 from app.models.clinica import Clinica
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
-from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
+from app.utils.paciente_idade import idade_do_paciente
+from app.utils.paciente_helpers import normalizar_sexo_paciente
 
 
 def _parse_datetime(value: Any) -> Optional[datetime]:
@@ -100,9 +101,7 @@ def montar_contexto_template_documento(
         "especie": paciente.especie if paciente else (atendimento.especie or ""),
         "raca": paciente.raca if paciente else "",
         "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
-        "idade": extrair_idade_paciente(
-            paciente.nascimento if paciente else None,
-            paciente.observacoes if paciente else None,
+        "idade": idade_do_paciente(paciente, data_referencia=atendimento.data_atendimento,
         ),
         "peso": f"{peso:.1f} kg" if peso is not None else "",
         "tutor_nome": tutor.nome if tutor else "",

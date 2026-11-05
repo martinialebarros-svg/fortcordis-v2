@@ -30,8 +30,12 @@ function round(value: number): number { return Math.floor(value * 100 + .5) / 10
 
 /** <12 months is a conservative software guard, not a study's maturity cutoff. */
 export function lowWeightAgeContext(age: unknown): "juvenile" | "adult" | "unknown" {
-  const text = Array.from(String(age ?? "").trim().normalize("NFKD"))
+  let text = Array.from(String(age ?? "").trim().normalize("NFKD"))
     .filter((character) => character.charCodeAt(0) <= 0x7f).join("").toLowerCase();
+  const yearRange = /^(\d+)[–-](\d+) anos \(estimada pelo ano\)$/.exec(String(age ?? "").toLowerCase());
+  if (yearRange) return Number(yearRange[1]) >= 1 ? "adult" : "unknown";
+  if (String(age ?? "").toLowerCase() === "0–11 meses (estimada pelo ano)") return "juvenile";
+  text = text.replace(/\s*\(estimada\)$/, "");
   if (/^(?:filhote|juvenil|kitten|puppy|em crescimento)$/.test(text)) return "juvenile";
   if (/^(?:adult[oa]|adult)$/.test(text)) return "adult";
   const tokens = [...text.matchAll(/(\d+(?:[.,]\d+)?)\s*(anos?|years?|a|y|mes(?:es)?|months?|m|dias?|days?|d|semanas?|weeks?|w)\b/g)];

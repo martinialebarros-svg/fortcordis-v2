@@ -1746,11 +1746,12 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                     patch.object(ai_echo_service, "SessionLocal", self.session_factory),
                     patch.object(ai_echo_service, "get_clinical_structuring_provider", return_value=fake_provider),
                     patch.object(ai_echo_service, "load_echo_reference_context", wraps=load_echo_reference_context) as loader,
-                    patch.object(ai_echo_service, "extrair_idade_paciente", wraps=ai_echo_service.extrair_idade_paciente) as age_loader,
+                    patch.object(ai_echo_service, "idade_do_paciente", wraps=ai_echo_service.idade_do_paciente) as age_loader,
                 ):
                     ai_echo_service._process_structure(session_id, measurements)
                 self.assertEqual(age_loader.call_count, 1)
-                self.assertEqual(age_loader.call_args.args, (None, f"Idade: {age}" if age else ""))
+                self.assertEqual(len(age_loader.call_args.args), 1)
+                self.assertIsInstance(age_loader.call_args.args[0], Paciente)
                 self.assertEqual(loader.call_args.kwargs.get("age"), age)
                 fake_provider.structure.assert_called_once()
                 provider_input = fake_provider.structure.call_args.kwargs

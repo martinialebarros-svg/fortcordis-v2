@@ -1,6 +1,8 @@
 "use client";
 
-export interface DadosPacienteImportados {
+import type { PatientAgeValue } from "./paciente-idade";
+
+export interface DadosPacienteImportados extends PatientAgeValue {
   nome: string;
   tutor: string;
   raca: string;

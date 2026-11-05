@@ -1,5 +1,7 @@
 "use client";
 
+import { PatientAgeFields } from "@/components/pacientes/PatientAgeFields";
+import { patientAgeForm, patientAgePayload } from "@/lib/paciente-idade";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
@@ -41,7 +43,7 @@ export default function NovoPacientePage() {
     raca: "",
     sexo: "",
     peso_kg: "",
-    data_nascimento: "",
+    ...patientAgeForm(),
     microchip: "",
     observacoes: "",
   });
@@ -110,6 +112,7 @@ export default function NovoPacientePage() {
     try {
       const payload: Record<string, unknown> = {
         ...paciente,
+        ...patientAgePayload(paciente),
         tutor_id: paciente.tutor_id ? Number(paciente.tutor_id) : null,
         tutor_telefone: normalizarTelefone(paciente.tutor_telefone),
         tutor_whatsapp: normalizarTelefone(paciente.tutor_whatsapp),
@@ -139,7 +142,7 @@ export default function NovoPacientePage() {
           raca: "",
           sexo: "",
           peso_kg: "",
-          data_nascimento: "",
+          ...patientAgeForm(),
           microchip: "",
           observacoes: "",
         }));
@@ -529,17 +532,7 @@ export default function NovoPacientePage() {
               />
             </div>
             
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Data de Nascimento
-              </label>
-              <input
-                type="date"
-                value={paciente.data_nascimento}
-                onChange={(e) => setPaciente({...paciente, data_nascimento: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            <PatientAgeFields value={paciente} onChange={(patch) => setPaciente((prev) => ({ ...prev, ...patch }))} />
             
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

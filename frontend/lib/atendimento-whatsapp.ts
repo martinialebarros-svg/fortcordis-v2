@@ -1,3 +1,4 @@
+import type { PatientAgeValue } from "./paciente-idade";
 export type AtendimentoWhatsAppDocumentKind = "prescricao" | "exames";
 
 type DocumentScalar = string | number | null | undefined;
@@ -25,7 +26,7 @@ type DocumentFormSource = {
 };
 
 type DocumentCadastroSource = {
-  paciente?: {
+  paciente?: PatientAgeValue & {
     nome?: string;
     especie?: string;
     raca?: string;
@@ -56,6 +57,7 @@ export function buildAtendimentoDocumentRevision(form: DocumentFormSource, cadas
     paciente: {
       nome: text(paciente?.nome), especie: text(paciente?.especie), raca: text(paciente?.raca),
       sexo: text(paciente?.sexo), idade: text(paciente?.idade), nascimento: text(paciente?.data_nascimento),
+      idade_informada: text(paciente?.idade_informada), idade_referencia: text(paciente?.idade_referencia), idade_fonte: text(paciente?.idade_fonte),
       peso: scalar(paciente?.peso_kg), observacoes: text(paciente?.observacoes),
     },
     tutor_nome: text(cadastro.tutor?.nome),

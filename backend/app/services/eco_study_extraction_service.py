@@ -364,6 +364,8 @@ def parse_patient_age_weight(
     return {
         "idade": age,
         "peso": weight,
+        # Preserve observed birthdate: a calculated age is not a declaration.
+        **({"data_nascimento": birthdate.isoformat()} if birthdate else {}),
     }
 
 
