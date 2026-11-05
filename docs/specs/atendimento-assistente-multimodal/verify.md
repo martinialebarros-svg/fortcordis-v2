@@ -1,7 +1,7 @@
 # Verify — Assistência multimodal no atendimento
 
 Data: 2026-11-04
-Status: produção verificada; restauração integral de stage em validação
+Status: melhoria tutor/doutor validada localmente e no provedor isolado; não publicada
 
 ## Referência de nome — 04/11/2026
 
@@ -194,15 +194,11 @@ Candidata na branch `codex/atendimento-transcricao-tutor-20261104`, base main4c1
 
 A publicação foi explicitamente solicitada depois dos quatro testes reais aprovados. Nenhuma chamada paga adicional é necessária nesta fase. Refs observadas: main4c109329/stagecompleto07ab0677, ambos instalados/serviços ativos; zero workflow de deploy concorrente na consulta inicial. Espaço livreVPS1,6GB e atividade recente de recuperação de backup precisam ser esclarecidos antes de qualquer merge/deploy. Não considerar ociosidade como liberação de owner, nem realizar limpeza alheia. Próximos gates: lint/tipos/SDD, revisão/checks do snapshot, stage isolado, PRdireta stage→main com merge[preserve-nginx], workflows terminais/smokes/contrato instalado e restauração literal do snapshot paralelo. Registrar resultado final somente com evidência.
 
+## Correção de latência da análise só de texto — 05/11/2026
 
-## Evidência produtiva do ciclo tutor/doutor
-
-Produção instalada e verificada em `6185b334a058889cc9dceaaca2394570ac6f769b`, PR #560, workflow `41953329675` terminal/sucesso. Árvore exata da candidata, somente quatro caminhos próprios sobre main4c109329; mensagem efetiva do merge contém `[preserve-nginx]`. Política Nginx0/0, seis runtime preservados/restaurados, migrações, canário autenticado e backup/restore aprovados.
-
-Smokes independentes confirmaram status autenticado200/anônimo401, bundles servidos iguais ao build, referência autoritativa, quatro pistas de vocabulário e aviso. Cinco casos offline do código instalado preservaram exatamente o retorno simulado, sem substituições de tutor/doutor ou nomes. Nenhuma nova chamada paga foi executada: os quatro testes reais da candidata/35critérios continuam a evidência de reconhecimento, não uma nova transcrição pública pós-deploy. IA ON em produção/OFF em stage, configuração e arquivos de runtime preservados; processos de stage não mudaram durante a instalação produtiva.
-
-A primeira execução do FrontendCI de produção teve todas as2597asserções aprovadas, mas falhou por callback de timer preexistente após teardown (windowundefined); log preservado. Foco23/23 e uma única reexecução do job falho foram aprovados sem mudar fonte, timeout, asserções ou configuração. Causa observada está no lifecycle da página antiga; não é correção implementada por esta melhoria. A falha inicial anterior de recuperação/linkVeroriginal e sua reexecução também permanecem nos artefatos.
-
-OwnerBackup liberou a janela após cópia/integridade/retenção. Limpeza exclusiva do cache de downloads FFmpeg foi autorizada por mensagem humana direta, executada com guards e comparações de binários/runtime, recuperando≈6GB; dados, uploads, logs e backups não foram removidos por essa limpeza. Espaço e inodes são reconferidos antes de cada deploy. Não foi necessária a limpeza de cache npm adicional cogitada no preflight.
-
-Restauração agora preparada para devolver todo o stage07ab0677, mantendo provider/test iguais ao novo main e atualizando apenas estes dois SDD próprios com evidência produtiva. Todos os outros caminhos devem permanecer byte/modo idênticos ao snapshot salvo, incluindo Gestão, HP/cacheECOv36, comparador, workflows e migrações. O P2 preexistente de vozHP permanece fora da melhoria e somente em stage; não foi promovido ou corrigido por inferência. Checks, workflow e smokes da restauração ainda são gate posterior ao estado descrito aqui. Provas finais em `output/atendimento-tutor-release-20261104/RELATORIO.md` e JSONs; não declarar restauração concluída apenas por preparar esta árvore.
+- Três análises de produção retornaram HTTP 504 após uma transcrição bem-sucedida. O cliente do provedor estava configurado para esperar 180 s sem repetição automática. A causa interna da demora dessas chamadas não foi medida.
+- Comparação controlada com 24.434 caracteres fictícios, mesmo modelo, prompt e schema, em duas chamadas isoladas. `max` concluiu em 140,257 s (5.967 tokens de raciocínio) e `medium` em 23,889 s (170 tokens de raciocínio). Ambos passaram 10/10 critérios específicos, incluindo negações, peso e frequência com unidades, evidência literal e revisão obrigatória.
+- O serviço candidato com `max` configurado usou `medium` em uma terceira chamada fictícia, com 79.899 caracteres, e concluiu em 16,033 s. Passou 10/10 critérios, incluindo fatos e negações no início e no fim. Os três testes executaram em processo isolado com a chave previamente autorizada, sem instalar código, chamar a rota pública, acessar prontuários ou salvar o conteúdo das respostas.
+- CA-002/009: testes locais cobrem envio integral de 80.000 caracteres, esforço e metadados de texto e de documentos, `store=false`, evidência literal, revisão, exibição do esforço conforme os arquivos selecionados e recuperação após 504 com nova tentativa explícita. A auditoria de sucesso usa o esforço retornado no resultado. `low` é preservado quando configurado.
+- O teste sintético comprova a latência das amostras medidas. A rota pública ainda precisa de smoke no fluxo de publicação. O rollback reaplica a revisão anterior do serviço e do painel, sem migração ou mudança no proxy.
+- Validação local concluída: 274 testes de Atendimento aprovados e 5 cenários ignorados pela suíte, 30 testes focados da UI e seus utilitários, 2.615 testes Vitest e 23 Node aprovados. Lint, TypeScript, build Next.js, guardrail SDD sobre o diff e `git diff --check` aprovados. Na primeira suíte completa, um teste de Laudos sobre baixo peso falhou. O teste passou isolado no código-base e a suíte completa passou na repetição sem alteração de Laudos.

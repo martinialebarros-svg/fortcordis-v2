@@ -9,9 +9,9 @@ import { limparRascunhosAssistenteMemoria } from "@/lib/atendimento-assistente-m
 vi.mock("@/lib/axios", () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 vi.mock("@/lib/use-atendimento-audio", () => ({ useAtendimentoAudio: vi.fn() }));
 
-const status = { usuario_id: 7, habilitado: true, configurado: true, modelo: "gpt-6.1-sol", esforco: "max", modelo_transcricao: "gpt-transcribe" };
+const status = { usuario_id: 7, habilitado: true, configurado: true, modelo: "gpt-6.1-sol", esforco: "max", esforco_texto: "medium", modelo_transcricao: "gpt-transcribe" };
 const resultado: AssistenteIAResultado = {
-  modelo: "gpt-6.1-sol", esforco: "max", revisao_obrigatoria: true, bloqueado_integracao: false,
+  modelo: "gpt-6.1-sol", esforco: "medium", revisao_obrigatoria: true, bloqueado_integracao: false,
   campos: [{ campo: "anamnese", texto: "Tutor relata tosse há dois dias.", fonte: "transcricao", evidencia: "tosse há dois dias" }],
   fontes: [], achados_exames: [], sugestoes: [{ titulo: "Reavaliação", conduta: "Avaliar necessidade de investigação adicional.", justificativa: "Relato ainda incompleto.", limitacoes: ["Confirmar exame físico."] }],
   pendencias: [], avisos: [],
@@ -40,6 +40,16 @@ async function preparar(props: Partial<React.ComponentProps<typeof AtendimentoAs
 }
 
 describe("AtendimentoAssistenteIA", () => {
+  it("exibe o esforço de texto ou de exames conforme a seleção", async () => {
+    await preparar();
+    expect(screen.getByText(/Análise: gpt-6.1-sol · medium/)).toBeTruthy();
+    const exames = screen.getByLabelText("Fotografias ou PDFs dos exames");
+    fireEvent.change(exames, { target: { files: [new File(["PDF"], "exame.pdf", { type: "application/pdf" })] } });
+    expect(screen.getByText(/Análise: gpt-6.1-sol · max/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remover exame.pdf" }));
+    expect(screen.getByText(/Análise: gpt-6.1-sol · medium/)).toBeTruthy();
+  });
+
   it("exige atendimento salvo", () => {
     render(<AtendimentoAssistenteIA atendimentoId={null} pacienteId={1} patientLabel="Teste" onApplyField={vi.fn()} />);
     expect(screen.getByText(/Salve o atendimento e confirme o paciente/)).toBeTruthy();
@@ -97,6 +107,21 @@ describe("AtendimentoAssistenteIA", () => {
     expect(api.post).not.toHaveBeenCalled();
     expect((screen.getByLabelText("Transcrição para revisão") as HTMLTextAreaElement).value).toBe("tosse há dois dias");
   });
+  it("conserva a transcrição após timeout e só tenta novamente por ação explícita", async () => {
+    vi.mocked(api.post).mockRejectedValueOnce({ response: { status: 504, data: { detail: "A IA excedeu o tempo de resposta." } } });
+    const { onApplyField } = await preparar();
+    const analisar = screen.getByRole("button", { name: "Organizar e sugerir para revisão" });
+    fireEvent.click(analisar);
+    await screen.findByText("A IA excedeu o tempo de resposta.");
+    expect((screen.getByLabelText("Transcrição para revisão") as HTMLTextAreaElement).value).toBe("tosse há dois dias");
+    expect(api.post).toHaveBeenCalledTimes(1);
+    fireEvent.click(analisar);
+    await screen.findByRole("button", { name: "Adicionar ao atendimento" });
+    expect(api.post).toHaveBeenCalledTimes(2);
+    expect((vi.mocked(api.post).mock.calls[1][1] as FormData).get("transcricao")).toBe("tosse há dois dias");
+    expect(onApplyField).not.toHaveBeenCalled();
+  });
+
   it("mantém áudio acessível quando a transcrição falha", async () => {
     const audioState = vi.mocked(useAtendimentoAudio).getMockImplementation()!;
     const original = audioState(1, 7, 1);

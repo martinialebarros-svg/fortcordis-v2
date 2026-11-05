@@ -19,6 +19,7 @@ export interface AssistenteIAStatus {
   configurado: boolean;
   modelo: string;
   esforco: string;
+  esforco_texto?: string;
   modelo_transcricao: string;
   limites?: { audio_bytes: number; arquivo_bytes: number; total_arquivos_bytes: number; arquivos: number; transcricao_chars: number };
 }
