@@ -282,7 +282,7 @@ function AtendimentoAssistenteSalvo({ atendimentoId, patientLabel, pacienteId, o
 
     <div className="mt-4 flex flex-wrap items-center gap-3">
       <button type="button" className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50" disabled={!podeUsarIA || ocupada || (!texto.trim() && !arquivos.length)} onClick={() => void analisar()}>{busy === "analisar" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{busy === "analisar" ? "Analisando fontes…" : "Organizar e sugerir para revisão"}</button>
-      {status ? <span className="text-xs text-slate-500">Análise: {status.modelo} · {status.esforco}. Transcrição: {status.modelo_transcricao}.</span> : null}
+      {status ? <span className="text-xs text-slate-500">Análise: {status.modelo} · {arquivos.length ? status.esforco : (status.esforco_texto ?? status.esforco)}. Transcrição: {status.modelo_transcricao}.</span> : null}
       {busy === "analisar" || busy === "transcrever" ? <button type="button" className={buttonClass} onClick={() => { request.current?.abort(); request.current = null; setBusy(null); setAvisos(["Solicitação cancelada nesta tela. As fontes foram preservadas. O processamento no servidor pode já ter começado."]); }}>Cancelar espera</button> : null}
     </div>
     {busy === "analisar" ? <p role="status" className="mt-2 text-sm text-slate-600">A análise aprofundada pode levar alguns minutos. Mantenha esta tela aberta.</p> : null}

@@ -32,6 +32,7 @@ from atendimento_assistente_synthetic import CONTEXT, DATE, PATIENT, cases, refe
 CASE_NAMES = ("negacoes_nomes", "documentos_unidades", "identidade_divergente", "identidade_ausente", "ilegivel_instrucao")
 MODEL = "gpt-6.1-sol"
 EFFORT = "max"
+TEXT_EFFORT = "medium"
 MAX_REQUESTS = 5
 
 
@@ -50,7 +51,7 @@ def evaluate(case, result, filenames):
     text = _normal(field_text)
     checks = {
         "revisao_obrigatoria": result.get("revisao_obrigatoria") is True,
-        "modelo_esforco": result.get("modelo") == MODEL and result.get("esforco") == EFFORT,
+        "modelo_esforco": result.get("modelo") == MODEL and result.get("esforco") == (EFFORT if case.documents else TEXT_EFFORT),
         "bloqueio_identidade": result.get("bloqueado_integracao") is case.blocked,
         "fontes_completas": sorted(source["arquivo"] for source in sources) == sorted(filenames),
         "campos_com_evidencia_literal": all(field["fonte"] == "transcricao" and field["evidencia"]
@@ -171,7 +172,8 @@ def run(*, live=False, confirm_synthetic_only=False, selected=(), max_requests=1
         if counter["attempts"] >= (max_requests if live else len(selected_cases)):
             raise ValueError("request_budget_exhausted")
         body = json.loads(request.content)
-        if (body.get("model") != MODEL or body.get("reasoning") != {"effort": EFFORT}
+        expected_effort = EFFORT if current["case"].documents else TEXT_EFFORT
+        if (body.get("model") != MODEL or body.get("reasoning") != {"effort": expected_effort}
                 or body.get("store") is not False or body.get("tools")
                 or body.get("max_output_tokens") != 16000):
             raise ValueError("unexpected_provider_contract")
@@ -242,6 +244,7 @@ def run(*, live=False, confirm_synthetic_only=False, selected=(), max_requests=1
             if live and not check["passed"]:
                 break
     return {"mode": "live_synthetic" if live else "offline_mock", "model": MODEL, "reasoning": EFFORT,
+            "reasoning_text": TEXT_EFFORT,
             "passed": len(checks) == len(selected_cases) and all(check["passed"] for check in checks),
             "requested_cases": len(selected_cases), "requests_attempted": counter["attempts"],
             "external_requests_attempted": counter["attempts"] if live else 0, "max_requests": max_requests if live else len(selected_cases),

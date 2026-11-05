@@ -139,7 +139,7 @@ class RunnerTests(unittest.TestCase):
             seen.append(request)
             body = json.loads(request.content)
             self.assertFalse(body["store"])
-            self.assertEqual(body["reasoning"], {"effort": "max"})
+            self.assertEqual(body["reasoning"], {"effort": "medium"})
             self.assertEqual(str(request.url), "https://api.openai.com/v1/responses")
             output = fixtures.reference_output(case, [])
             return httpx.Response(200, request=request, json={
