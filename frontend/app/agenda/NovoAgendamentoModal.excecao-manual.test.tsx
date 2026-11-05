@@ -292,4 +292,61 @@ describe("NovoAgendamentoModal - excecao manual de horario", () => {
     }
   });
 
+  it.each([
+    { isAdmin: true, confirmar: true, gravacoes: 2 },
+    { isAdmin: true, confirmar: true, gravacoes: 3 },
+    { isAdmin: true, confirmar: false, gravacoes: 1 },
+    { isAdmin: false, confirmar: true, gravacoes: 1 },
+  ])("sobreposicao exige confirmacao especifica: %o", async ({ isAdmin, confirmar, gravacoes }) => {
+    const onSuccess = vi.fn();
+    let tentativas = 0;
+    apiPost.mockImplementation(async (url: string) => {
+      if (url === "/agenda/assistente/ofertas") return { data: { panorama_ofertas: { items: [{
+        ...OFERTA, inicio: "2099-05-25 09:00", fim: "2099-05-25 09:45",
+      }] } } };
+      if (url === "/agenda/assistente/validar-oferta") return { data: { valido: true } };
+      if (url === "/agenda") {
+        tentativas += 1;
+        if (tentativas <= (gravacoes === 3 ? 2 : 1)) throw { response: { status: 409, data: { detail: {
+          codigo: "CONFLITO_SOBREPOSICAO_AGENDA", mensagem: "Sobreposicao de 15 minutos com 09:30-10:00.",
+          escopo: `token-sintetico-revisado-${tentativas}`, confirmavel: true,
+        } } } };
+        return { data: { id: 902 } };
+      }
+      return { data: { sugerir: false } };
+    });
+    fortinhoConfirm.mockResolvedValue(confirmar);
+    montarModal(isAdmin, "2099-05-25", onSuccess);
+    await selecionarClinicaEServico();
+    fireEvent.click(screen.getByRole("button", { name: "Gerar melhor oferta" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cliente aceitou esta oferta" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Salvar Agendamento" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("checkbox", { name: /Marcar como reserva de horário/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar Agendamento" }));
+    await waitFor(() => expect(apiPost.mock.calls.filter(([url]) => url === "/agenda")).toHaveLength(gravacoes));
+    if (isAdmin) {
+      await waitFor(() => expect(fortinhoConfirm).toHaveBeenCalledWith(expect.objectContaining({
+        title: "Autorizar sobreposição de horários", confirmLabel: "Autorizar sobreposição",
+        message: expect.stringContaining("15 minutos"),
+      })));
+    } else {
+      await screen.findByText(/Sobreposicao de 15 minutos/);
+      expect(fortinhoConfirm).not.toHaveBeenCalled();
+    }
+    if (gravacoes > 1) {
+      await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+      const gravados = apiPost.mock.calls.filter(([url]) => url === "/agenda");
+      expect(gravados[0][1].confirmar_sobreposicao).toBe(false);
+      expect(fortinhoConfirm).toHaveBeenCalledTimes(gravacoes - 1);
+      expect(gravados[gravacoes - 1][1]).toMatchObject({
+        confirmar_sobreposicao: true, escopo_sobreposicao_confirmado: `token-sintetico-revisado-${gravacoes - 1}`,
+        motivo_excecao_sobreposicao: expect.stringContaining("autorizada explicitamente"),
+      });
+    } else {
+      await waitFor(() => expect(screen.getByRole("button", { name: "Salvar Agendamento" })).toBeEnabled());
+      expect(onSuccess).not.toHaveBeenCalled();
+      expect(apiPost.mock.calls.filter(([url]) => url === "/agenda")).toHaveLength(1);
+    }
+  });
+
 });

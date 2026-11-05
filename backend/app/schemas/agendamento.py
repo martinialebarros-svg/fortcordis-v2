@@ -37,6 +37,9 @@ class AgendamentoBase(BaseModel):
     excecao_operacional_concedida: bool = False
     motivo_excecao_operacional: Optional[str] = None
     motivo_excecao_deslocamento: Optional[str] = None
+    confirmar_sobreposicao: bool = False
+    escopo_sobreposicao_confirmado: Optional[str] = Field(default=None, max_length=64)
+    motivo_excecao_sobreposicao: Optional[str] = Field(default=None, max_length=1000)
 
     @validator('inicio', 'fim', 'reserva_expira_em', pre=True)
     def parse_dates(cls, v):
@@ -64,6 +67,9 @@ class AgendamentoUpdate(BaseModel):
     excecao_operacional_concedida: Optional[bool] = None
     motivo_excecao_operacional: Optional[str] = None
     motivo_excecao_deslocamento: Optional[str] = None
+    confirmar_sobreposicao: bool = False
+    escopo_sobreposicao_confirmado: Optional[str] = Field(default=None, max_length=64)
+    motivo_excecao_sobreposicao: Optional[str] = Field(default=None, max_length=1000)
     confirmar_alteracao_servico_hoje: Optional[bool] = None
     urgente_laudo: Optional[bool] = None
 
@@ -82,6 +88,7 @@ class AgendamentoResponse(BaseModel):
     fim: Optional[str] = None  # Retorna como string
     status: str
     reserva_expira_em: Optional[str] = None
+    excecao_sobreposicao: Optional[dict] = None
     excecao_agenda_fechada_ativa: bool = False
     observacoes: Optional[str] = None
     data: Optional[str] = None

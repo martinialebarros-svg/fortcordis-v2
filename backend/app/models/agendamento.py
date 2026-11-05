@@ -81,3 +81,6 @@ class Agendamento(Base):
     excecao_deslocamento_escopo = Column(String(64), nullable=True)
     # Escopo do horario fechado autorizado pelo admin; dados do pet nao o alteram.
     excecao_agenda_fechada_escopo = Column(String(100), nullable=True)
+
+    # JSON de consentimento específico; NULL mantém a exclusão comum no banco.
+    excecao_sobreposicao = Column(Text, nullable=True)

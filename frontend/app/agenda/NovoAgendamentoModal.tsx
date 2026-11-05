@@ -3681,16 +3681,25 @@ export default function NovoAgendamentoModal({
 
       const enviarAgendamento = async (
         confirmarConflitoDeslocamento = false,
-        confirmarSlotReservaExpirada = false
+        confirmarSlotReservaExpirada = false,
+        escopoSobreposicaoConfirmado: string | null = null
       ) => {
         const payload: typeof payloadBase & {
           confirmar_conflito_deslocamento: boolean;
           confirmar_slot_reserva_expirada: boolean;
           confirmar_agenda_fechada?: boolean;
+          confirmar_sobreposicao: boolean;
+          escopo_sobreposicao_confirmado: string | null;
+          motivo_excecao_sobreposicao: string | null;
         } = {
           ...payloadBase,
           confirmar_conflito_deslocamento: confirmarConflitoDeslocamento,
           confirmar_slot_reserva_expirada: confirmarSlotReservaExpirada,
+          confirmar_sobreposicao: Boolean(escopoSobreposicaoConfirmado),
+          escopo_sobreposicao_confirmado: escopoSobreposicaoConfirmado,
+          motivo_excecao_sobreposicao: escopoSobreposicaoConfirmado
+            ? motivoSemOpcao.trim() || "Sobreposição exibida e autorizada explicitamente pelo administrador."
+            : null,
         };
         if (confirmarAgendaFechada) {
           payload.confirmar_agenda_fechada = true;
@@ -3707,14 +3716,31 @@ export default function NovoAgendamentoModal({
       let response;
       let confirmouConflitoDeslocamento = excecaoManualAtiva;
       let confirmouRevisaoReservaExpirada = false;
-      for (let tentativa = 0; tentativa < 3 && !response; tentativa += 1) {
+      let escopoSobreposicaoConfirmado: string | null = null;
+      for (let tentativa = 0; tentativa < 5 && !response; tentativa += 1) {
         try {
           response = await enviarAgendamento(
             confirmouConflitoDeslocamento,
-            confirmouRevisaoReservaExpirada
+            confirmouRevisaoReservaExpirada,
+            escopoSobreposicaoConfirmado
           );
           continue;
         } catch (error: any) {
+          const sobreposicao = error?.response?.data?.detail;
+          if (error?.response?.status === 409 && sobreposicao?.codigo === "CONFLITO_SOBREPOSICAO_AGENDA") {
+            if (!isAdmin || typeof sobreposicao.escopo !== "string") throw error;
+            const confirmou = await fortinho.confirm({
+              title: "Autorizar sobreposição de horários",
+              message: `${sobreposicao.mensagem}\n\nDeseja manter este horário mesmo com a sobreposição? A autorização ficará registrada neste agendamento.`,
+              mood: "alert",
+              gesture: "open-arms",
+              confirmLabel: "Autorizar sobreposição",
+              cancelLabel: "Voltar",
+            });
+            if (!confirmou) return;
+            escopoSobreposicaoConfirmado = sobreposicao.escopo;
+            continue;
+          }
           const reservaExpirada = extrairReservaExpirada(error);
           if (reservaExpirada && !confirmouRevisaoReservaExpirada) {
             const confirmou = await confirmarRevisaoReservaExpirada(reservaExpirada);
@@ -3727,7 +3753,7 @@ export default function NovoAgendamentoModal({
 
         const conflito = extrairConflitoDeslocamento(error);
         if (conflito) {
-          if (!isAdmin) {
+          if (!isAdmin || confirmouConflitoDeslocamento) {
             throw error;
           }
 
