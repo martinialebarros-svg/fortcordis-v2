@@ -2,7 +2,7 @@
 
 Data: 2026-05-21
 Responsavel: Martiniano + Codex
-Status: incremento de 04/11/2026 publicado e verificado em producao
+Status: in-progress
 
 ## 1) Escopo funcional
 
@@ -103,16 +103,3 @@ Sem migracao, alteracao de configuracao, chamadas reais ao Google, mensagens ou
 registros operacionais. Rollback: reverter somente este incremento frontend e
 backend; dados de auditoria e campos de excecao existentes continuam compativeis.
 Publicacao em Stage/producao permanece um passo separado.
-
-### Rollout verificado — 04/11/2026
-
-A PR #555 homologou o snapshot isolado em Stage `f98a6193`; a PR direta #556
-promoveu somente os nove caminhos proprios para main `4c109329`. Os smokes
-autenticados e os testes sinteticos do codigo instalado foram aprovados nos
-dois ambientes, preservando as regras de autorizacao e ocupacao.
-
-A composicao de restauracao devolve o Stage completo `bd600460` com este
-incremento. Caminhos alheios devem permanecer byte a byte iguais ao snapshot
-salvo; o codigo proprio segue a composicao validada `5ccdc9f1`. Somente os quatro
-documentos SDD proprios recebem a evidencia do rollout. A restauracao de Stage
-nao altera main nem promove calculos clinicos ou outros incrementos paralelos.

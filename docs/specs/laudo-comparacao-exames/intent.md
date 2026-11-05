@@ -1,3 +1,5 @@
+> Registro documental preservado durante a publicacao isolada de tutores em 28/10/2026. O codigo desta feature nao integra esta arvore de producao. A implementacao e a homologacao de stage permanecem no snapshot `07317874b7b09eb7e8e1e076e9db4acc1294c90f`, a restaurar apos a promocao.
+
 # Intent — Comparação com exames anteriores
 
 ## Problema e autorização
