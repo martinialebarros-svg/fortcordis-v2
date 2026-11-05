@@ -1,7 +1,7 @@
 # Spec — Assistência multimodal no atendimento
 
 Data: 2026-11-04
-Status: in_progress (publicação da referência de nome autorizada; histórico de publicações abaixo)
+Status: in_progress (publicação de tutor/doutor autorizada; aguardando gates e instalação)
 
 ## Requisitos
 
@@ -103,3 +103,16 @@ Fontes oficiais reconferidas: [Sol 6.1](https://developers.openai.com/api/docs/m
 O usuário autorizou promover para main o incremento da PR #512. A publicação leva o teto de áudio de24.000.000 bytes e as validações de captura/importação, preservando reprodução/download do original rejeitado. Mantém ATENDIMENTO_IA_ENABLED=false, revisão humana obrigatória e compartilhamento manual. Não ativa a IA, não instala ingress em produção e não altera credenciais, dados clínicos ou políticas de WhatsApp. Testes físicos, canário público demorado e homologação clínica continuam necessários antes de qualquer ativação posterior.
 
 A árvore de produção contém somente esse incremento sobre main; funcionalidades paralelas de Gestão e laudos em stage são preservadas e restauradas após a promoção protegida. O helper transportado permanece restrito a stage, acionado apenas pelo marcador explícito do workflow; sua presença no repositório não executa configuração em produção.
+
+
+## Distinção entre tutor e doutor — 04/11/2026
+
+- RF-011: fornecer contexto veterinário e pistas equilibradas `tutor`, `tutora`, `doutor`, `doutora` ao reconhecimento. A fala continua sendo a fonte: os papéis não são deduzidos da frase, palavras ausentes não são acrescentadas e nenhum termo é substituído depois da resposta do provedor. O nome cadastrado continua opcional, autoritativo e tratado como dado não confiável.
+- CA-008: o áudio fictício que retornou “Doutor” onde dizia “Tutor” deve ser retestado na versão candidata; um controle com “doutor” realmente falado precisa preservá-lo, e nomes compatível/divergente/ausente continuam cobertos. O teste real deve comparar texto bruto recebido e texto exibido, sem normalização corretiva. As pistas são informadas em aviso visível e não representam garantia de acerto.
+
+Sem mudança de modelo, credencial, captura de áudio, API pública, schema, migração ou incorporação. A preparação local e o teste isolado não publicam código nem alteram o serviço de produção. Fonte técnica: [OpenAI Docs — contexto de transcrição](https://developers.openai.com/api/docs/guides/speech-to-text#add-transcription-context), consultada em04/11; keywords são pistas, não termos obrigatórios.
+
+
+## Publicação de tutor/doutor autorizada — 04/11/2026
+
+Pedido explícito: publicar em produção verificando fila e preservando os trabalhos paralelos. Escopo funcional restrito às pistas de contexto/vocabulário e aviso; sem substituição posterior, alteração de modelo, flag, captura, schema ou dados. Main observado4c109329 e stage completo07ab0677 serão reconferidos após liberação. Promoção protegida de snapshot isolado e restauração integral de stage são obrigatórias; IA ON em produção/OFF em stage e ingress preservados. Esta autorização não comprova instalação nem permite apagar backups/cache de outros trabalhos.
