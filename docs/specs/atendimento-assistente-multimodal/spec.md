@@ -1,14 +1,14 @@
 # Spec — Assistência multimodal no atendimento
 
-Data: 2026-11-04
-Status: in_progress (publicação de tutor/doutor autorizada; aguardando gates e instalação)
+Data: 2026-11-05
+Status: in_progress (correção de latência em validação)
 
 ## Requisitos
 
 - RF-001: gravar áudio de atendimento salvo com permissão do microfone, cronômetro, nível, parada, reprodução/download e aviso de interrupção/limite. Captura independe de conexão durante a gravação.
 - RF-002: solicitar confirmação de autorização do tutor para captura/processamento externo; transcrever com modelo específico, preservar original e permitir editar texto antes da classificação.
 - RF-010: obter o nome do paciente exclusivamente do cadastro carregado pelo servidor e usá-lo como pista literal de grafia na transcrição, com `keywords` e contexto delimitado. Não aceitar nome indicado pelo cliente como referência, acrescentar nomes ausentes nem substituir nomes divergentes após a resposta. Informar nos avisos quando a referência foi enviada ou omitida; revisão do áudio continua obrigatória.
-- RF-003: analisar transcrição e até cinco JPEG/PNG/WebP/PDF, 10 MiB cada e 20 MiB total, com GPT-6.1 Sol/max via Responses. Fotos/PDFs mantêm nomes e fontes; não há busca de URL externa.
+- RF-003: analisar transcrição e até cinco JPEG/PNG/WebP/PDF, 10 MiB cada e 20 MiB total, com GPT-6.1 Sol via Responses. Análises só de texto limitam o esforço a `medium` e respeitam `low` quando configurado. Com exames, aplica-se o esforço configurado (padrão `max`). A transcrição revisada é enviada integralmente dentro do limite de 80.000 caracteres. Fotos/PDFs mantêm nomes e fontes; não há busca de URL externa.
 - RF-004: classificar fatos explícitos em campos do atendimento, mostrar evidência, achados documentais, pendências e sugestões de plano/conduta separadas. Valores ausentes/ambíguos permanecem não resolvidos; não inferir normalidade, posologia ou decisão como fato.
 - RF-005: exigir identidade conciliada para conteúdo de exames; bloquear integração de identidade divergente/ausente e fontes inválidas. O veterinário confere documentos e aprova cada campo; textos acrescentam ao formulário sem apagar conteúdo existente.
 - RF-006: guardar originais no prontuário por botão próprio usando upload autenticado e deduplicação existentes; analisar não significa anexar.
@@ -31,7 +31,7 @@ Status: in_progress (publicação de tutor/doutor autorizada; aguardando gates e
 
 Prefixo `/api/v1/atendimentos/{atendimento_id}/assistente`:
 
-- `GET /status`: disponibilidade, configuração, modelos efetivos e IDs do usuário/paciente autenticados, sem chave.
+- `GET /status`: disponibilidade, configuração, modelos efetivos, esforço com exames (`esforco`) e só texto (`esforco_texto`), e IDs do usuário/paciente autenticados, sem chave.
 - `POST /transcrever`: multipart `audio`, `consentimento`; responde `texto`, `modelo`, `avisos`.
 - `POST /analisar`: multipart `transcricao`, campo repetido `arquivos`, `consentimento`; responde `modelo`, `esforco`, `campos`, `achados_exames`, `sugestoes`, `pendencias`, `avisos`, fontes e estado de bloqueio.
 
@@ -40,12 +40,13 @@ A análise considera contexto clínico já salvo. Resultados são rascunhos na U
 ## Critérios de aceitação
 
 - CA-001: indisponibilidade, falta de consentimento, formato/limite inválido e falta de permissão impedem envio ao provedor.
-- CA-002: transcrição usa modelo/idioma atuais; análise usa Sol 6.1/max, JSON schema e `store=false`; recusa/incompletude/identidade não conciliada nunca aplicam dados.
+- CA-002: transcrição usa modelo/idioma atuais; análise usa Sol 6.1, o esforço correspondente à seleção, JSON schema e `store=false`; recusa/incompletude/identidade não conciliada nunca aplicam dados.
 - CA-003: nenhum campo é incorporado só por receber resultado; clique individual acrescenta revisão, preserva conteúdo e não duplica por clique repetido.
 - CA-004: erro de rede/transcrição conserva áudio para nova tentativa; troca de paciente não entrega resultado a outro registro.
 - CA-005: PDF validado, destinatário confirmado, edição invalida arquivo; fallback informa que o usuário precisa anexar o PDF manualmente.
 - CA-006: testes focados, TypeScript, lint, build, diff e guardrail passam, com lacunas de homologação registradas.
 - CA-007: referência compatível melhora a grafia no cenário fictício testado; fala com nome diferente ou sem nome permanece fiel ao áudio. Backend e UI exibem o texto retornado sem troca de nomes e mostram aviso explícito sobre a pista. Nome vazio, longo ou com controles/`<`/`>` é omitido da pista, sem truncamento ou falha da transcrição.
+- CA-009: a UI mostra o esforço efetivo antes de analisar e no resultado. Uma transcrição sintética longa deve retornar em até 60 segundos com esforço `medium` e passar nos critérios específicos de negações, peso, unidades, evidência literal e revisão. Falha conserva as fontes para revisão ou nova tentativa.
 
 ## Referência de nome — pedido de 2026-11-04
 
