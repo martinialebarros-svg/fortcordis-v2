@@ -9,6 +9,7 @@ from sqlalchemy import String, cast, func, inspect, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.v1.endpoints.paciente_mesclagem import router as mesclagem_router
 from app.core.security import get_current_user
 from app.db.database import get_db
 from app.models.atendimento_clinico import AlertaClinico, AtendimentoClinico
@@ -22,6 +23,7 @@ from app.utils.paciente_idade import alteracoes_idade, dados_idade_paciente
 from app.utils.paciente_helpers import normalizar_sexo_paciente
 
 router = APIRouter()
+router.include_router(mesclagem_router)
 
 LAUDO_STATUSES_CONCLUIDOS = (
     "arquivado",
@@ -287,7 +289,7 @@ def _buscar_paciente_por_chave(
     tutor_id: Optional[int],
     especie: str,
 ):
-    query = db.query(Paciente).filter(Paciente.nome_key == nome_key)
+    query = db.query(Paciente).filter(Paciente.nome_key == nome_key, Paciente.mesclado_em_id.is_(None))
 
     if tutor_id is None:
         query = query.filter(Paciente.tutor_id.is_(None))
@@ -574,6 +576,7 @@ def obter_paciente(
     return {
         "id": p.id,
         "nome": p.nome,
+        "mesclado_em_id": p.mesclado_em_id,
         **_serialize_tutor_fields(tutor),
         "especie": p.especie,
         "raca": p.raca,
@@ -693,6 +696,9 @@ def atualizar_paciente(
     if not db_paciente:
         raise HTTPException(status_code=404, detail="Paciente nao encontrado")
 
+    if db_paciente.mesclado_em_id:
+        raise HTTPException(409, f"Paciente mesclado. Edite o cadastro principal #{db_paciente.mesclado_em_id}.")
+
     campos_enviados = paciente.model_fields_set
     nome_atualizado: Optional[str] = None
     if "nome" in campos_enviados:
@@ -803,6 +809,9 @@ def deletar_paciente(
 
     if not db_paciente:
         raise HTTPException(status_code=404, detail="Paciente nao encontrado")
+
+    if db_paciente.mesclado_em_id or db.query(Paciente.id).filter(Paciente.mesclado_em_id == paciente_id).first():
+        raise HTTPException(409, "Preserve os cadastros vinculados a uma mesclagem no histórico.")
 
     referencias = _contar_referencias_paciente(db, paciente_id)
     if referencias:
