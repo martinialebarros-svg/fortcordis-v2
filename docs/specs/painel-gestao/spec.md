@@ -53,3 +53,6 @@ RF-012: cada movimento manual ou recorrente conserva a descrição informada nas
 A candidata pode ser instalada temporariamente em Stage com o código de produção mais o escopo de Gestão. Documentos SDD de trabalhos paralelos podem ser conservados sem incorporar sua implementação, desde que as exceções de árvore sejam explícitas e a identidade do código seja comprovada. Migrações aditivas já aplicadas de outras frentes e suas proteções permanecem no banco; não há downgrade para este ensaio. A restauração deve preservar os caminhos paralelos e alterações compartilhadas do snapshot vigente.
 
 Aprovação dos testes locais, API autenticada e assets públicos não substitui a observação visual autenticada em Stage. Sessão expirada é registrada como pendência, sem copiar credenciais nem declarar a etapa concluída. Nenhuma promoção de Gestão à produção faz parte da homologação autorizada de 06–07/11/2026.
+
+
+O teste PostgreSQL da aplicação tardia da migração 101 deve aceitar versões posteriores já registradas, conservando a versão corrente máxima antes/depois. Além da 107 obrigatória no cenário, a presença da 108 ou de futuras migrações não constitui falha; o teste continua exigindo uma única aplicação da 101, zero reaplicações, nenhuma pendência e preservação dos timestamps e dados existentes.
