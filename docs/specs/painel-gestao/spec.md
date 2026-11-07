@@ -46,3 +46,10 @@ RF-012: cada movimento manual ou recorrente conserva a descrição informada nas
 - A interface deve comprovar os seis indicadores com resultados sintéticos conhecidos, simulação sem escrita, salvamento e reabertura, isolamento de contexto, nulos versus zeros, recuperação de erro e apresentação móvel. O teste de persistência usa o endpoint e o modelo reais em armazenamento descartável.
 - A checagem autenticada em Stage consulta os dados sem gravar premissas ou movimentos financeiros. A identidade instalada e os arquivos servidos precisam corresponder à candidata; ausência de timeouts em uma janela não comprova cura permanente da intermitência histórica.
 - Preparar e homologar a candidata não autoriza promover a produção. O eventual ciclo de promoção exige autorização específica e nova conferência da base, do escopo e dos controles de preservação.
+
+
+### Critério de homologação e preservação da candidata
+
+A candidata pode ser instalada temporariamente em Stage com o código de produção mais o escopo de Gestão. Documentos SDD de trabalhos paralelos podem ser conservados sem incorporar sua implementação, desde que as exceções de árvore sejam explícitas e a identidade do código seja comprovada. Migrações aditivas já aplicadas de outras frentes e suas proteções permanecem no banco; não há downgrade para este ensaio. A restauração deve preservar os caminhos paralelos e alterações compartilhadas do snapshot vigente.
+
+Aprovação dos testes locais, API autenticada e assets públicos não substitui a observação visual autenticada em Stage. Sessão expirada é registrada como pendência, sem copiar credenciais nem declarar a etapa concluída. Nenhuma promoção de Gestão à produção faz parte da homologação autorizada de 06–07/11/2026.
