@@ -87,6 +87,7 @@ export default function EditarPacientePage() {
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [mescladoEm, setMescladoEm] = useState<number | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [resumoClinico, setResumoClinico] = useState<ResumoClinicoPaciente | null>(null);
   const [resumoClinicoLoading, setResumoClinicoLoading] = useState(true);
@@ -162,6 +163,7 @@ export default function EditarPacientePage() {
     try {
       const response = await api.get(`/pacientes/${pacienteId}`);
       const data = response.data;
+      setMescladoEm(data.mesclado_em_id || null);
       setPaciente({
         tutor_id: data.tutor_id ? String(data.tutor_id) : "",
         tutor_identificacao_pendente: data.tutor_identificacao_pendente ?? true,
@@ -259,6 +261,19 @@ export default function EditarPacientePage() {
         </div>
       </DashboardLayout>
     );
+  }
+
+  if (mescladoEm) {
+    return <DashboardLayout>
+      <div className="fc-patient-form-page">
+        <section className="space-y-3 rounded-xl border bg-white p-5">
+          <h1 className="text-xl font-semibold">Cadastro de paciente arquivado</h1>
+          <p>{paciente.nome} #{pacienteId} foi mesclado. Consulte o histórico no cadastro principal.</p>
+          <button type="button" className="rounded-lg border px-4 py-2 text-blue-800"
+            onClick={() => router.push(`/pacientes/${mescladoEm}`)}>Abrir paciente #{mescladoEm}</button>
+        </section>
+      </div>
+    </DashboardLayout>;
   }
 
   return (
