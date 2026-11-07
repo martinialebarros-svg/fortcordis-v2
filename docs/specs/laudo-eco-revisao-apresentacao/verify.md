@@ -517,3 +517,8 @@ Validação final do vínculo AFTER: revisão independente repetiu 160 casos AFT
 - Escopo final de seis caminhos, sem mudança de backend, dados, cache v30, rede/IA, SSH, UI, PDF, commit, push ou suíte global pelo agente. Os gates completos e a publicação serão concluídos pelo root após este congelamento.
 
 Validação final das hipóteses compartilhadas: 2.351 testes Vitest em 130 arquivos, 23 Node, TypeScript, ESLint global, build Next.js e diff check aprovados. Revisões independentes: 48 casos condicionais, sem mutação; fonte e detector original conferidos. Logs `/tmp/echo-shared-hypothesis-{frontend,types,lint,build}-final-20261027.log`. Marcador de disponibilidade reconfirmado nas três rotas do build. Backend/PDF/cache v30 não mudaram e conservam 118 testes/384 subtestes aprovados.
+
+## Candidata de promoção do cartão AE/Ao — 07/11/2026
+
+- Correção reaplicada sobre `main` `ebec9de6` com a mesclagem de pacientes. Mantidos os testes de espécie e normalização da base de produção junto dos testes da referência clínica. Os 108 testes focados de frontend, 2.626 Vitest, 23 Node, lint e build com verificação TypeScript passaram.
+- A candidata usa a regra do PDF disponível na base de produção. O teste confirma o limite orientativo <1,60 para a aquisição canina elegível, o método e a unidade adequados, o cartão único e a neutralidade do resultado. As evidências anteriores do Stage compartilhado pertencem à publicação #571.

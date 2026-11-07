@@ -171,11 +171,3 @@ O fluxo direto e seus criterios estao em
 `docs/specs/agenda-excecoes-operacionais-for51/spec.md`, CA-ADM-01 a CA-ADM-05.
 Sem migracao ou alteracao da configuracao geral. Validacao/publicacao sao
 registradas no verify correspondente deste ciclo.
-
-### Publicacao da excecao — 04/11/2026
-
-Excecao de admin homologada em Stage `f98a6193` e publicada em producao
-`4c109329` pela PR #556. A pesquisa/revalidacao conservadora permanece;
-somente o salvamento com concessao explicita ou escopo persistido aplica a
-excecao. A restauracao integral de Stage preserva os demais incrementos, sem
-levar seus calculos a producao. Evidencias no verify da FOR-51.
