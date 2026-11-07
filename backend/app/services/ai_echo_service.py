@@ -606,7 +606,14 @@ def _process_structure(
     session_id: str,
     current_measurements: dict[str, str] | None = None,
 ) -> None:
-    current_measurements = clinically_safe_echo_measurements(current_measurements or {})
+    raw_measurements = current_measurements or {}
+    current_measurements = clinically_safe_echo_measurements(raw_measurements)
+    if str(raw_measurements.get("HP_ativa") or "").strip() == "sim":
+        # The reviewed context is checked against raw units/values. Individual
+        # clinical prompt measurements are normalized again by safe_context.
+        from app.utils.echo_pulmonary_probability import HP_CONTEXT_KEYS, HP_MEASUREMENT_KEYS
+        current_measurements.update({key: raw_measurements[key] for key in set(HP_CONTEXT_KEYS) | HP_MEASUREMENT_KEYS
+                                     if key in raw_measurements})
     db = SessionLocal()
     started = _utcnow()
     processing_step = "structuring_load"
