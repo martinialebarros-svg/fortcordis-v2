@@ -1,10 +1,5 @@
 # Verify — Fluxo de confecção do laudo ecocardiográfico
 
-## Restauração planejada de stage após a promoção de04/11/2026
-
-Este ramo prepara a **restauração completa de stage** a partir do backup `1a5b444a`. Os registros abaixo sobre recorte e exclusão de HP descrevem o snapshot destinado a produção na PR549; não redefinem o conteúdo de stage restaurado. Stage recupera HP, comparação anterior, Gestão e demais recursos do backup, com suas fontes, testes e documentos completos. Produção permanece restrita à conferência/prévia e dependências autorizadas. A salvaguarda de Nginx e a evidência desta publicação são mantidas. Cache eco v35 distingue o renderer completo de stage do renderer v34 do recorte; PA não muda. Nenhuma tabela, frase, fórmula ou intervalo clínico é alterado por esta restauração. A instalação e o smoke da restauração serão registrados após resultado terminal.
-
-
 ## Promoção isolada autorizada —04/11/2026
 
 Pedido humano atual: “Publique em produção a conferência final e a prévia do PDF do laudo.” A entrega inclui a fase1b de rascunho/atualização atômica **como dependência necessária e explícita da prévia na edição**, usada na homologação do caso sintético63. A fase1a já está em produção. O recorte parte de main3f134432 e reaplica os commits funcionais49ca4381/a5ed822a/e541de8c, resolvendo contextos contra o baseline de produção. Nenhuma migração nova:105 já integra main.
@@ -427,7 +422,3 @@ As afirmações de paridade byte a byte de nove arquivos com main e renderer v32
 A revisão apontou um terceiro gate de espécie literal em ReferenciaComparison: o seletor canino de método AE/Ao ficava oculto para Dog/Cão/cachorro e aparecia indevidamente para CaninaXYZ. O import/predicado usa agora o mesmo normalizeEchoSpecies já produtivo. A seleção permanece explícita, altera somente AE_Ao_metodo e não reescreve espécie nem confirma aquisição automaticamente. Gates que operam a espécie canônica do catálogo continuam preservados.
 
 Regressões reproduziram quatro falhas antes do ajuste e agora cobrem quatro aliases e seis controles desconhecidos/felinos; foco107 aprovado, com seleção/callback único/rerender e objetos/literal preservados. Frontend final2591Vitest/147arquivos+23Node, tipos/lint/build53 e diffcheck aprovados. Backend fonte e resultados2469+2422 permanecem inalterados por este ajuste de UI. Revisão independente sem achados; não há fórmula/faixa/fonte nova. Evidência aeao-alias-validation.json e logs próprios no output/echo-preview-frontend-20261104.
-
-### Preparação local da restauração de stage —04/11/2026
-
-Frontend inteiro (fontes/testes) e renderer/motor HP byte idênticos ao backup1a5b444a; os três P2 de normalização/seletor/espaçador já estavam semanticamente resolvidos nesse conteúdo completo. Workflow de stage também restaurado integralmente. Guard de Nginx/teste/docs operacionais preservados do recorte. Backend difere do backup somente no identificador v35 e suas três suítes de teste: todos os métodos existentes, inclusive HP/fusão2D, preservados; duas regressões adicionais. Foco offlineAPI:80 testes+223subtestes aprovados. Rejeita cachesv32/v33/v34, sem mudar PA. Diffcheck limpo. Deploy/QA da restauração ainda aguardam promoção e PR próprio para stage; não equivale a publicação.
