@@ -1,11 +1,5 @@
 # Spec - Revisão da apresentação do laudo ecocardiográfico
 
-## Limite clínico canino no cartão AE/Ao — 06/11/2026
-
-- RF-114 A aba Referências apresenta no cartão AE/Ao o valor medido, o texto `Limite clínico orientativo: <1,60 (2D, eixo curto)` e a fonte. Reutilizar a regra da prévia para cães com razão positiva e finita, método 2D de eixo curto no início da diástole confirmado (genérico ou sueco) e unidades de origem sem ambiguidade. O cartão é neutro e orienta interpretação integrada. Fonte: [Rishniw (2023)](https://doi.org/10.1016/j.jvc.2023.04.003).
-- RF-115 O limite não depende do peso, da espécie da linha do catálogo nem da conclusão da consulta à API. Método ausente ou incompatível, unidade ambígua ou espécie não canina não recebem o limite. Verificar a ambiguidade antes de retirar medidas inseguras. Como na prévia e no PDF, exigir `AE_Ao` canônico. O campo `LA_Ao` isolado permanece no caminho legado. Quando o limite se aplica, exibir um só cartão. Preservar comparações felinas, faixas legadas bloqueadas, PDF e dados clínicos.
-- CA-097 Verificar o cartão neutro de AE/Ao 1,49 no caso canino sintético com método sueco e catálogo legado bloqueado, com fonte correta e sem duplicação. Cobrir a confirmação genérica, a retirada do método, a ausência de peso ou linha de catálogo, a busca pendente, valores no limite e acima dele, aliases de espécie e medida, espécie incompatível e unidades ambíguas. Conferir cartão, prévia e PDF do caso sintético em Stage. Publicação autorizada somente em Stage.
-
 Publicação autorizada em 27/10/2026: promover a conferência canina e numérica homologada em stage `698dbf40`, junto das referências de baixo peso. Preservar o motor clínico e os dados de entrada; esta etapa atualiza somente o estado da entrega e mantém outras features de stage fora do candidato de produção.
 
 ## Restauração de produção da PR #413 (2026-10-23)

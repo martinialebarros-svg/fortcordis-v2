@@ -1,12 +1,5 @@
 # Verify - Revisão da apresentação do laudo ecocardiográfico
 
-## Cartão AE/Ao — 06/11/2026
-
-- CA-097 Correção local de 03/11 portada para `codex/aeao-reference-stage-20261106` a partir de Stage `90bd01cac3913e51c33fddc210e8e7e6fbd5d70e`. Worktree original preservada. Na base atual, o teste com a razão canônica e o alias mostrou dois cartões antes do ajuste.
-- Depois do ajuste, seis arquivos e 170 testes focados aprovados, incluindo catálogo legado, método sueco e genérico, valor canônico, limiar neutro em 1,60 e 1,80, busca pendente e sem linha, espécie do paciente distinta da linha recebida, unidade ambígua e alias isolado sem limiar no cartão e na prévia. A edição e a recuperação de rascunho podem manter o nome legado. A importação existente o normaliza. O componente usa a mesma regra da prévia. Cálculos, métodos salvos e gerador do PDF seguem sem alterações.
-- Suíte final no diff de código entregue: 2.859 testes Vitest em 157 arquivos e 23 testes Node aprovados. TypeScript, ESLint global, build Next.js (45 páginas), guardrail SDD e `git diff --check` aprovados. Revisão independente sem bloqueantes. Nenhum laudo real foi alterado.
-- A homologação de Stage será registrada após deploy terminal e conferência do caso sintético na interface e no PDF. Sem publicação em produção neste incremento.
-
 ## Conferência em stage concluída e promoção autorizada — 27/10/2026
 
 Stage `698dbf40`, workflow `40534203511` e demais checks concluídos com sucesso. Na UI autenticada, o teste canino exibiu o aviso de AE/Ao textual 1,80 versus medida 1,40 e o aviso de picos E/A separados diante da confirmação de fusão; ambos permaneceram nas abas Medidas e Qualitativa. Corrigir a redação retirou os avisos e manteve o salvamento disponível. Um único registro sintético #59 foi persistido, com PDF de duas páginas baixado e revisado: redação corrigida, medidas preservadas e índices dependentes de ondas fundidas não mensuráveis. Nenhum paciente real ou banco de frases foi alterado.

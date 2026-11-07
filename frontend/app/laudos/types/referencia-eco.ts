@@ -112,7 +112,7 @@ export interface ComparacaoMedida {
   valor_medido: string;
   referencia_texto?: string;
   nota_referencia?: string;
-  referencia_tipo?: "reference_interval" | "descriptive" | "uninterpretable" | "unconfirmed" | "clinical_limit";
+  referencia_tipo?: "reference_interval" | "descriptive" | "uninterpretable" | "unconfirmed";
   estatistica?: string;
   doi?: string;
   fonte?: string;
