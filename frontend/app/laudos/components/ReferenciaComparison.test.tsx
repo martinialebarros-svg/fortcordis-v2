@@ -1,19 +1,104 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ReferenciaComparison } from "./ReferenciaComparison";
 import { compararMedidasComReferencia } from "../hooks/useReferenciaEco";
+import type { ReferenciaEco } from "../types/referencia-eco";
+import { buildEchoReportGroups, prepareEchoReportMeasurements } from "@/lib/echo-report-presentation";
 
-const buscarReferencia = vi.hoisted(() => vi.fn(async () => ({ id: 1, especie: "Canina", peso_kg: 11 })));
+const buscarReferencia = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<ReferenciaEco | null>>(
+  async () => ({ id: 1, especie: "Canina", peso_kg: 11 }),
+));
 const compararMedidas = vi.hoisted(() => vi.fn<typeof import("../hooks/useReferenciaEco").compararMedidasComReferencia>(() => ({})));
+const carregandoReferencia = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("../hooks/useReferenciaEco", async () => ({
   ...await vi.importActual<typeof import("../hooks/useReferenciaEco")>("../hooks/useReferenciaEco"),
-  useReferenciaEco: () => ({ buscarReferencia, compararMedidas, loading: false }),
+  useReferenciaEco: () => ({ buscarReferencia, compararMedidas, loading: carregandoReferencia() }),
 }));
 
 describe("identificação da referência ecocardiográfica", () => {
-  it.each(["Canina", "Felina"])("mostra um cartão por medida e o valor canônico após mesclar o catálogo de %s", async (species) => {
+  it("exibe o limite no cartão AE/Ao com método sueco e catálogo legado bloqueado", async () => {
+    buscarReferencia.mockResolvedValueOnce({
+      id: 1, especie: "Canina", peso_kg: 4, la_ao_min: 0.8, la_ao_max: 1.6,
+      range_metadata: { la_ao: { status: "blocked", reason: "Faixa legada sem método de aquisição identificado" } },
+    });
+    compararMedidas.mockImplementationOnce(compararMedidasComReferencia);
+    const medidas = Object.freeze({ AE_Ao: "1.49", LA_Ao: "1.80", AE_Ao_metodo: "2d_eixo_curto_diastole_inicial_sueco" });
+    const change = vi.fn();
+    render(<ReferenciaComparison especie="Canina" peso={4.2} medidas={medidas} onMedidaChange={change} />);
+
+    await screen.findByText("Referência selecionada: Canina, cadastro de 4 kg");
+    expect(screen.getAllByText("AE/Ao")).toHaveLength(1);
+    const card = screen.getByText("AE/Ao").closest("div.border");
+    expect(card).toHaveTextContent("Limite clínico orientativo: <1,60 (2D, eixo curto)");
+    expect(card).toHaveTextContent("1.49");
+    expect(card).toHaveClass("bg-white");
+    expect(screen.getByRole("link", { name: "Rishniw (2023)" }))
+      .toHaveAttribute("href", "https://doi.org/10.1016/j.jvc.2023.04.003");
+    expect(screen.queryByText("1.80")).not.toBeInTheDocument();
+    expect(screen.queryByText("Faixa legada sem método de aquisição identificado")).not.toBeInTheDocument();
+    expect(change).not.toHaveBeenCalled();
+  });
+
+  it("recalcula o limite sem peso ao confirmar ou retirar o método, sem classificar 1,60", async () => {
+    const medidas = { AE_Ao: "1,60", LA_Ao: "1.80", AE_Ao_metodo: "" };
+    const change = vi.fn();
+    const { rerender } = render(<ReferenciaComparison especie=" Cão " medidas={medidas} onMedidaChange={change} />);
+    expect(screen.queryByText(/Limite clínico orientativo:/)).not.toBeInTheDocument();
+
+    const confirmado = { ...medidas, AE_Ao_metodo: "2d_eixo_curto_diastole_inicial" };
+    rerender(<ReferenciaComparison especie=" Cão " medidas={confirmado} onMedidaChange={change} />);
+    const card = (await screen.findByText("AE/Ao")).closest("div.border");
+    expect(card).toHaveTextContent("Limite clínico orientativo: <1,60 (2D, eixo curto)");
+    expect(card).toHaveTextContent("Interpretar com os demais achados");
+    expect(card).toHaveClass("bg-white");
+    expect(screen.getByText("1,60")).toBeInTheDocument();
+
+    rerender(<ReferenciaComparison especie=" Cão " medidas={{ ...confirmado, AE_Ao: "" }} onMedidaChange={change} />);
+    expect(screen.queryByText(/Limite clínico orientativo:/)).not.toBeInTheDocument();
+    rerender(<ReferenciaComparison especie=" Cão " medidas={{ ...confirmado, AE_Ao_metodo: "outro" }} onMedidaChange={change} />);
+    expect(screen.queryByText(/Limite clínico orientativo:/)).not.toBeInTheDocument();
+  });
+
+  it("mantém o alias isolado no caminho legado, sem anunciar limite ausente da prévia", async () => {
+    compararMedidas.mockImplementationOnce(compararMedidasComReferencia);
+    const medidas = { LA_Ao: "1.49", AE_Ao_metodo: "2d_eixo_curto_diastole_inicial_sueco" };
+    render(<ReferenciaComparison especie="Canina" peso={11} medidas={medidas} onMedidaChange={vi.fn()} />);
+    const card = (await screen.findByText("AE/Ao")).closest("div.border");
+    expect(card).toHaveTextContent("1.49");
+    expect(screen.queryByText(/Limite clínico orientativo:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/O PDF apresentará AE\/Ao/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/O PDF citará Hansson/)).not.toBeInTheDocument();
+    const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(medidas, 11, "Canina");
+    const preview = buildEchoReportGroups(measurements, null, ambiguousKeys, 11, "Canina");
+    expect(preview.flatMap(({ rows }) => rows).find(({ key }) => key === "LA_Ao"))
+      .toMatchObject({ value: "1.49", reference: "—" });
+  });
+
+  it.each(["Felina", "CaninaXYZ"])("não atribui limite canino pela espécie do catálogo a %s", async (species) => {
+    compararMedidas.mockImplementationOnce(compararMedidasComReferencia);
+    render(<ReferenciaComparison especie={species} peso={11}
+      medidas={{ AE_Ao: "1.49", AE_Ao_metodo: "2d_eixo_curto_diastole_inicial" }} onMedidaChange={vi.fn()} />);
+    await screen.findByText("Referência selecionada: Canina, cadastro de 11 kg");
+    expect(screen.queryByText(/Limite clínico orientativo:/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Rishniw (2023)" })).not.toBeInTheDocument();
+  });
+
+  it("mantém a referência clínica durante e após uma busca sem linha no catálogo", async () => {
+    let concluirBusca!: (referencia: ReferenciaEco | null) => void;
+    buscarReferencia.mockReturnValueOnce(new Promise((resolve) => { concluirBusca = resolve; }));
+    carregandoReferencia.mockReturnValueOnce(true);
+    render(<ReferenciaComparison especie="Canina" peso={11}
+      medidas={{ AE_Ao: "1.80", AE_Ao_metodo: "2d_eixo_curto_diastole_inicial_sueco" }} onMedidaChange={vi.fn()} />);
+    const limite = "Limite clínico orientativo: <1,60 (2D, eixo curto)";
+    expect(screen.getByText(limite).closest("div.border")).toHaveClass("bg-white");
+    await act(async () => concluirBusca(null));
+    expect(screen.getByText(limite).closest("div.border")).toHaveClass("bg-white");
+    expect(screen.getByText("1.80")).toBeInTheDocument();
+  });
+
+  it.each(["Canina", "Felina"] as const)("mostra um cartão por medida e o valor canônico após mesclar o catálogo de %s", async (species) => {
     buscarReferencia.mockResolvedValueOnce({ id: 1, especie: species, peso_kg: 11 });
     compararMedidas.mockImplementationOnce(compararMedidasComReferencia);
     const measurements = { MV_E: "1.80", Onda_E: "0.70", MV_A: "1.90", Onda_A: "0.50", TDI_e: "0.80", e_doppler: "0.09",
@@ -32,7 +117,7 @@ describe("identificação da referência ecocardiográfica", () => {
     expect(measurements).toEqual(before);
   });
 
-  it.each(["Canina", "Felina"])("não ressuscita o alias no catálogo após limpar a canônica em %s", async (species) => {
+  it.each(["Canina", "Felina"] as const)("não ressuscita o alias no catálogo após limpar a canônica em %s", async (species) => {
     buscarReferencia.mockResolvedValueOnce({ id: 1, especie: species, peso_kg: 11 });
     compararMedidas.mockImplementationOnce(compararMedidasComReferencia);
     render(<ReferenciaComparison especie={species} peso={11} medidas={{ MV_E: "1.80", Onda_E: "",
@@ -192,9 +277,11 @@ describe("identificação da referência ecocardiográfica", () => {
     await screen.findByText(/Referência selecionada/);
     expect(screen.queryByLabelText("Método de obtenção de AE/Ao")).not.toBeInTheDocument();
     expect(screen.queryByText(/O PDF apresentará AE\/Ao/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Limite clínico orientativo:/)).not.toBeInTheDocument();
     rerender(<ReferenciaComparison especie="Canina" peso={4} medidas={{ ...medidas,
       unidade_confirmada_Aorta: "cm", unidade_confirmada_Atrio_esquerdo: "cm" }} onMedidaChange={vi.fn()} />);
     expect(screen.getByLabelText("Método de obtenção de AE/Ao")).toBeInTheDocument();
     expect(screen.getByText(/O PDF apresentará AE\/Ao < 1,60/)).toBeInTheDocument();
+    expect(screen.getByText("Limite clínico orientativo: <1,60 (2D, eixo curto)")).toBeInTheDocument();
   });
 });

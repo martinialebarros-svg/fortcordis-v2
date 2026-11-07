@@ -1,5 +1,11 @@
 # Plan - Revisão da apresentação do laudo ecocardiográfico
 
+## Cartão AE/Ao — 06/11/2026
+
+1. Portar a correção local de 03/11 para uma worktree isolada do Stage atual. Reusar a regra clínica da prévia no cartão, com a espécie atual e as unidades originais, sem alterar catálogo, PDF, persistência ou APIs.
+2. Validar componente e regressões da política de referências, tipos, lint, build e SDD. Publicar apenas em Stage pelo fluxo protegido e homologar com laudo canino sintético, incluindo método não confirmado e o limite no cartão, prévia e PDF quando confirmado.
+3. Rollback: reverter este incremento do frontend. Não há migração nem mudança de dados clínicos.
+
 ## Incremento 2026-10-15: coerência da narrativa com fusão felina
 
 1. Reaproveitar os avisos numéricos existentes e acrescentar regras determinísticas conservadoras para afirmações transmitrais/teciduais incompatíveis com fusão explicitamente confirmada. Localizar o trecho e oferecer sugestão revisável, sem escrever no laudo.
