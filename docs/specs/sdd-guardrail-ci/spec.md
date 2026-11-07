@@ -21,6 +21,7 @@ Implementar guardrail SDD no CI com:
 - RF-005: validar existencia dos 4 arquivos obrigatorios (`intent/spec/plan/verify`) na feature.
 - RF-006: executar guardrail em PR para `stage/main`.
 - RF-007: executar guardrail antes dos deploys automaticos de `stage/main`.
+- RF-008: permitir `workflow_dispatch` no deploy de stage como recuperacao de acionamento, mantendo os mesmos jobs, dependencias, concorrencia e gates do evento `push`. A execucao manual deve usar a referencia `stage`; nao modifica o provedor de autenticacao ou o workflow de producao.
 
 ## 3) Requisitos nao funcionais (NFR)
 

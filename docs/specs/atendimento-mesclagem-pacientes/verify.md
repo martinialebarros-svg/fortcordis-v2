@@ -28,9 +28,3 @@ Não houve publicação, migração operacional ou alteração do caso relatado.
 - Base `9bf9efa31310fa8fd1dcac52a5e979c51b625866`. A migração mais recente no repositório e no schema operacional de stage é a 107. A 108 está reservada a esta entrega. O banco de stage foi identificado como separado de produção por metadados de configuração, sem ler registros de pacientes.
 - O inventário de stage confirma as onze relações conhecidas e seis tabelas legadas com referência de paciente. O serviço mantém o bloqueio documentado se houver vínculos não mapeados na dupla selecionada. A homologação cobre esse caso em uma base descartável.
 - O aceite de stage exige deploy terminal, SHA instalado, migração e proteção do histórico, interface servida e teste de revisão, confirmação e histórico com dados fictícios. O teste de transferência roda em base isolada.
-
-## Candidata de promoção — 2026-11-07
-
-- Reaplicada sobre `main` `ebec9de6` com a correção do cartão AE/Ao. O pacote mantém a migração 108, os guardas e os testes SQLite/PostgreSQL. No teste local foram usados apenas dados fictícios e um servidor PostgreSQL descartável.
-- A suíte focada de backend (mesclagem e Laudos) passou com 81 testes e 159 subtestes. O único caso omitido depende de lock PostgreSQL e é exercitado na variante PostgreSQL. A primeira execução local com URL só de socket parou na guarda de configuração do teste. A execução com hostname explícito de loopback e o mesmo socket privado passou.
-- As evidências do Stage original (#574) são anteriores a este empacotamento. A aprovação deste pacote usa o conteúdo exato da candidata e evidências de implantação e homologação registradas separadamente.
