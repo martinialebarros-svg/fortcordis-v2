@@ -326,6 +326,7 @@ def test_postgres_runner_applies_missing_101_after_107_without_replaying_applied
     migrations = runner.list_migrations()
     target = next(m for m in migrations if m.version == "20261025_101")
     assert any(m.version == "20261105_107" for m in migrations)
+    latest_version = max(migration.version for migration in migrations)
     with pg.engine.begin() as connection:
         runner._ensure_schema_migrations_table(connection)
         for migration in migrations:
@@ -346,11 +347,15 @@ def test_postgres_runner_applies_missing_101_after_107_without_replaying_applied
     ]
     monkeypatch.setattr(runner, "engine", pg.engine)
     monkeypatch.setattr(runner, "_discover_migrations", lambda: migrations)
-    assert runner.get_migration_status()["pending_versions"] == [target.version]
+    before_status = runner.get_migration_status()
+    assert before_status["pending_versions"] == [target.version]
+    assert before_status["current_version"] == latest_version
     assert runner.run_migrations() == 1
     assert runner.run_migrations() == 0
     status = runner.get_migration_status()
-    assert status["pending_count"] == 0 and status["current_version"] == "20261105_107"
+    assert status["pending_count"] == 0
+    assert status["current_version"] == status["latest_version"] == latest_version
+    assert status["applied_count"] == len(migrations)
     with pg.engine.connect() as connection:
         after = connection.execute(text("SELECT version, description, applied_at FROM schema_migrations WHERE version <> :v ORDER BY version"),
                                    {"v": target.version}).all()
