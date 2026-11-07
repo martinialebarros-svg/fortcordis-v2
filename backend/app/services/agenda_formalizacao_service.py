@@ -216,8 +216,7 @@ def processar_submissao(
     nome_key_paciente = _gerar_nome_key(nome_paciente)
     paciente = (
         db.query(Paciente)
-        .filter(Paciente.tutor_id == tutor.id, Paciente.nome_key == nome_key_paciente,
-                Paciente.mesclado_em_id.is_(None))
+        .filter(Paciente.tutor_id == tutor.id, Paciente.nome_key == nome_key_paciente)
         .first()
     )
     if paciente is None:

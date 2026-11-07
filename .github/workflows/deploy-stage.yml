@@ -100,6 +100,16 @@ jobs:
           SECRET_KEY: management-stage-ci-synthetic-secret-123456789
         run: python -m pytest -q backend/tests/test_gestao_api.py backend/tests/test_gestao_agenda.py backend/tests/test_gestao_financeira.py
 
+      - name: Test management persistence and concurrency in disposable PostgreSQL
+        env:
+          FORTCORDIS_PROCESS_ROLE: api
+          DATABASE_URL: sqlite://
+          SECRET_KEY: management-stage-ci-synthetic-secret-123456789
+          GESTAO_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/gestao_test
+        run: |
+          psql postgresql://postgres:postgres@127.0.0.1:5432/postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE gestao_test'
+          python -m pytest -q backend/tests/test_gestao_postgres.py
+
       - name: Test Google Maps shared limits and operational transactions in PostgreSQL
         env:
           FORTCORDIS_PROCESS_ROLE: api
@@ -118,7 +128,7 @@ jobs:
           DOCUMENT_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/document_test
         run: |
           psql postgresql://postgres:postgres@127.0.0.1:5432/postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE document_test'
-          python -m pytest -q backend/tests/test_atendimento_documentos_persistencia.py backend/tests/test_atendimento_documentos_concorrencia_postgres.py backend/tests/test_atendimento_edicao_historico.py backend/tests/test_atendimento_edicoes_concorrencia_postgres.py backend/tests/test_paciente_mesclagem.py
+          python -m pytest -q backend/tests/test_atendimento_documentos_persistencia.py backend/tests/test_atendimento_documentos_concorrencia_postgres.py backend/tests/test_atendimento_edicao_historico.py backend/tests/test_atendimento_edicoes_concorrencia_postgres.py
 
       - name: Test atomic batch receipts with PostgreSQL concurrency
         env:

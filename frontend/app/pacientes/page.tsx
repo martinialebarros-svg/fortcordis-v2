@@ -216,9 +216,6 @@ export default function PacientesPage() {
             <h1>Pacientes</h1>
             <p>Animais, tutores e identificação clínica organizados para acesso rápido.</p>
           </div>
-          <button onClick={() => router.push("/pacientes/mesclagens")} className="fc-registry-primary">
-            <Users className="w-4 h-4" /> Revisões de duplicidade
-          </button>
           <button onClick={() => router.push("/tutores")} className="fc-registry-primary">
             <Users className="w-4 h-4" /> Tutores e mesclagens
           </button>

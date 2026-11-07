@@ -3,7 +3,6 @@ from app.models.papel import Papel
 from app.models.agendamento import Agendamento
 from app.models.whatsapp_agenda_resposta import WhatsappAgendaResposta
 from app.models.paciente import Paciente
-from app.models.paciente_mesclagem import PacienteMesclagem
 from app.models.tutor import Tutor
 from app.models.tutor_mesclagem import TutorMesclagem
 from app.models.tutor_mesclagem_reversao import TutorMesclagemReversao

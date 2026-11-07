@@ -21,7 +21,7 @@ Fontes: `ordens_servico`, `ordens_servico_pagamentos`, `transacoes`, `creditos_f
 
 Custos de frota existentes misturam custos fixos/variáveis e regras de rateio: não entram automaticamente na contribuição sem classificação confiável. A premissa de custo variável exige o total aplicável ao recorte. OS não têm vencimento próprio; a cobertura de vencimentos é indicada, sem converter pendente em vencido por idade.
 
-NFR-001: leitura sem chamadas externas de rota/Maps, mensagens, fiscal ou alterações históricas. NFR-002: permissões no servidor e tabela de premissas bloqueada à Data API pública. NFR-003: erros não devolvem detalhes SQL/segredos. NFR-004: execução local usa somente SQLite/dados sintéticos.
+NFR-001: leitura sem chamadas externas de rota/Maps, mensagens, fiscal ou alterações históricas. NFR-002: permissões no servidor e tabela de premissas bloqueada à Data API pública. NFR-003: erros não devolvem detalhes SQL/segredos. NFR-004: a homologação local usa somente dados sintéticos em SQLite ou PostgreSQL descartável, restrito a loopback e banco de teste; não carrega arquivos de ambiente operacionais.
 
 ## Reconciliação e limites de leitura
 
@@ -38,3 +38,11 @@ NFR-001: leitura sem chamadas externas de rota/Maps, mensagens, fiscal ou altera
 RF-011: o quality-gate de stage executa explicitamente os testes de Gestão backend (incluindo funções pytest de API) e interface/navegação antes da instalação. O workflow de produção não é alterado.
 
 RF-012: cada movimento manual ou recorrente conserva a descrição informada nas linhas de detalhe do caixa. A interface exibe essa descrição como texto em coluna própria, mantendo fonte e identificador para rastreabilidade. Fontes operacionais e respostas antigas sem descrição mostram “Não informada”. A mudança não altera valores, datas, recorrências, filtros, totais, persistência ou permissões e não busca texto clínico/operacional adicional.
+
+## Homologação da candidata isolada
+
+- A candidata parte da versão de produção e inclui somente Gestão, sua integração administrativa, testes e documentação. Trabalhos paralelos de Stage são registrados antes de qualquer janela temporária e restaurados integralmente após a homologação.
+- Concorrência de criação e atualização de premissas, rollback de auditoria, persistência e proteção PostgreSQL devem ser comprovados em banco descartável. O cenário é global e compartilhado: testes de gravação não substituem premissas do Stage operacional.
+- A interface deve comprovar os seis indicadores com resultados sintéticos conhecidos, simulação sem escrita, salvamento e reabertura, isolamento de contexto, nulos versus zeros, recuperação de erro e apresentação móvel. O teste de persistência usa o endpoint e o modelo reais em armazenamento descartável.
+- A checagem autenticada em Stage consulta os dados sem gravar premissas ou movimentos financeiros. A identidade instalada e os arquivos servidos precisam corresponder à candidata; ausência de timeouts em uma janela não comprova cura permanente da intermitência histórica.
+- Preparar e homologar a candidata não autoriza promover a produção. O eventual ciclo de promoção exige autorização específica e nova conferência da base, do escopo e dos controles de preservação.
