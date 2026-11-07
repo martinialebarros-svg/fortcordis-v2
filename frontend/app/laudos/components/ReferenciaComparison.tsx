@@ -6,8 +6,7 @@ import { isFelineEchoSpecies, normalizeEchoSpecies } from "@/lib/echo-species";
 import { compararMedidasDiastolicas, useReferenciaEco } from "../hooks/useReferenciaEco";
 import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
-import { prepareEchoReportMeasurements } from "@/lib/echo-report-presentation";
-import { ambiguousEchoLengthKeys } from "@/lib/echo-unit-provenance";
+import { canineAeAoClinicalReference, prepareEchoReportMeasurements } from "@/lib/echo-report-presentation";
 import type { Echo2DView } from "@/lib/echo-2d-reference";
 import { EchoDiastolicProtocol } from "./EchoDiastolicProtocol";
 import { resolveEchoReferenceForMeasurements } from "@/lib/echo-reference-policy";
@@ -34,15 +33,14 @@ const positive = (value: unknown) => Number(String(value ?? "").replace(",", "."
 export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaChange }: ReferenciaComparisonProps) {
   const { buscarReferencia, compararMedidas, loading } = useReferenciaEco();
   const [referencia, setReferencia] = useState<ReferenciaEco | null>(null);
-  const [comparacoes, setComparacoes] = useState<Record<string, ComparacaoMedida>>({});
   const plano2D: Echo2DView | "" = medidas.VE_vista_2D === "eixo_curto" || medidas.VE_vista_2D === "eixo_longo"
     ? medidas.VE_vista_2D
     : "";
-  const medidasSeguras = useMemo(
+  const { measurements: medidasSeguras, ambiguousKeys: unidadesAmbiguas } = useMemo(
     () => {
       const { measurements, ambiguousKeys } = prepareEchoReportMeasurements(medidas, peso, especie, idade);
       for (const key of ambiguousKeys) delete measurements[key];
-      return measurements;
+      return { measurements, ambiguousKeys };
     },
     [medidas, peso, especie, idade]
   );
@@ -61,7 +59,28 @@ export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaCh
   // This clinical limit is independent of the weight-based catalog, but its
   // acquisition must still be confirmed for the current examination.
   const aeAoCanino = Number(String(medidasSeguras.AE_Ao ?? medidasSeguras.LA_Ao ?? "").replace(",", "."));
-  const unidadesAmbiguas = ambiguousEchoLengthKeys(medidas);
+  const limiteAeAoCanino = canineAeAoClinicalReference(medidasSeguras, especie ?? "", unidadesAmbiguas);
+  const comparacoes = useMemo(() => {
+    const catalogo = referencia ? compararMedidas(medidasParaReferencia, referencia, plano2D, peso) : {};
+    const linhas: Record<string, ComparacaoMedida> = { ...catalogo, ...referenciasDiastolicas };
+    if (limiteAeAoCanino) {
+      delete linhas.LA_Ao;
+      linhas.AE_Ao = {
+        nome: "AE/Ao",
+        valor_medido: medidasSeguras.AE_Ao,
+        referencia_tipo: "clinical_limit",
+        referencia_texto: limiteAeAoCanino,
+        referencia_min: null,
+        referencia_max: null,
+        fonte: "Rishniw (2023)",
+        doi: "10.1016/j.jvc.2023.04.003",
+        status: "nao_avaliado",
+        categoria: "vasos",
+        interpretacao: "Interpretar com os demais achados; este limite não determina diagnóstico ou estágio isoladamente.",
+      };
+    }
+    return linhas;
+  }, [referencia, compararMedidas, medidasParaReferencia, plano2D, peso, referenciasDiastolicas, limiteAeAoCanino, medidasSeguras.AE_Ao]);
   const origemAeAoAmbigua = ["AE_Ao", "Aorta", "Atrio_esquerdo"].some((key) => unidadesAmbiguas.has(key));
   const metodoAeAoCanino = normalizeEchoSpecies(especie) === "Canina" && !origemAeAoAmbigua && Number.isFinite(aeAoCanino) && aeAoCanino > 0 ? (
     <div className="p-3 bg-blue-50 rounded-lg space-y-2 text-left">
@@ -76,9 +95,10 @@ export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaCh
       </select>
       <p className="text-xs text-blue-800">Confirme a medida na base do coração, na primeira imagem após o fechamento da valva aórtica, com bordas internas e exclusão das veias pulmonares.</p>
       {medidas.AE_Ao_metodo === "2d_eixo_curto_diastole_inicial_sueco" && (
-        <p className="text-xs text-blue-800">Método sueco: meça a aorta do ponto médio da parede interna da cúspide coronariana direita até a comissura entre as cúspides não coronariana e coronariana esquerda. Prolongue esse eixo pelo átrio esquerdo até sua parede interna oposta, excluindo as veias pulmonares. O PDF citará Hansson et al. (2002) como fonte da técnica.</p>
+        <p className="text-xs text-blue-800">Método sueco: meça a aorta do ponto médio da parede interna da cúspide coronariana direita até a comissura entre as cúspides não coronariana e coronariana esquerda. Prolongue esse eixo pelo átrio esquerdo até sua parede interna oposta, excluindo as veias pulmonares.
+          {limiteAeAoCanino && " O PDF citará Hansson et al. (2002) como fonte da técnica."}</p>
       )}
-      {["2d_eixo_curto_diastole_inicial", "2d_eixo_curto_diastole_inicial_sueco"].includes(medidas.AE_Ao_metodo) && (
+      {limiteAeAoCanino && (
         <p className="text-xs text-blue-800">O PDF apresentará AE/Ao &lt; 1,60 como limite clínico orientativo (Rishniw, 2023). Interprete com os demais achados; não é um intervalo por peso nem determina diagnóstico ou estágio isoladamente.</p>
       )}
     </div>
@@ -107,16 +127,7 @@ export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaCh
     };
   }, [especie, peso, idade, buscarReferencia]);
 
-  useEffect(() => {
-    if (referencia) {
-      const comps = compararMedidas(medidasParaReferencia, referencia, plano2D, peso);
-      setComparacoes({ ...comps, ...referenciasDiastolicas });
-      return;
-    }
-    setComparacoes(referenciasDiastolicas);
-  }, [medidasParaReferencia, referencia, compararMedidas, plano2D, peso, referenciasDiastolicas]);
-
-  if (loading && Object.keys(referenciasDiastolicas).length === 0) {
+  if (loading && !limiteAeAoCanino && Object.keys(referenciasDiastolicas).length === 0) {
     return (
       <div className="flex justify-center py-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
@@ -213,7 +224,7 @@ export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaCh
             </p>
           )}
         </div>
-      </div> : <p className="rounded-lg bg-teal-50 p-3 text-sm text-teal-900">Referências diastólicas: estudos publicados independentes do cadastro por peso.</p>}
+      </div> : <p className="rounded-lg bg-teal-50 p-3 text-sm text-teal-900">Referências: estudos publicados independentes do cadastro por peso.</p>}
 
       <EchoDiastolicProtocol especie={especie} medidas={medidas} onMedidaChange={onMedidaChange} />
 
@@ -308,7 +319,8 @@ export function ReferenciaComparison({ especie, peso, idade, medidas, onMedidaCh
                     <div>
                       <p className="font-medium text-sm">{item.nome}</p>
                       <p className="text-xs text-gray-500">
-                        {item.metadados?.status === "estimated" ? "Estimativa calculada"
+                        {item.referencia_tipo === "clinical_limit" ? "Limite clínico orientativo"
+                          : item.metadados?.status === "estimated" ? "Estimativa calculada"
                           : item.metadados?.status === "published" && ["allometric", "interpolated"].includes(item.metadados.calculation || "") ? "Limites calculados"
                           : item.referencia_texto ? (item.referencia_tipo === "reference_interval" ? "Intervalo de referência publicado" : item.estatistica === "mean_sd" ? "Média ± DP publicada" : "Comparação diastólica") : item.key.endsWith("_2D")
                           ? (semReferenciaDefinida ? "Faixa 2D" : "Faixa 2D publicada")
