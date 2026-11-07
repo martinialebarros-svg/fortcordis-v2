@@ -150,3 +150,12 @@ Após liberação da janela de Laudos, Stage foi salvo em `2b04bacb8696b42f1afd3
 - A validação visual autenticada desta instalação não foi concluída: a sessão do navegador expirou e permanece na tela de login. Entrada solicitada ao usuário, sem solicitar credenciais no chat. A UI local já passou 74 verificações, dez após reinício e nove visuais/móveis; esse resultado não é apresentado como navegação autenticada em Stage.
 
 Evidências sanitizadas em `output/gestao-candidata-20261106/`: `api-isolated-candidate.json`, `financial-installed-candidate.json`, `public-isolated-candidate.json`, snapshots runtime/migração108, qualidade CI e `release-plan.json`. A restauração está preparada pela [PR #573](https://github.com/martinialebarros-svg/fortcordis-v2/pull/573), conservando 2.664 caminhos paralelos do snapshot; sua instalação terminal será registrada no relatório da execução. Produção não foi autorizada nem alterada.
+
+
+### Correção do teste de migrações na restauração — 07/11/2026
+
+A primeira restauração, merge `32793943` da PR #573, teve deploy impedido pelo quality-gate `42382707168`: a suíte geral passou 2.652 testes com 147 skips, mas o teste PostgreSQL novo comparava a versão corrente com o literal 107 enquanto Stage contém 108. Oito testes PostgreSQL passaram e um falhou; a instalação não começou, mantendo a candidata `480170a1` no servidor. O log original foi preservado, sem rerun cego nem bypass.
+
+Correção exclusiva do teste: comparar a versão corrente com a maior versão descoberta e já registrada; verificar essa condição antes e depois de aplicar a 101, quantidade total aplicada, pendências zero, segunda execução zero, timestamps e dado de preservação idênticos. Aplicação, migrações e workflow não foram alterados.
+
+Reprodução em exportação da árvore restaurada `32793943`: original com oito sucessos e uma falha idêntica ao CI; correção com nove sucessos. Na base isolada da candidata, os mesmos nove testes corrigidos passaram. Todos em PostgreSQL local descartável, sem skips/erros nas execuções corrigidas, roles e schemas preservados, clusters encerrados/removidos e exportação limpa. Fontes backend fora do teste permaneceram idênticas. Evidências em `backend-qa/migration-order-restore-20261107/` dentro da pasta da homologação. Uma nova PR de Stage levará somente teste e estes dois documentos, mantendo o restante da restauração.
