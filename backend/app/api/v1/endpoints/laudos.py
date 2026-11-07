@@ -1565,6 +1565,8 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
         if not paciente_existente:
             raise HTTPException(status_code=404, detail="Paciente informado nao encontrado.")
 
+        if paciente_existente.mesclado_em_id:
+            raise HTTPException(409, f"Paciente mesclado. Selecione o cadastro principal #{paciente_existente.mesclado_em_id}.")
         _atualizar_paciente_existente_sem_limpar_campos(paciente_existente)
         return paciente_existente.id
 
@@ -1582,7 +1584,7 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
     paciente_nome_key = _gerar_nome_key(paciente_nome)
     paciente_especie = (paciente.get("especie") or "Canina").strip() or "Canina"
 
-    paciente_query = db.query(Paciente).filter(Paciente.nome_key == paciente_nome_key)
+    paciente_query = db.query(Paciente).filter(Paciente.nome_key == paciente_nome_key, Paciente.mesclado_em_id.is_(None))
     if tutor_id is None:
         paciente_query = paciente_query.filter(Paciente.tutor_id.is_(None))
     else:
@@ -1616,7 +1618,7 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
         return novo_paciente.id
     except IntegrityError:
         db.rollback()
-        paciente_query = db.query(Paciente).filter(Paciente.nome_key == paciente_nome_key)
+        paciente_query = db.query(Paciente).filter(Paciente.nome_key == paciente_nome_key, Paciente.mesclado_em_id.is_(None))
         if tutor_id is None:
             paciente_query = paciente_query.filter(Paciente.tutor_id.is_(None))
         else:
